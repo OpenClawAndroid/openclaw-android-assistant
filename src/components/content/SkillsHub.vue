@@ -18,13 +18,15 @@
       <span v-if="totalCount > 0" class="skills-hub-count">{{ totalCount }} skills</span>
     </div>
 
+    <div v-if="toast" class="skills-hub-toast" :class="toastClass">{{ toast.text }}</div>
+
     <div v-if="installedSkills.length > 0" class="skills-hub-section">
       <button class="skills-hub-section-toggle" type="button" @click="isInstalledOpen = !isInstalledOpen">
         <span class="skills-hub-section-title">Installed ({{ installedSkills.length }})</span>
         <IconTablerChevronRight class="skills-hub-section-chevron" :class="{ 'is-open': isInstalledOpen }" />
       </button>
       <div v-if="isInstalledOpen" class="skills-hub-grid">
-        <SkillCard v-for="skill in installedSkills" :key="skill.url" :skill="skill" />
+        <SkillCard v-for="skill in installedSkills" :key="skill.url" :skill="skill" @select="openDetail" />
       </div>
     </div>
 
@@ -33,11 +35,20 @@
       <div v-else-if="error" class="skills-hub-error">{{ error }}</div>
       <template v-else>
         <div v-if="browseSkills.length > 0" class="skills-hub-grid">
-          <SkillCard v-for="skill in browseSkills" :key="skill.url" :skill="skill" />
+          <SkillCard v-for="skill in browseSkills" :key="skill.url" :skill="skill" @select="openDetail" />
         </div>
         <div v-else-if="query.trim()" class="skills-hub-empty">No skills found for "{{ query }}"</div>
       </template>
     </div>
+
+    <SkillDetailModal
+      :skill="detailSkill"
+      :visible="isDetailOpen"
+      @close="isDetailOpen = false"
+      @install="handleInstall"
+      @uninstall="handleUninstall"
+      @toggle-enabled="handleToggleEnabled"
+    />
   </div>
 </template>
 
@@ -46,16 +57,7 @@ import { computed, onMounted, ref } from 'vue'
 import IconTablerSearch from '../icons/IconTablerSearch.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
 import SkillCard from './SkillCard.vue'
-
-type HubSkill = {
-  name: string
-  owner: string
-  description: string
-  stars: number
-  updatedAt: string
-  url: string
-  installed: boolean
-}
+import SkillDetailModal, { type HubSkill } from './SkillDetailModal.vue'
 
 const searchRef = ref<HTMLInputElement | null>(null)
 const query = ref('')
@@ -64,10 +66,21 @@ const totalCount = ref(0)
 const isLoading = ref(false)
 const error = ref('')
 const isInstalledOpen = ref(false)
+const isDetailOpen = ref(false)
+const detailSkill = ref<HubSkill>({ name: '', owner: '', description: '', stars: 0, updatedAt: '', url: '', installed: false })
+const toast = ref<{ text: string; type: 'success' | 'error' } | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let toastTimer: ReturnType<typeof setTimeout> | null = null
 
+const toastClass = computed(() => toast.value?.type === 'error' ? 'skills-hub-toast-error' : 'skills-hub-toast-success')
 const installedSkills = computed(() => results.value.filter((s) => s.installed))
 const browseSkills = computed(() => results.value.filter((s) => !s.installed))
+
+function showToast(text: string, type: 'success' | 'error' = 'success'): void {
+  toast.value = { text, type }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = null }, 3000)
+}
 
 async function fetchSkills(q: string): Promise<void> {
   isLoading.value = true
@@ -91,6 +104,60 @@ async function fetchSkills(q: string): Promise<void> {
 function onSearchInput(): void {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => fetchSkills(query.value), 300)
+}
+
+function openDetail(skill: HubSkill): void {
+  detailSkill.value = skill
+  isDetailOpen.value = true
+}
+
+async function handleInstall(skill: HubSkill): Promise<void> {
+  try {
+    const resp = await fetch('/codex-api/skills-hub/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner: skill.owner, name: skill.name }),
+    })
+    const data = (await resp.json()) as { ok?: boolean; error?: string }
+    if (!data.ok) throw new Error(data.error || 'Install failed')
+    showToast(`${skill.name} skill installed`)
+    isDetailOpen.value = false
+    await fetchSkills(query.value)
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : 'Failed to install skill', 'error')
+  }
+}
+
+async function handleUninstall(skill: HubSkill): Promise<void> {
+  try {
+    const resp = await fetch('/codex-api/skills-hub/uninstall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: skill.name, path: skill.path }),
+    })
+    const data = (await resp.json()) as { ok?: boolean; error?: string }
+    if (!data.ok) throw new Error(data.error || 'Uninstall failed')
+    showToast(`${skill.name} skill uninstalled`)
+    isDetailOpen.value = false
+    await fetchSkills(query.value)
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : 'Failed to uninstall skill', 'error')
+  }
+}
+
+async function handleToggleEnabled(skill: HubSkill, enabled: boolean): Promise<void> {
+  try {
+    const resp = await fetch('/codex-api/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'skills/config/write', params: { path: skill.path, enabled } }),
+    })
+    if (!resp.ok) throw new Error('Failed to update skill')
+    showToast(`${skill.name} skill ${enabled ? 'enabled' : 'disabled'}`)
+    await fetchSkills(query.value)
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : 'Failed to update skill', 'error')
+  }
 }
 
 onMounted(() => {
@@ -131,6 +198,18 @@ onMounted(() => {
 
 .skills-hub-count {
   @apply text-xs text-zinc-400 whitespace-nowrap;
+}
+
+.skills-hub-toast {
+  @apply rounded-lg px-3 py-2 text-sm font-medium;
+}
+
+.skills-hub-toast-success {
+  @apply border border-emerald-200 bg-emerald-50 text-emerald-700;
+}
+
+.skills-hub-toast-error {
+  @apply border border-rose-200 bg-rose-50 text-rose-700;
 }
 
 .skills-hub-section {

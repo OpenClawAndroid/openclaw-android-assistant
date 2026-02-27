@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { homedir } from 'node:os'
@@ -90,6 +90,8 @@ type SkillHubEntry = {
   updatedAt: string
   url: string
   installed: boolean
+  path?: string
+  enabled?: boolean
 }
 
 type SkillsHubCache = {
@@ -140,20 +142,24 @@ async function fetchOpenClawSkillsTree(): Promise<SkillHubEntry[]> {
   return skills
 }
 
+type InstalledSkillInfo = { name: string; path: string; enabled: boolean }
+
 function searchSkillsHub(
   allSkills: SkillHubEntry[],
   query: string,
   limit: number,
-  installedNames: Set<string>,
+  installedMap: Map<string, InstalledSkillInfo>,
 ): SkillHubEntry[] {
   const q = query.toLowerCase().trim()
   const filtered = q
     ? allSkills.filter((s) => s.name.toLowerCase().includes(q) || s.owner.toLowerCase().includes(q))
     : allSkills
-  return filtered.slice(0, limit).map((s) => ({
-    ...s,
-    installed: installedNames.has(s.name),
-  }))
+  return filtered.slice(0, limit).map((s) => {
+    const local = installedMap.get(s.name)
+    return local
+      ? { ...s, installed: true, path: local.path, enabled: local.enabled }
+      : { ...s, installed: false }
+  })
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -804,22 +810,65 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 1), 200)
           const allSkills = await fetchOpenClawSkillsTree()
 
-          let installedNames = new Set<string>()
+          const installedMap = new Map<string, InstalledSkillInfo>()
           try {
-            const result = (await appServer.rpc('skills/list', {})) as { data?: Array<{ skills?: Array<{ name?: string }> }> }
+            const result = (await appServer.rpc('skills/list', {})) as { data?: Array<{ skills?: Array<{ name?: string; path?: string; enabled?: boolean }> }> }
             for (const entry of result.data ?? []) {
               for (const skill of entry.skills ?? []) {
-                if (skill.name) installedNames.add(skill.name)
+                if (skill.name && !installedMap.has(skill.name)) {
+                  installedMap.set(skill.name, { name: skill.name, path: skill.path ?? '', enabled: skill.enabled !== false })
+                }
               }
             }
           } catch {
             // local skills unavailable, all marked as not installed
           }
 
-          const results = searchSkillsHub(allSkills, q, limit, installedNames)
+          const results = searchSkillsHub(allSkills, q, limit, installedMap)
           setJson(res, 200, { data: results, total: allSkills.length })
         } catch (error) {
           setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch skills hub') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/skills-hub/install') {
+        try {
+          const payload = asRecord(await readJsonBody(req))
+          const owner = typeof payload?.owner === 'string' ? payload.owner : ''
+          const name = typeof payload?.name === 'string' ? payload.name : ''
+          if (!owner || !name) {
+            setJson(res, 400, { error: 'Missing owner or name' })
+            return
+          }
+          const skillDir = join(homedir(), '.codex', 'skills', name)
+          await mkdir(skillDir, { recursive: true })
+          const skillMdUrl = `https://raw.githubusercontent.com/openclaw/skills/main/skills/${owner}/${name}/SKILL.md`
+          const resp = await fetch(skillMdUrl)
+          if (!resp.ok) throw new Error(`Failed to fetch SKILL.md: ${resp.status}`)
+          const content = await resp.text()
+          await writeFile(join(skillDir, 'SKILL.md'), content, 'utf-8')
+          setJson(res, 200, { ok: true, path: skillDir })
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to install skill') })
+        }
+        return
+      }
+
+      if (req.method === 'POST' && url.pathname === '/codex-api/skills-hub/uninstall') {
+        try {
+          const payload = asRecord(await readJsonBody(req))
+          const name = typeof payload?.name === 'string' ? payload.name : ''
+          const path = typeof payload?.path === 'string' ? payload.path : ''
+          const target = path || (name ? join(homedir(), '.codex', 'skills', name) : '')
+          if (!target) {
+            setJson(res, 400, { error: 'Missing name or path' })
+            return
+          }
+          await rm(target, { recursive: true, force: true })
+          setJson(res, 200, { ok: true, deletedPath: target })
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to uninstall skill') })
         }
         return
       }

@@ -1,17 +1,18 @@
 <template>
-  <a
+  <button
     class="skill-card"
-    :href="skill.url"
-    target="_blank"
-    rel="noopener noreferrer"
+    type="button"
+    :class="{ 'is-disabled': skill.installed && skill.enabled === false }"
+    @click="$emit('select', skill)"
   >
     <div class="skill-card-header">
       <span class="skill-card-name">{{ skill.name }}</span>
-      <span v-if="skill.installed" class="skill-card-badge">Installed</span>
+      <span v-if="skill.installed && skill.enabled === false" class="skill-card-badge-disabled">Disabled</span>
+      <span v-else-if="skill.installed" class="skill-card-badge">Installed</span>
     </div>
     <span class="skill-card-owner">{{ skill.owner }}</span>
     <p v-if="skill.description" class="skill-card-desc">{{ skill.description }}</p>
-  </a>
+  </button>
 </template>
 
 <script setup lang="ts">
@@ -20,11 +21,14 @@ defineProps<{
     name: string
     owner: string
     description: string
-    stars: number
-    updatedAt: string
     url: string
     installed: boolean
+    enabled?: boolean
   }
+}>()
+
+defineEmits<{
+  select: [skill: unknown]
 }>()
 </script>
 
@@ -32,7 +36,11 @@ defineProps<{
 @reference "tailwindcss";
 
 .skill-card {
-  @apply flex flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-3 transition hover:border-zinc-300 hover:shadow-sm no-underline;
+  @apply flex flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-300 hover:shadow-sm cursor-pointer;
+}
+
+.skill-card.is-disabled {
+  @apply opacity-50;
 }
 
 .skill-card-header {
@@ -45,6 +53,10 @@ defineProps<{
 
 .skill-card-badge {
   @apply shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 leading-none;
+}
+
+.skill-card-badge-disabled {
+  @apply shrink-0 rounded-md border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 leading-none;
 }
 
 .skill-card-owner {
