@@ -226,10 +226,13 @@ export function normalizeThreadGroupsV2(payload: ThreadListResponse): UiProjectG
 export function normalizeThreadMessagesV2(payload: ThreadReadResponse): UiMessage[] {
   const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
   const messages: UiMessage[] = []
-  for (const turn of turns) {
+  for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
+    const turn = turns[turnIndex]
     const items = Array.isArray(turn.items) ? turn.items : []
     for (const item of items) {
-      messages.push(...toUiMessages(item))
+      for (const msg of toUiMessages(item)) {
+        messages.push({ ...msg, turnIndex })
+      }
     }
   }
   return messages

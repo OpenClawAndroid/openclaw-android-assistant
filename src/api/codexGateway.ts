@@ -113,6 +113,11 @@ export async function archiveThread(threadId: string): Promise<void> {
   await callRpc('thread/archive', { threadId })
 }
 
+export async function rollbackThread(threadId: string, numTurns: number): Promise<UiMessage[]> {
+  const payload = await callRpc<ThreadReadResponse>('thread/rollback', { threadId, numTurns })
+  return normalizeThreadMessagesV2(payload)
+}
+
 function normalizeThreadIdFromPayload(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return ''
   const record = payload as Record<string, unknown>
