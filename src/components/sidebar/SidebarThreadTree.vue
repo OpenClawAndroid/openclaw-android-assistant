@@ -45,11 +45,92 @@
 
     <SidebarMenuRow as="header" class="thread-tree-header-row">
       <span class="thread-tree-header">Threads</span>
+      <template #right>
+        <div ref="organizeMenuWrapRef" class="organize-menu-wrap">
+          <button
+            class="organize-menu-trigger"
+            type="button"
+            :aria-expanded="isOrganizeMenuOpen"
+            aria-label="Organize threads"
+            title="Organize threads"
+            @click="toggleOrganizeMenu"
+          >
+            <IconTablerDots class="thread-icon" />
+          </button>
+
+          <div v-if="isOrganizeMenuOpen" class="organize-menu-panel" @click.stop>
+            <p class="organize-menu-title">Organize</p>
+            <button
+              class="organize-menu-item"
+              :data-active="threadViewMode === 'project'"
+              type="button"
+              @click="setThreadViewMode('project')"
+            >
+              <span>By project</span>
+              <span v-if="threadViewMode === 'project'">✓</span>
+            </button>
+            <button
+              class="organize-menu-item"
+              :data-active="threadViewMode === 'chronological'"
+              type="button"
+              @click="setThreadViewMode('chronological')"
+            >
+              <span>Chronological list</span>
+              <span v-if="threadViewMode === 'chronological'">✓</span>
+            </button>
+          </div>
+        </div>
+      </template>
     </SidebarMenuRow>
 
     <p v-if="isSearchActive && filteredGroups.length === 0" class="thread-tree-no-results">No matching threads</p>
 
     <p v-else-if="isLoading && groups.length === 0" class="thread-tree-loading">Loading threads...</p>
+
+    <ul v-else-if="isChronologicalView" class="thread-list thread-list-global">
+      <li v-for="thread in globalThreads" :key="thread.id" class="thread-row-item">
+        <SidebarMenuRow
+          class="thread-row"
+          :data-active="thread.id === selectedThreadId"
+          :data-pinned="isPinned(thread.id)"
+          @mouseleave="onThreadRowLeave(thread.id)"
+        >
+          <template #left>
+            <span class="thread-left-stack">
+              <span
+                v-if="thread.inProgress || thread.unread"
+                class="thread-status-indicator"
+                :data-state="getThreadState(thread)"
+              />
+              <button class="thread-pin-button" type="button" title="pin" @click="togglePin(thread.id)">
+                <IconTablerPin class="thread-icon" />
+              </button>
+            </span>
+          </template>
+          <button class="thread-main-button" type="button" @click="onSelect(thread.id)">
+            <span class="thread-row-title-wrap">
+              <span class="thread-row-title">{{ thread.title }}</span>
+              <IconTablerGitFork v-if="thread.hasWorktree" class="thread-row-worktree-icon" title="Worktree thread" />
+            </span>
+          </button>
+          <template #right>
+            <span class="thread-row-time">{{ formatRelative(thread.createdAtIso || thread.updatedAtIso) }}</span>
+          </template>
+          <template #right-hover>
+            <button
+              class="thread-archive-button"
+              :data-confirm="archiveConfirmThreadId === thread.id"
+              type="button"
+              title="archive_thread"
+              @click="onArchiveClick(thread.id)"
+            >
+              <span v-if="archiveConfirmThreadId === thread.id">confirm</span>
+              <IconTablerArchive v-else class="thread-icon" />
+            </button>
+          </template>
+        </SidebarMenuRow>
+      </li>
+    </ul>
 
     <div v-else ref="groupsContainerRef" class="thread-tree-groups" :style="groupsContainerStyle">
       <article
@@ -287,6 +368,10 @@ const measuredHeightByProject = ref<Record<string, number>>({})
 const projectGroupElementByName = new Map<string, HTMLElement>()
 const projectMenuWrapElementByName = new Map<string, HTMLElement>()
 const projectNameByElement = new WeakMap<HTMLElement, string>()
+const organizeMenuWrapRef = ref<HTMLElement | null>(null)
+const isOrganizeMenuOpen = ref(false)
+const THREAD_VIEW_MODE_STORAGE_KEY = 'codex-web-local.thread-view-mode.v1'
+const threadViewMode = ref<'project' | 'chronological'>(loadThreadViewMode())
 const projectGroupResizeObserver =
   typeof window !== 'undefined'
     ? new ResizeObserver((entries) => {
@@ -314,6 +399,13 @@ function loadCollapsedState(): Record<string, boolean> {
   }
 }
 
+function loadThreadViewMode(): 'project' | 'chronological' {
+  if (typeof window === 'undefined') return 'project'
+
+  const raw = window.localStorage.getItem(THREAD_VIEW_MODE_STORAGE_KEY)
+  return raw === 'chronological' ? 'chronological' : 'project'
+}
+
 collapsedProjects.value = loadCollapsedState()
 
 watch(
@@ -324,6 +416,11 @@ watch(
   },
   { deep: true },
 )
+
+watch(threadViewMode, (value) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(THREAD_VIEW_MODE_STORAGE_KEY, value)
+})
 
 const normalizedSearchQuery = computed(() => props.searchQuery.trim().toLowerCase())
 
@@ -346,6 +443,26 @@ const filteredGroups = computed<UiProjectGroup[]>(() => {
       threads: group.threads.filter(threadMatchesSearch),
     }))
     .filter((group) => group.threads.length > 0)
+})
+
+const isChronologicalView = computed(() => threadViewMode.value === 'chronological')
+
+const globalThreads = computed<UiThread[]>(() => {
+  const sourceGroups = filteredGroups.value
+  const rows: UiThread[] = []
+
+  for (const group of sourceGroups) {
+    for (const thread of group.threads) {
+      if (isPinned(thread.id)) continue
+      rows.push(thread)
+    }
+  }
+
+  return rows.sort((first, second) => {
+    const firstTimestamp = new Date(first.updatedAtIso || first.createdAtIso).getTime()
+    const secondTimestamp = new Date(second.updatedAtIso || second.createdAtIso).getTime()
+    return secondTimestamp - firstTimestamp
+  })
 })
 
 const threadById = computed(() => {
@@ -492,6 +609,15 @@ function closeProjectMenu(): void {
   projectRenameDraft.value = ''
 }
 
+function toggleOrganizeMenu(): void {
+  isOrganizeMenuOpen.value = !isOrganizeMenuOpen.value
+}
+
+function setThreadViewMode(mode: 'project' | 'chronological'): void {
+  threadViewMode.value = mode
+  isOrganizeMenuOpen.value = false
+}
+
 function toggleProjectMenu(projectName: string): void {
   if (openProjectMenuId.value === projectName) {
     closeProjectMenu()
@@ -606,6 +732,18 @@ function isEventInsideOpenProjectMenu(event: Event): boolean {
 }
 
 function onProjectMenuPointerDown(event: PointerEvent): void {
+  if (isOrganizeMenuOpen.value) {
+    const organizeElement = organizeMenuWrapRef.value
+    const eventPath = typeof event.composedPath === 'function' ? event.composedPath() : []
+    const isInsideOrganizeMenu =
+      !!organizeElement &&
+      (eventPath.includes(organizeElement) || (event.target instanceof Node && organizeElement.contains(event.target)))
+
+    if (!isInsideOrganizeMenu) {
+      isOrganizeMenuOpen.value = false
+    }
+  }
+
   if (!openProjectMenuId.value) return
   if (isEventInsideOpenProjectMenu(event)) return
   closeProjectMenu()
@@ -618,6 +756,9 @@ function onProjectMenuFocusIn(event: FocusEvent): void {
 }
 
 function onWindowBlurForProjectMenu(): void {
+  if (isOrganizeMenuOpen.value) {
+    isOrganizeMenuOpen.value = false
+  }
   if (!openProjectMenuId.value) return
   closeProjectMenu()
 }
@@ -980,6 +1121,30 @@ onBeforeUnmount(() => {
   @apply text-sm font-normal text-zinc-500 select-none;
 }
 
+.organize-menu-wrap {
+  @apply relative;
+}
+
+.organize-menu-trigger {
+  @apply h-5 w-5 rounded text-zinc-500 flex items-center justify-center transition hover:bg-zinc-200 hover:text-zinc-700;
+}
+
+.organize-menu-panel {
+  @apply absolute right-0 top-full mt-1 z-30 min-w-44 rounded-xl border border-zinc-200 bg-white/95 p-1.5 shadow-lg backdrop-blur-sm;
+}
+
+.organize-menu-title {
+  @apply px-2 py-1 text-xs text-zinc-500;
+}
+
+.organize-menu-item {
+  @apply w-full rounded-lg px-2 py-1.5 text-sm text-zinc-700 flex items-center justify-between hover:bg-zinc-100;
+}
+
+.organize-menu-item[data-active='true'] {
+  @apply bg-zinc-100 text-zinc-900;
+}
+
 .thread-start-button {
   @apply h-5 w-5 rounded text-zinc-500 flex items-center justify-center transition hover:bg-zinc-200 hover:text-zinc-700;
 }
@@ -1078,6 +1243,10 @@ onBeforeUnmount(() => {
 
 .thread-list {
   @apply list-none m-0 p-0 flex flex-col gap-0.5;
+}
+
+.thread-list-global {
+  @apply pr-0.5;
 }
 
 .project-group > .thread-list {
