@@ -1,6 +1,6 @@
 {
-  "name": "codex-web-local",
-  "version": "0.1.0",
+  "name": "@friuns/codexui",
+  "version": "0.1.3",
   "description": "A lightweight web interface for Codex that runs on top of the Codex app-server, allowing remote access from any browser",
   "type": "module",
   "license": "MIT",
@@ -24,7 +24,7 @@
     "node": ">=18"
   },
   "bin": {
-    "codex-web-local": "dist-cli/index.js"
+    "codexui": "dist-cli/index.js"
   },
   "files": [
     "dist/",
