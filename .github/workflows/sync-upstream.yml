@@ -19,74 +19,7 @@ jobs:
           ref: main
           token: ${{ secrets.PAT || github.token }}
 
-      - name: Sync and Merge Upstream
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-          git remote add upstream https://github.com/openclaw/openclaw.git
-          git fetch upstream
-
-          git checkout main
-          git pull origin main --rebase
-
-          git merge upstream/main --no-commit --no-ff || true
-
-          # Remove upstream workflow files we don't need
-          if ls .github/workflows/*.yml 1> /dev/null 2>&1; then
-            ls .github/workflows/*.yml | grep -v 'build-apk.yml\|sync-upstream.yml' | xargs -I {} git rm -f {} 2>/dev/null || true
-          fi
-
-          # Resolve conflicts
-          if git ls-files -u | grep -q "^"; then
-            echo "Conflicts detected. Applying resolution strategies..."
-
-            # Keep our README
-            if git ls-files -u | grep -q "README.md"; then
-              echo "Resolving README.md with --ours"
-              git checkout --ours README.md
-              git add README.md
-            fi
-
-            # Keep our workflow files
-            for wf in ".github/workflows/build-apk.yml" ".github/workflows/sync-upstream.yml"; do
-              if git ls-files -u | grep -q "$wf"; then
-                echo "Resolving $wf with --ours"
-                git checkout --ours "$wf"
-                git add "$wf"
-              fi
-            done
-
-            # Keep our android-specific files
-            for ours_file in "android/" "app-ads.txt"; do
-              ANDROID_CONFLICTS=$(git ls-files -u | awk '{print $4}' | sort -u | grep "^${ours_file}" || true)
-              if [ -n "$ANDROID_CONFLICTS" ]; then
-                IFS=$'\n'
-                for file in $ANDROID_CONFLICTS; do
-                  echo "Resolving $file with --ours"
-                  git checkout --ours "$file"
-                  git add "$file"
-                done
-                unset IFS
-              fi
-            done
-
-            # Accept upstream for everything else
-            REMAINING_CONFLICTS=$(git ls-files -u | awk '{print $4}' | sort -u)
-            if [ -n "$REMAINING_CONFLICTS" ]; then
-              IFS=$'\n'
-              for file in $REMAINING_CONFLICTS; do
-                echo "Resolving $file with --theirs"
-                git checkout --theirs "$file"
-                git add "$file"
-              done
-              unset IFS
-            fi
-          fi
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit. Already up to date."
-          else
-            git commit -m "Auto-merge upstream openclaw/openclaw"
-            git push origin main
-          fi
+      - name: Sync fork with upstream
+        run: gh repo sync --force
+        env:
+          GH_TOKEN: ${{ secrets.PAT || github.token }}
