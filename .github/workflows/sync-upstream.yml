@@ -36,7 +36,7 @@ jobs:
 
           # Back to main and merge
           git checkout main
-          git merge upstream/main --no-commit --no-ff || true
+          git merge upstream/main --no-commit --no-ff --allow-unrelated-histories || true
 
           # Remove upstream workflow files — keep only ours
           if ls .github/workflows/*.yml 1> /dev/null 2>&1; then
