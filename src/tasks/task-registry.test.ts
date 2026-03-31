@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startAcpSpawnParentStreamRelay } from "../../../src/agents/acp-spawn-parent-stream.js";
-import { emitAgentEvent } from "../../../src/infra/agent-events.js";
+import { startAcpSpawnParentStreamRelay } from "../agents/acp-spawn-parent-stream.js";
+import { emitAgentEvent } from "../infra/agent-events.js";
 import {
   hasPendingHeartbeatWake,
   resetHeartbeatWakeStateForTests,
-} from "../../../src/infra/heartbeat-wake.js";
-import { peekSystemEvents, resetSystemEventsForTest } from "../../../src/infra/system-events.js";
-import { withTempDir } from "../../../src/test-helpers/temp-dir.js";
-import { installInMemoryTaskAndFlowRegistryRuntime } from "../../../src/test-utils/task-flow-registry-runtime.js";
+} from "../infra/heartbeat-wake.js";
+import { peekSystemEvents, resetSystemEventsForTest } from "../infra/system-events.js";
+import { withTempDir } from "../test-helpers/temp-dir.js";
+import { installInMemoryTaskAndFlowRegistryRuntime } from "../test-utils/task-flow-registry-runtime.js";
 import { createFlowRecord, getFlowById, resetFlowRegistryForTests } from "./flow-registry.js";
 import {
   createTaskRecord,
@@ -52,13 +52,13 @@ vi.mock("./task-registry-delivery-runtime.js", () => ({
   sendMessage: hoisted.sendMessageMock,
 }));
 
-vi.mock("../../../src/acp/control-plane/manager.js", () => ({
+vi.mock("../acp/control-plane/manager.js", () => ({
   getAcpSessionManager: () => ({
     cancelSession: hoisted.cancelSessionMock,
   }),
 }));
 
-vi.mock("../../../src/agents/subagent-control.js", () => ({
+vi.mock("../agents/subagent-control.js", () => ({
   killSubagentRunAdmin: (params: unknown) => hoisted.killSubagentRunAdminMock(params),
 }));
 
@@ -67,12 +67,12 @@ async function loadFreshTaskRegistryModulesForControlTest() {
   vi.doMock("./task-registry-delivery-runtime.js", () => ({
     sendMessage: hoisted.sendMessageMock,
   }));
-  vi.doMock("../../../src/acp/control-plane/manager.js", () => ({
+  vi.doMock("../acp/control-plane/manager.js", () => ({
     getAcpSessionManager: () => ({
       cancelSession: hoisted.cancelSessionMock,
     }),
   }));
-  vi.doMock("../../../src/agents/subagent-control.js", () => ({
+  vi.doMock("../agents/subagent-control.js", () => ({
     killSubagentRunAdmin: (params: unknown) => hoisted.killSubagentRunAdminMock(params),
   }));
   return await import("./task-registry.js");
