@@ -38,6 +38,11 @@ jobs:
           git checkout main
           git merge upstream/main --no-commit --no-ff --allow-unrelated-histories || true
 
+          # Save our docs/ before upstream overwrite
+          if [ -d docs ]; then
+            cp -r docs /tmp/our-docs-backup
+          fi
+
           # Remove upstream workflow files — keep only ours
           if ls .github/workflows/*.yml 1> /dev/null 2>&1; then
             ls .github/workflows/*.yml \
@@ -45,14 +50,19 @@ jobs:
               | xargs -I {} git rm -f {} 2>/dev/null || true
           fi
 
-          # Remove upstream docs that conflict with our GitHub Pages site
+          # Remove upstream docs
           git rm -rf docs/ 2>/dev/null || true
+
+          # Restore our docs/
+          if [ -d /tmp/our-docs-backup ]; then
+            cp -r /tmp/our-docs-backup docs
+            git add docs/
+          fi
 
           # Resolve conflicts
           if git ls-files -u | grep -q "^"; then
             echo "Conflicts detected. Resolving..."
 
-            # Files/dirs that always keep our version
             OUR_PATTERNS="README.md AGENTS.md PROJECT_SPEC.md app-ads.txt"
             OUR_DIRS="android/ .github/workflows/ docs/ documentation/ screenshots/ openclaw-android/ .agents/skills/codex-app-parity/"
 
@@ -75,7 +85,6 @@ jobs:
               fi
             done
 
-            # Accept upstream for everything else
             REMAINING=$(git ls-files -u | awk '{print $4}' | sort -u)
             if [ -n "$REMAINING" ]; then
               IFS=$'\n'
@@ -91,5 +100,103 @@ jobs:
             echo "Already up to date."
           else
             git commit -m "Auto-merge upstream openclaw/openclaw"
+            git push origin main
+          fi
+
+      - name: Update release notes in landing page
+        run: |
+          git checkout main
+          git pull origin main --rebase
+
+          python3 << 'PYEOF'
+          import json, re, html, urllib.request, sys
+          from datetime import datetime
+
+          resp = urllib.request.urlopen("https://api.github.com/repos/openclaw/openclaw/releases/latest")
+          rel = json.loads(resp.read())
+
+          name = rel.get("name", "")
+          published = rel.get("published_at", "")[:10]
+          body = rel.get("body", "")
+
+          try:
+              dt = datetime.strptime(published, "%Y-%m-%d")
+              date_str = dt.strftime("%b %d, %Y")
+          except Exception:
+              date_str = published
+
+          lines = body.split("\n")
+          out = []
+          bullet_count = 0
+          in_section = False
+
+          for line in lines:
+              hm = re.match(r"^###\s+(.*)", line)
+              if hm:
+                  heading = hm.group(1).strip()
+                  if heading in ("Breaking", "Changes", "Fixes"):
+                      if in_section:
+                          out.append("</ul>")
+                      in_section = True
+                      out.append(f"<h3>{html.escape(heading)}</h3>")
+                      out.append("<ul>")
+                      continue
+                  elif heading == "Contributors":
+                      break
+                  else:
+                      continue
+
+              bm = re.match(r"^\*\s+(.*)", line)
+              if bm and in_section and bullet_count < 60:
+                  item = bm.group(1).strip()
+                  item = re.sub(r"\(#\d+\)", "", item)
+                  item = re.sub(r"Thanks @\S+\.?", "", item)
+                  item = re.sub(r"\s+", " ", item).strip().rstrip(".")
+                  if item:
+                      out.append(f"<li>{html.escape(item)}</li>")
+                      bullet_count += 1
+
+          if in_section:
+              out.append("</ul>")
+
+          if not out:
+              print("No release body parsed, skipping.")
+              sys.exit(0)
+
+          body_html = "\n    ".join(out)
+
+          block = f"""<!-- RELEASE_START -->
+            <h2><em>{html.escape(name)}</em></h2>
+            <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released {date_str}</p>
+            <div class="release-body" style="color:var(--text-dim);font-size:.92rem;line-height:1.75;max-width:800px">
+            {body_html}
+            </div>
+            <!-- RELEASE_END -->"""
+
+          with open("docs/index.html", "r") as f:
+              content = f.read()
+
+          start = content.find("<!-- RELEASE_START -->")
+          end = content.find("<!-- RELEASE_END -->")
+          if start == -1 or end == -1:
+              print("Release markers not found.")
+              sys.exit(0)
+          end += len("<!-- RELEASE_END -->")
+
+          content = content[:start] + block + content[end:]
+          with open("docs/index.html", "w") as f:
+              f.write(content)
+
+          print(f"Updated docs/index.html with {name} ({date_str})")
+          PYEOF
+
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git add docs/index.html
+          if git diff --cached --quiet; then
+            echo "Release notes already up to date."
+          else
+            git commit -m "Update landing page with latest openclaw release notes"
             git push origin main
           fi

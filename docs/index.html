@@ -404,6 +404,46 @@
   .stack-table tr:hover td { background: var(--surface-raised); }
   .stack-table td:first-child { font-weight: 600; color: var(--cream); }
 
+  /* ─── RELEASE NOTES ─── */
+  .release-body h3 {
+    font-family: var(--body);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--amber);
+    margin: 1.5rem 0 .5rem;
+  }
+
+  .release-body ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .release-body li {
+    position: relative;
+    padding-left: 1.2em;
+    margin-bottom: .4rem;
+  }
+
+  .release-body li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--amber-soft);
+    font-weight: 700;
+  }
+
+  .release-body code {
+    font-family: var(--mono);
+    font-size: .82em;
+    color: var(--amber);
+    background: var(--surface);
+    padding: .1em .4em;
+    border-radius: 3px;
+  }
+
+  .release-body a { color: var(--amber); }
+  .release-body a:hover { color: var(--cream); }
+
   /* ─── DIVIDER ─── */
   .divider {
     max-width: 1000px;
@@ -675,6 +715,23 @@ bash scripts/build-server-bundle.sh && ./gradlew assembleDebug \
     </tbody>
   </table>
 </div>
+
+<!-- ═══════════════ RELEASE NOTES ═══════════════ -->
+<div class="section" id="release">
+  <p class="section-label">Latest upstream release</p>
+  <!-- RELEASE_START -->
+  <h2><em>openclaw</em> 2026.3.28</h2>
+  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Mar 29, 2026</p>
+  <div class="release-body" style="color:var(--text-dim);font-size:.92rem;line-height:1.75;max-width:800px">
+    <p>Loading release notes...</p>
+  </div>
+  <!-- RELEASE_END -->
+  <p style="margin-top:2rem">
+    <a href="https://github.com/openclaw/openclaw/releases" class="btn btn-ghost" style="display:inline-flex">All Releases</a>
+  </p>
+</div>
+
+<div class="divider"></div>
 
 <!-- ═══════════════ FOOTER ═══════════════ -->
 <footer>
