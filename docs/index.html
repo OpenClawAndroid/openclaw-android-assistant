@@ -781,6 +781,7 @@ bash scripts/build-server-bundle.sh && ./gradlew assembleDebug \
     <li>ACPX/runtime: retry dead-session queue-owner repair without `--resume-session` when the reported ACPX session id is stale, so recovery still creates a fresh named session instead of failing session init</li>
     <li>Auth/OpenAI Codex: persist plugin-refreshed OAuth credentials to `auth-profiles.json` before returning them, so rotated Codex refresh tokens survive restart and stop falling into `refresh_token_reused` loops</li>
     <li>Discord/gateway: hand reconnect ownership back to Carbon, keep runtime status aligned with close/reconnect state, and force-stop sockets that open without reaching READY so Discord monitors recover promptly instead of waiting on stale health timeouts</li>
+    <li>Config/Telegram: migrate removed `channels.telegram.groupMentionsOnly` into `channels.telegram.groups[&quot;*&quot;].requireMention` on load so legacy configs no longer crash at startup</li>
     </ul>
   </div>
   <!-- RELEASE_END -->
