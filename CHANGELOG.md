@@ -12,6 +12,12 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Slack/mrkdwn formatting: add built-in Slack mrkdwn guidance in inbound context so Slack replies stop falling back to generic Markdown patterns that render poorly in Slack. Thanks @jadewon and @vincentkoc.
+- Gateway/exec loopback: restore legacy-role fallback for empty paired-device token maps and allow silent local role upgrades so local exec and node clients stop failing with pairing-required errors after `2026.3.31`. (#59092) Thanks @openperf.
+
+## 2026.4.1-beta.1
+
+- Plugins/runtime: stop ambient core helper and setup paths from loading non-selected bundled plugins, keep channel-setup snapshot scoping safe for custom channel plugins, and honor env-scoped plugin auth paths. (#59136) Thanks @vincentkoc.
 - Matrix/multi-account: keep room-level `account` scoping, inherited room overrides, and implicit account selection consistent across top-level default auth, named accounts, and cached-credential env setups. (#58449) thanks @Daanvdplas and @gumadeiras.
 - Gateway/pairing: prefer explicit QR bootstrap auth over earlier Tailscale auth classification so iOS `/pair qr` silent bootstrap pairing does not fall through to `pairing required`. (#59232) Thanks @ngutman.
 - Config/Discord: coerce safe integer numeric Discord IDs to strings during config validation, keep unsafe or precision-losing numeric snowflakes rejected, and align `openclaw doctor` repair guidance with the same fail-closed behavior. (#45125) Thanks @moliendocode.
@@ -27,6 +33,8 @@ Docs: https://docs.openclaw.ai
 - Exec approvals: route Slack, Discord, and Telegram approvals through the shared channel approval-capability path so native approval auth, delivery, and `/approve` handling stay aligned across channels while preserving Telegram session-key agent filtering. (#58634) thanks @gumadeiras
 - Matrix/runtime: resolve the verification/bootstrap runtime from a distinct packaged Matrix entry so global npm installs stop failing on crypto bootstrap with missing-module or recursive runtime alias errors. (#59249) Thanks @gumadeiras.
 - Matrix/streaming: preserve ordered block flushes before tool, message, and agent boundaries, add explicit `channels.matrix.blockStreaming` opt-in so Matrix `streaming: "off"` stays final-only by default, and move MiniMax plain-text final handling into the MiniMax provider runtime instead of the shared core heuristic. (#59266) thanks @gumadeiras
+- Agents/compaction: resolve compaction wait before final reply/channel flush completion so slow end-of-run delivery drains no longer delay compaction completion. (#59308) thanks @gumadeiras
+- Exec approvals: align approval UX, effective-policy reporting, and `allow-always` availability with the host policy so CLI, doctor, and approval surfaces explain the real host-effective decision path. (#59283) Thanks @gumadeiras.
 
 ## 2026.4.2
 
