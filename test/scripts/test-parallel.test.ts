@@ -447,6 +447,18 @@ describe("scripts/test-parallel lane planning", () => {
     expect(output).not.toContain("vitest.unit.config.ts");
   });
 
+  it("routes telegram fetch transport coverage through the extensions config", () => {
+    const output = runPlannerPlan([
+      "--explain",
+      bundledPluginFile("telegram", "src/fetch.test.ts"),
+    ]);
+
+    expect(output).toContain("surface=extensions");
+    expect(output).toContain("extensions-surface");
+    expect(output).toContain("vitest.extensions.config.ts");
+    expect(output).not.toContain("vitest.channels.config.ts");
+  });
+
   it("prints the planner-backed CI manifest as JSON", () => {
     const output = runPlannerPlan(["--ci-manifest"], {
       GITHUB_EVENT_NAME: "pull_request",
