@@ -345,7 +345,7 @@ function convertResponsesMessages(
   model: Model<Api>,
   context: Context,
   allowedToolCallProviders: Set<string>,
-  options?: { includeSystemPrompt?: boolean },
+  options?: { includeSystemPrompt?: boolean; supportsDeveloperRole?: boolean },
 ) {
   const messages: unknown[] = [];
   const normalizeIdPart = (part: string) => {
@@ -383,7 +383,7 @@ function convertResponsesMessages(
   const includeSystemPrompt = options?.includeSystemPrompt ?? true;
   if (includeSystemPrompt && context.systemPrompt) {
     messages.push({
-      role: model.reasoning ? "developer" : "system",
+      role: model.reasoning && options?.supportsDeveloperRole !== false ? "developer" : "system",
       content: sanitizeTransportPayloadText(context.systemPrompt),
     });
   }
@@ -952,18 +952,20 @@ function getPromptCacheRetention(
   return baseUrl?.includes("api.openai.com") ? "24h" : undefined;
 }
 
-function buildOpenAIResponsesParams(
+export function buildOpenAIResponsesParams(
   model: Model<Api>,
   context: Context,
   options: OpenAIResponsesOptions | undefined,
 ) {
+  const compat = getCompat(model as OpenAIModeModel);
   const messages = convertResponsesMessages(
     model,
     context,
     new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]),
+    { supportsDeveloperRole: compat.supportsDeveloperRole },
   );
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
-  const params: Record<string, unknown> = {
+  const params: ResponseCreateParamsStreaming & Record<string, unknown> = {
     model: model.id,
     input: messages,
     stream: true,
@@ -1382,7 +1384,8 @@ function getCompat(model: OpenAIModeModel) {
   const compat = model.compat ?? {};
   return {
     supportsStore: compat.supportsStore ?? detected.supportsStore,
-    supportsDeveloperRole: compat.supportsDeveloperRole ?? detected.supportsDeveloperRole,
+    supportsDeveloperRole:
+      (compat.supportsDeveloperRole as boolean | undefined) ?? detected.supportsDeveloperRole,
     supportsReasoningEffort: compat.supportsReasoningEffort ?? detected.supportsReasoningEffort,
     reasoningEffortMap:
       (compat.reasoningEffortMap as Record<string, string> | undefined) ??
