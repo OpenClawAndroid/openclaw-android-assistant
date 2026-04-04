@@ -158,6 +158,13 @@ If logs show nonce/signature errors, update the connecting client and verify it:
 2. signs the challenge-bound payload
 3. sends `connect.params.device.nonce` with the same challenge nonce
 
+If `openclaw devices rotate` / `revoke` / `remove` is denied unexpectedly:
+
+- paired-device token sessions can manage only **their own** device unless the
+  caller also has `operator.admin`
+- `openclaw devices rotate --scope ...` can only request operator scopes that
+  the caller session already holds
+
 Related:
 
 - [/web/control-ui](/web/control-ui)
@@ -243,13 +250,15 @@ Look for:
 
 - Cron enabled and next wake present.
 - Job run history status (`ok`, `skipped`, `error`).
-- Heartbeat skip reasons (`quiet-hours`, `requests-in-flight`, `alerts-disabled`).
+- Heartbeat skip reasons (`quiet-hours`, `requests-in-flight`, `alerts-disabled`, `empty-heartbeat-file`, `no-tasks-due`).
 
 Common signatures:
 
 - `cron: scheduler disabled; jobs will not run automatically` → cron disabled.
 - `cron: timer tick failed` → scheduler tick failed; check file/log/runtime errors.
 - `heartbeat skipped` with `reason=quiet-hours` → outside active hours window.
+- `heartbeat skipped` with `reason=empty-heartbeat-file` → `HEARTBEAT.md` exists but only contains blank lines / markdown headers, so OpenClaw skips the model call.
+- `heartbeat skipped` with `reason=no-tasks-due` → `HEARTBEAT.md` contains a `tasks:` block, but none of the tasks are due on this tick.
 - `heartbeat: unknown accountId` → invalid account id for heartbeat delivery target.
 - `heartbeat skipped` with `reason=dm-blocked` → heartbeat target resolved to a DM-style destination while `agents.defaults.heartbeat.directPolicy` (or per-agent override) is set to `block`.
 
