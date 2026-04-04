@@ -45,8 +45,8 @@ Common methods + events:
 | Category  | Examples                                                  | Notes                              |
 | --------- | --------------------------------------------------------- | ---------------------------------- |
 | Core      | `connect`, `health`, `status`                             | `connect` must be first            |
-| Messaging | `send`, `poll`, `agent`, `agent.wait`                     | side-effects need `idempotencyKey` |
-| Chat      | `chat.history`, `chat.send`, `chat.abort`, `chat.inject`  | WebChat uses these                 |
+| Messaging | `send`, `agent`, `agent.wait`, `system-event`             | side-effects need `idempotencyKey` |
+| Chat      | `chat.history`, `chat.send`, `chat.abort`                 | WebChat uses these                 |
 | Sessions  | `sessions.list`, `sessions.patch`, `sessions.delete`      | session admin                      |
 | Nodes     | `node.list`, `node.invoke`, `node.pair.*`                 | Gateway WS + node actions          |
 | Events    | `tick`, `presence`, `agent`, `chat`, `health`, `shutdown` | server push                        |
@@ -92,8 +92,8 @@ Connect (first message):
   "id": "c1",
   "method": "connect",
   "params": {
-    "minProtocol": 2,
-    "maxProtocol": 2,
+    "minProtocol": 3,
+    "maxProtocol": 3,
     "client": {
       "id": "openclaw-macos",
       "displayName": "macos",
@@ -115,7 +115,7 @@ Hello-ok response:
   "ok": true,
   "payload": {
     "type": "hello-ok",
-    "protocol": 2,
+    "protocol": 3,
     "server": { "version": "dev", "connId": "ws-1" },
     "features": { "methods": ["health"], "events": ["tick"] },
     "snapshot": {
