@@ -1034,6 +1034,8 @@ authoring plugins:
 
 - `openclaw/plugin-sdk/plugin-entry` for plugin registration primitives.
 - `openclaw/plugin-sdk/core` for the generic shared plugin-facing contract.
+- `openclaw/plugin-sdk/config-schema` for the root `openclaw.json` Zod schema
+  export (`OpenClawSchema`).
 - Stable channel primitives such as `openclaw/plugin-sdk/channel-setup`,
   `openclaw/plugin-sdk/channel-pairing`,
   `openclaw/plugin-sdk/channel-contract`,
@@ -1343,6 +1345,18 @@ Example:
   }
 }
 ```
+
+Useful `openclaw.channel` fields beyond the minimal example:
+
+- `detailLabel`: secondary label for richer catalog/status surfaces
+- `docsLabel`: override link text for the docs link
+- `preferOver`: lower-priority plugin/channel ids this catalog entry should outrank
+- `selectionDocsPrefix`, `selectionDocsOmitLabel`, `selectionExtras`: selection-surface copy controls
+- `markdownCapable`: marks the channel as markdown-capable for outbound formatting decisions
+- `showConfigured`: hide the channel from configured-channel listing surfaces when set to `false`
+- `quickstartAllowFrom`: opt the channel into the standard quickstart `allowFrom` flow
+- `forceAccountBinding`: require explicit account binding even when only one account exists
+- `preferSessionLookupForAnnounceTarget`: prefer session lookup when resolving announce targets
 
 OpenClaw can also merge **external channel catalogs** (for example, an MPM
 registry export). Drop a JSON file at one of:
