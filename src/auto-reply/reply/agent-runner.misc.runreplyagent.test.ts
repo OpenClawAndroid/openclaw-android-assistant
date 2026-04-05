@@ -20,7 +20,7 @@ function createCliBackendTestConfig() {
     agents: {
       defaults: {
         cliBackends: {
-          "claude-cli": {},
+          "codex-cli": {},
           "google-gemini-cli": {},
         },
       },
@@ -160,10 +160,7 @@ describe("runReplyAgent onAgentRunStart", () => {
         messageProvider: "webchat",
         sessionFile: "/tmp/session.jsonl",
         workspaceDir: "/tmp",
-        config:
-          provider === "claude-cli"
-            ? { agents: { defaults: { cliBackends: { "claude-cli": {} } } } }
-            : createCliBackendTestConfig(),
+        config: createCliBackendTestConfig(),
         skillsSnapshot: {},
         provider,
         model,
@@ -223,16 +220,16 @@ describe("runReplyAgent onAgentRunStart", () => {
       payloads: [{ text: "ok" }],
       meta: {
         agentMeta: {
-          provider: "claude-cli",
-          model: "opus-4.5",
+          provider: "codex-cli",
+          model: "gpt-5.4",
         },
       },
     });
     const onAgentRunStart = vi.fn();
 
     const result = await createRun({
-      provider: "claude-cli",
-      model: "opus-4.5",
+      provider: "codex-cli",
+      model: "gpt-5.4",
       opts: { runId: "run-started", onAgentRunStart },
     });
 
@@ -1169,7 +1166,7 @@ describe("runReplyAgent block streaming", () => {
   });
 });
 
-describe("runReplyAgent claude-cli routing", () => {
+describe("runReplyAgent cli routing", () => {
   function createRun() {
     const typing = createMockTypingController();
     const sessionCtx = {
@@ -1189,10 +1186,10 @@ describe("runReplyAgent claude-cli routing", () => {
         messageProvider: "webchat",
         sessionFile: "/tmp/session.jsonl",
         workspaceDir: "/tmp",
-        config: { agents: { defaults: { cliBackends: { "claude-cli": {} } } } },
+        config: { agents: { defaults: { cliBackends: { "codex-cli": {} } } } },
         skillsSnapshot: {},
-        provider: "claude-cli",
-        model: "opus-4.5",
+        provider: "codex-cli",
+        model: "gpt-5.4",
         thinkLevel: "low",
         verboseLevel: "off",
         elevatedLevel: "off",
@@ -1217,7 +1214,7 @@ describe("runReplyAgent claude-cli routing", () => {
       isStreaming: false,
       typing,
       sessionCtx,
-      defaultModel: "claude-cli/opus-4.5",
+      defaultModel: "codex-cli/gpt-5.4",
       resolvedVerboseLevel: "off",
       isNewSession: false,
       blockStreamingEnabled: false,
@@ -1227,7 +1224,7 @@ describe("runReplyAgent claude-cli routing", () => {
     });
   }
 
-  it("uses claude-cli runner for claude-cli provider", async () => {
+  it("uses the CLI runner for codex-cli providers", async () => {
     const runId = "00000000-0000-0000-0000-000000000001";
     const randomSpy = vi.spyOn(crypto, "randomUUID").mockReturnValue(runId);
     const lifecyclePhases: string[] = [];
@@ -1247,8 +1244,8 @@ describe("runReplyAgent claude-cli routing", () => {
       payloads: [{ text: "ok" }],
       meta: {
         agentMeta: {
-          provider: "claude-cli",
-          model: "opus-4.5",
+          provider: "codex-cli",
+          model: "gpt-5.4",
         },
       },
     });

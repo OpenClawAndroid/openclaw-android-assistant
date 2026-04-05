@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GOOGLE_GEMINI_DEFAULT_MODEL } from "../../extensions/google/api.js";
-import { MINIMAX_CN_API_BASE_URL } from "../../extensions/minimax/api.js";
 import { resolveAgentDir } from "../agents/agent-scope.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveAgentModelPrimaryValue } from "../config/model-input.js";
@@ -25,6 +23,8 @@ import {
 
 type DetectZaiEndpoint = typeof import("./zai-endpoint-detect.js").detectZaiEndpoint;
 
+const GOOGLE_GEMINI_DEFAULT_MODEL = "google/gemini-3.1-pro-preview";
+const MINIMAX_CN_API_BASE_URL = "https://api.minimax.chat/v1";
 const ZAI_CODING_GLOBAL_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
 const ZAI_CODING_CN_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4";
 
