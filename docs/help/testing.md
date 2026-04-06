@@ -60,6 +60,7 @@ Think of the suites as “increasing realism” (and increasing flakiness/cost):
   - Untargeted `pnpm test` still uses the native Vitest root `projects` config.
   - `pnpm test`, `pnpm test:watch`, and `pnpm test:perf:imports` route explicit file/directory targets through scoped lanes first, so `pnpm test extensions/discord/src/monitor/message-handler.preflight.test.ts` avoids paying the full root project startup tax.
   - `pnpm test:changed` expands changed git paths into the same scoped lanes when the diff only touches routable source/test files; config/setup edits still fall back to the broad root-project rerun.
+  - Selected `plugin-sdk` and `commands` tests also route through dedicated light lanes that skip `test/setup-openclaw-runtime.ts`; stateful/runtime-heavy files stay on the existing lanes.
 - Embedded runner note:
   - When you change message-tool discovery inputs or compaction runtime context,
     keep both levels of coverage.
@@ -475,10 +476,45 @@ If you want to rely on env keys (e.g. exported in your `~/.profile`), run local 
   - Exercises the shared bundled music-generation provider path
   - Currently covers Google and MiniMax
   - Loads provider env vars from your login shell (`~/.profile`) before probing
+  - Uses live/env API keys ahead of stored auth profiles by default, so stale test keys in `auth-profiles.json` do not mask real shell credentials
   - Skips providers with no usable auth/profile/model
+  - Runs both declared runtime modes when available:
+    - `generate` with prompt-only input
+    - `edit` when the provider declares `capabilities.edit.enabled`
+  - Current shared-lane coverage:
+    - `google`: `generate`, `edit`
+    - `minimax`: `generate`
+    - `comfy`: separate Comfy live file, not this shared sweep
 - Optional narrowing:
   - `OPENCLAW_LIVE_MUSIC_GENERATION_PROVIDERS="google,minimax"`
   - `OPENCLAW_LIVE_MUSIC_GENERATION_MODELS="google/lyria-3-clip-preview,minimax/music-2.5+"`
+- Optional auth behavior:
+  - `OPENCLAW_LIVE_REQUIRE_PROFILE_KEYS=1` to force profile-store auth and ignore env-only overrides
+
+## Video generation live
+
+- Test: `extensions/video-generation-providers.live.test.ts`
+- Enable: `OPENCLAW_LIVE_TEST=1 pnpm test:live -- extensions/video-generation-providers.live.test.ts`
+- Scope:
+  - Exercises the shared bundled video-generation provider path
+  - Loads provider env vars from your login shell (`~/.profile`) before probing
+  - Uses live/env API keys ahead of stored auth profiles by default, so stale test keys in `auth-profiles.json` do not mask real shell credentials
+  - Skips providers with no usable auth/profile/model
+  - Runs both declared runtime modes when available:
+    - `generate` with prompt-only input
+    - `imageToVideo` when the provider declares `capabilities.imageToVideo.enabled`
+    - `videoToVideo` when the provider declares `capabilities.videoToVideo.enabled` and the selected provider/model accepts buffer-backed local video input in the shared sweep
+  - Current `videoToVideo` live coverage:
+    - `google`
+    - `openai`
+    - `runway` only when the selected model is `runway/gen4_aleph`
+  - Current declared-but-skipped `videoToVideo` providers in the shared sweep:
+    - `alibaba`, `qwen`, `xai` because those paths currently require remote `http(s)` / MP4 reference URLs
+- Optional narrowing:
+  - `OPENCLAW_LIVE_VIDEO_GENERATION_PROVIDERS="google,openai,runway"`
+  - `OPENCLAW_LIVE_VIDEO_GENERATION_MODELS="google/veo-3.1-fast-generate-preview,openai/sora-2,runway/gen4_aleph"`
+- Optional auth behavior:
+  - `OPENCLAW_LIVE_REQUIRE_PROFILE_KEYS=1` to force profile-store auth and ignore env-only overrides
 
 ## Docker runners (optional "works in Linux" checks)
 
