@@ -223,6 +223,13 @@ type TaskView = {
   terminalOutcome?: string;
 };
 
+function optionalField<TKey extends string, TValue>(
+  key: TKey,
+  value: TValue | undefined,
+): Partial<Record<TKey, TValue>> {
+  return value !== undefined ? ({ [key]: value } as Record<TKey, TValue>) : {};
+}
+
 function toFlowView(flow: {
   flowId: string;
   syncMode: "task_mirrored" | "managed";
@@ -252,12 +259,12 @@ function toFlowView(flow: {
     ...(flow.currentStep ? { currentStep: flow.currentStep } : {}),
     ...(flow.blockedTaskId ? { blockedTaskId: flow.blockedTaskId } : {}),
     ...(flow.blockedSummary ? { blockedSummary: flow.blockedSummary } : {}),
-    ...(flow.stateJson !== undefined ? { stateJson: flow.stateJson } : {}),
-    ...(flow.waitJson !== undefined ? { waitJson: flow.waitJson } : {}),
-    ...(flow.cancelRequestedAt !== undefined ? { cancelRequestedAt: flow.cancelRequestedAt } : {}),
+    ...optionalField("stateJson", flow.stateJson),
+    ...optionalField("waitJson", flow.waitJson),
+    ...optionalField("cancelRequestedAt", flow.cancelRequestedAt),
     createdAt: flow.createdAt,
     updatedAt: flow.updatedAt,
-    ...(flow.endedAt !== undefined ? { endedAt: flow.endedAt } : {}),
+    ...optionalField("endedAt", flow.endedAt),
   };
 }
 
@@ -302,10 +309,10 @@ function toTaskView(task: {
     deliveryStatus: task.deliveryStatus,
     notifyPolicy: task.notifyPolicy,
     createdAt: task.createdAt,
-    ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
-    ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
-    ...(task.lastEventAt !== undefined ? { lastEventAt: task.lastEventAt } : {}),
-    ...(task.cleanupAfter !== undefined ? { cleanupAfter: task.cleanupAfter } : {}),
+    ...optionalField("startedAt", task.startedAt),
+    ...optionalField("endedAt", task.endedAt),
+    ...optionalField("lastEventAt", task.lastEventAt),
+    ...optionalField("cleanupAfter", task.cleanupAfter),
     ...(task.error ? { error: task.error } : {}),
     ...(task.progressSummary ? { progressSummary: task.progressSummary } : {}),
     ...(task.terminalSummary ? { terminalSummary: task.terminalSummary } : {}),

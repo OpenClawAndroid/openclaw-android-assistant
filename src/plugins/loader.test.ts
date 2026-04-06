@@ -13,6 +13,7 @@ import {
   clearPluginLoaderCache,
   loadOpenClawPlugins,
   PluginLoadReentryError,
+  resolveRuntimePluginRegistry,
 } from "./loader.js";
 import {
   cleanupPluginLoaderFixturesForTest,
@@ -1251,6 +1252,60 @@ module.exports = { id: "throws-after-import", register() {} };`,
         } finally {
           Reflect.deleteProperty(globalThis, marker);
           Reflect.deleteProperty(globalThis, reenterFnMarker);
+        }
+      },
+    },
+    {
+      label: "lets resolveRuntimePluginRegistry short-circuit during same snapshot load",
+      run: () => {
+        useNoBundledPlugins();
+        const marker = "__openclaw_runtime_registry_reentry_marker";
+        const resolverMarker = "__openclaw_runtime_registry_reentry_fn";
+        Reflect.deleteProperty(globalThis, marker);
+        Reflect.set(
+          globalThis,
+          resolverMarker,
+          (options: Parameters<typeof resolveRuntimePluginRegistry>[0]) =>
+            resolveRuntimePluginRegistry(options),
+        );
+        const pluginDir = makeTempDir();
+        const pluginFile = path.join(pluginDir, "runtime-registry-reentry.cjs");
+        const nestedOptions = {
+          cache: false,
+          activate: false,
+          workspaceDir: pluginDir,
+          config: {
+            plugins: {
+              load: { paths: [pluginFile] },
+              allow: ["runtime-registry-reentry"],
+            },
+          },
+        } satisfies Parameters<typeof loadOpenClawPlugins>[0];
+        writePlugin({
+          id: "runtime-registry-reentry",
+          dir: pluginDir,
+          filename: "runtime-registry-reentry.cjs",
+          body: `module.exports = {
+  id: "runtime-registry-reentry",
+  register() {
+    const registry = globalThis.${resolverMarker}(${JSON.stringify(nestedOptions)});
+    globalThis.${marker} = registry === undefined ? "undefined" : "loaded";
+  },
+};`,
+        });
+
+        const registry = loadOpenClawPlugins(nestedOptions);
+
+        try {
+          expect(Reflect.get(globalThis, marker)).toBe("undefined");
+          expect(
+            registry.plugins.find((entry) => entry.id === "runtime-registry-reentry"),
+          ).toMatchObject({
+            status: "loaded",
+          });
+        } finally {
+          Reflect.deleteProperty(globalThis, marker);
+          Reflect.deleteProperty(globalThis, resolverMarker);
         }
       },
     },

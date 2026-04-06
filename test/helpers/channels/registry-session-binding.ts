@@ -203,12 +203,14 @@ const sessionBindingContractEntries: Record<
       const { createThreadBindingManager } = await getContractApi<{
         createThreadBindingManager: (params: {
           accountId: string;
+          cfg?: OpenClawConfig;
           persist: boolean;
           enableSweeper: boolean;
         }) => unknown;
       }>("discord");
       createThreadBindingManager({
         accountId: "default",
+        cfg: baseSessionBindingCfg,
         persist: false,
         enableSweeper: false,
       });
@@ -221,12 +223,14 @@ const sessionBindingContractEntries: Record<
       const { createThreadBindingManager } = await getContractApi<{
         createThreadBindingManager: (params: {
           accountId: string;
+          cfg?: OpenClawConfig;
           persist: boolean;
           enableSweeper: boolean;
         }) => unknown;
       }>("discord");
       createThreadBindingManager({
         accountId: "default",
+        cfg: baseSessionBindingCfg,
         persist: false,
         enableSweeper: false,
       });
@@ -238,9 +242,8 @@ const sessionBindingContractEntries: Record<
           channel: "discord",
           accountId: "default",
           conversationId: "channel:123456789012345678",
-          parentConversationId: "channel:123456789012345677",
         },
-        placement: "child",
+        placement: "current",
         metadata: {
           agentId: "discord",
           label: "discord-child",
@@ -250,7 +253,6 @@ const sessionBindingContractEntries: Record<
         channel: "discord",
         accountId: "default",
         conversationId: "channel:123456789012345678",
-        parentConversationId: "channel:123456789012345677",
         targetSessionKey: "agent:discord:child:thread-1",
       });
       return binding;
@@ -269,20 +271,18 @@ const sessionBindingContractEntries: Record<
       adapterAvailable: true,
       bindSupported: true,
       unbindSupported: true,
-      placements: ["current", "child"],
+      placements: ["current"],
     },
     getCapabilities: async () => {
       const { createFeishuThreadBindingManager } = await getContractApi<{
         createFeishuThreadBindingManager: (params: {
-          accountId: string;
-          persist: boolean;
-          enableSweeper: boolean;
+          accountId?: string;
+          cfg: OpenClawConfig;
         }) => unknown;
       }>("feishu");
       createFeishuThreadBindingManager({
         accountId: "default",
-        persist: false,
-        enableSweeper: false,
+        cfg: baseSessionBindingCfg,
       });
       return getSessionBindingService().getCapabilities({
         channel: "feishu",
@@ -292,15 +292,13 @@ const sessionBindingContractEntries: Record<
     bindAndResolve: async () => {
       const { createFeishuThreadBindingManager } = await getContractApi<{
         createFeishuThreadBindingManager: (params: {
-          accountId: string;
-          persist: boolean;
-          enableSweeper: boolean;
+          accountId?: string;
+          cfg: OpenClawConfig;
         }) => unknown;
       }>("feishu");
       createFeishuThreadBindingManager({
         accountId: "default",
-        persist: false,
-        enableSweeper: false,
+        cfg: baseSessionBindingCfg,
       });
       const service = getSessionBindingService();
       const binding = await service.bind({
@@ -309,10 +307,10 @@ const sessionBindingContractEntries: Record<
         conversation: {
           channel: "feishu",
           accountId: "default",
-          conversationId: "chat:123456",
-          parentConversationId: "chat:123455",
+          conversationId: "oc_group_chat:topic:om_topic_root",
+          parentConversationId: "oc_group_chat",
         },
-        placement: "child",
+        placement: "current",
         metadata: {
           agentId: "feishu",
           label: "feishu-child",
@@ -321,8 +319,8 @@ const sessionBindingContractEntries: Record<
       expectResolvedSessionBinding({
         channel: "feishu",
         accountId: "default",
-        conversationId: "chat:123456",
-        parentConversationId: "chat:123455",
+        conversationId: "oc_group_chat:topic:om_topic_root",
+        parentConversationId: "oc_group_chat",
         targetSessionKey: "agent:feishu:child:thread-1",
       });
       return binding;
@@ -332,7 +330,7 @@ const sessionBindingContractEntries: Record<
       expectClearedSessionBinding({
         channel: "feishu",
         accountId: "default",
-        conversationId: "chat:123456",
+        conversationId: "oc_group_chat:topic:om_topic_root",
       });
     },
   },
@@ -421,10 +419,10 @@ const sessionBindingContractEntries: Record<
         conversation: {
           channel: "matrix",
           accountId: matrixSessionBindingAuth.accountId,
-          conversationId: "!room:example.org::$thread",
+          conversationId: "$thread",
           parentConversationId: "!room:example.org",
         },
-        placement: "child",
+        placement: "current",
         metadata: {
           agentId: "matrix",
           label: "matrix-thread",
@@ -433,7 +431,7 @@ const sessionBindingContractEntries: Record<
       expectResolvedSessionBinding({
         channel: "matrix",
         accountId: matrixSessionBindingAuth.accountId,
-        conversationId: "!room:example.org::$thread",
+        conversationId: "$thread",
         parentConversationId: "!room:example.org",
         targetSessionKey: "agent:matrix:thread",
       });
@@ -444,7 +442,7 @@ const sessionBindingContractEntries: Record<
       expectClearedSessionBinding({
         channel: "matrix",
         accountId: matrixSessionBindingAuth.accountId,
-        conversationId: "!room:example.org::$thread",
+        conversationId: "$thread",
       });
     },
   },
@@ -493,10 +491,9 @@ const sessionBindingContractEntries: Record<
         conversation: {
           channel: "telegram",
           accountId: "default",
-          conversationId: "chat:1234:topic:5678",
-          parentConversationId: "chat:1234",
+          conversationId: "-100200300:topic:77",
         },
-        placement: "child",
+        placement: "current",
         metadata: {
           agentId: "telegram",
           label: "telegram-topic",
@@ -505,8 +502,7 @@ const sessionBindingContractEntries: Record<
       expectResolvedSessionBinding({
         channel: "telegram",
         accountId: "default",
-        conversationId: "chat:1234:topic:5678",
-        parentConversationId: "chat:1234",
+        conversationId: "-100200300:topic:77",
         targetSessionKey: "agent:telegram:child:thread-1",
       });
       return binding;
@@ -516,7 +512,7 @@ const sessionBindingContractEntries: Record<
       expectClearedSessionBinding({
         channel: "telegram",
         accountId: "default",
-        conversationId: "chat:1234:topic:5678",
+        conversationId: "-100200300:topic:77",
       });
     },
   },

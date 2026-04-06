@@ -127,6 +127,29 @@ const listMatrixDirectoryGroupsFromConfig =
     },
   });
 
+function projectMatrixConversationBinding(binding: {
+  boundAt: number;
+  metadata?: {
+    lastActivityAt?: number;
+    idleTimeoutMs?: number;
+    maxAgeMs?: number;
+  };
+}) {
+  return {
+    boundAt: binding.boundAt,
+    lastActivityAt:
+      typeof binding.metadata?.lastActivityAt === "number"
+        ? binding.metadata.lastActivityAt
+        : binding.boundAt,
+    idleTimeoutMs:
+      typeof binding.metadata?.idleTimeoutMs === "number"
+        ? binding.metadata.idleTimeoutMs
+        : undefined,
+    maxAgeMs:
+      typeof binding.metadata?.maxAgeMs === "number" ? binding.metadata.maxAgeMs : undefined,
+  };
+}
+
 const matrixConfigAdapter = createScopedChannelConfigAdapter<
   ResolvedMatrixAccount,
   ReturnType<typeof resolveMatrixAccountConfig>,
@@ -352,41 +375,13 @@ export const matrixPlugin: ChannelPlugin<ResolvedMatrixAccount, MatrixProbe> =
             targetSessionKey,
             accountId: accountId ?? "",
             idleTimeoutMs,
-          }).map((binding) => ({
-            boundAt: binding.boundAt,
-            lastActivityAt:
-              typeof binding.metadata?.lastActivityAt === "number"
-                ? binding.metadata.lastActivityAt
-                : binding.boundAt,
-            idleTimeoutMs:
-              typeof binding.metadata?.idleTimeoutMs === "number"
-                ? binding.metadata.idleTimeoutMs
-                : undefined,
-            maxAgeMs:
-              typeof binding.metadata?.maxAgeMs === "number"
-                ? binding.metadata.maxAgeMs
-                : undefined,
-          })),
+          }).map(projectMatrixConversationBinding),
         setMaxAgeBySessionKey: ({ targetSessionKey, accountId, maxAgeMs }) =>
           setMatrixThreadBindingMaxAgeBySessionKey({
             targetSessionKey,
             accountId: accountId ?? "",
             maxAgeMs,
-          }).map((binding) => ({
-            boundAt: binding.boundAt,
-            lastActivityAt:
-              typeof binding.metadata?.lastActivityAt === "number"
-                ? binding.metadata.lastActivityAt
-                : binding.boundAt,
-            idleTimeoutMs:
-              typeof binding.metadata?.idleTimeoutMs === "number"
-                ? binding.metadata.idleTimeoutMs
-                : undefined,
-            maxAgeMs:
-              typeof binding.metadata?.maxAgeMs === "number"
-                ? binding.metadata.maxAgeMs
-                : undefined,
-          })),
+          }).map(projectMatrixConversationBinding),
       },
       messaging: {
         normalizeTarget: normalizeMatrixMessagingTarget,

@@ -1,9 +1,9 @@
-import * as bundledChannelModule from "../channels/plugins/bundled.js";
+import * as bundledChannelModule from "../../../src/channels/plugins/bundled.js";
 import type {
   ChannelConfigRuntimeSchema,
   ChannelConfigSchema,
-} from "../channels/plugins/types.plugin.js";
-import { listBundledPluginMetadata } from "../plugins/bundled-plugin-metadata.js";
+} from "../../../src/channels/plugins/types.plugin.js";
+import { listBundledPluginMetadata } from "../../../src/plugins/bundled-plugin-metadata.js";
 
 type BundledChannelRuntimeMap = ReadonlyMap<string, ChannelConfigRuntimeSchema>;
 type BundledChannelConfigSchemaMap = ReadonlyMap<string, ChannelConfigSchema>;
@@ -69,9 +69,6 @@ function readBundledChannelPlugins(): readonly BundledChannelPluginShape[] | und
     const plugins = bundledChannelModule.listBundledChannelPlugins();
     return Array.isArray(plugins) ? (plugins as readonly BundledChannelPluginShape[]) : undefined;
   } catch (error) {
-    // Circular bundled channel imports can transiently hit TDZ during test/bootstrap
-    // initialization. Fall back to manifest-published contract surfaces until the
-    // bundled registry is ready.
     if (error instanceof ReferenceError) {
       return undefined;
     }
@@ -86,8 +83,6 @@ function getBundledChannelMaps(): BundledChannelMaps {
   }
 
   const maps = buildBundledChannelMaps(plugins ?? []);
-  // Tests and some import cycles can temporarily expose an incomplete bundled list.
-  // Only cache once the exported plugin array is actually available.
   if (plugins) {
     cachedBundledChannelMaps = maps;
   }

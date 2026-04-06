@@ -68,6 +68,8 @@ setCliRunnerExecuteTestDeps({
 setCliRunnerPrepareTestDeps({
   makeBootstrapWarn: () => () => {},
   resolveBootstrapContextForRun: hoisted.resolveBootstrapContextForRunMock,
+  resolveHeartbeatPrompt: async () => "",
+  resolveOpenClawDocsPath: async () => null,
 });
 
 type MockRunExit = {
@@ -369,6 +371,8 @@ export function restoreCliRunnerPrepareTestDeps() {
   setCliRunnerPrepareTestDeps({
     makeBootstrapWarn: () => () => {},
     resolveBootstrapContextForRun: hoisted.resolveBootstrapContextForRunMock,
+    resolveHeartbeatPrompt: async () => "",
+    resolveOpenClawDocsPath: async () => null,
   });
 }
 

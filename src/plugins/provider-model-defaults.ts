@@ -1,4 +1,8 @@
 import type { OpenClawConfig } from "../config/config.js";
+export {
+  applyOpencodeZenModelDefault,
+  OPENCODE_ZEN_DEFAULT_MODEL,
+} from "../plugin-sdk/opencode.js";
 import { ensureModelAllowlistEntry } from "./provider-model-allowlist.js";
 import { applyAgentDefaultPrimaryModel } from "./provider-model-primary.js";
 

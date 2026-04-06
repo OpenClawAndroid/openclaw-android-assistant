@@ -512,7 +512,17 @@ export function resolveRuntimePluginRegistry(
   if (!options || !hasExplicitCompatibilityInputs(options)) {
     return getCompatibleActivePluginRegistry();
   }
-  return getCompatibleActivePluginRegistry(options) ?? loadOpenClawPlugins(options);
+  const compatible = getCompatibleActivePluginRegistry(options);
+  if (compatible) {
+    return compatible;
+  }
+  // Helper/runtime callers should not recurse into the same snapshot load while
+  // plugin registration is still in flight. Let direct loadOpenClawPlugins(...)
+  // callers surface the hard error instead.
+  if (isPluginRegistryLoadInFlight(options)) {
+    return undefined;
+  }
+  return loadOpenClawPlugins(options);
 }
 
 export function resolvePluginRegistryLoadCacheKey(options: PluginLoadOptions = {}): string {

@@ -3,7 +3,7 @@ import { normalizeXaiModelId } from "../model-id.js";
 import {
   buildXaiResponsesToolBody,
   extractXaiWebSearchContent,
-  resolveXaiResponseTextAndCitations,
+  resolveXaiResponseTextCitationsAndInline,
   XAI_RESPONSES_ENDPOINT,
 } from "./responses-tool-shared.js";
 export { extractXaiWebSearchContent } from "./responses-tool-shared.js";
@@ -116,15 +116,7 @@ export async function requestXaiWebSearch(params: {
     },
     async (response) => {
       const data = (await response.json()) as XaiWebSearchResponse;
-      const { content, citations } = resolveXaiResponseTextAndCitations(data);
-      return {
-        content,
-        citations,
-        inlineCitations:
-          params.inlineCitations && Array.isArray(data.inline_citations)
-            ? data.inline_citations
-            : undefined,
-      };
+      return resolveXaiResponseTextCitationsAndInline(data, params.inlineCitations);
     },
   );
 }

@@ -20,9 +20,7 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -51,8 +49,17 @@ function defaultModelsForProviderMode(
   };
 }
 
+function detectTheme(): "light" | "dark" {
+  const stored = localStorage.getItem("qa-lab-theme");
+  if (stored === "light" || stored === "dark") {
+    return stored;
+  }
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 export async function createQaLabApp(root: HTMLDivElement) {
   const state: UiState = {
+    theme: detectTheme(),
     bootstrap: null,
     snapshot: null,
     latestReport: null,
@@ -60,7 +67,7 @@ export async function createQaLabApp(root: HTMLDivElement) {
     selectedConversationId: null,
     selectedThreadId: null,
     selectedScenarioId: null,
-    activeTab: "debug",
+    activeTab: "chat",
     runnerDraft: null,
     runnerDraftDirty: false,
     composer: {
@@ -73,6 +80,12 @@ export async function createQaLabApp(root: HTMLDivElement) {
     busy: false,
     error: null,
   };
+
+  /* Track whether user has scrolled up in the chat */
+  let chatScrollLocked = true;
+  let previousMessageCount = 0;
+
+  /* ---------- Data fetching ---------- */
 
   async function refresh() {
     try {
@@ -115,13 +128,12 @@ export async function createQaLabApp(root: HTMLDivElement) {
     render();
   }
 
+  /* ---------- Draft mutations ---------- */
+
   function updateRunnerDraft(mutator: (draft: RunnerSelection) => RunnerSelection) {
     const fallback = state.bootstrap?.runner.selection;
     if (!state.runnerDraft && fallback) {
-      state.runnerDraft = {
-        ...fallback,
-        scenarioIds: [...fallback.scenarioIds],
-      };
+      state.runnerDraft = { ...fallback, scenarioIds: [...fallback.scenarioIds] };
     }
     if (!state.runnerDraft) {
       return;
@@ -130,6 +142,8 @@ export async function createQaLabApp(root: HTMLDivElement) {
     state.runnerDraftDirty = true;
     render();
   }
+
+  /* ---------- Actions ---------- */
 
   async function runSelfCheck() {
     state.busy = true;
@@ -198,6 +212,7 @@ export async function createQaLabApp(root: HTMLDivElement) {
       });
       state.selectedConversationId = conversationId;
       state.composer.text = "";
+      chatScrollLocked = true;
       await refresh();
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error);
@@ -233,7 +248,25 @@ export async function createQaLabApp(root: HTMLDivElement) {
         scenarioIds: [...result.runner.selection.scenarioIds],
       };
       state.runnerDraftDirty = false;
-      state.activeTab = "debug";
+      state.activeTab = "chat";
+      await refresh();
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+      render();
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+
+  async function sendKickoff() {
+    state.busy = true;
+    state.error = null;
+    render();
+    try {
+      await postJson("/api/kickoff", {});
+      state.activeTab = "chat";
+      chatScrollLocked = true;
       await refresh();
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error);
@@ -257,30 +290,41 @@ export async function createQaLabApp(root: HTMLDivElement) {
     URL.revokeObjectURL(href);
   }
 
+  function toggleTheme() {
+    state.theme = state.theme === "dark" ? "light" : "dark";
+    localStorage.setItem("qa-lab-theme", state.theme);
+    render();
+  }
+
+  /* ---------- Chat scroll tracking ---------- */
+
+  function trackChatScroll() {
+    const el = root.querySelector<HTMLElement>("#chat-messages");
+    if (!el) {
+      return;
+    }
+    el.addEventListener("scroll", () => {
+      const threshold = 40;
+      chatScrollLocked = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    });
+  }
+
+  function scrollChatToBottom(force?: boolean) {
+    const el = root.querySelector<HTMLElement>("#chat-messages");
+    if (!el) {
+      return;
+    }
+    const newCount = state.snapshot?.messages.length ?? 0;
+    if (force || (chatScrollLocked && newCount !== previousMessageCount)) {
+      el.scrollTop = el.scrollHeight;
+    }
+    previousMessageCount = newCount;
+  }
+
+  /* ---------- Event binding ---------- */
+
   function bindEvents() {
-    root.querySelectorAll<HTMLElement>("[data-conversation-id]").forEach((node) => {
-      node.addEventListener("click", () => {
-        state.selectedConversationId = node.dataset.conversationId ?? null;
-        state.selectedThreadId = null;
-        state.activeTab = "debug";
-        render();
-      });
-    });
-    root.querySelectorAll<HTMLElement>("[data-thread-id]").forEach((node) => {
-      node.addEventListener("click", () => {
-        state.selectedConversationId = node.dataset.conversationId ?? null;
-        state.selectedThreadId = node.dataset.threadId ?? null;
-        state.activeTab = "debug";
-        render();
-      });
-    });
-    root.querySelectorAll<HTMLElement>("[data-scenario-id]").forEach((node) => {
-      node.addEventListener("click", () => {
-        state.selectedScenarioId = node.dataset.scenarioId ?? null;
-        state.activeTab = "scenarios";
-        render();
-      });
-    });
+    /* Tabs */
     root.querySelectorAll<HTMLElement>("[data-tab]").forEach((node) => {
       node.addEventListener("click", () => {
         const nextTab = node.dataset.tab as TabId | undefined;
@@ -291,80 +335,88 @@ export async function createQaLabApp(root: HTMLDivElement) {
       });
     });
 
-    root
-      .querySelector<HTMLButtonElement>("[data-action='refresh']")!
-      .addEventListener("click", () => {
-        void refresh();
+    /* Conversation chips */
+    root.querySelectorAll<HTMLElement>("[data-conversation-id]").forEach((node) => {
+      node.addEventListener("click", () => {
+        state.selectedConversationId = node.dataset.conversationId ?? null;
+        state.selectedThreadId = null;
+        if (state.activeTab !== "chat") {
+          state.activeTab = "chat";
+        }
+        render();
       });
-    root
-      .querySelector<HTMLButtonElement>("[data-action='reset']")!
-      .addEventListener("click", () => {
-        void resetState();
+    });
+
+    /* Thread chips */
+    root.querySelectorAll<HTMLElement>("[data-thread-select]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const val = node.dataset.threadSelect;
+        if (val === "root") {
+          state.selectedThreadId = null;
+        } else {
+          state.selectedThreadId = val ?? null;
+          const conv = node.dataset.threadConv;
+          if (conv) {
+            state.selectedConversationId = conv;
+          }
+        }
+        render();
       });
+    });
+
+    /* Scenario selection (results tab + sidebar) */
+    root.querySelectorAll<HTMLElement>("[data-scenario-id]").forEach((node) => {
+      node.addEventListener("click", () => {
+        state.selectedScenarioId = node.dataset.scenarioId ?? null;
+        if (state.activeTab !== "results") {
+          state.activeTab = "results";
+        }
+        render();
+      });
+    });
+
+    /* Header / sidebar buttons */
     root
-      .querySelector<HTMLButtonElement>("[data-action='self-check']")
+      .querySelector<HTMLElement>("[data-action='refresh']")
+      ?.addEventListener("click", () => void refresh());
+    root
+      .querySelector<HTMLElement>("[data-action='reset']")
+      ?.addEventListener("click", () => void resetState());
+    root
+      .querySelector<HTMLElement>("[data-action='toggle-theme']")
+      ?.addEventListener("click", toggleTheme);
+    root
+      .querySelector<HTMLElement>("[data-action='self-check']")
+      ?.addEventListener("click", () => void runSelfCheck());
+    root
+      .querySelector<HTMLElement>("[data-action='run-suite']")
+      ?.addEventListener("click", () => void runSuite());
+    root
+      .querySelector<HTMLElement>("[data-action='kickoff']")
+      ?.addEventListener("click", () => void sendKickoff());
+    root
+      .querySelector<HTMLElement>("[data-action='send']")
+      ?.addEventListener("click", () => void sendInbound());
+    root
+      .querySelector<HTMLElement>("[data-action='download-report']")
+      ?.addEventListener("click", downloadReport);
+
+    /* Scenario All/None */
+    root
+      .querySelector<HTMLElement>("[data-action='select-all-scenarios']")
       ?.addEventListener("click", () => {
-        void runSelfCheck();
-      });
-    root
-      .querySelector<HTMLButtonElement>("[data-action='run-suite']")
-      ?.addEventListener("click", () => {
-        void runSuite();
-      });
-    root
-      .querySelector<HTMLButtonElement>("[data-action='select-all-scenarios']")
-      ?.addEventListener("click", () => {
-        updateRunnerDraft((draft) => ({
-          ...draft,
-          scenarioIds:
-            state.bootstrap?.scenarios.map((scenario) => scenario.id) ?? draft.scenarioIds,
+        updateRunnerDraft((d) => ({
+          ...d,
+          scenarioIds: state.bootstrap?.scenarios.map((s) => s.id) ?? d.scenarioIds,
         }));
       });
     root
-      .querySelector<HTMLButtonElement>("[data-action='clear-scenarios']")
+      .querySelector<HTMLElement>("[data-action='clear-scenarios']")
       ?.addEventListener("click", () => {
-        updateRunnerDraft((draft) => ({
-          ...draft,
-          scenarioIds: [],
-        }));
+        updateRunnerDraft((d) => ({ ...d, scenarioIds: [] }));
       });
-    root.querySelector<HTMLButtonElement>("[data-action='send']")?.addEventListener("click", () => {
-      void sendInbound();
-    });
-    root
-      .querySelector<HTMLButtonElement>("[data-action='download-report']")
-      ?.addEventListener("click", () => {
-        downloadReport();
-      });
-    root.querySelector<HTMLSelectElement>("#provider-mode")?.addEventListener("change", (event) => {
-      const mode =
-        (event.currentTarget as HTMLSelectElement).value === "live-openai"
-          ? "live-openai"
-          : "mock-openai";
-      updateRunnerDraft((draft) => ({
-        ...draft,
-        providerMode: mode,
-        ...defaultModelsForProviderMode(mode, state.bootstrap),
-      }));
-    });
-    root.querySelector<HTMLInputElement>("#fast-mode")?.addEventListener("change", (event) => {
-      updateRunnerDraft((draft) => ({
-        ...draft,
-        fastMode: (event.currentTarget as HTMLInputElement).checked,
-      }));
-    });
-    root.querySelector<HTMLInputElement>("#primary-model")?.addEventListener("input", (event) => {
-      updateRunnerDraft((draft) => ({
-        ...draft,
-        primaryModel: (event.currentTarget as HTMLInputElement).value,
-      }));
-    });
-    root.querySelector<HTMLInputElement>("#alternate-model")?.addEventListener("input", (event) => {
-      updateRunnerDraft((draft) => ({
-        ...draft,
-        alternateModel: (event.currentTarget as HTMLInputElement).value,
-      }));
-    });
+
+    /* Scenario toggles */
     root.querySelectorAll<HTMLInputElement>("[data-scenario-toggle-id]").forEach((node) => {
       node.addEventListener("change", () => {
         const scenarioId = node.dataset.scenarioToggleId;
@@ -379,74 +431,110 @@ export async function createQaLabApp(root: HTMLDivElement) {
             selected.delete(scenarioId);
           }
           const orderedIds = state.bootstrap?.scenarios
-            .map((scenario) => scenario.id)
+            .map((s) => s.id)
             .filter((id) => selected.has(id)) ?? [...selected];
-          return {
-            ...draft,
-            scenarioIds: orderedIds,
-          };
+          return { ...draft, scenarioIds: orderedIds };
         });
       });
     });
 
-    root
-      .querySelector<HTMLSelectElement>("#conversation-kind")
-      ?.addEventListener("change", (event) => {
-        const target = event.currentTarget as HTMLSelectElement;
-        state.composer.conversationKind = target.value === "channel" ? "channel" : "direct";
+    /* Config form */
+    root.querySelector<HTMLSelectElement>("#provider-mode")?.addEventListener("change", (e) => {
+      const mode =
+        (e.currentTarget as HTMLSelectElement).value === "live-openai"
+          ? "live-openai"
+          : "mock-openai";
+      updateRunnerDraft((d) => ({
+        ...d,
+        providerMode: mode,
+        ...defaultModelsForProviderMode(mode, state.bootstrap),
+      }));
+    });
+    root.querySelector<HTMLInputElement>("#fast-mode")?.addEventListener("change", (e) => {
+      updateRunnerDraft((d) => ({ ...d, fastMode: (e.currentTarget as HTMLInputElement).checked }));
+    });
+    root.querySelector<HTMLElement>("#primary-model")?.addEventListener("input", (e) => {
+      updateRunnerDraft((d) => ({
+        ...d,
+        primaryModel: (e.currentTarget as HTMLInputElement).value,
+      }));
+    });
+    root.querySelector<HTMLElement>("#alternate-model")?.addEventListener("input", (e) => {
+      updateRunnerDraft((d) => ({
+        ...d,
+        alternateModel: (e.currentTarget as HTMLInputElement).value,
+      }));
+    });
+
+    /* Composer form */
+    root.querySelector<HTMLSelectElement>("#conversation-kind")?.addEventListener("change", (e) => {
+      state.composer.conversationKind =
+        (e.currentTarget as HTMLSelectElement).value === "channel" ? "channel" : "direct";
+    });
+    root.querySelector<HTMLInputElement>("#conversation-id")?.addEventListener("input", (e) => {
+      state.composer.conversationId = (e.currentTarget as HTMLInputElement).value;
+    });
+    root.querySelector<HTMLInputElement>("#sender-id")?.addEventListener("input", (e) => {
+      state.composer.senderId = (e.currentTarget as HTMLInputElement).value;
+    });
+    root.querySelector<HTMLInputElement>("#sender-name")?.addEventListener("input", (e) => {
+      state.composer.senderName = (e.currentTarget as HTMLInputElement).value;
+    });
+
+    /* Composer textarea: capture input + Enter-to-send */
+    const textarea = root.querySelector<HTMLTextAreaElement>("#composer-text");
+    if (textarea) {
+      textarea.addEventListener("input", (e) => {
+        state.composer.text = (e.currentTarget as HTMLTextAreaElement).value;
+        /* Auto-grow */
+        textarea.style.height = "auto";
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
       });
-    root.querySelector<HTMLInputElement>("#conversation-id")?.addEventListener("input", (event) => {
-      state.composer.conversationId = (event.currentTarget as HTMLInputElement).value;
-    });
-    root.querySelector<HTMLInputElement>("#sender-id")?.addEventListener("input", (event) => {
-      state.composer.senderId = (event.currentTarget as HTMLInputElement).value;
-    });
-    root.querySelector<HTMLInputElement>("#sender-name")?.addEventListener("input", (event) => {
-      state.composer.senderName = (event.currentTarget as HTMLInputElement).value;
-    });
-    root
-      .querySelector<HTMLTextAreaElement>("#composer-text")
-      ?.addEventListener("input", (event) => {
-        state.composer.text = (event.currentTarget as HTMLTextAreaElement).value;
+      textarea.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          void sendInbound();
+        }
       });
-  }
-
-  function render() {
-    const next = document.createElement("div");
-    next.innerHTML = renderQaLabUi(state);
-
-    // Keep the embedded Control UI pane mounted across polling refreshes so auth/session
-    // state does not bounce while the QA-side debugger updates.
-    const currentControlPane = root.querySelector<HTMLElement>(".control-pane");
-    const currentControlFrame =
-      currentControlPane?.querySelector<HTMLIFrameElement>(".control-frame");
-    const currentQaColumn = root.querySelector<HTMLElement>(".qa-column");
-    const nextControlPane = next.querySelector<HTMLElement>(".control-pane");
-    const nextControlFrame = nextControlPane?.querySelector<HTMLIFrameElement>(".control-frame");
-    const nextQaColumn = next.querySelector<HTMLElement>(".qa-column");
-    const currentControlSrc = currentControlFrame?.getAttribute("src") ?? "";
-    const nextControlSrc = nextControlFrame?.getAttribute("src") ?? "";
-
-    if (
-      currentControlPane &&
-      currentQaColumn &&
-      nextControlPane &&
-      nextQaColumn &&
-      currentControlSrc &&
-      currentControlSrc === nextControlSrc
-    ) {
-      currentQaColumn.replaceWith(nextQaColumn);
-      bindEvents();
-      return;
     }
 
-    root.replaceChildren(...Array.from(next.childNodes));
-    bindEvents();
+    /* Chat scroll tracking */
+    trackChatScroll();
   }
+
+  /* ---------- Render ---------- */
+
+  function render() {
+    /* Preserve focused element id so we can restore focus after re-render */
+    const focusedId = (document.activeElement as HTMLElement)?.id || null;
+    const composerText = state.composer.text;
+
+    root.innerHTML = renderQaLabUi(state);
+    bindEvents();
+
+    /* Restore composer text (since we re-rendered) */
+    const textEl = root.querySelector<HTMLTextAreaElement>("#composer-text");
+    if (textEl && composerText) {
+      textEl.value = composerText;
+      textEl.style.height = "auto";
+      textEl.style.height = `${Math.min(textEl.scrollHeight, 120)}px`;
+    }
+
+    /* Restore focus */
+    if (focusedId) {
+      const el = root.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`);
+      if (el && "focus" in el) {
+        el.focus();
+      }
+    }
+
+    /* Auto-scroll chat */
+    requestAnimationFrame(() => scrollChatToBottom());
+  }
+
+  /* ---------- Bootstrap ---------- */
 
   render();
   await refresh();
-  setInterval(() => {
-    void refresh();
-  }, 1_000);
+  setInterval(() => void refresh(), 1_000);
 }

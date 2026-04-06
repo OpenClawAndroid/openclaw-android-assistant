@@ -189,6 +189,19 @@ export async function runQaDockerUp(
   });
 
   const composeFile = path.join(outputDir, "docker-compose.qa.yml");
+
+  // Tear down any previous stack from this compose file so ports are freed
+  // and we get a clean restart every time.
+  try {
+    await runCommand(
+      "docker",
+      ["compose", "-f", composeFile, "down", "--remove-orphans"],
+      repoRoot,
+    );
+  } catch {
+    // First run or already stopped — ignore.
+  }
+
   const composeArgs = ["compose", "-f", composeFile, "up"];
   if (!params.usePrebuiltImage) {
     composeArgs.push("--build");
