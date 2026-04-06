@@ -120,7 +120,7 @@ describe("short-term dreaming config", () => {
       cfg,
     });
     expect(resolved).toEqual({
-      enabled: true,
+      enabled: false,
       cron: constants.DEFAULT_DREAMING_CRON_EXPR,
       timezone: "America/Los_Angeles",
       limit: constants.DEFAULT_DREAMING_LIMIT,
@@ -141,11 +141,12 @@ describe("short-term dreaming config", () => {
     const resolved = resolveShortTermPromotionDreamingConfig({
       pluginConfig: {
         dreaming: {
+          enabled: true,
           timezone: "UTC",
           verboseLogging: true,
+          frequency: "5 1 * * *",
           phases: {
             deep: {
-              cron: "15 2 * * *",
               limit: 7,
               minScore: 0.4,
               minRecallCount: 2,
@@ -159,7 +160,7 @@ describe("short-term dreaming config", () => {
     });
     expect(resolved).toEqual({
       enabled: true,
-      cron: "15 2 * * *",
+      cron: "5 1 * * *",
       timezone: "UTC",
       limit: 7,
       minScore: 0.4,
@@ -175,13 +176,14 @@ describe("short-term dreaming config", () => {
     });
   });
 
-  it("accepts cron alias and numeric string thresholds", () => {
+  it("accepts top-level frequency and numeric string thresholds", () => {
     const resolved = resolveShortTermPromotionDreamingConfig({
       pluginConfig: {
         dreaming: {
+          enabled: true,
+          frequency: "5 1 * * *",
           phases: {
             deep: {
-              cron: "5 1 * * *",
               limit: "4",
               minScore: "0.6",
               minRecallCount: "2",
@@ -214,6 +216,7 @@ describe("short-term dreaming config", () => {
     const resolved = resolveShortTermPromotionDreamingConfig({
       pluginConfig: {
         dreaming: {
+          enabled: true,
           phases: {
             deep: {
               limit: " ",
@@ -248,6 +251,7 @@ describe("short-term dreaming config", () => {
     const resolved = resolveShortTermPromotionDreamingConfig({
       pluginConfig: {
         dreaming: {
+          enabled: true,
           phases: {
             deep: {
               limit: 0,
@@ -283,6 +287,7 @@ describe("short-term dreaming config", () => {
     const resolved = resolveShortTermPromotionDreamingConfig({
       pluginConfig: {
         dreaming: {
+          enabled: true,
           phases: {
             deep: {
               minScore: -0.2,
@@ -485,6 +490,63 @@ describe("short-term dreaming cron reconciliation", () => {
     expect(result).toEqual({ status: "disabled", removed: 1 });
     expect(harness.removeCalls).toEqual(["job-managed"]);
     expect(harness.jobs.map((entry) => entry.id)).toEqual(["job-other"]);
+  });
+
+  it("prunes legacy light/rem dreaming cron jobs during reconciliation", async () => {
+    const deepManagedJob: CronJobLike = {
+      id: "job-deep",
+      name: constants.MANAGED_DREAMING_CRON_NAME,
+      description: `${constants.MANAGED_DREAMING_CRON_TAG} test`,
+      enabled: true,
+      schedule: { kind: "cron", expr: "0 3 * * *" },
+      sessionTarget: "main",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "systemEvent", text: constants.DREAMING_SYSTEM_EVENT_TEXT },
+      createdAtMs: 10,
+    };
+    const legacyLightJob: CronJobLike = {
+      id: "job-light",
+      name: "Memory Light Dreaming",
+      description: "[managed-by=memory-core.dreaming.light] legacy",
+      enabled: true,
+      schedule: { kind: "cron", expr: "0 */6 * * *" },
+      sessionTarget: "main",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "systemEvent", text: "__openclaw_memory_core_light_sleep__" },
+      createdAtMs: 8,
+    };
+    const legacyRemJob: CronJobLike = {
+      id: "job-rem",
+      name: "Memory REM Dreaming",
+      description: "[managed-by=memory-core.dreaming.rem] legacy",
+      enabled: true,
+      schedule: { kind: "cron", expr: "0 5 * * 0" },
+      sessionTarget: "main",
+      wakeMode: "next-heartbeat",
+      payload: { kind: "systemEvent", text: "__openclaw_memory_core_rem_sleep__" },
+      createdAtMs: 9,
+    };
+    const harness = createCronHarness([legacyLightJob, legacyRemJob, deepManagedJob]);
+    const logger = createLogger();
+
+    const result = await reconcileShortTermDreamingCronJob({
+      cron: harness.cron,
+      config: {
+        enabled: true,
+        cron: constants.DEFAULT_DREAMING_CRON_EXPR,
+        limit: constants.DEFAULT_DREAMING_LIMIT,
+        minScore: constants.DEFAULT_DREAMING_MIN_SCORE,
+        minRecallCount: constants.DEFAULT_DREAMING_MIN_RECALL_COUNT,
+        minUniqueQueries: constants.DEFAULT_DREAMING_MIN_UNIQUE_QUERIES,
+        recencyHalfLifeDays: constants.DEFAULT_DREAMING_RECENCY_HALF_LIFE_DAYS,
+        verboseLogging: false,
+      },
+      logger,
+    });
+
+    expect(result.status).toBe("noop");
+    expect(result.removed).toBe(2);
+    expect(harness.removeCalls).toEqual(["job-light", "job-rem"]);
   });
 
   it("does not overcount removed jobs when cron remove result is unknown", async () => {

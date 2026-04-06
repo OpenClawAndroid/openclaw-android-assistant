@@ -5,7 +5,6 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { saveMediaBuffer } from "../../media/store.js";
 import { loadWebMedia } from "../../media/web-media.js";
 import { readSnakeCaseParamRaw } from "../../param-key.js";
-import { getProviderEnvVars } from "../../secrets/provider-env-vars.js";
 import { resolveUserPath } from "../../utils.js";
 import type { DeliveryContext } from "../../utils/delivery-context.js";
 import { resolveVideoGenerationSupportedDurations } from "../../video-generation/duration-support.js";
@@ -20,12 +19,6 @@ import type {
   VideoGenerationResolution,
   VideoGenerationSourceAsset,
 } from "../../video-generation/types.js";
-import { normalizeProviderId } from "../provider-id.js";
-import {
-  buildVideoGenerationTaskStatusDetails,
-  buildVideoGenerationTaskStatusText,
-  findActiveVideoGenerationTaskForSession,
-} from "../video-generation-task-status.js";
 import {
   ToolInputError,
   readNumberParam,
@@ -35,16 +28,11 @@ import {
 import { decodeDataUrl } from "./image-tool.helpers.js";
 import {
   applyVideoGenerationModelConfigDefaults,
+  findCapabilityProviderById,
+  resolveCapabilityModelConfigForTool,
   resolveMediaToolLocalRoots,
 } from "./media-tool-shared.js";
-import {
-  buildToolModelConfigFromCandidates,
-  coerceToolModelConfig,
-  hasAuthForProvider,
-  hasToolModelConfig,
-  resolveDefaultModelRef,
-  type ToolModelConfig,
-} from "./model-config.helpers.js";
+import { type ToolModelConfig } from "./model-config.helpers.js";
 import {
   createSandboxBridgeReadFile,
   resolveSandboxedBridgeMediaPath,
@@ -60,6 +48,11 @@ import {
   type VideoGenerationTaskHandle,
   wakeVideoGenerationTaskCompletion,
 } from "./video-generate-background.js";
+import {
+  createVideoGenerateDuplicateGuardResult,
+  createVideoGenerateListActionResult,
+  createVideoGenerateStatusActionResult,
+} from "./video-generate-tool.actions.js";
 
 const log = createSubsystemLogger("agents/tools/video-generate");
 const MAX_INPUT_IMAGES = 5;
@@ -149,101 +142,16 @@ const VideoGenerateToolSchema = Type.Object({
   ),
 });
 
-function getVideoGenerationProviderAuthEnvVars(providerId: string): string[] {
-  return getProviderEnvVars(providerId);
-}
-
-function resolveVideoGenerationModelCandidates(params: {
-  cfg?: OpenClawConfig;
-  agentDir?: string;
-}): Array<string | undefined> {
-  const providerDefaults = new Map<string, string>();
-  for (const provider of listRuntimeVideoGenerationProviders({ config: params.cfg })) {
-    const providerId = provider.id.trim();
-    const modelId = provider.defaultModel?.trim();
-    if (
-      !providerId ||
-      !modelId ||
-      providerDefaults.has(providerId) ||
-      !isVideoGenerationProviderConfigured({
-        provider,
-        cfg: params.cfg,
-        agentDir: params.agentDir,
-      })
-    ) {
-      continue;
-    }
-    providerDefaults.set(providerId, `${providerId}/${modelId}`);
-  }
-
-  const primaryProvider = resolveDefaultModelRef(params.cfg).provider;
-  const orderedProviders = [
-    primaryProvider,
-    ...[...providerDefaults.keys()]
-      .filter((providerId) => providerId !== primaryProvider)
-      .toSorted(),
-  ];
-  const orderedRefs: string[] = [];
-  const seen = new Set<string>();
-  for (const providerId of orderedProviders) {
-    const ref = providerDefaults.get(providerId);
-    if (!ref || seen.has(ref)) {
-      continue;
-    }
-    seen.add(ref);
-    orderedRefs.push(ref);
-  }
-  return orderedRefs;
-}
-
 export function resolveVideoGenerationModelConfigForTool(params: {
   cfg?: OpenClawConfig;
   agentDir?: string;
 }): ToolModelConfig | null {
-  const explicit = coerceToolModelConfig(params.cfg?.agents?.defaults?.videoGenerationModel);
-  if (hasToolModelConfig(explicit)) {
-    return explicit;
-  }
-  return buildToolModelConfigFromCandidates({
-    explicit,
+  return resolveCapabilityModelConfigForTool({
+    cfg: params.cfg,
     agentDir: params.agentDir,
-    candidates: resolveVideoGenerationModelCandidates(params),
-    isProviderConfigured: (providerId) =>
-      isVideoGenerationProviderConfigured({
-        providerId,
-        cfg: params.cfg,
-        agentDir: params.agentDir,
-      }),
+    modelConfig: params.cfg?.agents?.defaults?.videoGenerationModel,
+    providers: listRuntimeVideoGenerationProviders({ config: params.cfg }),
   });
-}
-
-function isVideoGenerationProviderConfigured(params: {
-  provider?: VideoGenerationProvider;
-  providerId?: string;
-  cfg?: OpenClawConfig;
-  agentDir?: string;
-}): boolean {
-  const provider =
-    params.provider ??
-    listRuntimeVideoGenerationProviders({ config: params.cfg }).find((candidate) => {
-      const normalizedId = normalizeProviderId(params.providerId ?? "");
-      return (
-        normalizeProviderId(candidate.id) === normalizedId ||
-        (candidate.aliases ?? []).some((alias) => normalizeProviderId(alias) === normalizedId)
-      );
-    });
-  if (!provider) {
-    return params.providerId
-      ? hasAuthForProvider({ provider: params.providerId, agentDir: params.agentDir })
-      : false;
-  }
-  if (provider.isConfigured) {
-    return provider.isConfigured({
-      cfg: params.cfg,
-      agentDir: params.agentDir,
-    });
-  }
-  return hasAuthForProvider({ provider: provider.id, agentDir: params.agentDir });
 }
 
 function resolveAction(args: Record<string, unknown>): "generate" | "list" | "status" {
@@ -338,12 +246,10 @@ function resolveSelectedVideoGenerationProvider(params: {
   if (!selectedRef) {
     return undefined;
   }
-  const selectedProvider = normalizeProviderId(selectedRef.provider);
-  return listRuntimeVideoGenerationProviders({ config: params.config }).find(
-    (provider) =>
-      normalizeProviderId(provider.id) === selectedProvider ||
-      (provider.aliases ?? []).some((alias) => normalizeProviderId(alias) === selectedProvider),
-  );
+  return findCapabilityProviderById({
+    providers: listRuntimeVideoGenerationProviders({ config: params.config }),
+    providerId: selectedRef.provider,
+  });
 }
 
 function validateVideoGenerationCapabilities(params: {
@@ -755,113 +661,18 @@ export function createVideoGenerateTool(options?: {
         applyVideoGenerationModelConfigDefaults(cfg, videoGenerationModelConfig) ?? cfg;
 
       if (action === "list") {
-        const providers = listRuntimeVideoGenerationProviders({ config: effectiveCfg });
-        if (providers.length === 0) {
-          return {
-            content: [{ type: "text", text: "No video-generation providers are registered." }],
-            details: { providers: [] },
-          };
-        }
-        const lines = providers.map((provider) => {
-          const authHints = getVideoGenerationProviderAuthEnvVars(provider.id);
-          const capabilities = [
-            provider.capabilities.maxVideos ? `maxVideos=${provider.capabilities.maxVideos}` : null,
-            provider.capabilities.maxInputImages
-              ? `maxInputImages=${provider.capabilities.maxInputImages}`
-              : null,
-            provider.capabilities.maxInputVideos
-              ? `maxInputVideos=${provider.capabilities.maxInputVideos}`
-              : null,
-            provider.capabilities.maxDurationSeconds
-              ? `maxDurationSeconds=${provider.capabilities.maxDurationSeconds}`
-              : null,
-            provider.capabilities.supportedDurationSeconds?.length
-              ? `supportedDurationSeconds=${provider.capabilities.supportedDurationSeconds.join("/")}`
-              : null,
-            provider.capabilities.supportedDurationSecondsByModel &&
-            Object.keys(provider.capabilities.supportedDurationSecondsByModel).length > 0
-              ? `supportedDurationSecondsByModel=${Object.entries(
-                  provider.capabilities.supportedDurationSecondsByModel,
-                )
-                  .map(([modelId, durations]) => `${modelId}:${durations.join("/")}`)
-                  .join("; ")}`
-              : null,
-            provider.capabilities.supportsResolution ? "resolution" : null,
-            provider.capabilities.supportsAspectRatio ? "aspectRatio" : null,
-            provider.capabilities.supportsSize ? "size" : null,
-            provider.capabilities.supportsAudio ? "audio" : null,
-            provider.capabilities.supportsWatermark ? "watermark" : null,
-          ]
-            .filter((entry): entry is string => Boolean(entry))
-            .join(", ");
-          return [
-            `${provider.id}: default=${provider.defaultModel ?? "none"}`,
-            provider.models?.length ? `models=${provider.models.join(", ")}` : null,
-            capabilities ? `capabilities=${capabilities}` : null,
-            authHints.length > 0 ? `auth=${authHints.join(" / ")}` : null,
-          ]
-            .filter((entry): entry is string => Boolean(entry))
-            .join(" | ");
-        });
-        return {
-          content: [{ type: "text", text: lines.join("\n") }],
-          details: {
-            providers: providers.map((provider) => ({
-              id: provider.id,
-              defaultModel: provider.defaultModel,
-              models: provider.models ?? [],
-              authEnvVars: getVideoGenerationProviderAuthEnvVars(provider.id),
-              capabilities: provider.capabilities,
-            })),
-          },
-        };
+        return createVideoGenerateListActionResult(effectiveCfg);
       }
 
       if (action === "status") {
-        const activeTask = findActiveVideoGenerationTaskForSession(options?.agentSessionKey);
-        if (!activeTask) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No active video generation task is currently running for this session.",
-              },
-            ],
-            details: {
-              action: "status",
-              active: false,
-            },
-          };
-        }
-        return {
-          content: [
-            {
-              type: "text",
-              text: buildVideoGenerationTaskStatusText(activeTask),
-            },
-          ],
-          details: {
-            action: "status",
-            ...buildVideoGenerationTaskStatusDetails(activeTask),
-          },
-        };
+        return createVideoGenerateStatusActionResult(options?.agentSessionKey);
       }
 
-      const activeTask = findActiveVideoGenerationTaskForSession(options?.agentSessionKey);
-      if (activeTask) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: buildVideoGenerationTaskStatusText(activeTask, { duplicateGuard: true }),
-            },
-          ],
-          details: {
-            action: "status",
-            duplicateGuard: true,
-            ...buildVideoGenerationTaskStatusDetails(activeTask),
-          },
-        };
+      const duplicateGuardResult = createVideoGenerateDuplicateGuardResult(
+        options?.agentSessionKey,
+      );
+      if (duplicateGuardResult) {
+        return duplicateGuardResult;
       }
 
       const prompt = readStringParam(args, "prompt", { required: true });

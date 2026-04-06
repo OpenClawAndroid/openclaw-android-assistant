@@ -1,6 +1,6 @@
 import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/channel-entry-contract";
-import { registerMatrixCliMetadata } from "./src/cli-metadata.js";
+import { registerMatrixCliMetadata } from "./cli-metadata.js";
 
 export default defineBundledChannelEntry({
   id: "matrix",
@@ -8,7 +8,7 @@ export default defineBundledChannelEntry({
   description: "Matrix channel plugin (matrix-js-sdk)",
   importMetaUrl: import.meta.url,
   plugin: {
-    specifier: "./api.js",
+    specifier: "./channel-plugin-api.js",
     exportName: "matrixPlugin",
   },
   runtime: {

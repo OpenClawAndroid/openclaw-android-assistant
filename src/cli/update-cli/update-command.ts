@@ -1038,38 +1038,63 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
     return;
   }
 
+  if (switchToGit && result.status === "ok" && result.mode === "git") {
+    if (!opts.json) {
+      defaultRuntime.log(
+        theme.muted(
+          "Switched from a package install to a git checkout. Skipping remaining post-update work in the old CLI process; rerun follow-up commands from the new git install if needed.",
+        ),
+      );
+    }
+    return;
+  }
+
   let postUpdateConfigSnapshot = configSnapshot;
   if (requestedChannel && configSnapshot.valid && requestedChannel !== storedChannel) {
-    const next = {
-      ...configSnapshot.config,
-      update: {
-        ...configSnapshot.config.update,
-        channel: requestedChannel,
-      },
-    };
-    await replaceConfigFile({
-      nextConfig: next,
-      baseHash: configSnapshot.hash,
-    });
-    postUpdateConfigSnapshot = {
-      ...configSnapshot,
-      hash: undefined,
-      parsed: next,
-      sourceConfig: asResolvedSourceConfig(next),
-      resolved: asResolvedSourceConfig(next),
-      runtimeConfig: asRuntimeConfig(next),
-      config: asRuntimeConfig(next),
-    };
-    if (!opts.json) {
-      defaultRuntime.log(theme.muted(`Update channel set to ${requestedChannel}.`));
+    if (switchToGit) {
+      if (!opts.json) {
+        defaultRuntime.log(
+          theme.muted(
+            `Skipped persisting update.channel=${requestedChannel} in the pre-update CLI process after switching to a git install.`,
+          ),
+        );
+      }
+    } else {
+      const next = {
+        ...configSnapshot.config,
+        update: {
+          ...configSnapshot.config.update,
+          channel: requestedChannel,
+        },
+      };
+      await replaceConfigFile({
+        nextConfig: next,
+        baseHash: configSnapshot.hash,
+      });
+      postUpdateConfigSnapshot = {
+        ...configSnapshot,
+        hash: undefined,
+        parsed: next,
+        sourceConfig: asResolvedSourceConfig(next),
+        resolved: asResolvedSourceConfig(next),
+        runtimeConfig: asRuntimeConfig(next),
+        config: asRuntimeConfig(next),
+      };
+      if (!opts.json) {
+        defaultRuntime.log(theme.muted(`Update channel set to ${requestedChannel}.`));
+      }
     }
   }
 
+  const postUpdateRoot = result.root;
+
   // A package -> git switch still runs inside the pre-update CLI process.
-  // Plugin sync/validation can then compare new bundled plugin minima against
-  // the old host version and fail even though the install itself succeeded.
-  const deferPluginSync = switchToGit && result.mode === "git";
-  if (deferPluginSync) {
+  // Any follow-up work that re-enters the CLI can then compare new bundled
+  // plugin minima against the old host version and fail even though the
+  // install itself succeeded. Leave the switched checkout alone and let the
+  // new git install handle follow-up commands in a fresh process.
+  const deferOldProcessPostUpdateWork = switchToGit && result.mode === "git";
+  if (deferOldProcessPostUpdateWork) {
     if (!opts.json) {
       defaultRuntime.log(
         theme.muted(
@@ -1079,28 +1104,38 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
     }
   } else {
     await updatePluginsAfterCoreUpdate({
-      root,
+      root: postUpdateRoot,
       channel,
       configSnapshot: postUpdateConfigSnapshot,
       opts,
     });
   }
 
-  await tryWriteCompletionCache(root, Boolean(opts.json));
-  await tryInstallShellCompletion({
-    jsonMode: Boolean(opts.json),
-    skipPrompt: Boolean(opts.yes),
-  });
+  if (deferOldProcessPostUpdateWork) {
+    if (!opts.json) {
+      defaultRuntime.log(
+        theme.muted(
+          "Skipped completion/restart follow-ups in the pre-update CLI process after switching to a git install.",
+        ),
+      );
+    }
+  } else {
+    await tryWriteCompletionCache(postUpdateRoot, Boolean(opts.json));
+    await tryInstallShellCompletion({
+      jsonMode: Boolean(opts.json),
+      skipPrompt: Boolean(opts.yes),
+    });
 
-  await maybeRestartService({
-    shouldRestart,
-    result,
-    opts,
-    refreshServiceEnv: refreshGatewayServiceEnv,
-    gatewayPort,
-    restartScriptPath,
-    invocationCwd,
-  });
+    await maybeRestartService({
+      shouldRestart,
+      result,
+      opts,
+      refreshServiceEnv: refreshGatewayServiceEnv,
+      gatewayPort,
+      restartScriptPath,
+      invocationCwd,
+    });
+  }
 
   if (!opts.json) {
     defaultRuntime.log(theme.muted(pickUpdateQuip()));
