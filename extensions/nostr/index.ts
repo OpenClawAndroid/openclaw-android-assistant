@@ -3,7 +3,7 @@ import {
   loadBundledEntryExportSync,
 } from "openclaw/plugin-sdk/channel-entry-contract";
 import type { PluginRuntime } from "./api.js";
-import type { ResolvedNostrAccount } from "./src/types.js";
+import type { ResolvedNostrAccount } from "./api.js";
 
 function createNostrProfileHttpHandler() {
   return loadBundledEntryExportSync<

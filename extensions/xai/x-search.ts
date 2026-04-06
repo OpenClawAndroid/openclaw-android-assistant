@@ -1,5 +1,5 @@
-import { getRuntimeConfigSnapshot } from "@openclaw/plugin-sdk/config-runtime";
-import type { OpenClawConfig } from "@openclaw/plugin-sdk/plugin-entry";
+import { Type } from "@sinclair/typebox";
+import { getRuntimeConfigSnapshot, type OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import {
   jsonResult,
   readCache,
@@ -8,8 +8,7 @@ import {
   resolveCacheTtlMs,
   resolveTimeoutSeconds,
   writeCache,
-} from "@openclaw/plugin-sdk/provider-web-search";
-import { Type } from "@sinclair/typebox";
+} from "openclaw/plugin-sdk/provider-web-search";
 import { isXaiToolEnabled, resolveXaiToolApiKey } from "./src/tool-auth-shared.js";
 import { resolveEffectiveXSearchConfig } from "./src/x-search-config.js";
 import {

@@ -315,6 +315,35 @@ export async function resolveRuntimeWebTools(params: {
 
   const sourceTools = isRecord(params.sourceConfig.tools) ? params.sourceConfig.tools : undefined;
   const sourceWeb = isRecord(sourceTools?.web) ? sourceTools.web : undefined;
+  const resolvedTools = isRecord(params.resolvedConfig.tools)
+    ? params.resolvedConfig.tools
+    : undefined;
+  const resolvedWeb = isRecord(resolvedTools?.web) ? resolvedTools.web : undefined;
+  const legacyXSearchSource = isRecord(sourceWeb?.x_search) ? sourceWeb.x_search : undefined;
+  const legacyXSearchResolved = isRecord(resolvedWeb?.x_search) ? resolvedWeb.x_search : undefined;
+
+  // Doctor owns the migration, but runtime still needs to resolve the legacy SecretRef surface
+  // so existing configs do not silently stop working before users repair them.
+  if (
+    legacyXSearchSource &&
+    legacyXSearchResolved &&
+    Object.prototype.hasOwnProperty.call(legacyXSearchSource, "apiKey")
+  ) {
+    const legacyXSearchSourceRecord = legacyXSearchSource as Record<string, unknown>;
+    const legacyXSearchResolvedRecord = legacyXSearchResolved as Record<string, unknown>;
+    const resolution = await resolveSecretInputWithEnvFallback({
+      sourceConfig: params.sourceConfig,
+      context: params.context,
+      defaults,
+      value: legacyXSearchSourceRecord.apiKey,
+      path: "tools.web.x_search.apiKey",
+      envVars: ["XAI_API_KEY"],
+    });
+    if (resolution.value) {
+      legacyXSearchResolvedRecord.apiKey = resolution.value;
+    }
+  }
+
   const hasPluginWebConfig = hasPluginWebToolConfig(params.sourceConfig);
   if (!sourceWeb && !hasPluginWebConfig) {
     return {

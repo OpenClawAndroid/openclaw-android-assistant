@@ -7,15 +7,13 @@ import {
   buildMusicGenerationTaskStatusText,
   findActiveMusicGenerationTaskForSession,
 } from "../music-generation-task-status.js";
+import {
+  createMediaGenerateDuplicateGuardResult,
+  createMediaGenerateStatusActionResult,
+  type MediaGenerateActionResult,
+} from "./media-generate-tool-actions-shared.js";
 
-type MusicGenerateActionResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details: Record<string, unknown>;
-};
-
-function getMusicGenerationProviderAuthEnvVars(providerId: string): string[] {
-  return getProviderEnvVars(providerId);
-}
+type MusicGenerateActionResult = MediaGenerateActionResult;
 
 function summarizeMusicGenerationCapabilities(
   provider: ReturnType<typeof listRuntimeMusicGenerationProviders>[number],
@@ -57,7 +55,7 @@ export function createMusicGenerateListActionResult(
     };
   }
   const lines = providers.map((provider) => {
-    const authHints = getMusicGenerationProviderAuthEnvVars(provider.id);
+    const authHints = getProviderEnvVars(provider.id);
     const capabilities = summarizeMusicGenerationCapabilities(provider);
     return [
       `${provider.id}: default=${provider.defaultModel ?? "none"}`,
@@ -76,7 +74,7 @@ export function createMusicGenerateListActionResult(
         defaultModel: provider.defaultModel,
         models: provider.models ?? [],
         modes: listSupportedMusicGenerationModes(provider),
-        authEnvVars: getMusicGenerationProviderAuthEnvVars(provider.id),
+        authEnvVars: getProviderEnvVars(provider.id),
         capabilities: provider.capabilities,
       })),
     },
@@ -86,53 +84,24 @@ export function createMusicGenerateListActionResult(
 export function createMusicGenerateStatusActionResult(
   sessionKey?: string,
 ): MusicGenerateActionResult {
-  const activeTask = findActiveMusicGenerationTaskForSession(sessionKey);
-  if (!activeTask) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "No active music generation task is currently running for this session.",
-        },
-      ],
-      details: {
-        action: "status",
-        active: false,
-      },
-    };
-  }
-  return {
-    content: [
-      {
-        type: "text",
-        text: buildMusicGenerationTaskStatusText(activeTask),
-      },
-    ],
-    details: {
-      action: "status",
-      ...buildMusicGenerationTaskStatusDetails(activeTask),
-    },
-  };
+  return createMediaGenerateStatusActionResult({
+    sessionKey,
+    inactiveText: "No active music generation task is currently running for this session.",
+    findActiveTask: (activeSessionKey) =>
+      findActiveMusicGenerationTaskForSession(activeSessionKey) ?? undefined,
+    buildStatusText: buildMusicGenerationTaskStatusText,
+    buildStatusDetails: buildMusicGenerationTaskStatusDetails,
+  });
 }
 
 export function createMusicGenerateDuplicateGuardResult(
   sessionKey?: string,
-): MusicGenerateActionResult | null {
-  const activeTask = findActiveMusicGenerationTaskForSession(sessionKey);
-  if (!activeTask) {
-    return null;
-  }
-  return {
-    content: [
-      {
-        type: "text",
-        text: buildMusicGenerationTaskStatusText(activeTask, { duplicateGuard: true }),
-      },
-    ],
-    details: {
-      action: "status",
-      duplicateGuard: true,
-      ...buildMusicGenerationTaskStatusDetails(activeTask),
-    },
-  };
+): MusicGenerateActionResult | undefined {
+  return createMediaGenerateDuplicateGuardResult({
+    sessionKey,
+    findActiveTask: (activeSessionKey) =>
+      findActiveMusicGenerationTaskForSession(activeSessionKey) ?? undefined,
+    buildStatusText: buildMusicGenerationTaskStatusText,
+    buildStatusDetails: buildMusicGenerationTaskStatusDetails,
+  });
 }

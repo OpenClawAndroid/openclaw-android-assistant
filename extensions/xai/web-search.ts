@@ -1,3 +1,4 @@
+import { Type } from "@sinclair/typebox";
 import {
   DEFAULT_CACHE_TTL_MINUTES,
   DEFAULT_TIMEOUT_SECONDS,
@@ -18,8 +19,7 @@ import {
   type WebSearchProviderSetupContext,
   type WebSearchProviderPlugin,
   writeCache,
-} from "@openclaw/plugin-sdk/provider-web-search";
-import { Type } from "@sinclair/typebox";
+} from "openclaw/plugin-sdk/provider-web-search";
 import {
   buildXaiWebSearchPayload,
   extractXaiWebSearchContent,

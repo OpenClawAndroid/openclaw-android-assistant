@@ -50,12 +50,14 @@ function loadCoverageRegistryEntries(): SecretRegistryEntry[] {
 }
 
 const COVERAGE_REGISTRY_ENTRIES = loadCoverageRegistryEntries();
+const DEBUG_COVERAGE_BATCHES = process.env.OPENCLAW_DEBUG_RUNTIME_COVERAGE === "1";
 
 let applyResolvedAssignments: typeof import("./runtime-shared.js").applyResolvedAssignments;
 let collectAuthStoreAssignments: typeof import("./runtime-auth-collectors.js").collectAuthStoreAssignments;
 let collectConfigAssignments: typeof import("./runtime-config-collectors.js").collectConfigAssignments;
 let createResolverContext: typeof import("./runtime-shared.js").createResolverContext;
 let resolveSecretRefValues: typeof import("./resolve.js").resolveSecretRefValues;
+let resolveRuntimeWebTools: typeof import("./runtime-web-tools.js").resolveRuntimeWebTools;
 
 function toConcretePathSegments(pathPattern: string, wildcardToken = "sample"): string[] {
   const segments = pathPattern.split(".").filter(Boolean);
@@ -75,7 +77,8 @@ function toConcretePathSegments(pathPattern: string, wildcardToken = "sample"): 
 }
 
 function resolveCoverageEnvId(entry: SecretRegistryEntry, fallbackEnvId: string): string {
-  return entry.id === "plugins.entries.firecrawl.config.webFetch.apiKey"
+  return entry.id === "plugins.entries.firecrawl.config.webFetch.apiKey" ||
+    entry.id === "tools.web.fetch.firecrawl.apiKey"
     ? "FIRECRAWL_API_KEY"
     : fallbackEnvId;
 }
@@ -126,11 +129,15 @@ function resolveCoverageBatchKey(entry: SecretRegistryEntry): string {
   }
   if (entry.id.startsWith("channels.")) {
     const segments = entry.id.split(".");
+    const channelId = segments[1] ?? "unknown";
     const field = segments.at(-1);
-    if (field === "accessToken" || field === "password") {
+    if (
+      field === "accessToken" ||
+      field === "password" ||
+      (channelId === "slack" && field === "signingSecret")
+    ) {
       return entry.id;
     }
-    const channelId = segments[1] ?? "unknown";
     const scope = segments[2] === "accounts" ? "accounts" : "root";
     return `channels.${channelId}.${scope}`;
   }
@@ -169,6 +176,15 @@ function buildCoverageBatches(entries: readonly SecretRegistryEntry[]): SecretRe
   return [...batches.values()];
 }
 
+function logCoverageBatch(label: string, batch: readonly SecretRegistryEntry[]): void {
+  if (!DEBUG_COVERAGE_BATCHES || batch.length === 0) {
+    return;
+  }
+  process.stderr.write(
+    `[runtime.coverage] ${label} batch (${batch.length}): ${batch.map((entry) => entry.id).join(", ")}\n`,
+  );
+}
+
 function applyConfigForOpenClawTarget(
   config: OpenClawConfig,
   entry: SecretRegistryEntry,
@@ -192,6 +208,12 @@ function applyConfigForOpenClawTarget(
       "https://api.example/v1",
     );
     setPathCreateStrict(config, ["models", "providers", wildcardToken, "models"], []);
+  }
+  if (entry.id.startsWith("plugins.entries.")) {
+    const pluginId = entry.id.split(".")[2];
+    if (pluginId) {
+      setPathCreateStrict(config, ["plugins", "entries", pluginId, "enabled"], true);
+    }
   }
   if (entry.id === "agents.defaults.memorySearch.remote.apiKey") {
     setPathCreateStrict(config, ["agents", "list", "0", "id"], "sample-agent");
@@ -382,6 +404,12 @@ async function prepareCoverageSnapshot(params: {
     });
   }
 
+  await resolveRuntimeWebTools({
+    sourceConfig,
+    resolvedConfig,
+    context,
+  });
+
   return {
     config: resolvedConfig,
     authStores,
@@ -391,16 +419,20 @@ async function prepareCoverageSnapshot(params: {
 
 describe("secrets runtime target coverage", () => {
   beforeAll(async () => {
-    const [sharedRuntime, authCollectors, configCollectors, resolver] = await Promise.all([
-      import("./runtime-shared.js"),
-      import("./runtime-auth-collectors.js"),
-      import("./runtime-config-collectors.js"),
-      import("./resolve.js"),
-    ]);
+    const [sharedRuntime, authCollectors, configCollectors, resolver, webTools] = await Promise.all(
+      [
+        import("./runtime-shared.js"),
+        import("./runtime-auth-collectors.js"),
+        import("./runtime-config-collectors.js"),
+        import("./resolve.js"),
+        import("./runtime-web-tools.js"),
+      ],
+    );
     ({ applyResolvedAssignments, createResolverContext } = sharedRuntime);
     ({ collectAuthStoreAssignments } = authCollectors);
     ({ collectConfigAssignments } = configCollectors);
     ({ resolveSecretRefValues } = resolver);
+    ({ resolveRuntimeWebTools } = webTools);
   });
 
   it("handles every openclaw.json registry target when configured as active", async () => {
@@ -408,6 +440,7 @@ describe("secrets runtime target coverage", () => {
       (entry) => entry.configFile === "openclaw.json",
     );
     for (const batch of buildCoverageBatches(entries)) {
+      logCoverageBatch("openclaw.json", batch);
       const config = {} as OpenClawConfig;
       const env: Record<string, string> = {};
       for (const [index, entry] of batch.entries()) {
@@ -440,6 +473,7 @@ describe("secrets runtime target coverage", () => {
       (entry) => entry.configFile === "auth-profiles.json",
     );
     for (const batch of buildCoverageBatches(entries)) {
+      logCoverageBatch("auth-profiles.json", batch);
       const env: Record<string, string> = {};
       const authStore: AuthProfileStore = {
         version: 1,

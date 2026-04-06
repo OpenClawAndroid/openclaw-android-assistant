@@ -7,15 +7,13 @@ import {
   buildVideoGenerationTaskStatusText,
   findActiveVideoGenerationTaskForSession,
 } from "../video-generation-task-status.js";
+import {
+  createMediaGenerateDuplicateGuardResult,
+  createMediaGenerateStatusActionResult,
+  type MediaGenerateActionResult,
+} from "./media-generate-tool-actions-shared.js";
 
-type VideoGenerateActionResult = {
-  content: Array<{ type: "text"; text: string }>;
-  details: Record<string, unknown>;
-};
-
-function getVideoGenerationProviderAuthEnvVars(providerId: string): string[] {
-  return getProviderEnvVars(providerId);
-}
+type VideoGenerateActionResult = MediaGenerateActionResult;
 
 function summarizeVideoGenerationCapabilities(
   provider: ReturnType<typeof listRuntimeVideoGenerationProviders>[number],
@@ -61,7 +59,7 @@ export function createVideoGenerateListActionResult(
     };
   }
   const lines = providers.map((provider) => {
-    const authHints = getVideoGenerationProviderAuthEnvVars(provider.id);
+    const authHints = getProviderEnvVars(provider.id);
     const capabilities = summarizeVideoGenerationCapabilities(provider);
     return [
       `${provider.id}: default=${provider.defaultModel ?? "none"}`,
@@ -80,7 +78,7 @@ export function createVideoGenerateListActionResult(
         defaultModel: provider.defaultModel,
         models: provider.models ?? [],
         modes: listSupportedVideoGenerationModes(provider),
-        authEnvVars: getVideoGenerationProviderAuthEnvVars(provider.id),
+        authEnvVars: getProviderEnvVars(provider.id),
         capabilities: provider.capabilities,
       })),
     },
@@ -90,53 +88,24 @@ export function createVideoGenerateListActionResult(
 export function createVideoGenerateStatusActionResult(
   sessionKey?: string,
 ): VideoGenerateActionResult {
-  const activeTask = findActiveVideoGenerationTaskForSession(sessionKey);
-  if (!activeTask) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "No active video generation task is currently running for this session.",
-        },
-      ],
-      details: {
-        action: "status",
-        active: false,
-      },
-    };
-  }
-  return {
-    content: [
-      {
-        type: "text",
-        text: buildVideoGenerationTaskStatusText(activeTask),
-      },
-    ],
-    details: {
-      action: "status",
-      ...buildVideoGenerationTaskStatusDetails(activeTask),
-    },
-  };
+  return createMediaGenerateStatusActionResult({
+    sessionKey,
+    inactiveText: "No active video generation task is currently running for this session.",
+    findActiveTask: (activeSessionKey) =>
+      findActiveVideoGenerationTaskForSession(activeSessionKey) ?? undefined,
+    buildStatusText: buildVideoGenerationTaskStatusText,
+    buildStatusDetails: buildVideoGenerationTaskStatusDetails,
+  });
 }
 
 export function createVideoGenerateDuplicateGuardResult(
   sessionKey?: string,
-): VideoGenerateActionResult | null {
-  const activeTask = findActiveVideoGenerationTaskForSession(sessionKey);
-  if (!activeTask) {
-    return null;
-  }
-  return {
-    content: [
-      {
-        type: "text",
-        text: buildVideoGenerationTaskStatusText(activeTask, { duplicateGuard: true }),
-      },
-    ],
-    details: {
-      action: "status",
-      duplicateGuard: true,
-      ...buildVideoGenerationTaskStatusDetails(activeTask),
-    },
-  };
+): VideoGenerateActionResult | undefined {
+  return createMediaGenerateDuplicateGuardResult({
+    sessionKey,
+    findActiveTask: (activeSessionKey) =>
+      findActiveVideoGenerationTaskForSession(activeSessionKey) ?? undefined,
+    buildStatusText: buildVideoGenerationTaskStatusText,
+    buildStatusDetails: buildVideoGenerationTaskStatusDetails,
+  });
 }

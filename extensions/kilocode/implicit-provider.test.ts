@@ -2,14 +2,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { captureEnv } from "../test-utils/env.js";
-import { resolveImplicitProvidersForTest } from "./models-config.e2e-harness.js";
+import { resolveImplicitProvidersForTest } from "../../src/agents/models-config.e2e-harness.js";
+import { captureEnv } from "../../src/test-utils/env.js";
 
 describe("Kilo Gateway implicit provider", () => {
   it("should include kilocode when KILOCODE_API_KEY is configured", async () => {
     const agentDir = mkdtempSync(join(tmpdir(), "openclaw-test-"));
     const envSnapshot = captureEnv(["KILOCODE_API_KEY"]);
-    process.env.KILOCODE_API_KEY = "test-key"; // pragma: allowlist secret
+    process.env.KILOCODE_API_KEY = "test-key";
 
     try {
       const providers = await resolveImplicitProvidersForTest({ agentDir });
@@ -36,7 +36,7 @@ describe("Kilo Gateway implicit provider", () => {
   it("should preserve an explicit kilocode provider override", async () => {
     const agentDir = mkdtempSync(join(tmpdir(), "openclaw-test-"));
     const envSnapshot = captureEnv(["KILOCODE_API_KEY"]);
-    process.env.KILOCODE_API_KEY = "test-key"; // pragma: allowlist secret
+    process.env.KILOCODE_API_KEY = "test-key";
 
     try {
       const providers = await resolveImplicitProvidersForTest({

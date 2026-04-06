@@ -519,7 +519,7 @@ describe("memory cli", () => {
   it("closes manager after index", async () => {
     const close = vi.fn(async () => {});
     const sync = vi.fn(async () => {});
-    mockManager({ sync, close });
+    mockManager({ sync, status: () => makeMemoryStatus(), close });
 
     const log = spyRuntimeLogs(defaultRuntime);
     await runMemoryCli(["index"]);
@@ -624,7 +624,7 @@ describe("memory cli", () => {
     const sync = vi.fn(async () => {});
     await expectCloseFailureAfterCommand({
       args: ["index"],
-      manager: { sync },
+      manager: { sync, status: () => makeMemoryStatus() },
       beforeExpect: () => {
         expectCliSync(sync);
       },

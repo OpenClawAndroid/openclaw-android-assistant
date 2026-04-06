@@ -2,9 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ModelDefinitionConfig } from "../config/types.models.js";
-import { captureEnv } from "../test-utils/env.js";
-import { resolveImplicitProvidersForTest } from "./models-config.e2e-harness.js";
+import { resolveImplicitProvidersForTest } from "../../src/agents/models-config.e2e-harness.js";
+import type { ModelDefinitionConfig } from "../../src/config/types.models.js";
+import { captureEnv } from "../../src/test-utils/env.js";
 
 function buildExplicitKimiModels(): ModelDefinitionConfig[] {
   return [
@@ -24,7 +24,7 @@ describe("Kimi implicit provider (#22409)", () => {
   it("should include Kimi when KIMI_API_KEY is configured", async () => {
     const agentDir = mkdtempSync(join(tmpdir(), "openclaw-test-"));
     const envSnapshot = captureEnv(["KIMI_API_KEY"]);
-    process.env.KIMI_API_KEY = "test-key"; // pragma: allowlist secret
+    process.env.KIMI_API_KEY = "test-key";
 
     try {
       const providers = await resolveImplicitProvidersForTest({ agentDir });

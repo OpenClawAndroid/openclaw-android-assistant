@@ -2,10 +2,10 @@ import { mkdtempSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveOAuthApiKeyMarker } from "openclaw/plugin-sdk/provider-auth";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHUTES_BASE_URL } from "./chutes-models.js";
-import { resolveOAuthApiKeyMarker } from "./model-auth-markers.js";
-import { resolveImplicitProvidersForTest } from "./models-config.e2e-harness.js";
+import { resolveImplicitProvidersForTest } from "../../src/agents/models-config.e2e-harness.js";
+import { CHUTES_BASE_URL } from "./models.js";
 
 const CHUTES_OAUTH_MARKER = resolveOAuthApiKeyMarker("chutes");
 const ORIGINAL_VITEST_ENV = process.env.VITEST;
