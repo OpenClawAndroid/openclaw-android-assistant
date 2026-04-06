@@ -1,5 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+const INLINE_EVAL_HIT = {
+  executable: "python3",
+  normalizedExecutable: "python3",
+  flag: "-c",
+  argv: ["python3", "-c", "print(1)"],
+};
+
 const preparedPlan = vi.hoisted(() => ({
   argv: ["bun", "./script.ts"],
   cwd: "/tmp/work",
@@ -60,7 +67,14 @@ const registerExecApprovalRequestForHostOrThrowMock = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
 const detectInterpreterInlineEvalArgvMock = vi.hoisted(() =>
-  vi.fn((): { kind: string } | null => null),
+  vi.fn(
+    (): {
+      executable: string;
+      normalizedExecutable: string;
+      flag: string;
+      argv: string[];
+    } | null => null,
+  ),
 );
 
 vi.mock("../infra/exec-approvals.js", () => ({
@@ -264,7 +278,7 @@ describe("executeNodeHostCommand", () => {
   });
 
   it("denies timed-out inline-eval requests instead of invoking the node", async () => {
-    detectInterpreterInlineEvalArgvMock.mockReturnValue({ kind: "python-c" });
+    detectInterpreterInlineEvalArgvMock.mockReturnValue(INLINE_EVAL_HIT);
     resolveApprovalDecisionOrUndefinedMock.mockResolvedValue(null);
     createExecApprovalDecisionStateMock.mockReturnValue({
       baseDecision: { timedOut: true },

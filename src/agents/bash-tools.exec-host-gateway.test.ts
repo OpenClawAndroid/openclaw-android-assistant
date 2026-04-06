@@ -1,5 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+const INLINE_EVAL_HIT = {
+  executable: "python3",
+  normalizedExecutable: "python3",
+  flag: "-c",
+  argv: ["python3", "-c", "print(1)"],
+};
+
 const createAndRegisterDefaultExecApprovalRequestMock = vi.hoisted(() => vi.fn());
 const buildExecApprovalPendingToolResultMock = vi.hoisted(() => vi.fn());
 const buildExecApprovalFollowupTargetMock = vi.hoisted(() => vi.fn(() => null));
@@ -58,7 +65,14 @@ const enforceStrictInlineEvalApprovalBoundaryMock = vi.hoisted(() =>
   ),
 );
 const detectInterpreterInlineEvalArgvMock = vi.hoisted(() =>
-  vi.fn((): { kind: string } | null => null),
+  vi.fn(
+    (): {
+      executable: string;
+      normalizedExecutable: string;
+      flag: string;
+      argv: string[];
+    } | null => null,
+  ),
 );
 
 vi.mock("../infra/exec-approvals.js", () => ({
@@ -295,7 +309,7 @@ describe("processGatewayAllowlist", () => {
       hostAsk: "always",
       askFallback: "full",
     });
-    detectInterpreterInlineEvalArgvMock.mockReturnValue({ kind: "python-c" });
+    detectInterpreterInlineEvalArgvMock.mockReturnValue(INLINE_EVAL_HIT);
     resolveApprovalDecisionOrUndefinedMock.mockResolvedValue(null);
     createExecApprovalDecisionStateMock.mockReturnValue({
       baseDecision: { timedOut: true },
@@ -341,7 +355,7 @@ describe("processGatewayAllowlist", () => {
       hostAsk: "always",
       askFallback: "allowlist",
     });
-    detectInterpreterInlineEvalArgvMock.mockReturnValue({ kind: "python-c" });
+    detectInterpreterInlineEvalArgvMock.mockReturnValue(INLINE_EVAL_HIT);
     resolveApprovalDecisionOrUndefinedMock.mockResolvedValue(null);
     createExecApprovalDecisionStateMock.mockReturnValue({
       baseDecision: { timedOut: true },
