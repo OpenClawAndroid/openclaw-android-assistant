@@ -4,6 +4,7 @@ import {
   splitChannelApprovalCapability,
 } from "openclaw/plugin-sdk/approval-delivery-runtime";
 import { createLazyChannelApprovalNativeRuntimeAdapter } from "openclaw/plugin-sdk/approval-handler-adapter-runtime";
+import type { ChannelApprovalNativeRuntimeAdapter } from "openclaw/plugin-sdk/approval-handler-runtime";
 import {
   createChannelNativeOriginTargetResolver,
   resolveApprovalRequestSessionConversation,
@@ -237,7 +238,9 @@ const matrixNativeApprovalCapability = createApproverRestrictedNativeApprovalCap
         accountId,
         request,
       }),
-    load: async () => (await import("./approval-handler.runtime.js")).matrixApprovalNativeRuntime,
+    load: async () =>
+      (await import("./approval-handler.runtime.js"))
+        .matrixApprovalNativeRuntime as unknown as ChannelApprovalNativeRuntimeAdapter,
   }),
 });
 

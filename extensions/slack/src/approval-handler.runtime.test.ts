@@ -103,8 +103,6 @@ describe("slackApprovalNativeRuntime", () => {
     }
     expect(result.payload.text).toContain("*Exec approval: Allowed once*");
     expect(result.payload.text).toContain("Resolved by <@U123APPROVER>.");
-    expect(
-      (result.payload.blocks as Array<{ type?: string }>).some((block) => block.type === "actions"),
-    ).toBe(false);
+    expect(result.payload.blocks.some((block) => block.type === "actions")).toBe(false);
   });
 });
