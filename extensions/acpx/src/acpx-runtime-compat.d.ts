@@ -1,4 +1,4 @@
-declare module "acpx/dist/runtime.js" {
+declare module "acpx/runtime" {
   export const ACPX_BACKEND_ID: string;
 
   export type AcpRuntimeDoctorReport = import("../runtime-api.js").AcpRuntimeDoctorReport;

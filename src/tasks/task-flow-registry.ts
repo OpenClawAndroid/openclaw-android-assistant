@@ -137,13 +137,11 @@ function ensureNotifyPolicy(notifyPolicy?: TaskNotifyPolicy): TaskNotifyPolicy {
 }
 
 function normalizeOwnerKey(ownerKey?: string): string | undefined {
-  const trimmed = ownerKey?.trim();
-  return trimmed ? trimmed : undefined;
+  return normalizeOptionalString(ownerKey);
 }
 
 function normalizeText(value?: string | null): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
+  return normalizeOptionalString(value);
 }
 
 function normalizeJsonBlob(value: JsonValue | null | undefined): JsonValue | undefined {

@@ -4,9 +4,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { expect } from "vitest";
+import {
+  loadOrCreateDeviceIdentity,
+  publicKeyRawBase64UrlFromPem,
+  type DeviceIdentity,
+} from "../infra/device-identity.js";
+import {
+  approveDevicePairing,
+  getPairedDevice,
+  requestDevicePairing,
+} from "../infra/device-pairing.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { getFreePortBlockWithPermissionFallback } from "../test-utils/ports.js";
-import { GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { GatewayClient } from "./client.js";
 import { renderCatNoncePngBase64 } from "./live-image-probe.js";
 import { extractPayloadText } from "./test-helpers.agent-results.js";
@@ -83,11 +93,14 @@ type CronListJob = NonNullable<CronListCliResult["jobs"]>[number];
 
 export type CliBackendLiveEnvSnapshot = {
   configPath?: string;
+  stateDir?: string;
   token?: string;
   skipChannels?: string;
   skipGmail?: string;
   skipCron?: string;
   skipCanvas?: string;
+  skipBrowserControl?: string;
+  minimalGateway?: string;
   anthropicApiKey?: string;
   anthropicApiKeyOld?: string;
 };
@@ -228,6 +241,7 @@ function sleep(ms: number): Promise<void> {
 export async function connectTestGatewayClient(params: {
   url: string;
   token: string;
+  deviceIdentity?: DeviceIdentity;
 }): Promise<GatewayClient> {
   const startedAt = Date.now();
   let attempt = 0;
@@ -260,6 +274,7 @@ async function connectClientOnce(params: {
   url: string;
   token: string;
   timeoutMs: number;
+  deviceIdentity?: DeviceIdentity;
 }): Promise<GatewayClient> {
   return await new Promise<GatewayClient>((resolve, reject) => {
     let done = false;
@@ -287,10 +302,11 @@ async function connectClientOnce(params: {
       url: params.url,
       token: params.token,
       clientName: GATEWAY_CLIENT_NAMES.TEST,
+      clientDisplayName: "vitest-live",
       clientVersion: "dev",
-      mode: "test",
-      requestTimeoutMs: params.timeoutMs,
+      mode: GATEWAY_CLIENT_MODES.TEST,
       connectChallengeTimeoutMs: params.timeoutMs,
+      deviceIdentity: params.deviceIdentity,
       onHelloOk: () => finish({ client }),
       onConnectError: (error) => finish({ error }),
       onClose: failWithClose,
@@ -319,11 +335,14 @@ function isRetryableGatewayConnectError(error: Error): boolean {
 export function snapshotCliBackendLiveEnv(): CliBackendLiveEnvSnapshot {
   return {
     configPath: process.env.OPENCLAW_CONFIG_PATH,
+    stateDir: process.env.OPENCLAW_STATE_DIR,
     token: process.env.OPENCLAW_GATEWAY_TOKEN,
     skipChannels: process.env.OPENCLAW_SKIP_CHANNELS,
     skipGmail: process.env.OPENCLAW_SKIP_GMAIL_WATCHER,
     skipCron: process.env.OPENCLAW_SKIP_CRON,
     skipCanvas: process.env.OPENCLAW_SKIP_CANVAS_HOST,
+    skipBrowserControl: process.env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER,
+    minimalGateway: process.env.OPENCLAW_TEST_MINIMAL_GATEWAY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     anthropicApiKeyOld: process.env.ANTHROPIC_API_KEY_OLD,
   };
@@ -334,6 +353,8 @@ export function applyCliBackendLiveEnv(preservedEnv: ReadonlySet<string>): void 
   process.env.OPENCLAW_SKIP_GMAIL_WATCHER = "1";
   process.env.OPENCLAW_SKIP_CRON = "1";
   process.env.OPENCLAW_SKIP_CANVAS_HOST = "1";
+  process.env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
+  process.env.OPENCLAW_TEST_MINIMAL_GATEWAY = "1";
   if (!preservedEnv.has("ANTHROPIC_API_KEY")) {
     delete process.env.ANTHROPIC_API_KEY;
   }
@@ -344,11 +365,14 @@ export function applyCliBackendLiveEnv(preservedEnv: ReadonlySet<string>): void 
 
 export function restoreCliBackendLiveEnv(snapshot: CliBackendLiveEnvSnapshot): void {
   restoreEnvVar("OPENCLAW_CONFIG_PATH", snapshot.configPath);
+  restoreEnvVar("OPENCLAW_STATE_DIR", snapshot.stateDir);
   restoreEnvVar("OPENCLAW_GATEWAY_TOKEN", snapshot.token);
   restoreEnvVar("OPENCLAW_SKIP_CHANNELS", snapshot.skipChannels);
   restoreEnvVar("OPENCLAW_SKIP_GMAIL_WATCHER", snapshot.skipGmail);
   restoreEnvVar("OPENCLAW_SKIP_CRON", snapshot.skipCron);
   restoreEnvVar("OPENCLAW_SKIP_CANVAS_HOST", snapshot.skipCanvas);
+  restoreEnvVar("OPENCLAW_SKIP_BROWSER_CONTROL_SERVER", snapshot.skipBrowserControl);
+  restoreEnvVar("OPENCLAW_TEST_MINIMAL_GATEWAY", snapshot.minimalGateway);
   restoreEnvVar("ANTHROPIC_API_KEY", snapshot.anthropicApiKey);
   restoreEnvVar("ANTHROPIC_API_KEY_OLD", snapshot.anthropicApiKeyOld);
 }
@@ -359,6 +383,44 @@ function restoreEnvVar(name: string, value: string | undefined): void {
     return;
   }
   process.env[name] = value;
+}
+
+export async function ensurePairedTestGatewayClientIdentity(): Promise<DeviceIdentity> {
+  const identity = loadOrCreateDeviceIdentity();
+  const publicKey = publicKeyRawBase64UrlFromPem(identity.publicKeyPem);
+  const requiredScopes = ["operator.admin"];
+  const paired = await getPairedDevice(identity.deviceId);
+  const pairedScopes = Array.isArray(paired?.approvedScopes)
+    ? paired.approvedScopes
+    : Array.isArray(paired?.scopes)
+      ? paired.scopes
+      : [];
+  if (
+    paired?.publicKey === publicKey &&
+    requiredScopes.every((scope) => pairedScopes.includes(scope))
+  ) {
+    return identity;
+  }
+  const pairing = await requestDevicePairing({
+    deviceId: identity.deviceId,
+    publicKey,
+    displayName: "vitest",
+    platform: process.platform,
+    clientId: GATEWAY_CLIENT_NAMES.TEST,
+    clientMode: GATEWAY_CLIENT_MODES.TEST,
+    role: "operator",
+    scopes: requiredScopes,
+    silent: true,
+  });
+  const approved = await approveDevicePairing(pairing.request.requestId, {
+    callerScopes: requiredScopes,
+  });
+  if (approved?.status !== "approved") {
+    throw new Error(
+      `failed to pre-pair live test device: ${approved?.status ?? "missing-approval-result"}`,
+    );
+  }
+  return identity;
 }
 
 export async function verifyCliBackendImageProbe(params: {

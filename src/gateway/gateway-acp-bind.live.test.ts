@@ -25,6 +25,7 @@ const describeLive = LIVE && ACP_BIND_LIVE ? describe : describe.skip;
 
 const CONNECT_TIMEOUT_MS = 90_000;
 const LIVE_TIMEOUT_MS = 240_000;
+type LiveAcpAgent = "claude" | "codex" | "gemini";
 
 function createSlackCurrentConversationBindingRegistry() {
   return createTestRegistry([
@@ -42,8 +43,11 @@ function createSlackCurrentConversationBindingRegistry() {
   ]);
 }
 
-function normalizeAcpAgent(raw: string | undefined): "claude" | "codex" {
+function normalizeAcpAgent(raw: string | undefined): LiveAcpAgent {
   const normalized = raw?.trim().toLowerCase();
+  if (normalized === "gemini") {
+    return "gemini";
+  }
   if (normalized === "codex") {
     return "codex";
   }
@@ -65,16 +69,16 @@ function extractAssistantTexts(messages: unknown[]): string[] {
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 }
 
-function createAcpRecallPrompt(liveAgent: "claude" | "codex"): string {
-  if (liveAgent === "codex") {
+function createAcpRecallPrompt(liveAgent: LiveAcpAgent): string {
+  if (liveAgent !== "claude") {
     return "Please include the exact token from your immediately previous assistant reply.";
   }
   return "Reply with exactly the token from your immediately previous assistant reply and nothing else.";
 }
 
-function createAcpMarkerPrompt(liveAgent: "claude" | "codex", memoryNonce: string): string {
+function createAcpMarkerPrompt(liveAgent: LiveAcpAgent, memoryNonce: string): string {
   const token = `ACP-BIND-MEMORY-${memoryNonce}`;
-  if (liveAgent === "codex") {
+  if (liveAgent !== "claude") {
     return `Please include the exact token ${token} in your reply.`;
   }
   return `Reply with exactly this token and nothing else: ${token}`;
@@ -241,7 +245,7 @@ function formatAssistantTextPreview(texts: string[], maxChars = 600): string {
 async function bindConversationAndWait(params: {
   client: GatewayClient;
   sessionKey: string;
-  liveAgent: "claude" | "codex";
+  liveAgent: LiveAcpAgent;
   originatingChannel: string;
   originatingTo: string;
   originatingAccountId: string;

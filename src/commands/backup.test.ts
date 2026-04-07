@@ -214,10 +214,10 @@ describe("backup commands", () => {
       );
       expect(capturedManifest).not.toBeNull();
       expect(capturedOnWriteEntry).not.toBeNull();
-      const manifest = capturedManifest as {
+      const manifest = capturedManifest as unknown as {
         assets: Array<{ kind: string; archivePath: string }>;
       };
-      const onWriteEntry = capturedOnWriteEntry as (entry: { path: string }) => void;
+      const onWriteEntry = capturedOnWriteEntry as unknown as (entry: { path: string }) => void;
       expect(manifest.assets).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: "state" }),

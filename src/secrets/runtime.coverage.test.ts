@@ -218,6 +218,18 @@ function batchNeedsRuntimeWebTools(batch: readonly SecretRegistryEntry[]): boole
   );
 }
 
+function batchUsesRuntimeWebToolsOnly(batch: readonly SecretRegistryEntry[]): boolean {
+  return (
+    batch.length > 0 &&
+    batch.every(
+      (entry) =>
+        entry.id.startsWith("tools.web.") ||
+        (entry.id.startsWith("plugins.entries.") &&
+          (entry.id.includes(".config.webSearch.") || entry.id.includes(".config.webFetch."))),
+    )
+  );
+}
+
 function applyConfigForOpenClawTarget(
   config: OpenClawConfig,
   entry: SecretRegistryEntry,
@@ -397,6 +409,7 @@ async function prepareConfigCoverageSnapshot(params: {
   env: NodeJS.ProcessEnv;
   loadablePluginOrigins?: ReadonlyMap<string, PluginOrigin>;
   includeRuntimeWebTools?: boolean;
+  skipConfigCollectors?: boolean;
 }) {
   await ensureConfigCoverageRuntimeLoaded();
   const sourceConfig = structuredClone(params.config);
@@ -406,11 +419,13 @@ async function prepareConfigCoverageSnapshot(params: {
     env: params.env,
   });
 
-  collectConfigAssignments({
-    config: resolvedConfig,
-    context,
-    loadablePluginOrigins: params.loadablePluginOrigins,
-  });
+  if (!params.skipConfigCollectors) {
+    collectConfigAssignments({
+      config: resolvedConfig,
+      context,
+      loadablePluginOrigins: params.loadablePluginOrigins,
+    });
+  }
 
   if (context.assignments.length > 0) {
     const resolved = await resolveSecretRefValues(
@@ -517,6 +532,7 @@ describe("secrets runtime target coverage", () => {
         env,
         loadablePluginOrigins: COVERAGE_LOADABLE_PLUGIN_ORIGINS,
         includeRuntimeWebTools: batchNeedsRuntimeWebTools(batch),
+        skipConfigCollectors: batchUsesRuntimeWebToolsOnly(batch),
       });
       for (const [index, entry] of batch.entries()) {
         const resolved = getPath(

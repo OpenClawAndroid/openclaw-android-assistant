@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { readStringValue } from "../shared/string-coerce.js";
+import { normalizeOptionalString, readStringValue } from "../shared/string-coerce.js";
 import { extractToolCallsFromAssistant, extractToolResultId } from "./tool-call-id.js";
 
 const TOOL_CALL_NAME_MAX_CHARS = 64;
@@ -153,11 +153,7 @@ function makeMissingToolResult(params: {
 }
 
 function trimNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed || undefined;
+  return normalizeOptionalString(value);
 }
 
 function normalizeToolResultName(

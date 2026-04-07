@@ -123,8 +123,7 @@ function assertTaskOwner(params: { ownerKey: string; scopeKind: TaskScopeKind })
 }
 
 function normalizeOwnerKey(ownerKey?: string): string | undefined {
-  const trimmed = ownerKey?.trim();
-  return trimmed ? trimmed : undefined;
+  return normalizeOptionalString(ownerKey);
 }
 
 function assertParentFlowLinkAllowed(params: {
@@ -404,8 +403,7 @@ function addRunIdIndex(taskId: string, runId?: string) {
 }
 
 function normalizeSessionIndexKey(sessionKey?: string): string | undefined {
-  const trimmed = sessionKey?.trim();
-  return trimmed ? trimmed : undefined;
+  return normalizeOptionalString(sessionKey);
 }
 
 function addIndexedKey(index: Map<string, Set<string>>, key: string, taskId: string) {
