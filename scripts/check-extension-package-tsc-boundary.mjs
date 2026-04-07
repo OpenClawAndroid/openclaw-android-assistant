@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import os from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -21,6 +22,15 @@ function parseMode(argv) {
     throw new Error(`Unknown mode: ${mode}`);
   }
   return mode;
+}
+
+function resolveCompileConcurrency() {
+  const raw = process.env.OPENCLAW_EXTENSION_BOUNDARY_CONCURRENCY;
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return Math.max(1, Math.min(6, Math.floor(os.availableParallelism() / 2)));
 }
 
 function readJsonFile(filePath) {
@@ -87,32 +97,136 @@ function runNodeStep(label, args, timeoutMs) {
   throw failure;
 }
 
-function cleanupCanaryArtifacts(extensionId) {
-  const extensionRoot = resolve(repoRoot, "extensions", extensionId);
-  rmSync(resolve(extensionRoot, "__rootdir_boundary_canary__.ts"), { force: true });
-  rmSync(resolve(extensionRoot, "tsconfig.rootdir-canary.json"), { force: true });
+function runNodeStepAsync(label, args, timeoutMs) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, args, {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      child.kill("SIGTERM");
+      settled = true;
+      rejectPromise(
+        new Error(`${label}\n${stdout}${stderr}\n${label} timed out after ${timeoutMs}ms`.trim()),
+      );
+    }, timeoutMs);
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      clearTimeout(timer);
+      settled = true;
+      rejectPromise(new Error(`${label}\n${stdout}${stderr}\n${error.message}`.trim()));
+    });
+    child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      clearTimeout(timer);
+      settled = true;
+      if (code === 0) {
+        resolvePromise({ stdout, stderr });
+        return;
+      }
+      rejectPromise(new Error(`${label}\n${stdout}${stderr}`.trim()));
+    });
+  });
 }
 
-function runCompileCheck(extensionIds) {
+export function resolveCanaryArtifactPaths(extensionId, rootDir = repoRoot) {
+  const extensionRoot = resolve(rootDir, "extensions", extensionId);
+  return {
+    extensionRoot,
+    canaryPath: resolve(extensionRoot, "__rootdir_boundary_canary__.ts"),
+    tsconfigPath: resolve(extensionRoot, "tsconfig.rootdir-canary.json"),
+  };
+}
+
+export function cleanupCanaryArtifacts(extensionId, rootDir = repoRoot) {
+  const { canaryPath, tsconfigPath } = resolveCanaryArtifactPaths(extensionId, rootDir);
+  rmSync(canaryPath, { force: true });
+  rmSync(tsconfigPath, { force: true });
+}
+
+export function cleanupCanaryArtifactsForExtensions(extensionIds, rootDir = repoRoot) {
+  for (const extensionId of extensionIds) {
+    cleanupCanaryArtifacts(extensionId, rootDir);
+  }
+}
+
+export function installCanaryArtifactCleanup(extensionIds, params = {}) {
+  const rootDir = params.rootDir ?? repoRoot;
+  const processObject = params.processObject ?? process;
+  const exitHandler = () => {
+    cleanupCanaryArtifactsForExtensions(extensionIds, rootDir);
+  };
+  processObject.on("exit", exitHandler);
+  return () => {
+    processObject.off("exit", exitHandler);
+  };
+}
+
+function resolveBoundaryTsBuildInfoPath(extensionId) {
+  return resolve(repoRoot, "extensions", extensionId, "dist", ".boundary-tsc.tsbuildinfo");
+}
+
+async function runCompileCheck(extensionIds) {
   process.stdout.write(
     `preparing plugin-sdk boundary artifacts for ${extensionIds.length} plugins\n`,
   );
   runNodeStep("plugin-sdk boundary prep", [prepareBoundaryArtifactsBin], 420_000);
-  for (const [index, extensionId] of extensionIds.entries()) {
-    process.stdout.write(`[${index + 1}/${extensionIds.length}] ${extensionId}\n`);
-    runNodeStep(
-      extensionId,
-      [tscBin, "-p", resolve(repoRoot, "extensions", extensionId, "tsconfig.json"), "--noEmit"],
-      120_000,
-    );
-  }
+  const concurrency = resolveCompileConcurrency();
+  process.stdout.write(`compile concurrency ${concurrency}\n`);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, extensionIds.length) }, async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= extensionIds.length) {
+        return;
+      }
+      const extensionId = extensionIds[index];
+      const tsBuildInfoPath = resolveBoundaryTsBuildInfoPath(extensionId);
+      mkdirSync(dirname(tsBuildInfoPath), { recursive: true });
+      process.stdout.write(`[${index + 1}/${extensionIds.length}] ${extensionId}\n`);
+      await runNodeStepAsync(
+        extensionId,
+        [
+          tscBin,
+          "-p",
+          resolve(repoRoot, "extensions", extensionId, "tsconfig.json"),
+          "--noEmit",
+          "--incremental",
+          "--tsBuildInfoFile",
+          tsBuildInfoPath,
+        ],
+        120_000,
+      );
+    }
+  });
+  await Promise.all(workers);
 }
 
 function runCanaryCheck(extensionIds) {
   for (const extensionId of extensionIds) {
-    const extensionRoot = resolve(repoRoot, "extensions", extensionId);
-    const canaryPath = resolve(extensionRoot, "__rootdir_boundary_canary__.ts");
-    const tsconfigPath = resolve(extensionRoot, "tsconfig.rootdir-canary.json");
+    const { canaryPath, tsconfigPath } = resolveCanaryArtifactPaths(extensionId);
 
     cleanupCanaryArtifacts(extensionId);
     try {
@@ -154,17 +268,31 @@ function runCanaryCheck(extensionIds) {
   }
 }
 
-function main() {
-  const mode = parseMode(process.argv.slice(2));
+export async function main(argv = process.argv.slice(2)) {
+  const mode = parseMode(argv);
   const optInExtensionIds = collectOptInExtensionIds();
   const canaryExtensionIds = collectCanaryExtensionIds(optInExtensionIds);
+  const shouldRunCanary = mode === "all" || mode === "canary";
+  const teardownCanaryCleanup = shouldRunCanary
+    ? installCanaryArtifactCleanup(canaryExtensionIds)
+    : null;
 
-  if (mode === "all" || mode === "compile") {
-    runCompileCheck(optInExtensionIds);
-  }
-  if (mode === "all" || mode === "canary") {
-    runCanaryCheck(canaryExtensionIds);
+  try {
+    cleanupCanaryArtifactsForExtensions(canaryExtensionIds);
+    if (mode === "all" || mode === "compile") {
+      await runCompileCheck(optInExtensionIds);
+    }
+    if (shouldRunCanary) {
+      runCanaryCheck(canaryExtensionIds);
+    }
+  } finally {
+    teardownCanaryCleanup?.();
+    if (shouldRunCanary) {
+      cleanupCanaryArtifactsForExtensions(canaryExtensionIds);
+    }
   }
 }
 
-main();
+if (import.meta.main) {
+  await main();
+}

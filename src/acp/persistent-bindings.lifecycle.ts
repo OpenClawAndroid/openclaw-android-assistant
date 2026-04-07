@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { SessionAcpMeta } from "../config/sessions/types.js";
 import { logVerbose } from "../globals.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
 import { getAcpSessionManager } from "./control-plane/manager.js";
 import { resolveConfiguredAcpBindingSpecBySessionKey } from "./persistent-bindings.resolve.js";
 import {
@@ -21,8 +22,10 @@ function sessionMatchesConfiguredBinding(params: {
     return false;
   }
 
-  const desiredAgent = (params.spec.acpAgentId ?? params.spec.agentId).trim().toLowerCase();
-  const currentAgent = (params.meta.agent ?? "").trim().toLowerCase();
+  const desiredAgent = normalizeLowercaseStringOrEmpty(
+    params.spec.acpAgentId ?? params.spec.agentId,
+  );
+  const currentAgent = normalizeLowercaseStringOrEmpty(params.meta.agent);
   if (!currentAgent || currentAgent !== desiredAgent) {
     return false;
   }
