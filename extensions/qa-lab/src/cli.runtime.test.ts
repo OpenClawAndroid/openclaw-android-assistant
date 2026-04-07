@@ -1,10 +1,20 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runQaManualLane, runQaSuite, startQaLabServer } = vi.hoisted(() => ({
+const {
+  runQaManualLane,
+  runQaSuite,
+  startQaLabServer,
+  writeQaDockerHarnessFiles,
+  buildQaDockerHarnessImage,
+  runQaDockerUp,
+} = vi.hoisted(() => ({
   runQaManualLane: vi.fn(),
   runQaSuite: vi.fn(),
   startQaLabServer: vi.fn(),
+  writeQaDockerHarnessFiles: vi.fn(),
+  buildQaDockerHarnessImage: vi.fn(),
+  runQaDockerUp: vi.fn(),
 }));
 
 vi.mock("./manual-lane.runtime.js", () => ({
@@ -19,8 +29,20 @@ vi.mock("./lab-server.js", () => ({
   startQaLabServer,
 }));
 
+vi.mock("./docker-harness.js", () => ({
+  writeQaDockerHarnessFiles,
+  buildQaDockerHarnessImage,
+}));
+
+vi.mock("./docker-up.runtime.js", () => ({
+  runQaDockerUp,
+}));
+
 import {
   runQaLabSelfCheckCommand,
+  runQaDockerBuildImageCommand,
+  runQaDockerScaffoldCommand,
+  runQaDockerUpCommand,
   runQaManualLaneCommand,
   runQaSuiteCommand,
 } from "./cli.runtime.js";
@@ -33,6 +55,9 @@ describe("qa cli runtime", () => {
     runQaSuite.mockReset();
     runQaManualLane.mockReset();
     startQaLabServer.mockReset();
+    writeQaDockerHarnessFiles.mockReset();
+    buildQaDockerHarnessImage.mockReset();
+    runQaDockerUp.mockReset();
     runQaSuite.mockResolvedValue({
       watchUrl: "http://127.0.0.1:43124",
       reportPath: "/tmp/report.md",
@@ -50,6 +75,18 @@ describe("qa cli runtime", () => {
         outputPath: "/tmp/report.md",
       }),
       stop: vi.fn(),
+    });
+    writeQaDockerHarnessFiles.mockResolvedValue({
+      outputDir: "/tmp/openclaw-repo/.artifacts/qa-docker",
+    });
+    buildQaDockerHarnessImage.mockResolvedValue({
+      imageName: "openclaw:qa-local-prebaked",
+    });
+    runQaDockerUp.mockResolvedValue({
+      outputDir: "/tmp/openclaw-repo/.artifacts/qa-docker",
+      qaLabUrl: "http://127.0.0.1:43124",
+      gatewayUrl: "http://127.0.0.1:18789/",
+      stopCommand: "docker compose down",
     });
   });
 
@@ -197,6 +234,57 @@ describe("qa cli runtime", () => {
     expect(startQaLabServer).toHaveBeenCalledWith({
       repoRoot: path.resolve("/tmp/openclaw-repo"),
       outputPath: path.resolve("/tmp/openclaw-repo", ".artifacts/qa/self-check.md"),
+    });
+  });
+
+  it("resolves docker scaffold paths relative to the explicit repo root", async () => {
+    await runQaDockerScaffoldCommand({
+      repoRoot: "/tmp/openclaw-repo",
+      outputDir: ".artifacts/qa-docker",
+      providerBaseUrl: "http://127.0.0.1:44080/v1",
+      usePrebuiltImage: true,
+    });
+
+    expect(writeQaDockerHarnessFiles).toHaveBeenCalledWith({
+      outputDir: path.resolve("/tmp/openclaw-repo", ".artifacts/qa-docker"),
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      gatewayPort: undefined,
+      qaLabPort: undefined,
+      providerBaseUrl: "http://127.0.0.1:44080/v1",
+      imageName: undefined,
+      usePrebuiltImage: true,
+    });
+  });
+
+  it("passes the explicit repo root into docker image builds", async () => {
+    await runQaDockerBuildImageCommand({
+      repoRoot: "/tmp/openclaw-repo",
+      image: "openclaw:qa-local-prebaked",
+    });
+
+    expect(buildQaDockerHarnessImage).toHaveBeenCalledWith({
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      imageName: "openclaw:qa-local-prebaked",
+    });
+  });
+
+  it("resolves docker up paths relative to the explicit repo root", async () => {
+    await runQaDockerUpCommand({
+      repoRoot: "/tmp/openclaw-repo",
+      outputDir: ".artifacts/qa-up",
+      usePrebuiltImage: true,
+      skipUiBuild: true,
+    });
+
+    expect(runQaDockerUp).toHaveBeenCalledWith({
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      outputDir: path.resolve("/tmp/openclaw-repo", ".artifacts/qa-up"),
+      gatewayPort: undefined,
+      qaLabPort: undefined,
+      providerBaseUrl: undefined,
+      image: undefined,
+      usePrebuiltImage: true,
+      skipUiBuild: true,
     });
   });
 });

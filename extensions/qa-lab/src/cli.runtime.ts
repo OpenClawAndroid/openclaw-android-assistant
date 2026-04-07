@@ -157,6 +157,7 @@ export async function runQaLabUiCommand(opts: {
 }
 
 export async function runQaDockerScaffoldCommand(opts: {
+  repoRoot?: string;
   outputDir: string;
   gatewayPort?: number;
   qaLabPort?: number;
@@ -165,10 +166,11 @@ export async function runQaDockerScaffoldCommand(opts: {
   usePrebuiltImage?: boolean;
   bindUiDist?: boolean;
 }) {
-  const outputDir = path.resolve(opts.outputDir);
+  const repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
+  const outputDir = path.resolve(repoRoot, opts.outputDir);
   const result = await writeQaDockerHarnessFiles({
     outputDir,
-    repoRoot: process.cwd(),
+    repoRoot,
     gatewayPort: Number.isFinite(opts.gatewayPort) ? opts.gatewayPort : undefined,
     qaLabPort: Number.isFinite(opts.qaLabPort) ? opts.qaLabPort : undefined,
     providerBaseUrl: opts.providerBaseUrl,
@@ -179,15 +181,17 @@ export async function runQaDockerScaffoldCommand(opts: {
   process.stdout.write(`QA docker scaffold: ${result.outputDir}\n`);
 }
 
-export async function runQaDockerBuildImageCommand(opts: { image?: string }) {
+export async function runQaDockerBuildImageCommand(opts: { repoRoot?: string; image?: string }) {
+  const repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
   const result = await buildQaDockerHarnessImage({
-    repoRoot: process.cwd(),
+    repoRoot,
     imageName: opts.image,
   });
   process.stdout.write(`QA docker image: ${result.imageName}\n`);
 }
 
 export async function runQaDockerUpCommand(opts: {
+  repoRoot?: string;
   outputDir?: string;
   gatewayPort?: number;
   qaLabPort?: number;
@@ -197,9 +201,10 @@ export async function runQaDockerUpCommand(opts: {
   bindUiDist?: boolean;
   skipUiBuild?: boolean;
 }) {
+  const repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
   const result = await runQaDockerUp({
-    repoRoot: process.cwd(),
-    outputDir: opts.outputDir ? path.resolve(opts.outputDir) : undefined,
+    repoRoot,
+    outputDir: opts.outputDir ? path.resolve(repoRoot, opts.outputDir) : undefined,
     gatewayPort: Number.isFinite(opts.gatewayPort) ? opts.gatewayPort : undefined,
     qaLabPort: Number.isFinite(opts.qaLabPort) ? opts.qaLabPort : undefined,
     providerBaseUrl: opts.providerBaseUrl,
