@@ -1,5 +1,8 @@
 import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/config-runtime";
-import { convertMarkdownTables } from "openclaw/plugin-sdk/text-runtime";
+import {
+  convertMarkdownTables,
+  normalizeOptionalLowercaseString,
+} from "openclaw/plugin-sdk/text-runtime";
 import type { ClawdbotConfig } from "../runtime-api.js";
 import { resolveFeishuRuntimeAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
@@ -614,7 +617,7 @@ export type CardHeaderConfig = {
 };
 
 export function resolveFeishuCardTemplate(template?: string): string | undefined {
-  const normalized = template?.trim().toLowerCase();
+  const normalized = normalizeOptionalLowercaseString(template);
   if (!normalized || !FEISHU_CARD_TEMPLATES.has(normalized)) {
     return undefined;
   }

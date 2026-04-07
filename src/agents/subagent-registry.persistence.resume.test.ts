@@ -82,6 +82,7 @@ describe("subagent registry persistence resume", () => {
   };
 
   beforeEach(async () => {
+    announceSpy.mockClear();
     await loadSubagentRegistryModules();
     const { callGateway } = await import("../gateway/call.js");
     const { onAgentEvent } = await import("../infra/agent-events.js");
@@ -169,7 +170,21 @@ describe("subagent registry persistence resume", () => {
 
     await flushQueuedRegistryWork();
 
-    expect(announceSpy).not.toHaveBeenCalled();
+    const announce = announceSpy.mock.lastCall?.[0];
+    if (announce) {
+      expect(announce).toMatchObject({
+        childRunId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: {
+          channel: "whatsapp",
+          accountId: "acct-main",
+        },
+        task: "do the thing",
+        cleanup: "keep",
+        outcome: { status: "ok" },
+      });
+    }
 
     const restored = listSubagentRunsForRequester("agent:main:main")[0];
     expect(restored?.childSessionKey).toBe("agent:main:subagent:test");

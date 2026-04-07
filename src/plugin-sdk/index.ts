@@ -112,8 +112,5 @@ export type {
 
 export { emptyPluginConfigSchema } from "../plugins/config-schema.js";
 export { registerContextEngine } from "../context-engine/registry.js";
-export {
-  buildMemorySystemPromptAddition,
-  delegateCompactionToRuntime,
-} from "../context-engine/delegate.js";
+export { delegateCompactionToRuntime } from "../context-engine/delegate.js";
 export { onDiagnosticEvent } from "../infra/diagnostic-events.js";
