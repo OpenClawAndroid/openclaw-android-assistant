@@ -78,8 +78,9 @@ export function collectInstalledPackageErrors(params: {
   packageRoot: string;
 }): string[] {
   const errors: string[] = [];
+  const installedVersion = normalizeInstalledBinaryVersion(params.installedVersion);
 
-  if (params.installedVersion !== params.expectedVersion) {
+  if (installedVersion !== params.expectedVersion) {
     errors.push(
       `installed package version mismatch: expected ${params.expectedVersion}, found ${params.installedVersion || "<missing>"}.`,
     );
@@ -96,6 +97,12 @@ export function collectInstalledPackageErrors(params: {
   return errors;
 }
 
+export function normalizeInstalledBinaryVersion(output: string): string {
+  const trimmed = output.trim();
+  const versionMatch = /\b\d{4}\.\d{1,2}\.\d{1,2}(?:-\d+|-beta\.\d+)?\b/u.exec(trimmed);
+  return versionMatch?.[0] ?? trimmed;
+}
+
 export function resolveInstalledBinaryPath(prefixDir: string, platform = process.platform): string {
   return platform === "win32"
     ? join(prefixDir, "openclaw.cmd")
@@ -109,6 +116,25 @@ function collectRuntimeDependencySpecs(packageJson: InstalledPackageJson): Map<s
   ]);
 }
 
+function collectExpectedBundledExtensionPackageIds(
+  sourceExtensionsDir = join(process.cwd(), "extensions"),
+): ReadonlySet<string> | null {
+  if (!existsSync(sourceExtensionsDir)) {
+    return null;
+  }
+
+  const ids = new Set<string>();
+  for (const entry of readdirSync(sourceExtensionsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    if (existsSync(join(sourceExtensionsDir, entry.name, "package.json"))) {
+      ids.add(entry.name);
+    }
+  }
+  return ids;
+}
+
 function readBundledExtensionPackageJsons(packageRoot: string): {
   manifests: InstalledBundledExtensionManifestRecord[];
   errors: string[];
@@ -120,6 +146,7 @@ function readBundledExtensionPackageJsons(packageRoot: string): {
 
   const manifests: InstalledBundledExtensionManifestRecord[] = [];
   const errors: string[] = [];
+  const expectedPackageIds = collectExpectedBundledExtensionPackageIds();
 
   for (const entry of readdirSync(extensionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) {
@@ -129,7 +156,9 @@ function readBundledExtensionPackageJsons(packageRoot: string): {
     const extensionDirPath = join(extensionsDir, entry.name);
     const packageJsonPath = join(extensionsDir, entry.name, "package.json");
     if (!existsSync(packageJsonPath)) {
-      errors.push(`installed bundled extension manifest missing: ${packageJsonPath}.`);
+      if (expectedPackageIds === null || expectedPackageIds.has(entry.name)) {
+        errors.push(`installed bundled extension manifest missing: ${packageJsonPath}.`);
+      }
       continue;
     }
 
@@ -281,7 +310,7 @@ function verifyScenario(version: string, scenario: PublishedInstallScenario): vo
     });
     const installedBinaryVersion = readInstalledBinaryVersion(prefixDir, workingDir);
 
-    if (installedBinaryVersion !== scenario.expectedVersion) {
+    if (normalizeInstalledBinaryVersion(installedBinaryVersion) !== scenario.expectedVersion) {
       errors.push(
         `installed openclaw binary version mismatch: expected ${scenario.expectedVersion}, found ${installedBinaryVersion || "<missing>"}.`,
       );

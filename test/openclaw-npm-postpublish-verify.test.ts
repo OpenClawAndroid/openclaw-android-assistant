@@ -6,6 +6,7 @@ import {
   buildPublishedInstallScenarios,
   collectInstalledMirroredRootDependencyManifestErrors,
   collectInstalledPackageErrors,
+  normalizeInstalledBinaryVersion,
   resolveInstalledBinaryPath,
 } from "../scripts/openclaw-npm-postpublish-verify.ts";
 import { BUNDLED_RUNTIME_SIDECAR_PATHS } from "../src/plugins/runtime-sidecar-paths.ts";
@@ -57,6 +58,15 @@ describe("collectInstalledPackageErrors", () => {
       ),
     );
     expect(errors.length).toBeGreaterThanOrEqual(1 + BUNDLED_RUNTIME_SIDECAR_PATHS.length);
+  });
+});
+
+describe("normalizeInstalledBinaryVersion", () => {
+  it("accepts decorated CLI version output", () => {
+    expect(normalizeInstalledBinaryVersion("OpenClaw 2026.4.8 (9ece252)")).toBe("2026.4.8");
+    expect(normalizeInstalledBinaryVersion("OpenClaw 2026.4.8-beta.1 (9ece252)")).toBe(
+      "2026.4.8-beta.1",
+    );
   });
 });
 
@@ -204,6 +214,24 @@ describe("collectInstalledMirroredRootDependencyManifestErrors", () => {
       expect(collectInstalledMirroredRootDependencyManifestErrors(packageRoot)).toEqual([
         `installed bundled extension manifest missing: ${join(packageRoot, "dist/extensions/slack/package.json")}.`,
       ]);
+    } finally {
+      rmSync(packageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips manifest-only sidecar directories without package.json", () => {
+    const packageRoot = makeInstalledPackageRoot();
+
+    try {
+      writePackageFile(packageRoot, "package.json", {
+        version: "2026.4.9",
+        dependencies: {},
+      });
+      writePackageFile(packageRoot, "dist/extensions/device-pair/openclaw.plugin.json", {
+        id: "device-pair",
+      });
+
+      expect(collectInstalledMirroredRootDependencyManifestErrors(packageRoot)).toEqual([]);
     } finally {
       rmSync(packageRoot, { recursive: true, force: true });
     }
