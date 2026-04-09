@@ -9,6 +9,7 @@ Docs: https://docs.openclaw.ai
 - Memory/Active Memory: add a new optional Active Memory plugin that gives OpenClaw a dedicated memory sub-agent right before the main reply, so ongoing chats can automatically pull in relevant preferences, context, and past details without making users remember to manually say "remember this" or "search memory" first. Includes configurable message/recent/full context modes, live `/verbose` inspection, advanced prompt/thinking overrides for tuning, and opt-in transcript persistence for debugging.
 - macOS/Talk: add an experimental local MLX speech provider for Talk Mode, with explicit provider selection, local utterance playback, interruption handling, and system-voice fallback. (#63539) Thanks @ImLukeF.
 - Docs i18n: chunk raw doc translation, reject truncated tagged outputs, avoid ambiguous body-only wrapper unwrapping, and recover from terminated Pi translation sessions without changing the default `openai/gpt-5.4` path. (#62969, #63808) Thanks @hxy91819.
+- QA/testing: add a `--runner multipass` lane for `openclaw qa suite` so repo-backed QA scenarios can run inside a disposable Linux VM and write back the usual report, summary, and VM logs. (#63426) Thanks @shakkernerd.
 
 ### Fixes
 
@@ -42,6 +43,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/session reset: emit the typed `before_reset` hook for gateway `/new` and `/reset`, preserving reset-hook behavior even when the previous transcript has already been archived. (#53872) thanks @VACInc
 - Plugins/commands: pass the active host `sessionKey` into plugin command contexts, and include `sessionId` when it is already available from the active session entry, so bundled and third-party commands can resolve the current conversation reliably. (#59044) Thanks @jalehman.
 - Agents/auth: honor `models.providers.*.authHeader` for pi embedded runner model requests by injecting `Authorization: Bearer <apiKey>` when requested. (#54390) Thanks @lndyzwdxhs.
+- Dreaming/cron: stop runtime cron reconciliation on ordinary user turns and only recover managed dreaming cron state during heartbeat-triggered dreaming checks, so unrelated chat traffic does not silently recreate removed jobs. (#63938) Thanks @mbelinky.
 - UI/compaction: keep the compaction indicator in a retry-pending state until the run actually finishes, so the UI does not show `Context compacted` before compaction actually finishes. (#55132) Thanks @mpz4life.
 - Cron/tool schemas: keep cron tool schemas strict-model-friendly while still preserving `failureAlert=false`, nullable `agentId`/`sessionKey`, and flattened add/update recovery for the newly exposed cron job fields. (#55043) Thanks @brunolorente.
 - BlueBubbles/config: accept `enrichGroupParticipantsFromContacts` in the core strict config schema so gateways no longer fail validation or startup when the BlueBubbles plugin writes that field. (#56889) Thanks @zqchris.
@@ -57,7 +59,7 @@ Docs: https://docs.openclaw.ai
 - Cron/Telegram: collapse isolated announce delivery to the final assistant-visible text only for Telegram targets, while preserving existing multi-message direct delivery semantics for other channels. (#63228) Thanks @welfo-beo.
 - Gateway/thread routing: preserve Slack, Telegram, and Mattermost thread-child delivery targets so bound subagent completion messages land in the originating thread instead of top-level channels. (#54840) Thanks @yzzymt.
 - ACP/stream relay: pass parent delivery context to ACP stream relay system events so `streamTo="parent"` updates route to the correct thread or topic instead of falling back to the main DM. (#57056) Thanks @pingren.
-
+- Agents/sessions: preserve announce `threadId` when `sessions.list` fallback rehydrates agent-to-agent announce targets so final announce messages stay in the originating thread/topic. (#63506) Thanks @SnowSky1.
 ## 2026.4.9
 
 ### Changes
