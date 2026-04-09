@@ -185,13 +185,12 @@ describe("runQaCharacterEval", () => {
         rankings: [
           { model: "openai/gpt-5.4", rank: 1, score: 8, summary: "ok" },
           { model: "openai/gpt-5.2", rank: 2, score: 7.5, summary: "ok" },
-          { model: "anthropic/claude-opus-4-6", rank: 3, score: 7, summary: "ok" },
-          { model: "anthropic/claude-sonnet-4-6", rank: 4, score: 6.8, summary: "ok" },
-          { model: "minimax/MiniMax-M2.7", rank: 5, score: 6.5, summary: "ok" },
+          { model: "openai/gpt-5", rank: 3, score: 7.2, summary: "ok" },
+          { model: "anthropic/claude-opus-4-6", rank: 4, score: 7, summary: "ok" },
+          { model: "anthropic/claude-sonnet-4-6", rank: 5, score: 6.8, summary: "ok" },
           { model: "zai/glm-5.1", rank: 6, score: 6.3, summary: "ok" },
           { model: "moonshot/kimi-k2.5", rank: 7, score: 6.2, summary: "ok" },
-          { model: "qwen/qwen3.5-plus", rank: 8, score: 6.1, summary: "ok" },
-          { model: "google/gemini-3.1-pro-preview", rank: 9, score: 6, summary: "ok" },
+          { model: "google/gemini-3.1-pro-preview", rank: 8, score: 6, summary: "ok" },
         ],
       }),
     );
@@ -204,23 +203,21 @@ describe("runQaCharacterEval", () => {
       runJudge,
     });
 
-    expect(runSuite).toHaveBeenCalledTimes(9);
+    expect(runSuite).toHaveBeenCalledTimes(8);
     expect(runSuite.mock.calls.map(([params]) => params.primaryModel)).toEqual([
       "openai/gpt-5.4",
       "openai/gpt-5.2",
+      "openai/gpt-5",
       "anthropic/claude-opus-4-6",
       "anthropic/claude-sonnet-4-6",
-      "minimax/MiniMax-M2.7",
       "zai/glm-5.1",
       "moonshot/kimi-k2.5",
-      "qwen/qwen3.5-plus",
       "google/gemini-3.1-pro-preview",
     ]);
     expect(runSuite.mock.calls.map(([params]) => params.thinkingDefault)).toEqual([
       "xhigh",
       "xhigh",
-      "high",
-      "high",
+      "xhigh",
       "high",
       "high",
       "high",
@@ -230,8 +227,7 @@ describe("runQaCharacterEval", () => {
     expect(runSuite.mock.calls.map(([params]) => params.fastMode)).toEqual([
       true,
       true,
-      false,
-      false,
+      true,
       false,
       false,
       false,

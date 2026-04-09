@@ -10,12 +10,11 @@ const DEFAULT_CHARACTER_SCENARIO_ID = "character-vibes-gollum";
 const DEFAULT_CHARACTER_EVAL_MODELS = Object.freeze([
   "openai/gpt-5.4",
   "openai/gpt-5.2",
+  "openai/gpt-5",
   "anthropic/claude-opus-4-6",
   "anthropic/claude-sonnet-4-6",
-  "minimax/MiniMax-M2.7",
   "zai/glm-5.1",
   "moonshot/kimi-k2.5",
-  "qwen/qwen3.5-plus",
   "google/gemini-3.1-pro-preview",
 ]);
 const DEFAULT_CHARACTER_THINKING: QaThinkingLevel = "high";
@@ -24,6 +23,7 @@ const DEFAULT_CHARACTER_THINKING_BY_MODEL: Readonly<Record<string, QaThinkingLev
   Object.freeze({
     "openai/gpt-5.4": "xhigh",
     "openai/gpt-5.2": "xhigh",
+    "openai/gpt-5": "xhigh",
   });
 const DEFAULT_JUDGE_MODELS = Object.freeze(["openai/gpt-5.4", "anthropic/claude-opus-4-6"]);
 const DEFAULT_JUDGE_THINKING: QaThinkingLevel = "xhigh";
