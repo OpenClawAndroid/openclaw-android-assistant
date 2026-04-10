@@ -4,15 +4,15 @@ import {
   type CompactEmbeddedPiSessionParams,
   type EmbeddedPiCompactResult,
 } from "openclaw/plugin-sdk/agent-harness";
-import {
-  getSharedCodexAppServerClient,
-  type CodexAppServerClient,
-  type CodexServerNotificationHandler,
-} from "./client.js";
+import type { CodexAppServerClient, CodexServerNotificationHandler } from "./client.js";
+import { resolveCodexAppServerRuntimeOptions, type CodexAppServerStartOptions } from "./config.js";
 import { isJsonObject, type CodexServerNotification, type JsonObject } from "./protocol.js";
 import { readCodexAppServerBinding } from "./session-binding.js";
+import { getSharedCodexAppServerClient } from "./shared-client.js";
 
-type CodexAppServerClientFactory = () => Promise<CodexAppServerClient>;
+type CodexAppServerClientFactory = (
+  startOptions?: CodexAppServerStartOptions,
+) => Promise<CodexAppServerClient>;
 type CodexNativeCompactionCompletion = {
   signal: "thread/compacted" | "item/completed";
   turnId?: string;
@@ -26,11 +26,14 @@ type CodexNativeCompactionWaiter = {
 
 const DEFAULT_CODEX_COMPACTION_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
 
-let clientFactory: CodexAppServerClientFactory = getSharedCodexAppServerClient;
+let clientFactory: CodexAppServerClientFactory = (startOptions) =>
+  getSharedCodexAppServerClient({ startOptions });
 
 export async function maybeCompactCodexAppServerSession(
   params: CompactEmbeddedPiSessionParams,
+  options: { pluginConfig?: unknown } = {},
 ): Promise<EmbeddedPiCompactResult | undefined> {
+  const appServer = resolveCodexAppServerRuntimeOptions({ pluginConfig: options.pluginConfig });
   const runtime = resolveEmbeddedAgentRuntime();
   const provider = params.provider?.trim().toLowerCase();
   const shouldUseCodex =
@@ -48,7 +51,7 @@ export async function maybeCompactCodexAppServerSession(
     return undefined;
   }
 
-  const client = await clientFactory();
+  const client = await clientFactory(appServer.start);
   const waiter = createCodexNativeCompactionWaiter(client, binding.threadId);
   let completion: CodexNativeCompactionCompletion;
   try {
@@ -222,6 +225,6 @@ export const __testing = {
     clientFactory = factory;
   },
   resetCodexAppServerClientFactoryForTests(): void {
-    clientFactory = getSharedCodexAppServerClient;
+    clientFactory = (startOptions) => getSharedCodexAppServerClient({ startOptions });
   },
 } as const;
