@@ -218,7 +218,7 @@ export async function installPackageDir(params: {
       candidatePaths: [canonicalTargetDir],
     });
     stageDir = await fs.mkdtemp(path.join(installBaseRealPath, ".openclaw-install-stage-"));
-    await fs.cp(params.sourceDir, stageDir, { recursive: true });
+    await fs.cp(params.sourceDir, stageDir, { recursive: true, verbatimSymlinks: true });
   } catch (err) {
     return await fail(`${params.copyErrorPrefix}: ${String(err)}`, err);
   }

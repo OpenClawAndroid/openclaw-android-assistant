@@ -16,7 +16,7 @@ function createMockFetch(response?: { status?: number; body?: unknown; contentTy
   const calls: Array<{ url: string; init?: RequestInit }> = [];
 
   const mockFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-    const urlStr = typeof url === "string" ? url : url.toString();
+    const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
     calls.push({ url: urlStr, init });
     return new Response(JSON.stringify(body), {
       status,

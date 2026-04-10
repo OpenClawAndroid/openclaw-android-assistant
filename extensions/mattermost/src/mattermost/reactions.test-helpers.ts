@@ -2,6 +2,10 @@ import { expect, vi } from "vitest";
 import type { OpenClawConfig } from "../../runtime-api.js";
 import type { MattermostFetch } from "./client.js";
 
+export function requestUrl(url: string | URL | Request): string {
+  return typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+}
+
 export function createMattermostTestConfig(): OpenClawConfig {
   return {
     channels: {
@@ -31,14 +35,15 @@ export function createMattermostReactionFetchMock(params: {
   const removePath = `/api/v4/users/${userId}/posts/${params.postId}/reactions/${encodeURIComponent(params.emojiName)}`;
 
   return vi.fn<typeof fetch>(async (url, init) => {
-    if (String(url).endsWith("/api/v4/users/me")) {
+    const urlText = requestUrl(url);
+    if (urlText.endsWith("/api/v4/users/me")) {
       return new Response(JSON.stringify({ id: userId }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     }
 
-    if (allowAdd && String(url).endsWith("/api/v4/reactions")) {
+    if (allowAdd && urlText.endsWith("/api/v4/reactions")) {
       expect(init?.method).toBe("POST");
       const requestBody = init?.body;
       if (typeof requestBody !== "string") {
@@ -59,7 +64,7 @@ export function createMattermostReactionFetchMock(params: {
       );
     }
 
-    if (allowRemove && String(url).endsWith(removePath)) {
+    if (allowRemove && urlText.endsWith(removePath)) {
       expect(init?.method).toBe("DELETE");
       const responseBody = params.body === undefined ? null : params.body;
       return new Response(
@@ -70,7 +75,7 @@ export function createMattermostReactionFetchMock(params: {
       );
     }
 
-    throw new Error(`unexpected url: ${String(url)}`);
+    throw new Error(`unexpected url: ${urlText}`);
   });
 }
 

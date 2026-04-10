@@ -607,7 +607,7 @@ describe("loginGeminiCliOAuth", () => {
       note: async () => {},
       prompt: async () => {
         const state = new URL(authUrl).searchParams.get("state");
-        return `${"http://localhost:8085/oauth2callback"}?code=oauth-code&state=${state}`;
+        return `http://localhost:8085/oauth2callback?code=oauth-code&state=${state}`;
       },
       progress: { update: () => {}, stop: () => {} },
     });
@@ -706,7 +706,9 @@ describe("loginGeminiCliOAuth", () => {
     expect(clientMetadata).toBeDefined();
     expect(JSON.parse(clientMetadata as string)).toEqual(EXPECTED_LOAD_CODE_ASSIST_METADATA);
 
-    const body = JSON.parse(String(loadRequests[0]?.init?.body));
+    const loadBody = loadRequests[0]?.init?.body;
+    expect(typeof loadBody).toBe("string");
+    const body = JSON.parse(loadBody as string);
     expect(body).toEqual({
       metadata: EXPECTED_LOAD_CODE_ASSIST_METADATA,
     });

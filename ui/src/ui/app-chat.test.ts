@@ -107,7 +107,8 @@ describe("refreshChatAvatar", () => {
     const mainRequest = createDeferred<{ avatarUrl?: string }>();
     const opsRequest = createDeferred<{ avatarUrl?: string }>();
     const fetchMock = vi.fn((input: string | URL | Request) => {
-      const url = String(input);
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url === "avatar/main?meta=1") {
         return Promise.resolve({
           ok: true,

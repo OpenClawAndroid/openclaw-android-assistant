@@ -184,13 +184,13 @@ async function inspectNodeModulesSymlinkTarget(params: {
     );
   }
 
+  const resolvedTargetStats = await fs.stat(resolvedTargetPath);
   const resolvedTargetRelativePath = path.relative(params.rootRealPath, resolvedTargetPath);
-  const resolvedTargetStat = await fs.lstat(resolvedTargetPath);
   return {
     blockedDirectoryFinding: findBlockedPackageDirectoryInPath({
       pathRelativeToRoot: resolvedTargetRelativePath,
     }),
-    blockedFileFinding: resolvedTargetStat.isFile()
+    blockedFileFinding: resolvedTargetStats.isFile()
       ? findBlockedPackageFileAliasInPath({
           pathRelativeToRoot: resolvedTargetRelativePath,
         })
@@ -260,6 +260,16 @@ function resolvePackageManifestTraversalLimits(): PackageManifestTraversalLimits
       DEFAULT_PACKAGE_MANIFEST_TRAVERSAL_LIMITS.maxManifests,
     ),
   };
+}
+
+async function resolvePackageManifestPath(dir: string): Promise<string | undefined> {
+  const manifestPath = path.join(dir, "package.json");
+  try {
+    const stats = await fs.stat(manifestPath);
+    return stats.isFile() ? manifestPath : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function collectPackageManifestPaths(
@@ -361,6 +371,10 @@ async function collectPackageManifestPaths(
           directoryRelativePath: relativeNextPath,
         });
         if (blockedDirectoryFinding) {
+          const manifestPath = await resolvePackageManifestPath(nextPath);
+          if (manifestPath) {
+            packageManifestPaths.push(manifestPath);
+          }
           return {
             blockedDirectoryFinding,
             packageManifestPaths,
@@ -400,35 +414,6 @@ async function scanManifestDependencyDenylist(params: {
   targetLabel: string;
 }): Promise<InstallSecurityScanResult | undefined> {
   const traversalResult = await collectPackageManifestPaths(params.packageDir);
-  if (traversalResult.blockedDirectoryFinding) {
-    const reason = buildBlockedDependencyDirectoryReason({
-      dependencyName: traversalResult.blockedDirectoryFinding.dependencyName,
-      directoryRelativePath: traversalResult.blockedDirectoryFinding.directoryRelativePath,
-      targetLabel: params.targetLabel,
-    });
-    params.logger.warn?.(`WARNING: ${reason}`);
-    return {
-      blocked: {
-        code: "security_scan_blocked",
-        reason,
-      },
-    };
-  }
-  if (traversalResult.blockedFileFinding) {
-    const reason = buildBlockedDependencyFileReason({
-      dependencyName: traversalResult.blockedFileFinding.dependencyName,
-      fileRelativePath: traversalResult.blockedFileFinding.fileRelativePath,
-      targetLabel: params.targetLabel,
-    });
-    params.logger.warn?.(`WARNING: ${reason}`);
-    return {
-      blocked: {
-        code: "security_scan_blocked",
-        reason,
-      },
-    };
-  }
-
   const packageManifestPaths = traversalResult.packageManifestPaths;
   for (const manifestPath of packageManifestPaths) {
     let manifest: PackageManifest;
@@ -448,6 +433,34 @@ async function scanManifestDependencyDenylist(params: {
       findings: blockedDependencies,
       manifestPackageName: manifest.name,
       manifestRelativePath,
+      targetLabel: params.targetLabel,
+    });
+    params.logger.warn?.(`WARNING: ${reason}`);
+    return {
+      blocked: {
+        code: "security_scan_blocked",
+        reason,
+      },
+    };
+  }
+  if (traversalResult.blockedDirectoryFinding) {
+    const reason = buildBlockedDependencyDirectoryReason({
+      dependencyName: traversalResult.blockedDirectoryFinding.dependencyName,
+      directoryRelativePath: traversalResult.blockedDirectoryFinding.directoryRelativePath,
+      targetLabel: params.targetLabel,
+    });
+    params.logger.warn?.(`WARNING: ${reason}`);
+    return {
+      blocked: {
+        code: "security_scan_blocked",
+        reason,
+      },
+    };
+  }
+  if (traversalResult.blockedFileFinding) {
+    const reason = buildBlockedDependencyFileReason({
+      dependencyName: traversalResult.blockedFileFinding.dependencyName,
+      fileRelativePath: traversalResult.blockedFileFinding.fileRelativePath,
       targetLabel: params.targetLabel,
     });
     params.logger.warn?.(`WARNING: ${reason}`);

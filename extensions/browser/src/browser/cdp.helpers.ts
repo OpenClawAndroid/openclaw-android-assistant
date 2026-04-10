@@ -1,3 +1,4 @@
+import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import WebSocket from "ws";
 import { isLoopbackHost } from "../gateway/net.js";
@@ -244,14 +245,24 @@ export async function fetchCdpChecked(
 ): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(ctrl.abort.bind(ctrl), timeoutMs);
+  let release: (() => Promise<void>) | undefined;
   try {
     const headers = getHeadersWithAuth(url, (init?.headers as Record<string, string>) || {});
     // Block redirects on all CDP HTTP paths (not just probes) because a
     // redirect to an internal host is an SSRF vector regardless of whether
     // the call is /json/version, /json/list, /json/activate, or /json/close.
-    const res = await withNoProxyForCdpUrl(url, () =>
-      fetch(url, { ...init, headers, redirect: "manual", signal: ctrl.signal }),
+    const guarded = await withNoProxyForCdpUrl(url, () =>
+      fetchWithSsrFGuard({
+        url,
+        init: { ...init, headers },
+        maxRedirects: 0,
+        policy: { allowPrivateNetwork: true },
+        signal: ctrl.signal,
+        auditContext: "browser-cdp",
+      }),
     );
+    release = guarded.release;
+    const res = guarded.response;
     if (res.status >= 300 && res.status < 400) {
       throw new Error("CDP endpoint redirects are not allowed");
     }
@@ -262,9 +273,23 @@ export async function fetchCdpChecked(
       }
       throw new Error(`HTTP ${res.status}`);
     }
-    return res;
+    if (typeof res.arrayBuffer !== "function") {
+      return res;
+    }
+    const body = await res.arrayBuffer();
+    return new Response(body, {
+      headers: res.headers,
+      status: res.status,
+      statusText: res.statusText,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Too many redirects")) {
+      throw new Error("CDP endpoint redirects are not allowed", { cause: error });
+    }
+    throw error;
   } finally {
     clearTimeout(t);
+    await release?.();
   }
 }
 

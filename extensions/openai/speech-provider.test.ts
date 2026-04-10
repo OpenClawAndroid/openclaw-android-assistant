@@ -127,7 +127,11 @@ describe("buildOpenAISpeechProvider", () => {
     const provider = buildOpenAISpeechProvider();
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(init?.body).toBeTruthy();
-      const body = JSON.parse(String(init?.body)) as { response_format?: string };
+      const requestBody = init?.body;
+      if (typeof requestBody !== "string") {
+        throw new Error("expected string request body");
+      }
+      const body = JSON.parse(requestBody) as { response_format?: string };
       expect(body.response_format).toBe("wav");
       return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
     });
@@ -155,7 +159,11 @@ describe("buildOpenAISpeechProvider", () => {
     const provider = buildOpenAISpeechProvider();
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(init?.body).toBeTruthy();
-      const body = JSON.parse(String(init?.body)) as { response_format?: string };
+      const requestBody = init?.body;
+      if (typeof requestBody !== "string") {
+        throw new Error("expected string request body");
+      }
+      const body = JSON.parse(requestBody) as { response_format?: string };
       expect(body.response_format).toBe("wav");
       return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
     });

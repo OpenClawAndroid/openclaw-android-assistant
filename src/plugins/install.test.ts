@@ -1231,9 +1231,9 @@ describe("installPluginFromArchive", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe(PLUGIN_INSTALL_ERROR_CODE.SECURITY_SCAN_BLOCKED);
-      expect(result.error).toContain('blocked dependency directory "plain-crypto-js"');
+      expect(result.error).toContain('blocked dependencies "plain-crypto-js" as package name');
       expect(result.error).toContain(
-        "vendor/pkg-127/node_modules/nested-safe/node_modules/plain-crypto-js",
+        "vendor/pkg-127/node_modules/nested-safe/node_modules/plain-crypto-js/package.json",
       );
     }
   });
@@ -2089,8 +2089,8 @@ describe("installPluginFromDir", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe(PLUGIN_INSTALL_ERROR_CODE.SECURITY_SCAN_BLOCKED);
-      expect(result.error).toContain('blocked dependency directory "plain-crypto-js"');
-      expect(result.error).toContain("node_modules/plain-crypto-js");
+      expect(result.error).toContain('blocked dependencies "plain-crypto-js" as package name');
+      expect(result.error).toContain("node_modules/plain-crypto-js/package.json");
     }
   });
 

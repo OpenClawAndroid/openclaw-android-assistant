@@ -1,6 +1,7 @@
 // IHttpServerAdapter is re-exported via the public barrel (`export * from './http'`)
 // but tsgo cannot resolve the chain. Use the dist subpath directly (type-only import).
 import type { IHttpServerAdapter } from "@microsoft/teams.apps/dist/http/index.js";
+import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { formatUnknownError } from "./errors.js";
 import type { MSTeamsAdapter } from "./messenger.js";
 import type { MSTeamsCredentials } from "./token.js";
@@ -326,24 +327,34 @@ async function updateActivityViaRest(params: {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({
-      type: "message",
-      ...activity,
-      id: activityId,
-    }),
+  const currentFetch = globalThis.fetch;
+  const { response, release } = await fetchWithSsrFGuard({
+    url,
+    fetchImpl: async (input, guardedInit) => await currentFetch(input, guardedInit),
+    init: {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        type: "message",
+        ...activity,
+        id: activityId,
+      }),
+    },
+    auditContext: "msteams-update-activity",
   });
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw Object.assign(new Error(`updateActivity failed: HTTP ${response.status} ${body}`), {
-      statusCode: response.status,
-    });
-  }
+  try {
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw Object.assign(new Error(`updateActivity failed: HTTP ${response.status} ${body}`), {
+        statusCode: response.status,
+      });
+    }
 
-  return await response.json().catch(() => ({ id: activityId }));
+    return await response.json().catch(() => ({ id: activityId }));
+  } finally {
+    await release();
+  }
 }
 
 /**
@@ -367,16 +378,26 @@ async function deleteActivityViaRest(params: {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, {
-    method: "DELETE",
-    headers,
+  const currentFetch = globalThis.fetch;
+  const { response, release } = await fetchWithSsrFGuard({
+    url,
+    fetchImpl: async (input, guardedInit) => await currentFetch(input, guardedInit),
+    init: {
+      method: "DELETE",
+      headers,
+    },
+    auditContext: "msteams-delete-activity",
   });
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw Object.assign(new Error(`deleteActivity failed: HTTP ${response.status} ${body}`), {
-      statusCode: response.status,
-    });
+  try {
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw Object.assign(new Error(`deleteActivity failed: HTTP ${response.status} ${body}`), {
+        statusCode: response.status,
+      });
+    }
+  } finally {
+    await release();
   }
 }
 

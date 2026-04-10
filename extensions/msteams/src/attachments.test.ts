@@ -531,7 +531,8 @@ describe("msteams attachments", () => {
     it("blocks redirects to non-https URLs", async () => {
       const insecureUrl = "http://x/insecure.png";
       const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-        const url = typeof input === "string" ? input : input.toString();
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
         if (url === TEST_URL_IMAGE) {
           return createRedirectResponse(insecureUrl);
         }
@@ -560,7 +561,8 @@ describe("msteams attachments", () => {
 
       const createGraphSharesFetchMock = () =>
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = typeof input === "string" ? input : input.toString();
+          const url =
+            typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
           const auth = new Headers(init?.headers).get("Authorization");
           if (url.startsWith(GRAPH_SHARES_URL_PREFIX)) {
             if (!auth) {
@@ -617,7 +619,8 @@ describe("msteams attachments", () => {
         expect(media[0]?.path).toBe(SAVED_PDF_PATH);
         // The only host that should be fetched is graph.microsoft.com.
         const calledUrls = (fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit?]>).map(
-          ([input]) => (typeof input === "string" ? input : String(input)),
+          ([input]) =>
+            typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
         );
         expect(calledUrls.length).toBeGreaterThan(0);
         for (const url of calledUrls) {
@@ -646,7 +649,11 @@ describe("msteams attachments", () => {
         expectAttachmentMediaLength(media, 1);
         const calledUrls = (fetchMock.mock.calls as unknown[]).map((call) => {
           const input = (call as [RequestInfo | URL])[0];
-          return typeof input === "string" ? input : String(input);
+          return typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
         });
         // Should have hit the original host, NOT graph shares.
         expect(calledUrls.some((url) => url === directUrl)).toBe(true);

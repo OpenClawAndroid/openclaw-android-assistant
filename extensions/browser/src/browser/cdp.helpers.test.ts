@@ -23,7 +23,7 @@ describe("fetchCdpChecked", () => {
     );
     vi.stubGlobal("fetch", fetchSpy);
 
-    await expect(fetchCdpChecked("https://browser.example/json/version", 50)).rejects.toThrow(
+    await expect(fetchCdpChecked("https://example.com/json/version", 50)).rejects.toThrow(
       "CDP endpoint redirects are not allowed",
     );
 

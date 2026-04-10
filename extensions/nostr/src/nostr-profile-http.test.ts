@@ -98,13 +98,13 @@ function createMockResponse(): ServerResponse & {
   });
 
   res.write = function (chunk: unknown) {
-    data += String(chunk);
+    data += typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : "";
     return true;
   };
 
   res.end = function (chunk?: unknown) {
     if (chunk) {
-      data += String(chunk);
+      data += typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : "";
     }
     return this;
   };
