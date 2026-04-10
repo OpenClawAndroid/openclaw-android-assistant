@@ -87,7 +87,13 @@ function mockGraphCollection<T>(...items: T[]) {
 }
 
 function requestUrl(input: string | URL | Request) {
-  return typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  return input.url;
 }
 
 function fetchCallUrl(index: number) {

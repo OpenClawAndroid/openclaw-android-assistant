@@ -3,7 +3,13 @@ import type { OpenClawConfig } from "../../runtime-api.js";
 import type { MattermostFetch } from "./client.js";
 
 export function requestUrl(url: string | URL | Request): string {
-  return typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+  if (typeof url === "string") {
+    return url;
+  }
+  if (url instanceof URL) {
+    return url.toString();
+  }
+  return url.url;
 }
 
 export function createMattermostTestConfig(): OpenClawConfig {

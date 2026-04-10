@@ -554,7 +554,13 @@ describe("loginGeminiCliOAuth", () => {
   } as const;
 
   function getRequestUrl(input: string | URL | Request): string {
-    return typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (typeof input === "string") {
+      return input;
+    }
+    if (input instanceof URL) {
+      return input.toString();
+    }
+    return input.url;
   }
 
   function getHeaderValue(headers: HeadersInit | undefined, name: string): string | undefined {
@@ -582,6 +588,13 @@ describe("loginGeminiCliOAuth", () => {
       throw new Error("Expected URLSearchParams body");
     }
     return body.get(name);
+  }
+
+  function parseJsonString(value: unknown, label: string): unknown {
+    if (typeof value !== "string") {
+      throw new Error(`Expected ${label} JSON string`);
+    }
+    return JSON.parse(value);
   }
 
   type LoginGeminiCliOAuthFn = (options: {
@@ -704,11 +717,12 @@ describe("loginGeminiCliOAuth", () => {
 
     const clientMetadata = getHeaderValue(firstHeaders, "Client-Metadata");
     expect(clientMetadata).toBeDefined();
-    expect(JSON.parse(clientMetadata as string)).toEqual(EXPECTED_LOAD_CODE_ASSIST_METADATA);
+    expect(parseJsonString(clientMetadata, "Client-Metadata")).toEqual(
+      EXPECTED_LOAD_CODE_ASSIST_METADATA,
+    );
 
     const loadBody = loadRequests[0]?.init?.body;
-    expect(typeof loadBody).toBe("string");
-    const body = JSON.parse(loadBody as string);
+    const body = parseJsonString(loadBody, "loadCodeAssist body");
     expect(body).toEqual({
       metadata: EXPECTED_LOAD_CODE_ASSIST_METADATA,
     });
