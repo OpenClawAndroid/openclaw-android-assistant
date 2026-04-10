@@ -90,10 +90,12 @@ function createMockResponse(): ServerResponse & {
   _getData: () => string;
   _getStatusCode: () => number;
 } {
-  const res = new ServerResponse({} as IncomingMessage);
-
   let data = "";
   let statusCode = 200;
+  const res = Object.assign(new ServerResponse({} as IncomingMessage), {
+    _getData: () => data,
+    _getStatusCode: () => statusCode,
+  });
 
   res.write = function (chunk: unknown) {
     data += String(chunk);
@@ -113,9 +115,6 @@ function createMockResponse(): ServerResponse & {
       statusCode = code;
     },
   });
-
-  res._getData = () => data;
-  res._getStatusCode = () => statusCode;
 
   return res;
 }

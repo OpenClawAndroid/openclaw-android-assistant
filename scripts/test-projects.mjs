@@ -6,8 +6,8 @@ import {
   buildFullSuiteVitestRunPlans,
   createVitestRunSpecs,
   parseTestProjectsArgs,
+  resolveParallelFullSuiteConcurrency,
   resolveChangedTargetArgs,
-  shouldUseLocalFullSuiteParallelByDefault,
   writeVitestIncludeFile,
 } from "./test-projects.test-support.mjs";
 import {
@@ -116,29 +116,17 @@ function runVitestSpec(spec) {
   });
 }
 
-function parsePositiveInt(value) {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function resolveParallelFullSuiteConcurrency(specCount, env) {
-  const override = parsePositiveInt(env.OPENCLAW_TEST_PROJECTS_PARALLEL);
-  if (override !== null) {
-    return Math.min(override, specCount);
+function applyDefaultParallelVitestWorkerBudget(specs, env) {
+  if (env.OPENCLAW_VITEST_MAX_WORKERS || env.OPENCLAW_TEST_WORKERS) {
+    return specs;
   }
-  if (env.OPENCLAW_TEST_PROJECTS_SERIAL === "1") {
-    return 1;
-  }
-  if (env.CI === "true" || env.GITHUB_ACTIONS === "true") {
-    return 1;
-  }
-  if (
-    env.OPENCLAW_TEST_PROJECTS_LEAF_SHARDS !== "1" &&
-    !shouldUseLocalFullSuiteParallelByDefault(env)
-  ) {
-    return 1;
-  }
-  return 1;
+  return specs.map((spec) => ({
+    ...spec,
+    env: {
+      ...spec.env,
+      OPENCLAW_VITEST_MAX_WORKERS: "2",
+    },
+  }));
 }
 
 function orderFullSuiteSpecsForParallelRun(specs) {
@@ -218,7 +206,10 @@ async function main() {
   if (isFullSuiteRun) {
     const concurrency = resolveParallelFullSuiteConcurrency(runSpecs.length, process.env);
     if (concurrency > 1) {
-      const parallelSpecs = orderFullSuiteSpecsForParallelRun(runSpecs);
+      const parallelSpecs = applyDefaultParallelVitestWorkerBudget(
+        orderFullSuiteSpecsForParallelRun(runSpecs),
+        process.env,
+      );
       console.error(
         `[test] running ${parallelSpecs.length} Vitest shards with parallelism ${concurrency}`,
       );

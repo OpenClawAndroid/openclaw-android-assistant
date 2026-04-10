@@ -1,41 +1,47 @@
 import { describe, expect, it } from "vitest";
 
-const { buildVitestArgs, buildVitestRunPlans, createVitestRunSpecs, parseTestProjectsArgs } =
-  (await import("../../scripts/test-projects.test-support.mjs")) as unknown as {
-    buildVitestArgs: (args: string[], cwd?: string) => string[];
-    buildVitestRunPlans: (
-      args: string[],
-      cwd?: string,
-    ) => Array<{
-      config: string;
-      forwardedArgs: string[];
-      includePatterns: string[] | null;
-      watchMode: boolean;
-    }>;
-    createVitestRunSpecs: (
-      args: string[],
-      params?: {
-        baseEnv?: NodeJS.ProcessEnv;
-        cwd?: string;
-        tempDir?: string;
-      },
-    ) => Array<{
-      config: string;
-      env: NodeJS.ProcessEnv;
-      includeFilePath: string | null;
-      includePatterns: string[] | null;
-      pnpmArgs: string[];
-      watchMode: boolean;
-    }>;
-    parseTestProjectsArgs: (
-      args: string[],
-      cwd?: string,
-    ) => {
-      forwardedArgs: string[];
-      targetArgs: string[];
-      watchMode: boolean;
-    };
+const {
+  buildVitestArgs,
+  buildVitestRunPlans,
+  createVitestRunSpecs,
+  parseTestProjectsArgs,
+  resolveParallelFullSuiteConcurrency,
+} = (await import("../../scripts/test-projects.test-support.mjs")) as unknown as {
+  buildVitestArgs: (args: string[], cwd?: string) => string[];
+  buildVitestRunPlans: (
+    args: string[],
+    cwd?: string,
+  ) => Array<{
+    config: string;
+    forwardedArgs: string[];
+    includePatterns: string[] | null;
+    watchMode: boolean;
+  }>;
+  createVitestRunSpecs: (
+    args: string[],
+    params?: {
+      baseEnv?: NodeJS.ProcessEnv;
+      cwd?: string;
+      tempDir?: string;
+    },
+  ) => Array<{
+    config: string;
+    env: NodeJS.ProcessEnv;
+    includeFilePath: string | null;
+    includePatterns: string[] | null;
+    pnpmArgs: string[];
+    watchMode: boolean;
+  }>;
+  parseTestProjectsArgs: (
+    args: string[],
+    cwd?: string,
+  ) => {
+    forwardedArgs: string[];
+    targetArgs: string[];
+    watchMode: boolean;
   };
+  resolveParallelFullSuiteConcurrency: (specCount: number, env?: NodeJS.ProcessEnv) => number;
+};
 
 const VITEST_NODE_PREFIX = [
   "exec",
@@ -389,6 +395,29 @@ describe("test-projects args", () => {
         watchMode: false,
       },
     ]);
+  });
+
+  it("caps project-level parallelism when the Vitest worker budget is conservative", () => {
+    expect(
+      resolveParallelFullSuiteConcurrency(58, {
+        OPENCLAW_VITEST_MAX_WORKERS: "1",
+      }),
+    ).toBe(1);
+
+    expect(
+      resolveParallelFullSuiteConcurrency(58, {
+        OPENCLAW_TEST_WORKERS: "1",
+      }),
+    ).toBe(1);
+  });
+
+  it("keeps explicit project-level parallelism authoritative", () => {
+    expect(
+      resolveParallelFullSuiteConcurrency(58, {
+        OPENCLAW_TEST_PROJECTS_PARALLEL: "3",
+        OPENCLAW_VITEST_MAX_WORKERS: "1",
+      }),
+    ).toBe(3);
   });
 
   it("routes cli targets to the cli config", () => {

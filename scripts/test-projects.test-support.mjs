@@ -649,6 +649,37 @@ export function shouldUseLocalFullSuiteParallelByDefault(env = process.env) {
   );
 }
 
+function parsePositiveInt(value) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function resolveParallelFullSuiteConcurrency(specCount, env = process.env) {
+  const override = parsePositiveInt(env.OPENCLAW_TEST_PROJECTS_PARALLEL);
+  if (override !== null) {
+    return Math.min(override, specCount);
+  }
+  if (env.OPENCLAW_TEST_PROJECTS_SERIAL === "1") {
+    return 1;
+  }
+  if (env.CI === "true" || env.GITHUB_ACTIONS === "true") {
+    return 1;
+  }
+  const workerBudget = parsePositiveInt(
+    env.OPENCLAW_VITEST_MAX_WORKERS ?? env.OPENCLAW_TEST_WORKERS,
+  );
+  if (workerBudget !== null && workerBudget <= 1) {
+    return 1;
+  }
+  if (
+    env.OPENCLAW_TEST_PROJECTS_LEAF_SHARDS !== "1" &&
+    !shouldUseLocalFullSuiteParallelByDefault(env)
+  ) {
+    return 1;
+  }
+  return Math.min(10, specCount);
+}
+
 export function createVitestRunSpecs(args, params = {}) {
   const cwd = params.cwd ?? process.cwd();
   const plans = buildVitestRunPlans(args, cwd);
