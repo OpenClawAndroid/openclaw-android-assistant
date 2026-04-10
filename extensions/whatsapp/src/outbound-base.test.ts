@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createWhatsAppPollFixture, expectWhatsAppPollSent } from "../test-api.js";
 import { createWhatsAppOutboundBase } from "./outbound-base.js";
+import { createWhatsAppPollFixture, expectWhatsAppPollSent } from "./outbound-test-support.js";
 
 describe("createWhatsAppOutboundBase", () => {
   it("exposes the provided chunker", () => {
