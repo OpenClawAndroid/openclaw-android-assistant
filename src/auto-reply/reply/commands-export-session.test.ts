@@ -61,7 +61,7 @@ vi.mock("node:fs", async () => {
     mkdirSync: hoisted.mkdirSyncMock,
     writeFileSync: hoisted.writeFileSyncMock,
     readFileSync: vi.fn((filePath: string) => {
-      if (String(filePath).endsWith("template.html")) {
+      if (filePath.endsWith("template.html")) {
         return "<html>{{CSS}}{{JS}}{{SESSION_DATA}}{{MARKED_JS}}{{HIGHLIGHT_JS}}</html>";
       }
       return "";
@@ -139,5 +139,53 @@ describe("buildExportSessionReply", () => {
       agentId: "target",
       storePath: "/tmp/target-store/sessions.json",
     });
+  });
+
+  it("prefers the active command storePath over the default target-agent store", async () => {
+    const { buildExportSessionReply } = await import("./commands-export-session.js");
+    hoisted.loadSessionStoreMock.mockReturnValue({
+      "agent:target:session": {
+        sessionId: "session-1",
+        updatedAt: 1,
+      },
+    });
+
+    await buildExportSessionReply({
+      ...makeParams(),
+      storePath: "/tmp/custom-store/sessions.json",
+    });
+
+    expect(hoisted.resolveDefaultSessionStorePathMock).not.toHaveBeenCalled();
+    expect(hoisted.loadSessionStoreMock).toHaveBeenCalledWith("/tmp/custom-store/sessions.json", {
+      skipCache: true,
+    });
+    expect(hoisted.resolveSessionFilePathOptionsMock).toHaveBeenCalledWith({
+      agentId: "target",
+      storePath: "/tmp/custom-store/sessions.json",
+    });
+  });
+
+  it("uses the target store entry even when the wrapper sessionEntry is missing", async () => {
+    const { buildExportSessionReply } = await import("./commands-export-session.js");
+    hoisted.loadSessionStoreMock.mockReturnValue({
+      "agent:target:session": {
+        sessionId: "session-from-store",
+        updatedAt: 2,
+      },
+    });
+
+    const reply = await buildExportSessionReply({
+      ...makeParams(),
+      sessionEntry: undefined,
+    });
+
+    expect(reply.text).toContain("✅ Session exported!");
+    expect(hoisted.resolveCommandsSystemPromptBundleMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionEntry: expect.objectContaining({
+          sessionId: "session-from-store",
+        }),
+      }),
+    );
   });
 });
