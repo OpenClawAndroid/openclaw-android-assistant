@@ -202,13 +202,10 @@ describe("info command handlers", () => {
   });
 
   it("preserves the shared session store path when routing /status", async () => {
-    const params = buildInfoParams(
-      "/status",
-      {
-        commands: { text: true },
-        channels: { whatsapp: { allowFrom: ["*"] } },
-      } as OpenClawConfig,
-    );
+    const params = buildInfoParams("/status", {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig);
     params.storePath = "/tmp/target-session-store.json";
 
     const statusResult = await handleStatusCommand(params, true);
@@ -217,6 +214,38 @@ describe("info command handlers", () => {
     expect(vi.mocked(buildStatusReply)).toHaveBeenCalledWith(
       expect.objectContaining({
         storePath: "/tmp/target-session-store.json",
+      }),
+    );
+  });
+
+  it("prefers the target session entry when routing /status", async () => {
+    const params = buildInfoParams("/status", {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig);
+    params.sessionEntry = {
+      sessionId: "wrapper-session",
+      updatedAt: Date.now(),
+      parentSessionKey: "wrapper-parent",
+    } as HandleCommandsParams["sessionEntry"];
+    params.sessionStore = {
+      "agent:main:whatsapp:direct:12345": {
+        sessionId: "target-session",
+        updatedAt: Date.now(),
+        parentSessionKey: "target-parent",
+      },
+    };
+
+    const statusResult = await handleStatusCommand(params, true);
+
+    expect(statusResult?.shouldContinue).toBe(false);
+    expect(vi.mocked(buildStatusReply)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionEntry: expect.objectContaining({
+          sessionId: "target-session",
+          parentSessionKey: "target-parent",
+        }),
+        parentSessionKey: "target-parent",
       }),
     );
   });

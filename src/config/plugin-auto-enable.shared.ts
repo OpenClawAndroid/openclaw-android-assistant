@@ -166,7 +166,7 @@ function resolveProviderPluginsWithOwnedWebSearch(
   registry: PluginManifestRegistry,
 ): PluginManifestRecord[] {
   return registry.plugins
-    .filter((plugin) => plugin.providers.length > 0)
+    .filter((plugin) => (plugin.providers?.length ?? 0) > 0)
     .filter((plugin) => (plugin.contracts?.webSearchProviders?.length ?? 0) > 0);
 }
 
@@ -199,7 +199,7 @@ function resolvePluginIdForConfiguredWebFetchProvider(
 function buildChannelToPluginIdMap(registry: PluginManifestRegistry): Map<string, string> {
   const map = new Map<string, string>();
   for (const record of registry.plugins) {
-    for (const channelId of record.channels) {
+    for (const channelId of record.channels ?? []) {
       if (channelId && !map.has(channelId)) {
         map.set(channelId, record.id);
       }
