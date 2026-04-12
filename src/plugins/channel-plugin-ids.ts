@@ -276,6 +276,7 @@ export function resolveChannelPluginIds(params: {
 
 export function resolveConfiguredChannelPluginIds(params: {
   config: OpenClawConfig;
+  activationSourceConfig?: OpenClawConfig;
   workspaceDir?: string;
   env: NodeJS.ProcessEnv;
 }): string[] {

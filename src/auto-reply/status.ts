@@ -16,7 +16,8 @@ import type { EffectiveToolInventoryResult } from "../agents/tools-effective-inv
 import { resolveChannelModelOverride } from "../channels/model-overrides.js";
 import {
   resolveMainSessionKey,
-  resolveSessionPluginDebugLines,
+  resolveSessionPluginStatusLines,
+  resolveSessionPluginTraceLines,
   resolveSessionFilePath,
   resolveSessionFilePathOptions,
   type SessionEntry,
@@ -678,8 +679,14 @@ export function buildStatusMessage(args: StatusArgs): string {
   const queueDetails = formatQueueDetails(args.queue);
   const verboseLabel =
     verboseLevel === "full" ? "verbose:full" : verboseLevel === "on" ? "verbose" : null;
-  const pluginDebugLines = verboseLevel !== "off" ? resolveSessionPluginDebugLines(entry) : [];
-  const pluginStatusLine = pluginDebugLines.length > 0 ? pluginDebugLines.join(" · ") : null;
+  const traceLevel = entry?.traceLevel === "on" ? "on" : "off";
+  const traceLabel = traceLevel === "on" ? "trace" : null;
+  const pluginStatusLines = verboseLevel !== "off" ? resolveSessionPluginStatusLines(entry) : [];
+  const pluginTraceLines = traceLevel === "on" ? resolveSessionPluginTraceLines(entry) : [];
+  const pluginStatusLine =
+    pluginStatusLines.length > 0 || pluginTraceLines.length > 0
+      ? [...pluginStatusLines, ...pluginTraceLines].join(" · ")
+      : null;
   const elevatedLabel =
     elevatedLevel && elevatedLevel !== "off"
       ? elevatedLevel === "on"
@@ -698,6 +705,7 @@ export function buildStatusMessage(args: StatusArgs): string {
     fastMode ? "Fast: on" : null,
     textVerbosity ? `Text: ${textVerbosity}` : null,
     verboseLabel,
+    traceLabel,
     reasoningLevel !== "off" ? `Reasoning: ${reasoningLevel}` : null,
     elevatedLabel,
   ];
