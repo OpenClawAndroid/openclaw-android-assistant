@@ -7,7 +7,7 @@ import "../cron/isolated-agent.mocks.js";
 import { __testing as acpManagerTesting } from "../acp/control-plane/manager.js";
 import { resolveAgentDir, resolveSessionAgentId } from "../agents/agent-scope.js";
 import * as authProfilesModule from "../agents/auth-profiles.js";
-import * as sessionStoreModule from "../agents/command/session-store.js";
+import * as sessionStoreModule from "../agents/command/session-store.runtime.js";
 import { resolveSession } from "../agents/command/session.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import * as modelSelectionModule from "../agents/model-selection.js";
@@ -51,7 +51,7 @@ vi.mock("../agents/auth-profiles/store.js", () => {
   };
 });
 
-vi.mock("../agents/command/session-store.js", () => {
+vi.mock("../agents/command/session-store.runtime.js", () => {
   return {
     updateSessionStoreAfterAgentRun: vi.fn(async () => undefined),
   };

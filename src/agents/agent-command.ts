@@ -15,7 +15,6 @@ import { getAgentRuntimeCommandSecretTargetIds } from "../cli/command-secret-tar
 import { type CliDeps, createDefaultDeps } from "../cli/deps.js";
 import { loadConfig, readConfigFileSnapshotForWrite } from "../config/io.js";
 import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
-import { resolveSessionTranscriptFile } from "../config/sessions/transcript.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isSecretRef } from "../config/types.secrets.js";
@@ -48,21 +47,10 @@ import {
 import { ensureAuthProfileStore } from "./auth-profiles.js";
 import { clearSessionAuthProfileOverride } from "./auth-profiles/session-override.js";
 import {
-  buildAcpResult,
-  createAcpVisibleTextAccumulator,
-  emitAcpAssistantDelta,
-  emitAcpLifecycleEnd,
-  emitAcpLifecycleError,
-  emitAcpLifecycleStart,
-  persistAcpTurnTranscript,
   persistSessionEntry as persistSessionEntryBase,
   prependInternalEventContext,
-  runAgentAttempt,
-  sessionFileHasContent,
-} from "./command/attempt-execution.js";
-import { deliverAgentCommandResult } from "./command/delivery.js";
+} from "./command/attempt-execution.shared.js";
 import { resolveAgentRunContext } from "./command/run-context.js";
-import { updateSessionStoreAfterAgentRun } from "./command/session-store.js";
 import { resolveSession } from "./command/session.js";
 import type { AgentCommandIngressOpts, AgentCommandOpts } from "./command/types.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
@@ -88,6 +76,35 @@ import { resolveAgentTimeoutMs } from "./timeout.js";
 import { ensureAgentWorkspace } from "./workspace.js";
 
 const log = createSubsystemLogger("agents/agent-command");
+type AttemptExecutionRuntime = typeof import("./command/attempt-execution.runtime.js");
+type DeliveryRuntime = typeof import("./command/delivery.runtime.js");
+type SessionStoreRuntime = typeof import("./command/session-store.runtime.js");
+type TranscriptResolveRuntime = typeof import("../config/sessions/transcript-resolve.runtime.js");
+
+let attemptExecutionRuntimePromise: Promise<AttemptExecutionRuntime> | undefined;
+let deliveryRuntimePromise: Promise<DeliveryRuntime> | undefined;
+let sessionStoreRuntimePromise: Promise<SessionStoreRuntime> | undefined;
+let transcriptResolveRuntimePromise: Promise<TranscriptResolveRuntime> | undefined;
+
+function loadAttemptExecutionRuntime(): Promise<AttemptExecutionRuntime> {
+  attemptExecutionRuntimePromise ??= import("./command/attempt-execution.runtime.js");
+  return attemptExecutionRuntimePromise;
+}
+
+function loadDeliveryRuntime(): Promise<DeliveryRuntime> {
+  deliveryRuntimePromise ??= import("./command/delivery.runtime.js");
+  return deliveryRuntimePromise;
+}
+
+function loadSessionStoreRuntime(): Promise<SessionStoreRuntime> {
+  sessionStoreRuntimePromise ??= import("./command/session-store.runtime.js");
+  return sessionStoreRuntimePromise;
+}
+
+function loadTranscriptResolveRuntime(): Promise<TranscriptResolveRuntime> {
+  transcriptResolveRuntimePromise ??= import("../config/sessions/transcript-resolve.runtime.js");
+  return transcriptResolveRuntimePromise;
+}
 
 type PersistSessionEntryParams = {
   sessionStore: Record<string, SessionEntry>;
@@ -455,13 +472,14 @@ async function agentCommandInternal(
     }
 
     if (acpResolution?.kind === "ready" && sessionKey) {
+      const attemptExecutionRuntime = await loadAttemptExecutionRuntime();
       const startedAt = Date.now();
       registerAgentRunContext(runId, {
         sessionKey,
       });
-      emitAcpLifecycleStart({ runId, startedAt });
+      attemptExecutionRuntime.emitAcpLifecycleStart({ runId, startedAt });
 
-      const visibleTextAccumulator = createAcpVisibleTextAccumulator();
+      const visibleTextAccumulator = attemptExecutionRuntime.createAcpVisibleTextAccumulator();
       let stopReason: string | undefined;
       try {
         const dispatchPolicyError = resolveAcpDispatchPolicyError(cfg);
@@ -501,7 +519,7 @@ async function agentCommandInternal(
             if (!visibleUpdate) {
               return;
             }
-            emitAcpAssistantDelta({
+            attemptExecutionRuntime.emitAcpAssistantDelta({
               runId,
               text: visibleUpdate.text,
               delta: visibleUpdate.delta,
@@ -514,19 +532,19 @@ async function agentCommandInternal(
           fallbackCode: "ACP_TURN_FAILED",
           fallbackMessage: "ACP turn failed before completion.",
         });
-        emitAcpLifecycleError({
+        attemptExecutionRuntime.emitAcpLifecycleError({
           runId,
           message: acpError.message,
         });
         throw acpError;
       }
 
-      emitAcpLifecycleEnd({ runId });
+      attemptExecutionRuntime.emitAcpLifecycleEnd({ runId });
 
       const finalTextRaw = visibleTextAccumulator.finalizeRaw();
       const finalText = visibleTextAccumulator.finalize();
       try {
-        sessionEntry = await persistAcpTurnTranscript({
+        sessionEntry = await attemptExecutionRuntime.persistAcpTurnTranscript({
           body,
           finalText: finalTextRaw,
           sessionId,
@@ -544,13 +562,14 @@ async function agentCommandInternal(
         );
       }
 
-      const result = buildAcpResult({
+      const result = attemptExecutionRuntime.buildAcpResult({
         payloadText: finalText,
         startedAt,
         stopReason,
         abortSignal: opts.abortSignal,
       });
       const payloads = result.payloads;
+      const { deliverAgentCommandResult } = await loadDeliveryRuntime();
 
       return await deliverAgentCommandResult({
         cfg,
@@ -792,6 +811,7 @@ async function agentCommandInternal(
         });
       }
     }
+    const { resolveSessionTranscriptFile } = await loadTranscriptResolveRuntime();
     let sessionFile: string | undefined;
     if (sessionStore && sessionKey) {
       const resolvedSessionFile = await resolveSessionTranscriptFile({
@@ -821,8 +841,9 @@ async function agentCommandInternal(
 
     const startedAt = Date.now();
     let lifecycleEnded = false;
+    const attemptExecutionRuntime = await loadAttemptExecutionRuntime();
 
-    let result: Awaited<ReturnType<typeof runAgentAttempt>>;
+    let result: Awaited<ReturnType<AttemptExecutionRuntime["runAgentAttempt"]>>;
     let fallbackProvider = provider;
     let fallbackModel = model;
     const MAX_LIVE_SWITCH_RETRIES = 5;
@@ -852,7 +873,7 @@ async function agentCommandInternal(
           run: async (providerOverride, modelOverride, runOptions) => {
             const isFallbackRetry = fallbackAttemptIndex > 0;
             fallbackAttemptIndex += 1;
-            return runAgentAttempt({
+            return attemptExecutionRuntime.runAgentAttempt({
               providerOverride,
               modelOverride,
               cfg,
@@ -878,7 +899,8 @@ async function agentCommandInternal(
               sessionStore,
               storePath,
               allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
-              sessionHasHistory: !isNewSession || (await sessionFileHasContent(sessionFile)),
+              sessionHasHistory:
+                !isNewSession || (await attemptExecutionRuntime.sessionFileHasContent(sessionFile)),
               onAgentEvent: (evt) => {
                 if (
                   evt.stream === "lifecycle" &&
@@ -1006,6 +1028,7 @@ async function agentCommandInternal(
 
     // Update token+model fields in the session store.
     if (sessionStore && sessionKey) {
+      const { updateSessionStoreAfterAgentRun } = await loadSessionStoreRuntime();
       await updateSessionStoreAfterAgentRun({
         cfg,
         contextTokensOverride: agentCfg?.contextTokens,
@@ -1022,6 +1045,7 @@ async function agentCommandInternal(
     }
 
     const payloads = result.payloads ?? [];
+    const { deliverAgentCommandResult } = await loadDeliveryRuntime();
     return await deliverAgentCommandResult({
       cfg,
       deps,

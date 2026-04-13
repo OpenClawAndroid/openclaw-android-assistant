@@ -15,7 +15,7 @@ import {
   withSharedAgentCommandTempHome,
 } from "./agent-runtime-config.test-support.js";
 
-vi.mock("../agents/command/session-store.js", () => {
+vi.mock("../agents/command/session-store.runtime.js", () => {
   return {
     updateSessionStoreAfterAgentRun: vi.fn(async () => undefined),
   };
