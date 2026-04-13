@@ -79,6 +79,7 @@ import {
   registerRuntimeConfigWriteListener,
   resetConfigRuntimeState as resetConfigRuntimeStateState,
   setRuntimeConfigSnapshot as setRuntimeConfigSnapshotState,
+  getRuntimeConfigSnapshotRefreshHandler as getRuntimeConfigSnapshotRefreshHandlerState,
   setRuntimeConfigSnapshotRefreshHandler as setRuntimeConfigSnapshotRefreshHandlerState,
   type RuntimeConfigWriteNotification,
 } from "./runtime-snapshot.js";
@@ -154,6 +155,11 @@ export type ConfigWriteOptions = {
    * Avoids rereading the full config just to prepare an immediate write.
    */
   baseSnapshot?: ConfigFileSnapshot;
+  /**
+   * Internal one-shot CLI fast path. When no runtime snapshot is active, skip
+   * the post-write runtime snapshot refresh/reload tail entirely.
+   */
+  skipRuntimeSnapshotRefresh?: boolean;
 };
 
 export type ReadConfigFileSnapshotForWriteResult = {
@@ -1799,7 +1805,15 @@ export async function writeConfigFile(
       envSnapshotForRestore: options.envSnapshotForRestore,
     }),
     unsetPaths: options.unsetPaths,
+    skipRuntimeSnapshotRefresh: options.skipRuntimeSnapshotRefresh,
   });
+  if (
+    options.skipRuntimeSnapshotRefresh &&
+    !hadRuntimeSnapshot &&
+    !getRuntimeConfigSnapshotRefreshHandlerState()
+  ) {
+    return;
+  }
   const notifyCommittedWrite = () => {
     const currentRuntimeConfig = getRuntimeConfigSnapshotState();
     if (!currentRuntimeConfig) {

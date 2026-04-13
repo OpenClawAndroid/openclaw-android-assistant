@@ -10,18 +10,15 @@ import {
   supportsXHighThinking,
   type VerboseLevel,
 } from "../auto-reply/thinking.js";
-import { resolveCommandConfigWithSecrets } from "../cli/command-config-resolution.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { getAgentRuntimeCommandSecretTargetIds } from "../cli/command-secret-targets.js";
 import { type CliDeps, createDefaultDeps } from "../cli/deps.js";
-import {
-  loadConfig,
-  readConfigFileSnapshotForWrite,
-  setRuntimeConfigSnapshot,
-  type OpenClawConfig,
-} from "../config/config.js";
-import { resolveAgentIdFromSessionKey, type SessionEntry } from "../config/sessions.js";
+import { loadConfig, readConfigFileSnapshotForWrite } from "../config/io.js";
+import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import { resolveSessionTranscriptFile } from "../config/sessions/transcript.js";
+import type { SessionEntry } from "../config/sessions/types.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isSecretRef } from "../config/types.secrets.js";
 import {
   clearAgentRunContext,
   emitAgentEvent,
@@ -32,6 +29,7 @@ import { buildOutboundSessionContext } from "../infra/outbound/session-context.j
 import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { normalizeAgentId } from "../routing/session-key.js";
+import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { applyVerboseOverride } from "../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js";
@@ -150,16 +148,79 @@ async function resolveAgentRuntimeConfig(
     }
     return loadedRaw;
   })();
-  const { resolvedConfig: cfg } = await resolveCommandConfigWithSecrets({
+  const includeChannelTargets = params?.runtimeTargetsChannelSecrets === true;
+  const cfg = hasAgentRuntimeSecretRefs({
     config: loadedRaw,
-    commandName: "agent",
-    targetIds: getAgentRuntimeCommandSecretTargetIds({
-      includeChannelTargets: params?.runtimeTargetsChannelSecrets === true,
-    }),
-    runtime,
-  });
+    includeChannelTargets,
+  })
+    ? (
+        await (
+          await import("../cli/command-config-resolution.runtime.js")
+        ).resolveCommandConfigWithSecrets({
+          config: loadedRaw,
+          commandName: "agent",
+          targetIds: getAgentRuntimeCommandSecretTargetIds({
+            includeChannelTargets,
+          }),
+          runtime,
+        })
+      ).resolvedConfig
+    : loadedRaw;
   setRuntimeConfigSnapshot(cfg, sourceConfig);
   return { loadedRaw, sourceConfig, cfg };
+}
+
+function hasNestedSecretRef(value: unknown): boolean {
+  if (isSecretRef(value)) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasNestedSecretRef(entry));
+  }
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  return Object.values(value).some((entry) => hasNestedSecretRef(entry));
+}
+
+function hasAgentRuntimeSecretRefs(params: {
+  config: OpenClawConfig;
+  includeChannelTargets: boolean;
+}): boolean {
+  const { config } = params;
+  if (hasNestedSecretRef(config.models?.providers)) {
+    return true;
+  }
+  if (hasNestedSecretRef(config.agents?.defaults?.memorySearch?.remote?.apiKey)) {
+    return true;
+  }
+  if (
+    Array.isArray(config.agents?.list) &&
+    config.agents.list.some((agent) => hasNestedSecretRef(agent?.memorySearch?.remote?.apiKey))
+  ) {
+    return true;
+  }
+  if (hasNestedSecretRef(config.messages?.tts?.providers)) {
+    return true;
+  }
+  if (hasNestedSecretRef(config.skills?.entries)) {
+    return true;
+  }
+  if (hasNestedSecretRef(config.tools?.web?.search)) {
+    return true;
+  }
+  if (
+    config.plugins?.entries &&
+    Object.values(config.plugins.entries).some((entry) =>
+      hasNestedSecretRef({
+        webSearch: entry?.config?.webSearch,
+        webFetch: entry?.config?.webFetch,
+      }),
+    )
+  ) {
+    return true;
+  }
+  return params.includeChannelTargets ? hasNestedSecretRef(config.channels) : false;
 }
 
 function containsControlCharacters(value: string): boolean {
