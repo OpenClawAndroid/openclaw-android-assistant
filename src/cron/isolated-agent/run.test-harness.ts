@@ -116,12 +116,15 @@ vi.mock("./run.runtime.js", () => ({
   setCliSessionId: vi.fn(),
   logWarn: (...args: unknown[]) => logWarnMock(...args),
   normalizeAgentId: vi.fn((id: string) => id),
-  buildSafeExternalPrompt: buildSafeExternalPromptMock,
-  detectSuspiciousPatterns: detectSuspiciousPatternsMock,
   mapHookExternalContentSource: mapHookExternalContentSourceMock,
   isExternalHookSession: isExternalHookSessionMock,
   resolveHookExternalContentSource: resolveHookExternalContentSourceMock,
   getRemoteSkillEligibility: getRemoteSkillEligibilityMock,
+}));
+
+vi.mock("./run-external-content.runtime.js", () => ({
+  buildSafeExternalPrompt: buildSafeExternalPromptMock,
+  detectSuspiciousPatterns: detectSuspiciousPatternsMock,
 }));
 
 vi.mock("./run-context.runtime.js", () => ({
@@ -130,6 +133,13 @@ vi.mock("./run-context.runtime.js", () => ({
 
 vi.mock("./run-model-catalog.runtime.js", () => ({
   loadModelCatalog: loadModelCatalogMock,
+}));
+
+vi.mock("./skills-snapshot.runtime.js", () => ({
+  buildWorkspaceSkillSnapshot: buildWorkspaceSkillSnapshotMock,
+  canExecRequestNode: vi.fn(() => false),
+  getRemoteSkillEligibility: getRemoteSkillEligibilityMock,
+  getSkillsSnapshotVersion: getSkillsSnapshotVersionMock,
 }));
 
 vi.mock("./run-model-selection.runtime.js", () => ({

@@ -25,16 +25,15 @@ import {
 import { LiveSessionModelSwitchError } from "./live-model-switch-error.js";
 import { logModelFallbackDecision } from "./model-fallback-observation.js";
 import type { FallbackAttempt, ModelCandidate } from "./model-fallback.types.js";
+import { modelKey, normalizeModelRef } from "./model-selection-normalize.js";
 import {
   buildConfiguredAllowlistKeys,
   buildModelAliasIndex,
-  modelKey,
-  normalizeModelRef,
   resolveConfiguredModelRef,
   resolveModelRefFromString,
-} from "./model-selection.js";
-import type { FailoverReason } from "./pi-embedded-helpers.js";
-import { isLikelyContextOverflowError } from "./pi-embedded-helpers.js";
+} from "./model-selection-resolve.js";
+import { isLikelyContextOverflowError } from "./pi-embedded-helpers/errors.js";
+import type { FailoverReason } from "./pi-embedded-helpers/types.js";
 
 const log = createSubsystemLogger("model-fallback");
 
