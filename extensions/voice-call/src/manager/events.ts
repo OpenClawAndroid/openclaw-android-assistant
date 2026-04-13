@@ -138,6 +138,7 @@ export function processEvent(ctx: EventContext, event: NormalizedEvent): void {
           reason: "hangup-bot",
         })
         .catch((err) => {
+          ctx.rejectedProviderCallIds.delete(pid);
           const message = formatErrorMessage(err);
           console.warn(`[voice-call] Failed to reject inbound call ${pid}:`, message);
         });

@@ -16,7 +16,7 @@ import {
 } from "../runtime-api.js";
 import { resolveNextcloudTalkAccount } from "./accounts.js";
 import { handleNextcloudTalkInbound } from "./inbound.js";
-import { createNextcloudTalkReplayGuard } from "./replay-guard.js";
+import { createNextcloudTalkReplayGuard, type NextcloudTalkReplayGuard } from "./replay-guard.js";
 import { getNextcloudTalkRuntime } from "./runtime.js";
 import { extractNextcloudTalkHeaders, verifyNextcloudTalkSignature } from "./signature.js";
 import type {
@@ -63,6 +63,57 @@ const WEBHOOK_ERRORS = {
   payloadTooLarge: "Payload too large",
   internalServerError: "Internal server error",
 } as const;
+
+export class NextcloudTalkRetryableWebhookError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "NextcloudTalkRetryableWebhookError";
+  }
+}
+
+export async function processNextcloudTalkReplayGuardedMessage(params: {
+  replayGuard: NextcloudTalkReplayGuard;
+  accountId: string;
+  message: NextcloudTalkInboundMessage;
+  handleMessage: () => Promise<void>;
+}): Promise<"processed" | "duplicate"> {
+  const claim = await params.replayGuard.claimMessage({
+    accountId: params.accountId,
+    roomToken: params.message.roomToken,
+    messageId: params.message.messageId,
+  });
+  if (claim !== "claimed") {
+    return "duplicate";
+  }
+
+  try {
+    await params.handleMessage();
+    await params.replayGuard.commitMessage({
+      accountId: params.accountId,
+      roomToken: params.message.roomToken,
+      messageId: params.message.messageId,
+    });
+    return "processed";
+  } catch (error) {
+    if (error instanceof NextcloudTalkRetryableWebhookError) {
+      params.replayGuard.releaseMessage({
+        accountId: params.accountId,
+        roomToken: params.message.roomToken,
+        messageId: params.message.messageId,
+        error,
+      });
+    } else {
+      // Generic failures are treated as non-retryable because the handler may already
+      // have produced a visible side effect, and replaying the webhook would duplicate it.
+      await params.replayGuard.commitMessage({
+        accountId: params.accountId,
+        roomToken: params.message.roomToken,
+        messageId: params.message.messageId,
+      });
+    }
+    throw error;
+  }
+}
 
 function formatError(err: unknown): string {
   if (err instanceof Error) {
@@ -404,49 +455,35 @@ export async function monitorNextcloudTalkProvider(
       return backendOrigin === expectedBackendOrigin;
     },
     processMessage: async (message) => {
-      const claim = await replayGuard.claimMessage({
+      const result = await processNextcloudTalkReplayGuardedMessage({
+        replayGuard,
         accountId: account.accountId,
-        roomToken: message.roomToken,
-        messageId: message.messageId,
+        message,
+        handleMessage: async () => {
+          core.channel.activity.record({
+            channel: "nextcloud-talk",
+            accountId: account.accountId,
+            direction: "inbound",
+            at: message.timestamp,
+          });
+          if (opts.onMessage) {
+            await opts.onMessage(message);
+          } else {
+            await handleNextcloudTalkInbound({
+              message,
+              account,
+              config: cfg,
+              runtime,
+              statusSink: opts.statusSink,
+            });
+          }
+        },
       });
-      if (claim !== "claimed") {
+      if (result === "duplicate") {
         logger.warn(
           `[nextcloud-talk:${account.accountId}] replayed webhook ignored room=${message.roomToken} messageId=${message.messageId}`,
         );
         return;
-      }
-
-      try {
-        core.channel.activity.record({
-          channel: "nextcloud-talk",
-          accountId: account.accountId,
-          direction: "inbound",
-          at: message.timestamp,
-        });
-        if (opts.onMessage) {
-          await opts.onMessage(message);
-        } else {
-          await handleNextcloudTalkInbound({
-            message,
-            account,
-            config: cfg,
-            runtime,
-            statusSink: opts.statusSink,
-          });
-        }
-        await replayGuard.commitMessage({
-          accountId: account.accountId,
-          roomToken: message.roomToken,
-          messageId: message.messageId,
-        });
-      } catch (error) {
-        replayGuard.releaseMessage({
-          accountId: account.accountId,
-          roomToken: message.roomToken,
-          messageId: message.messageId,
-          error,
-        });
-        throw error;
       }
     },
     onMessage: async () => {},
