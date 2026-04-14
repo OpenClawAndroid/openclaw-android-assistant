@@ -32,7 +32,7 @@ const {
 } = getFeishuLifecycleTestMocks();
 
 let _handlers: Record<string, (data: unknown) => Promise<void>> = {};
-let lastRuntime: { error: ReturnType<typeof vi.fn> } | null = null;
+let lastRuntime: ReturnType<typeof createRuntimeEnv> | null = null;
 const originalStateDir = process.env.OPENCLAW_STATE_DIR;
 const lifecycleConfig = createFeishuLifecycleConfig({
   accountId: "acct-card",
