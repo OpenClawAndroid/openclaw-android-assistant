@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../../../src/config/config.js";
-import { loadBundledCapabilityRuntimeRegistry } from "../../../src/plugins/bundled-capability-runtime.js";
 import { resolveManifestContractOwnerPluginId } from "../../../src/plugins/manifest-registry.js";
-import { resolveBundledExplicitWebSearchProvidersFromPublicArtifacts } from "../../../src/plugins/web-provider-public-artifacts.explicit.js";
-import { resolvePluginWebSearchProviders } from "../../../src/plugins/web-search-providers.runtime.js";
+import {
+  resolveBundledExplicitRuntimeWebSearchProvidersFromPublicArtifacts,
+  resolveBundledExplicitWebSearchProvidersFromPublicArtifacts,
+} from "../../../src/plugins/web-provider-public-artifacts.explicit.js";
 
 type ComparableProvider = {
   pluginId: string;
@@ -95,20 +96,15 @@ export function describeBundledWebSearchFastPathContract(pluginId: string) {
       }
     });
 
-    it("keeps fast-path provider metadata aligned with the bundled runtime registry", async () => {
-      const fastPathProviders = resolvePluginWebSearchProviders({
-        origin: "bundled",
-        onlyPluginIds: [pluginId],
-      }).filter((provider) => provider.pluginId === pluginId);
-      const bundledProviderEntries = loadBundledCapabilityRuntimeRegistry({
-        pluginIds: [pluginId],
-        pluginSdkResolution: "dist",
-      })
-        .webSearchProviders.filter((entry) => entry.pluginId === pluginId)
-        .map((entry) => ({
-          pluginId: entry.pluginId,
-          ...entry.provider,
-        }));
+    it("keeps fast-path provider metadata aligned with the bundled runtime artifact", async () => {
+      const fastPathProviders =
+        resolveBundledExplicitWebSearchProvidersFromPublicArtifacts({
+          onlyPluginIds: [pluginId],
+        })?.filter((provider) => provider.pluginId === pluginId) ?? [];
+      const bundledProviderEntries =
+        resolveBundledExplicitRuntimeWebSearchProvidersFromPublicArtifacts({
+          onlyPluginIds: [pluginId],
+        })?.filter((entry) => entry.pluginId === pluginId) ?? [];
 
       expect(
         sortComparableEntries(
