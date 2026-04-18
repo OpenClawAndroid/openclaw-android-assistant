@@ -7,4 +7,4 @@ export {
   stripInvalidGoogleThinkingBudget,
   type GoogleThinkingInputLevel,
   type GoogleThinkingLevel,
-} from "../../extensions/google/thinking-api.js";
+} from "../plugin-sdk/provider-stream-shared.js";

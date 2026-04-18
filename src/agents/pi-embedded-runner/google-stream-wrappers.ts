@@ -1,4 +1,4 @@
 export {
   createGoogleThinkingPayloadWrapper,
   sanitizeGoogleThinkingPayload,
-} from "../../../extensions/google/thinking-api.js";
+} from "../../plugin-sdk/provider-stream-shared.js";
