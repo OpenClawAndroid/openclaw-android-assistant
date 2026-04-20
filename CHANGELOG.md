@@ -7,12 +7,17 @@ Docs: https://docs.openclaw.ai
 ### Changes
 
 - Plugins/tests: reuse plugin loader alias and Jiti config resolution across repeated same-context loads, reducing import-heavy test overhead. (#69316) Thanks @amknight.
+- Cron: split runtime execution state into `jobs-state.json` so `jobs.json` stays stable for git-tracked job definitions. (#63105) Thanks @Feelw00.
 
 ### Fixes
 
+- fix(security): block MINIMAX_API_HOST workspace env injection and remove env-driven URL routing [AI-assisted]. (#67300) Thanks @pgondhi987.
 - Cron/delivery: treat explicit `delivery.mode: "none"` runs as not requested even if the runner reports `delivered: false`, so no-delivery cron jobs no longer persist false delivery failures or errors. (#69285) Thanks @matsuri1987.
 - Plugins/install: repair active and default-enabled bundled plugin runtime dependencies before import in packaged installs, so bundled Discord, WhatsApp, Slack, Telegram, and provider plugins work without putting their dependency trees in core.
 - BlueBubbles: raise the outbound `/api/v1/message/text` send timeout default from 10s to 30s, and add a configurable `channels.bluebubbles.sendTimeoutMs` (also per-account) so macOS 26 setups where Private API iMessage sends stall for 60+ seconds no longer silently lose messages at the 10s abort. Probes, chat lookups, and health checks keep the shorter 10s default. Fixes #67486. (#69193) Thanks @omarshahine.
+- Context engine/plugins: stop rejecting third-party context engines whose `info.id` differs from the registered plugin slot id. The strict-match contract added in 2026.4.14 broke `lossless-claw` and other plugins whose internal engine id does not equal the slot id they are registered under, producing repeated `info.id must match registered id` lane failures on every turn. Fixes #66601. (#66678) Thanks @GodsBoy.
+- Agents/compaction: rename embedded Pi compaction lifecycle events to `compaction_start` / `compaction_end` so OpenClaw stays aligned with `pi-coding-agent` 0.66.1 event naming. (#67713) Thanks @mpz4life.
+- Security/dotenv: block all `OPENCLAW_*` keys from untrusted workspace `.env` files so workspace-local env loading fails closed for new runtime-control variables instead of silently inheriting them. (#473)
 
 ## 2026.4.20
 

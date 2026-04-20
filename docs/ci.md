@@ -15,7 +15,9 @@ The CI runs on every push to `main` and every pull request. It uses smart scopin
 | Job                              | Purpose                                                                                      | When it runs                        |
 | -------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------- |
 | `preflight`                      | Detect docs-only changes, changed scopes, changed extensions, and build the CI manifest      | Always on non-draft pushes and PRs  |
-| `security-fast`                  | Private key detection, workflow audit via `zizmor`, production dependency audit              | Always on non-draft pushes and PRs  |
+| `security-scm-fast`              | Private key detection and workflow audit via `zizmor`                                        | Always on non-draft pushes and PRs  |
+| `security-dependency-audit`      | Dependency-free production lockfile audit against npm advisories                             | Always on non-draft pushes and PRs  |
+| `security-fast`                  | Required aggregate for the fast security jobs                                                | Always on non-draft pushes and PRs  |
 | `build-artifacts`                | Build `dist/` and the Control UI once, upload reusable artifacts for downstream jobs         | Node-relevant changes               |
 | `checks-fast-core`               | Fast Linux correctness lanes such as bundled/plugin-contract/protocol checks                 | Node-relevant changes               |
 | `checks-fast-contracts-channels` | Sharded channel contract checks with a stable aggregate check result                         | Node-relevant changes               |
@@ -38,7 +40,7 @@ The CI runs on every push to `main` and every pull request. It uses smart scopin
 Jobs are ordered so cheap checks fail before expensive ones run:
 
 1. `preflight` decides which lanes exist at all. The `docs-scope` and `changed-scope` logic are steps inside this job, not standalone jobs.
-2. `security-fast`, `check`, `check-additional`, `check-docs`, and `skills-python` fail quickly without waiting on the heavier artifact and platform matrix jobs.
+2. `security-scm-fast`, `security-dependency-audit`, `security-fast`, `check`, `check-additional`, `check-docs`, and `skills-python` fail quickly without waiting on the heavier artifact and platform matrix jobs.
 3. `build-artifacts` overlaps with the fast Linux lanes so downstream consumers can start as soon as the shared build is ready.
 4. Heavier platform and runtime lanes fan out after that: `checks-fast-core`, `checks-fast-contracts-channels`, `checks-node-extensions`, `checks-node-core-test`, `extension-fast`, `checks`, `checks-windows`, `macos-node`, `macos-swift`, and `android`.
 
@@ -49,15 +51,15 @@ Local changed-lane logic lives in `scripts/changed-lanes.mjs` and is executed by
 
 On pushes, the `checks` matrix adds the push-only `compat-node22` lane. On pull requests, that lane is skipped and the matrix stays focused on the normal test/channel lanes.
 
-The slowest Node test families are split into include-file shards so each job stays small: channel contracts split registry/core/extension coverage into focused shards, and auto-reply reply tests split each large prefix group into two include-pattern shards. `check-additional` also separates package-boundary compile/canary work from runtime topology gateway/architecture work.
+The slowest Node test families are split into include-file shards so each job stays small: channel contracts split registry and core coverage into four balanced shards each, auto-reply reply command tests split into four include-pattern shards, and the other large auto-reply reply prefix groups split into two shards each. `check-additional` also separates package-boundary compile/canary work from runtime topology gateway/architecture work.
 
 ## Runners
 
-| Runner                           | Jobs                                                                                                 |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `blacksmith-16vcpu-ubuntu-2404`  | `preflight`, `security-fast`, `build-artifacts`, Linux checks, docs checks, Python skills, `android` |
-| `blacksmith-32vcpu-windows-2025` | `checks-windows`                                                                                     |
-| `macos-latest`                   | `macos-node`, `macos-swift`                                                                          |
+| Runner                           | Jobs                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `blacksmith-16vcpu-ubuntu-2404`  | `preflight`, `security-scm-fast`, `security-dependency-audit`, `security-fast`, `build-artifacts`, Linux checks, docs checks, Python skills, `android` |
+| `blacksmith-32vcpu-windows-2025` | `checks-windows`                                                                                                                                       |
+| `macos-latest`                   | `macos-node`, `macos-swift`                                                                                                                            |
 
 ## Local Equivalents
 
