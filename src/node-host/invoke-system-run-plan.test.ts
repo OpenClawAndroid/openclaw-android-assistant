@@ -112,14 +112,6 @@ function writeFakeRuntimeBin(binDir: string, binName: string) {
   }
 }
 
-function withFakeRuntimeBin<T>(params: { binName: string; run: () => T }): T {
-  return withFakeRuntimeBins({
-    binNames: [params.binName],
-    tmpPrefix: `openclaw-${params.binName}-bin-`,
-    run: params.run,
-  });
-}
-
 function withFakeRuntimeBins<T>(params: {
   binNames: string[];
   tmpPrefix?: string;
@@ -144,6 +136,20 @@ function withFakeRuntimeBins<T>(params: {
       process.env.PATH = oldPath;
     }
   }
+}
+
+function uniqueRuntimeBinNames(
+  cases: ReadonlyArray<Pick<RuntimeFixture, "binName" | "binNames">>,
+): string[] {
+  return [
+    ...new Set(
+      cases.flatMap(
+        (runtimeCase) =>
+          runtimeCase.binNames ??
+          (runtimeCase.binName ? [runtimeCase.binName] : ["bunx", "pnpm", "npm", "npx", "tsx"]),
+      ),
+    ),
+  ];
 }
 
 function resolveNativeBinaryFixturePath(): string {
@@ -789,38 +795,28 @@ describe("hardenApprovedExecutionPaths", () => {
   ];
 
   it("captures mutable runtime operands in approval plans", () => {
-    for (const runtimeCase of mutableOperandCases) {
-      runNamedCase(runtimeCase.name, () => {
-        if (runtimeCase.skipOnWin32 && process.platform === "win32") {
-          return;
+    const tmp = createFixtureDir("openclaw-approval-script-plan-");
+    withFakeRuntimeBins({
+      binNames: uniqueRuntimeBinNames(mutableOperandCases),
+      run: () => {
+        for (const runtimeCase of mutableOperandCases) {
+          runNamedCase(runtimeCase.name, () => {
+            if (runtimeCase.skipOnWin32 && process.platform === "win32") {
+              return;
+            }
+            const fixture = createScriptOperandFixture(tmp, runtimeCase);
+            writeScriptOperandFixture(fixture);
+            const executablePath = fixture.command[0];
+            if (executablePath?.endsWith("pnpm.js")) {
+              const shimPath = path.join(tmp, "pnpm.js");
+              fs.writeFileSync(shimPath, "#!/usr/bin/env node\nconsole.log('shim')\n");
+              fs.chmodSync(shimPath, 0o755);
+            }
+            expectMutableFileOperandApprovalPlan(fixture, tmp);
+          });
         }
-        const binNames =
-          runtimeCase.binNames ??
-          (runtimeCase.binName ? [runtimeCase.binName] : ["bunx", "pnpm", "npm", "npx", "tsx"]);
-        withFakeRuntimeBins({
-          binNames,
-          run: () => {
-            withScriptOperandPlanFixture(
-              {
-                tmpPrefix: "openclaw-approval-script-plan-",
-                fixture: runtimeCase,
-                afterWrite: (fixture, tmp) => {
-                  const executablePath = fixture.command[0];
-                  if (executablePath?.endsWith("pnpm.js")) {
-                    const shimPath = path.join(tmp, "pnpm.js");
-                    fs.writeFileSync(shimPath, "#!/usr/bin/env node\nconsole.log('shim')\n");
-                    fs.chmodSync(shimPath, 0o755);
-                  }
-                },
-              },
-              (fixture, tmp) => {
-                expectMutableFileOperandApprovalPlan(fixture, tmp);
-              },
-            );
-          },
-        });
-      });
-    }
+      },
+    });
   });
 
   it("captures mutable shell script operands in approval plans", () => {
@@ -994,18 +990,18 @@ describe("hardenApprovedExecutionPaths", () => {
   });
 
   it("rejects unsafe runtime invocation forms", () => {
-    for (const testCase of unsafeRuntimeInvocationCases) {
-      runNamedCase(testCase.name, () => {
-        withFakeRuntimeBin({
-          binName: testCase.binName,
-          run: () => {
+    withFakeRuntimeBins({
+      binNames: [...new Set(unsafeRuntimeInvocationCases.map((testCase) => testCase.binName))],
+      run: () => {
+        for (const testCase of unsafeRuntimeInvocationCases) {
+          runNamedCase(testCase.name, () => {
             const tmp = createFixtureDir(testCase.tmpPrefix);
             testCase.setup?.(tmp);
             expectRuntimeApprovalDenied(testCase.command, tmp);
-          },
-        });
-      });
-    }
+          });
+        }
+      },
+    });
   });
 
   it("detects rewritten script operands for pnpm dlx approval plans", () => {

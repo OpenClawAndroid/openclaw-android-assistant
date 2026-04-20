@@ -66,9 +66,7 @@ describe("debug proxy runtime", () => {
   });
 
   it("captures ambient global fetch calls when debug proxy mode is enabled", async () => {
-    globalThis.fetch = vi.fn(
-      async () => new Response('{"ok":true}', { status: 200 }),
-    ) as typeof fetch;
+    globalThis.fetch = vi.fn(async () => ({ status: 200 }) as Response) as typeof fetch;
 
     const runtime = await import("./runtime.js");
     runtime.initializeDebugProxyCapture("test");
@@ -77,7 +75,6 @@ describe("debug proxy runtime", () => {
       headers: { "content-type": "application/json" },
       body: '{"input":"hello"}',
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
     runtime.finalizeDebugProxyCapture();
 
     const events = storeState.events.filter((event) => event.sessionId === "runtime-test-session");

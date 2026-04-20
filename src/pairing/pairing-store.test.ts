@@ -3,7 +3,16 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import { resolveOAuthDir } from "../config/paths.js";
 import { DEFAULT_ACCOUNT_ID } from "../routing/session-key.js";
 import { withEnvAsync } from "../test-utils/env.js";
@@ -64,6 +73,10 @@ import {
 
 let fixtureRoot = "";
 let caseId = 0;
+type RandomIntSync = (minOrMax: number, max?: number) => number;
+
+let randomIntSpy: MockInstance<RandomIntSync>;
+let nextRandomInt = 0;
 
 beforeAll(async () => {
   fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pairing-"));
@@ -77,7 +90,23 @@ afterAll(async () => {
 
 beforeEach(() => {
   clearPairingAllowFromReadCacheForTest();
+  nextRandomInt = 0;
+  randomIntSpy ??= vi.spyOn(crypto, "randomInt") as unknown as MockInstance<RandomIntSync>;
+  setDefaultRandomIntMock();
 });
+
+afterAll(() => {
+  randomIntSpy?.mockRestore();
+});
+
+function setDefaultRandomIntMock() {
+  randomIntSpy.mockImplementation((minOrMax: number, max?: number) => {
+    const min = max === undefined ? 0 : minOrMax;
+    const upper = max === undefined ? minOrMax : max;
+    const span = Math.max(upper - min, 1);
+    return min + (nextRandomInt++ % span);
+  });
+}
 
 async function withTempStateDir<T>(fn: (stateDir: string) => Promise<T>) {
   const dir = path.join(fixtureRoot, `case-${caseId++}`);
@@ -215,25 +244,19 @@ async function withMockRandomInt(params: {
   fallbackValue?: number;
   run: () => Promise<void>;
 }) {
-  const spy = vi.spyOn(crypto, "randomInt") as unknown as {
-    mockReturnValue: (value: number) => void;
-    mockImplementation: (fn: () => number) => void;
-    mockRestore: () => void;
-  };
-
   try {
     if (params.initialValue !== undefined) {
-      spy.mockReturnValue(params.initialValue);
+      randomIntSpy.mockReturnValue(params.initialValue);
     }
 
     if (params.sequence) {
       let idx = 0;
-      spy.mockImplementation(() => params.sequence?.[idx++] ?? params.fallbackValue ?? 1);
+      randomIntSpy.mockImplementation(() => params.sequence?.[idx++] ?? params.fallbackValue ?? 1);
     }
 
     await params.run();
   } finally {
-    spy.mockRestore();
+    setDefaultRandomIntMock();
   }
 }
 
