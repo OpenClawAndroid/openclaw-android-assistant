@@ -292,7 +292,7 @@ describe("config io write", () => {
       await fs.mkdir(path.dirname(configPath), { recursive: true });
       const original = {
         gateway: { mode: "local" },
-        channels: { feishu: { enabled: true } },
+        channels: { "test-plugin-channel": { enabled: true } },
       };
       const originalRaw = `${JSON.stringify(original, null, 2)}\n`;
       await fs.writeFile(configPath, originalRaw, "utf-8");
@@ -300,11 +300,7 @@ describe("config io write", () => {
         throw new Error("manifest registry unavailable");
       });
 
-      const io = createConfigIO({
-        env: { VITEST: "true" } as NodeJS.ProcessEnv,
-        homedir: () => home,
-        logger: silentLogger,
-      });
+      const io = createFastConfigIO(home);
 
       const snapshot = await io.readConfigFileSnapshot();
 
