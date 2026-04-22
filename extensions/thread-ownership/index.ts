@@ -21,6 +21,10 @@ type ThreadOwnershipMessageSendingResult = { cancel: true } | undefined;
 const mentionedThreads = new Map<string, number>();
 const MENTION_TTL_MS = 5 * 60 * 1000;
 
+function isThreadOwnershipConfig(value: unknown): value is ThreadOwnershipConfig {
+  return value !== null && typeof value === "object";
+}
+
 function resolveThreadToken(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
 }
@@ -79,10 +83,16 @@ export default definePluginEntry({
   description: "Slack thread claim coordination for multi-agent setups",
   register(api: OpenClawPluginApi) {
     const resolveCurrentState = () => {
-      const currentConfig = api.runtime.config?.loadConfig?.() ?? api.config;
-      const pluginCfg =
-        resolvePluginConfigObject(currentConfig, "thread-ownership") ||
-        ((api.pluginConfig ?? {}) as ThreadOwnershipConfig);
+      const runtimeConfigAvailable = typeof api.runtime.config?.loadConfig === "function";
+      const currentConfig = runtimeConfigAvailable
+        ? (api.runtime.config.loadConfig() ?? api.config)
+        : api.config;
+      const livePluginCfg = resolvePluginConfigObject(currentConfig, "thread-ownership");
+      const pluginCfg = isThreadOwnershipConfig(livePluginCfg)
+        ? livePluginCfg
+        : !runtimeConfigAvailable && isThreadOwnershipConfig(api.pluginConfig)
+          ? api.pluginConfig
+          : {};
       return {
         currentConfig,
         forwarderUrl: (
