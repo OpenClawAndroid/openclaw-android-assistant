@@ -131,6 +131,17 @@ describe("createScopedVitestConfig", () => {
     expect(config.test?.include).toEqual(["slack/**/*.test.*"]);
   });
 
+  it("keeps broad scoped cli directory filters aligned with repo-root include patterns", () => {
+    const config = createScopedVitestConfig([BUNDLED_PLUGIN_TEST_GLOB], {
+      argv: ["vitest", "run", "extensions/speech-core"],
+      dir: "extensions",
+      env: {},
+      passWithNoTests: true,
+    });
+
+    expect(config.test?.include).toEqual(["speech-core/**/*.test.*"]);
+  });
+
   it("relativizes scoped include and exclude patterns to the configured dir", () => {
     const config = createScopedVitestConfig([BUNDLED_PLUGIN_TEST_GLOB], {
       dir: "extensions",

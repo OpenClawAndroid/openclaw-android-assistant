@@ -66,7 +66,8 @@ const BUNDLED_LIVE_CONFIG_HOOK_GUARDS = {
   ],
   "extensions/skill-workshop/index.ts": [
     'resolvePluginConfigObject(runtimeConfig, "skill-workshop")',
-    "api.runtime.config?.loadConfig?.()",
+    'typeof api.runtime.config?.loadConfig === "function"',
+    "api.runtime.config.loadConfig()",
   ],
   "extensions/thread-ownership/index.ts": [
     'resolvePluginConfigObject(currentConfig, "thread-ownership")',
@@ -93,6 +94,9 @@ function listTsFiles(rootRelativePath: string, filter: FileFilter = {}): string[
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const fullPath = resolve(directory, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".git") {
+          continue;
+        }
         walk(fullPath);
         continue;
       }

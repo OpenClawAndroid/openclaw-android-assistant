@@ -162,6 +162,21 @@ describe("scripts/test-projects changed-target routing", () => {
     ]);
   });
 
+  it("routes QA extension changes to the QA extension lane", () => {
+    const plans = buildVitestRunPlans(["--changed", "origin/main"], process.cwd(), () => [
+      "extensions/qa-lab/src/scenario-catalog.test.ts",
+    ]);
+
+    expect(plans).toEqual([
+      {
+        config: "test/vitest/vitest.extension-qa.config.ts",
+        forwardedArgs: [],
+        includePatterns: ["extensions/qa-lab/src/scenario-catalog.test.ts"],
+        watchMode: false,
+      },
+    ]);
+  });
+
   it("routes the top-level extensions target to every extension shard", () => {
     expect(buildVitestRunPlans(["extensions"], process.cwd())).toEqual(
       listFullExtensionVitestProjectConfigs().map((config) => ({
