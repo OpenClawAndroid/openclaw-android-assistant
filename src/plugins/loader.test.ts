@@ -3,6 +3,10 @@ import path from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { listAgentHarnessIds } from "../agents/harness/registry.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
+import {
+  clearRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshot,
+} from "../config/runtime-snapshot.js";
 import { getContextEngineFactory, listContextEngineIds } from "../context-engine/registry.js";
 import {
   clearInternalHooks,
@@ -822,6 +826,7 @@ function expectEscapingEntryRejected(params: {
 }
 
 afterEach(() => {
+  clearRuntimeConfigSnapshot();
   resetPluginLoaderTestStateForTest();
 });
 
@@ -5755,6 +5760,65 @@ module.exports = {
         ...loadedScenario,
         expectedSource,
       });
+    });
+  });
+
+  it("uses the source runtime snapshot allowlist for plugin trust checks", () => {
+    useNoBundledPlugins();
+    const stateDir = makeTempDir();
+    withEnv({ OPENCLAW_STATE_DIR: stateDir }, () => {
+      const globalDir = path.join(stateDir, "extensions", "trusted-plugin");
+      mkdirSafe(globalDir);
+      writePlugin({
+        id: "trusted-plugin",
+        body: simplePluginBody("trusted-plugin"),
+        dir: globalDir,
+        filename: "index.cjs",
+      });
+      const untrustedDir = path.join(stateDir, "extensions", "untrusted-plugin");
+      mkdirSafe(untrustedDir);
+      writePlugin({
+        id: "untrusted-plugin",
+        body: simplePluginBody("untrusted-plugin"),
+        dir: untrustedDir,
+        filename: "index.cjs",
+      });
+      const runtimeConfig = {
+        plugins: {
+          enabled: true,
+          allow: ["runtime-added-plugin"],
+        },
+      } satisfies PluginLoadConfig;
+      const sourceConfig = {
+        plugins: {
+          enabled: true,
+          allow: ["trusted-plugin"],
+        },
+      } satisfies PluginLoadConfig;
+      setRuntimeConfigSnapshot(runtimeConfig, sourceConfig);
+
+      const warnings: string[] = [];
+      const registry = loadOpenClawPlugins({
+        cache: false,
+        logger: createWarningLogger(warnings),
+        config: runtimeConfig,
+      });
+
+      expect(registry.plugins.find((entry) => entry.id === "trusted-plugin")?.status).toBe(
+        "loaded",
+      );
+      expect(registry.plugins.find((entry) => entry.id === "untrusted-plugin")).toMatchObject({
+        status: "disabled",
+        error: "not in allowlist",
+      });
+      expect(warnings.some((message) => message.includes("plugins.allow is empty"))).toBe(false);
+      expect(
+        warnings.some(
+          (message) =>
+            message.includes("trusted-plugin") &&
+            message.includes("loaded without install/load-path provenance"),
+        ),
+      ).toBe(false);
     });
   });
 

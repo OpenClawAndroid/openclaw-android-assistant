@@ -19,7 +19,6 @@ import {
 } from "../shared-interactive.js";
 import { resolveDiscordChannelId } from "../targets.js";
 import { tryHandleDiscordMessageActionGuildAdmin } from "./handle-action.guild-admin.js";
-import { readDiscordParentIdParam } from "./runtime.shared.js";
 
 const providerId = "discord";
 
@@ -300,7 +299,6 @@ export async function handleDiscordMessageAction(
   const adminResult = await tryHandleDiscordMessageActionGuildAdmin({
     ctx,
     resolveChannelId,
-    readParentIdParam: readDiscordParentIdParam,
   });
   if (adminResult !== undefined) {
     return adminResult;

@@ -275,7 +275,7 @@ export async function processDiscordMessage(
   const forumParentSlug =
     isForumParent && threadParentName ? normalizeDiscordSlug(threadParentName) : "";
   const threadChannelId = threadChannel?.id;
-  const threadInheritParent = discordConfig?.thread?.inheritParent ?? false;
+  const threadParentInheritanceEnabled = discordConfig?.thread?.inheritParent ?? false;
   const isForumStarter =
     Boolean(threadChannelId && isForumParent && forumParentSlug) && message.id === threadChannelId;
   const forumContextLine = isForumStarter ? `[Forum parent: #${forumParentSlug}]` : null;
@@ -411,7 +411,7 @@ export async function processDiscordMessage(
         peer: { kind: "channel", id: threadParentId },
       });
     }
-    if (!threadInheritParent) {
+    if (!threadParentInheritanceEnabled) {
       parentSessionKey = undefined;
     }
   }
@@ -438,7 +438,7 @@ export async function processDiscordMessage(
     agentId: route.agentId,
     channel: route.channel,
     cfg,
-    threadInheritParent,
+    threadParentInheritanceEnabled,
   });
   const deliverTarget = replyPlan.deliverTarget;
   const replyTarget = replyPlan.replyTarget;

@@ -1,4 +1,4 @@
-import { ChannelType, type Client } from "@buape/carbon";
+import { ChannelType, type Client, type MessageCreateListener } from "@buape/carbon";
 import { Routes, type APIAttachment, type APIStickerItem } from "discord-api-types/v10";
 import {
   resolveChannelModelOverride,
@@ -15,7 +15,6 @@ import {
 } from "openclaw/plugin-sdk/text-runtime";
 import type { DiscordChannelConfigResolved } from "./allow-list.js";
 import { resolveDiscordChannelNameSafe } from "./channel-access.js";
-import type { DiscordMessageEvent } from "./listeners.js";
 import {
   resolveDiscordChannelInfo,
   resolveDiscordEmbedText,
@@ -80,6 +79,7 @@ type DiscordThreadStarterRestMessage = {
   author?: DiscordThreadStarterRestAuthor | null;
   timestamp?: string | null;
 };
+type DiscordMessageEvent = Parameters<MessageCreateListener["handle"]>[0];
 
 // Cache entry with timestamp for TTL-based eviction
 type DiscordThreadStarterCacheEntry = {
@@ -388,7 +388,7 @@ export function resolveDiscordAutoThreadContext(params: {
   channel: string;
   messageChannelId: string;
   createdThreadId?: string | null;
-  inheritParent?: boolean;
+  parentInheritanceEnabled?: boolean;
 }): DiscordAutoThreadContext | null {
   const createdThreadId = normalizeOptionalStringifiedId(params.createdThreadId) ?? "";
   if (!createdThreadId) {
@@ -405,7 +405,7 @@ export function resolveDiscordAutoThreadContext(params: {
     peer: { kind: "channel", id: createdThreadId },
   });
   const parentSessionKey =
-    params.inheritParent === true
+    params.parentInheritanceEnabled === true
       ? buildAgentSessionKey({
           agentId: params.agentId,
           channel: params.channel,
@@ -451,7 +451,7 @@ export async function resolveDiscordAutoThreadReplyPlan(
     agentId: string;
     channel: string;
     cfg?: OpenClawConfig;
-    threadInheritParent?: boolean;
+    threadParentInheritanceEnabled?: boolean;
   },
 ): Promise<DiscordAutoThreadReplyPlan> {
   const messageChannelId = resolveTrimmedDiscordMessageChannelId(params);
@@ -487,7 +487,7 @@ export async function resolveDiscordAutoThreadReplyPlan(
         channel: params.channel,
         messageChannelId,
         createdThreadId,
-        inheritParent: params.threadInheritParent,
+        parentInheritanceEnabled: params.threadParentInheritanceEnabled,
       })
     : null;
   return { ...deliveryPlan, createdThreadId, autoThreadContext };

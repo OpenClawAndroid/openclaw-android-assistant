@@ -182,6 +182,27 @@ describe("detectChangedScope", () => {
     });
   });
 
+  it("does not run Windows for test-only changes", () => {
+    expect(detectChangedScope(["extensions/memory-lancedb/index.test.ts"])).toEqual({
+      runNode: true,
+      runMacos: false,
+      runAndroid: false,
+      runWindows: false,
+      runSkillsPython: false,
+      runChangedSmoke: false,
+      runControlUiI18n: false,
+    });
+    expect(detectChangedScope(["test/helpers/windows-paths.test-utils.ts"])).toEqual({
+      runNode: true,
+      runMacos: false,
+      runAndroid: false,
+      runWindows: false,
+      runSkillsPython: false,
+      runChangedSmoke: false,
+      runControlUiI18n: false,
+    });
+  });
+
   it("runs changed-smoke for install and packaging surfaces", () => {
     expect(detectChangedScope(["scripts/install.sh"])).toEqual({
       runNode: true,
@@ -211,6 +232,15 @@ describe("detectChangedScope", () => {
       runControlUiI18n: false,
     });
     expect(detectChangedScope(["scripts/e2e/qr-import-docker.sh"])).toEqual({
+      runNode: true,
+      runMacos: false,
+      runAndroid: false,
+      runWindows: true,
+      runSkillsPython: false,
+      runChangedSmoke: true,
+      runControlUiI18n: false,
+    });
+    expect(detectChangedScope(["scripts/e2e/gateway-network-docker.sh"])).toEqual({
       runNode: true,
       runMacos: false,
       runAndroid: false,
