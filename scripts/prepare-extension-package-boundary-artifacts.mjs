@@ -13,6 +13,7 @@ const ROOT_DTS_INPUTS = [
   "tsconfig.json",
   "tsconfig.plugin-sdk.dts.json",
   "src/channels/plugins",
+  "src/config",
   "src/plugin-sdk",
   "src/video-generation/dashscope-compatible.ts",
   "src/video-generation/types.ts",
@@ -29,6 +30,7 @@ const PACKAGE_DTS_INPUTS = [
   "tsconfig.json",
   "packages/plugin-sdk/tsconfig.json",
   "src/channels/plugins",
+  "src/config",
   "src/plugin-sdk",
   "src/video-generation/dashscope-compatible.ts",
   "src/video-generation/types.ts",
@@ -250,13 +252,13 @@ export async function main(argv = process.argv.slice(2)) {
     const rootDtsFresh =
       isArtifactSetFresh({
         inputPaths: ROOT_DTS_INPUTS,
-        outputPaths: [ROOT_DTS_STAMP],
+        outputPaths: [ROOT_DTS_STAMP, ...ROOT_DTS_REQUIRED_OUTPUTS],
         includeFile: isRelevantTypeInput,
       }) && !hasMissingOutput(ROOT_DTS_REQUIRED_OUTPUTS);
     const packageDtsFresh =
       isArtifactSetFresh({
         inputPaths: PACKAGE_DTS_INPUTS,
-        outputPaths: [PACKAGE_DTS_STAMP],
+        outputPaths: [PACKAGE_DTS_STAMP, ...PACKAGE_DTS_REQUIRED_OUTPUTS],
         includeFile: isRelevantTypeInput,
       }) && !hasMissingOutput(PACKAGE_DTS_REQUIRED_OUTPUTS);
     const entryShimsFresh = isArtifactSetFresh({
