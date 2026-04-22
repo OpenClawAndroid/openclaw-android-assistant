@@ -37,6 +37,7 @@ Docs: https://docs.openclaw.ai
 - Discord: keep slash command follow-up chunks ephemeral when the command is configured for ephemeral replies, so long `/status` output no longer leaks fallback model or runtime details into the public channel. (#69869) thanks @gumadeiras.
 - Plugins/discovery: reject package plugin source entries that escape the package directory before explicit runtime entries or inferred built JavaScript peers can be used. (#69868) thanks @gumadeiras.
 - CLI/channels: resolve channel presence through a shared policy that keeps ambient env vars and stale persisted auth from surfacing disabled bundled plugins in status, doctor, security audit, and cron delivery validation unless the channel or plugin is effectively enabled or explicitly configured. (#69862) Thanks @gumadeiras.
+- Doctor/plugins: hydrate legacy partial interactive handler state before plugin reload clears dedupe caches, so `openclaw doctor` and post-update doctor runs no longer crash with `Cannot read properties of undefined (reading 'clear')`. (#70135) Thanks @ngutman.
 - Control UI/config: preserve intentionally empty raw config snapshots when clearing pending updates so reset restores the original bytes instead of synthesizing JSON for blank config files. (#68178) Thanks @BunsDev.
 - memory-core/dreaming: surface a `Dreaming status: blocked` line in `openclaw memory status` when dreaming is enabled but the heartbeat that drives the managed cron is not firing for the default agent, and add a Troubleshooting section to the dreaming docs covering the two common causes (per-agent `heartbeat` blocks excluding `main`, and `heartbeat.every` set to `0`/empty/invalid), so the silent failure described in #69843 becomes legible on the status surface.
 - Cron/run-log: report generic `message` tool sends under the resolved delivery channel when they match the cron target, while preserving account-specific mismatch checks for delivery traces. (#69940) Thanks @davehappyminion.
@@ -46,6 +47,8 @@ Docs: https://docs.openclaw.ai
 - Agents/harness: surface selected plugin harness failures directly instead of replaying the same turn through embedded PI, preventing misleading secondary PI auth errors and avoiding duplicate side effects.
 - OpenAI Codex: add a ChatGPT device-code auth option beside browser OAuth, so headless or callback-hostile setups can sign in without relying on the localhost browser callback. (#69557) Thanks @vincentkoc.
 - CLI sessions: keep provider-owned CLI sessions through implicit daily expiry while preserving explicit reset behavior, and retain Claude CLI binding metadata across gateway agent requests. (#70106) Thanks @obviyus.
+- fix(config): accept truncateAfterCompaction (#68395). Thanks @MonkeyLeeT
+- CLI/Claude: keep Claude CLI session bindings stable across OAuth access-token refreshes, so gateway restarts continue the same Claude conversation instead of minting a fresh one. (#70132) Thanks @obviyus.
 
 ## 2026.4.21
 
