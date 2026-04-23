@@ -13,7 +13,9 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Memory/QMD: recreate stale managed QMD collections when startup repair finds the collection name already exists, so root memory narrows back to `MEMORY.md` instead of staying on broad workspace markdown indexing.
 - Agents/OpenAI: surface selected-model capacity failures from PI, Codex, and auto-reply harness paths with a model-switch hint instead of the generic empty-response error. Thanks @vincentkoc.
+- Providers/OpenAI: route `openai/gpt-image-2` through configured Codex OAuth directly when an `openai-codex` profile is active, instead of probing `OPENAI_API_KEY` first.
 - Providers/OpenAI: stop advertising the removed `gpt-5.3-codex-spark` Codex model through fallback catalogs, and suppress stale rows with a GPT-5.5 recovery hint.
 - Plugins/QR: replace legacy `qrcode-terminal` QR rendering with bounded `qrcode-tui` helpers for plugin login/setup flows. (#65969) Thanks @vincentkoc.
 - Voice-call/realtime: wait for OpenAI session configuration before greeting or forwarding buffered audio, and reject non-allowlisted Twilio callers before stream setup. (#43501) Thanks @forrestblount.
@@ -24,7 +26,7 @@ Docs: https://docs.openclaw.ai
 - Plugins/install: link the host OpenClaw package into external plugins that declare `openclaw` as a peer dependency, so peer-only plugin SDK imports resolve after install without bundling a duplicate host package. (#70462) Thanks @anishesg.
 - Teams/security: require shared Bot Framework audience tokens to name the configured Teams app via verified `appid` or `azp`, blocking cross-bot token replay on the global audience. (#70724) Thanks @vincentkoc.
 - Plugins/startup: resolve bundled plugin Jiti loads relative to the target plugin module instead of the central loader, so Bun global installs no longer hang while discovering bundled image providers. (#70073) Thanks @yidianyiko.
-- Anthropic/CLI security: stop Claude CLI backend defaults from forcing `bypassPermissions`, and strip malformed permission-mode overrides instead of silently falling back to a bypass. (#70723) Thanks @vincentkoc.
+- Anthropic/CLI security: derive Claude CLI `bypassPermissions` from OpenClaw's existing YOLO exec policy, preserve explicit raw Claude `--permission-mode` overrides, and strip malformed permission-mode args instead of silently falling back to a bypass. (#70723) Thanks @vincentkoc.
 - Android/security: require loopback-only cleartext gateway connections on Android manual and scanned routes, so private-LAN and link-local `ws://` endpoints now fail closed unless TLS is enabled. (#70722) Thanks @vincentkoc.
 - Pairing/security: require private-IP or loopback hosts for cleartext mobile pairing, and stop treating `.local` or dotless hostnames as safe cleartext endpoints. (#70721) Thanks @vincentkoc.
 - Plugins/security: stop setup-api lookup from falling back to the launch directory, so workspace-local `extensions/<plugin>/setup-api.*` files cannot be executed during provider setup resolution. (#70718) Thanks @drobison00.
@@ -49,6 +51,7 @@ Docs: https://docs.openclaw.ai
 - Providers/Anthropic Vertex: restore ADC-backed model discovery after the lightweight provider-discovery path by resolving emitted discovery entries, exposing synthetic auth on bootstrap discovery, and honoring copied env snapshots when probing the default GCP ADC path. Fixes #65715. (#65716) Thanks @feiskyer.
 - Codex harness/status: pin embedded harness selection per session, show active non-PI harness ids such as `codex` in `/status`, and keep legacy transcripts on PI until `/new` or `/reset` so config changes cannot hot-switch existing sessions.
 - Gateway/security: fail closed on agent-driven `gateway config.apply`/`config.patch` runtime edits by allowlisting a narrow set of agent-tunable prompt, model, and mention-gating paths (including Telegram topic-level `requireMention`) instead of relying on a hand-maintained denylist of protected subtrees that could miss new sensitive config keys. (#70726) Thanks @drobison00.
+- Webhooks/security: re-resolve `SecretRef`-backed webhook route secrets on each request so `openclaw secrets reload` revokes the previous secret immediately instead of waiting for a gateway restart. (#70727) Thanks @drobison00.
 
 ## 2026.4.22
 

@@ -2,16 +2,26 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildOpenAIImageGenerationProvider } from "./image-generation-provider.js";
 
 const {
+  ensureAuthProfileStoreMock,
   isProviderApiKeyConfiguredMock,
+  listProfilesForProviderMock,
   resolveApiKeyForProviderMock,
   postJsonRequestMock,
   postMultipartRequestMock,
   assertOkOrThrowHttpErrorMock,
   resolveProviderHttpRequestConfigMock,
+  sanitizeConfiguredModelProviderRequestMock,
 } = vi.hoisted(() => ({
+  ensureAuthProfileStoreMock: vi.fn(() => ({ version: 1, profiles: {} })),
   isProviderApiKeyConfiguredMock: vi.fn<
     (params: { provider: string; agentDir?: string }) => boolean
   >(() => false),
+  listProfilesForProviderMock: vi.fn(
+    (store: { profiles?: Record<string, { provider?: string }> }, provider: string) =>
+      Object.entries(store.profiles ?? {})
+        .filter(([, profile]) => profile.provider === provider)
+        .map(([profileId]) => profileId),
+  ),
   resolveApiKeyForProviderMock: vi.fn(
     async (_params?: {
       provider?: string;
@@ -24,14 +34,17 @@ const {
   assertOkOrThrowHttpErrorMock: vi.fn(async () => {}),
   resolveProviderHttpRequestConfigMock: vi.fn((params) => ({
     baseUrl: params.baseUrl ?? params.defaultBaseUrl,
-    allowPrivateNetwork: Boolean(params.allowPrivateNetwork),
+    allowPrivateNetwork: Boolean(params.allowPrivateNetwork ?? params.request?.allowPrivateNetwork),
     headers: new Headers(params.defaultHeaders),
     dispatcherPolicy: undefined,
   })),
+  sanitizeConfiguredModelProviderRequestMock: vi.fn((request) => request),
 }));
 
 vi.mock("openclaw/plugin-sdk/provider-auth", () => ({
+  ensureAuthProfileStore: ensureAuthProfileStoreMock,
   isProviderApiKeyConfigured: isProviderApiKeyConfiguredMock,
+  listProfilesForProvider: listProfilesForProviderMock,
 }));
 
 vi.mock("openclaw/plugin-sdk/provider-auth-runtime", () => ({
@@ -43,6 +56,7 @@ vi.mock("openclaw/plugin-sdk/provider-http", () => ({
   postJsonRequest: postJsonRequestMock,
   postMultipartRequest: postMultipartRequestMock,
   resolveProviderHttpRequestConfig: resolveProviderHttpRequestConfigMock,
+  sanitizeConfiguredModelProviderRequest: sanitizeConfiguredModelProviderRequestMock,
 }));
 
 function mockGeneratedPngResponse() {
@@ -96,16 +110,35 @@ function mockCodexAuthOnly() {
   });
 }
 
+function createCodexOAuthAuthStore() {
+  return {
+    version: 1 as const,
+    profiles: {
+      "openai-codex:default": {
+        type: "oauth" as const,
+        provider: "openai-codex",
+        access: "codex-access",
+        refresh: "codex-refresh",
+        expires: Date.now() + 60_000,
+      },
+    },
+  };
+}
+
 describe("openai image generation provider", () => {
   afterEach(() => {
+    ensureAuthProfileStoreMock.mockReset();
+    ensureAuthProfileStoreMock.mockReturnValue({ version: 1, profiles: {} });
     isProviderApiKeyConfiguredMock.mockReset();
     isProviderApiKeyConfiguredMock.mockReturnValue(false);
+    listProfilesForProviderMock.mockClear();
     resolveApiKeyForProviderMock.mockReset();
     resolveApiKeyForProviderMock.mockResolvedValue({ apiKey: "openai-key" });
     postJsonRequestMock.mockReset();
     postMultipartRequestMock.mockReset();
     assertOkOrThrowHttpErrorMock.mockClear();
     resolveProviderHttpRequestConfigMock.mockClear();
+    sanitizeConfiguredModelProviderRequestMock.mockClear();
     vi.unstubAllEnvs();
   });
 
@@ -410,6 +443,142 @@ describe("openai image generation provider", () => {
         },
       ],
     });
+  });
+
+  it("uses configured Codex OAuth directly instead of probing an available OpenAI API key", async () => {
+    resolveApiKeyForProviderMock.mockImplementation(async (params?: { provider?: string }) => {
+      if (params?.provider === "openai") {
+        return { apiKey: "openai-key", source: "OPENAI_API_KEY", mode: "api-key" };
+      }
+      if (params?.provider === "openai-codex") {
+        return { apiKey: "codex-key", source: "profile:openai-codex:default", mode: "oauth" };
+      }
+      return {};
+    });
+    mockCodexImageStream({ imageData: "codex-image" });
+
+    const provider = buildOpenAIImageGenerationProvider();
+    const authStore = createCodexOAuthAuthStore();
+    const result = await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2",
+      prompt: "Draw using configured Codex auth",
+      cfg: {},
+      authStore,
+    });
+
+    expect(resolveApiKeyForProviderMock).toHaveBeenCalledTimes(1);
+    expect(resolveApiKeyForProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai-codex",
+        store: authStore,
+      }),
+    );
+    expect(resolveApiKeyForProviderMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+      }),
+    );
+    expect(postJsonRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://chatgpt.com/backend-api/codex/responses",
+      }),
+    );
+    expect(result.images[0]?.buffer).toEqual(Buffer.from("codex-image"));
+  });
+
+  it("honors configured Codex transport overrides for OAuth image generation", async () => {
+    mockCodexAuthOnly();
+    mockCodexImageStream({ imageData: "codex-image" });
+
+    const provider = buildOpenAIImageGenerationProvider();
+    const authStore = createCodexOAuthAuthStore();
+    const result = await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2",
+      prompt: "Draw through a configured Codex endpoint",
+      cfg: {
+        models: {
+          providers: {
+            "openai-codex": {
+              baseUrl: "http://127.0.0.1:44220/backend-api/codex",
+              api: "openai-codex-responses",
+              request: { allowPrivateNetwork: true },
+              models: [],
+            },
+          },
+        },
+      },
+      authStore,
+    });
+
+    expect(sanitizeConfiguredModelProviderRequestMock).toHaveBeenCalledWith({
+      allowPrivateNetwork: true,
+    });
+    expect(resolveProviderHttpRequestConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "http://127.0.0.1:44220/backend-api/codex",
+        request: { allowPrivateNetwork: true },
+      }),
+    );
+    expect(postJsonRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "http://127.0.0.1:44220/backend-api/codex/responses",
+        allowPrivateNetwork: true,
+      }),
+    );
+    expect(result.images[0]?.buffer).toEqual(Buffer.from("codex-image"));
+  });
+
+  it("uses direct OpenAI auth when custom OpenAI image config is explicit", async () => {
+    mockGeneratedPngResponse();
+    resolveApiKeyForProviderMock.mockImplementation(async (params?: { provider?: string }) => {
+      if (params?.provider === "openai") {
+        return { apiKey: "openai-key", source: "models.json", mode: "api-key" };
+      }
+      if (params?.provider === "openai-codex") {
+        return { apiKey: "codex-key", source: "profile:openai-codex:default", mode: "oauth" };
+      }
+      return {};
+    });
+
+    const provider = buildOpenAIImageGenerationProvider();
+    const authStore = createCodexOAuthAuthStore();
+    await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2",
+      prompt: "Draw using explicit direct config",
+      cfg: {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://api.openai.com/v1",
+              apiKey: "OPENAI_API_KEY",
+              models: [],
+            },
+          },
+        },
+      },
+      authStore,
+    });
+
+    expect(resolveApiKeyForProviderMock).toHaveBeenCalledTimes(1);
+    expect(resolveApiKeyForProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        store: authStore,
+      }),
+    );
+    expect(resolveApiKeyForProviderMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai-codex",
+      }),
+    );
+    expect(postJsonRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://api.openai.com/v1/images/generations",
+      }),
+    );
   });
 
   it("sends Codex reference images as Responses input images", async () => {
