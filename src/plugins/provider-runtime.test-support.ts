@@ -16,11 +16,6 @@ export const expectedAugmentedOpenaiCodexCatalogEntries = [
   { provider: "openai-codex", id: "gpt-5.4", name: "gpt-5.4" },
   { provider: "openai-codex", id: "gpt-5.4-pro", name: "gpt-5.4-pro" },
   { provider: "openai-codex", id: "gpt-5.4-mini", name: "gpt-5.4-mini" },
-  {
-    provider: "openai-codex",
-    id: "gpt-5.3-codex-spark",
-    name: "gpt-5.3-codex-spark",
-  },
 ];
 
 export const expectedAugmentedOpenaiCodexCatalogEntriesWithGpt55 = [
@@ -77,7 +72,7 @@ export function expectCodexBuiltInSuppression(
     }),
   ).toMatchObject({
     suppress: true,
-    errorMessage: expect.stringContaining("openai-codex/gpt-5.3-codex-spark"),
+    errorMessage: expect.stringContaining("gpt-5.3-codex-spark"),
   });
 }
 

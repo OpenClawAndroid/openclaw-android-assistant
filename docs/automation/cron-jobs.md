@@ -4,7 +4,7 @@ read_when:
   - Scheduling background jobs or wakeups
   - Wiring external triggers (webhooks, Gmail) into OpenClaw
   - Deciding between heartbeat and cron for scheduled tasks
-title: "Scheduled Tasks"
+title: "Scheduled tasks"
 ---
 
 # Scheduled Tasks (Cron)

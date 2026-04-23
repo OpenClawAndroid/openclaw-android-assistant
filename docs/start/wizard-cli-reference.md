@@ -3,11 +3,9 @@ summary: "Complete reference for CLI setup flow, auth/model setup, outputs, and 
 read_when:
   - You need detailed behavior for openclaw onboard
   - You are debugging onboarding results or integrating onboarding clients
-title: "CLI Setup Reference"
+title: "CLI setup reference"
 sidebarTitle: "CLI reference"
 ---
-
-# CLI Setup Reference
 
 This page is the full reference for `openclaw onboard`.
 For the short guide, see [Onboarding (CLI)](/start/wizard).

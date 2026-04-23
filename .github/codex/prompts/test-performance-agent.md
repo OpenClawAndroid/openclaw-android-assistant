@@ -20,6 +20,7 @@ Hard limits:
 - Do not create, delete, or rename files.
 - Keep changes minimal and focused on the slow or failing tests you can justify from the report.
 - Prefer no edit when a performance improvement is speculative.
+- If `.artifacts/test-perf/baseline-before.json` has `"failed": true`, do not make performance-only edits. First inspect the failed config logs. Edit only when the test failure has an obvious, coverage-preserving fix. If no obvious failure fix exists, leave the worktree clean.
 
 Good fixes:
 
@@ -33,8 +34,8 @@ Good fixes:
 Required workflow:
 
 1. Run `pnpm docs:list` if available, then read `docs/reference/test.md` and `docs/help/testing.md` sections about test performance.
-2. Inspect `.artifacts/test-perf/baseline-before.json`; focus on the slowest files/configs or any failed configs.
-3. Pick at most a few low-risk files. Explain the coverage-preserving reason in comments only if the code would otherwise be unclear.
+2. Inspect `.artifacts/test-perf/baseline-before.json`. If `failed` is true, inspect the failed config logs before looking at slow files.
+3. Pick at most a few low-risk files. When baseline failed, pick only files needed for the obvious failure fix; otherwise focus on the slowest files/configs. Explain the coverage-preserving reason in comments only if the code would otherwise be unclear.
 4. Run targeted tests for changed files where possible. Use `pnpm test <path>` and optionally `pnpm test:perf:imports <path>`.
 5. Leave the worktree clean if no safe improvement exists.
 

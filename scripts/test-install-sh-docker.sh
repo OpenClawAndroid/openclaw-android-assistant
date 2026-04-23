@@ -170,15 +170,28 @@ NPM_CACHE_DIR="${OPENCLAW_INSTALL_SMOKE_NPM_CACHE_DIR:-}"
 NPM_CACHE_OWNED=0
 NPM_CACHE_DOCKER_ARGS=()
 
+remove_owned_npm_cache() {
+  if [[ "$NPM_CACHE_OWNED" != "1" || -z "$NPM_CACHE_DIR" || ! -d "$NPM_CACHE_DIR" ]]; then
+    return
+  fi
+
+  if rm -rf "$NPM_CACHE_DIR" 2>/dev/null; then
+    return
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo -n rm -rf "$NPM_CACHE_DIR" 2>/dev/null; then
+    return
+  fi
+
+  echo "WARN: failed to remove temporary npm cache: $NPM_CACHE_DIR" >&2
+}
+
 cleanup() {
   if [[ -n "$UPDATE_SERVER_PID" ]]; then
     kill "$UPDATE_SERVER_PID" >/dev/null 2>&1 || true
     wait "$UPDATE_SERVER_PID" >/dev/null 2>&1 || true
   fi
-  if [[ "$NPM_CACHE_OWNED" == "1" && -n "$NPM_CACHE_DIR" ]]; then
-    rm -rf "$NPM_CACHE_DIR"
-  fi
-  rm -rf "$LATEST_DIR" "$UPDATE_DIR"
+  remove_owned_npm_cache || true
+  rm -rf "$LATEST_DIR" "$UPDATE_DIR" || true
 }
 
 trap cleanup EXIT
@@ -413,7 +426,6 @@ LATEST_VERSION="${LATEST_VERSION:-}"
 if [[ "$SKIP_NONROOT" == "1" ]]; then
   echo "==> Skip non-root installer smoke (OPENCLAW_INSTALL_SMOKE_SKIP_NONROOT=1)"
 else
-  prepare_npm_cache
   if [[ "$SKIP_NONROOT_IMAGE_BUILD" == "1" ]]; then
     echo "==> Reuse prebuilt non-root image: $NONROOT_IMAGE"
   else
@@ -428,7 +440,6 @@ else
   echo "==> Run installer non-root test: $INSTALL_URL"
   docker run --rm -t \
     --platform "$NONROOT_PLATFORM" \
-    "${NPM_CACHE_DOCKER_ARGS[@]}" \
     -e OPENCLAW_INSTALL_URL="$INSTALL_URL" \
     -e OPENCLAW_INSTALL_PACKAGE="$PACKAGE_NAME" \
     -e OPENCLAW_INSTALL_METHOD=npm \
@@ -453,7 +464,6 @@ echo "==> Run CLI installer non-root test (same image)"
 docker run --rm -t \
   --platform "$NONROOT_PLATFORM" \
   --entrypoint /bin/bash \
-  "${NPM_CACHE_DOCKER_ARGS[@]}" \
   -e OPENCLAW_INSTALL_URL="$INSTALL_URL" \
   -e OPENCLAW_INSTALL_CLI_URL="$CLI_INSTALL_URL" \
   -e OPENCLAW_NO_ONBOARD=1 \

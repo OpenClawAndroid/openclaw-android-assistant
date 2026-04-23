@@ -4,10 +4,8 @@ read_when:
   - Extending qa-lab or qa-channel
   - Adding repo-backed QA scenarios
   - Building higher-realism QA automation around the Gateway dashboard
-title: "QA E2E Automation"
+title: "QA E2E automation"
 ---
-
-# QA E2E Automation
 
 The private QA stack is meant to exercise OpenClaw in a more realistic,
 channel-shaped way than a single unit test can.

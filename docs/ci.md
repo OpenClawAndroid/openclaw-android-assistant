@@ -1,12 +1,10 @@
 ---
-title: CI Pipeline
 summary: "CI job graph, scope gates, and local command equivalents"
+title: CI pipeline
 read_when:
   - You need to understand why a CI job did or did not run
   - You are debugging failing GitHub Actions checks
 ---
-
-# CI Pipeline
 
 The CI runs on every push to `main` and every pull request. It uses smart scoping to skip expensive jobs when only unrelated areas changed.
 

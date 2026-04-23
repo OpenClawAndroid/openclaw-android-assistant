@@ -1,13 +1,11 @@
 ---
-title: "Codex Harness"
 summary: "Run OpenClaw embedded agent turns through the bundled Codex app-server harness"
+title: "Codex harness"
 read_when:
   - You want to use the bundled Codex app-server harness
   - You need Codex model refs and config examples
   - You want to disable PI fallback for Codex-only deployments
 ---
-
-# Codex Harness
 
 The bundled `codex` plugin lets OpenClaw run embedded agent turns through the
 Codex app-server instead of the built-in PI harness.
@@ -62,7 +60,8 @@ have transcript history. Use `/new` or `/reset` to opt that conversation into
 Codex after changing config.
 
 `/status` shows the effective non-PI harness next to `Fast`, for example
-`Fast · codex`. The default PI harness is omitted.
+`Fast · codex`. The default PI harness remains `Runner: pi (embedded)` and does
+not add a separate harness badge.
 
 ## Requirements
 

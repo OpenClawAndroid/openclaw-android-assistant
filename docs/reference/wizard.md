@@ -4,11 +4,9 @@ read_when:
   - Looking up a specific onboarding step or flag
   - Automating onboarding with non-interactive mode
   - Debugging onboarding behavior
-title: "Onboarding Reference"
+title: "Onboarding reference"
 sidebarTitle: "Onboarding Reference"
 ---
-
-# Onboarding Reference
 
 This is the full reference for `openclaw onboard`.
 For a high-level overview, see [Onboarding (CLI)](/start/wizard).

@@ -4,7 +4,7 @@ read_when:
   - You want a reliable fallback when API providers fail
   - You are running Codex CLI or other local AI CLIs and want to reuse them
   - You want to understand the MCP loopback bridge for CLI backend tool access
-title: "CLI Backends"
+title: "CLI backends"
 ---
 
 # CLI backends (fallback runtime)

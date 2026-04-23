@@ -1,14 +1,12 @@
 ---
-title: "Agent Harness Plugins"
-sidebarTitle: "Agent Harness"
 summary: "Experimental SDK surface for plugins that replace the low level embedded agent executor"
+title: "Agent harness plugins"
+sidebarTitle: "Agent Harness"
 read_when:
   - You are changing the embedded agent runtime or harness registry
   - You are registering an agent harness from a bundled or trusted plugin
   - You need to understand how the Codex plugin relates to model providers
 ---
-
-# Agent Harness Plugins
 
 An **agent harness** is the low level executor for one prepared OpenClaw agent
 turn. It is not a model provider, not a channel, and not a tool registry.

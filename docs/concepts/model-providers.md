@@ -6,8 +6,6 @@ read_when:
 title: "Model providers"
 ---
 
-# Model providers
-
 This page covers **LLM/model providers** (not chat channels like WhatsApp/Telegram).
 For model selection rules, see [/concepts/models](/concepts/models).
 
@@ -70,7 +68,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
   generic OpenAI-compatible proxies
 - Native OpenAI routes also keep Responses `store`, prompt-cache hints, and
   OpenAI reasoning-compat payload shaping; proxy routes do not
-- `openai/gpt-5.3-codex-spark` is intentionally suppressed in OpenClaw because the live OpenAI API rejects it; Spark is treated as Codex-only
+- `openai/gpt-5.3-codex-spark` is intentionally suppressed in OpenClaw because live OpenAI API requests reject it and the current Codex catalog does not expose it
 
 ```json5
 {
@@ -109,7 +107,6 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
   `User-Agent`) are only attached on native Codex traffic to
   `chatgpt.com/backend-api`, not generic OpenAI-compatible proxies
 - Shares the same `/fast` toggle and `params.fastMode` config as direct `openai/*`; OpenClaw maps that to `service_tier=priority`
-- `openai/gpt-5.3-codex-spark` remains available through Codex OAuth when the catalog exposes it; entitlement-dependent
 - `openai/gpt-5.5` keeps native `contextWindow = 1000000` and a default runtime `contextTokens = 272000`; override the runtime cap with `models.providers.openai-codex.models[].contextTokens`
 - Policy note: OpenAI Codex OAuth is explicitly supported for external tools/workflows like OpenClaw.
 

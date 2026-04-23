@@ -1,6 +1,6 @@
 ---
 summary: “Per-agent sandbox + tool restrictions, precedence, and examples”
-title: Multi-Agent Sandbox & Tools
+title: Multi-agent sandbox & tools
 read_when: “You want per-agent sandboxing or per-agent tool allow/deny policies in a multi-agent gateway.”
 status: active
 ---

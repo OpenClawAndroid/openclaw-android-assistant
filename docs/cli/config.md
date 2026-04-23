@@ -2,7 +2,7 @@
 summary: "CLI reference for `openclaw config` (get/set/unset/file/schema/validate)"
 read_when:
   - You want to read or edit config non-interactively
-title: "config"
+title: "Config"
 ---
 
 # `openclaw config`

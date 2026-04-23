@@ -1,12 +1,10 @@
 ---
-title: "Configuration Reference"
 summary: "Gateway config reference for core OpenClaw keys, defaults, and links to dedicated subsystem references"
+title: "Configuration reference"
 read_when:
   - You need exact field-level config semantics or defaults
   - You are validating channel, model, gateway, or tool config blocks
 ---
-
-# Configuration Reference
 
 Core config reference for `~/.openclaw/openclaw.json`. For a task-oriented overview, see [Configuration](/gateway/configuration).
 

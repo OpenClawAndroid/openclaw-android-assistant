@@ -3,10 +3,8 @@ summary: "Slash commands: text vs native, config, and supported commands"
 read_when:
   - Using or configuring chat commands
   - Debugging command routing or permissions
-title: "Slash Commands"
+title: "Slash commands"
 ---
-
-# Slash commands
 
 Commands are handled by the Gateway. Most commands must be sent as a **standalone** message that starts with `/`.
 The host-only bash chat command uses `! <cmd>` (with `/bash <cmd>` as an alias).

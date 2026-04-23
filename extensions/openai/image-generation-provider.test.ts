@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildOpenAIImageGenerationProvider } from "./image-generation-provider.js";
+import {
+  buildOpenAICodexImageGenerationProvider,
+  buildOpenAIImageGenerationProvider,
+} from "./image-generation-provider.js";
 
 const {
   resolveApiKeyForProviderMock,
@@ -45,6 +48,32 @@ function mockGeneratedPngResponse() {
     response,
     release: vi.fn(async () => {}),
   });
+}
+
+function mockCodexImageStream(params: { imageData?: string; revisedPrompt?: string } = {}) {
+  const image = Buffer.from(params.imageData ?? "codex-png-bytes").toString("base64");
+  const events = [
+    {
+      type: "response.output_item.done",
+      item: {
+        type: "image_generation_call",
+        result: image,
+        ...(params.revisedPrompt ? { revised_prompt: params.revisedPrompt } : {}),
+      },
+    },
+    {
+      type: "response.completed",
+      response: {
+        usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+        tool_usage: { image_gen: { total_tokens: 30 } },
+      },
+    },
+  ];
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+  postJsonRequestMock.mockImplementation(async () => ({
+    response: new Response(body),
+    release: vi.fn(async () => {}),
+  }));
 }
 
 describe("openai image generation provider", () => {
@@ -250,6 +279,132 @@ describe("openai image generation provider", () => {
       expect.objectContaining({ url: "https://api.openai.com/v1/images/edits" }),
     );
     expect(result.images).toHaveLength(1);
+  });
+
+  it("registers Codex OAuth image generation through Responses streaming", async () => {
+    mockCodexImageStream({ imageData: "codex-image", revisedPrompt: "revised codex prompt" });
+
+    const provider = buildOpenAICodexImageGenerationProvider();
+    const authStore = { version: 1, profiles: {} };
+    const result = await provider.generateImage({
+      provider: "openai-codex",
+      model: "gpt-image-2",
+      prompt: "Draw a Codex lighthouse",
+      cfg: {},
+      authStore,
+      count: 1,
+      size: "1024x1536",
+    });
+
+    expect(resolveApiKeyForProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai-codex",
+        store: authStore,
+      }),
+    );
+    expect(resolveProviderHttpRequestConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultBaseUrl: "https://chatgpt.com/backend-api/codex",
+        defaultHeaders: expect.objectContaining({
+          Authorization: "Bearer openai-key",
+          Accept: "text/event-stream",
+        }),
+        provider: "openai-codex",
+        api: "openai-codex-responses",
+        capability: "image",
+      }),
+    );
+    expect(postJsonRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://chatgpt.com/backend-api/codex/responses",
+        body: expect.objectContaining({
+          model: "gpt-5.4",
+          instructions: "You are an image generation assistant.",
+          stream: true,
+          store: false,
+          tools: [
+            {
+              type: "image_generation",
+              model: "gpt-image-2",
+              size: "1024x1536",
+            },
+          ],
+          tool_choice: { type: "image_generation" },
+        }),
+      }),
+    );
+    expect(postMultipartRequestMock).not.toHaveBeenCalled();
+    expect(result.images).toEqual([
+      {
+        buffer: Buffer.from("codex-image"),
+        mimeType: "image/png",
+        fileName: "image-1.png",
+        revisedPrompt: "revised codex prompt",
+      },
+    ]);
+    expect(result.metadata).toEqual({
+      responses: [
+        {
+          usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+          toolUsage: { image_gen: { total_tokens: 30 } },
+        },
+      ],
+    });
+  });
+
+  it("sends Codex reference images as Responses input images", async () => {
+    mockCodexImageStream();
+
+    const provider = buildOpenAICodexImageGenerationProvider();
+    await provider.generateImage({
+      provider: "openai-codex",
+      model: "gpt-image-2",
+      prompt: "Use the reference image",
+      cfg: {},
+      inputImages: [
+        { buffer: Buffer.from("png-bytes"), mimeType: "image/png", fileName: "ref.png" },
+      ],
+    });
+
+    const body = postJsonRequestMock.mock.calls[0]?.[0].body as {
+      input: Array<{ content: Array<Record<string, string>> }>;
+    };
+    expect(body.input[0]?.content).toEqual([
+      { type: "input_text", text: "Use the reference image" },
+      {
+        type: "input_image",
+        image_url: `data:image/png;base64,${Buffer.from("png-bytes").toString("base64")}`,
+        detail: "auto",
+      },
+    ]);
+    expect(postJsonRequestMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ url: expect.stringContaining("/images/edits") }),
+    );
+    expect(postMultipartRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("satisfies Codex count by issuing one Responses request per image", async () => {
+    mockCodexImageStream({ imageData: "codex-image" });
+
+    const provider = buildOpenAICodexImageGenerationProvider();
+    const result = await provider.generateImage({
+      provider: "openai-codex",
+      model: "gpt-image-2",
+      prompt: "Draw two Codex icons",
+      cfg: {},
+      count: 2,
+    });
+
+    expect(postJsonRequestMock).toHaveBeenCalledTimes(2);
+    const firstBody = postJsonRequestMock.mock.calls[0]?.[0].body as {
+      tools: Array<Record<string, unknown>>;
+    };
+    expect(firstBody.tools[0]).toEqual({
+      type: "image_generation",
+      model: "gpt-image-2",
+      size: "1024x1024",
+    });
+    expect(result.images.map((image) => image.fileName)).toEqual(["image-1.png", "image-2.png"]);
   });
 
   it("forwards SSRF guard fields to multipart edit requests", async () => {
