@@ -243,6 +243,7 @@ const GENERATED_CHANGED_TEST_TARGETS = new Set([
   "src/canvas-host/a2ui/a2ui.bundle.js",
 ]);
 const VITEST_NO_OUTPUT_TIMEOUT_ENV_KEY = "OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS";
+const VITEST_NO_OUTPUT_RETRY_ENV_KEY = "OPENCLAW_VITEST_NO_OUTPUT_RETRY";
 export const DEFAULT_TEST_PROJECTS_VITEST_NO_OUTPUT_TIMEOUT_MS = "180000";
 const VITEST_CONFIG_TARGET_KIND_BY_PATH = new Map(
   Object.entries(VITEST_CONFIG_BY_KIND).map(([kind, config]) => [config, kind]),
@@ -1096,6 +1097,11 @@ export function applyDefaultVitestNoOutputTimeout(specs, params = {}) {
       },
     };
   });
+}
+
+export function shouldRetryVitestNoOutputTimeout(env = process.env) {
+  const value = env[VITEST_NO_OUTPUT_RETRY_ENV_KEY]?.trim().toLowerCase();
+  return !["0", "false", "no", "off"].includes(value ?? "");
 }
 
 export function createVitestRunSpecs(args, params = {}) {

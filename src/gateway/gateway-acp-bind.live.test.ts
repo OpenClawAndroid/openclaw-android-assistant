@@ -93,11 +93,16 @@ function extractAssistantTexts(messages: unknown[]): string[] {
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 }
 
-function createAcpRecallPrompt(liveAgent: LiveAcpAgent): string {
+function createAcpRecallPrompt(
+  liveAgent: LiveAcpAgent,
+  followupToken: string,
+  recallNonce: string,
+): string {
+  const recallToken = `ACP-BIND-RECALL-${recallNonce}`;
   if (liveAgent !== "claude") {
-    return "Please include the exact token from your immediately previous assistant reply.";
+    return `Please include exactly these two tokens in your reply: ${followupToken} ${recallToken}.`;
   }
-  return "Reply with exactly the token from your immediately previous assistant reply and nothing else.";
+  return `Reply with exactly these two tokens and nothing else: ${followupToken} ${recallToken}`;
 }
 
 function createAcpMarkerPrompt(liveAgent: LiveAcpAgent, memoryNonce: string): string {
@@ -449,6 +454,7 @@ describeLive("gateway live (ACP bind)", () => {
       const conversationId = `user:${slackUserId}`;
       const accountId = "default";
       const followupNonce = randomBytes(4).toString("hex").toUpperCase();
+      const recallNonce = randomBytes(4).toString("hex").toUpperCase();
       const memoryNonce = randomBytes(4).toString("hex").toUpperCase();
 
       clearRuntimeConfigSnapshot();
@@ -606,7 +612,7 @@ describeLive("gateway live (ACP bind)", () => {
             client,
             sessionKey: originalSessionKey,
             idempotencyKey: `idem-memory-${attempt}-${randomUUID()}`,
-            message: createAcpRecallPrompt(liveAgent),
+            message: createAcpRecallPrompt(liveAgent, followupToken, recallNonce),
             originatingChannel: "slack",
             originatingTo: conversationId,
             originatingAccountId: accountId,
@@ -660,6 +666,7 @@ describeLive("gateway live (ACP bind)", () => {
         const recallAssistantText = recallHistory.matchedAssistantText;
         if (liveAgent === "claude") {
           expect(recallAssistantText).toContain(followupToken);
+          expect(recallAssistantText).toContain(`ACP-BIND-RECALL-${recallNonce}`);
         }
         logLiveStep("bound session transcript retained the previous token");
         const recallAssistantCount = extractAssistantTexts(recallHistory.messages).length;
@@ -708,8 +715,7 @@ describeLive("gateway live (ACP bind)", () => {
             sessionKey: originalSessionKey,
             idempotencyKey: `idem-image-${attempt}-${randomUUID()}`,
             message:
-              "Read the large word printed at the bottom of the attached image. " +
-              "Reply with that word in lowercase and nothing else.",
+              "What animal is drawn in the attached image? Reply with only the lowercase animal name.",
             originatingChannel: "slack",
             originatingTo: conversationId,
             originatingAccountId: accountId,
@@ -745,9 +751,6 @@ describeLive("gateway live (ACP bind)", () => {
           logLiveStep("bound session classified the probe image");
         }
 
-        const imageAssistantCount = imageHistory
-          ? extractAssistantTexts(imageHistory.messages).length
-          : markerAssistantCount;
         const cronProbe = createLiveCronProbeSpec({
           agentId: liveAgent,
           sessionKey: spawnedSessionKey,
@@ -771,13 +774,13 @@ describeLive("gateway live (ACP bind)", () => {
           });
           logLiveStep(`cron mcp turn completed (attempt ${String(attempt + 1)})`);
 
-          let cronHistory: Awaited<ReturnType<typeof waitForAssistantTurn>> | null = null;
+          let cronHistory: Awaited<ReturnType<typeof waitForAssistantText>> | null = null;
           try {
-            cronHistory = await waitForAssistantTurn({
+            cronHistory = await waitForAssistantText({
               client,
               sessionKey: spawnedSessionKey,
-              minAssistantCount: imageAssistantCount + 1,
               timeoutMs: liveAgent === "claude" ? 90_000 : 45_000,
+              contains: cronProbe.name,
             });
           } catch {
             logLiveStep("cron assistant reply not observed yet; relying on CLI verification");

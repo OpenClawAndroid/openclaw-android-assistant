@@ -264,6 +264,7 @@ beforeEach(() => {
         systemPromptFileConfigArg: "-c",
         systemPromptFileConfigKey: "model_instructions_file",
         systemPromptWhen: "first",
+        imagePathScope: "workspace",
         reliability: {
           watchdog: {
             fresh: {
@@ -779,6 +780,7 @@ describe("resolveCliBackendConfig google-gemini-cli defaults", () => {
     expect(resolved?.config.systemPromptFileConfigArg).toBe("-c");
     expect(resolved?.config.systemPromptFileConfigKey).toBe("model_instructions_file");
     expect(resolved?.config.systemPromptWhen).toBe("first");
+    expect(resolved?.config.imagePathScope).toBe("workspace");
   });
 });
 

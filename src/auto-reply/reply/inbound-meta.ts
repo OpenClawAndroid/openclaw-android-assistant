@@ -217,6 +217,7 @@ export function buildInboundUserContextPrefix(
     group_subject: normalizePromptMetadataString(ctx.GroupSubject),
     group_channel: normalizePromptMetadataString(ctx.GroupChannel),
     group_space: normalizePromptMetadataString(ctx.GroupSpace),
+    group_members: sanitizePromptBody(ctx.GroupMembers),
     thread_label: normalizePromptMetadataString(ctx.ThreadLabel),
     topic_id:
       ctx.MessageThreadId != null
