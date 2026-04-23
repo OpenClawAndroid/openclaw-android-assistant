@@ -689,6 +689,7 @@ export async function runEmbeddedPiAgent(
           const attempt = await runEmbeddedAttemptWithBackend({
             sessionId: params.sessionId,
             sessionKey: resolvedSessionKey,
+            sandboxSessionKey: params.sandboxSessionKey,
             trigger: params.trigger,
             memoryFlushWritePath: params.memoryFlushWritePath,
             messageChannel: params.messageChannel,
