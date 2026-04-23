@@ -422,7 +422,7 @@ File-attachment extraction behavior:
 When media understanding runs, `/status` includes a short summary line:
 
 ```
-📎 Media: image ok (openai/gpt-5.5) · audio skipped (maxBytes)
+📎 Media: image ok (openai/gpt-5.4) · audio skipped (maxBytes)
 ```
 
 This shows per‑capability outcomes and the chosen provider/model when applicable.

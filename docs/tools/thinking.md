@@ -5,8 +5,6 @@ read_when:
 title: "Thinking levels"
 ---
 
-# Thinking Levels (/think directives)
-
 ## What it does
 
 - Inline directive in any inbound body: `/t <level>`, `/think:<level>`, or `/thinking <level>`.

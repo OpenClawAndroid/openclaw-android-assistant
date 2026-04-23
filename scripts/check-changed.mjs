@@ -120,13 +120,17 @@ export function createChangedCheckPlan(result, options = {}) {
   }
 
   const testPlan = resolveChangedTestTargetPlan(result.paths);
+  const runExtensionTests = result.extensionImpactFromCore;
+  const testTargets = runExtensionTests
+    ? testPlan.targets.filter((target) => target !== "extensions")
+    : testPlan.targets;
   const runChangedTestsBroad = testPlan.mode === "broad";
   return {
     commands,
-    testTargets: testPlan.targets,
+    testTargets,
     runChangedTestsBroad,
     runFullTests: false,
-    runExtensionTests: result.extensionImpactFromCore,
+    runExtensionTests,
     summary: Object.entries(lanes)
       .filter(([, enabled]) => enabled)
       .map(([lane]) => lane)
