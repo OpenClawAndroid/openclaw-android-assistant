@@ -563,6 +563,42 @@ describe("openai plugin", () => {
     });
   });
 
+  it("uses live plugin config for GPT-5 prompt overlay mode", async () => {
+    const { providers } = await registerOpenAIPluginWithHook({
+      pluginConfig: { personality: "off" },
+    });
+
+    const openaiProvider = requireRegisteredProvider(providers, "openai");
+    expect(
+      openaiProvider.resolveSystemPromptContribution?.({
+        config: {
+          plugins: {
+            entries: {
+              openai: {
+                config: {
+                  personality: "friendly",
+                },
+              },
+            },
+          },
+        },
+        agentDir: undefined,
+        workspaceDir: undefined,
+        provider: "openai",
+        modelId: "gpt-5.4",
+        promptMode: "full",
+        runtimeChannel: undefined,
+        runtimeCapabilities: undefined,
+        agentId: undefined,
+      }),
+    ).toEqual({
+      stablePrefix: OPENAI_GPT5_BEHAVIOR_CONTRACT,
+      sectionOverrides: {
+        interaction_style: OPENAI_FRIENDLY_PROMPT_OVERLAY,
+      },
+    });
+  });
+
   it("treats on as an alias for the friendly prompt overlay", async () => {
     const { providers } = await registerOpenAIPluginWithHook({
       pluginConfig: { personality: "on" },

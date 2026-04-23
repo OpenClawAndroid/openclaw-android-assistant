@@ -1561,7 +1561,7 @@ print(
             os.environ["DISCORD_GUILD_ID"]: {
                 "channels": {
                     os.environ["DISCORD_CHANNEL_ID"]: {
-                        "allow": True,
+                        "enabled": True,
                         "requireMention": False,
                     }
                 }
