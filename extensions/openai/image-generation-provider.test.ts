@@ -4,11 +4,13 @@ import { buildOpenAIImageGenerationProvider } from "./image-generation-provider.
 const {
   resolveApiKeyForProviderMock,
   postJsonRequestMock,
+  postMultipartRequestMock,
   assertOkOrThrowHttpErrorMock,
   resolveProviderHttpRequestConfigMock,
 } = vi.hoisted(() => ({
   resolveApiKeyForProviderMock: vi.fn(async () => ({ apiKey: "openai-key" })),
   postJsonRequestMock: vi.fn(),
+  postMultipartRequestMock: vi.fn(),
   assertOkOrThrowHttpErrorMock: vi.fn(async () => {}),
   resolveProviderHttpRequestConfigMock: vi.fn((params) => ({
     baseUrl: params.baseUrl ?? params.defaultBaseUrl,
@@ -25,16 +27,22 @@ vi.mock("openclaw/plugin-sdk/provider-auth-runtime", () => ({
 vi.mock("openclaw/plugin-sdk/provider-http", () => ({
   assertOkOrThrowHttpError: assertOkOrThrowHttpErrorMock,
   postJsonRequest: postJsonRequestMock,
+  postMultipartRequest: postMultipartRequestMock,
   resolveProviderHttpRequestConfig: resolveProviderHttpRequestConfigMock,
 }));
 
 function mockGeneratedPngResponse() {
+  const response = {
+    json: async () => ({
+      data: [{ b64_json: Buffer.from("png-bytes").toString("base64") }],
+    }),
+  };
   postJsonRequestMock.mockResolvedValue({
-    response: {
-      json: async () => ({
-        data: [{ b64_json: Buffer.from("png-bytes").toString("base64") }],
-      }),
-    },
+    response,
+    release: vi.fn(async () => {}),
+  });
+  postMultipartRequestMock.mockResolvedValue({
+    response,
     release: vi.fn(async () => {}),
   });
 }
@@ -43,6 +51,7 @@ describe("openai image generation provider", () => {
   afterEach(() => {
     resolveApiKeyForProviderMock.mockClear();
     postJsonRequestMock.mockReset();
+    postMultipartRequestMock.mockReset();
     assertOkOrThrowHttpErrorMock.mockClear();
     resolveProviderHttpRequestConfigMock.mockClear();
     vi.unstubAllEnvs();
@@ -212,26 +221,69 @@ describe("openai image generation provider", () => {
       ],
     });
 
-    expect(postJsonRequestMock).toHaveBeenCalledWith(
+    expect(postMultipartRequestMock).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://api.openai.com/v1/images/edits",
-        body: expect.objectContaining({
-          model: "gpt-image-2",
-          prompt: "Change only the background to pale blue",
-          n: 2,
-          size: "1024x1536",
-          images: [
-            {
-              image_url: "data:image/png;base64,cG5nLWJ5dGVz",
-            },
-            {
-              image_url: "data:image/jpeg;base64,anBlZy1ieXRlcw==",
-            },
-          ],
-        }),
+        body: expect.any(FormData),
+        allowPrivateNetwork: false,
+        dispatcherPolicy: undefined,
+        fetchFn: fetch,
       }),
     );
+    const editCallArgs = postMultipartRequestMock.mock.calls[0]?.[0] as {
+      headers: Headers;
+      body: FormData;
+    };
+    expect(editCallArgs.headers.has("Content-Type")).toBe(false);
+    const form = editCallArgs.body;
+    expect(form.get("model")).toBe("gpt-image-2");
+    expect(form.get("prompt")).toBe("Change only the background to pale blue");
+    expect(form.get("n")).toBe("2");
+    expect(form.get("size")).toBe("1024x1536");
+    const images = form.getAll("image[]") as File[];
+    expect(images).toHaveLength(2);
+    expect(images[0]?.name).toBe("reference.png");
+    expect(images[0]?.type).toBe("image/png");
+    expect(images[1]?.name).toBe("style.jpg");
+    expect(images[1]?.type).toBe("image/jpeg");
+    expect(postJsonRequestMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://api.openai.com/v1/images/edits" }),
+    );
     expect(result.images).toHaveLength(1);
+  });
+
+  it("forwards SSRF guard fields to multipart edit requests", async () => {
+    mockGeneratedPngResponse();
+
+    const provider = buildOpenAIImageGenerationProvider();
+    await provider.generateImage({
+      provider: "openai",
+      model: "gpt-image-2",
+      prompt: "Edit cat",
+      cfg: {
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "http://127.0.0.1:44080/v1",
+              models: [],
+            },
+          },
+        },
+      },
+      inputImages: [{ buffer: Buffer.from("png-bytes"), mimeType: "image/png" }],
+    });
+
+    expect(postMultipartRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "http://127.0.0.1:44080/v1/images/edits",
+        allowPrivateNetwork: false,
+        dispatcherPolicy: undefined,
+        fetchFn: fetch,
+      }),
+    );
+    expect(postJsonRequestMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ url: "http://127.0.0.1:44080/v1/images/edits" }),
+    );
   });
 
   describe("azure openai support", () => {
@@ -386,9 +438,10 @@ describe("openai image generation provider", () => {
         ],
       });
 
-      expect(postJsonRequestMock).toHaveBeenCalledWith(
+      expect(postMultipartRequestMock).toHaveBeenCalledWith(
         expect.objectContaining({
           url: "https://myresource.openai.azure.com/openai/deployments/gpt-image-2/images/edits?api-version=2024-12-01-preview",
+          body: expect.any(FormData),
         }),
       );
     });

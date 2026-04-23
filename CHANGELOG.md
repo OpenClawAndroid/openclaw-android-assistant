@@ -6,10 +6,24 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Providers/OpenAI: add forward-compatible `gpt-5.5` and `gpt-5.5-pro` support for OpenAI API keys, OpenAI Codex OAuth, and the Codex CLI default model.
+
 ### Fixes
 
+- Auto-reply/system events: route async exec-event completion replies through the persisted session delivery context, so long-running command results return to the originating channel instead of being dropped when live origin metadata is missing. (#70258) Thanks @wzfukui.
+- OpenAI/image generation: send reference-image edits as guarded multipart uploads instead of JSON data URLs, restoring complex multi-reference `gpt-image-2` edits. Fixes #70642. Thanks @dashhuang.
+- QA channel/security: reject non-HTTP(S) inbound attachment URLs before media fetch, and log rejected schemes so suspicious or misconfigured payloads are visible during debugging. (#70708) Thanks @vincentkoc.
+- Plugins/install: link the host OpenClaw package into external plugins that declare `openclaw` as a peer dependency, so peer-only plugin SDK imports resolve after install without bundling a duplicate host package. (#70462) Thanks @anishesg.
+- Teams/security: require shared Bot Framework audience tokens to name the configured Teams app via verified `appid` or `azp`, blocking cross-bot token replay on the global audience. (#70724) Thanks @vincentkoc.
+- Plugins/startup: resolve bundled plugin Jiti loads relative to the target plugin module instead of the central loader, so Bun global installs no longer hang while discovering bundled image providers. (#70073) Thanks @yidianyiko.
+- Anthropic/CLI security: stop Claude CLI backend defaults from forcing `bypassPermissions`, and strip malformed permission-mode overrides instead of silently falling back to a bypass. (#70723) Thanks @vincentkoc.
+- Android/security: require loopback-only cleartext gateway connections on Android manual and scanned routes, so private-LAN and link-local `ws://` endpoints now fail closed unless TLS is enabled. (#70722) Thanks @vincentkoc.
+- Pairing/security: require private-IP or loopback hosts for cleartext mobile pairing, and stop treating `.local` or dotless hostnames as safe cleartext endpoints. (#70721) Thanks @vincentkoc.
+- Plugins/security: stop setup-api lookup from falling back to the launch directory, so workspace-local `extensions/<plugin>/setup-api.*` files cannot be executed during provider setup resolution. (#70718) Thanks @drobison00.
+- Approvals/security: require explicit chat exec-approval enablement instead of auto-enabling approval clients just because approvers resolve from config or owner allowlists. (#70715) Thanks @vincentkoc.
 - Discord/security: keep native slash-command channel policy from bypassing configured owner or member restrictions, while preserving channel-policy fallback when no stricter access rule exists. (#70711) Thanks @vincentkoc.
 - Android/security: stop `ASK_OPENCLAW` intents from auto-sending injected prompts, so external app actions only prefill the draft instead of dispatching it immediately. (#70714) Thanks @vincentkoc.
+- Control UI/chat: persist assistant-generated images as authenticated managed media so webchat history reloads show the image instead of dropping it. (#70719)
 - Control UI/chat: queue Stop-button aborts across Gateway reconnects so a disconnected active run is canceled on reconnect instead of only clearing local UI state. (#70673) Thanks @chinar-amrutkar.
 - Secrets/Windows: strip UTF-8 BOMs from file-backed secrets and keep unavailable ACL checks fail-closed unless trusted file or exec providers explicitly opt into `allowInsecurePath`. (#70662) Thanks @zhanggpcsu.
 - Agents/image generation: escape ignored override values in tool warnings so parsed `MEDIA:` directives cannot be injected through unsupported model options. (#70710) Thanks @vincentkoc.

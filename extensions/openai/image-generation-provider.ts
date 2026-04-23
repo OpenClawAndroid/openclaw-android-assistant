@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { ImageGenerationProvider } from "openclaw/plugin-sdk/image-generation";
 import { isProviderApiKeyConfigured } from "openclaw/plugin-sdk/provider-auth";
@@ -5,10 +6,11 @@ import { resolveApiKeyForProvider } from "openclaw/plugin-sdk/provider-auth-runt
 import {
   assertOkOrThrowHttpError,
   postJsonRequest,
+  postMultipartRequest,
   resolveProviderHttpRequestConfig,
 } from "openclaw/plugin-sdk/provider-http";
 import { OPENAI_DEFAULT_IMAGE_MODEL as DEFAULT_OPENAI_IMAGE_MODEL } from "./default-models.js";
-import { resolveConfiguredOpenAIBaseUrl, toOpenAIDataUrl } from "./shared.js";
+import { resolveConfiguredOpenAIBaseUrl } from "./shared.js";
 
 const DEFAULT_OPENAI_IMAGE_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OUTPUT_MIME = "image/png";
@@ -55,7 +57,10 @@ function buildAzureImageUrl(
   model: string,
   action: "generations" | "edits",
 ): string {
-  const cleanBase = rawBaseUrl.replace(/\/+$/, "").replace(/\/openai\/v1$/, "").replace(/\/v1$/, "");
+  const cleanBase = rawBaseUrl
+    .replace(/\/+$/, "")
+    .replace(/\/openai\/v1$/, "")
+    .replace(/\/v1$/, "");
   return `${cleanBase}/openai/deployments/${model}/images/${action}?api-version=${resolveAzureApiVersion()}`;
 }
 
@@ -79,6 +84,20 @@ type OpenAIImageApiResponse = {
     revised_prompt?: string;
   }>;
 };
+
+function inferImageUploadFileName(params: {
+  fileName?: string;
+  mimeType?: string;
+  index: number;
+}): string {
+  const fileName = params.fileName?.trim();
+  if (fileName) {
+    return path.basename(fileName);
+  }
+  const mimeType = params.mimeType?.trim().toLowerCase() || DEFAULT_OUTPUT_MIME;
+  const ext = mimeType === "image/jpeg" ? "jpg" : mimeType.replace(/^image\//, "") || "png";
+  return `image-${params.index + 1}.${ext}`;
+}
 
 export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
   return {
@@ -146,23 +165,30 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
         : `${baseUrl}/images/${isEdit ? "edits" : "generations"}`;
       const requestResult = isEdit
         ? await (() => {
-            const jsonHeaders = new Headers(headers);
-            jsonHeaders.set("Content-Type", "application/json");
-            return postJsonRequest({
+            const form = new FormData();
+            form.set("model", model);
+            form.set("prompt", req.prompt);
+            form.set("n", String(count));
+            form.set("size", size);
+            for (const [index, image] of inputImages.entries()) {
+              const mimeType = image.mimeType?.trim() || DEFAULT_OUTPUT_MIME;
+              form.append(
+                "image[]",
+                new Blob([new Uint8Array(image.buffer)], { type: mimeType }),
+                inferImageUploadFileName({
+                  fileName: image.fileName,
+                  mimeType,
+                  index,
+                }),
+              );
+            }
+
+            const multipartHeaders = new Headers(headers);
+            multipartHeaders.delete("Content-Type");
+            return postMultipartRequest({
               url,
-              headers: jsonHeaders,
-              body: {
-                model,
-                prompt: req.prompt,
-                n: count,
-                size,
-                images: inputImages.map((image) => ({
-                  image_url: toOpenAIDataUrl(
-                    image.buffer,
-                    image.mimeType?.trim() || DEFAULT_OUTPUT_MIME,
-                  ),
-                })),
-              },
+              headers: multipartHeaders,
+              body: form,
               timeoutMs: req.timeoutMs,
               fetchFn: fetch,
               allowPrivateNetwork,

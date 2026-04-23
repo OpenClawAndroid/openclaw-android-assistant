@@ -18,7 +18,7 @@ For model selection rules, see [/concepts/models](/concepts/models).
 - CLI helpers: `openclaw onboard`, `openclaw models list`, `openclaw models set <provider/model>`.
 - `models.providers.*.models[].contextWindow` is native model metadata; `contextTokens` is the effective runtime cap.
 - Fallback rules, cooldown probes, and session-override persistence: [Model failover](/concepts/model-failover).
-- Bundled `codex` is paired with the Codex agent harness — use `codex/gpt-*` for Codex-owned login, discovery, native thread resume, and app-server execution. Plain `openai/gpt-*` uses the OpenAI provider and normal transport. Disable automatic PI fallback for Codex-only deployments via `agents.defaults.embeddedHarness.fallback: "none"` — see [Codex harness](/plugins/codex-harness).
+- OpenAI GPT model refs are canonical as `openai/<model>`. Legacy `openai-codex/<model>` and `codex/<model>` refs remain compatibility aliases for older configs and tests. For native Codex app-server execution, keep the model ref as `openai/gpt-*` and force `agents.defaults.embeddedHarness.runtime: "codex"` — see [Codex harness](/plugins/codex-harness).
 
 ## Plugin-owned provider behavior
 
@@ -57,7 +57,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 - Provider: `openai`
 - Auth: `OPENAI_API_KEY`
 - Optional rotation: `OPENAI_API_KEYS`, `OPENAI_API_KEY_1`, `OPENAI_API_KEY_2`, plus `OPENCLAW_LIVE_OPENAI_KEY` (single override)
-- Example models: `openai/gpt-5.4`, `openai/gpt-5.4-pro`
+- Example models: `openai/gpt-5.5`, `openai/gpt-5.5-pro`
 - CLI: `openclaw onboard --auth-choice openai-api-key`
 - Default transport is `auto` (WebSocket-first, SSE fallback)
 - Override per model via `agents.defaults.models["openai/<model>"].params.transport` (`"sse"`, `"websocket"`, or `"auto"`)
@@ -74,7 +74,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 
 ```json5
 {
-  agents: { defaults: { model: { primary: "openai/gpt-5.4" } } },
+  agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },
 }
 ```
 
@@ -95,26 +95,27 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 }
 ```
 
-### OpenAI Code (Codex)
+### OpenAI Codex OAuth
 
 - Provider: `openai-codex`
 - Auth: OAuth (ChatGPT)
-- Example model: `openai-codex/gpt-5.4`
+- Canonical model ref: `openai/gpt-5.5`
+- Legacy model refs: `openai-codex/gpt-*`, `codex/gpt-*`
 - CLI: `openclaw onboard --auth-choice openai-codex` or `openclaw models auth login --provider openai-codex`
 - Default transport is `auto` (WebSocket-first, SSE fallback)
-- Override per model via `agents.defaults.models["openai-codex/<model>"].params.transport` (`"sse"`, `"websocket"`, or `"auto"`)
+- Override per model via `agents.defaults.models["openai/<model>"].params.transport` (`"sse"`, `"websocket"`, or `"auto"`)
 - `params.serviceTier` is also forwarded on native Codex Responses requests (`chatgpt.com/backend-api`)
 - Hidden OpenClaw attribution headers (`originator`, `version`,
   `User-Agent`) are only attached on native Codex traffic to
   `chatgpt.com/backend-api`, not generic OpenAI-compatible proxies
 - Shares the same `/fast` toggle and `params.fastMode` config as direct `openai/*`; OpenClaw maps that to `service_tier=priority`
-- `openai-codex/gpt-5.3-codex-spark` remains available when the Codex OAuth catalog exposes it; entitlement-dependent
-- `openai-codex/gpt-5.4` keeps native `contextWindow = 1050000` and a default runtime `contextTokens = 272000`; override the runtime cap with `models.providers.openai-codex.models[].contextTokens`
+- `openai/gpt-5.3-codex-spark` remains available through Codex OAuth when the catalog exposes it; entitlement-dependent
+- `openai/gpt-5.5` keeps native `contextWindow = 1000000` and a default runtime `contextTokens = 272000`; override the runtime cap with `models.providers.openai-codex.models[].contextTokens`
 - Policy note: OpenAI Codex OAuth is explicitly supported for external tools/workflows like OpenClaw.
 
 ```json5
 {
-  agents: { defaults: { model: { primary: "openai-codex/gpt-5.4" } } },
+  agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },
 }
 ```
 
@@ -123,7 +124,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
   models: {
     providers: {
       "openai-codex": {
-        models: [{ id: "gpt-5.4", contextTokens: 160000 }],
+        models: [{ id: "gpt-5.5", contextTokens: 160000 }],
       },
     },
   },

@@ -36,7 +36,7 @@ const describeLive = LIVE && ACP_BIND_LIVE ? describe : describe.skip;
 
 const CONNECT_TIMEOUT_MS = 90_000;
 const LIVE_TIMEOUT_MS = 240_000;
-const DEFAULT_LIVE_CODEX_MODEL = "gpt-5.4";
+const DEFAULT_LIVE_CODEX_MODEL = "gpt-5.5";
 type LiveAcpAgent = "claude" | "codex" | "gemini";
 
 function createSlackCurrentConversationBindingRegistry() {

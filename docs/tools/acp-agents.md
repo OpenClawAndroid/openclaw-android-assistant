@@ -483,7 +483,7 @@ Notes:
 | `/acp close`         | Close session and unbind thread targets.                  | `/acp close`                                                  |
 | `/acp status`        | Show backend, mode, state, runtime options, capabilities. | `/acp status`                                                 |
 | `/acp set-mode`      | Set runtime mode for target session.                      | `/acp set-mode plan`                                          |
-| `/acp set`           | Generic runtime config option write.                      | `/acp set model openai/gpt-5.4`                               |
+| `/acp set`           | Generic runtime config option write.                      | `/acp set model openai/gpt-5.5`                               |
 | `/acp cwd`           | Set runtime working directory override.                   | `/acp cwd /Users/user/Projects/repo`                          |
 | `/acp permissions`   | Set approval policy profile.                              | `/acp permissions strict`                                     |
 | `/acp timeout`       | Set runtime timeout (seconds).                            | `/acp timeout 120`                                            |
