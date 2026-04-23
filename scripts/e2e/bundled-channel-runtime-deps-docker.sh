@@ -588,6 +588,7 @@ export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 export OPENCLAW_NO_ONBOARD=1
 export OPENCLAW_PLUGIN_STAGE_DIR="$HOME/.openclaw/plugin-runtime-deps"
+mkdir -p "$OPENCLAW_PLUGIN_STAGE_DIR"
 
 CHANNEL="feishu"
 DEP_SENTINEL="@larksuiteoapi/node-sdk"
@@ -612,7 +613,7 @@ if [ -f "$root/node_modules/$DEP_SENTINEL/package.json" ]; then
   exit 1
 fi
 
-echo "Loading real Feishu bundled setup entry from installed package..."
+echo "Probing real Feishu bundled setup entry before channel configuration..."
 (
   cd "$root"
   node --input-type=module - <<'NODE'
@@ -631,34 +632,62 @@ if (!bundledPath) {
   throw new Error("missing packaged bundled channel loader artifact");
 }
 const bundled = await import(pathToFileURL(bundledPath));
-let plugin = null;
-for (const value of Object.values(bundled)) {
-  if (typeof value !== "function" || value.length !== 1) {
-    continue;
-  }
-  try {
-    const candidate = value("feishu");
-    if (candidate?.id === "feishu" && candidate?.setupWizard) {
-      plugin = candidate;
-      break;
-    }
-  } catch {
-    // Ignore unrelated one-argument helper exports from the bundled chunk.
-  }
+const setupPluginLoader = Object.values(bundled).find(
+  (value) => typeof value === "function" && value.name === "getBundledChannelSetupPlugin",
+);
+if (!setupPluginLoader) {
+  throw new Error("missing packaged getBundledChannelSetupPlugin export");
 }
-if (!plugin) {
-  throw new Error("missing Feishu setup plugin");
-}
-console.log("Feishu setup plugin loaded");
+const plugin = setupPluginLoader("feishu");
+console.log(plugin ? "Feishu setup plugin loaded pre-config" : "Feishu setup plugin deferred pre-config");
 NODE
 )
 
 if [ -e "$root/dist/extensions/$CHANNEL/node_modules/$DEP_SENTINEL/package.json" ]; then
-  echo "expected setup-entry deps to be installed externally, not into bundled plugin tree" >&2
+  echo "setup-entry discovery installed deps into bundled plugin tree before channel configuration" >&2
+  exit 1
+fi
+if find "$OPENCLAW_PLUGIN_STAGE_DIR" -maxdepth 12 -path "*/node_modules/$DEP_SENTINEL/package.json" -type f | grep -q .; then
+  echo "setup-entry discovery installed external staged deps before channel configuration" >&2
+  find "$OPENCLAW_PLUGIN_STAGE_DIR" -maxdepth 12 -type f | sort | head -160 >&2 || true
+  exit 1
+fi
+
+echo "Configuring Feishu; doctor should now install bundled runtime deps externally..."
+node - <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const configPath = path.join(process.env.HOME, ".openclaw", "openclaw.json");
+fs.mkdirSync(path.dirname(configPath), { recursive: true });
+const config = fs.existsSync(configPath)
+  ? JSON.parse(fs.readFileSync(configPath, "utf8"))
+  : {};
+
+config.plugins = {
+  ...(config.plugins || {}),
+  enabled: true,
+};
+config.channels = {
+  ...(config.channels || {}),
+  feishu: {
+    ...(config.channels?.feishu || {}),
+    enabled: true,
+  },
+};
+
+fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+NODE
+
+openclaw doctor --non-interactive >/tmp/openclaw-setup-entry-doctor.log 2>&1
+
+if [ -e "$root/dist/extensions/$CHANNEL/node_modules/$DEP_SENTINEL/package.json" ]; then
+  echo "expected configured Feishu deps to be installed externally, not into bundled plugin tree" >&2
   exit 1
 fi
 if ! find "$OPENCLAW_PLUGIN_STAGE_DIR" -maxdepth 12 -path "*/node_modules/$DEP_SENTINEL/package.json" -type f | grep -q .; then
-  echo "missing external staged setup-entry dependency sentinel for $DEP_SENTINEL" >&2
+  echo "missing external staged dependency sentinel for configured $CHANNEL: $DEP_SENTINEL" >&2
+  cat /tmp/openclaw-setup-entry-doctor.log >&2
   find "$OPENCLAW_PLUGIN_STAGE_DIR" -maxdepth 12 -type f | sort | head -160 >&2 || true
   exit 1
 fi

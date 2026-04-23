@@ -86,7 +86,7 @@ async function prewarmConfiguredPrimaryModel(params: {
     { selectAgentHarness },
     { isCliProvider, resolveConfiguredModelRef },
     { ensureOpenClawModelsJson },
-    { resolveModel },
+    { resolveModel, resolveModelAsync },
     { resolveEmbeddedAgentRuntime },
   ] = await Promise.all([
     import("../agents/agent-paths.js"),
@@ -119,10 +119,12 @@ async function prewarmConfiguredPrimaryModel(params: {
       skipProviderRuntimeHooks: true,
     });
     if (!resolved.model) {
-      throw new Error(
-        resolved.error ??
-          `Unknown model: ${provider}/${model} (startup warmup only checks static model resolution)`,
-      );
+      const asyncResolved = await resolveModelAsync(provider, model, agentDir, params.cfg);
+      if (!asyncResolved.model) {
+        throw new Error(
+          resolved.error ?? asyncResolved.error ?? `Unknown model: ${provider}/${model}`,
+        );
+      }
     }
   } catch (err) {
     params.log.warn(`startup model warmup failed for ${provider}/${model}: ${String(err)}`);

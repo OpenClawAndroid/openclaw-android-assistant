@@ -371,6 +371,10 @@
       "types": "./dist/plugin-sdk/agent-harness.d.ts",
       "default": "./dist/plugin-sdk/agent-harness.js"
     },
+    "./plugin-sdk/agent-harness-runtime": {
+      "types": "./dist/plugin-sdk/agent-harness-runtime.d.ts",
+      "default": "./dist/plugin-sdk/agent-harness-runtime.js"
+    },
     "./plugin-sdk/hook-runtime": {
       "types": "./dist/plugin-sdk/hook-runtime.d.ts",
       "default": "./dist/plugin-sdk/hook-runtime.js"
@@ -1534,13 +1538,12 @@
     "@clack/prompts": "^1.2.0",
     "@homebridge/ciao": "^1.3.6",
     "@lydell/node-pty": "1.2.0-beta.12",
-    "@mariozechner/pi-agent-core": "0.68.1",
-    "@mariozechner/pi-ai": "0.68.1",
-    "@mariozechner/pi-coding-agent": "0.68.1",
-    "@mariozechner/pi-tui": "0.68.1",
+    "@mariozechner/pi-agent-core": "0.69.0",
+    "@mariozechner/pi-ai": "0.69.0",
+    "@mariozechner/pi-coding-agent": "0.69.0",
+    "@mariozechner/pi-tui": "0.69.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@mozilla/readability": "^0.6.0",
-    "@sinclair/typebox": "0.34.49",
     "ajv": "^8.18.0",
     "chalk": "^5.6.2",
     "chokidar": "^5.0.0",
@@ -1567,6 +1570,7 @@
     "sqlite-vec": "0.1.9",
     "tar": "7.5.13",
     "tslog": "^4.10.2",
+    "typebox": "1.1.28",
     "undici": "8.1.0",
     "ws": "^8.20.0",
     "yaml": "^2.8.3",
@@ -1587,8 +1591,8 @@
     "jscpd": "4.0.9",
     "jsdom": "^29.0.2",
     "lit": "^3.3.2",
-    "oxfmt": "0.45.0",
-    "oxlint": "^1.60.0",
+    "oxfmt": "0.46.0",
+    "oxlint": "^1.61.0",
     "oxlint-tsgolint": "^0.21.1",
     "signal-utils": "0.21.1",
     "tsdown": "0.21.9",
@@ -1617,7 +1621,7 @@
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
     "overrides": {
-      "@anthropic-ai/sdk": "0.81.0",
+      "@anthropic-ai/sdk": "0.90.0",
       "hono": "4.12.14",
       "@hono/node-server": "1.19.14",
       "axios": "1.15.0",
@@ -1633,7 +1637,7 @@
       "path-to-regexp": "8.4.0",
       "qs": "6.14.2",
       "node-domexception": "npm:@nolyfill/domexception@1.0.28",
-      "@sinclair/typebox": "0.34.49",
+      "typebox": "1.1.28",
       "tar": "7.5.13",
       "tough-cookie": "4.1.3",
       "yauzl": "3.2.1",

@@ -124,9 +124,13 @@ function agentMessageDelta(delta: string, itemId = "msg-1"): ProjectorNotificati
 }
 
 function turnCompleted(items: unknown[] = []): ProjectorNotification {
-  return forCurrentTurn("turn/completed", {
-    turn: { id: TURN_ID, status: "completed", items },
-  });
+  return {
+    method: "turn/completed",
+    params: {
+      threadId: THREAD_ID,
+      turn: { id: TURN_ID, status: "completed", items },
+    },
+  } as ProjectorNotification;
 }
 
 describe("CodexAppServerEventProjector", () => {
@@ -290,6 +294,25 @@ describe("CodexAppServerEventProjector", () => {
 
     const result = projector.buildResult(buildEmptyToolTelemetry());
     expect(result.assistantTexts).toEqual([]);
+  });
+
+  it("ignores notifications that omit top-level thread and turn ids", async () => {
+    const projector = await createProjector();
+
+    await projector.handleNotification({
+      method: "turn/completed",
+      params: {
+        turn: {
+          id: TURN_ID,
+          status: "completed",
+          items: [{ type: "agentMessage", id: "msg-1", text: "wrong turn" }],
+        },
+      },
+    });
+
+    const result = projector.buildResult(buildEmptyToolTelemetry());
+    expect(result.assistantTexts).toEqual([]);
+    expect(result.lastAssistant).toBeUndefined();
   });
 
   it("preserves sessions_yield detection in attempt results", () => {

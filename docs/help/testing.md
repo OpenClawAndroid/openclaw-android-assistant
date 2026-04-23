@@ -78,10 +78,12 @@ These commands sit beside the main test suites when you need QA-lab realism:
   - Starts the Docker-backed QA site for operator-style QA work.
 - `pnpm test:docker:bundled-channel-deps`
   - Packs and installs the current OpenClaw build in Docker, starts the Gateway
-    with OpenAI configured, then enables Telegram and Discord via config edits.
-  - Verifies the first Gateway restart installs each bundled channel plugin's
-    runtime dependencies on demand, and a second restart does not reinstall
-    dependencies that were already activated.
+    with OpenAI configured, then enables bundled channel/plugins via config
+    edits.
+  - Verifies setup discovery leaves unconfigured plugin runtime dependencies
+    absent, the first configured Gateway or doctor run installs each bundled
+    plugin's runtime dependencies on demand, and a second restart does not
+    reinstall dependencies that were already activated.
   - Also installs a known older npm baseline, enables Telegram before running
     `openclaw update --tag <candidate>`, and verifies the candidate's
     post-update doctor repairs bundled channel runtime dependencies without a
@@ -577,6 +579,7 @@ Notes:
   - `OPENCLAW_LIVE_ACP_BIND_AGENT=gemini`
   - `OPENCLAW_LIVE_ACP_BIND_AGENTS=claude,codex,gemini`
   - `OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND='npx -y @agentclientprotocol/claude-agent-acp@<version>'`
+  - `OPENCLAW_LIVE_ACP_BIND_CODEX_MODEL=gpt-5.4`
 - Notes:
   - This lane uses the gateway `chat.send` surface with admin-only synthetic originating-route fields so tests can attach message-channel context without pretending to deliver externally.
   - When `OPENCLAW_LIVE_ACP_BIND_AGENT_COMMAND` is unset, the test uses the embedded `acpx` plugin's built-in agent registry for the selected ACP harness agent.
@@ -910,6 +913,7 @@ The live-model Docker runners also bind-mount only the needed CLI auth homes (or
 - Gateway networking (two containers, WS auth + health): `pnpm test:docker:gateway-network` (script: `scripts/e2e/gateway-network-docker.sh`)
 - MCP channel bridge (seeded Gateway + stdio bridge + raw Claude notification-frame smoke): `pnpm test:docker:mcp-channels` (script: `scripts/e2e/mcp-channels-docker.sh`)
 - Pi bundle MCP tools (real stdio MCP server + embedded Pi profile allow/deny smoke): `pnpm test:docker:pi-bundle-mcp-tools` (script: `scripts/e2e/pi-bundle-mcp-tools-docker.sh`)
+- Cron/subagent MCP cleanup (real Gateway + stdio MCP child teardown after isolated cron and one-shot subagent runs): `pnpm test:docker:cron-mcp-cleanup` (script: `scripts/e2e/cron-mcp-cleanup-docker.sh`)
 - Plugins (install smoke + `/plugin` alias + Claude-bundle restart semantics): `pnpm test:docker:plugins` (script: `scripts/e2e/plugins-docker.sh`)
 - Bundled plugin runtime deps: `pnpm test:docker:bundled-channel-deps` builds a small Docker runner image by default, builds and packs OpenClaw once on the host, then mounts that tarball into each Linux install scenario. Reuse the image with `OPENCLAW_SKIP_DOCKER_BUILD=1`, skip the host rebuild after a fresh local build with `OPENCLAW_BUNDLED_CHANNEL_HOST_BUILD=0`, or point at an existing tarball with `OPENCLAW_BUNDLED_CHANNEL_PACKAGE_TGZ=/path/to/openclaw-*.tgz`.
 - Narrow bundled plugin runtime deps while iterating by disabling unrelated scenarios, for example:
@@ -951,6 +955,10 @@ model key. It builds the repo Docker image, starts a real stdio MCP probe server
 inside the container, materializes that server through the embedded Pi bundle
 MCP runtime, executes the tool, then verifies `coding` and `messaging` keep
 `bundle-mcp` tools while `minimal` and `tools.deny: ["bundle-mcp"]` filter them.
+`test:docker:cron-mcp-cleanup` is deterministic and does not need a live model
+key. It starts a seeded Gateway with a real stdio MCP probe server, runs an
+isolated cron turn and a `/subagents spawn` one-shot child turn, then verifies
+the MCP child process exits after each run.
 
 Manual ACP plain-language thread smoke (not CI):
 

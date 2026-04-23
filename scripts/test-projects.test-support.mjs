@@ -15,6 +15,7 @@ import { isFeishuExtensionRoot } from "../test/vitest/vitest.extension-feishu-pa
 import { isIrcExtensionRoot } from "../test/vitest/vitest.extension-irc-paths.mjs";
 import { isMatrixExtensionRoot } from "../test/vitest/vitest.extension-matrix-paths.mjs";
 import { isMattermostExtensionRoot } from "../test/vitest/vitest.extension-mattermost-paths.mjs";
+import { isMediaExtensionRoot } from "../test/vitest/vitest.extension-media-paths.mjs";
 import { isMemoryExtensionRoot } from "../test/vitest/vitest.extension-memory-paths.mjs";
 import { isMessagingExtensionRoot } from "../test/vitest/vitest.extension-messaging-paths.mjs";
 import { isMsTeamsExtensionRoot } from "../test/vitest/vitest.extension-msteams-paths.mjs";
@@ -73,6 +74,7 @@ const EXTENSION_IMESSAGE_VITEST_CONFIG = "test/vitest/vitest.extension-imessage.
 const EXTENSION_IRC_VITEST_CONFIG = "test/vitest/vitest.extension-irc.config.ts";
 const EXTENSION_LINE_VITEST_CONFIG = "test/vitest/vitest.extension-line.config.ts";
 const EXTENSION_MATTERMOST_VITEST_CONFIG = "test/vitest/vitest.extension-mattermost.config.ts";
+const EXTENSION_MEDIA_VITEST_CONFIG = "test/vitest/vitest.extension-media.config.ts";
 const EXTENSION_MATRIX_VITEST_CONFIG = "test/vitest/vitest.extension-matrix.config.ts";
 const EXTENSION_MEMORY_VITEST_CONFIG = "test/vitest/vitest.extension-memory.config.ts";
 const EXTENSION_MSTEAMS_VITEST_CONFIG = "test/vitest/vitest.extension-msteams.config.ts";
@@ -143,6 +145,7 @@ const VITEST_CONFIG_BY_KIND = {
   extensionLine: EXTENSION_LINE_VITEST_CONFIG,
   extensionMatrix: EXTENSION_MATRIX_VITEST_CONFIG,
   extensionMattermost: EXTENSION_MATTERMOST_VITEST_CONFIG,
+  extensionMedia: EXTENSION_MEDIA_VITEST_CONFIG,
   extensionMemory: EXTENSION_MEMORY_VITEST_CONFIG,
   extensionMessaging: EXTENSION_MESSAGING_VITEST_CONFIG,
   extensionMsTeams: EXTENSION_MSTEAMS_VITEST_CONFIG,
@@ -582,6 +585,9 @@ function classifyTarget(arg, cwd) {
     if (isMatrixExtensionRoot(extensionRoot)) {
       return "extensionMatrix";
     }
+    if (isMediaExtensionRoot(extensionRoot)) {
+      return "extensionMedia";
+    }
     if (isMemoryExtensionRoot(extensionRoot)) {
       return "extensionMemory";
     }
@@ -841,6 +847,7 @@ export function buildVitestRunPlans(
     "extensionWhatsApp",
     "extensionZalo",
     "extensionMatrix",
+    "extensionMedia",
     "extensionMemory",
     "extensionMsTeams",
     "extensionMessaging",

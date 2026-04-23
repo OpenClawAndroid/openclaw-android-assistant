@@ -1,34 +1,18 @@
 import {
-  callGatewayTool,
   type AgentApprovalEventData,
   type EmbeddedRunAttemptParams,
-  type ExecApprovalDecision,
-} from "openclaw/plugin-sdk/agent-harness";
+} from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  mapExecDecisionToOutcome,
+  requestPluginApproval,
+  type AppServerApprovalOutcome,
+  waitForPluginApprovalDecision,
+} from "./plugin-approval-roundtrip.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./protocol.js";
 
-const DEFAULT_CODEX_APPROVAL_TIMEOUT_MS = 120_000;
 const PERMISSION_DESCRIPTION_MAX_LENGTH = 700;
 const PERMISSION_SAMPLE_LIMIT = 2;
 const PERMISSION_VALUE_MAX_LENGTH = 48;
-
-export type AppServerApprovalOutcome =
-  | "approved-once"
-  | "approved-session"
-  | "denied"
-  | "unavailable"
-  | "cancelled";
-
-type ApprovalRequestResult = {
-  id?: string;
-  status?: string;
-  decision?: ExecApprovalDecision | null;
-};
-
-type ApprovalWaitResult = {
-  id?: string;
-  decision?: ExecApprovalDecision | null;
-};
-
 export async function handleCodexAppServerApprovalRequest(params: {
   method: string;
   requestParams: JsonValue | undefined;
@@ -52,29 +36,14 @@ export async function handleCodexAppServerApprovalRequest(params: {
   });
 
   try {
-    const timeoutMs = DEFAULT_CODEX_APPROVAL_TIMEOUT_MS;
-    const requestResult: ApprovalRequestResult | undefined = await callGatewayTool(
-      "plugin.approval.request",
-      { timeoutMs: timeoutMs + 10_000 },
-      {
-        pluginId: "openclaw-codex-app-server",
-        title: context.title,
-        description: context.description,
-        severity: context.severity,
-        toolName: context.toolName,
-        toolCallId: context.itemId,
-        agentId: params.paramsForRun.agentId,
-        sessionKey: params.paramsForRun.sessionKey,
-        turnSourceChannel:
-          params.paramsForRun.messageChannel ?? params.paramsForRun.messageProvider,
-        turnSourceTo: params.paramsForRun.currentChannelId,
-        turnSourceAccountId: params.paramsForRun.agentAccountId,
-        turnSourceThreadId: params.paramsForRun.currentThreadTs,
-        timeoutMs,
-        twoPhase: true,
-      },
-      { expectFinal: false },
-    );
+    const requestResult = await requestPluginApproval({
+      paramsForRun: params.paramsForRun,
+      title: context.title,
+      description: context.description,
+      severity: context.severity,
+      toolName: context.toolName,
+      toolCallId: context.itemId,
+    });
 
     const approvalId = requestResult?.id;
     if (!approvalId) {
@@ -84,6 +53,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
         status: "unavailable",
         title: context.title,
         ...context.eventDetails,
+        ...approvalEventScope(params.method, "denied"),
         message: "Codex app-server approval route unavailable.",
       });
       return buildApprovalResponse(params.method, context.requestParams, "denied");
@@ -102,11 +72,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
 
     const decision = Object.prototype.hasOwnProperty.call(requestResult, "decision")
       ? requestResult.decision
-      : await waitForApprovalDecision({
-          approvalId,
-          timeoutMs,
-          signal: params.signal,
-        });
+      : await waitForPluginApprovalDecision({ approvalId, signal: params.signal });
     const outcome = mapExecDecisionToOutcome(decision);
 
     emitApprovalEvent(params.paramsForRun, {
@@ -124,6 +90,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
       approvalId,
       approvalSlug: approvalId,
       ...context.eventDetails,
+      ...approvalEventScope(params.method, outcome),
       message: approvalResolutionMessage(outcome),
     });
     return buildApprovalResponse(params.method, context.requestParams, outcome);
@@ -135,6 +102,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
       status: cancelled ? "failed" : "unavailable",
       title: context.title,
       ...context.eventDetails,
+      ...approvalEventScope(params.method, cancelled ? "cancelled" : "denied"),
       message: cancelled
         ? "Codex app-server approval cancelled because the run stopped."
         : `Codex app-server approval route failed: ${formatErrorMessage(error)}`,
@@ -176,18 +144,12 @@ function matchesCurrentTurn(
   turnId: string,
 ): boolean {
   if (!requestParams) {
-    return true;
+    return false;
   }
   const requestThreadId =
     readString(requestParams, "threadId") ?? readString(requestParams, "conversationId");
   const requestTurnId = readString(requestParams, "turnId");
-  if (requestThreadId && requestThreadId !== threadId) {
-    return false;
-  }
-  if (requestTurnId && requestTurnId !== turnId) {
-    return false;
-  }
-  return true;
+  return requestThreadId === threadId && requestTurnId === turnId;
 }
 
 function buildApprovalContext(params: {
@@ -246,37 +208,6 @@ function buildApprovalContext(params: {
       ...(reason ? { reason } : {}),
     },
   };
-}
-
-async function waitForApprovalDecision(params: {
-  approvalId: string;
-  timeoutMs: number;
-  signal?: AbortSignal;
-}): Promise<ExecApprovalDecision | null | undefined> {
-  const waitPromise: Promise<ApprovalWaitResult | undefined> = callGatewayTool(
-    "plugin.approval.waitDecision",
-    { timeoutMs: params.timeoutMs + 10_000 },
-    { id: params.approvalId },
-  );
-  if (!params.signal) {
-    return (await waitPromise)?.decision;
-  }
-  let onAbort: (() => void) | undefined;
-  const abortPromise = new Promise<never>((_, reject) => {
-    if (params.signal!.aborted) {
-      reject(params.signal!.reason);
-      return;
-    }
-    onAbort = () => reject(params.signal!.reason);
-    params.signal!.addEventListener("abort", onAbort, { once: true });
-  });
-  try {
-    return (await Promise.race([waitPromise, abortPromise]))?.decision;
-  } finally {
-    if (onAbort) {
-      params.signal.removeEventListener("abort", onAbort);
-    }
-  }
 }
 
 function commandApprovalDecision(
@@ -528,27 +459,12 @@ function hasAvailableDecision(requestParams: JsonObject | undefined, decision: s
   return available.includes(decision);
 }
 
-function mapExecDecisionToOutcome(
-  decision: ExecApprovalDecision | null | undefined,
-): AppServerApprovalOutcome {
-  if (decision === "allow-once") {
-    return "approved-once";
-  }
-  if (decision === "allow-always") {
-    return "approved-session";
-  }
-  if (decision === null || decision === undefined) {
-    return "unavailable";
-  }
-  return "denied";
-}
-
 function approvalResolutionMessage(outcome: AppServerApprovalOutcome): string {
   if (outcome === "approved-session") {
     return "Codex app-server approval granted for the session.";
   }
   if (outcome === "approved-once") {
-    return "Codex app-server approval granted once.";
+    return "Codex app-server approval granted for this turn.";
   }
   if (outcome === "cancelled") {
     return "Codex app-server approval cancelled.";
@@ -557,6 +473,19 @@ function approvalResolutionMessage(outcome: AppServerApprovalOutcome): string {
     return "Codex app-server approval unavailable.";
   }
   return "Codex app-server approval denied.";
+}
+
+function approvalScopeForOutcome(outcome: AppServerApprovalOutcome): "turn" | "session" {
+  return outcome === "approved-session" ? "session" : "turn";
+}
+
+function approvalEventScope(
+  method: string,
+  outcome: AppServerApprovalOutcome,
+): Pick<AgentApprovalEventData, "scope"> {
+  return method === "item/permissions/requestApproval"
+    ? { scope: approvalScopeForOutcome(outcome) }
+    : {};
 }
 
 function approvalKindForMethod(method: string): AgentApprovalEventData["kind"] {

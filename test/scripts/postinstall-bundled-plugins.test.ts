@@ -10,7 +10,9 @@ import {
   discoverBundledPluginRuntimeDeps,
   pruneBundledPluginSourceNodeModules,
   runBundledPluginPostinstall,
+  restoreLegacyUpdaterCompatSidecars,
 } from "../../scripts/postinstall-bundled-plugins.mjs";
+import { NPM_UPDATE_COMPAT_SIDECARS } from "../../src/infra/npm-update-compat-sidecars.ts";
 import { writePackageDistInventory } from "../../src/infra/package-dist-inventory.ts";
 import { createScriptTestHarness } from "./test-helpers.js";
 
@@ -291,8 +293,10 @@ describe("bundled plugin postinstall", () => {
     await expect(fs.stat(stalePackage)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(fs.stat(staleManifest)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
-      fs.stat(path.join(packageRoot, "dist", "extensions", "qa-channel", "runtime-api.js")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+      fs.readFile(path.join(packageRoot, "dist", "extensions", "qa-channel", "runtime-api.js"), {
+        encoding: "utf8",
+      }),
+    ).resolves.toBe("export {};\n");
     await expect(
       fs.stat(path.join(packageRoot, "dist", "extensions", "qa-channel", "package.json")),
     ).rejects.toMatchObject({ code: "ENOENT" });
@@ -300,8 +304,26 @@ describe("bundled plugin postinstall", () => {
       fs.stat(path.join(packageRoot, "dist", "extensions", "qa-channel", "openclaw.plugin.json")),
     ).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
-      fs.stat(path.join(packageRoot, "dist", "extensions", "qa-lab", "runtime-api.js")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+      fs.readFile(path.join(packageRoot, "dist", "extensions", "qa-lab", "runtime-api.js"), {
+        encoding: "utf8",
+      }),
+    ).resolves.toBe("export {};\n");
+  });
+
+  it("keeps postinstall QA compat sidecars aligned with update verification metadata", async () => {
+    const packageRoot = await createTempDirAsync("openclaw-packaged-install-qa-compat-");
+
+    const restored = restoreLegacyUpdaterCompatSidecars({
+      packageRoot,
+      log: { log: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(restored).toEqual(NPM_UPDATE_COMPAT_SIDECARS.map((sidecar) => sidecar.path));
+    for (const sidecar of NPM_UPDATE_COMPAT_SIDECARS) {
+      await expect(fs.readFile(path.join(packageRoot, sidecar.path), "utf8")).resolves.toBe(
+        sidecar.content,
+      );
+    }
   });
 
   it("keeps packaged postinstall non-fatal when the dist inventory is missing", async () => {
