@@ -57,7 +57,7 @@ function createBackendEntry(params: {
             params.id === "claude-cli"
               ? "@anthropic-ai/claude-code"
               : params.id === "codex-cli"
-                ? "@openai/codex"
+                ? "@openai/codex@0.124.0"
                 : params.id === "google-gemini-cli"
                   ? "@google/gemini-cli"
                   : undefined,
@@ -230,9 +230,6 @@ beforeEach(() => {
       id: "codex-cli",
       bundleMcp: true,
       bundleMcpMode: "codex-config-overrides",
-      defaultAuthProfileId: "openai-codex:default",
-      authEpochMode: "profile-only",
-      prepareExecution: async () => null,
       config: {
         command: "codex",
         args: [
@@ -242,6 +239,8 @@ beforeEach(() => {
           "never",
           "--sandbox",
           "workspace-write",
+          "-c",
+          'service_tier="fast"',
           "--skip-git-repo-check",
         ],
         resumeArgs: [
@@ -250,6 +249,8 @@ beforeEach(() => {
           "{sessionId}",
           "-c",
           'sandbox_mode="workspace-write"',
+          "-c",
+          'service_tier="fast"',
           "--skip-git-repo-check",
         ],
         systemPromptFileConfigArg: "-c",
@@ -328,6 +329,8 @@ describe("resolveCliBackendConfig reliability merge", () => {
       "never",
       "--sandbox",
       "workspace-write",
+      "-c",
+      'service_tier="fast"',
       "--skip-git-repo-check",
     ]);
     expect(resolved?.config.resumeArgs).toEqual([
@@ -336,6 +339,8 @@ describe("resolveCliBackendConfig reliability merge", () => {
       "{sessionId}",
       "-c",
       'sandbox_mode="workspace-write"',
+      "-c",
+      'service_tier="fast"',
       "--skip-git-repo-check",
     ]);
   });
@@ -388,7 +393,7 @@ describe("resolveCliBackendLiveTest", () => {
       defaultModelRef: "codex-cli/gpt-5.5",
       defaultImageProbe: true,
       defaultMcpProbe: true,
-      dockerNpmPackage: "@openai/codex",
+      dockerNpmPackage: "@openai/codex@0.124.0",
       dockerBinaryName: "codex",
     });
   });
@@ -753,9 +758,9 @@ describe("resolveCliBackendConfig google-gemini-cli defaults", () => {
     expect(resolved).not.toBeNull();
     expect(resolved?.bundleMcp).toBe(true);
     expect(resolved?.bundleMcpMode).toBe("codex-config-overrides");
-    expect(resolved?.defaultAuthProfileId).toBe("openai-codex:default");
-    expect(resolved?.authEpochMode).toBe("profile-only");
-    expect(typeof resolved?.prepareExecution).toBe("function");
+    expect(resolved?.defaultAuthProfileId).toBeUndefined();
+    expect(resolved?.authEpochMode).toBeUndefined();
+    expect(resolved?.prepareExecution).toBeUndefined();
     expect(resolved?.config.systemPromptFileConfigArg).toBe("-c");
     expect(resolved?.config.systemPromptFileConfigKey).toBe("model_instructions_file");
     expect(resolved?.config.systemPromptWhen).toBe("first");

@@ -1,17 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  buildOpenAICodexImageGenerationProvider,
-  buildOpenAIImageGenerationProvider,
-} from "./image-generation-provider.js";
+import { buildOpenAIImageGenerationProvider } from "./image-generation-provider.js";
 
 const {
+  isProviderApiKeyConfiguredMock,
   resolveApiKeyForProviderMock,
   postJsonRequestMock,
   postMultipartRequestMock,
   assertOkOrThrowHttpErrorMock,
   resolveProviderHttpRequestConfigMock,
 } = vi.hoisted(() => ({
-  resolveApiKeyForProviderMock: vi.fn(async () => ({ apiKey: "openai-key" })),
+  isProviderApiKeyConfiguredMock: vi.fn<
+    (params: { provider: string; agentDir?: string }) => boolean
+  >(() => false),
+  resolveApiKeyForProviderMock: vi.fn(
+    async (_params?: {
+      provider?: string;
+    }): Promise<{ apiKey?: string; source?: string; mode?: string }> => ({
+      apiKey: "openai-key",
+    }),
+  ),
   postJsonRequestMock: vi.fn(),
   postMultipartRequestMock: vi.fn(),
   assertOkOrThrowHttpErrorMock: vi.fn(async () => {}),
@@ -21,6 +28,10 @@ const {
     headers: new Headers(params.defaultHeaders),
     dispatcherPolicy: undefined,
   })),
+}));
+
+vi.mock("openclaw/plugin-sdk/provider-auth", () => ({
+  isProviderApiKeyConfigured: isProviderApiKeyConfiguredMock,
 }));
 
 vi.mock("openclaw/plugin-sdk/provider-auth-runtime", () => ({
@@ -76,9 +87,21 @@ function mockCodexImageStream(params: { imageData?: string; revisedPrompt?: stri
   }));
 }
 
+function mockCodexAuthOnly() {
+  resolveApiKeyForProviderMock.mockImplementation(async (params?: { provider?: string }) => {
+    if (params?.provider === "openai-codex") {
+      return { apiKey: "codex-key", source: "profile:openai-codex:default", mode: "oauth" };
+    }
+    return {};
+  });
+}
+
 describe("openai image generation provider", () => {
   afterEach(() => {
-    resolveApiKeyForProviderMock.mockClear();
+    isProviderApiKeyConfiguredMock.mockReset();
+    isProviderApiKeyConfiguredMock.mockReturnValue(false);
+    resolveApiKeyForProviderMock.mockReset();
+    resolveApiKeyForProviderMock.mockResolvedValue({ apiKey: "openai-key" });
     postJsonRequestMock.mockReset();
     postMultipartRequestMock.mockReset();
     assertOkOrThrowHttpErrorMock.mockClear();
@@ -94,6 +117,36 @@ describe("openai image generation provider", () => {
     expect(provider.capabilities.geometry?.sizes).toEqual(
       expect.arrayContaining(["2048x2048", "3840x2160", "2160x3840"]),
     );
+  });
+
+  it("reports configured when either OpenAI API key auth or Codex OAuth auth is available", () => {
+    const provider = buildOpenAIImageGenerationProvider();
+
+    isProviderApiKeyConfiguredMock.mockImplementation((params?: { provider?: string }) => {
+      return params?.provider === "openai";
+    });
+    expect(provider.isConfigured?.({ agentDir: "/tmp/agent" })).toBe(true);
+    expect(isProviderApiKeyConfiguredMock).toHaveBeenCalledWith({
+      provider: "openai",
+      agentDir: "/tmp/agent",
+    });
+
+    isProviderApiKeyConfiguredMock.mockClear();
+    isProviderApiKeyConfiguredMock.mockImplementation((params?: { provider?: string }) => {
+      return params?.provider === "openai-codex";
+    });
+    expect(provider.isConfigured?.({ agentDir: "/tmp/agent" })).toBe(true);
+    expect(isProviderApiKeyConfiguredMock).toHaveBeenCalledWith({
+      provider: "openai",
+      agentDir: "/tmp/agent",
+    });
+    expect(isProviderApiKeyConfiguredMock).toHaveBeenCalledWith({
+      provider: "openai-codex",
+      agentDir: "/tmp/agent",
+    });
+
+    isProviderApiKeyConfiguredMock.mockReturnValue(false);
+    expect(provider.isConfigured?.({ agentDir: "/tmp/agent" })).toBe(false);
   });
 
   it("does not auto-allow local baseUrl overrides for image requests", async () => {
@@ -281,13 +334,14 @@ describe("openai image generation provider", () => {
     expect(result.images).toHaveLength(1);
   });
 
-  it("registers Codex OAuth image generation through Responses streaming", async () => {
+  it("falls back to Codex OAuth image generation through Responses streaming", async () => {
+    mockCodexAuthOnly();
     mockCodexImageStream({ imageData: "codex-image", revisedPrompt: "revised codex prompt" });
 
-    const provider = buildOpenAICodexImageGenerationProvider();
+    const provider = buildOpenAIImageGenerationProvider();
     const authStore = { version: 1, profiles: {} };
     const result = await provider.generateImage({
-      provider: "openai-codex",
+      provider: "openai",
       model: "gpt-image-2",
       prompt: "Draw a Codex lighthouse",
       cfg: {},
@@ -298,6 +352,12 @@ describe("openai image generation provider", () => {
 
     expect(resolveApiKeyForProviderMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        provider: "openai",
+        store: authStore,
+      }),
+    );
+    expect(resolveApiKeyForProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
         provider: "openai-codex",
         store: authStore,
       }),
@@ -306,7 +366,7 @@ describe("openai image generation provider", () => {
       expect.objectContaining({
         defaultBaseUrl: "https://chatgpt.com/backend-api/codex",
         defaultHeaders: expect.objectContaining({
-          Authorization: "Bearer openai-key",
+          Authorization: "Bearer codex-key",
           Accept: "text/event-stream",
         }),
         provider: "openai-codex",
@@ -353,11 +413,12 @@ describe("openai image generation provider", () => {
   });
 
   it("sends Codex reference images as Responses input images", async () => {
+    mockCodexAuthOnly();
     mockCodexImageStream();
 
-    const provider = buildOpenAICodexImageGenerationProvider();
+    const provider = buildOpenAIImageGenerationProvider();
     await provider.generateImage({
-      provider: "openai-codex",
+      provider: "openai",
       model: "gpt-image-2",
       prompt: "Use the reference image",
       cfg: {},
@@ -384,11 +445,12 @@ describe("openai image generation provider", () => {
   });
 
   it("satisfies Codex count by issuing one Responses request per image", async () => {
+    mockCodexAuthOnly();
     mockCodexImageStream({ imageData: "codex-image" });
 
-    const provider = buildOpenAICodexImageGenerationProvider();
+    const provider = buildOpenAIImageGenerationProvider();
     const result = await provider.generateImage({
-      provider: "openai-codex",
+      provider: "openai",
       model: "gpt-image-2",
       prompt: "Draw two Codex icons",
       cfg: {},

@@ -266,6 +266,49 @@ describe("createImageGenerateTool", () => {
     expect(createImageGenerateTool({ config: {} })).not.toBeNull();
   });
 
+  it("infers the canonical OpenAI image model from provider readiness without explicit config", () => {
+    const isConfigured = vi.fn(({ agentDir }: { agentDir?: string }) => agentDir === "/tmp/agent");
+    vi.spyOn(imageGenerationRuntime, "listRuntimeImageGenerationProviders").mockReturnValue([
+      {
+        id: "openai",
+        defaultModel: "gpt-image-2",
+        models: ["gpt-image-2"],
+        isConfigured,
+        capabilities: {
+          generate: {
+            maxCount: 4,
+            supportsSize: true,
+          },
+          edit: {
+            enabled: true,
+            maxInputImages: 5,
+            supportsSize: true,
+          },
+          geometry: {
+            sizes: ["1024x1024", "1536x1024", "1024x1536"],
+          },
+        },
+        generateImage: vi.fn(async () => {
+          throw new Error("not used");
+        }),
+      },
+    ]);
+
+    expect(
+      resolveImageGenerationModelConfigForTool({
+        cfg: {},
+        agentDir: "/tmp/agent",
+      }),
+    ).toEqual({
+      primary: "openai/gpt-image-2",
+    });
+    expect(createImageGenerateTool({ config: {}, agentDir: "/tmp/agent" })).not.toBeNull();
+    expect(isConfigured).toHaveBeenCalledWith({
+      cfg: {},
+      agentDir: "/tmp/agent",
+    });
+  });
+
   it("prefers the primary model provider when multiple image providers have auth", () => {
     stubImageGenerationProviders();
     vi.stubEnv("OPENAI_API_KEY", "openai-test");

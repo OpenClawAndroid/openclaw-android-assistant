@@ -29,6 +29,24 @@ describe("test-install-sh-docker", () => {
     );
   });
 
+  it("uses npm latest as the update baseline and resolves it to the concrete packed version", () => {
+    const script = readFileSync(SCRIPT_PATH, "utf8");
+    const runner = readFileSync(SMOKE_RUNNER_PATH, "utf8");
+    const workflow = readFileSync(INSTALL_SMOKE_WORKFLOW_PATH, "utf8");
+
+    expect(script).toContain(
+      'UPDATE_BASELINE_VERSION="${OPENCLAW_INSTALL_SMOKE_UPDATE_BASELINE:-latest}"',
+    );
+    expect(script).toContain('quiet_npm pack "${PACKAGE_NAME}@${UPDATE_BASELINE_VERSION}"');
+    expect(script).toContain('UPDATE_BASELINE_VERSION="$(');
+    expect(runner).toContain(
+      'UPDATE_BASELINE_VERSION="${OPENCLAW_INSTALL_UPDATE_BASELINE:-latest}"',
+    );
+    expect(runner).toContain("resolve_update_baseline_version");
+    expect(runner).toContain('quiet_npm view "${PACKAGE_NAME}@${UPDATE_BASELINE_VERSION}" version');
+    expect(workflow).toContain("OPENCLAW_INSTALL_SMOKE_UPDATE_BASELINE: latest");
+  });
+
   it("can reuse dist from the already-built root Docker smoke image", () => {
     const script = readFileSync(SCRIPT_PATH, "utf8");
 

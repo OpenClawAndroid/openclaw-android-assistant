@@ -30,36 +30,25 @@ The tool only appears when at least one image generation provider is available. 
 }
 ```
 
-Use Codex OAuth instead of an OpenAI API key:
+Codex OAuth uses the same `openai/gpt-image-2` model ref. If no `OPENAI_API_KEY`
+is available, OpenClaw resolves the existing `openai-codex` OAuth profile and
+sends the image request through the Codex Responses backend.
 
-```json5
-{
-  agents: {
-    defaults: {
-      imageGenerationModel: {
-        primary: "openai-codex/gpt-image-2",
-      },
-    },
-  },
-}
-```
-
-3. Ask the agent: _"Generate an image of a friendly lobster mascot."_
+3. Ask the agent: _"Generate an image of a friendly robot mascot."_
 
 The agent calls `image_generate` automatically. No tool allow-listing needed — it's enabled by default when a provider is available.
 
 ## Supported providers
 
-| Provider     | Default model                    | Edit support                       | API key                                               |
-| ------------ | -------------------------------- | ---------------------------------- | ----------------------------------------------------- |
-| OpenAI       | `gpt-image-2`                    | Yes (up to 4 images)               | `OPENAI_API_KEY`                                      |
-| OpenAI Codex | `gpt-image-2`                    | Yes (up to 4 images)               | OpenAI Codex OAuth                                    |
-| Google       | `gemini-3.1-flash-image-preview` | Yes                                | `GEMINI_API_KEY` or `GOOGLE_API_KEY`                  |
-| fal          | `fal-ai/flux/dev`                | Yes                                | `FAL_KEY`                                             |
-| MiniMax      | `image-01`                       | Yes (subject reference)            | `MINIMAX_API_KEY` or MiniMax OAuth (`minimax-portal`) |
-| ComfyUI      | `workflow`                       | Yes (1 image, workflow-configured) | `COMFY_API_KEY` or `COMFY_CLOUD_API_KEY` for cloud    |
-| Vydra        | `grok-imagine`                   | No                                 | `VYDRA_API_KEY`                                       |
-| xAI          | `grok-imagine-image`             | Yes (up to 5 images)               | `XAI_API_KEY`                                         |
+| Provider | Default model                    | Edit support                       | Auth                                                  |
+| -------- | -------------------------------- | ---------------------------------- | ----------------------------------------------------- |
+| OpenAI   | `gpt-image-2`                    | Yes (up to 4 images)               | `OPENAI_API_KEY` or OpenAI Codex OAuth                |
+| Google   | `gemini-3.1-flash-image-preview` | Yes                                | `GEMINI_API_KEY` or `GOOGLE_API_KEY`                  |
+| fal      | `fal-ai/flux/dev`                | Yes                                | `FAL_KEY`                                             |
+| MiniMax  | `image-01`                       | Yes (subject reference)            | `MINIMAX_API_KEY` or MiniMax OAuth (`minimax-portal`) |
+| ComfyUI  | `workflow`                       | Yes (1 image, workflow-configured) | `COMFY_API_KEY` or `COMFY_CLOUD_API_KEY` for cloud    |
+| Vydra    | `grok-imagine`                   | No                                 | `VYDRA_API_KEY`                                       |
+| xAI      | `grok-imagine-image`             | Yes (up to 5 images)               | `XAI_API_KEY`                                         |
 
 Use `action: "list"` to inspect available providers and models at runtime:
 
@@ -73,7 +62,7 @@ Use `action: "list"` to inspect available providers and models at runtime:
 | ------------- | -------- | ------------------------------------------------------------------------------------- |
 | `prompt`      | string   | Image generation prompt (required for `action: "generate"`)                           |
 | `action`      | string   | `"generate"` (default) or `"list"` to inspect providers                               |
-| `model`       | string   | Provider/model override, e.g. `openai/gpt-image-2` or `openai-codex/gpt-image-2`      |
+| `model`       | string   | Provider/model override, e.g. `openai/gpt-image-2`                                    |
 | `image`       | string   | Single reference image path or URL for edit mode                                      |
 | `images`      | string[] | Multiple reference images for edit mode (up to 5)                                     |
 | `size`        | string   | Size hint: `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048`, `3840x2160`            |
@@ -139,11 +128,12 @@ OpenAI, Google, and xAI support up to 5 reference images via the `images` parame
 
 ### OpenAI `gpt-image-2`
 
-OpenAI image generation defaults to `openai/gpt-image-2` with `OPENAI_API_KEY`.
-Use `openai-codex/gpt-image-2` to generate or edit images with the same Codex
-OAuth sign-in used by `openai-codex` chat models. The older `openai/gpt-image-1`
-model can still be selected explicitly, but new OpenAI image-generation and
-image-editing requests should use `gpt-image-2`.
+OpenAI image generation defaults to `openai/gpt-image-2`. It uses
+`OPENAI_API_KEY` when available. If no API key is configured, OpenClaw reuses the
+same `openai-codex` OAuth profile used by Codex subscription chat models and
+sends the image request through the Codex Responses backend. The older
+`openai/gpt-image-1` model can still be selected explicitly, but new OpenAI
+image-generation and image-editing requests should use `gpt-image-2`.
 
 `gpt-image-2` supports both text-to-image generation and reference-image
 editing through the same `image_generate` tool. OpenClaw forwards `prompt`,
@@ -167,18 +157,6 @@ Edit one local reference image:
 
 ```
 /tool image_generate action=generate model=openai/gpt-image-2 prompt="Keep the subject, replace the background with a bright studio setup" image=/path/to/reference.png size=1024x1536
-```
-
-Generate with Codex OAuth:
-
-```
-/tool image_generate action=generate model=openai-codex/gpt-image-2 prompt="A clean editorial poster for OpenClaw image generation" size=3840x2160 count=1
-```
-
-Edit one local reference image with Codex OAuth:
-
-```
-/tool image_generate action=generate model=openai-codex/gpt-image-2 prompt="Keep the subject, replace the background with a bright studio setup" image=/path/to/reference.png size=1024x1536
 ```
 
 Edit with multiple references:

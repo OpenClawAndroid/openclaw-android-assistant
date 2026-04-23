@@ -221,7 +221,7 @@ function extractCodexImageGenerationResult(params: {
 }
 
 function createOpenAIImageGenerationProviderBase(params: {
-  id: "openai" | "openai-codex";
+  id: "openai";
   label: string;
   isConfigured: ImageGenerationProvider["isConfigured"];
   generateImage: ImageGenerationProvider["generateImage"];
@@ -255,6 +255,104 @@ function createOpenAIImageGenerationProviderBase(params: {
   };
 }
 
+async function resolveOptionalApiKeyForProvider(
+  params: Parameters<typeof resolveApiKeyForProvider>[0],
+) {
+  try {
+    return await resolveApiKeyForProvider(params);
+  } catch {
+    return null;
+  }
+}
+
+async function generateOpenAICodexImage(params: {
+  req: Parameters<ImageGenerationProvider["generateImage"]>[0];
+  apiKey: string;
+}): Promise<ImageGenerationResult> {
+  const { req, apiKey } = params;
+  const inputImages = req.inputImages ?? [];
+  const { baseUrl, allowPrivateNetwork, headers, dispatcherPolicy } =
+    resolveProviderHttpRequestConfig({
+      defaultBaseUrl: DEFAULT_OPENAI_CODEX_IMAGE_BASE_URL,
+      defaultHeaders: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "text/event-stream",
+      },
+      provider: "openai-codex",
+      api: "openai-codex-responses",
+      capability: "image",
+      transport: "http",
+    });
+
+  const model = req.model || DEFAULT_OPENAI_IMAGE_MODEL;
+  const count = req.count ?? 1;
+  const size = req.size ?? DEFAULT_SIZE;
+  headers.set("Content-Type", "application/json");
+  const content: Array<Record<string, unknown>> = [
+    { type: "input_text", text: req.prompt },
+    ...inputImages.map((image) => ({
+      type: "input_image",
+      image_url: toOpenAIDataUrl(image),
+      detail: "auto",
+    })),
+  ];
+  const results: ImageGenerationResult[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const requestResult = await postJsonRequest({
+      url: `${baseUrl}/responses`,
+      headers,
+      body: {
+        model: "gpt-5.4",
+        input: [
+          {
+            role: "user",
+            content,
+          },
+        ],
+        instructions: OPENAI_CODEX_IMAGE_INSTRUCTIONS,
+        tools: [
+          {
+            type: "image_generation",
+            model,
+            size,
+          },
+        ],
+        tool_choice: { type: "image_generation" },
+        stream: true,
+        store: false,
+      },
+      timeoutMs: req.timeoutMs,
+      fetchFn: fetch,
+      allowPrivateNetwork,
+      dispatcherPolicy,
+    });
+    const { response, release } = requestResult;
+    try {
+      await assertOkOrThrowHttpError(response, "OpenAI Codex image generation failed");
+      results.push(
+        extractCodexImageGenerationResult({
+          body: await readResponseBodyText(response),
+          model,
+        }),
+      );
+    } finally {
+      await release();
+    }
+  }
+  const images = results.flatMap((result) => result.images);
+  return {
+    images: images.map((image, index) =>
+      Object.assign({}, image, {
+        fileName: `image-${index + 1}.png`,
+      }),
+    ),
+    model,
+    metadata: {
+      responses: results.map((result) => result.metadata).filter(Boolean),
+    },
+  };
+}
+
 export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
   return createOpenAIImageGenerationProviderBase({
     id: "openai",
@@ -263,18 +361,31 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
       isProviderApiKeyConfigured({
         provider: "openai",
         agentDir,
+      }) ||
+      isProviderApiKeyConfigured({
+        provider: "openai-codex",
+        agentDir,
       }),
     async generateImage(req) {
       const inputImages = req.inputImages ?? [];
       const isEdit = inputImages.length > 0;
-      const auth = await resolveApiKeyForProvider({
+      const auth = await resolveOptionalApiKeyForProvider({
         provider: "openai",
         cfg: req.cfg,
         agentDir: req.agentDir,
         store: req.authStore,
       });
-      if (!auth.apiKey) {
-        throw new Error("OpenAI API key missing");
+      if (!auth?.apiKey) {
+        const codexAuth = await resolveOptionalApiKeyForProvider({
+          provider: "openai-codex",
+          cfg: req.cfg,
+          agentDir: req.agentDir,
+          store: req.authStore,
+        });
+        if (codexAuth?.apiKey) {
+          return generateOpenAICodexImage({ req, apiKey: codexAuth.apiKey });
+        }
+        throw new Error("OpenAI API key or Codex OAuth missing");
       }
       const rawBaseUrl = resolveConfiguredOpenAIBaseUrl(req.cfg);
       const isAzure = isAzureOpenAIBaseUrl(rawBaseUrl);
@@ -379,111 +490,6 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
       } finally {
         await release();
       }
-    },
-  });
-}
-
-export function buildOpenAICodexImageGenerationProvider(): ImageGenerationProvider {
-  return createOpenAIImageGenerationProviderBase({
-    id: "openai-codex",
-    label: "OpenAI Codex",
-    isConfigured: ({ agentDir }) =>
-      isProviderApiKeyConfigured({
-        provider: "openai-codex",
-        agentDir,
-      }),
-    async generateImage(req) {
-      const inputImages = req.inputImages ?? [];
-      const auth = await resolveApiKeyForProvider({
-        provider: "openai-codex",
-        cfg: req.cfg,
-        agentDir: req.agentDir,
-        store: req.authStore,
-      });
-      if (!auth.apiKey) {
-        throw new Error("OpenAI Codex OAuth missing");
-      }
-
-      const { baseUrl, allowPrivateNetwork, headers, dispatcherPolicy } =
-        resolveProviderHttpRequestConfig({
-          defaultBaseUrl: DEFAULT_OPENAI_CODEX_IMAGE_BASE_URL,
-          defaultHeaders: {
-            Authorization: `Bearer ${auth.apiKey}`,
-            Accept: "text/event-stream",
-          },
-          provider: "openai-codex",
-          api: "openai-codex-responses",
-          capability: "image",
-          transport: "http",
-        });
-
-      const model = req.model || DEFAULT_OPENAI_IMAGE_MODEL;
-      const count = req.count ?? 1;
-      const size = req.size ?? DEFAULT_SIZE;
-      headers.set("Content-Type", "application/json");
-      const content: Array<Record<string, unknown>> = [
-        { type: "input_text", text: req.prompt },
-        ...inputImages.map((image) => ({
-          type: "input_image",
-          image_url: toOpenAIDataUrl(image),
-          detail: "auto",
-        })),
-      ];
-      const results: ImageGenerationResult[] = [];
-      for (let index = 0; index < count; index += 1) {
-        const requestResult = await postJsonRequest({
-          url: `${baseUrl}/responses`,
-          headers,
-          body: {
-            model: "gpt-5.4",
-            input: [
-              {
-                role: "user",
-                content,
-              },
-            ],
-            instructions: OPENAI_CODEX_IMAGE_INSTRUCTIONS,
-            tools: [
-              {
-                type: "image_generation",
-                model,
-                size,
-              },
-            ],
-            tool_choice: { type: "image_generation" },
-            stream: true,
-            store: false,
-          },
-          timeoutMs: req.timeoutMs,
-          fetchFn: fetch,
-          allowPrivateNetwork,
-          dispatcherPolicy,
-        });
-        const { response, release } = requestResult;
-        try {
-          await assertOkOrThrowHttpError(response, "OpenAI Codex image generation failed");
-          results.push(
-            extractCodexImageGenerationResult({
-              body: await readResponseBodyText(response),
-              model,
-            }),
-          );
-        } finally {
-          await release();
-        }
-      }
-      const images = results.flatMap((result) => result.images);
-      return {
-        images: images.map((image, index) =>
-          Object.assign({}, image, {
-            fileName: `image-${index + 1}.png`,
-          }),
-        ),
-        model,
-        metadata: {
-          responses: results.map((result) => result.metadata).filter(Boolean),
-        },
-      };
     },
   });
 }
