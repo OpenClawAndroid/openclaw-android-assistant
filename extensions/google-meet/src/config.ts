@@ -1,9 +1,10 @@
+import { REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME } from "openclaw/plugin-sdk/realtime-voice";
 import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/text-runtime";
 
-export type GoogleMeetTransport = "chrome" | "twilio";
+export type GoogleMeetTransport = "chrome" | "chrome-node" | "twilio";
 export type GoogleMeetMode = "realtime" | "transcribe";
 export type GoogleMeetToolPolicy = "safe-read-only" | "owner" | "none";
 
@@ -26,6 +27,9 @@ export type GoogleMeetConfig = {
     audioOutputCommand?: string[];
     audioBridgeCommand?: string[];
     audioBridgeHealthCommand?: string[];
+  };
+  chromeNode: {
+    node?: string;
   };
   twilio: {
     defaultDialInNumber?: string;
@@ -62,6 +66,40 @@ export type GoogleMeetConfig = {
   };
 };
 
+export const DEFAULT_GOOGLE_MEET_AUDIO_INPUT_COMMAND = [
+  "rec",
+  "-q",
+  "-t",
+  "raw",
+  "-r",
+  "8000",
+  "-c",
+  "1",
+  "-e",
+  "mu-law",
+  "-b",
+  "8",
+  "-",
+] as const;
+
+export const DEFAULT_GOOGLE_MEET_AUDIO_OUTPUT_COMMAND = [
+  "play",
+  "-q",
+  "-t",
+  "raw",
+  "-r",
+  "8000",
+  "-c",
+  "1",
+  "-e",
+  "mu-law",
+  "-b",
+  "8",
+  "-",
+] as const;
+
+export const DEFAULT_GOOGLE_MEET_REALTIME_INSTRUCTIONS = `You are joining a private Google Meet as an OpenClaw agent. Keep spoken replies brief and natural. When a question needs deeper reasoning, current information, or tools, call ${REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME} before answering.`;
+
 export const DEFAULT_GOOGLE_MEET_CONFIG: GoogleMeetConfig = {
   enabled: true,
   defaults: {},
@@ -74,7 +112,10 @@ export const DEFAULT_GOOGLE_MEET_CONFIG: GoogleMeetConfig = {
     audioBackend: "blackhole-2ch",
     launch: true,
     joinTimeoutMs: 30_000,
+    audioInputCommand: [...DEFAULT_GOOGLE_MEET_AUDIO_INPUT_COMMAND],
+    audioOutputCommand: [...DEFAULT_GOOGLE_MEET_AUDIO_OUTPUT_COMMAND],
   },
+  chromeNode: {},
   twilio: {},
   voiceCall: {
     enabled: true,
@@ -82,6 +123,8 @@ export const DEFAULT_GOOGLE_MEET_CONFIG: GoogleMeetConfig = {
     dtmfDelayMs: 2_500,
   },
   realtime: {
+    provider: "openai",
+    instructions: DEFAULT_GOOGLE_MEET_REALTIME_INSTRUCTIONS,
     toolPolicy: "safe-read-only",
     providers: {},
   },
@@ -195,7 +238,9 @@ function resolveProvidersConfig(value: unknown): Record<string, Record<string, u
 
 function resolveTransport(value: unknown, fallback: GoogleMeetTransport): GoogleMeetTransport {
   const normalized = normalizeOptionalLowercaseString(value);
-  return normalized === "chrome" || normalized === "twilio" ? normalized : fallback;
+  return normalized === "chrome" || normalized === "chrome-node" || normalized === "twilio"
+    ? normalized
+    : fallback;
 }
 
 function resolveMode(value: unknown, fallback: GoogleMeetMode): GoogleMeetMode {
@@ -222,6 +267,7 @@ export function resolveGoogleMeetConfigWithEnv(
   const defaults = asRecord(raw.defaults);
   const preview = asRecord(raw.preview);
   const chrome = asRecord(raw.chrome);
+  const chromeNode = asRecord(raw.chromeNode);
   const twilio = asRecord(raw.twilio);
   const voiceCall = asRecord(raw.voiceCall);
   const realtime = asRecord(raw.realtime);
@@ -255,10 +301,17 @@ export function resolveGoogleMeetConfigWithEnv(
         chrome.joinTimeoutMs,
         DEFAULT_GOOGLE_MEET_CONFIG.chrome.joinTimeoutMs,
       ),
-      audioInputCommand: resolveStringArray(chrome.audioInputCommand),
-      audioOutputCommand: resolveStringArray(chrome.audioOutputCommand),
+      audioInputCommand: resolveStringArray(chrome.audioInputCommand) ?? [
+        ...DEFAULT_GOOGLE_MEET_AUDIO_INPUT_COMMAND,
+      ],
+      audioOutputCommand: resolveStringArray(chrome.audioOutputCommand) ?? [
+        ...DEFAULT_GOOGLE_MEET_AUDIO_OUTPUT_COMMAND,
+      ],
       audioBridgeCommand: resolveStringArray(chrome.audioBridgeCommand),
       audioBridgeHealthCommand: resolveStringArray(chrome.audioBridgeHealthCommand),
+    },
+    chromeNode: {
+      node: normalizeOptionalString(chromeNode.node),
     },
     twilio: {
       defaultDialInNumber: normalizeOptionalString(twilio.defaultDialInNumber),
@@ -280,9 +333,12 @@ export function resolveGoogleMeetConfigWithEnv(
       introMessage: normalizeOptionalString(voiceCall.introMessage),
     },
     realtime: {
-      provider: normalizeOptionalString(realtime.provider),
-      model: normalizeOptionalString(realtime.model),
-      instructions: normalizeOptionalString(realtime.instructions),
+      provider:
+        normalizeOptionalString(realtime.provider) ?? DEFAULT_GOOGLE_MEET_CONFIG.realtime.provider,
+      model: normalizeOptionalString(realtime.model) ?? DEFAULT_GOOGLE_MEET_CONFIG.realtime.model,
+      instructions:
+        normalizeOptionalString(realtime.instructions) ??
+        DEFAULT_GOOGLE_MEET_CONFIG.realtime.instructions,
       toolPolicy: resolveToolPolicy(
         realtime.toolPolicy,
         DEFAULT_GOOGLE_MEET_CONFIG.realtime.toolPolicy,
