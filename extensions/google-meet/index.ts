@@ -10,10 +10,15 @@ import {
   type GoogleMeetMode,
   type GoogleMeetTransport,
 } from "./src/config.js";
-import { buildGoogleMeetPreflightReport, fetchGoogleMeetSpace } from "./src/meet.js";
+import {
+  buildGoogleMeetPreflightReport,
+  createGoogleMeetSpace,
+  fetchGoogleMeetSpace,
+} from "./src/meet.js";
 import { handleGoogleMeetNodeHostCommand } from "./src/node-host.js";
 import { resolveGoogleMeetAccessToken } from "./src/oauth.js";
 import { GoogleMeetRuntime } from "./src/runtime.js";
+import { createMeetWithBrowserProxyOnNode } from "./src/transports/chrome.js";
 
 const googleMeetConfigSchema = {
   parse(value: unknown) {
@@ -134,6 +139,7 @@ const GoogleMeetToolSchema = Type.Object({
   action: Type.String({
     enum: [
       "join",
+      "create",
       "status",
       "setup_status",
       "resolve_space",
@@ -213,6 +219,56 @@ async function resolveSpaceFromParams(config: GoogleMeetConfig, raw: Record<stri
   return { meeting, token, space };
 }
 
+async function createSpaceFromParams(config: GoogleMeetConfig, raw: Record<string, unknown>) {
+  const token = await resolveGoogleMeetAccessToken({
+    clientId: normalizeOptionalString(raw.clientId) ?? config.oauth.clientId,
+    clientSecret: normalizeOptionalString(raw.clientSecret) ?? config.oauth.clientSecret,
+    refreshToken: normalizeOptionalString(raw.refreshToken) ?? config.oauth.refreshToken,
+    accessToken: normalizeOptionalString(raw.accessToken) ?? config.oauth.accessToken,
+    expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : config.oauth.expiresAt,
+  });
+  const result = await createGoogleMeetSpace({ accessToken: token.accessToken });
+  return { source: "api" as const, token, ...result };
+}
+
+function hasGoogleMeetOAuth(config: GoogleMeetConfig, raw: Record<string, unknown>): boolean {
+  return Boolean(
+    normalizeOptionalString(raw.accessToken) ??
+    normalizeOptionalString(raw.refreshToken) ??
+    config.oauth.accessToken ??
+    config.oauth.refreshToken,
+  );
+}
+
+async function createMeetFromParams(params: {
+  config: GoogleMeetConfig;
+  runtime: OpenClawPluginApi["runtime"];
+  raw: Record<string, unknown>;
+}) {
+  if (hasGoogleMeetOAuth(params.config, params.raw)) {
+    const { token: _token, ...result } = await createSpaceFromParams(params.config, params.raw);
+    return result;
+  }
+  const browser = await createMeetWithBrowserProxyOnNode({
+    runtime: params.runtime,
+    config: params.config,
+  });
+  return {
+    source: browser.source,
+    meetingUri: browser.meetingUri,
+    space: {
+      name: `browser/${browser.meetingUri.split("/").pop()}`,
+      meetingUri: browser.meetingUri,
+    },
+    browser: {
+      nodeId: browser.nodeId,
+      targetId: browser.targetId,
+      browserUrl: browser.browserUrl,
+      browserTitle: browser.browserTitle,
+    },
+  };
+}
+
 export default definePluginEntry({
   id: "google-meet",
   name: "Google Meet",
@@ -256,6 +312,18 @@ export default definePluginEntry({
             message: normalizeOptionalString(params?.message),
           });
           respond(true, result);
+        } catch (err) {
+          sendError(respond, err);
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
+      "googlemeet.create",
+      async ({ params, respond }: GatewayRequestHandlerOptions) => {
+        try {
+          const raw = asParamRecord(params);
+          respond(true, await createMeetFromParams({ config, runtime: api.runtime, raw }));
         } catch (err) {
           sendError(respond, err);
         }
@@ -363,6 +431,9 @@ export default definePluginEntry({
                   message: normalizeOptionalString(raw.message),
                 }),
               );
+            }
+            case "create": {
+              return json(await createMeetFromParams({ config, runtime: api.runtime, raw }));
             }
             case "test_speech": {
               const rt = await ensureRuntime();
