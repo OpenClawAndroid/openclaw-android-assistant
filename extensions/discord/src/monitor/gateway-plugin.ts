@@ -16,6 +16,7 @@ import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtim
 import * as undici from "undici";
 import * as ws from "ws";
 import { validateDiscordProxyUrl } from "../proxy-fetch.js";
+import { DISCORD_GATEWAY_TRANSPORT_ACTIVITY_EVENT } from "./gateway-handle.js";
 
 const DISCORD_GATEWAY_BOT_URL = "https://discord.com/api/v10/gateway/bot";
 const DEFAULT_DISCORD_GATEWAY_URL = "wss://gateway.discord.gg/";
@@ -346,6 +347,12 @@ function createGatewayPlugin(params: {
       // already our proxy path and behaves predictably for lifecycle cleanup.
       const WebSocketCtor = params.testing?.webSocketCtor ?? ws.default;
       const socket = new WebSocketCtor(url, params.wsAgent ? { agent: params.wsAgent } : undefined);
+      const emitTransportActivity = () => {
+        if ((this as unknown as { ws?: unknown }).ws !== socket) {
+          return;
+        }
+        this.emitter.emit(DISCORD_GATEWAY_TRANSPORT_ACTIVITY_EVENT, { at: Date.now() });
+      };
       captureWsEvent({
         url,
         direction: "local",
@@ -354,6 +361,7 @@ function createGatewayPlugin(params: {
         meta: { subsystem: "discord-gateway" },
       });
       socket.on?.("message", (data: unknown) => {
+        emitTransportActivity();
         captureWsEvent({
           url,
           direction: "inbound",
@@ -398,6 +406,30 @@ function createGatewayPlugin(params: {
   return new SafeGatewayPlugin();
 }
 
+async function fetchDiscordGatewayMetadataDirect(
+  input: string,
+  init?: DiscordGatewayFetchInit,
+  capture?: false | { flowId: string; meta: Record<string, unknown> },
+): Promise<Response> {
+  const runtimeFetch = globalThis.fetch;
+  if (typeof runtimeFetch !== "function") {
+    throw new Error("fetch is not available");
+  }
+  const response = await runtimeFetch(input, init as RequestInit);
+  if (capture) {
+    captureHttpExchange({
+      url: input,
+      method: (init?.method as string | undefined) ?? "GET",
+      requestHeaders: init?.headers as Headers | Record<string, string> | undefined,
+      requestBody: (init as RequestInit & { body?: BodyInit | null })?.body ?? null,
+      response,
+      flowId: capture.flowId,
+      meta: capture.meta,
+    });
+  }
+  return response;
+}
+
 export function waitForDiscordGatewayPluginRegistration(
   plugin: unknown,
 ): Promise<void> | undefined {
@@ -434,19 +466,16 @@ export function createDiscordGatewayPlugin(params: {
     return createGatewayPlugin({
       options,
       fetchImpl: async (input, init) => {
-        const response = await fetch(input, init as RequestInit);
-        if (!debugProxySettings.enabled) {
-          captureHttpExchange({
-            url: input,
-            method: (init?.method as string | undefined) ?? "GET",
-            requestHeaders: init?.headers as Headers | Record<string, string> | undefined,
-            requestBody: (init as RequestInit & { body?: BodyInit | null })?.body ?? null,
-            response,
-            flowId: randomUUID(),
-            meta: { subsystem: "discord-gateway-metadata" },
-          });
-        }
-        return response;
+        return await fetchDiscordGatewayMetadataDirect(
+          input,
+          init,
+          debugProxySettings.enabled
+            ? false
+            : {
+                flowId: randomUUID(),
+                meta: { subsystem: "discord-gateway-metadata" },
+              },
+        );
       },
       runtime: params.runtime,
       testing: params.__testing
@@ -500,7 +529,7 @@ export function createDiscordGatewayPlugin(params: {
     params.runtime.error?.(danger(`discord: invalid gateway proxy: ${String(err)}`));
     return createGatewayPlugin({
       options,
-      fetchImpl: (input, init) => fetch(input, init as RequestInit),
+      fetchImpl: (input, init) => fetchDiscordGatewayMetadataDirect(input, init, false),
       runtime: params.runtime,
       testing: params.__testing
         ? {

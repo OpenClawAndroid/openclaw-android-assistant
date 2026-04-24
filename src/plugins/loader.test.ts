@@ -23,7 +23,11 @@ import {
 } from "../tasks/detached-task-runtime-state.js";
 import { withEnv } from "../test-utils/env.js";
 import { clearPluginCommands, getPluginCommandSpecs } from "./command-registry-state.js";
-import { getGlobalHookRunner, resetGlobalHookRunner } from "./hook-runner-global.js";
+import {
+  getGlobalHookRunner,
+  getGlobalPluginRegistry,
+  resetGlobalHookRunner,
+} from "./hook-runner-global.js";
 import { createHookRunner } from "./hooks.js";
 import {
   clearPluginInteractiveHandlerRegistrations,
@@ -77,6 +81,10 @@ import {
   listImportedRuntimePluginIds,
   setActivePluginRegistry,
 } from "./runtime.js";
+import {
+  __testing as runtimeRegistryLoaderTesting,
+  ensurePluginRegistryLoaded,
+} from "./runtime/runtime-registry-loader.js";
 import type { PluginSdkResolutionPreference } from "./sdk-alias.js";
 let cachedBundledTelegramDir = "";
 let cachedBundledMemoryDir = "";
@@ -832,6 +840,7 @@ function expectEscapingEntryRejected(params: {
 
 afterEach(() => {
   clearRuntimeConfigSnapshot();
+  runtimeRegistryLoaderTesting.resetPluginRegistryLoadedForTests();
   resetPluginLoaderTestStateForTest();
 });
 
@@ -3415,13 +3424,147 @@ module.exports = { id: "throws-after-import", register() {} };`,
     );
   });
 
-  it("throws when activate:false is used without cache:false", () => {
-    expect(() => loadOpenClawPlugins({ activate: false })).toThrow(
-      "activate:false requires cache:false",
-    );
-    expect(() => loadOpenClawPlugins({ activate: false, cache: true })).toThrow(
-      "activate:false requires cache:false",
-    );
+  it("uses discovery registration mode for non-activating loads", () => {
+    useNoBundledPlugins();
+    const marker = "__openclawDiscoveryModeTest";
+    const plugin = writePlugin({
+      id: "discovery-mode-test",
+      filename: "discovery-mode-test.cjs",
+      body: `module.exports = {
+        id: "discovery-mode-test",
+        register(api) {
+          globalThis.${marker} = globalThis.${marker} || [];
+          globalThis.${marker}.push(api.registrationMode);
+          api.registerProvider({ id: "discovery-provider", label: "Discovery Provider", auth: [] });
+          api.registerTool({
+            name: "discovery_tool",
+            description: "Discovery tool",
+            parameters: {},
+            execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+          });
+        },
+      };`,
+    });
+    const config = {
+      plugins: {
+        load: { paths: [plugin.file] },
+        allow: ["discovery-mode-test"],
+      },
+    };
+
+    const snapshot = loadOpenClawPlugins({
+      activate: false,
+      cache: false,
+      workspaceDir: plugin.dir,
+      config,
+    });
+    expect((globalThis as Record<string, unknown>)[marker]).toEqual(["discovery"]);
+    expect(snapshot.providers.map((entry) => entry.provider.id)).toEqual(["discovery-provider"]);
+    expect(snapshot.tools.flatMap((entry) => entry.names)).toContain("discovery_tool");
+
+    loadOpenClawPlugins({
+      cache: false,
+      workspaceDir: plugin.dir,
+      config,
+    });
+    expect((globalThis as Record<string, unknown>)[marker]).toEqual(["discovery", "full"]);
+    delete (globalThis as Record<string, unknown>)[marker];
+  });
+
+  it("caches non-activating snapshots without restoring global side effects", () => {
+    useNoBundledPlugins();
+    clearPluginCommands();
+    const marker = "__openclawSnapshotCacheRegisterCount";
+    const plugin = writePlugin({
+      id: "snapshot-cache",
+      filename: "snapshot-cache.cjs",
+      body: `module.exports = {
+        id: "snapshot-cache",
+        register(api) {
+          globalThis.${marker} = (globalThis.${marker} || 0) + 1;
+          api.registerCommand({
+            name: "snapshot-command",
+            description: "Snapshot command",
+            handler: async () => ({ text: "ok" }),
+          });
+        },
+      };`,
+    });
+    const options = {
+      activate: false,
+      workspaceDir: plugin.dir,
+      config: {
+        plugins: {
+          load: { paths: [plugin.file] },
+          allow: ["snapshot-cache"],
+        },
+      },
+      onlyPluginIds: ["snapshot-cache"],
+    };
+
+    const first = loadOpenClawPlugins(options);
+    const second = loadOpenClawPlugins(options);
+
+    expect(second).toBe(first);
+    expect((globalThis as Record<string, unknown>)[marker]).toBe(1);
+    expect(first.commands.map((entry) => entry.command.name)).toEqual(["snapshot-command"]);
+    expect(getPluginCommandSpecs()).toEqual([]);
+
+    const active = loadOpenClawPlugins({
+      workspaceDir: plugin.dir,
+      config: options.config,
+      onlyPluginIds: ["snapshot-cache"],
+    });
+    expect(active).not.toBe(first);
+    expect((globalThis as Record<string, unknown>)[marker]).toBe(2);
+    expect(getPluginCommandSpecs()).toEqual([
+      {
+        name: "snapshot-command",
+        description: "Snapshot command",
+        acceptsArgs: false,
+      },
+    ]);
+    delete (globalThis as Record<string, unknown>)[marker];
+  });
+
+  it("does not re-register non-bundled plugins after gateway-bindable boot loads", () => {
+    useNoBundledPlugins();
+    const marker = "__openclawGatewayBootRegisterCount";
+    const plugin = writePlugin({
+      id: "costclaw-boot-cache",
+      filename: "costclaw-boot-cache.cjs",
+      body: `module.exports = {
+        id: "costclaw-boot-cache",
+        register() {
+          globalThis.${marker} = (globalThis.${marker} || 0) + 1;
+        },
+      };`,
+    });
+    const config = {
+      plugins: {
+        load: { paths: [plugin.file] },
+        allow: ["costclaw-boot-cache"],
+        entries: {
+          "costclaw-boot-cache": { enabled: true },
+        },
+      },
+    };
+
+    loadOpenClawPlugins({
+      workspaceDir: plugin.dir,
+      config,
+      runtimeOptions: {
+        allowGatewaySubagentBinding: true,
+      },
+    });
+    ensurePluginRegistryLoaded({
+      scope: "all",
+      workspaceDir: plugin.dir,
+      config,
+    });
+
+    expect((globalThis as Record<string, unknown>)[marker]).toBe(1);
+    delete (globalThis as Record<string, unknown>)[marker];
   });
 
   it("re-initializes global hook runner when serving registry from cache", () => {
@@ -3453,6 +3596,66 @@ module.exports = { id: "throws-after-import", register() {} };`,
     expect(getGlobalHookRunner()).not.toBeNull();
 
     resetGlobalHookRunner();
+  });
+
+  it("preserves the gateway-bindable hook runner across later default-mode activating loads", () => {
+    useNoBundledPlugins();
+    const gatewayPlugin = writePlugin({
+      id: "gateway-hook-surface",
+      filename: "gateway-hook-surface.cjs",
+      body: `module.exports = { id: "gateway-hook-surface", register(api) {
+        api.on("subagent_ended", () => undefined);
+      } };`,
+    });
+    const defaultPlugin = writePlugin({
+      id: "default-hook-surface",
+      filename: "default-hook-surface.cjs",
+      body: `module.exports = { id: "default-hook-surface", register(api) {
+        api.on("message_sent", () => undefined);
+      } };`,
+    });
+
+    const gatewayRegistry = loadOpenClawPlugins({
+      workspaceDir: gatewayPlugin.dir,
+      config: {
+        plugins: {
+          load: { paths: [gatewayPlugin.file] },
+          allow: ["gateway-hook-surface"],
+          entries: {
+            "gateway-hook-surface": {
+              enabled: true,
+              hooks: { allowConversationAccess: true },
+            },
+          },
+        },
+      },
+      runtimeOptions: {
+        allowGatewaySubagentBinding: true,
+      },
+    });
+    expect(getGlobalPluginRegistry()).toBe(gatewayRegistry);
+    expect(getGlobalHookRunner()?.hasHooks("subagent_ended")).toBe(true);
+
+    const defaultRegistry = loadOpenClawPlugins({
+      workspaceDir: defaultPlugin.dir,
+      config: {
+        plugins: {
+          load: { paths: [defaultPlugin.file] },
+          allow: ["default-hook-surface"],
+          entries: {
+            "default-hook-surface": {
+              enabled: true,
+              hooks: { allowConversationAccess: true },
+            },
+          },
+        },
+      },
+    });
+
+    expect(getActivePluginRegistry()).toBe(defaultRegistry);
+    expect(getGlobalPluginRegistry()).toBe(gatewayRegistry);
+    expect(getGlobalHookRunner()?.hasHooks("subagent_ended")).toBe(true);
+    expect(getGlobalHookRunner()?.hasHooks("message_sent")).toBe(false);
   });
 
   it.each([
@@ -4061,7 +4264,7 @@ module.exports = { id: "throws-after-import", register() {} };`,
         },
       },
       {
-        label: "rejects duplicate channel ids during plugin registration",
+        label: "updates duplicate channel ids during same-plugin registration",
         pluginId: "channel-dup",
         body: `module.exports = { id: "channel-dup", register(api) {
   api.registerChannel({
@@ -4103,11 +4306,9 @@ module.exports = { id: "throws-after-import", register() {} };`,
 } };`,
         assert: (registry: ReturnType<typeof loadOpenClawPlugins>) => {
           expect(registry.channels.filter((entry) => entry.plugin.id === "demo")).toHaveLength(1);
-          expectRegistryErrorDiagnostic({
-            registry,
-            pluginId: "channel-dup",
-            message: "channel already registered: demo (channel-dup)",
-          });
+          expect(
+            registry.channels.find((entry) => entry.plugin.id === "demo")?.plugin.meta?.label,
+          ).toBe("Demo Duplicate");
         },
       },
       {
@@ -4417,14 +4618,14 @@ module.exports = { id: "throws-after-import", register() {} };`,
         },
       },
       {
-        label: "same plugin can replace its own route",
+        label: "same plugin can implicitly replace its own route",
         buildPlugins: () => [
           writePlugin({
             id: "http-route-replace-self",
             filename: "http-route-replace-self.cjs",
             body: `module.exports = { id: "http-route-replace-self", register(api) {
   api.registerHttpRoute({ path: "/demo", auth: "plugin", handler: async () => false });
-  api.registerHttpRoute({ path: "/demo", auth: "plugin", replaceExisting: true, handler: async () => true });
+  api.registerHttpRoute({ path: "/demo", auth: "plugin", handler: async () => true });
 } };`,
           }),
         ],

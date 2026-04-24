@@ -231,6 +231,26 @@ type BrowserTab = {
   url?: string;
 };
 
+const GOOGLE_MEET_NEW_URL = "https://meet.google.com/new";
+const GOOGLE_MEET_BROWSER_CREATE_TIMEOUT_MS = 60_000;
+const GOOGLE_MEET_BROWSER_STEP_TIMEOUT_MS = 10_000;
+const GOOGLE_MEET_BROWSER_NAVIGATION_RETRY_MS = 1_000;
+const GOOGLE_MEET_BROWSER_POLL_MS = 500;
+
+type BrowserCreateStepResult = {
+  meetingUri?: string;
+  browserUrl?: string;
+  browserTitle?: string;
+  manualAction?: string;
+  manualActionReason?: GoogleMeetChromeHealth["manualActionReason"];
+  notes?: string[];
+  retryAfterMs?: number;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function formatBrowserAutomationError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -240,6 +260,12 @@ function formatBrowserAutomationError(error: unknown): string {
   } catch {
     return "unknown error";
   }
+}
+
+function isBrowserNavigationInterruption(error: unknown): boolean {
+  return /execution context was destroyed|navigation|target closed/i.test(
+    formatBrowserAutomationError(error),
+  );
 }
 
 export type GoogleMeetBrowserCreateResult = {
@@ -304,15 +330,57 @@ function readBrowserTab(result: unknown): BrowserTab | undefined {
   return result && typeof result === "object" ? (result as BrowserTab) : undefined;
 }
 
-function readBrowserCreateResult(result: unknown): {
-  meetingUri?: string;
-  browserUrl?: string;
-  browserTitle?: string;
-  manualAction?: string;
-  manualActionReason?: GoogleMeetChromeHealth["manualActionReason"];
-  notes?: string[];
-  retryAfterMs?: number;
-} {
+function isGoogleMeetCreateTab(tab: BrowserTab): boolean {
+  const url = tab.url ?? "";
+  if (/^https:\/\/meet\.google\.com\/(?:new|[a-z]{3}-[a-z]{4}-[a-z]{3})(?:$|[/?#])/i.test(url)) {
+    return true;
+  }
+  return (
+    url.startsWith("https://accounts.google.com/") &&
+    /sign in|google accounts|meet/i.test(tab.title ?? "")
+  );
+}
+
+async function findGoogleMeetCreateTab(params: {
+  runtime: PluginRuntime;
+  nodeId: string;
+  timeoutMs: number;
+}): Promise<BrowserTab | undefined> {
+  const tabs = asBrowserTabs(
+    await callBrowserProxyOnNode({
+      runtime: params.runtime,
+      nodeId: params.nodeId,
+      method: "GET",
+      path: "/tabs",
+      timeoutMs: params.timeoutMs,
+    }),
+  );
+  return tabs.find(isGoogleMeetCreateTab);
+}
+
+async function focusBrowserTab(params: {
+  runtime: PluginRuntime;
+  nodeId: string;
+  targetId: string;
+  timeoutMs: number;
+}): Promise<void> {
+  await callBrowserProxyOnNode({
+    runtime: params.runtime,
+    nodeId: params.nodeId,
+    method: "POST",
+    path: "/tabs/focus",
+    body: { targetId: params.targetId },
+    timeoutMs: params.timeoutMs,
+  });
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : undefined;
+}
+
+function readBrowserCreateResult(result: unknown): BrowserCreateStepResult {
   const record = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
   const nested =
     record.result && typeof record.result === "object"
@@ -327,9 +395,7 @@ function readBrowserCreateResult(result: unknown): {
       typeof nested.manualActionReason === "string"
         ? (nested.manualActionReason as GoogleMeetChromeHealth["manualActionReason"])
         : undefined,
-    notes: Array.isArray(nested.notes)
-      ? nested.notes.filter((note): note is string => typeof note === "string")
-      : undefined,
+    notes: readStringArray(nested.notes),
     retryAfterMs:
       typeof nested.retryAfterMs === "number" && Number.isFinite(nested.retryAfterMs)
         ? nested.retryAfterMs
@@ -438,23 +504,41 @@ export async function createMeetWithBrowserProxyOnNode(params: {
     runtime: params.runtime,
     requestedNode: params.config.chromeNode.node,
   });
-  const timeoutMs = Math.max(15_000, params.config.chrome.joinTimeoutMs);
-  const tab = readBrowserTab(
-    await callBrowserProxyOnNode({
+  const timeoutMs = Math.max(
+    GOOGLE_MEET_BROWSER_CREATE_TIMEOUT_MS,
+    params.config.chrome.joinTimeoutMs,
+  );
+  const stepTimeoutMs = Math.min(timeoutMs, GOOGLE_MEET_BROWSER_STEP_TIMEOUT_MS);
+  let tab = await findGoogleMeetCreateTab({
+    runtime: params.runtime,
+    nodeId,
+    timeoutMs: stepTimeoutMs,
+  });
+  if (tab?.targetId) {
+    await focusBrowserTab({
       runtime: params.runtime,
       nodeId,
-      method: "POST",
-      path: "/tabs/open",
-      body: { url: "https://meet.google.com/new" },
-      timeoutMs,
-    }),
-  );
+      targetId: tab.targetId,
+      timeoutMs: stepTimeoutMs,
+    });
+  } else {
+    tab = readBrowserTab(
+      await callBrowserProxyOnNode({
+        runtime: params.runtime,
+        nodeId,
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: GOOGLE_MEET_NEW_URL },
+        timeoutMs: stepTimeoutMs,
+      }),
+    );
+  }
   const targetId = tab?.targetId;
   if (!targetId) {
     throw new Error("Browser fallback opened Google Meet but did not return a targetId.");
   }
   const notes = new Set<string>();
-  let lastResult: ReturnType<typeof readBrowserCreateResult> | undefined;
+  let lastResult: BrowserCreateStepResult | undefined;
   let lastError: unknown;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
@@ -469,7 +553,7 @@ export async function createMeetWithBrowserProxyOnNode(params: {
           targetId,
           fn: CREATE_MEET_FROM_BROWSER_SCRIPT,
         },
-        timeoutMs: Math.min(timeoutMs, 10_000),
+        timeoutMs: stepTimeoutMs,
       });
       const result = readBrowserCreateResult(evaluated);
       lastResult = result;
@@ -493,13 +577,13 @@ export async function createMeetWithBrowserProxyOnNode(params: {
         }
         throw new Error(result.manualAction);
       }
-      await new Promise((resolve) => setTimeout(resolve, result.retryAfterMs ?? 500));
+      await sleep(result.retryAfterMs ?? GOOGLE_MEET_BROWSER_POLL_MS);
     } catch (error) {
       lastError = error;
-      if (!/execution context was destroyed|navigation|target closed/i.test(String(error))) {
+      if (!isBrowserNavigationInterruption(error)) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await sleep(GOOGLE_MEET_BROWSER_NAVIGATION_RETRY_MS);
     }
   }
   throw new Error(

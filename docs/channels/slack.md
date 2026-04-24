@@ -773,7 +773,8 @@ Same-chat `/approve` also works in Slack channels and DMs that already support c
 
 ## Events and operational behavior
 
-- Message edits/deletes/thread broadcasts are mapped into system events.
+- Message edits/deletes are mapped into system events.
+- Thread broadcasts ("Also send to channel" thread replies) are processed as normal user messages.
 - Reaction add/remove events are mapped into system events.
 - Member join/leave, channel created/renamed, and pin add/remove events are mapped into system events.
 - `channel_id_changed` can migrate channel config keys when `configWrites` is enabled.
@@ -826,6 +827,9 @@ openclaw doctor
     - `channels.slack.dm.enabled`
     - `channels.slack.dmPolicy` (or legacy `channels.slack.dm.policy`)
     - pairing approvals / allowlist entries
+    - Slack Assistant DM events: verbose logs mentioning `drop message_changed`
+      usually mean Slack sent an edited Assistant-thread event without a
+      recoverable human sender in message metadata
 
 ```bash
 openclaw pairing list slack
