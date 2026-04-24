@@ -3,6 +3,10 @@
 // register quickly inside gateway startup and Docker e2e runs.
 
 import { formatToolDetail, resolveToolDisplay } from "../agents/tool-display.js";
+import { redactToolDetail } from "../logging/redact.js";
+import { truncateUtf16Safe } from "../utils.js";
+
+export const TOOL_PROGRESS_OUTPUT_MAX_CHARS = 8_000;
 
 export type {
   AgentHarness,
@@ -10,6 +14,7 @@ export type {
   AgentHarnessAttemptResult,
   AgentHarnessCompactParams,
   AgentHarnessCompactResult,
+  AgentHarnessResultClassification,
   AgentHarnessResetParams,
   AgentHarnessSupport,
   AgentHarnessSupportContext,
@@ -65,6 +70,10 @@ export { isSubagentSessionKey } from "../routing/session-key.js";
 export { acquireSessionWriteLock } from "../agents/session-write-lock.js";
 export { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 export {
+  isToolWrappedWithBeforeToolCallHook,
+  wrapToolWithBeforeToolCallHook,
+} from "../agents/pi-tools.before-tool-call.js";
+export {
   resolveAgentHarnessBeforePromptBuildResult,
   runAgentHarnessAfterCompactionHook,
   runAgentHarnessBeforeCompactionHook,
@@ -95,4 +104,23 @@ export {
 export function inferToolMetaFromArgs(toolName: string, args: unknown): string | undefined {
   const display = resolveToolDisplay({ name: toolName, args });
   return formatToolDetail(display);
+}
+
+/**
+ * Prepare verbose tool output for user-facing progress messages.
+ */
+export function formatToolProgressOutput(
+  output: string,
+  options?: { maxChars?: number },
+): string | undefined {
+  const trimmed = output.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const redacted = redactToolDetail(trimmed);
+  const maxChars = options?.maxChars ?? TOOL_PROGRESS_OUTPUT_MAX_CHARS;
+  if (redacted.length <= maxChars) {
+    return redacted;
+  }
+  return `${truncateUtf16Safe(redacted, maxChars)}\n...(truncated)...`;
 }

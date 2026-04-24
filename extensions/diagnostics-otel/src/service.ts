@@ -137,22 +137,36 @@ function traceFlagsToOtel(traceFlags: string | undefined): TraceFlags {
   return (parsed & TraceFlags.SAMPLED) !== 0 ? TraceFlags.SAMPLED : TraceFlags.NONE;
 }
 
+function contextForTraceContext(traceContext: DiagnosticTraceContext | undefined) {
+  const normalized = normalizeTraceContext(traceContext);
+  if (!normalized?.spanId) {
+    return undefined;
+  }
+  return trace.setSpanContext(otelContextApi.active(), {
+    traceId: normalized.traceId,
+    spanId: normalized.spanId,
+    traceFlags: traceFlagsToOtel(normalized.traceFlags),
+    isRemote: true,
+  });
+}
+
 function addTraceAttributes(
   attributes: Record<string, string | number | boolean>,
   traceContext: DiagnosticTraceContext | undefined,
 ): void {
-  if (!traceContext) {
+  const normalized = normalizeTraceContext(traceContext);
+  if (!normalized) {
     return;
   }
-  attributes["openclaw.traceId"] = traceContext.traceId;
-  if (traceContext.spanId) {
-    attributes["openclaw.spanId"] = traceContext.spanId;
+  attributes["openclaw.traceId"] = normalized.traceId;
+  if (normalized.spanId) {
+    attributes["openclaw.spanId"] = normalized.spanId;
   }
-  if (traceContext.parentSpanId) {
-    attributes["openclaw.parentSpanId"] = traceContext.parentSpanId;
+  if (normalized.parentSpanId) {
+    attributes["openclaw.parentSpanId"] = normalized.parentSpanId;
   }
-  if (traceContext.traceFlags) {
-    attributes["openclaw.traceFlags"] = traceContext.traceFlags;
+  if (normalized.traceFlags) {
+    attributes["openclaw.traceFlags"] = normalized.traceFlags;
   }
 }
 
@@ -162,9 +176,32 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
   let stopLogTransport: (() => void) | null = null;
   let unsubscribe: (() => void) | null = null;
 
+  const stopStarted = async () => {
+    const currentUnsubscribe = unsubscribe;
+    const currentStopLogTransport = stopLogTransport;
+    const currentLogProvider = logProvider;
+    const currentSdk = sdk;
+
+    unsubscribe = null;
+    stopLogTransport = null;
+    logProvider = null;
+    sdk = null;
+
+    currentUnsubscribe?.();
+    currentStopLogTransport?.();
+    if (currentLogProvider) {
+      await currentLogProvider.shutdown().catch(() => undefined);
+    }
+    if (currentSdk) {
+      await currentSdk.shutdown().catch(() => undefined);
+    }
+  };
+
   return {
     id: "diagnostics-otel",
     async start(ctx) {
+      await stopStarted();
+
       const cfg = ctx.config.diagnostics;
       const otel = cfg?.otel;
       if (!cfg?.enabled || !otel?.enabled) {
@@ -237,6 +274,7 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         try {
           sdk.start();
         } catch (err) {
+          await stopStarted();
           ctx.logger.error(`diagnostics-otel: failed to start SDK: ${formatError(err)}`);
           throw err;
         }
@@ -448,13 +486,9 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
               attributes: redactOtelAttributes(attributes),
               timestamp: meta?.date ?? new Date(),
             };
-            if (traceContext?.spanId) {
-              logRecord.context = trace.setSpanContext(otelContextApi.active(), {
-                traceId: traceContext.traceId,
-                spanId: traceContext.spanId,
-                traceFlags: traceFlagsToOtel(traceContext.traceFlags),
-                isRemote: true,
-              });
+            const logContext = contextForTraceContext(traceContext);
+            if (logContext) {
+              logRecord.context = logContext;
             }
             otelLogger.emit(logRecord);
           } catch (err) {
@@ -467,13 +501,19 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         name: string,
         attributes: Record<string, string | number>,
         durationMs?: number,
+        traceContext?: DiagnosticTraceContext,
       ) => {
         const startTime =
           typeof durationMs === "number" ? Date.now() - Math.max(0, durationMs) : undefined;
-        const span = tracer.startSpan(name, {
-          attributes,
-          ...(startTime ? { startTime } : {}),
-        });
+        const parentContext = contextForTraceContext(traceContext);
+        const span = tracer.startSpan(
+          name,
+          {
+            attributes,
+            ...(startTime ? { startTime } : {}),
+          },
+          parentContext,
+        );
         return span;
       };
 
@@ -537,7 +577,7 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
           "openclaw.tokens.total": usage.total ?? 0,
         };
 
-        const span = spanWithDuration("openclaw.model.usage", spanAttrs, evt.durationMs);
+        const span = spanWithDuration("openclaw.model.usage", spanAttrs, evt.durationMs, evt.trace);
         span.end();
       };
 
@@ -568,7 +608,12 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         if (evt.chatId !== undefined) {
           spanAttrs["openclaw.chatId"] = String(evt.chatId);
         }
-        const span = spanWithDuration("openclaw.webhook.processed", spanAttrs, evt.durationMs);
+        const span = spanWithDuration(
+          "openclaw.webhook.processed",
+          spanAttrs,
+          evt.durationMs,
+          evt.trace,
+        );
         span.end();
       };
 
@@ -591,9 +636,13 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         if (evt.chatId !== undefined) {
           spanAttrs["openclaw.chatId"] = String(evt.chatId);
         }
-        const span = tracer.startSpan("openclaw.webhook.error", {
-          attributes: spanAttrs,
-        });
+        const span = tracer.startSpan(
+          "openclaw.webhook.error",
+          {
+            attributes: spanAttrs,
+          },
+          contextForTraceContext(evt.trace),
+        );
         span.setStatus({ code: SpanStatusCode.ERROR, message: redactedError });
         span.end();
       };
@@ -648,7 +697,12 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         if (evt.reason) {
           spanAttrs["openclaw.reason"] = redactSensitiveText(evt.reason);
         }
-        const span = spanWithDuration("openclaw.message.processed", spanAttrs, evt.durationMs);
+        const span = spanWithDuration(
+          "openclaw.message.processed",
+          spanAttrs,
+          evt.durationMs,
+          evt.trace,
+        );
         if (evt.outcome === "error" && evt.error) {
           span.setStatus({ code: SpanStatusCode.ERROR, message: redactSensitiveText(evt.error) });
         }
@@ -699,7 +753,11 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
         addSessionIdentityAttrs(spanAttrs, evt);
         spanAttrs["openclaw.queueDepth"] = evt.queueDepth ?? 0;
         spanAttrs["openclaw.ageMs"] = evt.ageMs;
-        const span = tracer.startSpan("openclaw.session.stuck", { attributes: spanAttrs });
+        const span = tracer.startSpan(
+          "openclaw.session.stuck",
+          { attributes: spanAttrs },
+          contextForTraceContext(evt.trace),
+        );
         span.setStatus({ code: SpanStatusCode.ERROR, message: "session stuck" });
         span.end();
       };
@@ -754,6 +812,9 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
               recordHeartbeat(evt);
               return;
             case "tool.loop":
+            case "tool.execution.started":
+            case "tool.execution.completed":
+            case "tool.execution.error":
             case "diagnostic.memory.sample":
             case "diagnostic.memory.pressure":
             case "payload.large":
@@ -771,18 +832,7 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
       }
     },
     async stop() {
-      unsubscribe?.();
-      unsubscribe = null;
-      stopLogTransport?.();
-      stopLogTransport = null;
-      if (logProvider) {
-        await logProvider.shutdown().catch(() => undefined);
-        logProvider = null;
-      }
-      if (sdk) {
-        await sdk.shutdown().catch(() => undefined);
-        sdk = null;
-      }
+      await stopStarted();
     },
   } satisfies OpenClawPluginService;
 }
