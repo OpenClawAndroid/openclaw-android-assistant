@@ -6,7 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Breaking
 
-- Plugin SDK/tool-result transforms: deprecate the Pi-only `api.registerEmbeddedExtensionFactory(...)` path for tool-result rewriting in favor of `api.registerAgentToolResultMiddleware(...)`, with `contracts.agentToolResultMiddleware` declaring the targeted harnesses. The legacy Pi hook remains wired as a bundled compatibility seam, but new plugins should use the harness-neutral middleware contract so transforms run consistently across Pi and Codex app-server dynamic tools. Thanks @vincentkoc.
+- Plugin SDK/tool-result transforms: deprecate the Pi-only `api.registerEmbeddedExtensionFactory(...)` path for tool-result rewriting in favor of bundled `api.registerAgentToolResultMiddleware(...)`, with `contracts.agentToolResultMiddleware` declaring the targeted harnesses. The legacy Pi hook remains wired as a bundled compatibility seam, but new bundled transforms should use the harness-neutral middleware contract so transforms run consistently across Pi and Codex app-server dynamic tools. Thanks @vincentkoc.
 
 ### Changes
 
@@ -14,6 +14,8 @@ Docs: https://docs.openclaw.ai
 - Plugins/setup: honor explicit `setup.requiresRuntime: false` as a descriptor-only setup contract while keeping omitted values on the legacy setup-api fallback path. Thanks @vincentkoc.
 - Plugins/setup: report descriptor/runtime drift when setup-api registrations disagree with `setup.providers` or `setup.cliBackends`, without rejecting legacy setup plugins. Thanks @vincentkoc.
 - Plugin hooks: expose first-class run, message, sender, session, and trace correlation fields on message hook contexts and run lifecycle events. Thanks @vincentkoc.
+- Plugins/setup: include `setup.providers[].envVars` in generic provider auth/env lookups and warn non-bundled plugins that still rely on deprecated `providerAuthEnvVars` compatibility metadata. Thanks @vincentkoc.
+- Plugins/setup: surface manifest provider auth choices directly in provider setup flow before falling back to setup runtime or install-catalog choices. Thanks @vincentkoc.
 - TUI/dependencies: remove direct `cli-highlight` usage from the OpenClaw TUI code-block renderer, keeping themed code coloring without the extra root dependency. Thanks @vincentkoc.
 - Diagnostics/OTEL: export run, model-call, and tool-execution diagnostic lifecycle events as OTEL spans without retaining live span state. Thanks @vincentkoc.
 - Providers/Anthropic Vertex: move the Vertex SDK runtime behind the bundled provider plugin so core no longer owns that provider-specific dependency. Thanks @vincentkoc.
@@ -47,15 +49,18 @@ Docs: https://docs.openclaw.ai
 - Plugins/Bonjour: move LAN Gateway discovery advertising into a default-enabled bundled plugin with its own `@homebridge/ciao` dependency, so users can disable Bonjour without cutting wide-area discovery. Thanks @vincentkoc.
 - Providers/Google: add a Gemini Live realtime voice provider for backend Voice Call and Google Meet audio bridges, with bidirectional audio and function-call support.
 - Plugins/Google Meet: let realtime Meet sessions consult the full OpenClaw agent for deeper answers while staying in the live voice loop.
+- Gateway/VoiceClaw: add a realtime brain WebSocket endpoint backed by Gemini Live, with owner-auth gating and async OpenClaw tool handoff. (#70938) Thanks @yagudaev.
 - Providers/DeepSeek: add DeepSeek V4 Flash and V4 Pro to the bundled catalog and make V4 Flash the onboarding default.
 
 ### Fixes
 
+- Plugin SDK/tool-result transforms: restrict harness tool-result middleware to bundled plugins, fail closed on middleware errors, validate rewritten result shapes, preserve Pi per-call ids, and keep Codex media trust checks anchored to raw tool provenance. Thanks @vincentkoc.
 - Plugins/Google Chat: log webhook auth rejection reasons only after all candidates fail, and warn when add-on `appPrincipal` values do not match configuration. Fixes #71078. (#71145) Thanks @luyao618.
 - Models/configure: preserve the existing default model when provider auth is re-run from configure while keeping explicit default-setting commands authoritative. Fixes #70696. (#70793) Thanks @Sathvik-1007.
 - Config/plugins: accept `plugins.entries.*.hooks.allowConversationAccess` in validation, generated schema metadata, and plugin policy inspection so trusted external plugins can enable conversation-access hooks such as `agent_end` without local schema patches. Fixes #71215. (#71221) Thanks @BillChirico.
 - Codex harness/models: keep legacy `codex/*` harness shorthand out of model picker and `/models` choice surfaces while migrating primary legacy refs to canonical `openai/*` plus explicit Codex harness config. (#71193) Thanks @vincentkoc.
 - Plugins/runtime deps: respect explicit plugin and channel disablement when repairing bundled runtime dependencies, so doctor and health checks no longer install deps for disabled configured channels.
+- WhatsApp/plugins: support an explicit opt-in for inbound `message_received` hooks with canonical channel, conversation, session, and sender fields. Thanks @vincentkoc.
 - Diagnostics: harden tool and model diagnostic events against hostile errors, blocking listeners, and unsafe stability reason fields. Thanks @vincentkoc.
 - Plugins/onboarding: record local plugin install source metadata without duplicating raw absolute local paths in persisted `plugins.installs`, while preserving linked load-path cleanup. (#70970) Thanks @vincentkoc.
 - Browser/tool: tell agents not to pass per-call `timeoutMs` on existing-session type, evaluate, and other Chrome MCP actions that reject timeout overrides.
@@ -72,6 +77,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/chat: register chat.send runs in the chat run registry so lifecycle error events reach the client instead of being silently dropped, fixing stuck 'waiting' state and /abort reporting no active run. (#69747) Thanks @wangshu94.
 - Plugins/QQ Bot: enable the bundled qqbot plugin by default so its runtime dependency `@tencent-connect/qqbot-connector` is installed on first launch, unblocking the QR-code binding flow that dynamically imports the connector before any account is configured. (#71051) Thanks @cxyhhhhh.
 - Gateway/agent RPC: register active `agent` runs into the chat abort controller map so `chat.abort` and `sessions.abort` can interrupt them, matching `chat.send` behavior and unblocking external runtimes that drive the Gateway through the public `agent` RPC. Fixes #71128. (#71214) Thanks @bitloi.
+- Matrix/CLI: pass resolved runtime config into verify commands, so `openclaw matrix verify status` and sibling verify subcommands no longer crash before acquiring the Matrix client. Fixes #70992. (#71102) Thanks @luyao618.
 
 ## 2026.4.23
 
@@ -155,6 +161,7 @@ Docs: https://docs.openclaw.ai
 - Memory/dreaming: decouple the managed dreaming cron from heartbeat by running it as an isolated lightweight agent turn, so dreaming runs even when heartbeat is disabled for the default agent and is no longer skipped by `heartbeat.activeHours`. `openclaw doctor --fix` migrates stale main-session dreaming jobs in persisted cron configs to the new shape. Fixes #69811, #67397, #68972. (#70737) Thanks @jalehman.
 - Agents/CLI: keep `--agent` plus `--session-id` lookup scoped to the requested agent store, so explicit agent resumes cannot select another agent's session. (#70985) Thanks @frankekn.
 - Gateway/MCP loopback: apply owner-only tool policy and run before-tool-call hooks on `127.0.0.1/mcp` `tools/list` and `tools/call`, so non-owner bearer callers can no longer see or invoke owner-only tools such as `cron`, `gateway`, and `nodes`, matching the existing HTTP `/tools/invoke` and embedded-agent paths. (#71159) Thanks @mmaps.
+- Plugins/Comfy: read workflow and cloud auth configuration from `plugins.entries.comfy.config` while preserving legacy Comfy config fallback, so image, video, and music workflows pass config validation. Fixes #61915. (#63058) Thanks @547895019.
 
 ## 2026.4.22
 
