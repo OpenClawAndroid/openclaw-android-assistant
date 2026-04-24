@@ -136,6 +136,26 @@ Start the node host in the VM:
 openclaw node run --host <gateway-host> --port 18789 --display-name parallels-macos
 ```
 
+If `<gateway-host>` is a LAN IP and you are not using TLS, the node refuses the
+plaintext WebSocket unless you opt in for that trusted private network:
+
+```bash
+OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1 \
+  openclaw node run --host <gateway-lan-ip> --port 18789 --display-name parallels-macos
+```
+
+Use the same environment variable when installing the node as a LaunchAgent:
+
+```bash
+OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1 \
+  openclaw node install --host <gateway-lan-ip> --port 18789 --display-name parallels-macos --force
+openclaw node restart
+```
+
+`OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1` is process environment, not an
+`openclaw.json` setting. `openclaw node install` stores it in the LaunchAgent
+environment when it is present on the install command.
+
 Approve the node from the Gateway host:
 
 ```bash
@@ -153,6 +173,11 @@ Route Meet through that node on the Gateway host:
 
 ```json5
 {
+  gateway: {
+    nodes: {
+      allowCommands: ["googlemeet.chrome"],
+    },
+  },
   plugins: {
     entries: {
       "google-meet": {
@@ -185,7 +210,8 @@ Common failure checks:
 
 - `No connected Google Meet-capable node`: start `openclaw node run` in the VM,
   approve pairing, and make sure `openclaw plugins enable google-meet` was run
-  in the VM.
+  in the VM. Also confirm the Gateway host allows the node command with
+  `gateway.nodes.allowCommands: ["googlemeet.chrome"]`.
 - `BlackHole 2ch audio device not found on the node`: install `blackhole-2ch`
   in the VM and reboot the VM.
 - Chrome opens but cannot join: sign in to Chrome inside the VM and confirm that

@@ -338,6 +338,7 @@ export function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
           ...(allowOverride && params.model && { model: params.model }),
           ...(params.extraSystemPrompt && { extraSystemPrompt: params.extraSystemPrompt }),
           ...(params.lane && { lane: params.lane }),
+          ...(params.lightContext === true && { bootstrapContextMode: "lightweight" }),
           // The gateway `agent` schema requires `idempotencyKey: NonEmptyString`,
           // so fall back to a generated UUID when the caller omits it. Without
           // this, plugin subagent runs (for example memory-core dreaming
@@ -387,11 +388,20 @@ export function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
 export function createGatewayNodesRuntime(): PluginRuntime["nodes"] {
   return {
     async list(params) {
-      const payload = await dispatchGatewayMethod<{ nodes?: unknown[] }>("node.list", {
-        ...(params?.connected === true && { connected: true }),
-      });
+      const payload = await dispatchGatewayMethod<{ nodes?: unknown[] }>("node.list", {});
       const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
-      return { nodes: nodes as Awaited<ReturnType<PluginRuntime["nodes"]["list"]>>["nodes"] };
+      const filteredNodes =
+        params?.connected === true
+          ? nodes.filter(
+              (node) =>
+                node !== null &&
+                typeof node === "object" &&
+                (node as { connected?: unknown }).connected === true,
+            )
+          : nodes;
+      return {
+        nodes: filteredNodes as Awaited<ReturnType<PluginRuntime["nodes"]["list"]>>["nodes"],
+      };
     },
     async invoke(params) {
       const payload = await dispatchGatewayMethod<unknown>("node.invoke", {

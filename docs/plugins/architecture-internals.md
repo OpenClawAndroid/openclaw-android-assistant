@@ -61,6 +61,14 @@ to narrow plugin loading before broader registry materialization:
 - explicit provider setup/runtime resolution narrows to plugins that own the
   requested provider id
 
+The activation planner exposes both an ids-only API for existing callers and a
+plan API for new diagnostics. Plan entries report why a plugin was selected,
+separating explicit `activation.*` planner hints from manifest ownership
+fallback such as `providers`, `channels`, `commandAliases`, `setup.providers`,
+`contracts.tools`, and hooks. That reason split is the compatibility boundary:
+existing plugin metadata keeps working, while new code can detect broad hints
+or fallback behavior without changing runtime loading semantics.
+
 Setup discovery now prefers descriptor-owned ids such as `setup.providers` and
 `setup.cliBackends` to narrow candidate plugins before it falls back to
 `setup-api` for plugins that still need setup-time runtime hooks. If more than
@@ -875,6 +883,20 @@ registry export). Drop a JSON file at one of:
 Or point `OPENCLAW_PLUGIN_CATALOG_PATHS` (or `OPENCLAW_MPM_CATALOG_PATHS`) at
 one or more JSON files (comma/semicolon/`PATH`-delimited). Each file should
 contain `{ "entries": [ { "name": "@scope/pkg", "openclaw": { "channel": {...}, "install": {...} } } ] }`. The parser also accepts `"packages"` or `"plugins"` as legacy aliases for the `"entries"` key.
+
+Generated channel catalog entries and provider install catalog entries expose
+normalized install-source facts next to the raw `openclaw.install` block. The
+normalized facts identify whether the npm spec is an exact version or floating
+selector, whether expected integrity metadata is present, and whether a local
+source path is also available. Consumers should treat `installSource` as an
+additive optional field so older hand-built entries and compatibility shims do
+not have to synthesize it. This lets onboarding and diagnostics explain
+source-plane state without importing plugin runtime.
+
+Official external npm entries should prefer an exact `npmSpec` plus
+`expectedIntegrity`. Bare package names and dist-tags still work for
+compatibility, but they surface source-plane warnings so the catalog can move
+toward pinned, integrity-checked installs without breaking existing plugins.
 
 ## Context engine plugins
 

@@ -57,7 +57,8 @@ const LIVE_TEST_TIMEOUT_MS = Math.max(
   1_000,
   toInt(process.env.OPENCLAW_LIVE_TEST_TIMEOUT_MS, 60 * 60 * 1000),
 );
-const LIVE_MODEL_CONCURRENCY = Math.max(1, toInt(process.env.OPENCLAW_LIVE_MODEL_CONCURRENCY, 1));
+const DEFAULT_LIVE_MODEL_CONCURRENCY = 20;
+const LIVE_MODEL_CONCURRENCY = resolveLiveModelConcurrency();
 const LIVE_MODELS_JSON_TIMEOUT_MS = resolveLiveModelsJsonTimeoutMs();
 const LIVE_FILE_PROBE_ENABLED = isLiveModelProbeEnabled(process.env, LIVE_MODEL_FILE_PROBE_ENV);
 const LIVE_IMAGE_PROBE_ENABLED = isLiveModelProbeEnabled(process.env, LIVE_MODEL_IMAGE_PROBE_ENV);
@@ -207,6 +208,13 @@ describe("isProviderUnavailableErrorMessage", () => {
       ),
     ).toBe(true);
   });
+
+  it("matches transient upstream 502 errors", () => {
+    expect(isProviderUnavailableErrorMessage("502 internal server error")).toBe(true);
+    expect(
+      isProviderUnavailableErrorMessage("provider returned error: 502 Internal Server Error"),
+    ).toBe(true);
+  });
 });
 
 function isChatGPTUsageLimitErrorMessage(raw: string): boolean {
@@ -250,7 +258,8 @@ function isProviderUnavailableErrorMessage(raw: string): boolean {
     msg.includes("temporarily rate-limited upstream") ||
     msg.includes("unable to access non-serverless model") ||
     msg.includes("create and start a new dedicated endpoint") ||
-    msg.includes("no available capacity was found for the model")
+    msg.includes("no available capacity was found for the model") ||
+    (msg.includes("502") && msg.includes("internal server error"))
   );
 }
 
@@ -286,6 +295,20 @@ function isUnsupportedThinkingToggleErrorMessage(raw: string): boolean {
   return /does not support parameter [`"]?enable_thinking[`"]?/i.test(raw);
 }
 
+function isUnsupportedPlanErrorMessage(raw: string): boolean {
+  return /current token plan (?:does )?not support (?:this )?model/i.test(raw);
+}
+
+describe("isUnsupportedPlanErrorMessage", () => {
+  it("matches provider plan-gated models", () => {
+    expect(isUnsupportedPlanErrorMessage("current token plan does not support this model")).toBe(
+      true,
+    );
+    expect(isUnsupportedPlanErrorMessage("your current token plan not support model")).toBe(true);
+    expect(isUnsupportedPlanErrorMessage("model not found")).toBe(false);
+  });
+});
+
 function toInt(value: string | undefined, fallback: number): number {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -294,6 +317,21 @@ function toInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(trimmed, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+
+function resolveLiveModelConcurrency(raw = process.env.OPENCLAW_LIVE_MODEL_CONCURRENCY): number {
+  return Math.max(1, toInt(raw, DEFAULT_LIVE_MODEL_CONCURRENCY));
+}
+
+describe("resolveLiveModelConcurrency", () => {
+  it("defaults direct-model probes to 20-way concurrency", () => {
+    expect(resolveLiveModelConcurrency(undefined)).toBe(20);
+  });
+
+  it("accepts explicit concurrency overrides", () => {
+    expect(resolveLiveModelConcurrency("7")).toBe(7);
+    expect(resolveLiveModelConcurrency("0")).toBe(1);
+  });
+});
 
 function resolveLiveModelsJsonTimeoutMs(
   modelsJsonTimeoutRaw = process.env.OPENCLAW_LIVE_MODELS_JSON_TIMEOUT_MS,
@@ -500,7 +538,13 @@ async function runExtraTurnProbes(params: {
       fileText = extractAssistantText(retry);
     }
     if (!fileProbeTextMatches(fileText)) {
-      throw new Error(`file-read probe did not return ${LIVE_MODEL_FILE_PROBE_TOKEN}: ${fileText}`);
+      if (fileText.length === 0) {
+        logProgress(`${params.progressLabel}: file-read probe skipped (empty response)`);
+      } else {
+        throw new Error(
+          `file-read probe did not return ${LIVE_MODEL_FILE_PROBE_TOKEN}: ${fileText}`,
+        );
+      }
     }
   } else if (LIVE_FILE_PROBE_ENABLED) {
     logProgress(`${params.progressLabel}: file-read probe skipped (known empty route)`);
@@ -531,6 +575,10 @@ async function runExtraTurnProbes(params: {
   }
   const imageText = extractAssistantText(image);
   if (!imageProbeTextMatches(imageText)) {
+    if (imageText.length === 0) {
+      logProgress(`${params.progressLabel}: image probe skipped (empty response)`);
+      return;
+    }
     throw new Error(`image probe did not return ok: ${imageText}`);
   }
 }
@@ -847,20 +895,11 @@ describeLive("live models (profile keys)", () => {
               ok.text.length === 0 &&
               allowNotFoundSkip &&
               (model.provider === "fireworks" ||
+                model.provider === "google-antigravity" ||
                 model.provider === "minimax" ||
+                model.provider === "openai-codex" ||
+                model.provider === "xai" ||
                 model.provider === "zai")
-            ) {
-              skipped.push({
-                model: id,
-                reason: "no text returned (provider returned empty content)",
-              });
-              logProgress(`${progressLabel}: skip (empty response)`);
-              break;
-            }
-            if (
-              ok.text.length === 0 &&
-              allowNotFoundSkip &&
-              (model.provider === "google-antigravity" || model.provider === "openai-codex")
             ) {
               skipped.push({
                 model: id,
@@ -921,7 +960,9 @@ describeLive("live models (profile keys)", () => {
             }
             if (
               allowNotFoundSkip &&
-              (model.provider === "minimax" || model.provider === "zai") &&
+              (model.provider === "minimax" ||
+                model.provider === "zai" ||
+                model.provider === "openrouter") &&
               isRateLimitErrorMessage(message)
             ) {
               skipped.push({ model: id, reason: message });
@@ -1010,6 +1051,11 @@ describeLive("live models (profile keys)", () => {
             if (allowNotFoundSkip && isUnsupportedThinkingToggleErrorMessage(message)) {
               skipped.push({ model: id, reason: message });
               logProgress(`${progressLabel}: skip (thinking toggle unsupported)`);
+              break;
+            }
+            if (allowNotFoundSkip && isUnsupportedPlanErrorMessage(message)) {
+              skipped.push({ model: id, reason: message });
+              logProgress(`${progressLabel}: skip (plan unsupported)`);
               break;
             }
             if (

@@ -3,13 +3,16 @@ import type { AssistantMessage, Usage } from "@mariozechner/pi-ai";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import {
   formatErrorMessage,
+  inferToolMetaFromArgs,
   normalizeUsage,
   runAgentHarnessAfterCompactionHook,
   runAgentHarnessBeforeCompactionHook,
   type EmbeddedRunAttemptParams,
   type EmbeddedRunAttemptResult,
+  formatToolAggregate,
   type MessagingToolSend,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { readCodexTurn } from "./protocol-validators.js";
 import {
   isJsonObject,
   type CodexServerNotification,
@@ -18,7 +21,6 @@ import {
   type JsonObject,
   type JsonValue,
 } from "./protocol.js";
-import { readCodexTurn } from "./protocol-validators.js";
 
 export type CodexAppServerToolTelemetry = {
   didSendViaMessagingTool: boolean;
@@ -62,6 +64,8 @@ export class CodexAppServerEventProjector {
   private readonly activeItemIds = new Set<string>();
   private readonly completedItemIds = new Set<string>();
   private readonly activeCompactionItemIds = new Set<string>();
+  private readonly toolResultSummaryItemIds = new Set<string>();
+  private readonly toolResultOutputItemIds = new Set<string>();
   private readonly toolMetas = new Map<string, { toolName: string; meta?: string }>();
   private assistantStarted = false;
   private reasoningStarted = false;
@@ -82,7 +86,14 @@ export class CodexAppServerEventProjector {
 
   async handleNotification(notification: CodexServerNotification): Promise<void> {
     const params = isJsonObject(notification.params) ? notification.params : undefined;
-    if (!params || !this.isNotificationForTurn(params)) {
+    if (!params) {
+      return;
+    }
+    if (isHookNotificationMethod(notification.method)) {
+      if (!this.isHookNotificationForCurrentThread(params)) {
+        return;
+      }
+    } else if (!this.isNotificationForTurn(params)) {
       return;
     }
 
@@ -106,9 +117,19 @@ export class CodexAppServerEventProjector {
       case "item/completed":
         await this.handleItemCompleted(params);
         break;
+      case "item/commandExecution/outputDelta":
+        this.handleOutputDelta(params, "bash");
+        break;
+      case "item/fileChange/outputDelta":
+        this.handleOutputDelta(params, "apply_patch");
+        break;
       case "item/autoApprovalReview/started":
       case "item/autoApprovalReview/completed":
         this.handleGuardianReviewNotification(notification.method, params);
+        break;
+      case "hook/started":
+      case "hook/completed":
+        this.handleHookNotification(notification.method, params);
         break;
       case "thread/tokenUsage/updated":
         this.handleTokenUsage(params);
@@ -307,6 +328,7 @@ export class CodexAppServerEventProjector {
       });
     }
     this.emitStandardItemEvent({ phase: "start", item });
+    this.emitToolResultSummary(item);
     this.emitAgentEvent({
       stream: "codex_app_server.item",
       data: { phase: "started", itemId, type: item?.type },
@@ -359,6 +381,8 @@ export class CodexAppServerEventProjector {
     }
     this.recordToolMeta(item);
     this.emitStandardItemEvent({ phase: "end", item });
+    this.emitToolResultSummary(item);
+    this.emitToolResultOutput(item);
     this.emitAgentEvent({
       stream: "codex_app_server.item",
       data: { phase: "completed", itemId, type: item?.type },
@@ -400,6 +424,35 @@ export class CodexAppServerEventProjector {
     });
   }
 
+  private handleHookNotification(method: string, params: JsonObject): void {
+    const run = isJsonObject(params.run) ? params.run : undefined;
+    if (!run) {
+      return;
+    }
+    const durationMs = readNumber(run, "durationMs");
+    const entries = readHookOutputEntries(run.entries);
+    const hookTurnId = readNullableString(params, "turnId");
+    this.emitAgentEvent({
+      stream: "codex_app_server.hook",
+      data: {
+        phase: method === "hook/started" ? "started" : "completed",
+        threadId: this.threadId,
+        turnId: hookTurnId === undefined ? this.turnId : hookTurnId,
+        hookRunId: readString(run, "id"),
+        eventName: readString(run, "eventName"),
+        handlerType: readString(run, "handlerType"),
+        executionMode: readString(run, "executionMode"),
+        scope: readString(run, "scope"),
+        source: readString(run, "source"),
+        sourcePath: readString(run, "sourcePath"),
+        status: readString(run, "status"),
+        statusMessage: readNullableString(run, "statusMessage"),
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(entries.length > 0 ? { entries } : {}),
+      },
+    });
+  }
+
   private async handleTurnCompleted(params: JsonObject): Promise<void> {
     const turn = readTurn(params.turn);
     if (!turn || turn.id !== this.turnId) {
@@ -423,9 +476,24 @@ export class CodexAppServerEventProjector {
         this.emitPlanUpdate({ explanation: undefined, steps: splitPlanText(item.text) });
       }
       this.recordToolMeta(item);
+      this.emitToolResultSummary(item);
+      this.emitToolResultOutput(item);
     }
     this.activeCompactionItemIds.clear();
     await this.maybeEndReasoning();
+  }
+
+  private handleOutputDelta(params: JsonObject, toolName: string): void {
+    const itemId = readString(params, "itemId");
+    const delta = readString(params, "delta");
+    if (!itemId || !delta || !this.shouldEmitToolOutput()) {
+      return;
+    }
+    this.emitToolResultMessage({
+      itemId,
+      text: formatToolOutput(toolName, undefined, delta),
+      output: true,
+    });
   }
 
   private handleRawResponseItemCompleted(params: JsonObject): void {
@@ -490,6 +558,71 @@ export class CodexAppServerEventProjector {
         ...(itemMeta(item) ? { meta: itemMeta(item) } : {}),
       },
     });
+  }
+
+  private emitToolResultSummary(item: CodexThreadItem | undefined): void {
+    if (!item || !this.params.onToolResult || !this.shouldEmitToolResult()) {
+      return;
+    }
+    const itemId = item.id;
+    if (this.toolResultSummaryItemIds.has(itemId)) {
+      return;
+    }
+    const toolName = itemName(item);
+    if (!toolName) {
+      return;
+    }
+    this.toolResultSummaryItemIds.add(itemId);
+    const meta = itemMeta(item);
+    this.emitToolResultMessage({
+      itemId,
+      text: formatToolSummary(toolName, meta),
+    });
+  }
+
+  private emitToolResultOutput(item: CodexThreadItem | undefined): void {
+    if (!item || !this.params.onToolResult || !this.shouldEmitToolOutput()) {
+      return;
+    }
+    const itemId = item.id;
+    if (this.toolResultOutputItemIds.has(itemId)) {
+      return;
+    }
+    const toolName = itemName(item);
+    const output = itemOutputText(item);
+    if (!toolName || !output) {
+      return;
+    }
+    this.emitToolResultMessage({
+      itemId,
+      text: formatToolOutput(toolName, itemMeta(item), output),
+      output: true,
+    });
+  }
+
+  private emitToolResultMessage(params: { itemId: string; text: string; output?: boolean }): void {
+    if (params.output) {
+      this.toolResultOutputItemIds.add(params.itemId);
+    }
+    try {
+      void Promise.resolve(this.params.onToolResult?.({ text: params.text })).catch(() => {
+        // Tool progress delivery is best-effort and should not affect the turn.
+      });
+    } catch {
+      // Tool progress delivery is best-effort and should not affect the turn.
+    }
+  }
+
+  private shouldEmitToolResult(): boolean {
+    return typeof this.params.shouldEmitToolResult === "function"
+      ? this.params.shouldEmitToolResult()
+      : this.params.verboseLevel === "on" || this.params.verboseLevel === "full";
+  }
+
+  private shouldEmitToolOutput(): boolean {
+    return typeof this.params.shouldEmitToolOutput === "function"
+      ? this.params.shouldEmitToolOutput()
+      : this.params.verboseLevel === "full";
   }
 
   private recordToolMeta(item: CodexThreadItem | undefined): void {
@@ -597,6 +730,16 @@ export class CodexAppServerEventProjector {
     const turnId = readNotificationTurnId(params);
     return threadId === this.threadId && turnId === this.turnId;
   }
+
+  private isHookNotificationForCurrentThread(params: JsonObject): boolean {
+    const threadId = readString(params, "threadId");
+    const turnId = params.turnId;
+    return threadId === this.threadId && (turnId === this.turnId || turnId === null);
+  }
+}
+
+function isHookNotificationMethod(method: string): method is "hook/started" | "hook/completed" {
+  return method === "hook/started" || method === "hook/completed";
 }
 
 function readNotificationTurnId(record: JsonObject): string | undefined {
@@ -624,6 +767,25 @@ function readNullableString(record: JsonObject, key: string): string | null | un
 function readNumber(record: JsonObject, key: string): number | undefined {
   const value = record[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readHookOutputEntries(
+  value: JsonValue | undefined,
+): Array<{ kind?: string; text: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!isJsonObject(entry)) {
+      return [];
+    }
+    const text = readString(entry, "text");
+    if (!text) {
+      return [];
+    }
+    const kind = readString(entry, "kind");
+    return [{ ...(kind ? { kind } : {}), text }];
+  });
 }
 
 function readFirstJsonObject(record: JsonObject, keys: readonly string[]): JsonObject | undefined {
@@ -777,7 +939,67 @@ function itemMeta(item: CodexThreadItem): string | undefined {
   if (item.type === "webSearch" && typeof item.query === "string") {
     return item.query;
   }
-  return readItemString(item, "status");
+  const toolName = itemName(item);
+  if ((item.type === "dynamicToolCall" || item.type === "mcpToolCall") && toolName) {
+    return inferToolMetaFromArgs(toolName, item.arguments);
+  }
+  return undefined;
+}
+
+function itemOutputText(item: CodexThreadItem): string | undefined {
+  if (item.type === "commandExecution") {
+    return item.aggregatedOutput?.trim() || undefined;
+  }
+  if (item.type === "dynamicToolCall") {
+    return collectDynamicToolContentText(item.contentItems).trim() || undefined;
+  }
+  if (item.type === "mcpToolCall") {
+    if (item.error) {
+      return stringifyJsonValue(item.error);
+    }
+    return item.result ? stringifyJsonValue(item.result) : undefined;
+  }
+  return undefined;
+}
+
+function collectDynamicToolContentText(
+  contentItems: Extract<CodexThreadItem, { type: "dynamicToolCall" }>["contentItems"],
+): string {
+  if (!Array.isArray(contentItems)) {
+    return "";
+  }
+  return contentItems
+    .flatMap((entry) => {
+      if (!isJsonObject(entry)) {
+        return [];
+      }
+      const text = readString(entry, "text");
+      return text ? [text] : [];
+    })
+    .join("\n");
+}
+
+function stringifyJsonValue(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+function formatToolSummary(toolName: string, meta?: string): string {
+  const trimmedMeta = meta?.trim();
+  return formatToolAggregate(toolName, trimmedMeta ? [trimmedMeta] : undefined, {
+    markdown: true,
+  });
+}
+
+function formatToolOutput(toolName: string, meta: string | undefined, output: string): string {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return formatToolSummary(toolName, meta);
+  }
+  return `${formatToolSummary(toolName, meta)}\n\`\`\`txt\n${trimmed}\n\`\`\``;
 }
 
 function readItemString(item: CodexThreadItem, key: string): string | undefined {
