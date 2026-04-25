@@ -20,6 +20,9 @@ Docs: https://docs.openclaw.ai
 - CLI/Crestodian: open interactive Crestodian in the full OpenClaw TUI shell instead of a basic readline prompt.
 - CLI/Crestodian: shorten the startup greeting to the active planner/model, config state, Gateway probe result, and next debug action instead of dumping every discovered backend.
 - Plugins: migrate the local plugin registry automatically during package install/update, preserving legacy config and install-ledger state while indexing existing plugin manifests for the new cold registry path. Thanks @vincentkoc.
+- Plugins/doctor: make `openclaw doctor --fix` move legacy `plugins.installs`
+  config records into the managed plugin install ledger and refresh the cold
+  registry index when needed. Thanks @vincentkoc.
 - Diagnostics/OTEL: align model-call GenAI span attributes with OpenTelemetry stability opt-in semantics, keeping legacy `gen_ai.system` by default while emitting `gen_ai.provider.name` under `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`. Thanks @vincentkoc.
 - Plugins/CLI: add `openclaw plugins registry` for explicit persisted-registry inspection and `--refresh` repair without making normal startup rescan plugin locations. Thanks @vincentkoc.
 - Plugins/CLI: make `openclaw plugins list` read the cold persisted registry snapshot by default, leaving module-aware diagnostics to `plugins doctor` and `plugins inspect`. Thanks @vincentkoc.
@@ -44,6 +47,7 @@ Docs: https://docs.openclaw.ai
 - Diagnostics/OTEL: keep model-usage span GenAI provider attributes aligned with the existing semantic-convention opt-in policy, using legacy `gen_ai.system` unless latest experimental GenAI conventions are enabled. Thanks @vincentkoc.
 - Diagnostics/OTEL: keep `gen_ai.request.model` present on GenAI token usage metrics with a bounded `unknown` fallback when model usage events do not include a model. Thanks @vincentkoc.
 - Docs/OTEL: document the GenAI token and model-call duration metrics, model-usage span attributes, and `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental` provider-attribute behavior. Thanks @vincentkoc.
+- Diagnostics/trace: add an internal traceparent propagation helper that only formats trusted dispatcher metadata, keeping plugin-emitted diagnostic traces out of outbound propagation by default. Thanks @vincentkoc.
 - Diagnostics/OTEL: add bounded outbound message delivery lifecycle diagnostics and export them as low-cardinality delivery spans/metrics without message body, recipient, room, or media-path data. (#71471) Thanks @vincentkoc and @jlapenna.
 - Diagnostics/OTEL: emit bounded exec-process diagnostics and export them as `openclaw.exec` spans without exposing command text, working directories, or container identifiers. (#71451) Thanks @vincentkoc and @jlapenna.
 - Diagnostics/OTEL: support `OPENCLAW_OTEL_PRELOADED=1` so the plugin can reuse an already-registered OpenTelemetry SDK while keeping OpenClaw diagnostic listeners wired. (#71450) Thanks @vincentkoc and @jlapenna.
@@ -55,10 +59,23 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- iOS/macOS Talk Mode: allow `talk.speechLocale` to set the speech
+  recognition locale for non-English voice conversations. Fixes #44688.
+- Plugins/providers: honor explicit plugin candidate lists instead of reading a
+  persisted registry snapshot from local state, keeping candidate-scoped
+  provider discovery hermetic.
+- Plugins/doctor: keep bundled plugin runtime-dependency repairs inside the
+  managed OpenClaw stage even when user npm prefix/global config points npm at
+  `$HOME/node_modules`. Fixes #71730.
+- ACP/sessions_spawn: reject normal OpenClaw config agent ids when callers
+  explicitly request `runtime="acp"`, while allowing agents configured with
+  `runtime.type="acp"` to resolve to their ACP harness id. Fixes #63914.
 - Plugins/Voice Call: treat missing provider credentials as setup-incomplete
   during Gateway startup and log the missing keys as a warning instead of a
   runtime startup error, while keeping explicit command/tool errors when used. Thanks
   @steipete.
+- Android/Talk Mode: prevent duplicate TTS playback when fast or repeated final
+  chat events arrive while Talk Mode is waiting for its own response. Fixes #46546.
 - Tooling/check:changed: pass parent heavy-check lock markers to lint lanes so
   `pnpm check:changed` no longer waits on its own `lint:extensions` child.
   Thanks @steipete.
@@ -68,6 +85,9 @@ Docs: https://docs.openclaw.ai
 - Diagnostics/trace: report live context usage from the current prompt snapshot
   instead of provider turn totals, avoiding false near-full context spikes on
   cached or tool-heavy runs.
+- Providers/Google: honor `models.providers.google.request.allowPrivateNetwork`
+  for Gemini TTS and telephony TTS, matching Google image generation and media
+  understanding. (#71723) Thanks @ro-hansolo.
 - Plugins/Bonjour: stop the gateway from crash-looping on `CIAO PROBING CANCELLED` when the mDNS watchdog cancels a stuck probe. Restores the rejection-handler wiring dropped during the bonjour plugin migration and shares unhandled-rejection state across module instances so plugin-staged copies of `openclaw/plugin-sdk/runtime` register into the same handler set the host consults. Especially affects Docker on macOS, where mDNS probing reliably hits the watchdog. Thanks @troyhitch.
 - Google Meet: report pinned Chrome nodes as offline or missing capabilities in
   setup/join diagnostics, keep inaccessible nodes out of auto-selection, and
@@ -84,6 +104,9 @@ Docs: https://docs.openclaw.ai
   equivalent transcripts.
 - Agents/replies: forward sanitized underlying agent failure details on external
   channels instead of replacing unknown failures with a generic retry message.
+- CLI/MCP: translate OpenClaw `mcp.servers.*.transport` entries into
+  Claude/Gemini CLI `type` fields so streamable HTTP MCP servers load in CLI
+  backend sessions. (#71724) Thanks @Blockchain-Oracle.
 - Browser/CDP: honor configured remote and `attachOnly` CDP HTTP/WebSocket
   timeouts when opening tabs through raw CDP or `/json/new` fallback. (#54238)
   Thanks @FuncWei.
@@ -174,6 +197,7 @@ Docs: https://docs.openclaw.ai
 - OpenAI/Codex image generation: canonicalize legacy `openai-codex.baseUrl` values such as `https://chatgpt.com/backend-api` to the Codex Responses backend before calling `gpt-image-2`, matching the chat transport. Fixes #71460. Thanks @GodsBoy.
 - Control UI: make `/usage` use the fresh context snapshot for context percentage, and include cache-write tokens in the Usage overview cache-hit denominator. Fixes #47885. Thanks @imwyvern and @Ante042.
 - GitHub Copilot: preserve encrypted Responses reasoning item IDs during replay so Copilot can validate encrypted reasoning payloads across requests. (#71448) Thanks @a410979729-sys.
+- GitHub Copilot: never rewrite connection-bound reasoning item IDs regardless of whether `encrypted_content` is present, fixing a 400 "Encrypted content item_id did not match" error with `gpt-5.3-codex` and future Codex models that fall through to the forward-compat catch-all with `reasoning: false`. Also recognize Codex-named models as reasoning-capable so they inherit the correct capability flags. Refs #68735. Thanks @InvalidPandaa.
 - Agents/replies: recover final-answer text when streamed assistant chunks contain only whitespace, preventing completed turns from surfacing as empty-payload errors. Fixes #71454. (#71467) Thanks @Sanjays2402.
 - Feishu/TTS: transcode voice-intent MP3 and other audio replies to Ogg/Opus before sending native Feishu audio bubbles, while keeping ordinary MP3 attachments as files. Fixes #61249 and #37868. Thanks @sg1416-zg and @ycjlb2023-peteryi.
 - WhatsApp/TTS: transcode MP3/WebM audio, including Microsoft Edge TTS output, to Ogg/Opus before sending PTT voice notes.
@@ -188,6 +212,10 @@ Docs: https://docs.openclaw.ai
 - Agents/Claude CLI: pass the OpenClaw system prompt through Claude's prompt-file flag so Windows runs avoid argv length failures without changing system prompt semantics. Fixes #69158. (#69211) Thanks @skylee-01, @cassioanorte, @Syu0, and @Stache73.
 - Agents/CLI sessions: bind `google-gemini-cli` session auth-epoch to the Google account identity in `~/.gemini/oauth_creds.json`, so Gemini-backed agents resume their conversation after gateway restart instead of minting a fresh session, and stale bindings are invalidated when the authenticated Google account changes. Fixes #70973. (#71076) Thanks @openperf.
 - Slack: stop treating user mentions in assistant-authored message edit blocks as sender attribution, preventing edited bot messages from spoofing a mentioned DM user. (#71700) Thanks @vincentkoc.
+- Codex: consume unauthorized bound conversation inbound claims before they can fall through to other claim handlers or enqueue Codex turns. (#71702) Thanks @vincentkoc.
+- Codex media understanding: require approval-checked app-server image turns while
+  explicitly declining tool, file, permission, and elicitation approval requests
+  for the bounded image worker. (#71703) Thanks @vincentkoc.
 
 ## 2026.4.24
 
@@ -604,6 +632,13 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Gateway/env: import each missing expected login-shell env var independently,
+  so an existing gateway token no longer prevents `env.shellEnv` from loading
+  plugin credentials such as `TWILIO_*` from `.profile`. Thanks @steipete.
+- macOS/Gateway pairing: silently accept same-host native app
+  `metadata-upgrade` reconnects, so macOS patch-version changes update paired
+  metadata instead of spamming security audit warnings and `pairing required`
+  disconnects. Thanks @steipete.
 - CLI/Gateway: wait for one-shot gateway RPC clients to finish WebSocket teardown before the CLI process exits, reducing hangs where commands like `openclaw status` or `openclaw version` could finish their work but stay alive until an external timeout killed them (#70691). Thanks @Takhoffman.
 - Thinking defaults/status: raise the implicit default thinking level for reasoning-capable models from legacy `off`/`low` fallback behavior to a safe provider-supported `medium` equivalent when no explicit config default is set, preserve configured-model reasoning metadata when runtime catalog loading is empty, and make `/status` report the same resolved default as runtime (#70601). Thanks @Takhoffman.
 - Gateway/model pricing: extend OpenRouter and LiteLLM catalog fetch timeouts to 60 seconds, reducing noisy timeout warnings during slow upstream responses. Thanks @steipete.

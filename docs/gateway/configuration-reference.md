@@ -43,6 +43,7 @@ Moved to a dedicated page — see
 - `session.*` (session lifecycle, compaction, pruning)
 - `messages.*` (message delivery, TTS, markdown rendering)
 - `talk.*` (Talk mode)
+  - `talk.speechLocale`: optional BCP 47 locale id for Talk speech recognition on iOS/macOS
   - `talk.silenceTimeoutMs`: when unset, Talk keeps the platform default pause window before sending the transcript (`700 ms on macOS and Android, 900 ms on iOS`)
 
 ## Tools and custom providers

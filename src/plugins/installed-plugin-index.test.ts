@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginCandidate } from "./discovery.js";
+import { writePersistedPluginInstallLedger } from "./install-ledger-store.js";
 import {
   diffInstalledPluginIndexInvalidationReasons,
   getInstalledPluginRecord,
@@ -63,6 +64,7 @@ function createPluginCandidate(params: {
   origin?: PluginCandidate["origin"];
   packageName?: string;
   packageVersion?: string;
+  packageDir?: string;
   packageManifest?: OpenClawPackageManifest;
 }): PluginCandidate {
   return {
@@ -72,7 +74,7 @@ function createPluginCandidate(params: {
     origin: params.origin ?? "global",
     packageName: params.packageName,
     packageVersion: params.packageVersion,
-    packageDir: params.rootDir,
+    packageDir: params.packageDir ?? params.rootDir,
     packageManifest: params.packageManifest,
   };
 }
@@ -208,6 +210,33 @@ describe("installed plugin index", () => {
     expect(contributions.providers.get("demo")).toEqual(["demo"]);
     expect(contributions.channels.get("demo-chat")).toEqual(["demo"]);
     expect(contributions.contracts.get("tools")).toEqual(["demo"]);
+  });
+
+  it("keeps packageJson paths root-relative when packageDir is reached through a symlink", () => {
+    const fixture = createRichPluginFixture();
+    const linkParent = makeTempDir();
+    const linkRoot = path.join(linkParent, "linked-demo");
+    try {
+      fs.symlinkSync(fixture.rootDir, linkRoot, "dir");
+    } catch {
+      return;
+    }
+
+    const index = loadInstalledPluginIndex({
+      candidates: [
+        createPluginCandidate({
+          rootDir: fs.realpathSync(fixture.rootDir),
+          packageDir: linkRoot,
+          packageName: "@vendor/demo-plugin",
+          packageVersion: "1.2.3",
+        }),
+      ],
+      env: hermeticEnv(),
+    });
+
+    expect(index.plugins[0]?.packageJson).toMatchObject({
+      path: "package.json",
+    });
   });
 
   it("exposes cold registry records and owners for existing plugins without install ledgers", () => {
@@ -408,6 +437,42 @@ describe("installed plugin index", () => {
         shasum: "abc123",
         resolvedAt: "2026-04-25T11:00:00.000Z",
         installedAt: "2026-04-25T11:01:00.000Z",
+      },
+    });
+  });
+
+  it("indexes persisted install ledger records from an explicit state directory", async () => {
+    const fixture = createRichPluginFixture();
+    const stateDir = makeTempDir();
+    await writePersistedPluginInstallLedger(
+      {
+        demo: {
+          source: "npm",
+          spec: "@vendor/demo-plugin@1.2.3",
+          installPath: fixture.rootDir,
+          resolvedName: "@vendor/demo-plugin",
+          resolvedVersion: "1.2.3",
+          integrity: "sha512-installed",
+        },
+      },
+      { stateDir },
+    );
+
+    const index = loadInstalledPluginIndex({
+      candidates: [fixture.candidate],
+      env: hermeticEnv(),
+      stateDir,
+    });
+
+    expect(index.plugins[0]).toMatchObject({
+      pluginId: "demo",
+      installRecord: {
+        source: "npm",
+        spec: "@vendor/demo-plugin@1.2.3",
+        installPath: fixture.rootDir,
+        resolvedName: "@vendor/demo-plugin",
+        resolvedVersion: "1.2.3",
+        integrity: "sha512-installed",
       },
     });
   });
