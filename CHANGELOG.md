@@ -6,24 +6,32 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
-- Diagnostics/OTEL: emit bounded exec-process diagnostics and export them as `openclaw.exec` spans without exposing command text, working directories, or container identifiers. (#70424) Thanks @jlapenna.
-- Diagnostics/OTEL: support `OPENCLAW_OTEL_PRELOADED=1` so the plugin can reuse an already-registered OpenTelemetry SDK while keeping OpenClaw diagnostic listeners wired. (#70424) Thanks @jlapenna.
+- Diagnostics/OTEL: add bounded outbound message delivery lifecycle diagnostics and export them as low-cardinality delivery spans/metrics without message body, recipient, room, or media-path data. Thanks @vincentkoc.
+- Diagnostics/OTEL: emit bounded exec-process diagnostics and export them as `openclaw.exec` spans without exposing command text, working directories, or container identifiers. (#71451) Thanks @vincentkoc and @jlapenna.
+- Diagnostics/OTEL: support `OPENCLAW_OTEL_PRELOADED=1` so the plugin can reuse an already-registered OpenTelemetry SDK while keeping OpenClaw diagnostic listeners wired. (#71450) Thanks @vincentkoc and @jlapenna.
 - Control UI: refine the agent Tool Access panel with compact live-tool chips, collapsible tool groups, direct per-tool toggles, and clearer runtime/source provenance. (#71405) Thanks @BunsDev.
 - Memory-core/hybrid search: expose raw `vectorScore` and `textScore` alongside the combined `score` on hybrid memory search results, so callers can inspect vector-versus-text retrieval contribution before temporal decay or MMR reordering. Fixes #68166. (#68286) Thanks @ajfonthemove.
 
 ### Fixes
 
+- Browser/Playwright: ignore benign already-handled route races during guarded navigation so browser-page tasks no longer fail when Playwright tears down a route mid-flight. (#68708) Thanks @Steady-ai.
+- Telegram: prevent duplicate in-process long pollers for the same bot token and add clearer `getUpdates` conflict diagnostics for external duplicate pollers. Fixes #56230.
+- Browser/Linux: detect Chromium-based installs under `/opt/google`, `/opt/brave.com`, `/usr/lib/chromium`, and `/usr/lib/chromium-browser` before asking users to set `browser.executablePath`. (#48563) Thanks @lupuletic.
+- Sessions/browser: close tracked browser tabs when idle, daily, `/new`, or `/reset` session rollover archives the previous transcript, preventing tabs from leaking past the old session. Thanks @jakozloski.
+- Sessions/forking: fall back to transcript-estimated parent token counts when cached totals are stale or missing, so oversized thread forks start fresh instead of cloning the full parent transcript. Thanks @jalehman.
+- OpenAI/Codex: send Codex Responses system prompts through top-level
+  `instructions` while preserving the existing native Codex payload controls.
+- MCP/CLI: retire bundled MCP runtimes at the end of one-shot `openclaw agent` and `openclaw infer model run` gateway/local executions, so repeated scripted runs do not accumulate stdio MCP child processes. Fixes #71457.
 - OpenAI/Codex image generation: canonicalize legacy `openai-codex.baseUrl` values such as `https://chatgpt.com/backend-api` to the Codex Responses backend before calling `gpt-image-2`, matching the chat transport. Fixes #71460.
 - Control UI: make `/usage` use the fresh context snapshot for context percentage, and include cache-write tokens in the Usage overview cache-hit denominator. Fixes #47885. Thanks @imwyvern and @Ante042.
-- GitHub Copilot: preserve encrypted Responses reasoning item IDs during replay
-  so Copilot can validate encrypted reasoning payloads across requests. (#71448)
-  Thanks @a410979729-sys.
-- Telegram/webhook: acknowledge validated webhook updates before running bot middleware, keeping slow agent turns from tripping Telegram delivery retries while preserving per-chat processing lanes. Fixes #71392.
+- GitHub Copilot: preserve encrypted Responses reasoning item IDs during replay so Copilot can validate encrypted reasoning payloads across requests. (#71448) Thanks @a410979729-sys.
+- Agents/replies: recover final-answer text when streamed assistant chunks contain only whitespace, preventing completed turns from surfacing as empty-payload errors. Fixes #71454. (#71467) Thanks @Sanjays2402.
+- Feishu/TTS: transcode voice-intent MP3 and other audio replies to Ogg/Opus before sending native Feishu audio bubbles, while keeping ordinary MP3 attachments as files. Fixes #61249 and #37868.
+- Telegram/webhook: acknowledge validated webhook updates before running bot middleware, keeping slow agent turns from tripping Telegram delivery retries while preserving per-chat processing lanes. Fixes #71392. Thanks @joelforsberg46-source.
 - MCP: retire one-shot embedded bundled MCP runtimes at run end, skip bundle-MCP startup when a runtime tool allowlist cannot reach bundle-MCP tools, and add `mcp.sessionIdleTtlMs` idle eviction for leaked session runtimes. Fixes #71106, #71110, #70389, and #70808.
 - MCP/config reload: hot-apply `mcp.*` changes by disposing cached session MCP runtimes, and dispose bundled MCP runtimes during gateway shutdown so removed `mcp.servers` entries reap child processes promptly. Fixes #60656.
-- Infer/MCP: treat `openclaw infer model run` as a one-shot agent turn for bundled MCP lifecycle cleanup, so local and gateway infer runs do not keep MCP stdio children alive after the result is returned. Fixes #71457.
 - Gateway/restart continuation: durably hand restart continuations to a session-delivery queue before deleting the restart sentinel, recover queued continuation work after crashy restarts, and fall back to a session-only wake when no channel route survives reboot. (#70780) Thanks @fuller-stack-dev.
-- Agents/tool-result pruning: harden the tool-result character estimator and context-pruning loops against malformed `{ type: "text" }` blocks created by void or undefined tool handler results, serializing non-string text payloads for size accounting so they cannot bypass trimming as zero-sized. Fixes #34979. (#51267) Thanks @cgdusek.
+- Agents/tool-result pruning: harden the tool-result character estimator and context-pruning loops against malformed `{ type: "text" }` blocks created by void or undefined tool handler results, serializing non-string text payloads for size accounting so they cannot bypass trimming as zero-sized. Fixes #34979. (#51267) Thanks @cgdusek, @alvinttang, and @coffeexcoin.
 - Daemon/service-env: add Nix Home Manager profile bin directories to generated gateway service PATHs on macOS and Linux, honoring `NIX_PROFILES` right-to-left precedence and falling back to `~/.nix-profile/bin` when unset. Fixes #44402. (#59935) Thanks @jerome-benoit.
 
 ## 2026.4.24 (Unreleased)
@@ -34,6 +42,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- CLI/Crestodian: add a configless setup and repair helper for bare `openclaw`, typed config operations, agent handoff, audit logging, docs/source discovery, and guarded message-channel rescue.
 - Gateway/nodes: add disabled-by-default `gateway.nodes.pairing.autoApproveCidrs` for first-time node pairing from explicit trusted CIDRs, while keeping operator/browser pairing and all upgrade flows manual. Fixes #60800. Thanks @sahilsatralkar.
 - Browser: add viewport coordinate clicks for managed and existing-session automation, plus `openclaw browser click-coords` for CLI use. (#54452) Thanks @dluttz.
 - Browser: add `browser.actionTimeoutMs` and use a 60s default action budget so healthy long browser waits do not fail at the client transport boundary. (#62589) Thanks @andyylin.
@@ -41,6 +50,7 @@ Docs: https://docs.openclaw.ai
 - Browser/config: support per-profile `browser.profiles.<name>.headless` overrides for locally launched browser profiles, so one profile can run headless without forcing all browser profiles headless. Thanks @nakamotoliu.
 - Plugins/PDF: move local PDF extraction into a bundled `document-extract` plugin so core no longer owns `pdfjs-dist` or PDF image-rendering dependencies. Thanks @vincentkoc.
 - Dependencies/memory: stop installing `node-llama-cpp` by default; local embeddings now load it only when operators install the optional runtime package. Thanks @vincentkoc.
+- Dependencies/media: replace the tiny core media host's Express server with `node:http`, so Express is no longer a root runtime dependency. Thanks @vincentkoc.
 - Matrix: require full cross-signing identity trust for self-device verification and add `openclaw matrix verify self` so operators can establish that trust from the CLI. (#70401) Thanks @gumadeiras.
 - WebChat/sessions: keep runtime-only prompt context out of visible transcript history and scrub legacy wrappers from session history surfaces. Thanks @91wan.
 - Gradium: add a bundled text-to-speech provider with voice-note and telephony output support. (#64958) Thanks @LaurentMazare.
@@ -123,6 +133,7 @@ Docs: https://docs.openclaw.ai
 - macOS Gateway: wait for launchd to reload the exited Gateway LaunchAgent before bootstrapping repair fallback, preventing config-triggered restarts from leaving the service not loaded. Fixes #45178. Thanks @vincentkoc.
 - macOS Gateway: tolerate launchctl bootstrap's already-loaded exit during restart fallback and use non-killing kickstart after bootstrap, avoiding a second race that can unload the LaunchAgent. Fixes #41934. Thanks @zerone0x.
 - macOS Gateway: rewrite stale LaunchAgent plists before restart fallback bootstrap, matching install repair behavior when `gateway restart` has to re-register launchd. Thanks @maybegeeker.
+- Gateway/reload: wait indefinitely by default for active operations before restart-required reloads and preserve that drain path when service-manager restarts arrive as SIGTERM, preventing in-flight agent runs from being killed mid-turn. Fixes #65485. Thanks @rijhsinghani.
 - TTS/hooks: preserve audio-only TTS transcripts for `message_sending` and `message_sent` hooks without rendering the transcript as a media caption. Thanks @zqchris.
 - WhatsApp/TTS: preserve `audioAsVoice` through shared media payload sends and the WhatsApp outbound adapter, so `[[audio_as_voice]]` reply payloads keep their voice-note intent when routed through `sendPayload`. Fixes #66053. Thanks @masatohoshino.
 - Control UI/WebChat: hide heartbeat prompts, `HEARTBEAT_OK` acknowledgments, and internal-only runtime context turns from visible chat history while leaving the underlying transcript intact. Fixes #71381. Thanks @gerald1950ggg-ai.
