@@ -12,6 +12,7 @@ import { resolveBundledPluginSources } from "./bundled-sources.js";
 import { installPluginFromClawHub } from "./clawhub.js";
 import { normalizePluginsConfig, resolveEffectiveEnableState } from "./config-state.js";
 import {
+  getExternalizedBundledPluginLegacyPathSuffix,
   getExternalizedBundledPluginLookupIds,
   getExternalizedBundledPluginTargetId,
   type ExternalizedBundledPluginBridge,
@@ -238,16 +239,16 @@ function isBridgeBundledPathRecord(params: {
   ) {
     return true;
   }
-  const bundledDirName = params.bridge.bundledDirName ?? params.bridge.bundledPluginId;
+  const bundledPathSuffix = getExternalizedBundledPluginLegacyPathSuffix(params.bridge);
   return (
     pathEndsWithSegment({
       value: params.record.sourcePath,
-      segment: `extensions/${bundledDirName}`,
+      segment: bundledPathSuffix,
       env: params.env,
     }) ||
     pathEndsWithSegment({
       value: params.record.installPath,
-      segment: `extensions/${bundledDirName}`,
+      segment: bundledPathSuffix,
       env: params.env,
     })
   );
@@ -258,11 +259,11 @@ function removeBridgeBundledLoadPaths(params: {
   loadPaths: ReturnType<typeof buildLoadPathHelpers>;
   env: NodeJS.ProcessEnv;
 }) {
-  const bundledDirName = params.bridge.bundledDirName ?? params.bridge.bundledPluginId;
+  const bundledPathSuffix = getExternalizedBundledPluginLegacyPathSuffix(params.bridge);
   params.loadPaths.removeMatching((entry) =>
     pathEndsWithSegment({
       value: entry,
-      segment: `extensions/${bundledDirName}`,
+      segment: bundledPathSuffix,
       env: params.env,
     }),
   );
@@ -294,7 +295,7 @@ function isBridgeChannelEnabledByConfig(params: {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       continue;
     }
-    if ((entry as Record<string, unknown>).enabled === true) {
+    if (Object.is((entry as Record<string, unknown>).enabled, true)) {
       return true;
     }
   }
@@ -313,7 +314,8 @@ function isExternalizedBundledPluginEnabled(params: {
   if (
     pluginIds.some(
       (pluginId) =>
-        normalized.deny.includes(pluginId) || normalized.entries[pluginId]?.enabled === false,
+        normalized.deny.includes(pluginId) ||
+        Object.is(normalized.entries[pluginId]?.enabled, false),
     )
   ) {
     return false;
@@ -896,9 +898,6 @@ export async function syncPluginsForUpdateChannel(params: {
           installs = next.plugins?.installs ?? {};
           changed = true;
         }
-        if (bundledInfo?.localPath) {
-          loadHelpers.removePath(bundledInfo.localPath);
-        }
         removeBridgeBundledLoadPaths({ bridge, loadPaths: loadHelpers, env });
         continue;
       }
@@ -907,7 +906,6 @@ export async function syncPluginsForUpdateChannel(params: {
         existing &&
         !isBridgeBundledPathRecord({
           bridge,
-          bundledLocalPath: bundledInfo?.localPath,
           record: existing.record,
           env,
         })
@@ -947,9 +945,6 @@ export async function syncPluginsForUpdateChannel(params: {
         ...buildNpmResolutionInstallFields(result.npmResolution),
       });
       installs = next.plugins?.installs ?? {};
-      if (bundledInfo?.localPath) {
-        loadHelpers.removePath(bundledInfo.localPath);
-      }
       if (existing?.record.sourcePath) {
         loadHelpers.removePath(existing.record.sourcePath);
       }
