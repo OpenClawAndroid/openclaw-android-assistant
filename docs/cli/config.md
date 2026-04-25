@@ -36,6 +36,7 @@ openclaw config --section gateway --section daemon
 openclaw config schema
 openclaw config get browser.executablePath
 openclaw config set browser.executablePath "/usr/bin/google-chrome"
+openclaw config set browser.profiles.work.executablePath "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 openclaw config set agents.defaults.heartbeat.every "2h"
 openclaw config set agents.list[0].tools.exec.node "node-id-or-name"
 openclaw config set agents.defaults.models '{"openai/gpt-5.4":{}}' --strict-json --merge
@@ -185,7 +186,7 @@ openclaw config set secrets.providers.vaultfile \
   --strict-json
 ```
 
-## Provider Builder Flags
+## Provider builder flags
 
 Provider builder targets must use `secrets.providers.<alias>` as the path.
 
@@ -278,7 +279,7 @@ Dry-run behavior:
 - `skippedExecRefs`: number of exec refs skipped because `--allow-exec` was not set
 - `errors`: structured schema/resolvability failures when `ok=false`
 
-### JSON Output Shape
+### JSON output shape
 
 ```json5
 {

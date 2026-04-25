@@ -170,7 +170,7 @@ Auto-archive:
 - Auto-archive applies equally to depth-1 and depth-2 sessions.
 - Browser cleanup is separate from archive cleanup: tracked browser tabs/processes are best-effort closed when the run finishes, even if the transcript/session record is kept.
 
-## Nested Sub-Agents
+## Nested sub-agents
 
 By default, sub-agents cannot spawn their own sub-agents (`maxSpawnDepth: 1`). You can enable one level of nesting by setting `maxSpawnDepth: 2`, which allows the **orchestrator pattern**: main → orchestrator sub-agent → worker sub-sub-agents.
 
@@ -214,6 +214,11 @@ Operational guidance:
 - Start child work once and wait for completion events instead of building poll
   loops around `sessions_list`, `sessions_history`, `/subagents list`, or
   `exec` sleep commands.
+- `sessions_list` and `/subagents list` keep child-session relationships focused
+  on live work: live children remain attached, ended children stay visible for a
+  short recent window, and stale store-only child links are ignored after their
+  freshness window. This prevents old `spawnedBy` / `parentSessionKey` metadata
+  from resurrecting ghost children after restart.
 - If a child completion event arrives after you already sent the final answer,
   the correct follow-up is the exact silent token `NO_REPLY` / `no_reply`.
 

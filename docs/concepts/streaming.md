@@ -7,8 +7,6 @@ read_when:
 title: "Streaming and chunking"
 ---
 
-# Streaming + chunking
-
 OpenClaw has two separate streaming layers:
 
 - **Block streaming (channels):** emit completed **blocks** as the assistant writes. These are normal channel messages (not token deltas).
@@ -53,6 +51,19 @@ Legend:
 - `message_end`: wait until assistant message finishes, then flush buffered output.
 
 `message_end` still uses the chunker if the buffered text exceeds `maxChars`, so it can emit multiple chunks at the end.
+
+### Media delivery with block streaming
+
+`MEDIA:` directives are normal delivery metadata. When block streaming sends a
+media block early, OpenClaw remembers that delivery for the turn. If the final
+assistant payload repeats the same media URL, the final delivery strips the
+duplicate media instead of sending the attachment again.
+
+Exact duplicate final payloads are suppressed. If the final payload adds
+distinct text around media that was already streamed, OpenClaw still sends the
+new text while keeping the media single-delivery. This prevents duplicate voice
+notes or files on channels such as Telegram when an agent emits `MEDIA:` during
+streaming and the provider also includes it in the completed reply.
 
 ## Chunking algorithm (low/high bounds)
 

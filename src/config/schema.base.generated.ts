@@ -750,6 +750,9 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   description:
                     "Per-profile headless override for locally launched browser instances. Use this when one profile should stay headless without forcing browser.headless for every other profile.",
                 },
+                executablePath: {
+                  type: "string",
+                },
                 attachOnly: {
                   type: "boolean",
                   title: "Browser Profile Attach-only Mode",
@@ -3443,6 +3446,10 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   {
                     type: "string",
                     const: "continuation-skip",
+                  },
+                  {
+                    type: "string",
+                    const: "never",
                   },
                 ],
                 title: "Context Injection",
@@ -22037,6 +22044,24 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 },
                 additionalProperties: false,
               },
+              pairing: {
+                type: "object",
+                properties: {
+                  autoApproveCidrs: {
+                    type: "array",
+                    items: {
+                      type: "string",
+                    },
+                    title: "Gateway Node Pairing Auto-Approve CIDRs",
+                    description:
+                      "Opt-in CIDR/IP allowlist for auto-approving first-time node-role device pairing with no requested scopes. Disabled when unset. Operator, browser, Control UI, and any role, scope, metadata, or public-key upgrade pairing still require manual approval.",
+                  },
+                },
+                additionalProperties: false,
+                title: "Gateway Node Pairing",
+                description:
+                  "Node pairing policy settings. Defaults keep CIDR auto-approval disabled; enable only with explicit trusted CIDR/IP allowlists you control.",
+              },
               allowCommands: {
                 type: "array",
                 items: {
@@ -24876,6 +24901,16 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       label: "Gateway Node Browser Pin",
       help: "Pin browser routing to a specific node id or name (optional).",
       tags: ["network"],
+    },
+    "gateway.nodes.pairing": {
+      label: "Gateway Node Pairing",
+      help: "Node pairing policy settings. Defaults keep CIDR auto-approval disabled; enable only with explicit trusted CIDR/IP allowlists you control.",
+      tags: ["network"],
+    },
+    "gateway.nodes.pairing.autoApproveCidrs": {
+      label: "Gateway Node Pairing Auto-Approve CIDRs",
+      help: "Opt-in CIDR/IP allowlist for auto-approving first-time node-role device pairing with no requested scopes. Disabled when unset. Operator, browser, Control UI, and any role, scope, metadata, or public-key upgrade pairing still require manual approval.",
+      tags: ["security", "access", "network", "advanced"],
     },
     "gateway.nodes.allowCommands": {
       label: "Gateway Node Allowlist (Extra Commands)",

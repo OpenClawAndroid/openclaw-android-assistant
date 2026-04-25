@@ -347,13 +347,15 @@ Then run:
 - `mode`: `"final"` (default) or `"all"` (includes tool/block replies).
 - `provider`: speech provider id such as `"elevenlabs"`, `"google"`, `"gradium"`, `"microsoft"`, `"minimax"`, `"openai"`, `"vydra"`, or `"xai"` (fallback is automatic).
 - If `provider` is **unset**, OpenClaw uses the first configured speech provider in registry auto-select order.
-- Legacy `provider: "edge"` still works and is normalized to `microsoft`.
+- Legacy `provider: "edge"` config is repaired by `openclaw doctor --fix` and
+  rewritten to `provider: "microsoft"`.
 - `summaryModel`: optional cheap model for auto-summary; defaults to `agents.defaults.model.primary`.
   - Accepts `provider/model` or a configured model alias.
 - `modelOverrides`: allow the model to emit TTS directives (on by default).
   - `allowProvider` defaults to `false` (provider switching is opt-in).
 - `providers.<id>`: provider-owned settings keyed by speech provider id.
 - Legacy direct provider blocks (`messages.tts.openai`, `messages.tts.elevenlabs`, `messages.tts.microsoft`, `messages.tts.edge`) are repaired by `openclaw doctor --fix`; committed config should use `messages.tts.providers.<id>`.
+- Legacy `messages.tts.providers.edge` is also repaired by `openclaw doctor --fix`; committed config should use `messages.tts.providers.microsoft`.
 - `maxTextLength`: hard cap for TTS input (chars). `/tts audio` fails if exceeded.
 - `timeoutMs`: request timeout (ms).
 - `prefsPath`: override the local prefs JSON path (provider/limit/summary).
@@ -377,6 +379,8 @@ Then run:
 - `providers.minimax.pitch`: integer pitch shift `-12..12` (default 0). Fractional values are truncated before calling MiniMax T2A because the API rejects non-integer pitch values.
 - `providers.google.model`: Gemini TTS model (default `gemini-3.1-flash-tts-preview`).
 - `providers.google.voiceName`: Gemini prebuilt voice name (default `Kore`; `voice` is also accepted).
+- `providers.google.audioProfile`: natural-language style prompt prepended before the spoken text.
+- `providers.google.speakerName`: optional speaker label prepended before the spoken text when your TTS prompt uses a named speaker.
 - `providers.google.baseUrl`: override the Gemini API base URL. Only `https://generativelanguage.googleapis.com` is accepted.
   - If `messages.tts.providers.google.apiKey` is omitted, TTS can reuse `models.providers.google.apiKey` before env fallback.
 - `providers.gradium.baseUrl`: override Gradium API base URL (default `https://api.gradium.ai`).
@@ -402,7 +406,8 @@ Then run:
 - `providers.microsoft.saveSubtitles`: write JSON subtitles alongside the audio file.
 - `providers.microsoft.proxy`: proxy URL for Microsoft speech requests.
 - `providers.microsoft.timeoutMs`: request timeout override (ms).
-- `edge.*`: legacy alias for the same Microsoft settings.
+- `edge.*`: legacy alias for the same Microsoft settings. Run
+  `openclaw doctor --fix` to rewrite persisted config to `providers.microsoft`.
 
 ## Model-driven overrides (default on)
 

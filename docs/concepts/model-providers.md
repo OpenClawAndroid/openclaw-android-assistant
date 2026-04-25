@@ -6,8 +6,7 @@ read_when:
 title: "Model providers"
 ---
 
-This page covers **LLM/model providers** (not chat channels like WhatsApp/Telegram).
-For model selection rules, see [/concepts/models](/concepts/models).
+Reference for **LLM/model providers** (not chat channels like WhatsApp/Telegram). For model selection rules, see [Models](/concepts/models).
 
 ## Quick rules
 
@@ -160,7 +159,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 
 - [Qwen Cloud](/providers/qwen): Qwen Cloud provider surface plus Alibaba DashScope and Coding Plan endpoint mapping
 - [MiniMax](/providers/minimax): MiniMax Coding Plan OAuth or API key access
-- [GLM Models](/providers/glm): Z.AI Coding Plan or general API endpoints
+- [GLM models](/providers/glm): Z.AI Coding Plan or general API endpoints
 
 ### OpenCode
 
@@ -270,7 +269,7 @@ See [/providers/kilocode](/providers/kilocode) for setup details.
 
 Quirks worth knowing:
 
-- **OpenRouter** applies its app-attribution headers and Anthropic `cache_control` markers only on verified `openrouter.ai` routes. As a proxy-style OpenAI-compatible path, it skips native-OpenAI-only shaping (`serviceTier`, Responses `store`, prompt-cache hints, OpenAI reasoning-compat). Gemini-backed refs keep proxy-Gemini thought-signature sanitation only.
+- **OpenRouter** applies its app-attribution headers and Anthropic `cache_control` markers only on verified `openrouter.ai` routes. DeepSeek, Moonshot, and ZAI refs are cache-TTL eligible for OpenRouter-managed prompt caching but do not receive Anthropic cache markers. As a proxy-style OpenAI-compatible path, it skips native-OpenAI-only shaping (`serviceTier`, Responses `store`, prompt-cache hints, OpenAI reasoning-compat). Gemini-backed refs keep proxy-Gemini thought-signature sanitation only.
 - **Kilo Gateway** Gemini-backed refs follow the same proxy-Gemini sanitation path; `kilocode/kilo/auto` and other proxy-reasoning-unsupported refs skip proxy reasoning injection.
 - **MiniMax** API-key onboarding writes explicit text-only M2.7 chat model definitions; image understanding stays on the plugin-owned `MiniMax-VL-01` media provider.
 - **xAI** uses the xAI Responses path. `/fast` or `params.fastMode: true` rewrites `grok-3`, `grok-3-mini`, `grok-4`, and `grok-4-0709` to their `*-fast` variants. `tool_stream` defaults on; disable via `agents.defaults.models["xai/<model>"].params.tool_stream=false`.
@@ -646,11 +645,11 @@ openclaw models set opencode/claude-opus-4-6
 openclaw models list
 ```
 
-See also: [/gateway/configuration](/gateway/configuration) for full configuration examples.
+See also: [Configuration](/gateway/configuration) for full configuration examples.
 
 ## Related
 
 - [Models](/concepts/models) — model configuration and aliases
-- [Model Failover](/concepts/model-failover) — fallback chains and retry behavior
-- [Configuration Reference](/gateway/config-agents#agent-defaults) — model config keys
+- [Model failover](/concepts/model-failover) — fallback chains and retry behavior
+- [Configuration reference](/gateway/config-agents#agent-defaults) — model config keys
 - [Providers](/providers) — per-provider setup guides
