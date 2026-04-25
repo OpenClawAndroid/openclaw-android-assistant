@@ -20,7 +20,8 @@ For model selection rules, see [/concepts/models](/concepts/models).
   OpenAI API-key provider in PI, `openai-codex/<model>` uses Codex OAuth in PI,
   and `openai/<model>` plus `agents.defaults.embeddedHarness.runtime: "codex"`
   uses the native Codex app-server harness. See [OpenAI](/providers/openai)
-  and [Codex harness](/plugins/codex-harness).
+  and [Codex harness](/plugins/codex-harness). If the provider/runtime split is
+  confusing, read [Agent runtimes](/concepts/agent-runtimes) first.
 - Plugin auto-enable follows that same boundary: `openai-codex/<model>` belongs
   to the OpenAI plugin, while the Codex plugin is enabled by
   `embeddedHarness.runtime: "codex"` or legacy `codex/<model>` refs.
@@ -75,6 +76,8 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 - Optional rotation: `OPENAI_API_KEYS`, `OPENAI_API_KEY_1`, `OPENAI_API_KEY_2`, plus `OPENCLAW_LIVE_OPENAI_KEY` (single override)
 - Example models: `openai/gpt-5.4`, `openai/gpt-5.4-mini`
 - GPT-5.5 direct API support is future-ready here once OpenAI exposes GPT-5.5 on the API
+- Verify direct API availability with `openclaw models list --provider openai`
+  before using `openai/gpt-5.5` without the Codex app-server runtime
 - CLI: `openclaw onboard --auth-choice openai-api-key`
 - Default transport is `auto` (WebSocket-first, SSE fallback)
 - Override per model via `agents.defaults.models["openai/<model>"].params.transport` (`"sse"`, `"websocket"`, or `"auto"`)
@@ -118,6 +121,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 - Auth: OAuth (ChatGPT)
 - PI model ref: `openai-codex/gpt-5.5`
 - Native Codex app-server harness ref: `openai/gpt-5.5` with `agents.defaults.embeddedHarness.runtime: "codex"`
+- Native Codex app-server harness docs: [Codex harness](/plugins/codex-harness)
 - Legacy model refs: `codex/gpt-*`
 - Plugin boundary: `openai-codex/*` loads the OpenAI plugin; the native Codex
   app-server plugin is selected only by the Codex harness runtime or legacy
@@ -163,7 +167,7 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 - Auth: `OPENCODE_API_KEY` (or `OPENCODE_ZEN_API_KEY`)
 - Zen runtime provider: `opencode`
 - Go runtime provider: `opencode-go`
-- Example models: `opencode/claude-opus-4-6`, `opencode-go/kimi-k2.5`
+- Example models: `opencode/claude-opus-4-6`, `opencode-go/kimi-k2.6`
 - CLI: `openclaw onboard --auth-choice opencode-zen` or `openclaw onboard --auth-choice opencode-go`
 
 ```json5
@@ -180,6 +184,8 @@ OpenClaw ships with the pi‑ai catalog. These providers require **no**
 - Example models: `google/gemini-3.1-pro-preview`, `google/gemini-3-flash-preview`
 - Compatibility: legacy OpenClaw config using `google/gemini-3.1-flash-preview` is normalized to `google/gemini-3-flash-preview`
 - CLI: `openclaw onboard --auth-choice gemini-api-key`
+- Thinking: `/think adaptive` uses Google dynamic thinking. Gemini 3/3.1 omit a fixed
+  `thinkingLevel`; Gemini 2.5 sends `thinkingBudget: -1`.
 - Direct Gemini runs also accept `agents.defaults.models["google/<model>"].params.cachedContent`
   (or legacy `cached_content`) to forward a provider-native
   `cachedContents/...` handle; Gemini cache hits surface as OpenClaw `cacheRead`
@@ -623,9 +629,12 @@ Notes:
 - Recommended: set explicit values that match your proxy/model limits.
 - For `api: "openai-completions"` on non-native endpoints (any non-empty `baseUrl` whose host is not `api.openai.com`), OpenClaw forces `compat.supportsDeveloperRole: false` to avoid provider 400 errors for unsupported `developer` roles.
 - Proxy-style OpenAI-compatible routes also skip native OpenAI-only request
-  shaping: no `service_tier`, no Responses `store`, no prompt-cache hints, no
-  OpenAI reasoning-compat payload shaping, and no hidden OpenClaw attribution
-  headers.
+  shaping: no `service_tier`, no Responses `store`, no Completions `store`, no
+  prompt-cache hints, no OpenAI reasoning-compat payload shaping, and no hidden
+  OpenClaw attribution headers.
+- For OpenAI-compatible Completions proxies that need vendor-specific fields,
+  set `agents.defaults.models["provider/model"].params.extra_body` (or
+  `extraBody`) to merge extra JSON into the outbound request body.
 - If `baseUrl` is empty/omitted, OpenClaw keeps the default OpenAI behavior (which resolves to `api.openai.com`).
 - For safety, an explicit `compat.supportsDeveloperRole: true` is still overridden on non-native `openai-completions` endpoints.
 

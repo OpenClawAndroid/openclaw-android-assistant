@@ -129,6 +129,12 @@ Browser settings live in `~/.openclaw/openclaw.json`.
     // cdpUrl: "http://127.0.0.1:18792", // legacy single-profile override
     remoteCdpTimeoutMs: 1500, // remote CDP HTTP timeout (ms)
     remoteCdpHandshakeTimeoutMs: 3000, // remote CDP WebSocket handshake timeout (ms)
+    tabCleanup: {
+      enabled: true, // default: true
+      idleMinutes: 120, // set 0 to disable idle cleanup
+      maxTabsPerSession: 8, // set 0 to disable the per-session cap
+      sweepMinutes: 5,
+    },
     defaultProfile: "openclaw",
     color: "#FF4500",
     headless: false,
@@ -162,6 +168,7 @@ Browser settings live in `~/.openclaw/openclaw.json`.
 - Control service binds to loopback on a port derived from `gateway.port` (default `18791` = gateway + 2). Overriding `gateway.port` or `OPENCLAW_GATEWAY_PORT` shifts the derived ports in the same family.
 - Local `openclaw` profiles auto-assign `cdpPort`/`cdpUrl`; set those only for remote CDP. `cdpUrl` defaults to the managed local CDP port when unset.
 - `remoteCdpTimeoutMs` applies to remote (non-loopback) CDP HTTP reachability checks; `remoteCdpHandshakeTimeoutMs` applies to remote CDP WebSocket handshakes.
+- `tabCleanup` is best-effort cleanup for tabs opened by primary-agent browser sessions. Subagent, cron, and ACP lifecycle cleanup still closes their explicit tracked tabs at session end; primary sessions keep active tabs reusable, then close idle or excess tracked tabs in the background.
 
 </Accordion>
 
@@ -169,6 +176,8 @@ Browser settings live in `~/.openclaw/openclaw.json`.
 
 - Browser navigation and open-tab are SSRF-guarded before navigation and best-effort re-checked on the final `http(s)` URL afterwards.
 - In strict SSRF mode, remote CDP endpoint discovery and `/json/version` probes (`cdpUrl`) are checked too.
+- Gateway/provider `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` environment variables do not automatically proxy the OpenClaw-managed browser. Managed Chrome launches direct by default so provider proxy settings do not weaken browser SSRF checks.
+- To proxy the managed browser itself, pass explicit Chrome proxy flags through `browser.extraArgs`, such as `--proxy-server=...` or `--proxy-pac-url=...`. Strict SSRF mode blocks explicit browser proxy routing unless private-network browser access is intentionally enabled.
 - `browser.ssrfPolicy.dangerouslyAllowPrivateNetwork` is off by default; enable only when private-network browser access is intentionally trusted.
 - `browser.ssrfPolicy.allowPrivateNetwork` remains supported as a legacy alias.
 
@@ -192,7 +201,7 @@ Browser settings live in `~/.openclaw/openclaw.json`.
 
 If your **system default** browser is Chromium-based (Chrome/Brave/Edge/etc),
 OpenClaw uses it automatically. Set `browser.executablePath` to override
-auto-detection:
+auto-detection. `~` expands to your OS home directory:
 
 ```bash
 openclaw config set browser.executablePath "/usr/bin/google-chrome"

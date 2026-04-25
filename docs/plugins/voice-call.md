@@ -141,6 +141,31 @@ Set config under `plugins.entries.voice-call.config`:
 }
 ```
 
+Check setup before testing with a real provider:
+
+```bash
+openclaw voicecall setup
+```
+
+The default output is readable in chat logs and terminal sessions. It checks
+whether the plugin is enabled, the provider and credentials are present, webhook
+exposure is configured, and only one audio mode is active. Use
+`openclaw voicecall setup --json` for scripts.
+
+For a no-surprises smoke test, run:
+
+```bash
+openclaw voicecall smoke
+openclaw voicecall smoke --to "+15555550123"
+```
+
+The second command is still a dry run. Add `--yes` to place a short outbound
+notify call:
+
+```bash
+openclaw voicecall smoke --to "+15555550123" --yes
+```
+
 Notes:
 
 - Twilio/Telnyx require a **publicly reachable** webhook URL.
@@ -448,7 +473,7 @@ streaming speech on calls. You can override it under the plugin config with the
 
 Notes:
 
-- Legacy `tts.<provider>` keys inside plugin config (`openai`, `elevenlabs`, `microsoft`, `edge`) are auto-migrated to `tts.providers.<provider>` on load. Prefer the `providers` shape in committed config.
+- Legacy `tts.<provider>` keys inside plugin config (`openai`, `elevenlabs`, `microsoft`, `edge`) are repaired by `openclaw doctor --fix`; committed config should use `tts.providers.<provider>`.
 - **Microsoft speech is ignored for voice calls** (telephony audio needs PCM; the current Microsoft transport does not expose telephony PCM output).
 - Core TTS is used when Twilio media streaming is enabled; otherwise calls fall back to provider native voices.
 - If a Twilio media stream is already active, Voice Call does not fall back to TwiML `<Say>`. If telephony TTS is unavailable in that state, the playback request fails instead of mixing two playback paths.
