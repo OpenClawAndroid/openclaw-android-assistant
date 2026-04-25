@@ -335,6 +335,11 @@ adapter during the deprecation window, but non-bundled plugins that still use it
 receive a manifest diagnostic. New plugins should put setup/status env metadata
 on `setup.providers[].envVars`.
 
+OpenClaw can also derive simple setup choices from `setup.providers[].authMethods`
+when no setup entry is available, or when `setup.requiresRuntime: false`
+declares setup runtime unnecessary. Explicit `providerAuthChoices` entries stay
+preferred for custom labels, CLI flags, onboarding scope, and assistant metadata.
+
 Set `requiresRuntime: false` only when those descriptors are sufficient for the
 setup surface. OpenClaw treats explicit `false` as a descriptor-only contract
 and will not execute `setup-api` or `openclaw.setupEntry` for setup lookup. If
@@ -406,7 +411,7 @@ read without importing the plugin runtime.
 ```json
 {
   "contracts": {
-    "agentToolResultMiddleware": ["pi", "codex-app-server"],
+    "agentToolResultMiddleware": ["pi", "codex"],
     "externalAuthProviders": ["acme-ai"],
     "speechProviders": ["openai"],
     "realtimeTranscriptionProviders": ["openai"],
@@ -427,7 +432,7 @@ Each list is optional:
 | Field                            | Type       | What it means                                                         |
 | -------------------------------- | ---------- | --------------------------------------------------------------------- |
 | `embeddedExtensionFactories`     | `string[]` | Deprecated embedded extension factory ids.                            |
-| `agentToolResultMiddleware`      | `string[]` | Harness ids a bundled plugin may register tool-result middleware for. |
+| `agentToolResultMiddleware`      | `string[]` | Runtime ids a bundled plugin may register tool-result middleware for. |
 | `externalAuthProviders`          | `string[]` | Provider ids whose external auth profile hook this plugin owns.       |
 | `speechProviders`                | `string[]` | Speech provider ids this plugin owns.                                 |
 | `realtimeTranscriptionProviders` | `string[]` | Realtime-transcription provider ids this plugin owns.                 |
@@ -501,6 +506,17 @@ Use `channelConfigs` when a channel plugin needs cheap config metadata before
 runtime loads. Read-only channel setup/status discovery can use this metadata
 directly for configured external channels when no setup entry is available, or
 when `setup.requiresRuntime: false` declares setup runtime unnecessary.
+
+For a channel plugin, `configSchema` and `channelConfigs` describe different
+paths:
+
+- `configSchema` validates `plugins.entries.<plugin-id>.config`
+- `channelConfigs.<channel-id>.schema` validates `channels.<channel-id>`
+
+Non-bundled plugins that declare `channels[]` should also declare matching
+`channelConfigs` entries. Without them, OpenClaw can still load the plugin, but
+cold-path config schema, setup, and Control UI surfaces cannot know the
+channel-owned option shape until plugin runtime executes.
 
 ```json
 {

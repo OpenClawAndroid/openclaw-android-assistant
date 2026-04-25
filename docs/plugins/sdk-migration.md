@@ -93,7 +93,7 @@ releases.
   <Step title="Migrate Pi tool-result extensions to middleware">
     Bundled plugins should replace Pi-only
     `api.registerEmbeddedExtensionFactory(...)` tool-result handlers with
-    harness-neutral middleware.
+    runtime-neutral middleware.
 
     ```typescript
     // Before: Pi-only compatibility hook
@@ -103,11 +103,11 @@ releases.
       });
     });
 
-    // After: Pi and Codex app-server dynamic tools
+    // After: Pi and Codex runtime dynamic tools
     api.registerAgentToolResultMiddleware(async (event) => {
       return compactToolResult(event);
     }, {
-      harnesses: ["pi", "codex-app-server"],
+      runtimes: ["pi", "codex"],
     });
     ```
 
@@ -116,7 +116,7 @@ releases.
     ```json
     {
       "contracts": {
-        "agentToolResultMiddleware": ["pi", "codex-app-server"]
+        "agentToolResultMiddleware": ["pi", "codex"]
       }
     }
     ```
@@ -260,7 +260,7 @@ releases.
   | `plugin-sdk/channel-pairing` | DM pairing primitives | `createChannelPairingController` |
   | `plugin-sdk/channel-reply-pipeline` | Reply prefix + typing wiring | `createChannelReplyPipeline` |
   | `plugin-sdk/channel-config-helpers` | Config adapter factories | `createHybridChannelConfigAdapter` |
-  | `plugin-sdk/channel-config-schema` | Config schema builders | Channel config schema types |
+  | `plugin-sdk/channel-config-schema` | Config schema builders | Shared channel config schema primitives; bundled-channel-named schema exports are legacy compatibility only |
   | `plugin-sdk/telegram-command-config` | Telegram command config helpers | Command-name normalization, description trimming, duplicate/conflict validation |
   | `plugin-sdk/channel-policy` | Group/DM policy resolution | `resolveChannelGroupRequireMention` |
   | `plugin-sdk/channel-lifecycle` | Account status and draft stream lifecycle helpers | `createAccountStatusSink`, draft preview finalization helpers |
@@ -626,7 +626,7 @@ canonical replacement.
     Covered in "How to migrate → Migrate Pi tool-result extensions to
     middleware" above. Included here for completeness: the Pi-only
     `api.registerEmbeddedExtensionFactory(...)` path is deprecated in favor of
-    `api.registerAgentToolResultMiddleware(...)` with an explicit harness
+    `api.registerAgentToolResultMiddleware(...)` with an explicit runtime
     list in `contracts.agentToolResultMiddleware`.
   </Accordion>
 

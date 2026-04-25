@@ -104,7 +104,13 @@ function assignTabAlias(params: {
     }
     entry.label = label;
   }
-  return { ...params.tab, tabId: entry.tabId, ...(entry.label ? { label: entry.label } : {}) };
+  const labelFields = entry.label ? { label: entry.label } : {};
+  return {
+    ...params.tab,
+    suggestedTargetId: entry.label ?? entry.tabId,
+    tabId: entry.tabId,
+    ...labelFields,
+  };
 }
 
 function assignTabAliases(profileState: ProfileRuntimeState, tabs: BrowserTab[]): BrowserTab[] {
@@ -342,11 +348,11 @@ export function createProfileTabOps({
       if (resolved.reason === "ambiguous") {
         throw new BrowserTargetAmbiguousError();
       }
-      throw new BrowserTabNotFoundError();
+      throw new BrowserTabNotFoundError({ input: targetId });
     }
     const tab = tabs.find((candidate) => candidate.targetId === resolved.targetId);
     if (!tab) {
-      throw new BrowserTabNotFoundError();
+      throw new BrowserTabNotFoundError({ input: targetId });
     }
     return assignTabAlias({ profileState: getProfileState(), tab, label: normalizedLabel });
   };

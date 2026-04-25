@@ -16,6 +16,7 @@ const BROWSER_ACT_KINDS = [
 ] as const;
 
 const BROWSER_TOOL_ACTIONS = [
+  "doctor",
   "status",
   "start",
   "stop",
@@ -105,6 +106,7 @@ export const BrowserToolSchema = Type.Object({
   selector: Type.Optional(Type.String()),
   frame: Type.Optional(Type.String()),
   labels: Type.Optional(Type.Boolean()),
+  urls: Type.Optional(Type.Boolean()),
   fullPage: Type.Optional(Type.Boolean()),
   ref: Type.Optional(Type.String()),
   element: Type.Optional(Type.String()),

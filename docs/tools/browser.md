@@ -34,6 +34,7 @@ agent automation and verification.
 ## Quick start
 
 ```bash
+openclaw browser --browser-profile openclaw doctor
 openclaw browser --browser-profile openclaw status
 openclaw browser --browser-profile openclaw start
 openclaw browser --browser-profile openclaw open https://example.com
@@ -136,7 +137,7 @@ Browser settings live in `~/.openclaw/openclaw.json`.
     executablePath: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
     profiles: {
       openclaw: { cdpPort: 18800, color: "#FF4500" },
-      work: { cdpPort: 18801, color: "#0066CC" },
+      work: { cdpPort: 18801, color: "#0066CC", headless: true },
       user: {
         driver: "existing-session",
         attachOnly: true,
@@ -176,6 +177,7 @@ Browser settings live in `~/.openclaw/openclaw.json`.
 <Accordion title="Profile behavior">
 
 - `attachOnly: true` means never launch a local browser; only attach if one is already running.
+- `headless` can be set globally or per local managed profile. Per-profile values override `browser.headless`, so one locally launched profile can stay headless while another remains visible.
 - `color` (top-level and per-profile) tints the browser UI so you can see which profile is active.
 - Default profile is `openclaw` (managed standalone). Use `defaultProfile: "user"` to opt into the signed-in user browser.
 - Auto-detect order: system default browser if Chromium-based; otherwise Chrome → Brave → Edge → Chromium → Chrome Canary.
@@ -234,6 +236,7 @@ Or set it in config, per platform:
 - **Remote control (node host):** run a node host on the machine that has the browser; the Gateway proxies browser actions to it.
 - **Remote CDP:** set `browser.profiles.<name>.cdpUrl` (or `browser.cdpUrl`) to
   attach to a remote Chromium-based browser. In this case, OpenClaw will not launch a local browser.
+- `headless` only affects local managed profiles that OpenClaw launches. It does not restart or change existing-session or remote CDP browsers.
 
 Stopping behavior differs by profile mode:
 
@@ -513,8 +516,10 @@ Compared to the managed `openclaw` profile, existing-session drivers are more co
 
 - **Dedicated user data dir**: never touches your personal browser profile.
 - **Dedicated ports**: avoids `9222` to prevent collisions with dev workflows.
-- **Deterministic tab control**: target tabs by raw `targetId`, stable `tabId`
-  handles such as `t1`, or labels you assign with `open --label` / `tab label`.
+- **Deterministic tab control**: `tabs` returns `suggestedTargetId` first, then
+  stable `tabId` handles such as `t1`, optional labels, and the raw `targetId`.
+  Agents should reuse `suggestedTargetId`; raw ids remain available for
+  debugging and compatibility.
 
 ## Browser selection
 
@@ -595,13 +600,14 @@ Security guidance:
 
 The agent gets **one tool** for browser automation:
 
-- `browser` — status/start/stop/tabs/open/focus/close/snapshot/screenshot/navigate/act
+- `browser` — doctor/status/start/stop/tabs/open/focus/close/snapshot/screenshot/navigate/act
 
 How it maps:
 
 - `browser snapshot` returns a stable UI tree (AI or ARIA).
 - `browser act` uses the snapshot `ref` IDs to click/type/drag/select.
-- `browser screenshot` captures pixels (full page or element).
+- `browser screenshot` captures pixels (full page, element, or labeled refs).
+- `browser doctor` checks Gateway, plugin, profile, browser, and tab readiness.
 - `browser` accepts:
   - `profile` to choose a named browser profile (openclaw, chrome, or remote CDP).
   - `target` (`sandbox` | `host` | `node`) to select where the browser lives.
