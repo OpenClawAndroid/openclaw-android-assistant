@@ -691,6 +691,187 @@ describe("diagnostics-otel service", () => {
     await service.stop?.(ctx);
   });
 
+  test("exports GenAI client token usage histogram for input and output only", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { metrics: true });
+    await service.start(ctx);
+
+    emitDiagnosticEvent({
+      type: "model.usage",
+      sessionKey: "session-key",
+      channel: "webchat",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: {
+        input: 12,
+        output: 7,
+        cacheRead: 3,
+        cacheWrite: 2,
+        promptTokens: 17,
+        total: 24,
+      },
+    });
+    await flushDiagnosticEvents();
+
+    expect(telemetryState.meter.createHistogram).toHaveBeenCalledWith(
+      "gen_ai.client.token.usage",
+      expect.objectContaining({
+        unit: "{token}",
+        advice: {
+          explicitBucketBoundaries: expect.arrayContaining([1, 4, 16, 1024, 67108864]),
+        },
+      }),
+    );
+    const genAiTokenUsage = telemetryState.histograms.get("gen_ai.client.token.usage");
+    expect(genAiTokenUsage?.record).toHaveBeenCalledTimes(2);
+    expect(genAiTokenUsage?.record).toHaveBeenCalledWith(12, {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.provider.name": "openai",
+      "gen_ai.request.model": "gpt-5.4",
+      "gen_ai.token.type": "input",
+    });
+    expect(genAiTokenUsage?.record).toHaveBeenCalledWith(7, {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.provider.name": "openai",
+      "gen_ai.request.model": "gpt-5.4",
+      "gen_ai.token.type": "output",
+    });
+    expect(JSON.stringify(genAiTokenUsage?.record.mock.calls)).not.toContain("session-key");
+    await service.stop?.(ctx);
+  });
+
+  test("keeps GenAI token usage metric model attribute present when model is unavailable", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { metrics: true });
+    await service.start(ctx);
+
+    emitDiagnosticEvent({
+      type: "model.usage",
+      provider: "openai",
+      usage: { input: 2 },
+    });
+    await flushDiagnosticEvents();
+
+    expect(telemetryState.histograms.get("gen_ai.client.token.usage")?.record).toHaveBeenCalledWith(
+      2,
+      {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "unknown",
+        "gen_ai.token.type": "input",
+      },
+    );
+    await service.stop?.(ctx);
+  });
+
+  test("exports GenAI usage attributes on model usage spans without diagnostic identifiers", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { traces: true });
+    await service.start(ctx);
+
+    emitDiagnosticEvent({
+      type: "model.usage",
+      sessionKey: "session-key",
+      sessionId: "session-id",
+      provider: "anthropic",
+      model: "claude-sonnet-4.6",
+      usage: {
+        input: 100,
+        output: 40,
+        cacheRead: 30,
+        cacheWrite: 20,
+        promptTokens: 150,
+        total: 190,
+      },
+      durationMs: 25,
+    });
+    await flushDiagnosticEvents();
+
+    const modelUsageCall = telemetryState.tracer.startSpan.mock.calls.find(
+      (call) => call[0] === "openclaw.model.usage",
+    );
+    expect(modelUsageCall?.[1]).toMatchObject({
+      attributes: {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.system": "anthropic",
+        "gen_ai.request.model": "claude-sonnet-4.6",
+        "gen_ai.usage.input_tokens": 150,
+        "gen_ai.usage.output_tokens": 40,
+        "gen_ai.usage.cache_read.input_tokens": 30,
+        "gen_ai.usage.cache_creation.input_tokens": 20,
+      },
+    });
+    expect(modelUsageCall?.[1]).toEqual({
+      attributes: expect.not.objectContaining({
+        "openclaw.sessionKey": expect.anything(),
+        "openclaw.sessionId": expect.anything(),
+        "gen_ai.provider.name": expect.anything(),
+        "gen_ai.input.messages": expect.anything(),
+        "gen_ai.output.messages": expect.anything(),
+      }),
+      startTime: expect.any(Number),
+    });
+    expect(JSON.stringify(modelUsageCall)).not.toContain("session-key");
+    await service.stop?.(ctx);
+  });
+
+  test("exports GenAI client operation duration histogram without diagnostic identifiers", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { metrics: true });
+    await service.start(ctx);
+
+    emitDiagnosticEvent({
+      type: "model.call.completed",
+      runId: "run-1",
+      callId: "call-1",
+      sessionKey: "session-key",
+      provider: "openai",
+      model: "gpt-5.4",
+      api: "openai-completions",
+      durationMs: 250,
+    });
+    emitDiagnosticEvent({
+      type: "model.call.error",
+      runId: "run-1",
+      callId: "call-2",
+      sessionKey: "session-key",
+      provider: "google",
+      model: "gemini-2.5-flash",
+      api: "google-generative-ai",
+      durationMs: 1250,
+      errorCategory: "TimeoutError",
+    });
+    await flushDiagnosticEvents();
+
+    expect(telemetryState.meter.createHistogram).toHaveBeenCalledWith(
+      "gen_ai.client.operation.duration",
+      expect.objectContaining({
+        unit: "s",
+        advice: {
+          explicitBucketBoundaries: expect.arrayContaining([0.01, 0.32, 2.56, 81.92]),
+        },
+      }),
+    );
+    const genAiOperationDuration = telemetryState.histograms.get(
+      "gen_ai.client.operation.duration",
+    );
+    expect(genAiOperationDuration?.record).toHaveBeenCalledTimes(2);
+    expect(genAiOperationDuration?.record).toHaveBeenCalledWith(0.25, {
+      "gen_ai.operation.name": "text_completion",
+      "gen_ai.provider.name": "openai",
+      "gen_ai.request.model": "gpt-5.4",
+    });
+    expect(genAiOperationDuration?.record).toHaveBeenCalledWith(1.25, {
+      "gen_ai.operation.name": "generate_content",
+      "gen_ai.provider.name": "google",
+      "gen_ai.request.model": "gemini-2.5-flash",
+      "error.type": "TimeoutError",
+    });
+    expect(JSON.stringify(genAiOperationDuration?.record.mock.calls)).not.toContain("session-key");
+    expect(JSON.stringify(genAiOperationDuration?.record.mock.calls)).not.toContain("run-1");
+    await service.stop?.(ctx);
+  });
+
   test("exports run, model call, and tool execution lifecycle spans", async () => {
     const service = createDiagnosticsOtelService();
     const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { traces: true, metrics: true });
@@ -926,6 +1107,13 @@ describe("diagnostics-otel service", () => {
       api: "openai-completions",
       durationMs: 80,
     });
+    emitDiagnosticEvent({
+      type: "model.usage",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: { input: 3, output: 2 },
+      durationMs: 10,
+    });
     await flushDiagnosticEvents();
 
     const modelCall = telemetryState.tracer.startSpan.mock.calls.find(
@@ -939,6 +1127,22 @@ describe("diagnostics-otel service", () => {
       },
     });
     expect(modelCall?.[1]).toEqual({
+      attributes: expect.not.objectContaining({
+        "gen_ai.system": expect.anything(),
+      }),
+      startTime: expect.any(Number),
+    });
+    const modelUsage = telemetryState.tracer.startSpan.mock.calls.find(
+      (call) => call[0] === "openclaw.model.usage",
+    );
+    expect(modelUsage?.[1]).toMatchObject({
+      attributes: {
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "gpt-5.4",
+        "gen_ai.operation.name": "chat",
+      },
+    });
+    expect(modelUsage?.[1]).toEqual({
       attributes: expect.not.objectContaining({
         "gen_ai.system": expect.anything(),
       }),
@@ -1241,6 +1445,65 @@ describe("diagnostics-otel service", () => {
       "openclaw.run": SPAN_ID,
       "openclaw.model.call": CHILD_SPAN_ID,
       "openclaw.tool.execution": GRANDCHILD_SPAN_ID,
+    });
+    await service.stop?.(ctx);
+  });
+
+  test("does not parent untrusted diagnostic lifecycle spans from injected trace ids", async () => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { traces: true, metrics: true });
+    await service.start(ctx);
+
+    emitDiagnosticEvent({
+      type: "run.completed",
+      runId: "run-1",
+      provider: "openai",
+      model: "gpt-5.4",
+      outcome: "completed",
+      durationMs: 100,
+      trace: {
+        traceId: TRACE_ID,
+        spanId: CHILD_SPAN_ID,
+        parentSpanId: SPAN_ID,
+        traceFlags: "01",
+      },
+    });
+    emitDiagnosticEvent({
+      type: "model.call.completed",
+      runId: "run-1",
+      callId: "call-1",
+      provider: "openai",
+      model: "gpt-5.4",
+      durationMs: 80,
+      trace: {
+        traceId: TRACE_ID,
+        spanId: GRANDCHILD_SPAN_ID,
+        parentSpanId: CHILD_SPAN_ID,
+        traceFlags: "01",
+      },
+    });
+    emitDiagnosticEvent({
+      type: "tool.execution.completed",
+      runId: "run-1",
+      toolName: "read",
+      durationMs: 20,
+      trace: {
+        traceId: TRACE_ID,
+        spanId: TOOL_SPAN_ID,
+        parentSpanId: GRANDCHILD_SPAN_ID,
+        traceFlags: "01",
+      },
+    });
+    await flushDiagnosticEvents();
+
+    expect(telemetryState.tracer.setSpanContext).not.toHaveBeenCalled();
+    const parentBySpanName = Object.fromEntries(
+      telemetryState.tracer.startSpan.mock.calls.map((call) => [call[0], call[2]]),
+    );
+    expect(parentBySpanName).toMatchObject({
+      "openclaw.run": undefined,
+      "openclaw.model.call": undefined,
+      "openclaw.tool.execution": undefined,
     });
     await service.stop?.(ctx);
   });
