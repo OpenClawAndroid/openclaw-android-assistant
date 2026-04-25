@@ -607,9 +607,34 @@ function resolveExternalBundledRuntimeDepsInstallRoot(params: {
   env: NodeJS.ProcessEnv;
 }): string {
   const packageRoot = resolveBundledPluginPackageRoot(params.pluginRoot) ?? params.pluginRoot;
+  const existingExternalRoot = resolveExistingExternalBundledRuntimeDepsRoot({
+    packageRoot,
+    env: params.env,
+  });
+  if (existingExternalRoot) {
+    return existingExternalRoot;
+  }
   const version = sanitizePathSegment(readPackageVersion(packageRoot));
   const packageKey = `openclaw-${version}-${createPathHash(packageRoot)}`;
   return path.join(resolveBundledRuntimeDepsExternalBaseDir(params.env), packageKey);
+}
+
+function resolveExistingExternalBundledRuntimeDepsRoot(params: {
+  packageRoot: string;
+  env: NodeJS.ProcessEnv;
+}): string | null {
+  const externalBaseDir = path.resolve(resolveBundledRuntimeDepsExternalBaseDir(params.env));
+  const packageRoot = path.resolve(params.packageRoot);
+  const relative = path.relative(externalBaseDir, packageRoot);
+  if (
+    relative === "" ||
+    relative.startsWith("..") ||
+    path.isAbsolute(relative) ||
+    relative.includes(path.sep)
+  ) {
+    return null;
+  }
+  return path.basename(packageRoot).startsWith("openclaw-") ? packageRoot : null;
 }
 
 function resolveSourceCheckoutRuntimeDepsCacheDir(params: {
@@ -1129,14 +1154,17 @@ function shouldCleanBundledRuntimeDepsInstallExecutionRoot(params: {
   return installExecutionRoot.startsWith(`${installRoot}${path.sep}`);
 }
 
-function writeBundledRuntimeDepsInstallManifest(installExecutionRoot: string): void {
+function ensureNpmInstallExecutionManifest(installExecutionRoot: string): void {
+  const manifestPath = path.join(installExecutionRoot, "package.json");
+  if (fs.existsSync(manifestPath)) {
+    return;
+  }
   fs.writeFileSync(
-    path.join(installExecutionRoot, "package.json"),
+    manifestPath,
     `${JSON.stringify({ name: "openclaw-runtime-deps-install", private: true }, null, 2)}\n`,
     "utf8",
   );
 }
-
 export function installBundledRuntimeDeps(params: {
   installRoot: string;
   installExecutionRoot?: string;
@@ -1159,7 +1187,7 @@ export function installBundledRuntimeDeps(params: {
     // doctor repair path installs directly in the external stage dir; without a
     // manifest, npm can honor a user's global prefix config and write under
     // $HOME/node_modules instead of our managed stage.
-    writeBundledRuntimeDepsInstallManifest(installExecutionRoot);
+    ensureNpmInstallExecutionManifest(installExecutionRoot);
     const installEnv = createBundledRuntimeDepsInstallEnv(params.env, {
       cacheDir: path.join(installExecutionRoot, ".openclaw-npm-cache"),
     });
