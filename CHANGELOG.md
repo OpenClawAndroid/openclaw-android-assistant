@@ -55,12 +55,39 @@ Docs: https://docs.openclaw.ai
 - Providers/ElevenLabs: include `eleven_v3` in the bundled TTS model catalog so model selection surfaces can offer ElevenLabs v3. (#68321) Thanks @itsuzef.
 - Providers/Local CLI TTS: add a bundled local command speech provider with file/stdout input, voice-note Opus conversion, and telephony PCM output. (#56239) Thanks @solar2ain.
 - Providers/Inworld: add Inworld as a bundled speech provider with streaming TTS synthesis, voice listing, voice-note output, and PCM telephony output. (#55972) Thanks @cshape.
+- Providers/Volcengine: add Volcengine/BytePlus Seed Speech as a bundled TTS provider with API-key auth, native Ogg/Opus voice-note output, and MP3 audio-file output. (#55641) Thanks @xuruiray.
 - Android/Talk Mode: expose Talk Mode in the Voice tab with runtime-owned voice capture modes and microphone foreground-service escalation. Thanks @alex-latitude.
 - Providers/LiteLLM: register `litellm` as an image-generation provider so `image_generate model=litellm/...` calls and `agents.defaults.imageGenerationModel.fallbacks` entries resolve through the LiteLLM proxy. Thanks @zqchris.
 - Codex harness: require Codex app-server `0.125.0` or newer and cover native MCP `PreToolUse`, `PostToolUse`, and `PermissionRequest` payloads through the OpenClaw hook relay.
 
 ### Fixes
 
+- QQ Bot: make `qqbot_remind` schedule, list, and remove Gateway cron jobs
+  directly for owner-authorized senders instead of returning `cronParams` and
+  relying on a follow-up generic `cron` tool call. Fixes #70865. (#70937)
+  Thanks @GaosCode.
+- Agents/subagents: keep queued subagent announces session-only when the
+  requester has no external channel target, avoiding ambiguous multi-channel
+  delivery failures. Fixes #59201. Thanks @larrylhollan.
+- Image understanding: preserve configured provider-prefixed vision model
+  metadata when callers request the model without the provider prefix, so custom
+  image models keep their `input: ["text", "image"]` capability. Fixes #33185.
+  Thanks @Kobe9312 and @vincentkoc.
+- Gateway/subagents: keep direct-loopback backend RPCs authenticated with the
+  shared gateway token/password off stale CLI paired-device scope baselines, so
+  internal calls no longer hit `scope-upgrade` pairing prompts while remote,
+  browser, node, device-token, and explicit-device paths still require normal
+  pairing approval. Fixes #63548.
+- Providers/Azure OpenAI: give deployment-scoped image generation requests a
+  longer 600s default timeout so slow `gpt-image-2` generations can complete
+  without a per-call `timeoutMs`. Fixes #71705. Thanks @voytas75.
+- Gateway/plugins: link source-checkout bundled runtime dependency caches instead
+  of recursively copying `node_modules` on the gateway main thread, preventing
+  local status, node, and skill probes from timing out during startup cache
+  restores. Thanks @steipete.
+- Skills/remote nodes: only expose remote macOS skill bins for connected nodes,
+  clear stale bin matches when node probes fail, and include probe command,
+  timeout, bin count, and connection state in timeout logs. Thanks @steipete.
 - CLI/gateway: keep diagnostic probes from creating first-time read-only device
   pairings, while still reusing cached device tokens for detailed read probes.
   Fixes #71766. Thanks @SunboZ.
@@ -88,6 +115,12 @@ Docs: https://docs.openclaw.ai
 - Providers/Ollama: use Ollama's current `/api/web_search` endpoint and honor
   `https://ollama.com` model-provider base URLs for Ollama Web Search. Fixes
   #71741. Thanks @madhvidua.
+- Memory/Ollama: serialize Ollama memory embedding batches and add an inline
+  batch timeout override, with longer defaults for local/self-hosted embedding
+  providers. Thanks @steipete.
+- Sessions/usage: exclude compaction checkpoint transcript snapshots from usage
+  totals and session discovery, while keeping old checkpoint files removable.
+  Thanks @steipete.
 - CLI/agents: keep `openclaw agents list --json` on the config-only path by
   default, avoiding bundled plugin loading unless callers request
   `--bindings`. Fixes #71739. Thanks @kaloster.
@@ -116,6 +149,8 @@ Docs: https://docs.openclaw.ai
 - ACP/oneshot: reconcile runtime session identity before closing completed
   oneshot ACP runs, so finished `sessions.json` entries do not stay stuck with
   `acp.identity.state="pending"`.
+- ACPX: bundle `acpx@0.6.1` so unsupported generic model overrides fail
+  clearly instead of silently falling back to the target adapter default.
 - ACP/models: document that non-Codex ACP model overrides require adapter
   support for ACP `models` plus `session/set_model`, so unsupported harnesses
   fail clearly instead of silently falling back to their defaults.
