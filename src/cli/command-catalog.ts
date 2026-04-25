@@ -37,10 +37,35 @@ export const cliCommandCatalog: readonly CliCommandCatalogEntry[] = [
     policy: { bypassConfigGuard: true, loadPlugins: "never", ensureCliPath: false },
   },
   { commandPath: ["agent"], policy: { loadPlugins: "always" } },
-  { commandPath: ["message"], policy: { loadPlugins: "always" } },
+  { commandPath: ["message"], policy: { loadPlugins: "never" } },
   { commandPath: ["channels"], policy: { loadPlugins: "always" } },
   { commandPath: ["directory"], policy: { loadPlugins: "always" } },
   { commandPath: ["agents"], policy: { loadPlugins: "always" } },
+  {
+    commandPath: ["agents", "bind"],
+    exact: true,
+    policy: { loadPlugins: "never" },
+  },
+  {
+    commandPath: ["agents", "bindings"],
+    exact: true,
+    policy: { loadPlugins: "never" },
+  },
+  {
+    commandPath: ["agents", "unbind"],
+    exact: true,
+    policy: { loadPlugins: "never" },
+  },
+  {
+    commandPath: ["agents", "set-identity"],
+    exact: true,
+    policy: { loadPlugins: "never" },
+  },
+  {
+    commandPath: ["agents", "delete"],
+    exact: true,
+    policy: { loadPlugins: "never" },
+  },
   { commandPath: ["configure"], policy: { bypassConfigGuard: true, loadPlugins: "never" } },
   {
     commandPath: ["status"],
@@ -152,5 +177,10 @@ export const cliCommandCatalog: readonly CliCommandCatalogEntry[] = [
     exact: true,
     policy: { loadPlugins: "never" },
     route: { id: "channels-list" },
+  },
+  {
+    commandPath: ["channels", "logs"],
+    exact: true,
+    policy: { loadPlugins: "never" },
   },
 ];

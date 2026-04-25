@@ -54,12 +54,25 @@ Docs: https://docs.openclaw.ai
 - Providers/Xiaomi: add MiMo TTS as a bundled speech provider with MP3/WAV output and voice-note Opus transcoding. Fixes #52376. (#55614) Thanks @zoujiejun.
 - Providers/ElevenLabs: include `eleven_v3` in the bundled TTS model catalog so model selection surfaces can offer ElevenLabs v3. (#68321) Thanks @itsuzef.
 - Providers/Local CLI TTS: add a bundled local command speech provider with file/stdout input, voice-note Opus conversion, and telephony PCM output. (#56239) Thanks @solar2ain.
+- Providers/Inworld: add Inworld as a bundled speech provider with streaming TTS synthesis, voice listing, voice-note output, and PCM telephony output. (#55972) Thanks @cshape.
 - Android/Talk Mode: expose Talk Mode in the Voice tab with runtime-owned voice capture modes and microphone foreground-service escalation. Thanks @alex-latitude.
 - Providers/LiteLLM: register `litellm` as an image-generation provider so `image_generate model=litellm/...` calls and `agents.defaults.imageGenerationModel.fallbacks` entries resolve through the LiteLLM proxy. Thanks @zqchris.
 - Codex harness: require Codex app-server `0.125.0` or newer and cover native MCP `PreToolUse`, `PostToolUse`, and `PermissionRequest` payloads through the OpenClaw hook relay.
 
 ### Fixes
 
+- CLI/gateway: keep diagnostic probes from creating first-time read-only device
+  pairings, while still reusing cached device tokens for detailed read probes.
+  Fixes #71766. Thanks @SunboZ.
+- CLI/plugins: keep `message` startup, `channels logs`, `agents delete`, and
+  `agents set-identity` off broad plugin preloading; message delivery still
+  loads plugins when the action actually runs.
+- Image understanding: resolve configured image models such as local LM Studio
+  vision entries before reporting `Unknown model` when the discovery registry
+  has not registered that provider. Fixes #66486. Thanks @zhanggpcsu.
+- CLI/agents: keep `agents bind`, `agents unbind`, and `agents bindings` on
+  setup-safe channel metadata paths so they do not preload bundled plugin
+  runtimes or stage runtime dependencies. Fixes #71743.
 - Plugins/registry: preserve explicit disabled plugin records during registry migration without persisting every unused bundled plugin discovered on disk. Thanks @shakkernerd.
 - Windows/native: keep CLI startup and bundled provider plugin loading off
   Windows ESM raw-path failure paths, fixing native onboarding/install smoke on
@@ -68,6 +81,19 @@ Docs: https://docs.openclaw.ai
   packaged plugin directory resolver used by plugin loading, so published
   installs keep Matrix DM allowlist repairs on `channels.matrix.dm.*` instead
   of writing invalid top-level `dmPolicy` keys. Fixes #71757.
+- Plugins/Windows: keep bundled plugin Jiti loaders off the native import path
+  on Windows so channel plugins such as Telegram no longer crash with
+  `ERR_UNSUPPORTED_ESM_URL_SCHEME` on `C:\...` paths. Fixes #71749. Thanks
+  @smeyer9.
+- Providers/Ollama: use Ollama's current `/api/web_search` endpoint and honor
+  `https://ollama.com` model-provider base URLs for Ollama Web Search. Fixes
+  #71741. Thanks @madhvidua.
+- CLI/agents: keep `openclaw agents list --json` on the config-only path by
+  default, avoiding bundled plugin loading unless callers request
+  `--bindings`. Fixes #71739. Thanks @kaloster.
+- Plugins/install: force plugin dependency installs to stay project-local even
+  when inherited npm config requests global installs, so successful installs
+  still materialize the plugin's staged `node_modules`.
 - Providers/Google: transcode Gemini TTS PCM to Opus for voice-note targets so
   WhatsApp and other native voice-note replies can play as voice messages.
 - Plugins/runtime deps: reuse existing external bundled-plugin stage roots when
@@ -114,6 +140,9 @@ Docs: https://docs.openclaw.ai
 - Providers/MiniMax: register `minimax-portal` for music and video generation,
   preserving OAuth auth and regional MiniMax base URLs across the shared
   `music_generate` and `video_generate` tools. (#63241) Thanks @tars90percent.
+- Providers/onboarding: keep Runway and Alibaba Model Studio out of the
+  text-inference setup picker by scoping their video-generation auth choices to
+  the media setup flow. (#65856) Thanks @Jah-yee.
 - Plugins/Bonjour: stop the gateway from crash-looping on `CIAO PROBING CANCELLED` when the mDNS watchdog cancels a stuck probe. Restores the rejection-handler wiring dropped during the bonjour plugin migration and shares unhandled-rejection state across module instances so plugin-staged copies of `openclaw/plugin-sdk/runtime` register into the same handler set the host consults. Especially affects Docker on macOS, where mDNS probing reliably hits the watchdog. Thanks @troyhitch.
 - Google Meet: report pinned Chrome nodes as offline or missing capabilities in
   setup/join diagnostics, keep inaccessible nodes out of auto-selection, and
@@ -526,6 +555,7 @@ Docs: https://docs.openclaw.ai
 - Slack: route native stream fallback replies through the normal chunked sender so long buffered Slack Connect responses are not dropped or duplicated. (#71124) Thanks @martingarramon.
 - WhatsApp: transcribe accepted voice notes before agent dispatch while keeping spoken transcripts out of command authorization. (#64120) Thanks @rogerdigital.
 - Plugins/CLI: expose channel plugin CLI descriptors during discovery-mode plugin loads so snapshot registries keep channel commands visible without activating full runtimes. (#71309) Thanks @gumadeiras.
+- Matrix: separate recovery-key, backup, and owner-trust diagnostics during E2EE recovery, add recovery-key rotation for backup reset, and cover destructive backup restore paths in QA. (#71311) Thanks @gumadeiras.
 - WhatsApp: deliver media generated by tool-result replies while still suppressing text-only tool chatter. (#60968) Thanks @adaclaw.
 - Config/agents: accept `agents.list[].contextTokens` in strict config validation so per-agent overrides survive hot reload, letting `/status` reflect the configured model window instead of the 200k fallback. Fixes #70692. (#71247) Thanks @statxc.
 - Heartbeat: include async exec completion details in heartbeat prompts so command-finished notifications relay the actual output. (#71213) Thanks @GodsBoy.
@@ -661,6 +691,9 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Dependencies: refresh workspace package pins and lockfile entries for AWS SDK,
+  Anthropic SDK, ACP SDK, Matrix crypto, TypeBox, Vite, tsdown, Slack Bolt,
+  CopilotKit AIMock, and related bundled plugin packages. Thanks @steipete.
 - Gateway/env: import each missing expected login-shell env var independently,
   so an existing gateway token no longer prevents `env.shellEnv` from loading
   plugin credentials such as `TWILIO_*` from `.profile`. Thanks @steipete.
