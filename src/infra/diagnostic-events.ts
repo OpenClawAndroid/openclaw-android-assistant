@@ -262,6 +262,7 @@ type DiagnosticModelCallBaseEvent = DiagnosticBaseEvent & {
   model: string;
   api?: string;
   transport?: string;
+  upstreamRequestIdHash?: string;
 };
 
 export type DiagnosticModelCallStartedEvent = DiagnosticModelCallBaseEvent & {
@@ -277,6 +278,26 @@ export type DiagnosticModelCallErrorEvent = DiagnosticModelCallBaseEvent & {
   type: "model.call.error";
   durationMs: number;
   errorCategory: string;
+};
+
+export type DiagnosticContextAssembledEvent = DiagnosticBaseEvent & {
+  type: "context.assembled";
+  runId: string;
+  sessionKey?: string;
+  sessionId?: string;
+  provider: string;
+  model: string;
+  channel?: string;
+  trigger?: string;
+  messageCount: number;
+  historyTextChars: number;
+  historyImageBlocks: number;
+  maxMessageTextChars: number;
+  systemPromptChars: number;
+  promptChars: number;
+  promptImages: number;
+  contextTokenBudget?: number;
+  reserveTokens?: number;
 };
 
 export type DiagnosticMemoryUsage = {
@@ -354,6 +375,7 @@ export type DiagnosticEventPayload =
   | DiagnosticModelCallStartedEvent
   | DiagnosticModelCallCompletedEvent
   | DiagnosticModelCallErrorEvent
+  | DiagnosticContextAssembledEvent
   | DiagnosticMemorySampleEvent
   | DiagnosticMemoryPressureEvent
   | DiagnosticPayloadLargeEvent
@@ -380,6 +402,7 @@ type QueuedDiagnosticEvent = {
 };
 
 type DiagnosticEventsGlobalState = {
+  marker: symbol;
   enabled: boolean;
   seq: number;
   listeners: Set<DiagnosticEventListener>;
@@ -389,6 +412,7 @@ type DiagnosticEventsGlobalState = {
 };
 
 const MAX_ASYNC_DIAGNOSTIC_EVENTS = 10_000;
+const DIAGNOSTIC_EVENTS_STATE_KEY = Symbol.for("openclaw.diagnosticEvents.state.v1");
 const ASYNC_DIAGNOSTIC_EVENT_TYPES = new Set<DiagnosticEventPayload["type"]>([
   "tool.execution.started",
   "tool.execution.completed",
@@ -400,20 +424,52 @@ const ASYNC_DIAGNOSTIC_EVENT_TYPES = new Set<DiagnosticEventPayload["type"]>([
   "model.call.started",
   "model.call.completed",
   "model.call.error",
+  "context.assembled",
   "log.record",
 ]);
 
-const diagnosticEventsState: DiagnosticEventsGlobalState = {
-  enabled: true,
-  seq: 0,
-  listeners: new Set<DiagnosticEventListener>(),
-  dispatchDepth: 0,
-  asyncQueue: [],
-  asyncDrainScheduled: false,
-};
+function createDiagnosticEventsState(): DiagnosticEventsGlobalState {
+  return {
+    marker: DIAGNOSTIC_EVENTS_STATE_KEY,
+    enabled: true,
+    seq: 0,
+    listeners: new Set<DiagnosticEventListener>(),
+    dispatchDepth: 0,
+    asyncQueue: [],
+    asyncDrainScheduled: false,
+  };
+}
+
+function isDiagnosticEventsState(value: unknown): value is DiagnosticEventsGlobalState {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<DiagnosticEventsGlobalState>;
+  return (
+    candidate.marker === DIAGNOSTIC_EVENTS_STATE_KEY &&
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.seq === "number" &&
+    candidate.listeners instanceof Set &&
+    typeof candidate.dispatchDepth === "number" &&
+    Array.isArray(candidate.asyncQueue) &&
+    typeof candidate.asyncDrainScheduled === "boolean"
+  );
+}
 
 function getDiagnosticEventsState(): DiagnosticEventsGlobalState {
-  return diagnosticEventsState;
+  const globalRecord = globalThis as Record<PropertyKey, unknown>;
+  const existing = globalRecord[DIAGNOSTIC_EVENTS_STATE_KEY];
+  if (isDiagnosticEventsState(existing)) {
+    return existing;
+  }
+  const state = createDiagnosticEventsState();
+  Object.defineProperty(globalThis, DIAGNOSTIC_EVENTS_STATE_KEY, {
+    configurable: true,
+    enumerable: false,
+    value: state,
+    writable: false,
+  });
+  return state;
 }
 
 export function isDiagnosticsEnabled(config?: OpenClawConfig): boolean {

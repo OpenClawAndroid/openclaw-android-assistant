@@ -14,6 +14,20 @@ Docs: https://docs.openclaw.ai
 - CLI/Crestodian: open interactive Crestodian in the full OpenClaw TUI shell instead of a basic readline prompt.
 - CLI/Crestodian: shorten the startup greeting to the active planner/model, config state, Gateway probe result, and next debug action instead of dumping every discovered backend.
 - Plugins: migrate the local plugin registry automatically during package install/update, preserving legacy config and install-ledger state while indexing existing plugin manifests for the new cold registry path. Thanks @vincentkoc.
+- Diagnostics/OTEL: align model-call GenAI span attributes with OpenTelemetry stability opt-in semantics, keeping legacy `gen_ai.system` by default while emitting `gen_ai.provider.name` under `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`. Thanks @vincentkoc.
+- Plugins/CLI: add `openclaw plugins registry` for explicit persisted-registry inspection and `--refresh` repair without making normal startup rescan plugin locations. Thanks @vincentkoc.
+- Plugins/CLI: make `openclaw plugins list` read the cold persisted registry snapshot by default, leaving module-aware diagnostics to `plugins doctor` and `plugins inspect`. Thanks @vincentkoc.
+- Plugins/startup: move gateway startup plugin planning onto the versioned cold registry index, with postinstall repair for older registry files that predate startup metadata. Thanks @vincentkoc.
+- Plugins/startup: normalize startup and provider plugin enablement through registry aliases so boot paths do not need the legacy manifest alias scan. Thanks @vincentkoc.
+- Providers/plugins: resolve provider ownership, provider discovery scopes, and catalog-hook provider ids from the cold plugin registry instead of rescanning manifests on those paths. Thanks @vincentkoc.
+- Plugins/chat commands: refresh the persisted plugin registry after `/plugins enable` and `/plugins disable`, matching the CLI mutation path. Thanks @vincentkoc.
+- Plugins/compat: mark `OPENCLAW_DISABLE_PERSISTED_PLUGIN_REGISTRY` as a deprecated break-glass switch and point operators at registry repair instead. Thanks @vincentkoc.
+- Plugins/registry: ignore stale persisted registry reads when plugin policy no longer matches current config, and stamp generated registry files with a do-not-edit warning. Thanks @vincentkoc.
+- Diagnostics/OTEL: surface provider request identifiers as bounded hashes on model-call diagnostics and span events, without exporting raw request IDs or metric labels. Thanks @Lidang-Jiang and @vincentkoc.
+- Plugins/diagnostics: add metadata-only `model_call_started` and `model_call_ended` hooks for provider/model call telemetry without exposing prompts, responses, headers, request bodies, or raw provider request IDs. Thanks @vincentkoc.
+- Diagnostics/OTEL: emit bounded context assembly diagnostics and export `openclaw.context.assembled` spans with prompt/history sizes but no prompt, history, response, or session-key content. Thanks @vincentkoc.
+- Diagnostics/OTEL: export existing tool-loop diagnostics as `openclaw.tool.loop` counters and spans without loop messages, session identifiers, params, or tool output. Thanks @vincentkoc.
+- Diagnostics/OTEL: export diagnostic memory samples and pressure as bounded memory histograms, counters, and pressure spans to help spot leak regressions without session or payload data. Thanks @vincentkoc.
 - Diagnostics/OTEL: add bounded outbound message delivery lifecycle diagnostics and export them as low-cardinality delivery spans/metrics without message body, recipient, room, or media-path data. (#71471) Thanks @vincentkoc and @jlapenna.
 - Diagnostics/OTEL: emit bounded exec-process diagnostics and export them as `openclaw.exec` spans without exposing command text, working directories, or container identifiers. (#71451) Thanks @vincentkoc and @jlapenna.
 - Diagnostics/OTEL: support `OPENCLAW_OTEL_PRELOADED=1` so the plugin can reuse an already-registered OpenTelemetry SDK while keeping OpenClaw diagnostic listeners wired. (#71450) Thanks @vincentkoc and @jlapenna.
@@ -22,9 +36,24 @@ Docs: https://docs.openclaw.ai
 - Providers/Xiaomi: add MiMo TTS as a bundled speech provider with MP3/WAV output and voice-note Opus transcoding. Fixes #52376. (#55614) Thanks @zoujiejun.
 - Providers/ElevenLabs: include `eleven_v3` in the bundled TTS model catalog so model selection surfaces can offer ElevenLabs v3. (#68321) Thanks @itsuzef.
 - Providers/Local CLI TTS: add a bundled local command speech provider with file/stdout input, voice-note Opus conversion, and telephony PCM output. (#56239) Thanks @solar2ain.
+- Providers/LiteLLM: register `litellm` as an image-generation provider so `image_generate model=litellm/...` calls and `agents.defaults.imageGenerationModel.fallbacks` entries resolve through the LiteLLM proxy. Thanks @zqchris.
 
 ### Fixes
 
+- Plugins/startup: remove ownerless bundled runtime-dependency install locks
+  after a short grace window and include lock owner details when startup times
+  out waiting for a plugin runtime-deps lock. Thanks @steipete.
+- Agents/replies: forward sanitized underlying agent failure details on external
+  channels instead of replacing unknown failures with a generic retry message.
+  Thanks @steipete.
+- Browser/CDP: honor configured remote and `attachOnly` CDP HTTP/WebSocket
+  timeouts when opening tabs through raw CDP or `/json/new` fallback. (#54238)
+  Thanks @FuncWei.
+- WhatsApp/TTS: send visible text separately from PTT voice-note audio instead
+  of relying on hidden voice-note captions. Fixes #51081.
+- Browser/client: avoid telling agents to restart OpenClaw for dispatcher
+  timeouts on external browser profiles such as `attachOnly`, remote CDP, and
+  existing-session. (#40815) Thanks @0xsline.
 - Agents/TTS: preserve `[[audio_as_voice]]` directives on trusted text
   tool-result `MEDIA:` payloads so generated audio still delivers as a voice
   note. (#46535) Thanks @azade-c.
@@ -36,10 +65,20 @@ Docs: https://docs.openclaw.ai
   detection. Closes #33360. Thanks @smartchainark.
 - Subagents/browser: show an actionable `/tools` notice when browser automation is configured but filtered out by the active tool profile, and document that coding-profile agents should use `tools.alsoAllow: ["browser"]` rather than subagent allowlists alone.
 - Control UI/Quick Settings: persist the assistant avatar override to browser local storage (mirroring the user avatar) so uploaded image data URLs no longer fail config validation with "Too big: expected string to have <=200 characters". Also lift the gateway-side `ui.assistant.avatar` length cap to match the user avatar size budget for non-UI clients writing the field directly. Thanks @BunsDev.
+- Plugin SDK: share diagnostic event subscriptions across duplicate source/dist
+  module graphs so legacy root SDK imports still receive runtime diagnostic events.
+- Agents/Bedrock: prevent empty assistant stream-error turns from poisoning
+  Converse replay by persisting, repairing, and replaying a non-empty fallback
+  block. Fixes #71572. (#71627) Thanks @openperf.
 - Browser/CDP: make readiness diagnostics use the same discovery-first fallback as reachability for bare `ws://` Browserless and Browserbase CDP URLs. Fixes #69532.
 - Browser/CDP: explain that loopback Browserless or other externally managed CDP services need `attachOnly: true` and matching Browserless `EXTERNAL` endpoint when reporting local port ownership conflicts, and fall back to the configured bare WebSocket root when a discovered Browserless endpoint rejects CDP. Fixes #49815.
+- Gateway/reload: preserve indefinite `gateway.reload.deferralTimeoutMs: 0` semantics for channel hot reload deferrals so active agent runs are not interrupted by a forced channel restart. (#71637) Thanks @Poo-Squirry.
+- Agents/tool results: cap persisted Pi tool-result details and strip hidden diagnostics before provider conversion, preventing large debug payloads from bloating session transcripts. (#71637) Thanks @Poo-Squirry.
 - ACP/OpenCode: update the bundled acpx runtime to 0.6.0 and cover the OpenCode ACP bind path in Docker live tests.
 - Providers/OpenCode Go: add DeepSeek V4 Pro and DeepSeek V4 Flash to the Go catalog while the bundled Pi registry catches up. Fixes #71587.
+- Providers/OpenCode Go: route DeepSeek V4 Pro/Flash through the OpenAI-compatible Go endpoint and suppress invalid `reasoning_effort: "off"` payloads, fixing tool-enabled requests for `opencode-go/deepseek-v4-flash`. Fixes #71683.
+- Plugins/Skill Workshop: run the LLM reviewer on the configured agent default model instead of the hardcoded OpenAI SDK fallback when hook context lacks model metadata. Fixes #71659.
+- Providers/Venice: fill the required DeepSeek V4 `reasoning_content` placeholder for `venice/deepseek-v4-pro` and `venice/deepseek-v4-flash` replay turns without sending native DeepSeek `thinking` controls that Venice rejects. Fixes #71628.
 - Browser/existing-session: support per-profile Chrome MCP command/args, map `cdpUrl` to `--browserUrl` or `--wsEndpoint`, and avoid combining endpoint flags with `--userDataDir`. Fixes #47879, #48037, and #62706. Thanks @puneet1409, @zhehao, and @madkow1001.
 - Media/plugins: bound MIME sniffing and ZIP archive preflight before handing
   untrusted files to `file-type` or `jszip`, reducing parser CPU and memory
@@ -48,6 +87,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/dashboard: render Control UI and WebSocket links with `https://`/`wss://` when `gateway.tls.enabled=true`, including `openclaw gateway status`. Fixes #71494. (#71499) Thanks @deepkilo.
 - Agents/OpenAI-compatible: default proxy/local completions tool requests to `tool_choice: "auto"` when tools are present, so providers enter native tool-calling mode instead of replying with plain-text tool directives. (#71472) Thanks @Speed-maker.
 - OpenAI image generation: use `gpt-5.5` for the Codex OAuth responses transport instead of the retired `gpt-5.4` model, fixing 500s from ChatGPT Codex image generation. Fixes #71513. Thanks @baolongl.
+- OpenAI image generation: route transparent-background default-model requests to `gpt-image-1.5`, document the expected `image_generate` call shape, and keep Azure/custom OpenAI-compatible deployment names untouched. Thanks @steipete.
 - Google video generation: download direct MLDev Veo `video.uri` results instead of passing them through the Files API path, fixing 404s after successful generation/polling. Fixes #71200. Thanks @panhaishan.
 - Google video generation: fall back to the REST `predictLongRunning` Veo endpoint for text-only SDK 404s while keeping reference image/video generation on the SDK path. Fixes #62309 and #63008. (#62343) Thanks @leoleedev.
 - MiniMax music generation: switch the bundled default model from the unsupported `music-2.5+` id to the current `music-2.6` API model. Fixes #64870 and addresses the music default from #62315. Thanks @noahclanman and @edwardzheng1.

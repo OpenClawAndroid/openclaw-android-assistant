@@ -7,6 +7,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { enablePluginInConfig } from "../plugins/enable.js";
 import { listMarketplacePlugins } from "../plugins/marketplace.js";
+import { inspectPluginRegistry, refreshPluginRegistry } from "../plugins/plugin-registry.js";
 import { defaultSlotIdForKey } from "../plugins/slots.js";
 import { formatPluginSourceForTable, resolvePluginSourceRoots } from "../plugins/source-display.js";
 import {
@@ -14,7 +15,7 @@ import {
   buildPluginDiagnosticsReport,
   buildPluginCompatibilityNotices,
   buildPluginInspectReport,
-  buildPluginSnapshotReport,
+  buildPluginRegistrySnapshotReport,
   formatPluginCompatibilityNotice,
 } from "../plugins/status.js";
 import type { PluginLogger } from "../plugins/types.js";
@@ -67,6 +68,11 @@ export type PluginUninstallOptions = {
   keepConfig?: boolean;
   force?: boolean;
   dryRun?: boolean;
+};
+
+export type PluginRegistryOptions = {
+  json?: boolean;
+  refresh?: boolean;
 };
 
 const quietPluginJsonLogger: PluginLogger = {
@@ -137,6 +143,20 @@ function formatInstallLines(install: PluginInstallRecord | undefined): string[] 
   return lines;
 }
 
+function countEnabledPlugins(plugins: readonly { enabled: boolean }[]): number {
+  return plugins.filter((plugin) => plugin.enabled).length;
+}
+
+function formatRegistryState(state: "missing" | "fresh" | "stale"): string {
+  if (state === "fresh") {
+    return theme.success(state);
+  }
+  if (state === "stale") {
+    return theme.warn(state);
+  }
+  return theme.warn(state);
+}
+
 export function registerPluginsCli(program: Command) {
   const plugins = program
     .command("plugins")
@@ -154,16 +174,20 @@ export function registerPluginsCli(program: Command) {
     .option("--enabled", "Only show enabled plugins", false)
     .option("--verbose", "Show detailed entries", false)
     .action((opts: PluginsListOptions) => {
-      const report = buildPluginSnapshotReport(
-        opts.json ? { logger: quietPluginJsonLogger } : undefined,
-      );
-      const list = opts.enabled
-        ? report.plugins.filter((p) => p.status === "loaded")
-        : report.plugins;
+      const cfg = loadConfig();
+      const report = buildPluginRegistrySnapshotReport({
+        config: cfg,
+        ...(opts.json ? { logger: quietPluginJsonLogger } : {}),
+      });
+      const list = opts.enabled ? report.plugins.filter((p) => p.enabled) : report.plugins;
 
       if (opts.json) {
         const payload = {
           workspaceDir: report.workspaceDir,
+          registry: {
+            source: report.registrySource,
+            diagnostics: report.registryDiagnostics,
+          },
           plugins: list,
           diagnostics: report.diagnostics,
         };
@@ -176,9 +200,9 @@ export function registerPluginsCli(program: Command) {
         return;
       }
 
-      const loaded = list.filter((p) => p.status === "loaded").length;
+      const enabled = list.filter((p) => p.enabled).length;
       defaultRuntime.log(
-        `${theme.heading("Plugins")} ${theme.muted(`(${loaded}/${list.length} loaded)`)}`,
+        `${theme.heading("Plugins")} ${theme.muted(`(${enabled}/${list.length} enabled)`)}`,
       );
 
       if (!opts.verbose) {
@@ -199,11 +223,11 @@ export function registerPluginsCli(program: Command) {
             ID: plugin.name && plugin.name !== plugin.id ? plugin.id : "",
             Format: plugin.format ?? "openclaw",
             Status:
-              plugin.status === "loaded"
-                ? theme.success("loaded")
-                : plugin.status === "disabled"
-                  ? theme.warn("disabled")
-                  : theme.error("error"),
+              plugin.status === "error"
+                ? theme.error("error")
+                : plugin.enabled
+                  ? theme.success("enabled")
+                  : theme.warn("disabled"),
             Source: sourceLine,
             Version: plugin.version ?? "",
           };
@@ -746,6 +770,65 @@ export function registerPluginsCli(program: Command) {
     )
     .action(async (id: string | undefined, opts: PluginUpdateOptions) => {
       await runPluginUpdateCommand({ id, opts });
+    });
+
+  plugins
+    .command("registry")
+    .description("Inspect or rebuild the persisted plugin registry")
+    .option("--json", "Print JSON")
+    .option("--refresh", "Rebuild the persisted registry from current plugin manifests", false)
+    .action(async (opts: PluginRegistryOptions) => {
+      const cfg = loadConfig();
+
+      if (opts.refresh) {
+        const index = await refreshPluginRegistry({
+          config: cfg,
+          reason: "manual",
+        });
+        if (opts.json) {
+          defaultRuntime.writeJson({
+            refreshed: true,
+            registry: index,
+          });
+          return;
+        }
+        const total = index.plugins.length;
+        const enabled = countEnabledPlugins(index.plugins);
+        defaultRuntime.log(
+          `Plugin registry refreshed: ${enabled}/${total} enabled plugins indexed.`,
+        );
+        return;
+      }
+
+      const inspection = await inspectPluginRegistry({ config: cfg });
+      if (opts.json) {
+        defaultRuntime.writeJson({
+          state: inspection.state,
+          refreshReasons: inspection.refreshReasons,
+          persisted: inspection.persisted,
+          current: inspection.current,
+        });
+        return;
+      }
+
+      const currentTotal = inspection.current.plugins.length;
+      const currentEnabled = countEnabledPlugins(inspection.current.plugins);
+      const persistedTotal = inspection.persisted?.plugins.length ?? 0;
+      const persistedEnabled = inspection.persisted
+        ? countEnabledPlugins(inspection.persisted.plugins)
+        : 0;
+      const lines = [
+        `${theme.muted("State:")} ${formatRegistryState(inspection.state)}`,
+        `${theme.muted("Current:")} ${currentEnabled}/${currentTotal} enabled plugins`,
+        `${theme.muted("Persisted:")} ${persistedEnabled}/${persistedTotal} enabled plugins`,
+      ];
+      if (inspection.refreshReasons.length > 0) {
+        lines.push(`${theme.muted("Refresh reasons:")} ${inspection.refreshReasons.join(", ")}`);
+        lines.push(
+          `${theme.muted("Repair:")} ${theme.command("openclaw plugins registry --refresh")}`,
+        );
+      }
+      defaultRuntime.log(lines.join("\n"));
     });
 
   plugins

@@ -1,10 +1,11 @@
 import path from "node:path";
 import { z } from "zod";
 import { resolveStateDir } from "../config/paths.js";
-import { readJsonFile, writeJsonAtomic } from "../infra/json-files.js";
+import { readJsonFile, readJsonFileSync, writeJsonAtomic } from "../infra/json-files.js";
 import { safeParseWithSchema } from "../utils/zod-parse.js";
 import {
   diffInstalledPluginIndexInvalidationReasons,
+  INSTALLED_PLUGIN_INDEX_WARNING,
   INSTALLED_PLUGIN_INDEX_VERSION,
   INSTALLED_PLUGIN_INDEX_MIGRATION_VERSION,
   loadInstalledPluginIndex,
@@ -47,6 +48,15 @@ const InstalledPluginIndexContributionsSchema = z
   })
   .passthrough();
 
+const InstalledPluginIndexStartupSchema = z
+  .object({
+    sidecar: z.boolean(),
+    memory: z.boolean(),
+    deferConfiguredChannelFullLoadUntilAfterListen: z.boolean(),
+    agentHarnesses: ContributionArraySchema,
+  })
+  .passthrough();
+
 const InstalledPluginIndexRecordSchema = z
   .object({
     pluginId: z.string(),
@@ -68,6 +78,7 @@ const InstalledPluginIndexRecordSchema = z
     enabled: z.boolean(),
     enabledByDefault: z.boolean().optional(),
     contributions: InstalledPluginIndexContributionsSchema,
+    startup: InstalledPluginIndexStartupSchema,
     compat: z.array(z.string()),
   })
   .passthrough();
@@ -84,6 +95,7 @@ const PluginDiagnosticSchema = z
 const InstalledPluginIndexSchema = z
   .object({
     version: z.literal(INSTALLED_PLUGIN_INDEX_VERSION),
+    warning: z.string().optional(),
     hostContractVersion: z.string(),
     compatRegistryVersion: z.string(),
     migrationVersion: z.literal(INSTALLED_PLUGIN_INDEX_MIGRATION_VERSION),
@@ -117,16 +129,27 @@ export async function readPersistedInstalledPluginIndex(
   return parseInstalledPluginIndex(parsed);
 }
 
+export function readPersistedInstalledPluginIndexSync(
+  options: InstalledPluginIndexStoreOptions = {},
+): InstalledPluginIndex | null {
+  const parsed = readJsonFileSync(resolveInstalledPluginIndexStorePath(options));
+  return parseInstalledPluginIndex(parsed);
+}
+
 export async function writePersistedInstalledPluginIndex(
   index: InstalledPluginIndex,
   options: InstalledPluginIndexStoreOptions = {},
 ): Promise<string> {
   const filePath = resolveInstalledPluginIndexStorePath(options);
-  await writeJsonAtomic(filePath, index, {
-    trailingNewline: true,
-    ensureDirMode: 0o700,
-    mode: 0o600,
-  });
+  await writeJsonAtomic(
+    filePath,
+    { ...index, warning: INSTALLED_PLUGIN_INDEX_WARNING },
+    {
+      trailingNewline: true,
+      ensureDirMode: 0o700,
+      mode: 0o600,
+    },
+  );
   return filePath;
 }
 

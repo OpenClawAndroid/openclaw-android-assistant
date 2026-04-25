@@ -1,7 +1,13 @@
 import { normalizeProviderId } from "../agents/provider-id.js";
-import type {
-  InstalledPluginIndexStoreInspection,
-  InstalledPluginIndexStoreOptions,
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  normalizePluginsConfigWithResolver,
+  type NormalizedPluginsConfig,
+} from "./config-normalization-shared.js";
+import {
+  readPersistedInstalledPluginIndexSync,
+  type InstalledPluginIndexStoreInspection,
+  type InstalledPluginIndexStoreOptions,
 } from "./installed-plugin-index-store.js";
 import {
   getInstalledPluginRecord,
@@ -10,6 +16,7 @@ import {
   listInstalledPluginRecords,
   loadInstalledPluginIndex,
   resolveInstalledPluginContributionOwners,
+  resolveInstalledPluginIndexPolicyHash,
   type InstalledPluginContributionKey,
   type InstalledPluginIndex,
   type InstalledPluginIndexRecord,
@@ -20,10 +27,35 @@ import {
 export type PluginRegistrySnapshot = InstalledPluginIndex;
 export type PluginRegistryRecord = InstalledPluginIndexRecord;
 export type PluginRegistryInspection = InstalledPluginIndexStoreInspection;
+export type PluginRegistrySnapshotSource = "provided" | "persisted" | "derived";
+export type PluginRegistrySnapshotDiagnosticCode =
+  | "persisted-registry-disabled"
+  | "persisted-registry-missing"
+  | "persisted-registry-stale-policy";
 
-export type LoadPluginRegistryParams = LoadInstalledPluginIndexParams & {
-  index?: PluginRegistrySnapshot;
+export type PluginRegistrySnapshotDiagnostic = {
+  level: "info" | "warn";
+  code: PluginRegistrySnapshotDiagnosticCode;
+  message: string;
 };
+
+export type PluginRegistrySnapshotResult = {
+  snapshot: PluginRegistrySnapshot;
+  source: PluginRegistrySnapshotSource;
+  diagnostics: readonly PluginRegistrySnapshotDiagnostic[];
+};
+
+export const DISABLE_PERSISTED_PLUGIN_REGISTRY_ENV = "OPENCLAW_DISABLE_PERSISTED_PLUGIN_REGISTRY";
+
+function formatDeprecatedPersistedRegistryDisableWarning(): string {
+  return `${DISABLE_PERSISTED_PLUGIN_REGISTRY_ENV} is a deprecated break-glass compatibility switch; use \`openclaw plugins registry --refresh\` or \`openclaw doctor --fix\` to repair registry state.`;
+}
+
+export type LoadPluginRegistryParams = LoadInstalledPluginIndexParams &
+  InstalledPluginIndexStoreOptions & {
+    index?: PluginRegistrySnapshot;
+    preferPersisted?: boolean;
+  };
 
 export type PluginRegistryContributionOptions = LoadPluginRegistryParams & {
   includeDisabled?: boolean;
@@ -62,8 +94,120 @@ function normalizeContributionId(value: string): string {
   return value.trim();
 }
 
+function normalizePluginRegistryAlias(value: string): string {
+  return value.trim();
+}
+
+function normalizePluginRegistryAliasKey(value: string): string {
+  return normalizePluginRegistryAlias(value).toLowerCase();
+}
+
+export function createPluginRegistryIdNormalizer(
+  index: PluginRegistrySnapshot,
+): (pluginId: string) => string {
+  const aliases = new Map<string, string>();
+  for (const plugin of [...index.plugins].toSorted((left, right) =>
+    left.pluginId.localeCompare(right.pluginId),
+  )) {
+    const pluginId = normalizePluginRegistryAlias(plugin.pluginId);
+    if (!pluginId) {
+      continue;
+    }
+    aliases.set(normalizePluginRegistryAliasKey(pluginId), pluginId);
+    for (const alias of [
+      ...plugin.contributions.providers,
+      ...plugin.contributions.channels,
+      ...plugin.contributions.setupProviders,
+      ...plugin.contributions.cliBackends,
+      ...plugin.contributions.modelCatalogProviders,
+    ]) {
+      const normalizedAlias = normalizePluginRegistryAlias(alias);
+      const normalizedAliasKey = normalizePluginRegistryAliasKey(alias);
+      if (normalizedAlias && !aliases.has(normalizedAliasKey)) {
+        aliases.set(normalizedAliasKey, pluginId);
+      }
+    }
+  }
+  return (pluginId: string) => {
+    const trimmed = normalizePluginRegistryAlias(pluginId);
+    return aliases.get(normalizePluginRegistryAliasKey(trimmed)) ?? trimmed;
+  };
+}
+
+export function normalizePluginsConfigWithRegistry(
+  config: OpenClawConfig["plugins"] | undefined,
+  index: PluginRegistrySnapshot,
+): NormalizedPluginsConfig {
+  return normalizePluginsConfigWithResolver(config, createPluginRegistryIdNormalizer(index));
+}
+
+function hasEnvFlag(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = env[name]?.trim().toLowerCase();
+  return Boolean(value && value !== "0" && value !== "false" && value !== "no");
+}
+
+export function loadPluginRegistrySnapshotWithMetadata(
+  params: LoadPluginRegistryParams = {},
+): PluginRegistrySnapshotResult {
+  if (params.index) {
+    return {
+      snapshot: params.index,
+      source: "provided",
+      diagnostics: [],
+    };
+  }
+
+  const env = params.env ?? process.env;
+  const diagnostics: PluginRegistrySnapshotDiagnostic[] = [];
+  const disabledByCaller = params.preferPersisted === false;
+  const disabledByEnv = hasEnvFlag(env, DISABLE_PERSISTED_PLUGIN_REGISTRY_ENV);
+  const persistedReadsEnabled = !disabledByCaller && !disabledByEnv;
+  if (persistedReadsEnabled) {
+    const persisted = readPersistedInstalledPluginIndexSync(params);
+    if (persisted) {
+      if (
+        params.config &&
+        persisted.policyHash !== resolveInstalledPluginIndexPolicyHash(params.config)
+      ) {
+        diagnostics.push({
+          level: "warn",
+          code: "persisted-registry-stale-policy",
+          message:
+            "Persisted plugin registry policy does not match current config; using derived plugin index. Run `openclaw plugins registry --refresh` to update the persisted registry.",
+        });
+      } else {
+        return {
+          snapshot: persisted,
+          source: "persisted",
+          diagnostics,
+        };
+      }
+    } else {
+      diagnostics.push({
+        level: "info",
+        code: "persisted-registry-missing",
+        message: "Persisted plugin registry is missing or invalid; using derived plugin index.",
+      });
+    }
+  } else {
+    diagnostics.push({
+      level: "warn",
+      code: "persisted-registry-disabled",
+      message: disabledByEnv
+        ? `${formatDeprecatedPersistedRegistryDisableWarning()} Using legacy derived plugin index.`
+        : "Persisted plugin registry reads are disabled by the caller; using derived plugin index.",
+    });
+  }
+
+  return {
+    snapshot: loadInstalledPluginIndex(params),
+    source: "derived",
+    diagnostics,
+  };
+}
+
 function resolveSnapshot(params: LoadPluginRegistryParams = {}): PluginRegistrySnapshot {
-  return params.index ?? loadInstalledPluginIndex(params);
+  return loadPluginRegistrySnapshotWithMetadata(params).snapshot;
 }
 
 export function loadPluginRegistrySnapshot(

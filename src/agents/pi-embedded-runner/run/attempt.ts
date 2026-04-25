@@ -121,7 +121,10 @@ import { resolveSandboxContext } from "../../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
 import { repairSessionFileIfNeeded } from "../../session-file-repair.js";
 import { guardSessionManager } from "../../session-tool-result-guard-wrapper.js";
-import { sanitizeToolUseResultPairing } from "../../session-transcript-repair.js";
+import {
+  sanitizeToolUseResultPairing,
+  stripToolResultDetails,
+} from "../../session-transcript-repair.js";
 import {
   acquireSessionWriteLock,
   resolveSessionLockMaxHoldFromTimeout,
@@ -464,6 +467,10 @@ export function applyEmbeddedAttemptToolsAllow<T extends { name: string }>(
   }
   const allowSet = new Set(toolsAllow);
   return tools.filter((tool) => allowSet.has(tool.name));
+}
+
+export function normalizeMessagesForLlmBoundary(messages: AgentMessage[]): AgentMessage[] {
+  return stripToolResultDetails(normalizeAssistantReplayContent(messages));
 }
 
 export function shouldCreateBundleMcpRuntimeForAttempt(params: {
@@ -1391,7 +1398,7 @@ export async function runEmbeddedAttempt(
       if (typeof activeSession.agent.convertToLlm === "function") {
         const baseConvertToLlm = activeSession.agent.convertToLlm.bind(activeSession.agent);
         activeSession.agent.convertToLlm = async (messages) =>
-          await baseConvertToLlm(normalizeAssistantReplayContent(messages));
+          await baseConvertToLlm(normalizeMessagesForLlmBoundary(messages));
       }
       let prePromptMessageCount = activeSession.messages.length;
       let unwindowedContextEngineMessagesForPrecheck: AgentMessage[] | undefined;
@@ -2427,12 +2434,37 @@ export async function runEmbeddedAttempt(
             });
           }
 
+          const msgCount = activeSession.messages.length;
+          const systemLen = systemPromptText?.length ?? 0;
+          const promptLen = effectivePrompt.length;
+          const sessionSummary = summarizeSessionContext(activeSession.messages);
+          const reserveTokens = settingsManager.getCompactionReserveTokens();
+          const contextTokenBudget = params.contextTokenBudget ?? DEFAULT_CONTEXT_TOKENS;
+          emitTrustedDiagnosticEvent({
+            type: "context.assembled",
+            runId: params.runId,
+            ...(params.sessionKey && { sessionKey: params.sessionKey }),
+            ...(params.sessionId && { sessionId: params.sessionId }),
+            provider: params.provider,
+            model: params.modelId,
+            ...((params.messageChannel ?? params.messageProvider)
+              ? { channel: params.messageChannel ?? params.messageProvider }
+              : {}),
+            trigger: params.trigger,
+            messageCount: msgCount,
+            historyTextChars: sessionSummary.totalTextChars,
+            historyImageBlocks: sessionSummary.totalImageBlocks,
+            maxMessageTextChars: sessionSummary.maxMessageTextChars,
+            systemPromptChars: systemLen,
+            promptChars: promptLen,
+            promptImages: imageResult.images.length,
+            contextTokenBudget,
+            reserveTokens,
+            trace: freezeDiagnosticTraceContext(createChildDiagnosticTraceContext(runTrace)),
+          });
+
           // Diagnostic: log context sizes before prompt to help debug early overflow errors.
           if (log.isEnabled("debug")) {
-            const msgCount = activeSession.messages.length;
-            const systemLen = systemPromptText?.length ?? 0;
-            const promptLen = effectivePrompt.length;
-            const sessionSummary = summarizeSessionContext(activeSession.messages);
             log.debug(
               `[context-diag] pre-prompt: sessionKey=${params.sessionKey ?? params.sessionId} ` +
                 `messages=${msgCount} roleCounts=${sessionSummary.roleCounts} ` +
@@ -2475,8 +2507,6 @@ export async function runEmbeddedAttempt(
               });
           }
 
-          const reserveTokens = settingsManager.getCompactionReserveTokens();
-          const contextTokenBudget = params.contextTokenBudget ?? DEFAULT_CONTEXT_TOKENS;
           const preemptiveCompaction = shouldPreemptivelyCompactBeforePrompt({
             messages: activeSession.messages,
             unwindowedMessages: unwindowedContextEngineMessagesForPrecheck,
