@@ -167,6 +167,40 @@ describe("createOpenClawTools TTS config wiring", () => {
       __testing.setDepsForTest();
     }
   });
+
+  it("passes the resolved session agent id into the tts tool", async () => {
+    const injectedConfig = {
+      agents: {
+        list: [{ id: "reader" }, { id: "main" }],
+      },
+    } satisfies OpenClawConfig;
+
+    const { __testing, createOpenClawTools } = await import("./openclaw-tools.js");
+    __testing.setDepsForTest({ config: injectedConfig });
+
+    try {
+      const tool = createOpenClawTools({
+        agentSessionKey: "agent:reader:telegram:chat:123",
+        disableMessageTool: true,
+        disablePluginTools: true,
+      }).find((candidate) => candidate.name === "tts");
+
+      if (!tool) {
+        throw new Error("missing tts tool");
+      }
+
+      await tool.execute("call-1", { text: "hello from reader" });
+
+      expect(mocks.textToSpeech).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "hello from reader",
+          agentId: "reader",
+        }),
+      );
+    } finally {
+      __testing.setDepsForTest();
+    }
+  });
 });
 
 describe("createOpenClawTools cron context wiring", () => {
@@ -196,6 +230,30 @@ describe("createOpenClawTools cron context wiring", () => {
         to: "room:!AbCdEf1234567890:example.org",
         accountId: "bot-a",
         threadId: "$RootEvent:Example.Org",
+      },
+    });
+  });
+
+  it("uses agent route context when auto-threading context is unavailable", async () => {
+    const { createOpenClawTools } = await import("./openclaw-tools.js");
+
+    createOpenClawTools({
+      agentSessionKey: "agent:main:matrix:channel:!abcdef1234567890:example.org",
+      agentChannel: "matrix",
+      agentAccountId: "bot-a",
+      agentTo: "room:!FallbackRoom:Example.Org",
+      agentThreadId: "$FallbackThread:Example.Org",
+      disableMessageTool: true,
+      disablePluginTools: true,
+    });
+
+    expect(mocks.createCronToolOptions).toHaveBeenCalledWith({
+      agentSessionKey: "agent:main:matrix:channel:!abcdef1234567890:example.org",
+      currentDeliveryContext: {
+        channel: "matrix",
+        to: "room:!FallbackRoom:Example.Org",
+        accountId: "bot-a",
+        threadId: "$FallbackThread:Example.Org",
       },
     });
   });

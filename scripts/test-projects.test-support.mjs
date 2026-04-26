@@ -289,6 +289,11 @@ const SOURCE_TEST_TARGETS = new Map([
       "src/auto-reply/reply/dispatch-from-config.test.ts",
     ],
   ],
+  ["src/auto-reply/reply/commands-acp.ts", ["src/auto-reply/reply/commands-acp.test.ts"]],
+  [
+    "src/auto-reply/reply/dispatch-acp-command-bypass.ts",
+    ["src/auto-reply/reply/dispatch-acp-command-bypass.test.ts"],
+  ],
 ]);
 const GENERATED_CHANGED_TEST_TARGETS = new Set([
   "src/canvas-host/a2ui/.bundle.hash",
@@ -1056,7 +1061,7 @@ export function buildFullSuiteVitestRunPlans(args, cwd = process.cwd()) {
     ) {
       return [];
     }
-    const expandShard = expandToProjectConfigs || shard.config === FULL_EXTENSIONS_VITEST_CONFIG;
+    const expandShard = expandToProjectConfigs;
     const configs = expandShard ? shard.projects : [shard.config];
     return configs.map((config) => ({
       config,

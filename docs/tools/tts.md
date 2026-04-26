@@ -109,6 +109,51 @@ Full schema is in [Gateway configuration](/gateway/configuration).
 }
 ```
 
+### Per-agent voice overrides
+
+Use `agents.list[].tts` when one agent should speak with a different provider,
+voice, model, style, or auto-TTS mode. The agent block deep-merges over
+`messages.tts`, so provider credentials can stay in the global provider config.
+
+```json5
+{
+  messages: {
+    tts: {
+      auto: "always",
+      provider: "elevenlabs",
+      providers: {
+        elevenlabs: {
+          apiKey: "${ELEVENLABS_API_KEY}",
+          model: "eleven_multilingual_v2",
+        },
+      },
+    },
+  },
+  agents: {
+    list: [
+      {
+        id: "reader",
+        tts: {
+          providers: {
+            elevenlabs: {
+              voiceId: "EXAVITQu4vr4xnSDxMaL",
+            },
+          },
+        },
+      },
+    ],
+  },
+}
+```
+
+Precedence for automatic replies, `/tts audio`, `/tts status`, and the `tts`
+agent tool is:
+
+1. `messages.tts`
+2. active `agents.list[].tts`
+3. local `/tts` preferences for this host
+4. inline `[[tts:...]]` directives when model overrides are enabled
+
 ### OpenAI primary with ElevenLabs fallback
 
 ```json5
@@ -448,6 +493,110 @@ transcoded to raw 16 kHz mono PCM with `ffmpeg`. The legacy provider alias
 }
 ```
 
+### TTS personas
+
+Use `messages.tts.personas` when you want a stable spoken identity that can be
+applied deterministically across providers. A persona can prefer one provider,
+define provider-neutral prompt intent, and carry provider-specific bindings for
+voices, models, prompt templates, seeds, and voice settings.
+
+```json5
+{
+  messages: {
+    tts: {
+      auto: "always",
+      persona: "alfred",
+      personas: {
+        alfred: {
+          label: "Alfred",
+          description: "Dry, warm British butler narrator.",
+          provider: "google",
+          fallbackPolicy: "preserve-persona",
+          prompt: {
+            profile: "A brilliant British butler. Dry, witty, warm, charming, emotionally expressive, never generic.",
+            scene: "A quiet late-night study. Close-mic narration for a trusted operator.",
+            sampleContext: "The speaker is answering a private technical request with concise confidence and dry warmth.",
+            style: "Refined, understated, lightly amused.",
+            accent: "British English.",
+            pacing: "Measured, with short dramatic pauses.",
+            constraints: ["Do not read configuration values aloud.", "Do not explain the persona."],
+          },
+          providers: {
+            google: {
+              model: "gemini-3.1-flash-tts-preview",
+              voiceName: "Algieba",
+              promptTemplate: "audio-profile-v1",
+            },
+            openai: {
+              model: "gpt-4o-mini-tts",
+              voice: "cedar",
+            },
+            elevenlabs: {
+              voiceId: "voice_id",
+              modelId: "eleven_multilingual_v2",
+              seed: 42,
+              voiceSettings: {
+                stability: 0.65,
+                similarityBoost: 0.8,
+                style: 0.25,
+                useSpeakerBoost: true,
+                speed: 0.95,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}
+```
+
+Resolution is deterministic:
+
+1. `/tts persona <id>` local preference, if set.
+2. `messages.tts.persona`, if set.
+3. No persona.
+
+Provider selection is explicit-first:
+
+1. Direct provider overrides from CLI, gateway, Talk, or allowed TTS directives.
+2. `/tts provider <id>` local preference.
+3. Active persona `provider`.
+4. `messages.tts.provider`.
+5. Registry auto-select.
+
+For each provider attempt, OpenClaw merges:
+
+1. `messages.tts.providers.<id>`
+2. `messages.tts.personas.<persona>.providers.<id>`
+3. trusted request overrides
+4. allowed model-emitted TTS directive overrides
+
+`fallbackPolicy` controls what happens when an active persona has no binding for
+an attempted provider:
+
+- `preserve-persona` keeps provider-neutral persona prompt fields available to
+  providers. This is the default.
+- `provider-defaults` omits the persona from provider prompt preparation for
+  that attempt, so the provider uses its neutral defaults while still allowing
+  fallback to continue.
+- `fail` skips that provider attempt with `reasonCode: "not_configured"` and
+  `personaBinding: "missing"`. Fallback providers are still tried; the whole TTS
+  request fails only if every attempted provider is skipped or fails.
+
+Persona prompt fields are provider-neutral. Providers decide how to use them.
+Google wraps them only when the effective Google provider config sets
+`promptTemplate: "audio-profile-v1"` or `personaPrompt`; its older
+`audioProfile` and `speakerName` fields are still prepended as Google-specific
+prompt text. OpenAI maps prompt fields to `instructions` when no explicit
+OpenAI `instructions` value is configured. Providers without prompt-like
+controls use the provider-specific persona bindings only.
+
+Gemini inline audio tags are transcript content, not persona config. If the
+assistant or an explicit `[[tts:text]]` block includes tags such as `[whispers]`
+or `[laughs]`, OpenClaw preserves them inside the Gemini transcript. OpenClaw
+does not generate configured start tags.
+
 ### Disable Microsoft speech
 
 ```json5
@@ -520,6 +669,12 @@ Then run:
 - If `provider` is **unset**, OpenClaw uses the first configured speech provider in registry auto-select order.
 - Legacy `provider: "edge"` config is repaired by `openclaw doctor --fix` and
   rewritten to `provider: "microsoft"`.
+- `persona`: default TTS persona id from `personas`.
+- `personas.<id>`: stable spoken identity. The id is normalized to lowercase.
+- `personas.<id>.provider`: preferred speech provider for the persona. Explicit provider overrides and local provider prefs still win.
+- `personas.<id>.fallbackPolicy`: `preserve-persona` (default), `provider-defaults`, or `fail`; see [TTS personas](#tts-personas).
+- `personas.<id>.prompt`: provider-neutral persona prompt fields (`profile`, `scene`, `sampleContext`, `style`, `accent`, `pacing`, `constraints`).
+- `personas.<id>.providers.<provider>`: provider-specific persona binding merged over `providers.<provider>`.
 - `summaryModel`: optional cheap model for auto-summary; defaults to `agents.defaults.model.primary`.
   - Accepts `provider/model` or a configured model alias.
 - `modelOverrides`: allow the model to emit TTS directives (on by default).
@@ -576,6 +731,8 @@ Then run:
 - `providers.google.voiceName`: Gemini prebuilt voice name (default `Kore`; `voice` is also accepted).
 - `providers.google.audioProfile`: natural-language style prompt prepended before the spoken text.
 - `providers.google.speakerName`: optional speaker label prepended before the spoken text when your TTS prompt uses a named speaker.
+- `providers.google.promptTemplate`: set to `audio-profile-v1` to wrap active persona prompt fields in a deterministic Gemini TTS prompt structure.
+- `providers.google.personaPrompt`: Google-specific extra persona prompt text appended to the template's Director's Notes.
 - `providers.google.baseUrl`: override the Gemini API base URL. Only `https://generativelanguage.googleapis.com` is accepted.
   - If `messages.tts.providers.google.apiKey` is omitted, TTS can reuse `models.providers.google.apiKey` before env fallback.
 - `providers.gradium.baseUrl`: override Gradium API base URL (default `https://api.gradium.ai`).
@@ -635,7 +792,15 @@ for a single reply, plus an optional `[[tts:text]]...[[/tts:text]]` block to
 provide expressive tags (laughter, singing cues, etc) that should only appear in
 the audio.
 
+Streaming block delivery strips these directives from visible text before the
+channel sees them, even when a directive is split across adjacent blocks. Final
+mode still parses the accumulated raw reply for TTS synthesis.
+
 `provider=...` directives are ignored unless `modelOverrides.allowProvider: true`.
+When a reply declares `provider=...`, the other keys in that directive are
+parsed only by that provider. Unsupported keys are stripped from visible text
+and reported as TTS directive warnings instead of being routed to another
+provider.
 
 Example reply payload:
 
@@ -697,25 +862,30 @@ Slash commands write local overrides to `prefsPath` (default:
 
 Stored fields:
 
-- `enabled`
+- `auto`
 - `provider`
+- `persona`
 - `maxLength` (summary threshold; default 1500 chars)
 - `summarize` (default `true`)
 
-These override `messages.tts.*` for that host.
+These override the effective config from `messages.tts` plus the active
+`agents.list[].tts` block for that host.
 
 ## Output formats (fixed)
 
 - **Feishu / Matrix / Telegram / WhatsApp**: voice-note replies prefer Opus (`opus_48000_64` from ElevenLabs, `opus` from OpenAI).
   - 48kHz / 64kbps is a good voice message tradeoff.
-- **Feishu**: when a voice-note reply is produced as MP3/WAV/M4A or another
-  likely audio file, the Feishu plugin transcodes it to 48kHz Ogg/Opus with
-  `ffmpeg` before sending the native `audio` bubble. If conversion fails, Feishu
-  receives the original file as an attachment.
+- **Feishu / WhatsApp**: when a voice-note reply is produced as MP3/WebM/WAV/M4A
+  or another likely audio file, the channel plugin transcodes it to 48kHz
+  Ogg/Opus with `ffmpeg` before sending the native voice message. WhatsApp sends
+  the result through the Baileys `audio` payload with `ptt: true` and
+  `audio/ogg; codecs=opus`. If conversion fails, Feishu receives the original
+  file as an attachment; WhatsApp send fails rather than posting an incompatible
+  PTT payload.
 - **Other channels**: MP3 (`mp3_44100_128` from ElevenLabs, `mp3` from OpenAI).
   - 44.1kHz / 128kbps is the default balance for speech clarity.
-- **MiniMax**: MP3 (`speech-2.8-hd` model, 32kHz sample rate) for normal audio attachments. For voice-note targets such as Feishu and Telegram, OpenClaw transcodes the MiniMax MP3 to 48kHz Opus with `ffmpeg` before delivery.
-- **Xiaomi MiMo**: MP3 by default, or WAV when configured. For voice-note targets such as Feishu and Telegram, OpenClaw transcodes Xiaomi output to 48kHz Opus with `ffmpeg` before delivery.
+- **MiniMax**: MP3 (`speech-2.8-hd` model, 32kHz sample rate) for normal audio attachments. For voice-note targets such as Feishu, Telegram, and WhatsApp, OpenClaw transcodes the MiniMax MP3 to 48kHz Opus with `ffmpeg` before delivery.
+- **Xiaomi MiMo**: MP3 by default, or WAV when configured. For voice-note targets such as Feishu, Telegram, and WhatsApp, OpenClaw transcodes Xiaomi output to 48kHz Opus with `ffmpeg` before delivery.
 - **Local CLI**: uses the configured `outputFormat`. Voice-note targets are
   converted to Ogg/Opus and telephony output is converted to raw 16 kHz mono PCM
   with `ffmpeg`.
@@ -740,6 +910,9 @@ When enabled, OpenClaw:
 - skips very short replies (< 10 chars).
 - summarizes long replies when enabled using `agents.defaults.model.primary` (or `summaryModel`).
 - attaches the generated audio to the reply.
+- in `mode: "final"`, still sends audio-only TTS for streamed final replies
+  after the text stream completes; the generated media goes through the same
+  channel media normalization as normal reply attachments.
 
 If the reply exceeds `maxLength` and summary is off (or no API key for the
 summary model), audio
@@ -772,7 +945,12 @@ Discord note: `/tts` is a built-in Discord command, so OpenClaw registers
 /tts off
 /tts on
 /tts status
+/tts chat on
+/tts chat off
+/tts chat default
+/tts latest
 /tts provider openai
+/tts persona alfred
 /tts limit 2000
 /tts summary off
 /tts audio Hello from OpenClaw
@@ -784,13 +962,18 @@ Notes:
 - `commands.text` or native command registration must be enabled.
 - Config `messages.tts.auto` accepts `off|always|inbound|tagged`.
 - `/tts on` writes the local TTS preference to `always`; `/tts off` writes it to `off`.
+- `/tts chat on|off|default` writes a session-scoped auto-TTS override for the current chat.
 - Use config when you want `inbound` or `tagged` defaults.
+- `/tts persona <id>` writes the local persona preference; `/tts persona off` clears it.
 - `limit` and `summary` are stored in local prefs, not the main config.
 - `/tts audio` generates a one-off audio reply (does not toggle TTS on).
+- `/tts latest` reads the latest assistant reply from the current session transcript and sends it as audio once. It stores only a hash of that reply on the session entry to suppress duplicate voice sends.
 - `/tts status` includes fallback visibility for the latest attempt:
   - success fallback: `Fallback: <primary> -> <used>` plus `Attempts: ...`
   - failure: `Error: ...` plus `Attempts: ...`
   - detailed diagnostics: `Attempt details: provider:outcome(reasonCode) latency`
+- `/status` shows the active TTS mode plus configured provider, model, voice,
+  and sanitized custom endpoint metadata when TTS is enabled.
 - OpenAI and ElevenLabs API failures now include parsed provider error detail and request id (when returned by the provider), which is surfaced in TTS errors/logs.
 
 ## Agent tool
@@ -798,9 +981,10 @@ Notes:
 The `tts` tool converts text to speech and returns an audio attachment for
 reply delivery. When the channel is Feishu, Matrix, Telegram, or WhatsApp,
 the audio is delivered as a voice message rather than a file attachment.
-Feishu can transcode non-Opus TTS output on this path when `ffmpeg` is
-available.
-WhatsApp sends visible text separately from PTT voice-note audio because clients
+Feishu and WhatsApp can transcode non-Opus TTS output on this path when
+`ffmpeg` is available.
+WhatsApp sends audio through Baileys as a PTT voice note (`audio` with
+`ptt: true`), and sends visible text separately from PTT audio because clients
 do not consistently render captions on voice notes.
 It accepts optional `channel` and `timeoutMs` fields; `timeoutMs` is a
 per-call provider request timeout in milliseconds.
@@ -814,6 +998,7 @@ Gateway methods:
 - `tts.disable`
 - `tts.convert`
 - `tts.setProvider`
+- `tts.setPersona`
 - `tts.providers`
 
 ## Related

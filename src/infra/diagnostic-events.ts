@@ -18,6 +18,7 @@ export type DiagnosticUsageEvent = DiagnosticBaseEvent & {
   sessionKey?: string;
   sessionId?: string;
   channel?: string;
+  agentId?: string;
   provider?: string;
   model?: string;
   usage: {
@@ -352,6 +353,22 @@ export type DiagnosticLogRecordEvent = DiagnosticBaseEvent & {
   };
 };
 
+export type DiagnosticTelemetryExporterEvent = DiagnosticBaseEvent & {
+  type: "telemetry.exporter";
+  exporter: string;
+  signal: "traces" | "metrics" | "logs";
+  status: "started" | "failure" | "dropped";
+  reason?:
+    | "configured"
+    | "emit_failed"
+    | "handler_failed"
+    | "queue_full"
+    | "shutdown_failed"
+    | "start_failed"
+    | "unsupported_protocol";
+  errorCategory?: string;
+};
+
 export type DiagnosticEventPayload =
   | DiagnosticUsageEvent
   | DiagnosticWebhookReceivedEvent
@@ -382,7 +399,8 @@ export type DiagnosticEventPayload =
   | DiagnosticMemorySampleEvent
   | DiagnosticMemoryPressureEvent
   | DiagnosticPayloadLargeEvent
-  | DiagnosticLogRecordEvent;
+  | DiagnosticLogRecordEvent
+  | DiagnosticTelemetryExporterEvent;
 
 export type DiagnosticEventInput = DiagnosticEventPayload extends infer Event
   ? Event extends DiagnosticEventPayload
