@@ -18,6 +18,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker_e2e_build_or_reuse "$IMAGE_NAME" cron-mcp-cleanup
+docker_e2e_harness_mount_args
 
 echo "Running in-container cron/subagent MCP cleanup smoke..."
 # Harness files are mounted read-only; the app under test comes from /app/dist.
@@ -36,7 +37,7 @@ docker run --rm \
   -e "GW_URL=ws://127.0.0.1:$PORT" \
   -e "GW_TOKEN=$TOKEN" \
   -e "OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1" \
-  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
+  "${DOCKER_E2E_HARNESS_ARGS[@]}" \
   "$IMAGE_NAME" \
   bash -lc "set -euo pipefail
     entry=dist/index.mjs

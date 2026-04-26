@@ -49,6 +49,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker_e2e_build_or_reuse "$IMAGE_NAME" openwebui
+docker_e2e_harness_mount_args
 
 echo "Pulling Open WebUI image: $OPENWEBUI_IMAGE"
 timeout "$DOCKER_PULL_TIMEOUT" docker pull "$OPENWEBUI_IMAGE" >/dev/null
@@ -69,7 +70,7 @@ docker_cmd docker run -d \
   -e "OPENCLAW_SKIP_CANVAS_HOST=1" \
   -e OPENAI_API_KEY \
   ${OPENAI_BASE_URL_VALUE:+-e OPENAI_BASE_URL} \
-  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
+  "${DOCKER_E2E_HARNESS_ARGS[@]}" \
   "$IMAGE_NAME" \
   bash -lc '
     set -euo pipefail

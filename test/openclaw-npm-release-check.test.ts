@@ -333,16 +333,26 @@ describe("collectForbiddenPackedPathErrors", () => {
         "dist/extensions/qa-channel/package.json",
         "dist/extensions/qa-lab/runtime-api.js",
         "dist/extensions/qa-lab/src/cli.js",
+        "dist/plugin-sdk/extensions/qa-channel/api.d.ts",
         "dist/plugin-sdk/extensions/qa-lab/cli.d.ts",
+        "dist/plugin-sdk/qa-channel.js",
+        "dist/plugin-sdk/qa-channel-protocol.d.ts",
         "dist/qa-runtime-B9LDtssJ.js",
+        "docs/channels/qa-channel.md",
+        "docs/refactor/qa.md",
         "qa/scenarios/index.md",
       ]),
     ).toEqual([
       'npm package must not include private QA channel artifact "dist/extensions/qa-channel/package.json".',
       'npm package must not include private QA channel artifact "dist/extensions/qa-channel/runtime-api.js".',
+      'npm package must not include private QA channel docs "docs/channels/qa-channel.md".',
+      'npm package must not include private QA channel SDK artifact "dist/plugin-sdk/qa-channel-protocol.d.ts".',
+      'npm package must not include private QA channel SDK artifact "dist/plugin-sdk/qa-channel.js".',
+      'npm package must not include private QA channel type artifact "dist/plugin-sdk/extensions/qa-channel/api.d.ts".',
       'npm package must not include private QA lab artifact "dist/extensions/qa-lab/runtime-api.js".',
       'npm package must not include private QA lab artifact "dist/extensions/qa-lab/src/cli.js".',
       'npm package must not include private QA lab type artifact "dist/plugin-sdk/extensions/qa-lab/cli.d.ts".',
+      'npm package must not include private QA refactor docs "docs/refactor/qa.md".',
       'npm package must not include private QA runtime chunk "dist/qa-runtime-B9LDtssJ.js".',
       'npm package must not include private QA suite artifact "qa/scenarios/index.md".',
     ]);
@@ -380,7 +390,7 @@ describe("collectForbiddenPackedPathErrors", () => {
     }
   });
 
-  it("allows legacy QA compatibility paths in the generated dist inventory", () => {
+  it("rejects private QA paths in the generated dist inventory", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "openclaw-pack-inventory-"));
 
     try {
@@ -393,7 +403,9 @@ describe("collectForbiddenPackedPathErrors", () => {
 
       expect(
         collectForbiddenPackedContentErrors([PACKAGE_DIST_INVENTORY_RELATIVE_PATH], rootDir),
-      ).toEqual([]);
+      ).toEqual([
+        'npm package must not include private QA lab marker "qa-lab/runtime-api.js" in "dist/postinstall-inventory.json".',
+      ]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

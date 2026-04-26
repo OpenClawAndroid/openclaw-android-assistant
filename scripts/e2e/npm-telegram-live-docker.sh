@@ -49,6 +49,7 @@ validate_openclaw_package_spec() {
 validate_openclaw_package_spec "$PACKAGE_SPEC"
 
 docker_e2e_build_or_reuse "$IMAGE_NAME" npm-telegram-live "$ROOT_DIR/scripts/e2e/Dockerfile" "$ROOT_DIR" "$DOCKER_TARGET"
+docker_e2e_harness_mount_args
 
 mkdir -p "$ROOT_DIR/.artifacts/qa-e2e"
 run_log="$(mktemp "${TMPDIR:-/tmp}/openclaw-npm-telegram-live.XXXXXX")"
@@ -147,7 +148,7 @@ EOF
 run_logged docker run --rm \
   "${docker_env[@]}" \
   -v "$ROOT_DIR/.artifacts:/app/.artifacts" \
-  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
+  "${DOCKER_E2E_HARNESS_ARGS[@]}" \
   -v "$ROOT_DIR/extensions:/app/extensions:ro" \
   -v "$npm_prefix_host:/npm-global" \
   -i "$IMAGE_NAME" bash -s <<'EOF'

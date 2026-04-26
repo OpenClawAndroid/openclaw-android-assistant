@@ -29,16 +29,13 @@ docker_e2e_prepare_package_tgz() {
     return 0
   fi
 
-  echo "Building OpenClaw package artifacts..."
-  run_logged "$label-host-build" pnpm build
-  echo "Writing package inventory and packing OpenClaw once..."
-  run_logged "$label-inventory" node --import tsx --input-type=module -e 'const { writePackageDistInventory } = await import("./src/infra/package-dist-inventory.ts"); await writePackageDistInventory(process.cwd());'
-
   local pack_dir
   pack_dir="$(mktemp -d "${TMPDIR:-/tmp}/openclaw-docker-e2e-pack.XXXXXX")"
-  run_logged "$label-pack" npm pack --ignore-scripts --pack-destination "$pack_dir"
-
-  package_tgz="$(find "$pack_dir" -maxdepth 1 -name 'openclaw-*.tgz' -print -quit)"
+  package_tgz="$(
+    node "$ROOT_DIR/scripts/package-openclaw-for-docker.mjs" \
+      --output-dir "$pack_dir" \
+      --output-name openclaw-current.tgz
+  )"
   if [ -z "$package_tgz" ]; then
     echo "missing packed OpenClaw tarball" >&2
     return 1
@@ -60,4 +57,8 @@ docker_e2e_package_mount_args() {
   local package_tgz="$1"
   local target="${2:-/tmp/openclaw-current.tgz}"
   DOCKER_E2E_PACKAGE_ARGS=(-v "$package_tgz:$target:ro" -e "OPENCLAW_CURRENT_PACKAGE_TGZ=$target")
+}
+
+docker_e2e_harness_mount_args() {
+  DOCKER_E2E_HARNESS_ARGS=(-v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro")
 }

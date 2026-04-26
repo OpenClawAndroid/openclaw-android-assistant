@@ -41,15 +41,46 @@ Prove the touched surface first. Do not reflexively run the whole suite.
 
 ```bash
 pnpm changed:lanes --json
-pnpm check:changed
-pnpm test:changed
-pnpm test:changed:focused
+pnpm check:changed       # changed typecheck/lint/guards; no Vitest
+pnpm test:changed        # cheap smart changed Vitest targets
+OPENCLAW_TEST_CHANGED_BROAD=1 pnpm test:changed
 pnpm test <path-or-filter> -- --reporter=verbose
 OPENCLAW_VITEST_MAX_WORKERS=1 pnpm test <path-or-filter>
 ```
 
 Use targeted file paths whenever possible. Avoid raw `vitest`; use the repo
 `pnpm test` wrapper so project routing, workers, and setup stay correct.
+
+## Command Semantics
+
+- `pnpm check` and `pnpm check:changed` do not run Vitest tests. They are for
+  typecheck, lint, and guard proof.
+- `pnpm test` and `pnpm test:changed` run Vitest tests.
+- `pnpm test:changed` is intentionally cheap by default: direct test edits,
+  sibling tests, explicit source mappings, and import-graph dependents.
+- `OPENCLAW_TEST_CHANGED_BROAD=1 pnpm test:changed` is the explicit broad
+  fallback for harness/config/package edits that genuinely need it.
+- Do not run extension sweeps just because core changed. If a core edit is for a
+  specific plugin bug, run that plugin's tests explicitly. If a public SDK or
+  contract change needs consumer proof, choose the smallest representative
+  plugin/contract tests first, then broaden only when the risk justifies it.
+- The test wrapper prints a short `[test] passed|failed|skipped ... in ...`
+  line. Vitest's own duration is still the per-shard detail.
+
+## Routing Model
+
+- `pnpm changed:lanes --json` answers "which check lanes does this diff touch?"
+  It is used by `pnpm check:changed` for typecheck/lint/guard selection.
+- `pnpm test:changed` answers "which Vitest targets are worth running now?" It
+  uses the same changed path list, but applies a cheaper test-target resolver.
+- Direct test edits run themselves. Source edits prefer explicit mappings,
+  sibling `*.test.ts`, then import-graph dependents. Shared harness/config/root
+  edits are skipped by default unless they have precise mapped tests.
+- Public SDK or contract edits do not automatically run every plugin test.
+  `check:changed` proves extension type contracts; the agent chooses the
+  smallest plugin/contract Vitest proof that matches the actual risk.
+- Use `OPENCLAW_TEST_CHANGED_BROAD=1 pnpm test:changed` only when a harness,
+  config, package, or unknown-root edit really needs the broad Vitest fallback.
 
 ## CI Debugging
 
@@ -72,6 +103,7 @@ Docker is expensive. First inspect the scheduler without running Docker:
 ```bash
 OPENCLAW_DOCKER_ALL_DRY_RUN=1 pnpm test:docker:all
 OPENCLAW_DOCKER_ALL_DRY_RUN=1 OPENCLAW_DOCKER_ALL_LANES=install-e2e pnpm test:docker:all
+OPENCLAW_DOCKER_ALL_LANES=install-e2e node scripts/test-docker-all.mjs --plan-json
 ```
 
 Run one failed lane locally only when explicitly asked or when GitHub is not
@@ -100,9 +132,11 @@ docker_lanes: install-e2e bundled-channel-update-acpx
 ```
 
 That skips the three chunk matrix and runs one targeted Docker job against the
-prepared GHCR images and the prepared OpenClaw npm tarball. Live-only targeted
-reruns skip the E2E images and build only the live-test image. Release-path
-normal mode remains max three Docker chunk jobs:
+prepared GHCR images and a fresh OpenClaw npm tarball for the selected ref.
+Reruns usually need that new tarball because the fix being tested changed the
+package contents even if the SHA-tagged GHCR Docker image can be reused.
+Live-only targeted reruns skip the E2E images and build only the live-test
+image. Release-path normal mode remains max three Docker chunk jobs:
 
 - `core`
 - `package-update`
@@ -110,12 +144,51 @@ normal mode remains max three Docker chunk jobs:
 
 Docker E2E images never copy repo sources as the app under test: the bare image
 is a Node/Git runner, and the functional image installs the same prebuilt npm
-tarball that bare lanes mount. Every scheduler run writes
-`.artifacts/docker-tests/**/summary.json`. Read it
+tarball that bare lanes mount. `scripts/package-openclaw-for-docker.mjs` is the
+single packer for local scripts and CI and validates the tarball inventory
+before Docker consumes it. `scripts/test-docker-all.mjs --plan-json` is the
+scheduler-owned CI plan for image kind, package, live image, lane, and
+credential needs. Docker lane definitions live in the single scenario catalog
+`scripts/lib/docker-e2e-scenarios.mjs`; planner logic lives in
+`scripts/lib/docker-e2e-plan.mjs`. `scripts/docker-e2e.mjs` converts plan and
+summary JSON into GitHub outputs and step summaries. Every scheduler run writes
+`.artifacts/docker-tests/**/summary.json` plus `failures.json`. Read those
 before rerunning. Lane entries include `command`, `rerunCommand`, status,
 timing, timeout state, image kind, and log file path. The summary also includes
 top-level phase timings for preflight, image build, package prep, lane pools,
-and cleanup.
+and cleanup. Use `pnpm test:docker:timings <summary.json>` to rank slow lanes
+and phases before deciding whether a broader rerun is justified.
+
+## Cheap Docker Reruns
+
+First derive the smallest rerun command from artifacts:
+
+```bash
+pnpm test:docker:rerun <github-run-id>
+pnpm test:docker:rerun .artifacts/docker-tests/<run>/failures.json
+```
+
+The script downloads Docker E2E artifacts for a GitHub run, reads
+`summary.json`/`failures.json`, and prints a combined targeted workflow command
+plus per-lane commands. Prefer the combined targeted command when several lanes
+failed for the same patch:
+
+```bash
+gh workflow run openclaw-live-and-e2e-checks-reusable.yml \
+  -f ref=<sha> \
+  -f include_repo_e2e=false \
+  -f include_release_path_suites=false \
+  -f include_openwebui=false \
+  -f docker_lanes='install-e2e bundled-channel-update-acpx' \
+  -f include_live_suites=false \
+  -f live_models_only=false
+```
+
+That path still runs the prepare job, so it creates a new tarball for `<sha>`.
+If the SHA-tagged GHCR bare/functional image already exists, CI skips rebuilding
+that image and only uploads the fresh package artifact before the targeted lane
+job. Do not rerun the full three-chunk release path unless the failed lane list
+or touched surface really requires it.
 
 ## Docker Expected Timings
 
@@ -151,12 +224,14 @@ lane log/artifacts first, not “run the whole thing again.”
 ## Failure Workflow
 
 1. Identify exact failing job, SHA, lane, and artifact path.
-2. Read `summary.json` and the failed lane log tail.
-3. If the lane has `rerunCommand`, use that command as the starting point.
-4. For Docker release failures, dispatch `docker_lanes=<failed-lane>` on GitHub
-   before considering local Docker.
-5. Patch narrowly, then rerun the failed file/lane only.
-6. Broaden to `pnpm check:changed` or CI only after the isolated proof passes.
+2. Read `failures.json`, `summary.json`, and the failed lane log tail.
+3. Use `pnpm test:docker:rerun <run-id|failures.json>` to generate targeted
+   GitHub rerun commands.
+4. If the lane has `rerunCommand`, use that only as a local starting point.
+5. For Docker release failures, dispatch targeted `docker_lanes=<failed-lane>`
+   on GitHub before considering local Docker.
+6. Patch narrowly, then rerun the failed file/lane only.
+7. Broaden to `pnpm check:changed` or CI only after the isolated proof passes.
 
 ## When To Escalate
 
@@ -164,6 +239,6 @@ lane log/artifacts first, not “run the whole thing again.”
   validation.
 - Build output, lazy imports, package boundaries, or published surfaces:
   include `pnpm build`.
-- Workflow edits: run `actionlint` or equivalent workflow sanity.
+- Workflow edits: run `pnpm check:workflows`.
 - Release branch or tag validation: use release docs and GitHub workflows; avoid
   local Docker unless Peter explicitly asks.

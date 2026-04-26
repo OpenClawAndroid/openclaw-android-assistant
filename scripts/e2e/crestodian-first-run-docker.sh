@@ -16,6 +16,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker_e2e_build_or_reuse "$IMAGE_NAME" crestodian-first-run
+docker_e2e_harness_mount_args
 
 echo "Running in-container Crestodian first-run smoke..."
 # Harness files are mounted read-only; the app under test comes from /app/dist.
@@ -24,7 +25,7 @@ docker run --rm \
   --name "$CONTAINER_NAME" \
   -e "OPENCLAW_STATE_DIR=/tmp/openclaw-state" \
   -e "OPENCLAW_CONFIG_PATH=/tmp/openclaw-state/openclaw.json" \
-  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
+  "${DOCKER_E2E_HARNESS_ARGS[@]}" \
   "$IMAGE_NAME" \
   bash -lc "set -euo pipefail
     node --import tsx scripts/e2e/crestodian-first-run-docker-client.ts
