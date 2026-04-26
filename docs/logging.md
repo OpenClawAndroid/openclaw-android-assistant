@@ -157,6 +157,13 @@ You can override both via the **`OPENCLAW_LOG_LEVEL`** environment variable (e.g
 `--verbose` only affects console output and WS log verbosity; it does not change
 file log levels.
 
+### Trace correlation
+
+File logs are JSONL. When a log call carries a valid diagnostic trace context,
+OpenClaw writes the trace fields as top-level JSON keys (`traceId`, `spanId`,
+`parentSpanId`, `traceFlags`) so external log processors can correlate the line
+with OTEL spans and provider `traceparent` propagation.
+
 ### Console styles
 
 `logging.consoleStyle`:

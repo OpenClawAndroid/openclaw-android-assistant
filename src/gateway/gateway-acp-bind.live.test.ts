@@ -257,9 +257,28 @@ function isRetryableAcpBindWarmupText(texts: string[]): boolean {
     combined.includes("acp runtime backend is currently unavailable") ||
     combined.includes("try again in a moment") ||
     combined.includes("acp runtime backend is not configured") ||
-    combined.includes("acp dispatch is disabled")
+    combined.includes("acp dispatch is disabled") ||
+    combined.includes("startup timed out before initialize completed")
   );
 }
+
+describe("isRetryableAcpBindWarmupText", () => {
+  it.each([
+    {
+      texts: ["ACP runtime backend is currently unavailable; try again in a moment."],
+      expected: true,
+    },
+    {
+      texts: [
+        "ACP error (ACP_SESSION_INIT_FAILED): Gemini CLI ACP startup timed out before initialize completed.",
+      ],
+      expected: true,
+    },
+    { texts: ["ACP error (ACP_SESSION_INIT_FAILED): ACP metadata is missing."], expected: false },
+  ])("returns $expected for $texts", ({ texts, expected }) => {
+    expect(isRetryableAcpBindWarmupText(texts)).toBe(expected);
+  });
+});
 
 function formatAssistantTextPreview(texts: string[], maxChars = 600): string {
   const combined = texts.join("\n\n").trim();

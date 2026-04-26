@@ -150,6 +150,10 @@ When any subkey is enabled, model and tool spans get bounded, redacted
 - **Logs:** OTLP logs respect `logging.level` (file log level). They use the
   diagnostic log-record redaction path, not console formatting. High-volume
   installs should prefer OTLP collector sampling/filtering over local sampling.
+- **File-log correlation:** JSONL file logs include top-level `traceId`,
+  `spanId`, `parentSpanId`, and `traceFlags` when the log call carries a valid
+  diagnostic trace context, which lets log processors join local log lines with
+  exported spans.
 
 ## Exported metrics
 
