@@ -41,12 +41,14 @@ describe("npm Telegram live Docker E2E", () => {
     expect(script).toContain('credential_role="ci"');
   });
 
-  it("requires release manager environment approval for the manual npm beta workflow", () => {
+  it("does not require release manager environment approval for the manual npm beta workflow", () => {
     const workflow = readFileSync(WORKFLOW_PATH, "utf8");
 
-    expect(workflow).toContain("approve_release_manager:");
-    expect(workflow).toContain("environment: npm-release");
-    expect(workflow).toContain("needs: approve_release_manager");
+    expect(workflow).not.toContain("approve_release_manager:");
+    expect(workflow).not.toContain("Approve npm Telegram beta E2E");
+    expect(workflow).not.toContain("environment: npm-release");
+    expect(workflow).not.toContain("needs: approve_release_manager");
+    expect(workflow).toContain("environment: qa-live-shared");
     expect(workflow).not.toContain("Require main workflow ref");
     expect(workflow).not.toContain("refs/heads/main");
     expect(workflow).not.toContain('new Set(["admin", "write"])');
@@ -55,12 +57,12 @@ describe("npm Telegram live Docker E2E", () => {
     expect(workflow).not.toContain("getMembershipForUserInOrg");
   });
 
-  it("builds and reuses a local Docker E2E image after approval", () => {
+  it("builds and reuses a local Docker E2E image", () => {
     const workflow = readFileSync(WORKFLOW_PATH, "utf8");
 
     expect(workflow).not.toContain("prepare_docker_e2e_image:");
     expect(workflow).toContain("run_npm_telegram_beta_e2e:");
-    expect(workflow).toContain("needs: approve_release_manager");
+    expect(workflow).not.toContain("needs: approve_release_manager");
     expect(workflow).toContain("useblacksmith/setup-docker-builder");
     expect(workflow).toContain("useblacksmith/build-push-action");
     expect(workflow).toContain("tags: openclaw-docker-e2e:local");

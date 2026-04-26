@@ -34,19 +34,8 @@ env:
   PNPM_VERSION: "10.33.0"
 
 jobs:
-  approve_release_manager:
-    name: Approve npm Telegram beta E2E
-    runs-on: ubuntu-latest
-    environment: npm-release
-    steps:
-      - name: Record approval
-        env:
-          PACKAGE_SPEC: ${{ inputs.package_spec }}
-        run: echo "Approved npm Telegram beta E2E for ${PACKAGE_SPEC}"
-
   run_npm_telegram_beta_e2e:
     name: Run published npm Telegram E2E
-    needs: approve_release_manager
     runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 60
     environment: qa-live-shared
