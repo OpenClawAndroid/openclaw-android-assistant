@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Runs a mocked OpenAI image-generation auth smoke inside Docker against the
+# package-installed functional E2E image.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -10,9 +12,11 @@ SKIP_BUILD="${OPENCLAW_OPENAI_IMAGE_AUTH_E2E_SKIP_BUILD:-0}"
 docker_e2e_build_or_reuse "$IMAGE_NAME" openai-image-auth "$ROOT_DIR/scripts/e2e/Dockerfile" "$ROOT_DIR" "" "$SKIP_BUILD"
 
 echo "Running OpenAI image auth Docker E2E..."
+# Harness files are mounted read-only; the app under test comes from /app/dist.
 run_logged openai-image-auth docker run --rm \
   -e "OPENAI_API_KEY=sk-openclaw-image-auth-e2e" \
   -e "OPENCLAW_QA_ALLOW_LOCAL_IMAGE_PROVIDER=1" \
+  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
   -i "$IMAGE_NAME" bash -lc '
 set -euo pipefail
 export HOME="$(mktemp -d "/tmp/openclaw-openai-image-auth.XXXXXX")"

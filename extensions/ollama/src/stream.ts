@@ -151,12 +151,33 @@ export function wrapOllamaCompatNumCtx(baseFn: StreamFn | undefined, numCtx: num
     });
 }
 
-function createOllamaThinkingWrapper(baseFn: StreamFn | undefined, think: boolean): StreamFn {
+type OllamaThinkValue = boolean | "low" | "medium" | "high";
+
+function createOllamaThinkingWrapper(
+  baseFn: StreamFn | undefined,
+  think: OllamaThinkValue,
+): StreamFn {
   const streamFn = baseFn ?? streamSimple;
   return (model, context, options) =>
     streamWithPayloadPatch(streamFn, model, context, options, (payloadRecord) => {
       payloadRecord.think = think;
     });
+}
+
+function resolveOllamaThinkValue(thinkingLevel: unknown): OllamaThinkValue | undefined {
+  if (thinkingLevel === "off") {
+    return false;
+  }
+  if (thinkingLevel === "low" || thinkingLevel === "medium" || thinkingLevel === "high") {
+    return thinkingLevel;
+  }
+  if (thinkingLevel === "minimal") {
+    return "low";
+  }
+  if (thinkingLevel === "xhigh" || thinkingLevel === "adaptive" || thinkingLevel === "max") {
+    return "high";
+  }
+  return undefined;
 }
 
 function resolveOllamaCompatNumCtx(model: ProviderRuntimeModel): number {
@@ -196,12 +217,11 @@ export function createConfiguredOllamaCompatStreamWrapper(
     streamFn = wrapOllamaCompatNumCtx(streamFn, resolveOllamaCompatNumCtx(model));
   }
 
-  if (isNativeOllamaTransport && ctx.thinkingLevel === "off") {
-    streamFn = createOllamaThinkingWrapper(streamFn, false);
-  } else if (isNativeOllamaTransport && ctx.thinkingLevel) {
-    // Any non-off ThinkLevel (minimal, low, medium, high, xhigh, adaptive, max)
-    // should enable Ollama's native thinking mode.
-    streamFn = createOllamaThinkingWrapper(streamFn, true);
+  const ollamaThinkValue = isNativeOllamaTransport
+    ? resolveOllamaThinkValue(ctx.thinkingLevel)
+    : undefined;
+  if (ollamaThinkValue !== undefined) {
+    streamFn = createOllamaThinkingWrapper(streamFn, ollamaThinkValue);
   }
 
   if (normalizeProviderId(ctx.provider) === "ollama" && isOllamaCloudKimiModelRef(ctx.modelId)) {
@@ -310,7 +330,7 @@ interface OllamaChatRequest {
   stream: boolean;
   tools?: OllamaTool[];
   options?: Record<string, unknown>;
-  think?: boolean;
+  think?: OllamaThinkValue;
 }
 
 interface OllamaChatMessage {

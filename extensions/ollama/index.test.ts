@@ -69,7 +69,9 @@ function registerProviderWithPluginConfig(pluginConfig: Record<string, unknown>)
   return registerProviderMock.mock.calls[0]?.[0];
 }
 
-function captureWrappedOllamaPayload(thinkingLevel: "off" | "low" | undefined) {
+function captureWrappedOllamaPayload(
+  thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "max" | undefined,
+) {
   const provider = registerProvider();
   let payloadSeen: Record<string, unknown> | undefined;
   const baseStreamFn = vi.fn((_model, _context, options) => {
@@ -528,7 +530,7 @@ describe("ollama plugin", () => {
     expect((payloadSeen?.options as Record<string, unknown> | undefined)?.think).toBeUndefined();
   });
 
-  it("keeps native Ollama thinking off by default while exposing an opt-in toggle", () => {
+  it("keeps native Ollama thinking off by default while exposing opt-in effort levels", () => {
     const provider = registerProvider();
 
     expect(
@@ -549,15 +551,22 @@ describe("ollama plugin", () => {
         reasoning: true,
       }),
     ).toEqual({
-      levels: [{ id: "off" }, { id: "low", label: "on" }],
+      levels: [{ id: "off" }, { id: "low" }, { id: "medium" }, { id: "high" }, { id: "max" }],
       defaultLevel: "off",
     });
   });
 
-  it("wraps native Ollama payloads with top-level think=true when thinking is enabled", () => {
+  it("wraps native Ollama payloads with top-level think effort when thinking is enabled", () => {
     const { baseStreamFn, payloadSeen } = captureWrappedOllamaPayload("low");
     expect(baseStreamFn).toHaveBeenCalledTimes(1);
-    expect(payloadSeen?.think).toBe(true);
+    expect(payloadSeen?.think).toBe("low");
+    expect((payloadSeen?.options as Record<string, unknown> | undefined)?.think).toBeUndefined();
+  });
+
+  it("maps native Ollama max thinking to the highest supported wire effort", () => {
+    const { baseStreamFn, payloadSeen } = captureWrappedOllamaPayload("max");
+    expect(baseStreamFn).toHaveBeenCalledTimes(1);
+    expect(payloadSeen?.think).toBe("high");
     expect((payloadSeen?.options as Record<string, unknown> | undefined)?.think).toBeUndefined();
   });
 

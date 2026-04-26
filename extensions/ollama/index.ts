@@ -167,7 +167,10 @@ export default definePluginEntry({
         usesOllamaOpenAICompatTransport(model) ? { supportsUsageInStreaming: true } : undefined,
       resolveReasoningOutputMode: () => "native",
       resolveThinkingProfile: ({ reasoning }) => ({
-        levels: reasoning === true ? [{ id: "off" }, { id: "low", label: "on" }] : [{ id: "off" }],
+        levels:
+          reasoning === true
+            ? [{ id: "off" }, { id: "low" }, { id: "medium" }, { id: "high" }, { id: "max" }]
+            : [{ id: "off" }],
         defaultLevel: "off",
       }),
       wrapStreamFn: createConfiguredOllamaCompatStreamWrapper,

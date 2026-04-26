@@ -24,6 +24,7 @@ AGENT_TURN_TIMEOUT_SECONDS="${OPENCLAW_INSTALL_E2E_AGENT_TURN_TIMEOUT_SECONDS:-6
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 mkdir -p "$NPM_CONFIG_PREFIX"
 export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+export OPENCLAW_DISABLE_BONJOUR="${OPENCLAW_DISABLE_BONJOUR:-1}"
 
 if [[ "$MODELS_MODE" != "both" && "$MODELS_MODE" != "openai" && "$MODELS_MODE" != "anthropic" ]]; then
   echo "ERROR: OPENCLAW_E2E_MODELS must be one of: both|openai|anthropic" >&2
@@ -544,6 +545,14 @@ run_profile() {
   }
   trap cleanup_profile EXIT
 
+  TURN1_JSON="/tmp/agent-${profile}-1.json"
+  TURN2_JSON="/tmp/agent-${profile}-2.json"
+  TURN2B_JSON="/tmp/agent-${profile}-2b.json"
+  TURN3_JSON="/tmp/agent-${profile}-3.json"
+  TURN3B_JSON="/tmp/agent-${profile}-3b.json"
+  TURN4_JSON="/tmp/agent-${profile}-4.json"
+  HEALTH_JSON="/tmp/health-${profile}.json"
+
   echo "==> Wait for health ($profile)"
   for _ in $(seq 1 240); do
     if openclaw --profile "$profile" health --timeout 5000 --json >/dev/null 2>&1; then
@@ -551,15 +560,13 @@ run_profile() {
     fi
     sleep 0.25
   done
-  openclaw --profile "$profile" health --timeout 60000 --json >/dev/null
+  if ! openclaw --profile "$profile" health --timeout 60000 --json >"$HEALTH_JSON" 2>&1; then
+    echo "ERROR: gateway health failed ($profile, output=$HEALTH_JSON)" >&2
+    dump_profile_debug "$profile" "$HEALTH_JSON" >&2 || true
+    return 1
+  fi
 
   echo "==> Agent turns ($profile)"
-  TURN1_JSON="/tmp/agent-${profile}-1.json"
-  TURN2_JSON="/tmp/agent-${profile}-2.json"
-  TURN2B_JSON="/tmp/agent-${profile}-2b.json"
-  TURN3_JSON="/tmp/agent-${profile}-3.json"
-  TURN3B_JSON="/tmp/agent-${profile}-3b.json"
-  TURN4_JSON="/tmp/agent-${profile}-4.json"
 
   run_agent_turn "$profile" "$SESSION_ID" \
     "Use the read tool (not exec) to read ${PROOF_TXT}. Reply with the exact contents only (no extra whitespace)." \

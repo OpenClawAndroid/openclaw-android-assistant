@@ -57,7 +57,16 @@ async function createDockerSetupSandbox(): Promise<DockerSetupSandbox> {
   const logPath = join(rootDir, "docker-stub.log");
 
   await mkdir(join(rootDir, "scripts", "docker"), { recursive: true });
+  await mkdir(join(rootDir, "scripts", "lib"), { recursive: true });
   await copyFile(join(repoRoot, "scripts", "docker", "setup.sh"), scriptPath);
+  await copyFile(
+    join(repoRoot, "scripts", "lib", "docker-build.sh"),
+    join(rootDir, "scripts", "lib", "docker-build.sh"),
+  );
+  await copyFile(
+    join(repoRoot, "scripts", "lib", "docker-e2e-logs.sh"),
+    join(rootDir, "scripts", "lib", "docker-e2e-logs.sh"),
+  );
   await chmod(scriptPath, 0o755);
   await writeFile(dockerfilePath, "FROM scratch\n");
   await writeFile(

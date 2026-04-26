@@ -1,10 +1,12 @@
 #!/usr/bin/env -S node --import tsx
+// Telegram npm-live Docker harness.
+// Runs QA live transport code against the published package installed in Docker.
 
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { formatErrorMessage } from "../../dist/infra/errors.js";
 import { runTelegramQaLive } from "../../extensions/qa-lab/src/live-transports/telegram/telegram-live.runtime.ts";
-import { formatErrorMessage } from "../../src/infra/errors.ts";
 
 function parseBoolean(value: string | undefined) {
   const normalized = value?.trim().toLowerCase();

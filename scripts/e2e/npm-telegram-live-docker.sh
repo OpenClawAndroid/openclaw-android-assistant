@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Installs a published OpenClaw npm package in Docker, performs Telegram
+# onboarding/doctor recovery, then runs the Telegram QA live harness.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -141,9 +143,12 @@ command -v openclaw
 openclaw --version
 EOF
 
+# Mount only test harness/plugin QA sources; the SUT itself is the npm install.
 run_logged docker run --rm \
   "${docker_env[@]}" \
   -v "$ROOT_DIR/.artifacts:/app/.artifacts" \
+  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
+  -v "$ROOT_DIR/extensions:/app/extensions:ro" \
   -v "$npm_prefix_host:/npm-global" \
   -i "$IMAGE_NAME" bash -s <<'EOF'
 set -euo pipefail
@@ -171,6 +176,10 @@ trap 'status=$?; dump_hotpath_logs "$status"; exit "$status"' ERR
 
 command -v openclaw
 openclaw --version
+# The mounted QA harness imports openclaw/plugin-sdk; point that package import
+# at the installed npm package without copying source into the test image.
+mkdir -p /app/node_modules
+ln -sfn /npm-global/lib/node_modules/openclaw /app/node_modules/openclaw
 
 echo "Running installed npm onboarding recovery hot path..."
 OPENAI_API_KEY="${OPENAI_API_KEY:-sk-openclaw-npm-telegram-hotpath}" openclaw onboard --non-interactive --accept-risk \

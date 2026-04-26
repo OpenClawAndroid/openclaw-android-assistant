@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Runs Open WebUI against a Dockerized OpenClaw Gateway and verifies the proxied
+# chat path with a real OpenAI-compatible request.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -55,6 +57,7 @@ echo "Creating Docker network..."
 docker_cmd docker network create "$NET_NAME" >/dev/null
 
 echo "Starting gateway container..."
+# Harness files are mounted read-only; the app under test comes from /app/dist.
 docker_cmd docker run -d \
   --name "$GW_NAME" \
   --network "$NET_NAME" \
@@ -66,6 +69,7 @@ docker_cmd docker run -d \
   -e "OPENCLAW_SKIP_CANVAS_HOST=1" \
   -e OPENAI_API_KEY \
   ${OPENAI_BASE_URL_VALUE:+-e OPENAI_BASE_URL} \
+  -v "$ROOT_DIR/scripts/e2e:/app/scripts/e2e:ro" \
   "$IMAGE_NAME" \
   bash -lc '
     set -euo pipefail

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const SCRIPT_PATH = "scripts/test-install-sh-docker.sh";
 const SMOKE_RUNNER_PATH = "scripts/docker/install-sh-smoke/run.sh";
+const E2E_RUNNER_PATH = "scripts/docker/install-sh-e2e/run.sh";
 const BUN_GLOBAL_SMOKE_PATH = "scripts/e2e/bun-global-install-smoke.sh";
 const INSTALL_SMOKE_WORKFLOW_PATH = ".github/workflows/install-smoke.yml";
 const RELEASE_CHECKS_WORKFLOW_PATH = ".github/workflows/openclaw-release-checks.yml";
@@ -125,6 +126,14 @@ describe("install-sh smoke runner", () => {
     expect(runner).toContain("run_npm_global_smoke");
     expect(runner).toContain("==> Direct npm global install candidate");
     expect(runner).toContain("==> Direct npm global update candidate");
+  });
+});
+
+describe("install-sh e2e runner", () => {
+  it("disables Bonjour for Docker loopback gateway checks", () => {
+    const script = readFileSync(E2E_RUNNER_PATH, "utf8");
+
+    expect(script).toContain('export OPENCLAW_DISABLE_BONJOUR="${OPENCLAW_DISABLE_BONJOUR:-1}"');
   });
 });
 
