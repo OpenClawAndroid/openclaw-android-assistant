@@ -1147,6 +1147,9 @@ describe("diagnostics-otel service", () => {
       api: "completions",
       transport: "http",
       durationMs: 80,
+      requestPayloadBytes: 1234,
+      responseStreamBytes: 567,
+      timeToFirstByteMs: 45,
       trace: {
         traceId: TRACE_ID,
         spanId: CHILD_SPAN_ID,
@@ -1307,6 +1310,41 @@ describe("diagnostics-otel service", () => {
       expect.objectContaining({
         "openclaw.provider": "openai",
         "openclaw.model": "gpt-5.4",
+      }),
+    );
+    expect(
+      telemetryState.histograms.get("openclaw.model_call.request_bytes")?.record,
+    ).toHaveBeenCalledWith(
+      1234,
+      expect.objectContaining({
+        "openclaw.provider": "openai",
+        "openclaw.model": "gpt-5.4",
+      }),
+    );
+    expect(
+      telemetryState.histograms.get("openclaw.model_call.response_bytes")?.record,
+    ).toHaveBeenCalledWith(
+      567,
+      expect.objectContaining({
+        "openclaw.provider": "openai",
+        "openclaw.model": "gpt-5.4",
+      }),
+    );
+    expect(
+      telemetryState.histograms.get("openclaw.model_call.time_to_first_byte_ms")?.record,
+    ).toHaveBeenCalledWith(
+      45,
+      expect.objectContaining({
+        "openclaw.provider": "openai",
+        "openclaw.model": "gpt-5.4",
+      }),
+    );
+    const modelCallSpan = telemetryState.spans.find((span) => span.name === "openclaw.model.call");
+    expect(modelCallSpan?.setAttributes).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "openclaw.model_call.request_bytes": 1234,
+        "openclaw.model_call.response_bytes": 567,
+        "openclaw.model_call.time_to_first_byte_ms": 45,
       }),
     );
     expect(telemetryState.histograms.get("openclaw.run.duration_ms")?.record).toHaveBeenCalledWith(
