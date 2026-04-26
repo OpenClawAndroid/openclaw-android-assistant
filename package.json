@@ -1,6 +1,6 @@
 {
   "name": "openclaw",
-  "version": "2026.4.25",
+  "version": "2026.4.26",
   "description": "Multi-channel AI gateway with extensible messaging integrations",
   "keywords": [],
   "homepage": "https://github.com/openclaw/openclaw#readme",
@@ -45,6 +45,7 @@
     "!dist/qa-runtime-*.js",
     "docs/",
     "!docs/.generated/**",
+    "patches/",
     "skills/",
     "scripts/npm-runner.mjs",
     "scripts/preinstall-package-manager-warning.mjs",
@@ -594,6 +595,10 @@
     "./plugin-sdk/diagnostics-otel": {
       "types": "./dist/plugin-sdk/diagnostics-otel.d.ts",
       "default": "./dist/plugin-sdk/diagnostics-otel.js"
+    },
+    "./plugin-sdk/diagnostics-prometheus": {
+      "types": "./dist/plugin-sdk/diagnostics-prometheus.d.ts",
+      "default": "./dist/plugin-sdk/diagnostics-prometheus.js"
     },
     "./plugin-sdk/diffs": {
       "types": "./dist/plugin-sdk/diffs.d.ts",
@@ -1473,6 +1478,7 @@
     "test:build:singleton": "node scripts/test-built-plugin-singleton.mjs",
     "test:bundled": "node scripts/run-vitest.mjs run --config test/vitest/vitest.bundled.config.ts",
     "test:changed": "node scripts/test-projects.mjs --changed origin/main",
+    "test:changed:focused": "OPENCLAW_TEST_CHANGED_FOCUSED=1 node scripts/test-projects.mjs --changed origin/main",
     "test:changed:max": "OPENCLAW_VITEST_MAX_WORKERS=8 node scripts/test-projects.mjs --changed origin/main",
     "test:channels": "node scripts/run-vitest.mjs run --config test/vitest/vitest.channels.config.ts",
     "test:contracts": "pnpm test:contracts:channels && pnpm test:contracts:plugins",
