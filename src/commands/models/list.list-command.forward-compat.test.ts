@@ -587,6 +587,49 @@ describe("modelsListCommand forward-compat", () => {
       ]);
     });
 
+    it("does not load broad provider runtime catalogs for unfiltered all-model lists", async () => {
+      mocks.resolveConfiguredEntries.mockReturnValueOnce({ entries: [] });
+      mocks.loadModelRegistry.mockResolvedValueOnce({
+        models: [{ ...OPENAI_CODEX_MODEL }],
+        availableKeys: new Set(["openai-codex/gpt-5.4"]),
+        registry: {
+          getAll: () => [{ ...OPENAI_CODEX_MODEL }],
+        },
+      });
+      mocks.loadStaticManifestCatalogRowsForList.mockReturnValueOnce([
+        {
+          provider: "moonshot",
+          id: "kimi-k2.6",
+          ref: "moonshot/kimi-k2.6",
+          mergeKey: "moonshot::kimi-k2.6",
+          name: "Kimi K2.6",
+          source: "manifest",
+          input: ["text", "image"],
+          reasoning: false,
+          status: "available",
+          baseUrl: "https://api.moonshot.ai/v1",
+          contextWindow: 262_144,
+        },
+      ]);
+      mocks.loadModelCatalog.mockResolvedValueOnce([]);
+      const runtime = createRuntime();
+
+      await modelsListCommand({ all: true, json: true }, runtime as never);
+
+      expect(mocks.loadModelRegistry).toHaveBeenCalledWith(mocks.resolvedConfig, {
+        providerFilter: undefined,
+      });
+      expect(mocks.loadProviderCatalogModelsForList).not.toHaveBeenCalled();
+      expect(lastPrintedRows<{ key: string }>()).toEqual([
+        expect.objectContaining({
+          key: "openai-codex/gpt-5.4",
+        }),
+        expect.objectContaining({
+          key: "moonshot/kimi-k2.6",
+        }),
+      ]);
+    });
+
     it("falls back to registry-backed rows when the fast-path catalog is empty", async () => {
       mocks.resolveConfiguredEntries.mockReturnValueOnce({ entries: [] });
       mocks.hasProviderStaticCatalogForFilter.mockResolvedValueOnce(true);

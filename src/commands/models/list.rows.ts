@@ -412,7 +412,7 @@ export async function appendCatalogSupplementRows(params: {
     });
   }
 
-  if (params.context.filter.local) {
+  if (params.context.filter.local || !params.context.filter.provider) {
     return;
   }
 

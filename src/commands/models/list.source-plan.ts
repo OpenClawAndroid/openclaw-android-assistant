@@ -47,15 +47,28 @@ export async function planAllModelListSources(params: {
   providerFilter?: string;
   cfg: OpenClawConfig;
 }): Promise<ModelListSourcePlan> {
-  if (!params.all || !params.providerFilter) {
+  if (!params.all) {
     return createRegistryModelListSourcePlan();
   }
 
   const { loadStaticManifestCatalogRowsForList } = await import("./list.manifest-catalog.js");
   const manifestCatalogRows = loadStaticManifestCatalogRowsForList({
     cfg: params.cfg,
-    providerFilter: params.providerFilter,
+    ...(params.providerFilter ? { providerFilter: params.providerFilter } : {}),
   });
+  if (!params.providerFilter) {
+    const { loadProviderIndexCatalogRowsForList } =
+      await import("./list.provider-index-catalog.js");
+    return createSourcePlan({
+      kind: "registry",
+      manifestCatalogRows,
+      providerIndexCatalogRows: loadProviderIndexCatalogRowsForList({
+        cfg: params.cfg,
+      }),
+      requiresInitialRegistry: true,
+    });
+  }
+
   if (manifestCatalogRows.length > 0) {
     return createSourcePlan({
       kind: "manifest",

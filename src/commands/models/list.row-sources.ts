@@ -89,6 +89,24 @@ export async function appendAllModelRowSources(
     seenKeys,
   });
 
+  if (params.sourcePlan.manifestCatalogRows.length > 0) {
+    await appendManifestCatalogRows({
+      rows: params.rows,
+      context: { ...params.context, skipRuntimeModelSuppression: true },
+      seenKeys,
+      manifestRows: params.sourcePlan.manifestCatalogRows,
+    });
+  }
+
+  if (params.sourcePlan.providerIndexCatalogRows.length > 0) {
+    await appendModelCatalogRows({
+      rows: params.rows,
+      context: { ...params.context, skipRuntimeModelSuppression: true },
+      seenKeys,
+      catalogRows: params.sourcePlan.providerIndexCatalogRows,
+    });
+  }
+
   if (params.modelRegistry) {
     await appendCatalogSupplementRows({
       rows: params.rows,

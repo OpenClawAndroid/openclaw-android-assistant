@@ -95,6 +95,27 @@ describe("planAllModelListSources", () => {
     });
   });
 
+  it("keeps broad all-model lists on the registry path with cheap catalog supplements", async () => {
+    const { planAllModelListSources } = await import("./list.source-plan.js");
+    const providerIndexRow = { ...catalogRow, source: "provider-index" };
+    mocks.loadStaticManifestCatalogRowsForList.mockReturnValueOnce([catalogRow]);
+    mocks.loadProviderIndexCatalogRowsForList.mockReturnValueOnce([providerIndexRow]);
+
+    const plan = await planAllModelListSources({
+      all: true,
+      cfg: {},
+    });
+
+    expect(plan).toMatchObject({
+      kind: "registry",
+      requiresInitialRegistry: true,
+      skipRuntimeModelSuppression: false,
+    });
+    expect(plan.manifestCatalogRows).toEqual([catalogRow]);
+    expect(plan.providerIndexCatalogRows).toEqual([providerIndexRow]);
+    expect(mocks.hasProviderStaticCatalogForFilter).not.toHaveBeenCalled();
+  });
+
   it("falls back to registry only for provider static fast paths that return no rows", async () => {
     const { planAllModelListSources } = await import("./list.source-plan.js");
     mocks.hasProviderStaticCatalogForFilter.mockResolvedValueOnce(true);
