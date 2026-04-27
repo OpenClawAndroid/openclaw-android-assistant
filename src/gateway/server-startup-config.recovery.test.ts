@@ -260,6 +260,53 @@ describe("gateway startup config recovery", () => {
     expect(recoveryNotice.enqueueConfigRecoveryNotice).not.toHaveBeenCalled();
   });
 
+  it("rejects legacy config entries in Nix mode before recovery", async () => {
+    const legacySnapshot = buildTestConfigSnapshot({
+      path: configPath,
+      exists: true,
+      raw: `${JSON.stringify({
+        heartbeat: { model: "anthropic/claude-3-5-haiku-20241022", every: "30m" },
+      })}\n`,
+      parsed: {
+        heartbeat: { model: "anthropic/claude-3-5-haiku-20241022", every: "30m" },
+      },
+      valid: false,
+      config: {} as OpenClawConfig,
+      issues: [
+        {
+          path: "heartbeat",
+          message:
+            "top-level heartbeat is not a valid config path; use agents.defaults.heartbeat (cadence/target/model settings) or channels.defaults.heartbeat (showOk/showAlerts/useIndicator).",
+        },
+      ],
+      legacyIssues: [
+        {
+          path: "heartbeat",
+          message:
+            "top-level heartbeat is not a valid config path; use agents.defaults.heartbeat (cadence/target/model settings) or channels.defaults.heartbeat (showOk/showAlerts/useIndicator).",
+        },
+      ],
+    });
+    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata).mockResolvedValueOnce({
+      snapshot: legacySnapshot,
+      pluginMetadataSnapshot,
+    });
+    vi.mocked(configIo, true).isNixMode = true;
+
+    await expect(
+      loadGatewayStartupConfigSnapshot({
+        minimalTestGateway: true,
+        log: { info: vi.fn(), warn: vi.fn() },
+      }),
+    ).rejects.toThrow(
+      "Legacy config entries detected while running in Nix mode. Update your Nix config to the latest schema and restart.",
+    );
+
+    expect(configIo.recoverConfigFromLastKnownGood).not.toHaveBeenCalled();
+    expect(configIo.recoverConfigFromJsonRootSuffix).not.toHaveBeenCalled();
+    expect(recoveryNotice.enqueueConfigRecoveryNotice).not.toHaveBeenCalled();
+  });
+
   it("continues startup in degraded mode for plugin-local startup invalidity", async () => {
     const invalidSnapshot = buildTestConfigSnapshot({
       path: configPath,

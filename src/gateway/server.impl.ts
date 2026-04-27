@@ -31,6 +31,10 @@ import type { VoiceWakeRoutingConfig } from "../infra/voicewake-routing.js";
 import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import { getActiveBundledRuntimeDepsInstallCount } from "../plugins/bundled-runtime-deps-activity.js";
+import {
+  clearCurrentPluginMetadataSnapshot,
+  setCurrentPluginMetadataSnapshot,
+} from "../plugins/current-plugin-metadata-snapshot.js";
 import { runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
@@ -424,6 +428,7 @@ export async function startGatewayServer(
     pluginLookUpTable,
     baseMethods,
   } = pluginBootstrap;
+  setCurrentPluginMetadataSnapshot(pluginLookUpTable, { config: gatewayPluginConfigAtStart });
   if (pluginLookUpTable) {
     const metrics = pluginLookUpTable.metrics;
     startupTrace.detail("plugins.lookup-table", [
@@ -640,7 +645,8 @@ export async function startGatewayServer(
   });
   deps.cron = runtimeState.cronState.cron;
 
-  const runClosePrelude = async () =>
+  const runClosePrelude = async () => {
+    clearCurrentPluginMetadataSnapshot();
     await runGatewayClosePrelude({
       ...(diagnosticsEnabled ? { stopDiagnostics: stopDiagnosticHeartbeat } : {}),
       clearSkillsRefreshTimer: () => {
@@ -658,6 +664,7 @@ export async function startGatewayServer(
       clearSecretsRuntimeSnapshot,
       closeMcpServer: closeMcpLoopbackServerOnDemand,
     });
+  };
   const { getRuntimeSnapshot, startChannels, startChannel, stopChannel, markChannelLoggedOut } =
     channelManager;
   const createCloseHandler = () =>

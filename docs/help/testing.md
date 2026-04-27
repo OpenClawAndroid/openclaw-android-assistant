@@ -15,6 +15,16 @@ of Docker runners. This doc is a "how we test" guide:
 - How live tests discover credentials and select models/providers.
 - How to add regressions for real-world model/provider issues.
 
+<Note>
+**QA stack (qa-lab, qa-channel, live transport lanes)** is documented separately:
+
+- [QA overview](/concepts/qa-e2e-automation) — architecture, command surface, scenario authoring.
+- [Matrix QA](/concepts/qa-matrix) — reference for `pnpm openclaw qa matrix`.
+- [QA channel](/channels/qa-channel) — the synthetic transport plugin used by repo-backed scenarios.
+
+This page covers running the regular test suites and Docker/Parallels runners. The QA-specific runners section below ([QA-specific runners](#qa-specific-runners)) lists the concrete `qa` invocations and points back at the references above.
+</Note>
+
 ## Quick start
 
 Most days:
@@ -248,17 +258,8 @@ gh workflow run package-acceptance.yml --ref main \
   - Starts only the local AIMock provider server for direct protocol smoke
     testing.
 - `pnpm openclaw qa matrix`
-  - Runs the Matrix live QA lane against a disposable Docker-backed Tuwunel homeserver.
-  - This QA host is repo/dev-only today. Packaged OpenClaw installs do not ship
-    `qa-lab`, so they do not expose `openclaw qa`.
-  - Repo checkouts load the bundled runner directly; no separate plugin install
-    step is needed.
-  - Provisions three temporary Matrix users (`driver`, `sut`, `observer`) plus one private room, then starts a QA gateway child with the real Matrix plugin as the SUT transport.
-  - Defaults to `--profile all`. Use `--profile fast --fail-fast` for release-critical transport proof, or `--profile transport|media|e2ee-smoke|e2ee-deep|e2ee-cli` when sharding the full catalog.
-  - Uses the pinned stable Tuwunel image `ghcr.io/matrix-construct/tuwunel:v1.5.1` by default. Override with `OPENCLAW_QA_MATRIX_TUWUNEL_IMAGE` when you need to test a different image.
-  - Matrix does not expose shared credential-source flags because the lane provisions disposable users locally.
-  - Writes a Matrix QA report, summary, observed-events artifact, and combined stdout/stderr output log under `.artifacts/qa-e2e/...`.
-  - Emits progress by default and enforces a hard run timeout with `OPENCLAW_QA_MATRIX_TIMEOUT_MS` (default 30 minutes). `OPENCLAW_QA_MATRIX_NO_REPLY_WINDOW_MS` tunes negative no-reply quiet windows, and cleanup is bounded by `OPENCLAW_QA_MATRIX_CLEANUP_TIMEOUT_MS` with failures including the recovery `docker compose ... down --remove-orphans` command.
+  - Runs the Matrix live QA lane against a disposable Docker-backed Tuwunel homeserver. Source-checkout only — packaged installs do not ship `qa-lab`.
+  - Full CLI, profile/scenario catalog, env vars, and artifact layout: [Matrix QA](/concepts/qa-matrix).
 - `pnpm openclaw qa telegram`
   - Runs the Telegram live QA lane against a real private group using the driver and SUT bot tokens from env.
   - Requires `OPENCLAW_QA_TELEGRAM_GROUP_ID`, `OPENCLAW_QA_TELEGRAM_DRIVER_BOT_TOKEN`, and `OPENCLAW_QA_TELEGRAM_SUT_BOT_TOKEN`. The group id must be the numeric Telegram chat id.
@@ -269,16 +270,7 @@ gh workflow run package-acceptance.yml --ref main \
   - For stable bot-to-bot observation, enable Bot-to-Bot Communication Mode in `@BotFather` for both bots and ensure the driver bot can observe group bot traffic.
   - Writes a Telegram QA report, summary, and observed-messages artifact under `.artifacts/qa-e2e/...`. Replying scenarios include RTT from driver send request to observed SUT reply.
 
-Live transport lanes share one standard contract so new transports do not drift:
-
-`qa-channel` remains the broad synthetic QA suite and is not part of the live
-transport coverage matrix.
-
-| Lane     | Canary | Mention gating | Allowlist block | Top-level reply | Restart resume | Thread follow-up | Thread isolation | Reaction observation | Help command | Native command registration |
-| -------- | ------ | -------------- | --------------- | --------------- | -------------- | ---------------- | ---------------- | -------------------- | ------------ | --------------------------- |
-| Matrix   | x      | x              | x               | x               | x              | x                | x                | x                    |              |                             |
-| Telegram | x      | x              |                 |                 |                |                  |                  |                      | x            |                             |
-| Discord  | x      | x              |                 |                 |                |                  |                  |                      |              | x                           |
+Live transport lanes share one standard contract so new transports do not drift; the per-lane coverage matrix lives in [QA overview → Live transport coverage](/concepts/qa-e2e-automation#live-transport-coverage). `qa-channel` is the broad synthetic suite and is not part of that matrix.
 
 ### Shared Telegram credentials via Convex (v1)
 
@@ -360,80 +352,7 @@ Payload shape for Telegram kind:
 
 ### Adding a channel to QA
 
-Adding a channel to the markdown QA system requires exactly two things:
-
-1. A transport adapter for the channel.
-2. A scenario pack that exercises the channel contract.
-
-Do not add a new top-level QA command root when the shared `qa-lab` host can
-own the flow.
-
-`qa-lab` owns the shared host mechanics:
-
-- the `openclaw qa` command root
-- suite startup and teardown
-- worker concurrency
-- artifact writing
-- report generation
-- scenario execution
-- compatibility aliases for older `qa-channel` scenarios
-
-Runner plugins own the transport contract:
-
-- how `openclaw qa <runner>` is mounted beneath the shared `qa` root
-- how the gateway is configured for that transport
-- how readiness is checked
-- how inbound events are injected
-- how outbound messages are observed
-- how transcripts and normalized transport state are exposed
-- how transport-backed actions are executed
-- how transport-specific reset or cleanup is handled
-
-The minimum adoption bar for a new channel is:
-
-1. Keep `qa-lab` as the owner of the shared `qa` root.
-2. Implement the transport runner on the shared `qa-lab` host seam.
-3. Keep transport-specific mechanics inside the runner plugin or channel harness.
-4. Mount the runner as `openclaw qa <runner>` instead of registering a competing root command.
-   Runner plugins should declare `qaRunners` in `openclaw.plugin.json` and export a matching `qaRunnerCliRegistrations` array from `runtime-api.ts`.
-   Keep `runtime-api.ts` light; lazy CLI and runner execution should stay behind separate entrypoints.
-5. Author or adapt markdown scenarios under the themed `qa/scenarios/` directories.
-6. Use the generic scenario helpers for new scenarios.
-7. Keep existing compatibility aliases working unless the repo is doing an intentional migration.
-
-The decision rule is strict:
-
-- If behavior can be expressed once in `qa-lab`, put it in `qa-lab`.
-- If behavior depends on one channel transport, keep it in that runner plugin or plugin harness.
-- If a scenario needs a new capability that more than one channel can use, add a generic helper instead of a channel-specific branch in `suite.ts`.
-- If a behavior is only meaningful for one transport, keep the scenario transport-specific and make that explicit in the scenario contract.
-
-Preferred generic helper names for new scenarios are:
-
-- `waitForTransportReady`
-- `waitForChannelReady`
-- `injectInboundMessage`
-- `injectOutboundMessage`
-- `waitForTransportOutboundMessage`
-- `waitForChannelOutboundMessage`
-- `waitForNoTransportOutbound`
-- `getTransportSnapshot`
-- `readTransportMessage`
-- `readTransportTranscript`
-- `formatTransportTranscript`
-- `resetTransport`
-
-Compatibility aliases remain available for existing scenarios, including:
-
-- `waitForQaChannelReady`
-- `waitForOutboundMessage`
-- `waitForNoOutbound`
-- `formatConversationTranscript`
-- `resetBus`
-
-New channel work should use the generic helper names.
-Compatibility aliases exist to avoid a flag day migration, not as the model for
-new scenario authoring.
+The architecture and scenario-helper names for new channel adapters live in [QA overview → Adding a channel](/concepts/qa-e2e-automation#adding-a-channel). The minimum bar: implement the transport runner on the shared `qa-lab` host seam, declare `qaRunners` in the plugin manifest, mount as `openclaw qa <runner>`, and author scenarios under `qa/scenarios/`.
 
 ## Test suites (what runs where)
 

@@ -151,6 +151,8 @@ Gateway startup builds one `PluginMetadataSnapshot` for the current config snaps
 
 Plugin-aware config validation, startup auto-enable, and Gateway plugin bootstrap consume that snapshot instead of rebuilding manifest/index metadata independently. `PluginLookUpTable` is derived from the same snapshot and adds the startup plugin plan for the current runtime config.
 
+After startup, Gateway keeps the current metadata snapshot as a replaceable runtime product. Repeated runtime provider discovery can borrow that snapshot instead of reconstructing the installed index and manifest registry for each provider-catalog pass. The snapshot is cleared or replaced on Gateway shutdown, config/plugin inventory changes, and installed index writes; callers fall back to the cold manifest/index path when no compatible current snapshot exists. Compatibility checks must include plugin discovery roots such as `plugins.load.paths` and the default agent workspace, because workspace plugins are part of the metadata scope.
+
 The snapshot and lookup table keep repeated startup decisions on the fast path:
 
 - channel ownership

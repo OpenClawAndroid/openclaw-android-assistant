@@ -6,9 +6,16 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Plugins/models: wire manifest `modelCatalog.aliases` and `modelCatalog.suppressions` into model-catalog planning and built-in model suppression, with OpenAI stale Spark suppression now declared in the plugin manifest before runtime fallback. Thanks @shakkernerd.
 - Channels/Yuanbao: register the Tencent Yuanbao external channel plugin (`openclaw-plugin-yuanbao`) in the official channel catalog, contract suites, and community plugin docs, with a new `docs/channels/yuanbao.md` quick-start guide for WebSocket bot DMs and group chats. (#72756) Thanks @loongfay.
 - Channels/QQBot: add full group chat support (history tracking, @-mention gating, activation modes, per-group config, FIFO message queue with deliver debounce), C2C `stream_messages` streaming with a `StreamingController` lifecycle manager, unified `sendMedia` with chunked upload for large files, and refactor the engine into pipeline stages, focused outbound submodules, builtin slash-command modules, and explicit DI ports via `createEngineAdapters()`. (#70624) Thanks @cxyhhhhh.
+- Gateway/runtime: reuse the current plugin metadata snapshot for provider discovery so repeated model-provider discovery avoids rebuilding plugin manifest metadata. Thanks @shakkernerd.
 - Gateway/startup: pass the plugin metadata snapshot from config validation into plugin bootstrap so startup reuses one manifest product instead of rebuilding plugin metadata. Thanks @shakkernerd.
+- ACP/runtime: add an opt-in bundled Coven backend extension that routes ACP coding sessions through a local Coven daemon when `acp.backend="coven"`, while preserving the existing ACPX backend as the default fallback path. Thanks @BunsDev.
+
+### Fixes
+
+- ACP/runtime: harden the opt-in Coven backend with workspace-confined launch paths, home-expanded Coven socket config, bounded socket responses, sanitized daemon output, and controlled polling failure handling. Thanks @BunsDev.
 
 ## 2026.4.26
 
@@ -239,7 +246,7 @@ Docs: https://docs.openclaw.ai
 - Diagnostics/OTEL: capture privacy-safe model-call request payload bytes, streamed response bytes, first-response latency, and total duration in diagnostic events, plugin hooks, stability snapshots, and OTEL model-call spans/metrics without logging raw model content. Fixes #33832. Thanks @wwh830.
 - Logging: write validated diagnostic trace context as top-level `traceId`, `spanId`, `parentSpanId`, and `traceFlags` fields in file-log JSONL records so traced requests and model calls are easier to correlate in log processors. Refs #40353. Thanks @liangruochong44-ui.
 - Logging/sessions: apply configured redaction patterns to persisted session transcript text and accept escaped character classes in safe custom redaction regexes, so transcript JSONL no longer keeps matching sensitive text in the clear. Fixes #42982. Thanks @panpan0000.
-- Agents/sessions: let `sessions_spawn runtime="subagent"` ignore ACP-only `streamTo` and `resumeSessionId` fields while keeping ACP passthrough and documenting `streamTo` as ACP-only. Fixes #43556 and #63120; covers #56326, #61724, #64714, and #67248. Thanks @skernelx, @damselem, @Br1an67, @Mintalix, @IsaacAPerez, @vvitovec, and @Sanjays2402.
+- Agents/sessions: let `sessions_spawn runtime="subagent"` ignore ACP-only `streamTo` and `resumeSessionId` fields while keeping ACP passthrough and documenting `streamTo` as ACP-only. Fixes #43556 and #63120; covers #56326, #61724, #64714, and #67248; carries forward #68397, #65282, #58686, #56342, and #40102. Thanks @skernelx, @damselem, @Br1an67, @Mintalix, @IsaacAPerez, @vvitovec, @Sanjays2402, @shenkq97, and @1034378361.
 - Providers/Ollama: honor `/api/show` capabilities when registering local models so non-tool Ollama models no longer receive the agent tool surface, and keep native Ollama thinking opt-in instead of enabling it by default. Fixes #64710 and duplicate #65343. Thanks @yuan-b, @netherby, @xilopaint, and @Diyforfun2026.
 - Image tool/media: honor `tools.media.image.timeoutSeconds` and matching per-model image timeouts in explicit image analysis, including the MiniMax VLM fallback path, so slow local vision models are not capped by hardcoded 30s/60s aborts. Fixes #67889; supersedes #67929. Thanks @AllenT22 and @alchip.
 - Providers/Ollama: read larger custom Modelfile `PARAMETER num_ctx` values from `/api/show` so auto-discovered Ollama models with expanded context no longer stay pinned to the base model context. Fixes #68344. Thanks @neeravmakwana.
