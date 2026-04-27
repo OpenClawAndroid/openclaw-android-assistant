@@ -69,7 +69,6 @@ const BUNDLED_RUNTIME_DEPS_OWNERLESS_LOCK_STALE_MS = 30_000;
 const BUNDLED_RUNTIME_DEPS_INSTALL_PROGRESS_INTERVAL_MS = 5_000;
 const BUNDLED_RUNTIME_MIRROR_MATERIALIZED_EXTENSIONS = new Set([".cjs", ".js", ".mjs"]);
 const BUNDLED_EXTENSION_DIST_DIR = "extensions";
-const BUNDLED_RUNTIME_MIRROR_PLUGIN_REGION_RE = /(?:^|\n)\/\/#region extensions\/[^/\s]+(?:\/|$)/u;
 const MIRRORED_CORE_RUNTIME_DEP_NAMES = ["tslog"] as const;
 const MIRRORED_PACKAGE_RUNTIME_DEP_PLUGIN_ID = "openclaw-core";
 
@@ -82,14 +81,7 @@ export type BundledRuntimeDepsNpmRunner = {
 };
 
 export function shouldMaterializeBundledRuntimeMirrorDistFile(sourcePath: string): boolean {
-  if (!BUNDLED_RUNTIME_MIRROR_MATERIALIZED_EXTENSIONS.has(path.extname(sourcePath))) {
-    return false;
-  }
-  try {
-    return BUNDLED_RUNTIME_MIRROR_PLUGIN_REGION_RE.test(fs.readFileSync(sourcePath, "utf8"));
-  } catch {
-    return false;
-  }
+  return BUNDLED_RUNTIME_MIRROR_MATERIALIZED_EXTENSIONS.has(path.extname(sourcePath));
 }
 
 export function materializeBundledRuntimeMirrorDistFile(

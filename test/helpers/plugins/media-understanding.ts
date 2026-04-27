@@ -1,1 +1,1 @@
-export { createRequestCaptureJsonFetch } from "../../../src/media-understanding/audio.test-helpers.js";
+export { createRequestCaptureJsonFetch } from "openclaw/plugin-sdk/testing";

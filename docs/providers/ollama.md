@@ -185,12 +185,42 @@ When you set `OLLAMA_API_KEY` (or an auth profile) and **do not** define `models
 | Token limits         | Sets `maxTokens` to the default Ollama max-token cap used by OpenClaw                                                                                               |
 | Costs                | Sets all costs to `0`                                                                                                                                               |
 
-This avoids manual model entries while keeping the catalog aligned with the local Ollama instance.
+This avoids manual model entries while keeping the catalog aligned with the local Ollama instance. You can use a full ref such as `ollama/<pulled-model>:latest` in local `infer model run`; OpenClaw resolves that installed model from Ollama's live catalog without requiring a hand-written `models.json` entry.
 
 ```bash
 # See what models are available
 ollama list
 openclaw models list
+```
+
+For a narrow text-generation smoke test that avoids the full agent tool surface,
+use local `infer model run` with a full Ollama model ref:
+
+```bash
+OLLAMA_API_KEY=ollama-local \
+  openclaw infer model run \
+    --local \
+    --model ollama/llama3.2:latest \
+    --prompt "Reply with exactly: pong" \
+    --json
+```
+
+That path still uses OpenClaw's configured provider, auth, and native Ollama
+transport, but it does not start a chat-agent turn or load MCP/tool context. If
+this succeeds while normal agent replies fail, troubleshoot the model's agent
+prompt/tool capacity next.
+
+When you switch a conversation with `/model ollama/<model>`, OpenClaw treats
+that as an exact user selection. If the configured Ollama `baseUrl` is
+unreachable, the next reply fails with the provider error instead of silently
+answering from another configured fallback model.
+
+Live-verify the local text path, native stream path, and embeddings against
+local Ollama with:
+
+```bash
+OPENCLAW_LIVE_TEST=1 OPENCLAW_LIVE_OLLAMA=1 OPENCLAW_LIVE_OLLAMA_WEB_SEARCH=0 \
+  pnpm test:live -- extensions/ollama/ollama.live.test.ts
 ```
 
 To add a new model, simply pull it with Ollama:

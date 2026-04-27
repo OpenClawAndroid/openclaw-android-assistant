@@ -1,1 +1,1 @@
-export { withFetchPreconnect, type FetchMock } from "../../../src/test-utils/fetch-mock.js";
+export { withFetchPreconnect, type FetchMock } from "openclaw/plugin-sdk/testing";

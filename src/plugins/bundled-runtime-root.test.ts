@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("prepareBundledPluginRuntimeRoot", () => {
-  it("materializes plugin-owned root chunks in external mirrors", () => {
+  it("materializes root JavaScript chunks in external mirrors", () => {
     const packageRoot = makeTempRoot();
     const stageDir = makeTempRoot();
     const pluginRoot = path.join(packageRoot, "dist", "extensions", "browser");
@@ -40,6 +40,11 @@ describe("prepareBundledPluginRuntimeRoot", () => {
         `//#endregion`,
         "",
       ].join("\n"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(packageRoot, "dist", "shared-runtime.js"),
+      "export const shared = 'mirrored-without-region';\n",
       "utf8",
     );
     fs.writeFileSync(
@@ -106,6 +111,9 @@ describe("prepareBundledPluginRuntimeRoot", () => {
     expect(fs.existsSync(staleMirrorChunk)).toBe(true);
     expect(fs.lstatSync(staleMirrorChunk).isSymbolicLink()).toBe(false);
     expect(fs.readFileSync(staleMirrorChunk, "utf8")).toContain("playwright-core");
+    expect(fs.lstatSync(path.join(installRoot, "dist", "shared-runtime.js")).isSymbolicLink()).toBe(
+      false,
+    );
   });
 
   it("does not copy staged runtime mirror dist files onto themselves", () => {

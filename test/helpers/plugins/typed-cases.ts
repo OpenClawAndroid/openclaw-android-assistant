@@ -1,1 +1,1 @@
-export { typedCases } from "../../../src/test-utils/typed-cases.js";
+export { typedCases } from "openclaw/plugin-sdk/testing";

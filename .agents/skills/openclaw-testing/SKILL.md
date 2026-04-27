@@ -141,6 +141,11 @@ parent gate. If a child workflow failed but was later rerun successfully, rerun
 only the failed parent verifier job; do not dispatch a new full umbrella unless
 the release evidence is stale.
 
+For bounded recovery after a focused fix, pass `-f rerun_group=<group>`.
+Supported umbrella groups are `all`, `ci`, `release-checks`, `install-smoke`,
+`cross-os`, `live-e2e`, `package`, `qa`, `qa-parity`, `qa-live`, and
+`npm-telegram`. Use the narrowest group that covers the failed box.
+
 ### Release Evidence
 
 After release-candidate validation or before a release decision, record the
@@ -192,8 +197,12 @@ gh workflow run openclaw-release-checks.yml \
   --ref main \
   -f ref=<branch-or-sha> \
   -f provider=openai \
-  -f mode=both
+  -f mode=both \
+  -f rerun_group=all
 ```
+
+Release-check rerun groups are `all`, `install-smoke`, `cross-os`, `live-e2e`,
+`package`, `qa`, `qa-parity`, and `qa-live`.
 
 ### QA Lab Matrix Profiles
 
@@ -236,13 +245,23 @@ gh workflow run openclaw-live-and-e2e-checks-reusable.yml \
 Useful knobs:
 
 - `docker_lanes='<lane[,lane]>'`: run selected Docker scheduler lanes against
-  prepared artifacts instead of the release chunk matrix.
+  prepared artifacts instead of the release chunk matrix. Multiple selected
+  lanes fan out as parallel targeted Docker jobs after one shared package/image
+  preparation step.
 - `include_live_suites=false`: skip live/provider suites when testing Docker
   scheduler or release packaging only.
 - `live_models_only=true`: run only Docker live model coverage.
 - `live_model_providers=fireworks` (or comma/space separated providers): run one
   targeted Docker live model job instead of the full provider matrix.
 - blank `live_model_providers`: run the full live-model provider matrix.
+
+Release-path Docker chunks are currently `core`, `package-update-openai`,
+`package-update-anthropic`, `package-update-core`, `plugins-runtime-core`,
+`plugins-runtime-install-a`, `plugins-runtime-install-b`,
+`bundled-channels-core`, `bundled-channels-update-a`,
+`bundled-channels-update-b`, and `bundled-channels-contracts`. The aggregate
+`bundled-channels` chunk remains valid for manual one-shot reruns, but release
+checks use the split chunks.
 
 When live suites are enabled, the workflow shards broad native `pnpm test:live`
 coverage through `scripts/test-live-shard.mjs` instead of one serial `live-all`

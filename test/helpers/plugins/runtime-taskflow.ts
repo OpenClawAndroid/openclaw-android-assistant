@@ -1,1 +1,1 @@
-export { createRuntimeTaskFlow } from "../../../src/plugins/runtime/runtime-taskflow.js";
+export { createRuntimeTaskFlow } from "openclaw/plugin-sdk/testing";

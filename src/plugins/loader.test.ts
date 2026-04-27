@@ -1714,7 +1714,7 @@ module.exports = {
     expect(registry?.plugins.find((entry) => entry.id === "alpha")?.status).toBe("loaded");
   });
 
-  it("materializes plugin-owned root chunks in external runtime mirrors", () => {
+  it("materializes root JavaScript chunks in external runtime mirrors", () => {
     const packageRoot = makeTempDir();
     const stageDir = makeTempDir();
     const bundledDir = path.join(packageRoot, "dist", "extensions");
@@ -1734,6 +1734,11 @@ module.exports = {
         `//#endregion`,
         "",
       ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(packageRoot, "dist", "shared-runtime.js"),
+      "export const shared = 'mirrored-without-region';\n",
       "utf-8",
     );
     fs.writeFileSync(
@@ -1829,6 +1834,9 @@ module.exports = {
 
     expect(reloadedRegistry.plugins.find((entry) => entry.id === "browser")?.status).toBe("loaded");
     expect(fs.existsSync(stagedMirrorChunk)).toBe(true);
+    expect(
+      fs.lstatSync(path.join(actualInstallRoot, "dist", "shared-runtime.js")).isSymbolicLink(),
+    ).toBe(false);
   });
 
   it("loads bundled plugins with plugin-sdk imports from an external stage dir", () => {

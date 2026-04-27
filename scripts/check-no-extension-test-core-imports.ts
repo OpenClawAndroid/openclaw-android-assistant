@@ -37,9 +37,24 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; hint: string }> = [
 
 const STATIC_RELATIVE_MODULE_PATTERN = /\b(?:import|export)\b[\s\S]*?\bfrom\s*["']([^"']+)["']/g;
 const DYNAMIC_RELATIVE_MODULE_PATTERN = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+const MOCK_RELATIVE_MODULE_PATTERN =
+  /\bvi\.(?:mock|doMock|unmock|doUnmock)\s*\(\s*["']([^"']+)["']/g;
 
 const RELATIVE_CORE_HINT =
   "Use openclaw/plugin-sdk/testing or a focused plugin-sdk test/runtime subpath instead of core internals.";
+
+const EXTENSION_TEST_HELPER_BRIDGE_FILES = [
+  "test/helpers/plugins/env.ts",
+  "test/helpers/plugins/fetch-mock.ts",
+  "test/helpers/plugins/media-understanding.ts",
+  "test/helpers/plugins/mock-http-response.ts",
+  "test/helpers/plugins/plugin-registration.ts",
+  "test/helpers/plugins/plugin-registry.ts",
+  "test/helpers/plugins/runtime-taskflow.ts",
+  "test/helpers/plugins/temp-dir.ts",
+  "test/helpers/plugins/temp-home.ts",
+  "test/helpers/plugins/typed-cases.ts",
+];
 
 function isExtensionTestFile(filePath: string): boolean {
   return /\.test\.[cm]?[jt]sx?$/u.test(filePath) || /\.e2e\.test\.[cm]?[jt]sx?$/u.test(filePath);
@@ -88,6 +103,7 @@ function collectRelativeCoreImportOffenders(
   const matches = [
     ...content.matchAll(STATIC_RELATIVE_MODULE_PATTERN),
     ...(opts.includeDynamic ? [...content.matchAll(DYNAMIC_RELATIVE_MODULE_PATTERN)] : []),
+    ...content.matchAll(MOCK_RELATIVE_MODULE_PATTERN),
   ];
   for (const match of matches) {
     const specifier = match[1];
@@ -106,7 +122,12 @@ function collectRelativeCoreImportOffenders(
 
 function main() {
   const extensionsDir = path.join(process.cwd(), "extensions");
-  const files = collectExtensionTestFiles(extensionsDir);
+  const files = [
+    ...collectExtensionTestFiles(extensionsDir),
+    ...EXTENSION_TEST_HELPER_BRIDGE_FILES.map((file) => path.join(process.cwd(), file)).filter(
+      (file) => fs.existsSync(file),
+    ),
+  ];
   const offenders: Offender[] = [];
 
   for (const file of files) {
@@ -127,7 +148,7 @@ function main() {
 
   if (offenders.length > 0) {
     console.error(
-      "Extension test files must stay on extension test bridges or public plugin-sdk surfaces.",
+      "Extension test files and helper bridges must stay on public plugin-sdk surfaces.",
     );
     for (const offender of offenders.toSorted((a, b) => a.file.localeCompare(b.file))) {
       const location = offender.line
@@ -140,7 +161,7 @@ function main() {
   }
 
   console.log(
-    `OK: extension test files and support helpers avoid direct core test/internal imports (${files.length} checked).`,
+    `OK: extension test files, support helpers, and helper bridges avoid direct core test/internal imports (${files.length} checked).`,
   );
 }
 

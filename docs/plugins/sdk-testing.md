@@ -38,6 +38,17 @@ import {
 | `installCommonResolveTargetErrorCases` | Shared test cases for target resolution error handling |
 | `shouldAckReaction`                    | Check whether a channel should add an ack reaction     |
 | `removeAckReactionAfterReply`          | Remove ack reaction after reply delivery               |
+| `createTestRegistry`                   | Build a channel plugin registry fixture                |
+| `createEmptyPluginRegistry`            | Build an empty plugin registry fixture                 |
+| `setActivePluginRegistry`              | Install a registry fixture for plugin runtime tests    |
+| `createRequestCaptureJsonFetch`        | Capture JSON fetch requests in media helper tests      |
+| `withFetchPreconnect`                  | Run fetch tests with preconnect hooks installed        |
+| `withEnv` / `withEnvAsync`             | Temporarily patch environment variables                |
+| `createTempHomeEnv` / `withTempDir`    | Create isolated filesystem test fixtures               |
+| `createMockServerResponse`             | Create a minimal HTTP server response mock             |
+| `registerSingleProviderPlugin`         | Register one provider plugin in loader smoke tests     |
+| `createRuntimeTaskFlow`                | Create isolated runtime task-flow state                |
+| `typedCases`                           | Preserve literal types for table-driven tests          |
 
 ### Types
 

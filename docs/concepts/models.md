@@ -156,6 +156,7 @@ You can switch models for the current session without restarting:
     - If the agent is idle, the next run uses the new model right away.
     - If a run is already active, OpenClaw marks a live switch as pending and only restarts into the new model at a clean retry point.
     - If tool activity or reply output has already started, the pending switch can stay queued until a later retry opportunity or the next user turn.
+    - A user-selected `/model` ref is strict for that session: if the selected provider/model is unreachable, the reply fails visibly instead of silently answering from `agents.defaults.model.fallbacks`.
     - `/model status` is the detailed view (auth candidates and, when configured, provider endpoint `baseUrl` + `api` mode).
   </Accordion>
   <Accordion title="Ref parsing">

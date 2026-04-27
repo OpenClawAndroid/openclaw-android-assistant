@@ -5,7 +5,7 @@ import path from "node:path";
 import { resolveSessionTranscriptsDirForAgent } from "openclaw/plugin-sdk/memory-core";
 import {
   clearMemoryEmbeddingProviders as clearRegistry,
-  listMemoryEmbeddingProviders as listRegisteredAdapters,
+  listRegisteredMemoryEmbeddingProviderAdapters as listRegisteredAdapters,
   registerMemoryEmbeddingProvider as registerAdapter,
 } from "openclaw/plugin-sdk/memory-core-host-engine-embeddings";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,14 @@ import {
   DEFAULT_LOCAL_MODEL,
   registerBuiltInMemoryEmbeddingProviders,
 } from "./provider-adapters.js";
+
+// This suite performs real sqlite/media indexing and can exceed the global
+// timeout when it shares a packed CI extension shard.
+vi.setConfig({ testTimeout: 240_000 });
+
+afterAll(() => {
+  vi.resetConfig();
+});
 
 let embedBatchCalls = 0;
 let embedBatchInputCalls = 0;

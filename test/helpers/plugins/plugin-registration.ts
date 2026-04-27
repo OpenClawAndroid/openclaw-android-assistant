@@ -1,1 +1,1 @@
-export { registerSingleProviderPlugin } from "../../../src/test-utils/plugin-registration.js";
+export { registerSingleProviderPlugin } from "openclaw/plugin-sdk/testing";

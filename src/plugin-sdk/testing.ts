@@ -114,10 +114,15 @@ export { countLines, hasBalancedFences } from "../test-utils/chunk-test-helpers.
 export { expectGeneratedTokenPersistedToGatewayAuth } from "../test-utils/auth-token-assertions.js";
 export { captureEnv, withEnv, withEnvAsync } from "../test-utils/env.js";
 export { withFetchPreconnect, type FetchMock } from "../test-utils/fetch-mock.js";
+export { createMockServerResponse } from "../test-utils/mock-http-response.js";
+export { registerSingleProviderPlugin } from "../test-utils/plugin-registration.js";
 export { createTempHomeEnv, type TempHomeEnv } from "../test-utils/temp-home.js";
+export { withTempDir } from "../test-utils/temp-dir.js";
+export { typedCases } from "../test-utils/typed-cases.js";
 export { createMockPluginRegistry } from "../plugins/hooks.test-helpers.js";
 export { buildPluginApi } from "../plugins/api-builder.js";
 export {
   createCapturedPluginRegistration,
   type CapturedPluginRegistration,
 } from "../plugins/captured-registration.js";
+export { createRuntimeTaskFlow } from "../plugins/runtime/runtime-taskflow.js";
