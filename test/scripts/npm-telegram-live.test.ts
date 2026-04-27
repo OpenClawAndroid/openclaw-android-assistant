@@ -55,6 +55,19 @@ describe("package Telegram live Docker E2E", () => {
     );
   });
 
+  it("keeps private QA harness imports local while using the installed package dist", () => {
+    const script = readFileSync(DOCKER_SCRIPT_PATH, "utf8");
+
+    expect(script).toContain('ln -sfnT "$openclaw_package_dir/dist" /app/dist');
+    expect(script).toContain('cp "$openclaw_package_dir/package.json" /app/package.json');
+    expect(script).toContain('ln -sfnT /app/extensions "$openclaw_package_dir/extensions"');
+    expect(script).toContain('"/app/node_modules/openclaw/package.json"');
+    expect(script).toContain('pkg.exports["./plugin-sdk/qa-channel"]');
+    expect(script).toContain('"./extensions/qa-channel/api.ts"');
+    expect(script).toContain('pkg.exports["./plugin-sdk/qa-channel-protocol"]');
+    expect(script).toContain('"./extensions/qa-channel/src/protocol.ts"');
+  });
+
   it("lets npm-specific credential aliases override shared QA env", () => {
     expect(
       __testing.resolveCredentialSource({

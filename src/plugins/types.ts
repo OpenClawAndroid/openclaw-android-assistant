@@ -702,6 +702,7 @@ export type ProviderReplayPolicy = {
     includeCamelCase?: boolean;
   };
   dropThinkingBlocks?: boolean;
+  dropReasoningFromHistory?: boolean;
   repairToolUseResultPairing?: boolean;
   applyAssistantFirstOrderingFix?: boolean;
   validateGeminiTurns?: boolean;

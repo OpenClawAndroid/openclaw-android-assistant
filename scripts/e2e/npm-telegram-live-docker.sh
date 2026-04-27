@@ -225,7 +225,33 @@ mkdir -p /app/node_modules
 openclaw_package_dir="/npm-global/lib/node_modules/openclaw"
 # The mounted QA harness imports openclaw/plugin-sdk and package dependencies;
 # point those imports at the installed package without copying source into the test image.
-ln -sfn "$openclaw_package_dir" /app/node_modules/openclaw
+rm -rf /app/node_modules/openclaw
+ln -sfnT "$openclaw_package_dir" /app/node_modules/openclaw
+rm -rf /app/dist
+ln -sfnT "$openclaw_package_dir/dist" /app/dist
+cp "$openclaw_package_dir/package.json" /app/package.json
+rm -rf "$openclaw_package_dir/extensions"
+ln -sfnT /app/extensions "$openclaw_package_dir/extensions"
+node --input-type=module <<'NODE'
+import fs from "node:fs";
+
+for (const packageJsonPath of [
+  "/app/package.json",
+  "/app/node_modules/openclaw/package.json",
+]) {
+  const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  pkg.exports = pkg.exports && typeof pkg.exports === "object" ? pkg.exports : {};
+  pkg.exports["./plugin-sdk/qa-channel"] = {
+    types: "./extensions/qa-channel/api.ts",
+    default: "./extensions/qa-channel/api.ts",
+  };
+  pkg.exports["./plugin-sdk/qa-channel-protocol"] = {
+    types: "./extensions/qa-channel/src/protocol.ts",
+    default: "./extensions/qa-channel/src/protocol.ts",
+  };
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
+}
+NODE
 for deps_dir in "$openclaw_package_dir/node_modules" /npm-global/lib/node_modules; do
   [ -d "$deps_dir" ] || continue
   for dependency_dir in "$deps_dir"/*; do
@@ -240,11 +266,14 @@ for deps_dir in "$openclaw_package_dir/node_modules" /npm-global/lib/node_module
         mkdir -p "/app/node_modules/$dependency_name"
         for scoped_dependency_dir in "$dependency_dir"/*; do
           [ -e "$scoped_dependency_dir" ] || continue
-          ln -sfn "$scoped_dependency_dir" "/app/node_modules/$dependency_name/$(basename "$scoped_dependency_dir")"
+          scoped_dependency_name="$(basename "$scoped_dependency_dir")"
+          rm -rf "/app/node_modules/$dependency_name/$scoped_dependency_name"
+          ln -sfnT "$scoped_dependency_dir" "/app/node_modules/$dependency_name/$scoped_dependency_name"
         done
         ;;
       *)
-        ln -sfn "$dependency_dir" "/app/node_modules/$dependency_name"
+        rm -rf "/app/node_modules/$dependency_name"
+        ln -sfnT "$dependency_dir" "/app/node_modules/$dependency_name"
         ;;
     esac
   done

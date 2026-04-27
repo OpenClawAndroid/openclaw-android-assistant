@@ -23,7 +23,7 @@ Docker is **optional**. Use it only if you want a containerized gateway or to va
   [Security hardening for network exposure](/gateway/security),
   especially Docker `DOCKER-USER` firewall policy.
 
-## Containerized Gateway
+## Containerized gateway
 
 <Steps>
   <Step title="Build the image">
@@ -372,7 +372,7 @@ See [Hetzner (Docker VPS)](/install/hetzner) and
 [Docker VM Runtime](/install/docker-vm-runtime) for shared VM deployment steps
 including binary baking, persistence, and updates.
 
-## Agent Sandbox
+## Agent sandbox
 
 When `agents.defaults.sandbox` is enabled with the Docker backend, the gateway
 runs agent tool execution (shell, file read/write, etc.) inside isolated Docker
