@@ -6,8 +6,9 @@ import {
 } from "../../scripts/test-live-shard.mjs";
 
 describe("scripts/test-live-shard", () => {
+  const allFiles = collectAllLiveTestFiles();
+
   it("partitions every native live test into exactly one release shard", () => {
-    const allFiles = collectAllLiveTestFiles();
     const selected = LIVE_TEST_SHARDS.flatMap((shard) =>
       selectLiveShardFiles(shard, allFiles).map((file) => ({ file, shard })),
     );
@@ -19,8 +20,6 @@ describe("scripts/test-live-shard", () => {
   });
 
   it("keeps slow gateway backend and media-capable extension files in their own shards", () => {
-    const allFiles = collectAllLiveTestFiles();
-
     expect(selectLiveShardFiles("native-live-src-gateway-backends", allFiles)).toEqual(
       expect.arrayContaining([
         "src/gateway/gateway-acp-bind.live.test.ts",

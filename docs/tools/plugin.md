@@ -72,6 +72,10 @@ logs warnings and skips that channel instead of blocking every other channel.
 Run `openclaw doctor --fix` to remove the stale channel/plugin entries; unknown
 channel keys without stale-plugin evidence still fail validation so typos stay
 visible.
+If `plugins.enabled: false` is set, stale plugin references are treated as inert:
+Gateway startup skips plugin discovery/load work and `openclaw doctor` preserves
+the disabled plugin config instead of auto-removing it. Re-enable plugins before
+running doctor cleanup if you want stale plugin ids removed.
 
 Packaged OpenClaw installs do not eagerly install every bundled plugin's
 runtime dependency tree. When a bundled OpenClaw-owned plugin is active from
@@ -248,7 +252,7 @@ even when source overlay mounts are present.
 
 ### Enablement rules
 
-- `plugins.enabled: false` disables all plugins
+- `plugins.enabled: false` disables all plugins and skips plugin discovery/load work
 - `plugins.deny` always wins over allow
 - `plugins.entries.\<id\>.enabled: false` disables that plugin
 - Workspace-origin plugins are **disabled by default** (must be explicitly enabled)
@@ -257,6 +261,8 @@ even when source overlay mounts are present.
 - Some bundled opt-in plugins are enabled automatically when config names a
   plugin-owned surface, such as a provider model ref, channel config, or harness
   runtime
+- Stale plugin config is preserved while `plugins.enabled: false` is active;
+  re-enable plugins before running doctor cleanup if you want stale ids removed
 - OpenAI-family Codex routes keep separate plugin boundaries:
   `openai-codex/*` belongs to the OpenAI plugin, while the bundled Codex
   app-server plugin is selected by `agentRuntime.id: "codex"` or legacy

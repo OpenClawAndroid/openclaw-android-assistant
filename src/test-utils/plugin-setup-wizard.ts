@@ -1,10 +1,10 @@
 import { vi, type Mock } from "vitest";
-import { buildChannelSetupWizardAdapterFromSetupWizard } from "../../../src/channels/plugins/setup-wizard.js";
-import type { ChannelPlugin } from "../../../src/channels/plugins/types.js";
-import type { WizardPrompter } from "../../../src/wizard/prompts.js";
-import { createRuntimeEnv } from "./runtime-env.js";
+import { buildChannelSetupWizardAdapterFromSetupWizard } from "../channels/plugins/setup-wizard.js";
+import type { ChannelPlugin } from "../channels/plugins/types.js";
+import type { WizardPrompter } from "../wizard/prompts.js";
+import { createRuntimeEnv } from "./plugin-runtime-env.js";
 
-export type { WizardPrompter } from "../../../src/wizard/prompts.js";
+export type { WizardPrompter } from "../wizard/prompts.js";
 type UnknownMock = Mock<(...args: unknown[]) => unknown>;
 type AsyncUnknownMock = Mock<(...args: unknown[]) => Promise<unknown>>;
 type QueuedWizardPrompter = {

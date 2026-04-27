@@ -885,7 +885,13 @@ For the full setup and behavior details, see [Ollama Web Search](/tools/ollama-s
     {
       agents: {
         defaults: {
-          memorySearch: { provider: "ollama" },
+          memorySearch: {
+            provider: "ollama",
+            remote: {
+              // Default for Ollama. Raise on larger hosts if reindexing is too slow.
+              nonBatchConcurrency: 1,
+            },
+          },
         },
       },
     }
@@ -899,10 +905,11 @@ For the full setup and behavior details, see [Ollama Web Search](/tools/ollama-s
         defaults: {
           memorySearch: {
             provider: "ollama",
+            model: "nomic-embed-text",
             remote: {
               baseUrl: "http://gpu-box.local:11434",
-              model: "nomic-embed-text",
               apiKey: "ollama-local",
+              nonBatchConcurrency: 2,
             },
           },
         },

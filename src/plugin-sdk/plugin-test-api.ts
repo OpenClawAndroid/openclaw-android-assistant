@@ -1,6 +1,6 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-runtime";
+import type { OpenClawPluginApi } from "./plugin-runtime.js";
 
-type TestPluginApiInput = Partial<OpenClawPluginApi>;
+export type TestPluginApiInput = Partial<OpenClawPluginApi>;
 
 export function createTestPluginApi(api: TestPluginApiInput = {}): OpenClawPluginApi {
   return {

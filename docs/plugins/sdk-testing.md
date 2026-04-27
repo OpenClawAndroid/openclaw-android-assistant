@@ -19,7 +19,11 @@ plugins.
 
 ## Test utilities
 
-**Import:** `openclaw/plugin-sdk/testing`
+**General import:** `openclaw/plugin-sdk/testing`
+
+**Plugin API mock import:** `openclaw/plugin-sdk/plugin-test-api`
+
+**Channel contract import:** `openclaw/plugin-sdk/channel-contract-testing`
 
 The testing subpath exports a narrow set of helpers for plugin authors:
 
@@ -29,26 +33,51 @@ import {
   shouldAckReaction,
   removeAckReactionAfterReply,
 } from "openclaw/plugin-sdk/testing";
+import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { expectChannelInboundContextContract } from "openclaw/plugin-sdk/channel-contract-testing";
 ```
 
 ### Available exports
 
-| Export                                 | Purpose                                                |
-| -------------------------------------- | ------------------------------------------------------ |
-| `installCommonResolveTargetErrorCases` | Shared test cases for target resolution error handling |
-| `shouldAckReaction`                    | Check whether a channel should add an ack reaction     |
-| `removeAckReactionAfterReply`          | Remove ack reaction after reply delivery               |
-| `createTestRegistry`                   | Build a channel plugin registry fixture                |
-| `createEmptyPluginRegistry`            | Build an empty plugin registry fixture                 |
-| `setActivePluginRegistry`              | Install a registry fixture for plugin runtime tests    |
-| `createRequestCaptureJsonFetch`        | Capture JSON fetch requests in media helper tests      |
-| `withFetchPreconnect`                  | Run fetch tests with preconnect hooks installed        |
-| `withEnv` / `withEnvAsync`             | Temporarily patch environment variables                |
-| `createTempHomeEnv` / `withTempDir`    | Create isolated filesystem test fixtures               |
-| `createMockServerResponse`             | Create a minimal HTTP server response mock             |
-| `registerSingleProviderPlugin`         | Register one provider plugin in loader smoke tests     |
-| `createRuntimeTaskFlow`                | Create isolated runtime task-flow state                |
-| `typedCases`                           | Preserve literal types for table-driven tests          |
+| Export                                       | Purpose                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `createTestPluginApi`                        | Build a minimal plugin API mock for direct registration unit tests. Import from `plugin-sdk/plugin-test-api` |
+| `expectChannelInboundContextContract`        | Assert channel inbound context shape. Import from `plugin-sdk/channel-contract-testing`                      |
+| `installChannelOutboundPayloadContractSuite` | Install channel outbound payload contract cases. Import from `plugin-sdk/channel-contract-testing`           |
+| `installCommonResolveTargetErrorCases`       | Shared test cases for target resolution error handling                                                       |
+| `shouldAckReaction`                          | Check whether a channel should add an ack reaction                                                           |
+| `removeAckReactionAfterReply`                | Remove ack reaction after reply delivery                                                                     |
+| `createTestRegistry`                         | Build a channel plugin registry fixture                                                                      |
+| `createEmptyPluginRegistry`                  | Build an empty plugin registry fixture                                                                       |
+| `setActivePluginRegistry`                    | Install a registry fixture for plugin runtime tests                                                          |
+| `createRequestCaptureJsonFetch`              | Capture JSON fetch requests in media helper tests                                                            |
+| `withFetchPreconnect`                        | Run fetch tests with preconnect hooks installed                                                              |
+| `withEnv` / `withEnvAsync`                   | Temporarily patch environment variables                                                                      |
+| `createTempHomeEnv` / `withTempDir`          | Create isolated filesystem test fixtures                                                                     |
+| `createMockServerResponse`                   | Create a minimal HTTP server response mock                                                                   |
+| `registerSingleProviderPlugin`               | Register one provider plugin in loader smoke tests                                                           |
+| `registerProviderPlugin`                     | Capture all provider kinds from one plugin                                                                   |
+| `registerProviderPlugins`                    | Capture provider registrations across multiple plugins                                                       |
+| `requireRegisteredProvider`                  | Assert that a provider collection contains an id                                                             |
+| `runProviderCatalog`                         | Execute a provider catalog hook with test dependencies                                                       |
+| `resolveProviderWizardOptions`               | Resolve provider setup wizard choices in contract tests                                                      |
+| `resolveProviderModelPickerEntries`          | Resolve provider model-picker entries in contract tests                                                      |
+| `buildProviderPluginMethodChoice`            | Build provider wizard choice ids for assertions                                                              |
+| `setProviderWizardProvidersResolverForTest`  | Inject provider wizard providers for isolated tests                                                          |
+| `createProviderUsageFetch`                   | Build provider usage fetch fixtures                                                                          |
+| `useFrozenTime` / `useRealTime`              | Freeze and restore timers for time-sensitive tests                                                           |
+| `createRuntimeEnv`                           | Build a mocked CLI/plugin runtime environment                                                                |
+| `createTestWizardPrompter`                   | Build a mocked setup wizard prompter                                                                         |
+| `createPluginSetupWizardStatus`              | Build setup status helpers for channel plugins                                                               |
+| `createRuntimeTaskFlow`                      | Create isolated runtime task-flow state                                                                      |
+| `typedCases`                                 | Preserve literal types for table-driven tests                                                                |
+
+Bundled-plugin contract suites also use SDK testing subpaths for test-only
+registry, manifest, public-artifact, and runtime fixture helpers. Keep new
+extension tests on `openclaw/plugin-sdk/testing` or a narrower documented SDK
+subpath such as `plugin-sdk/plugin-test-api` or
+`plugin-sdk/channel-contract-testing` rather than importing repo `src/**` files
+directly.
 
 ### Types
 

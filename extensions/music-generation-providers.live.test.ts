@@ -16,14 +16,12 @@ import {
   parseCsvFilter,
   parseProviderModelMap,
   redactLiveApiKey,
+  registerProviderPlugin,
+  requireRegisteredProvider,
   resolveConfiguredLiveMusicModels,
   resolveLiveMusicAuthStore,
 } from "openclaw/plugin-sdk/testing";
 import { describe, expect, it } from "vitest";
-import {
-  registerProviderPlugin,
-  requireRegisteredProvider,
-} from "../test/helpers/plugins/provider-registration.js";
 import googlePlugin from "./google/index.js";
 import minimaxPlugin from "./minimax/index.js";
 import { maybeLoadShellEnvForGenerationProviders } from "./test-support/generation-live-test-helpers.js";

@@ -197,7 +197,9 @@ when the checked-out CLI supports it. The CLI default and manual workflow input
 remain `all`; manual `matrix_profile=all`
 dispatch always shards full Matrix coverage into `transport`, `media`,
 `e2ee-smoke`, `e2ee-deep`, and `e2ee-cli` jobs. `OpenClaw Release Checks` also
-runs the release-critical QA Lab lanes before release approval.
+runs the release-critical QA Lab lanes before release approval; its QA parity
+gate runs the candidate and baseline packs as parallel lane jobs, then downloads
+both artifacts into a small report job for the final parity comparison.
 
 The `Duplicate PRs After Merge` workflow is a manual maintainer workflow for
 post-land duplicate cleanup. It defaults to dry-run and only closes explicitly

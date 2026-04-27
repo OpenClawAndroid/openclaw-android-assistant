@@ -1,16 +1,19 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { ResolvedTtsConfig, SpeechProviderPlugin } from "openclaw/plugin-sdk/speech-core";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/testing";
+import {
+  createEmptyPluginRegistry,
+  pluginRegistrationContractRegistry,
+  setActivePluginRegistry,
+  withEnv,
+  withEnvAsync,
+} from "openclaw/plugin-sdk/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../../src/config/config.js";
-import { BUNDLED_PLUGIN_CONTRACT_SNAPSHOTS } from "../../../src/plugins/contracts/inventory/bundled-capability-metadata.js";
-import { createEmptyPluginRegistry } from "../../../src/plugins/registry-empty.js";
-import { setActivePluginRegistry } from "../../../src/plugins/runtime.js";
-import type { SpeechProviderPlugin } from "../../../src/plugins/types.js";
-import { resolveWorkspacePackagePublicModuleUrl } from "../../../src/test-utils/bundled-plugin-public-surface.js";
-import { withEnv, withEnvAsync } from "../../../src/test-utils/env.js";
-import type { ResolvedTtsConfig } from "../../../src/tts/tts-types.js";
+import { resolveWorkspacePackagePublicModuleUrl } from "./public-surface-loader.js";
 
-type TtsRuntimeModule = typeof import("../../../src/tts/tts.js");
-type TtsCoreModule = typeof import("../../../src/tts/tts-core.js");
+type TtsRuntimeModule = typeof import("openclaw/plugin-sdk/tts-runtime");
+type TtsCoreModule = typeof import("openclaw/plugin-sdk/speech-core");
+type SummarizeTextDeps = NonNullable<Parameters<TtsCoreModule["summarizeText"]>[1]>;
 
 const speechCoreRuntimeApiModuleId = resolveWorkspacePackagePublicModuleUrl({
   packageName: "@openclaw/speech-core",
@@ -22,11 +25,11 @@ let ttsRuntimePromise: Promise<TtsRuntimeModule> | null = null;
 let ttsRuntimeInitialized = false;
 let ttsCorePromise: Promise<TtsCoreModule> | null = null;
 let completeSimple: typeof import("@mariozechner/pi-ai").completeSimple;
-let getApiKeyForModelMock: typeof import("../../../src/agents/model-auth.js").getApiKeyForModel;
-let requireApiKeyMock: typeof import("../../../src/agents/model-auth.js").requireApiKey;
-let resolveModelAsyncMock: typeof import("../../../src/agents/pi-embedded-runner/model.js").resolveModelAsync;
-let ensureCustomApiRegisteredMock: typeof import("../../../src/agents/custom-api-registry.js").ensureCustomApiRegistered;
-let prepareModelForSimpleCompletionMock: typeof import("../../../src/agents/simple-completion-transport.js").prepareModelForSimpleCompletion;
+let getApiKeyForModelMock: SummarizeTextDeps["getApiKeyForModel"];
+let requireApiKeyMock: SummarizeTextDeps["requireApiKey"];
+let resolveModelAsyncMock: SummarizeTextDeps["resolveModelAsync"];
+let ensureCustomApiRegisteredMock: ReturnType<typeof vi.fn>;
+let prepareModelForSimpleCompletionMock: SummarizeTextDeps["prepareModelForSimpleCompletion"];
 let summarizeTextCore: TtsCoreModule["summarizeText"];
 let resolveTtsConfig: TtsRuntimeModule["resolveTtsConfig"];
 let maybeApplyTtsToPayload: TtsRuntimeModule["maybeApplyTtsToPayload"];
@@ -39,7 +42,7 @@ let sanitizeTtsErrorForLog: TtsRuntimeModule["_test"]["sanitizeTtsErrorForLog"];
 
 const SPEECH_PROVIDER_ENV_KEYS = [
   ...new Set(
-    BUNDLED_PLUGIN_CONTRACT_SNAPSHOTS.flatMap((entry) =>
+    pluginRegistrationContractRegistry.flatMap((entry) =>
       entry.speechProviderIds.flatMap((providerId) => entry.providerAuthEnvVars[providerId] ?? []),
     ),
   ),
@@ -107,28 +110,6 @@ function createResolvedModel(provider: string, modelId: string, api = "openai-co
     modelRegistry: { find: vi.fn() },
   };
 }
-
-vi.mock("../../../src/agents/pi-embedded-runner/model.js", () => ({
-  resolveModel: vi.fn((provider: string, modelId: string) =>
-    createResolvedModel(provider, modelId),
-  ),
-  resolveModelAsync: vi.fn(async (provider: string, modelId: string) =>
-    createResolvedModel(provider, modelId),
-  ),
-}));
-
-vi.mock("../../../src/agents/model-auth.js", () => ({
-  getApiKeyForModel: vi.fn(async () => ({
-    apiKey: "test-api-key",
-    source: "test",
-    mode: "api-key",
-  })),
-  requireApiKey: vi.fn((auth: { apiKey?: string }) => auth.apiKey ?? ""),
-}));
-
-vi.mock("../../../src/agents/custom-api-registry.js", () => ({
-  ensureCustomApiRegistered: vi.fn(),
-}));
 
 function asLegacyTtsConfig(value: unknown): OpenClawConfig {
   return value as OpenClawConfig;
@@ -444,8 +425,14 @@ async function loadTtsRuntime(): Promise<TtsRuntimeModule> {
 }
 
 async function loadTtsCore(): Promise<TtsCoreModule> {
-  ttsCorePromise ??= import("../../../src/tts/tts-core.js");
+  ttsCorePromise ??= import("openclaw/plugin-sdk/speech-core");
   return await ttsCorePromise;
+}
+
+function createPrepareModelForSimpleCompletionMock(): SummarizeTextDeps["prepareModelForSimpleCompletion"] {
+  return vi.fn(
+    ({ model }: Parameters<SummarizeTextDeps["prepareModelForSimpleCompletion"]>[0]) => model,
+  ) as SummarizeTextDeps["prepareModelForSimpleCompletion"];
 }
 
 async function setupTtsRuntime() {
@@ -467,7 +454,7 @@ async function setupTtsRuntime() {
 }
 
 function setupTestSpeechProviderRegistry() {
-  prepareModelForSimpleCompletionMock = vi.fn(({ model }) => model);
+  prepareModelForSimpleCompletionMock = createPrepareModelForSimpleCompletionMock();
   const registry = createEmptyPluginRegistry();
   registry.speechProviders = [
     { pluginId: "openai", provider: buildTestOpenAISpeechProvider(), source: "test" },
@@ -510,14 +497,12 @@ function createResolvedSummarizationConfig(cfg: OpenClawConfig): ResolvedTtsConf
 
 async function setupSummarizationMocks() {
   ({ summarizeText: summarizeTextCore } = await loadTtsCore());
-  prepareModelForSimpleCompletionMock = vi.fn(({ model }) => model);
   ({ completeSimple } = await import("@mariozechner/pi-ai"));
-  ({ getApiKeyForModel: getApiKeyForModelMock, requireApiKey: requireApiKeyMock } =
-    await import("../../../src/agents/model-auth.js"));
-  ({ resolveModelAsync: resolveModelAsyncMock } =
-    await import("../../../src/agents/pi-embedded-runner/model.js"));
-  ({ ensureCustomApiRegistered: ensureCustomApiRegisteredMock } =
-    await import("../../../src/agents/custom-api-registry.js"));
+  getApiKeyForModelMock = vi.fn() as SummarizeTextDeps["getApiKeyForModel"];
+  requireApiKeyMock = vi.fn() as SummarizeTextDeps["requireApiKey"];
+  resolveModelAsyncMock = vi.fn() as SummarizeTextDeps["resolveModelAsync"];
+  ensureCustomApiRegisteredMock = vi.fn();
+  prepareModelForSimpleCompletionMock = createPrepareModelForSimpleCompletionMock();
   vi.mocked(completeSimple).mockResolvedValue(
     mockAssistantMessage([{ type: "text", text: "Summary" }]),
   );
@@ -534,7 +519,7 @@ async function setupSummarizationMocks() {
       >,
   );
   vi.mocked(ensureCustomApiRegisteredMock).mockReset();
-  prepareModelForSimpleCompletionMock = vi.fn(({ model }) => model);
+  prepareModelForSimpleCompletionMock = createPrepareModelForSimpleCompletionMock();
 }
 
 async function setupTtsContractTest() {

@@ -1,3 +1,4 @@
+import { registerProviderPlugin, requireRegisteredProvider } from "openclaw/plugin-sdk/testing";
 import { beforeEach, describe, it, vi } from "vitest";
 import {
   expectAugmentedCodexCatalog,
@@ -8,10 +9,6 @@ import {
   loadBundledPluginPublicSurface,
 } from "../../../test/helpers/plugins/provider-catalog.js";
 import type { ProviderPlugin } from "../../../test/helpers/plugins/provider-catalog.js";
-import {
-  registerProviderPlugin,
-  requireRegisteredProvider,
-} from "../../../test/helpers/plugins/provider-registration.js";
 
 const PROVIDER_CATALOG_CONTRACT_TIMEOUT_MS = 300_000;
 

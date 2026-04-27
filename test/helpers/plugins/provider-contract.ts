@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import type { ProviderPlugin } from "openclaw/plugin-sdk/provider-model-shared";
 import {
   providerContractLoadError,
+  resolveBundledExplicitProviderContractsFromPublicArtifacts,
   resolveProviderContractProvidersForPluginIds,
-} from "../../../src/plugins/contracts/registry.js";
-import { resolveBundledExplicitProviderContractsFromPublicArtifacts } from "../../../src/plugins/provider-contract-public-artifacts.js";
-import type { ProviderPlugin } from "../../../src/plugins/types.js";
+} from "openclaw/plugin-sdk/testing";
+import { describe, expect, it } from "vitest";
 import { installProviderPluginContractSuite } from "./provider-contract-suites.js";
 
 type ProviderContractEntry = {

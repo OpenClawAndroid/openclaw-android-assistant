@@ -1,16 +1,12 @@
-export { deliverOutboundPayloads } from "../../../src/infra/outbound/deliver.js";
 export {
-  initializeGlobalHookRunner,
-  resetGlobalHookRunner,
-} from "../../../src/plugins/hook-runner-global.js";
-export { addTestHook } from "../../../src/plugins/hooks.test-helpers.js";
-export { createEmptyPluginRegistry } from "../../../src/plugins/registry.js";
-export {
-  releasePinnedPluginChannelRegistry,
-  setActivePluginRegistry,
-} from "../../../src/plugins/runtime.js";
-export type { PluginHookRegistration } from "../../../src/plugins/types.js";
-export {
+  addTestHook,
+  createEmptyPluginRegistry,
   createOutboundTestPlugin,
   createTestRegistry,
-} from "../../../src/test-utils/channel-plugins.js";
+  deliverOutboundPayloads,
+  initializeGlobalHookRunner,
+  releasePinnedPluginChannelRegistry,
+  resetGlobalHookRunner,
+  setActivePluginRegistry,
+  type PluginHookRegistration,
+} from "openclaw/plugin-sdk/testing";

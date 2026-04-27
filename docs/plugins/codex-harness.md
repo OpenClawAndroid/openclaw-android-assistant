@@ -544,14 +544,15 @@ same reviewed file as the rest of the Codex harness setup.
 
 ## Computer use
 
-Computer Use is a Codex-native MCP plugin. OpenClaw does not vendor the desktop
-control app or execute desktop actions itself; it enables Codex app-server
-plugins, installs the configured Codex marketplace plugin when requested, checks
-that the `computer-use` MCP server is available, and then lets Codex handle the
-native MCP tool calls during Codex-mode turns.
+Computer Use is covered in its own setup guide:
+[Codex Computer Use](/plugins/codex-computer-use).
 
-Set `plugins.entries.codex.config.computerUse` when you want Codex-mode turns to
-require Computer Use:
+The short version: OpenClaw does not vendor the desktop-control app or execute
+desktop actions itself. It prepares Codex app-server, verifies that the
+`computer-use` MCP server is available, and then lets Codex handle the native
+MCP tool calls during Codex-mode turns.
+
+Minimal config:
 
 ```json5
 {
@@ -570,33 +571,16 @@ require Computer Use:
   agents: {
     defaults: {
       model: "openai/gpt-5.5",
-      embeddedHarness: {
-        runtime: "codex",
+      agentRuntime: {
+        id: "codex",
+        fallback: "none",
       },
     },
   },
 }
 ```
 
-With no marketplace fields, OpenClaw asks Codex app-server to use its discovered
-marketplaces. On a fresh Codex home, app-server seeds the official curated
-marketplace and OpenClaw follows the same loading shape as Codex: it polls
-`plugin/list` during install before treating Computer Use as unavailable. The
-default discovery wait is 60 seconds and can be tuned with
-`marketplaceDiscoveryTimeoutMs`. If multiple known Codex marketplaces contain
-Computer Use, OpenClaw uses the Codex marketplace preference order before
-failing closed for unknown ambiguous matches.
-
-Use `marketplaceSource` for a non-default Codex marketplace source that
-app-server can add, or `marketplacePath` for a local marketplace file that
-already exists on the machine. If the marketplace is already registered with
-Codex app-server, use `marketplaceName` instead. The defaults are
-`pluginName: "computer-use"` and `mcpServerName: "computer-use"`.
-For safety, turn-start auto-install only uses marketplaces app-server has
-already discovered. Use `/codex computer-use install` for explicit installs from
-a configured `marketplaceSource` or `marketplacePath`.
-
-The same setup can be checked or installed from the command surface:
+The setup can be checked or installed from the command surface:
 
 - `/codex computer-use status`
 - `/codex computer-use install`
@@ -606,7 +590,16 @@ The same setup can be checked or installed from the command surface:
 Computer Use is macOS-specific and may require local OS permissions before the
 Codex MCP server can control apps. If `computerUse.enabled` is true and the MCP
 server is unavailable, Codex-mode turns fail before the thread starts instead of
-silently running without the native Computer Use tools.
+silently running without the native Computer Use tools. See
+[Codex Computer Use](/plugins/codex-computer-use) for marketplace choices,
+remote catalog limits, status reasons, and troubleshooting.
+
+When `computerUse.autoInstall` is true, OpenClaw can register the standard
+bundled Codex Desktop marketplace from
+`/Applications/Codex.app/Contents/Resources/plugins/openai-bundled` if Codex
+has not discovered a local marketplace yet. Use `/new` or `/reset` after
+changing runtime or Computer Use config so existing sessions do not keep an old
+PI or Codex thread binding.
 
 ## Common recipes
 
@@ -867,6 +860,12 @@ and that the remote app-server speaks the same Codex app-server protocol version
 `codex/*` ref. Plain `openai/gpt-*` and other provider refs stay on their normal
 provider path in `auto` mode. If you force `agentRuntime.id: "codex"`, every embedded
 turn for that agent must be a Codex-supported OpenAI model.
+
+**Computer Use is installed but tools do not run:** check
+`/codex computer-use status` from a fresh session. If a tool reports
+`Native hook relay unavailable`, use `/new` or `/reset`; if it persists, restart
+the gateway to clear stale native hook registrations. If `computer-use.list_apps`
+times out, restart Codex Computer Use or Codex Desktop and retry.
 
 ## Related
 

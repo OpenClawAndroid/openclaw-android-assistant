@@ -109,6 +109,7 @@
   "acp-binding-runtime",
   "acp-binding-resolve-runtime",
   "lazy-runtime",
+  "plugin-test-api",
   "testing",
   "temp-path",
   "logging-core",

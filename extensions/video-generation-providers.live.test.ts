@@ -26,6 +26,8 @@ import {
   parseProviderModelMap,
   parseVideoGenerationModelRef,
   redactLiveApiKey,
+  registerProviderPlugin,
+  requireRegisteredProvider,
   resolveConfiguredLiveVideoModels,
   resolveLiveVideoAuthStore,
   resolveLiveVideoResolution,
@@ -36,10 +38,6 @@ import {
   type VideoGenerationRequest,
 } from "openclaw/plugin-sdk/testing";
 import { describe, expect, it } from "vitest";
-import {
-  registerProviderPlugin,
-  requireRegisteredProvider,
-} from "../test/helpers/plugins/provider-registration.js";
 import alibabaPlugin from "./alibaba/index.js";
 import byteplusPlugin from "./byteplus/index.js";
 import falPlugin from "./fal/index.js";

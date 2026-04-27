@@ -204,6 +204,12 @@ gh workflow run openclaw-release-checks.yml \
 Release-check rerun groups are `all`, `install-smoke`, `cross-os`, `live-e2e`,
 `package`, `qa`, `qa-parity`, and `qa-live`.
 
+The release QA parity box is internally split into candidate and baseline lane
+jobs, followed by a report job that downloads both artifacts and runs
+`pnpm openclaw qa parity-report`. For parity failures, inspect the failed lane
+first; inspect the report job when both lane summaries exist but the comparison
+fails.
+
 ### QA Lab Matrix Profiles
 
 `pnpm openclaw qa matrix` defaults to `--profile all`. Do not assume the CLI
