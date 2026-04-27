@@ -19,6 +19,7 @@ export type CronPayloadOutcome = {
   deliveryPayloadHasStructuredContent: boolean;
   hasFatalErrorPayload: boolean;
   embeddedRunError?: string;
+  pendingPresentationWarningError?: string;
 };
 
 type CronDenialSignal = {
@@ -241,13 +242,11 @@ export function resolveHeartbeatAckMaxChars(agentCfg?: { heartbeat?: { ackMaxCha
   return Math.max(0, raw);
 }
 
-function isNonFatalCronPresentationWarning(text: string | undefined): boolean {
+function isCronMessagePresentationWarning(text: string | undefined): boolean {
   const normalized = normalizeOptionalString(text)?.toLowerCase();
   return (
     normalized === "⚠️ ✉️ message failed" ||
-    normalized?.startsWith("⚠️ ✉️ message failed:") === true ||
-    normalized === "⚠️ 🖼️ canvas failed" ||
-    normalized?.startsWith("⚠️ 🖼️ canvas failed:") === true
+    normalized?.startsWith("⚠️ ✉️ message failed:") === true
   );
 }
 
@@ -288,14 +287,14 @@ export function resolveCronPayloadOutcome(params: {
     params.payloads
       .slice(0, lastErrorPayloadIndex)
       .some((payload) => payload?.isError !== true && Boolean(payload?.text?.trim()));
-  const hasNonFatalTrailingPresentationWarning =
+  const hasPendingPresentationWarning =
+    !params.runLevelError &&
+    params.failureSignal?.fatalForCron !== true &&
     lastErrorPayloadIndex >= 0 &&
-    isNonFatalCronPresentationWarning(lastErrorPayloadText) &&
+    isCronMessagePresentationWarning(lastErrorPayloadText) &&
     (normalizedFinalAssistantVisibleText !== undefined || hasSuccessfulPayloadBeforeLastError);
   const hasFatalStructuredErrorPayload =
-    hasErrorPayload &&
-    !hasSuccessfulPayloadAfterLastError &&
-    !hasNonFatalTrailingPresentationWarning;
+    hasErrorPayload && !hasSuccessfulPayloadAfterLastError && !hasPendingPresentationWarning;
   const hasStructuredDeliveryPayloads = selectedDeliveryPayloads.some((payload) =>
     payloadHasStructuredDeliveryContent(payload),
   );
@@ -370,5 +369,8 @@ export function resolveCronPayloadOutcome(params: {
         : denialSignal
           ? formatCronDenialSignal(denialSignal)
           : runLevelError,
+    pendingPresentationWarningError: hasPendingPresentationWarning
+      ? lastErrorPayloadText
+      : undefined,
   };
 }

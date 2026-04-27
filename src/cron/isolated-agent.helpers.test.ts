@@ -74,20 +74,21 @@ describe("resolveCronPayloadOutcome", () => {
 
     expect(result.hasFatalErrorPayload).toBe(false);
     expect(result.embeddedRunError).toBeUndefined();
+    expect(result.pendingPresentationWarningError).toBe("⚠️ ✉️ Message failed");
     expect(result.summary).toBe("Final cron report");
     expect(result.outputText).toBe("Final cron report");
     expect(result.deliveryPayloads).toEqual([{ text: "Final cron report" }]);
   });
 
-  it("treats trailing canvas warnings as non-fatal when earlier assistant output exists", () => {
+  it("keeps trailing canvas warnings fatal even when earlier assistant output exists", () => {
     const result = resolveCronPayloadOutcome({
       payloads: [{ text: "Saved report to disk." }, { text: "⚠️ 🖼️ Canvas failed", isError: true }],
     });
 
-    expect(result.hasFatalErrorPayload).toBe(false);
-    expect(result.summary).toBe("Saved report to disk.");
-    expect(result.outputText).toBe("Saved report to disk.");
-    expect(result.deliveryPayloads).toEqual([{ text: "Saved report to disk." }]);
+    expect(result.hasFatalErrorPayload).toBe(true);
+    expect(result.pendingPresentationWarningError).toBeUndefined();
+    expect(result.embeddedRunError).toBe("⚠️ 🖼️ Canvas failed");
+    expect(result.deliveryPayloads).toEqual([{ text: "⚠️ 🖼️ Canvas failed", isError: true }]);
   });
 
   it("keeps standalone presentation warnings fatal when there is no cron output", () => {

@@ -27,6 +27,7 @@ Onboarding imports require a fresh OpenClaw setup. If you already have local Ope
     ```bash
     openclaw onboard --import-from claude --import-source ~/.claude
     ```
+
   </Tab>
   <Tab title="CLI">
     Use `openclaw migrate` for scripted or repeatable runs. See [`openclaw migrate`](/cli/migrate) for the full reference.
@@ -37,6 +38,7 @@ Onboarding imports require a fresh OpenClaw setup. If you already have local Ope
     ```
 
     Add `--from <path>` to import a specific Claude Code home or project root.
+
   </Tab>
 </Tabs>
 
@@ -86,6 +88,7 @@ When `--from` points at a project root, OpenClaw imports only that project's Cla
     ```
 
     The plan lists everything that will change, including conflicts, skipped items, and sensitive values redacted from nested MCP `env` or `headers` fields.
+
   </Step>
   <Step title="Apply with backup">
     ```bash
@@ -93,6 +96,7 @@ When `--from` points at a project root, OpenClaw imports only that project's Cla
     ```
 
     OpenClaw creates and verifies a backup before applying.
+
   </Step>
   <Step title="Run doctor">
     ```bash
@@ -100,6 +104,7 @@ When `--from` points at a project root, OpenClaw imports only that project's Cla
     ```
 
     [Doctor](/gateway/doctor) checks for config or state issues after the import.
+
   </Step>
   <Step title="Restart and verify">
     ```bash
@@ -108,6 +113,7 @@ When `--from` points at a project root, OpenClaw imports only that project's Cla
     ```
 
     Confirm the gateway is healthy and your imported instructions, MCP servers, and skills are loaded.
+
   </Step>
 </Steps>
 

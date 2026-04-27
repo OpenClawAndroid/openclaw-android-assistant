@@ -25,7 +25,7 @@ describeLive("moonshot plugin live", () => {
       searchConfig: { kimi: { apiKey: KIMI_SEARCH_KEY }, cacheTtlMinutes: 0, timeoutSeconds: 90 },
     } as never);
 
-    let result: Awaited<ReturnType<NonNullable<typeof tool>["execute"]>> | undefined;
+    let result: { provider?: string; content?: unknown; citations?: unknown } | undefined;
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {

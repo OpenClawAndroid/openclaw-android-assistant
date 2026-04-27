@@ -596,6 +596,7 @@ describe("generateAndAppendDreamNarrative", () => {
       },
       nowMs,
       timezone: "UTC",
+      model: "anthropic/claude-sonnet-4-6",
       logger,
     });
 
@@ -606,6 +607,7 @@ describe("generateAndAppendDreamNarrative", () => {
       lane: `dreaming-narrative:${expectedSessionKey}`,
       lightContext: true,
       deliver: false,
+      model: "anthropic/claude-sonnet-4-6",
     });
     expect(subagent.waitForRun).toHaveBeenCalledOnce();
     expect(subagent.deleteSession).toHaveBeenCalledOnce();

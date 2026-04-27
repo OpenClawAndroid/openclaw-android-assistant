@@ -59,7 +59,7 @@ Choose your preferred setup method and mode.
         - **Local only** — local models only
       </Step>
       <Step title="Select a model">
-        `Cloud only` prompts for `OLLAMA_API_KEY` and suggests hosted cloud defaults. `Cloud + Local` and `Local only` ask for an Ollama base URL, discover available models, and auto-pull the selected local model if it is not available yet. `Cloud + Local` also checks whether that Ollama host is signed in for cloud access.
+        `Cloud only` prompts for `OLLAMA_API_KEY` and suggests hosted cloud defaults. `Cloud + Local` and `Local only` ask for an Ollama base URL, discover available models, and auto-pull the selected local model if it is not available yet. When Ollama reports an installed `:latest` tag such as `gemma4:latest`, setup shows that installed model once instead of showing both `gemma4` and `gemma4:latest` or pulling the bare alias again. `Cloud + Local` also checks whether that Ollama host is signed in for cloud access.
       </Step>
       <Step title="Verify the model is available">
         ```bash
@@ -846,6 +846,8 @@ For the full setup and behavior details, see [Ollama Web Search](/tools/ollama-s
     | ------------- | ------------------- |
     | Default model | `nomic-embed-text`  |
     | Auto-pull     | Yes — the embedding model is pulled automatically if not present locally |
+
+    Query-time embeddings use retrieval prefixes for models that require or recommend them, including `nomic-embed-text`, `qwen3-embedding`, and `mxbai-embed-large`. Memory document batches stay raw so existing indexes do not need a format migration.
 
     To select Ollama as the memory search embedding provider:
 
