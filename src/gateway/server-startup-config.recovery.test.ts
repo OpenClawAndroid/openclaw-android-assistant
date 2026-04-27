@@ -1,11 +1,62 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.js";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { buildTestConfigSnapshot } from "./test-helpers.config-snapshots.js";
+
+const applyPluginAutoEnable = vi.hoisted(() =>
+  vi.fn((params: { config: OpenClawConfig }) => ({
+    config: params.config,
+    changes: [] as string[],
+    autoEnabledReasons: {} as Record<string, string[]>,
+  })),
+);
+const pluginManifestRegistry = vi.hoisted(() => ({ plugins: [], diagnostics: [] }));
+const pluginMetadataSnapshot = vi.hoisted(
+  (): PluginMetadataSnapshot => ({
+    policyHash: "policy",
+    index: {
+      version: 1,
+      hostContractVersion: "test",
+      compatRegistryVersion: "test",
+      migrationVersion: 1,
+      policyHash: "policy",
+      generatedAtMs: 0,
+      installRecords: {},
+      plugins: [],
+      diagnostics: [],
+    },
+    registryDiagnostics: [],
+    manifestRegistry: pluginManifestRegistry,
+    plugins: [],
+    diagnostics: [],
+    byPluginId: new Map(),
+    normalizePluginId: (pluginId) => pluginId,
+    owners: {
+      channels: new Map(),
+      channelConfigs: new Map(),
+      providers: new Map(),
+      modelCatalogProviders: new Map(),
+      cliBackends: new Map(),
+      setupProviders: new Map(),
+      commandAliases: new Map(),
+      contracts: new Map(),
+    },
+    metrics: {
+      registrySnapshotMs: 0,
+      manifestRegistryMs: 0,
+      ownerMapsMs: 0,
+      totalMs: 0,
+      indexPluginCount: 0,
+      manifestPluginCount: 0,
+    },
+  }),
+);
 
 vi.mock("../config/config.js", () => ({
   applyConfigOverrides: vi.fn((config: OpenClawConfig) => config),
   isNixMode: false,
   readConfigFileSnapshot: vi.fn(),
+  readConfigFileSnapshotWithPluginMetadata: vi.fn(),
   recoverConfigFromLastKnownGood: vi.fn(),
   recoverConfigFromJsonRootSuffix: vi.fn(),
   isPluginLocalInvalidConfigSnapshot: vi.fn((snapshot: ConfigFileSnapshot) => {
@@ -31,6 +82,10 @@ vi.mock("../config/config.js", () => ({
     warnings: [],
   })),
   writeConfigFile: vi.fn(),
+}));
+
+vi.mock("../config/plugin-auto-enable.js", () => ({
+  applyPluginAutoEnable: (params: { config: OpenClawConfig }) => applyPluginAutoEnable(params),
 }));
 
 vi.mock("./config-recovery-notice.js", () => ({
@@ -74,6 +129,9 @@ describe("gateway startup config recovery", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata).mockImplementation(async () => ({
+      snapshot: await vi.mocked(configIo.readConfigFileSnapshot)(),
+    }));
   });
 
   it("runs startup plugin auto-enable against source config without persisting runtime defaults", async () => {
@@ -119,7 +177,10 @@ describe("gateway startup config recovery", () => {
       runtimeConfig,
       config: runtimeConfig,
     } satisfies ConfigFileSnapshot;
-    vi.mocked(configIo.readConfigFileSnapshot).mockResolvedValueOnce(snapshot);
+    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata).mockResolvedValueOnce({
+      snapshot,
+      pluginMetadataSnapshot,
+    });
     const log = { info: vi.fn(), warn: vi.fn() };
 
     await expect(
@@ -130,9 +191,15 @@ describe("gateway startup config recovery", () => {
     ).resolves.toEqual({
       snapshot,
       wroteConfig: false,
+      pluginMetadataSnapshot,
     });
 
-    expect(configIo.readConfigFileSnapshot).toHaveBeenCalledTimes(1);
+    expect(configIo.readConfigFileSnapshotWithPluginMetadata).toHaveBeenCalledTimes(1);
+    expect(applyPluginAutoEnable).toHaveBeenCalledWith({
+      config: sourceConfig,
+      env: process.env,
+      manifestRegistry: pluginManifestRegistry,
+    });
     expect(configIo.replaceConfigFile).not.toHaveBeenCalled();
     expect(log.info).not.toHaveBeenCalled();
   });

@@ -93,13 +93,15 @@ OpenClaw keeps short in-process caches for:
 These caches reduce bursty startup and repeated command overhead. They are safe
 to think of as short-lived performance caches, not persistence.
 
-Gateway hot paths should prefer the current `PluginLookUpTable` or an explicit
-manifest registry passed through the call chain. For callers that still rebuild
-manifest metadata from the persisted installed plugin index, OpenClaw also keeps
-a small bounded fallback cache keyed by the installed index, request shape,
-config policy, runtime roots, and manifest/package file signatures. That cache is
-only a fallback for repeated installed-index reconstruction; it is not a mutable
-runtime plugin registry.
+Gateway startup hot paths should prefer the current `PluginMetadataSnapshot`,
+the derived `PluginLookUpTable`, or an explicit manifest registry passed through
+the call chain. Config validation, startup auto-enable, and plugin bootstrap use
+the same snapshot when available. For callers that still rebuild manifest
+metadata from the persisted installed plugin index, OpenClaw also keeps a small
+bounded fallback cache keyed by the installed index, request shape, config
+policy, runtime roots, and manifest/package file signatures. That cache is only a
+fallback for repeated installed-index reconstruction; it is not a mutable runtime
+plugin registry.
 
 Performance note:
 

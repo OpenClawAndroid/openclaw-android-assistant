@@ -411,6 +411,7 @@ export async function startGatewayServer(
       cfgAtStart,
       activationSourceConfig: startupActivationSourceConfig,
       startupRuntimeConfig,
+      pluginMetadataSnapshot: startupConfigLoad.pluginMetadataSnapshot,
       minimalTestGateway,
       log,
     }),
