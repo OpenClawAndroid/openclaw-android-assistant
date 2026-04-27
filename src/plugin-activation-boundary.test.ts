@@ -34,6 +34,20 @@ const loadPluginManifestRegistry = vi.hoisted(() =>
           slack: ["SLACK_BOT_TOKEN"],
           telegram: ["TELEGRAM_BOT_TOKEN"],
         },
+        modelIdNormalization: {
+          providers: {
+            google: {
+              aliases: {
+                "gemini-3.1-pro": "gemini-3.1-pro-preview",
+              },
+            },
+            xai: {
+              aliases: {
+                "grok-4-fast-reasoning": "grok-4-fast",
+              },
+            },
+          },
+        },
         skills: [],
         hooks: [],
         origin: "bundled",
