@@ -19,6 +19,7 @@ type OllamaProviderConfigOverride = Partial<{
   api: "ollama";
   apiKey: string;
   baseUrl: string;
+  baseURL: string;
   models: NonNullable<
     NonNullable<NonNullable<OpenClawConfig["models"]>["providers"]>[string]
   >["models"];
@@ -123,6 +124,17 @@ describe("ollama web search provider", () => {
         }),
       ),
     ).toBe("https://ollama.com");
+  });
+
+  it("uses the model provider baseURL alias for web search", () => {
+    expect(
+      testing.resolveOllamaWebSearchBaseUrl(
+        createOllamaConfig({
+          baseUrl: undefined,
+          baseURL: "http://remote-ollama:11434/v1",
+        } as OllamaProviderConfigOverride),
+      ),
+    ).toBe("http://remote-ollama:11434");
   });
 
   it("maps generic search args into the local Ollama proxy endpoint", async () => {

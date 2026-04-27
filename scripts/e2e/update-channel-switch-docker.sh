@@ -45,20 +45,52 @@ tar -xzf "$package_tgz" -C "$git_root" --strip-components=1
 # absent from the trimmed tarball install; that should not block update preflight.
 node - <<'"'"'NODE'"'"'
 const fs = require("node:fs");
+const path = require("node:path");
 const packageJsonPath = "/tmp/openclaw-git/package.json";
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-packageJson.pnpm = { ...packageJson.pnpm, allowUnusedPatches: true };
+const fixtureUiBuildSource = `const fs=require("node:fs");fs.mkdirSync("dist/control-ui",{recursive:true});fs.writeFileSync("dist/control-ui/index.html","<!doctype html><title>fixture</title>\\n")`;
+const fixtureUiBuildCommand = `node -e ${JSON.stringify(fixtureUiBuildSource)}`;
+const nextPnpm = { ...packageJson.pnpm, allowUnusedPatches: true };
+const patchedDependencies = nextPnpm.patchedDependencies;
+if (
+  patchedDependencies &&
+  typeof patchedDependencies === "object" &&
+  !Array.isArray(patchedDependencies)
+) {
+  const keptPatches = Object.fromEntries(
+    Object.entries(patchedDependencies).filter(([, patchFile]) => {
+      return (
+        typeof patchFile === "string" &&
+        fs.existsSync(path.resolve(path.dirname(packageJsonPath), patchFile))
+      );
+    }),
+  );
+  if (Object.keys(keptPatches).length > 0) {
+    nextPnpm.patchedDependencies = keptPatches;
+  } else {
+    delete nextPnpm.patchedDependencies;
+  }
+}
+packageJson.pnpm = nextPnpm;
 packageJson.scripts = {
   ...packageJson.scripts,
   build: "node -e \"console.log(\\\"fixture build skipped\\\")\"",
-  "ui:build": "node -e \"console.log(\\\"fixture ui build skipped\\\")\"",
+  lint: "node -e \"console.log(\\\"fixture lint skipped\\\")\"",
+  "ui:build": fixtureUiBuildCommand,
 };
 fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+fs.mkdirSync("/tmp/openclaw-git/dist/control-ui", { recursive: true });
+fs.writeFileSync("/tmp/openclaw-git/dist/control-ui/index.html", "<!doctype html><title>fixture</title>\n");
 NODE
 (
   cd "$git_root"
   npm install --omit=optional --no-fund --no-audit >/tmp/openclaw-git-install.log 2>&1
 )
+node - <<'"'"'NODE'"'"'
+const fs = require("node:fs");
+fs.mkdirSync("/tmp/openclaw-git/dist/control-ui", { recursive: true });
+fs.writeFileSync("/tmp/openclaw-git/dist/control-ui/index.html", "<!doctype html><title>fixture</title>\n");
+NODE
 
 git config --global user.email "docker-e2e@openclaw.local"
 git config --global user.name "OpenClaw Docker E2E"
@@ -66,6 +98,7 @@ git config --global gc.auto 0
 git -C "$git_root" init -q
 git -C "$git_root" config gc.auto 0
 git -C "$git_root" add -A
+git -C "$git_root" add -f dist/control-ui/index.html
 git -C "$git_root" commit -qm "test fixture"
 fixture_sha="$(git -C "$git_root" rev-parse HEAD)"
 
