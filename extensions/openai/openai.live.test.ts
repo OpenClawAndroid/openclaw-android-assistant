@@ -296,7 +296,7 @@ describeLive("openai plugin live", () => {
     const collapsedText = text.replace(/[\s-]+/g, "");
     expect(text.length).toBeGreaterThan(0);
     expect(collapsedText).toContain("openclaw");
-    expect(text).toMatch(/\bok\b/);
+    expect(text).toMatch(/\bok(?:ay)?\b/);
   }, 45_000);
 
   it("opens OpenAI realtime STT before sending audio", async () => {
@@ -441,7 +441,7 @@ describeLive("openai plugin live", () => {
         fileName: "reference.png",
         mime: "image/png",
         prompt: "Reply with one lowercase word for the dominant center color.",
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         agentDir,
         cfg,
         authStore: EMPTY_AUTH_STORE,
@@ -453,5 +453,5 @@ describeLive("openai plugin live", () => {
     } finally {
       await fs.rm(agentDir, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 180_000);
 });

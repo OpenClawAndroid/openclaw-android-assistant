@@ -127,7 +127,7 @@ vi.mock("./server-tailscale.js", () => ({
   startGatewayTailscaleExposure: hoisted.startGatewayTailscaleExposure,
 }));
 
-const { startGatewayPostAttachRuntime, startGatewaySidecars } =
+const { startGatewayPostAttachRuntime, startGatewaySidecars, __testing } =
   await import("./server-startup-post-attach.js");
 const { STARTUP_UNAVAILABLE_GATEWAY_METHODS } =
   await import("./server-startup-unavailable-methods.js");
@@ -223,6 +223,35 @@ describe("startGatewayPostAttachRuntime", () => {
     resumeSidecars();
     await runtimePromise;
     expect(returned).toBe(true);
+  });
+
+  it("continues channel startup when primary model prewarm hangs", async () => {
+    vi.useFakeTimers();
+    const log = { warn: vi.fn() };
+    const prewarm = vi.fn(async () => {
+      await new Promise(() => undefined);
+    });
+
+    try {
+      const promise = __testing.prewarmConfiguredPrimaryModelWithTimeout(
+        {
+          cfg: {} as never,
+          log,
+          timeoutMs: 25,
+        },
+        prewarm as never,
+      );
+
+      await vi.advanceTimersByTimeAsync(25);
+      await promise;
+
+      expect(prewarm).toHaveBeenCalledTimes(1);
+      expect(log.warn).toHaveBeenCalledWith(
+        "startup model warmup timed out after 25ms; continuing channel startup",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps startup-gated methods unavailable while sidecars are still resuming", async () => {
@@ -397,6 +426,45 @@ describe("startGatewayPostAttachRuntime", () => {
     const reloadedCron = { list: vi.fn(), add: vi.fn(), update: vi.fn(), remove: vi.fn() };
     params.deps.cron = reloadedCron as never;
     expect(getCron()).toBe(reloadedCron);
+  });
+
+  it("resolves gateway_start cron from the live runtime getter before deps fallback", async () => {
+    const runGatewayStart = vi.fn<
+      (event: PluginHookGatewayStartEvent, ctx: PluginHookGatewayContext) => Promise<void>
+    >(async () => undefined);
+    const hookRunner = {
+      hasHooks: vi.fn((hookName: string) => hookName === "gateway_start"),
+      runGatewayStart,
+    };
+    const depsCron = { list: vi.fn(), add: vi.fn(), update: vi.fn(), remove: vi.fn() };
+    const liveCron = { list: vi.fn(), add: vi.fn(), update: vi.fn(), remove: vi.fn() };
+    const reloadedCron = { list: vi.fn(), add: vi.fn(), update: vi.fn(), remove: vi.fn() };
+    let currentLiveCron = liveCron;
+    const params = createPostAttachParams({
+      deps: { cron: depsCron } as never,
+      getCronService: () => currentLiveCron,
+    });
+
+    await startGatewayPostAttachRuntime(
+      params,
+      createPostAttachRuntimeDeps({
+        getGlobalHookRunner: vi.fn(async () => hookRunner as never),
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(runGatewayStart).toHaveBeenCalledTimes(1);
+    });
+
+    const ctx = runGatewayStart.mock.calls[0]?.[1];
+    if (!ctx?.getCron) {
+      throw new Error("gateway_start context did not expose getCron");
+    }
+    expect(ctx.getCron()).toBe(liveCron);
+
+    params.deps.cron = depsCron as never;
+    currentLiveCron = reloadedCron;
+    expect(ctx.getCron()).toBe(reloadedCron);
   });
 });
 
