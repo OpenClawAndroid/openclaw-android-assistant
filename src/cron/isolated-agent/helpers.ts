@@ -241,6 +241,16 @@ export function resolveHeartbeatAckMaxChars(agentCfg?: { heartbeat?: { ackMaxCha
   return Math.max(0, raw);
 }
 
+function isNonFatalCronPresentationWarning(text: string | undefined): boolean {
+  const normalized = normalizeOptionalString(text)?.toLowerCase();
+  return (
+    normalized === "⚠️ ✉️ message failed" ||
+    normalized?.startsWith("⚠️ ✉️ message failed:") === true ||
+    normalized === "⚠️ 🖼️ canvas failed" ||
+    normalized?.startsWith("⚠️ 🖼️ canvas failed:") === true
+  );
+}
+
 export function resolveCronPayloadOutcome(params: {
   payloads: DeliveryPayload[];
   runLevelError?: unknown;
@@ -259,16 +269,33 @@ export function resolveCronPayloadOutcome(params: {
   const lastErrorPayloadIndex = params.payloads.findLastIndex(
     (payload) => payload?.isError === true,
   );
+  const lastErrorPayloadText = [...params.payloads]
+    .toReversed()
+    .find((payload) => payload?.isError === true && Boolean(payload?.text?.trim()))
+    ?.text?.trim();
+  const normalizedFinalAssistantVisibleText = normalizeOptionalString(
+    params.finalAssistantVisibleText,
+  );
   const hasSuccessfulPayloadAfterLastError =
     !params.runLevelError &&
     lastErrorPayloadIndex >= 0 &&
     params.payloads
       .slice(lastErrorPayloadIndex + 1)
       .some((payload) => payload?.isError !== true && Boolean(payload?.text?.trim()));
-  const hasFatalStructuredErrorPayload = hasErrorPayload && !hasSuccessfulPayloadAfterLastError;
-  const normalizedFinalAssistantVisibleText = normalizeOptionalString(
-    params.finalAssistantVisibleText,
-  );
+  const hasSuccessfulPayloadBeforeLastError =
+    !params.runLevelError &&
+    lastErrorPayloadIndex > 0 &&
+    params.payloads
+      .slice(0, lastErrorPayloadIndex)
+      .some((payload) => payload?.isError !== true && Boolean(payload?.text?.trim()));
+  const hasNonFatalTrailingPresentationWarning =
+    lastErrorPayloadIndex >= 0 &&
+    isNonFatalCronPresentationWarning(lastErrorPayloadText) &&
+    (normalizedFinalAssistantVisibleText !== undefined || hasSuccessfulPayloadBeforeLastError);
+  const hasFatalStructuredErrorPayload =
+    hasErrorPayload &&
+    !hasSuccessfulPayloadAfterLastError &&
+    !hasNonFatalTrailingPresentationWarning;
   const hasStructuredDeliveryPayloads = selectedDeliveryPayloads.some((payload) =>
     payloadHasStructuredDeliveryContent(payload),
   );
@@ -293,10 +320,6 @@ export function resolveCronPayloadOutcome(params: {
       : synthesizedText
         ? [{ text: synthesizedText }]
         : [];
-  const lastErrorPayloadText = [...params.payloads]
-    .toReversed()
-    .find((payload) => payload?.isError === true && Boolean(payload?.text?.trim()))
-    ?.text?.trim();
   const denialSignal = resolveCronDenialSignal([
     { field: "summary", text: summary },
     { field: "outputText", text: outputText },

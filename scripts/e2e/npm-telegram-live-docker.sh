@@ -279,6 +279,27 @@ for deps_dir in "$openclaw_package_dir/node_modules" /npm-global/lib/node_module
   done
 done
 
+link_installed_package_dependency() {
+  local name="$1"
+  local source="/npm-global/lib/node_modules/openclaw/node_modules/$name"
+  local target="/app/node_modules/$name"
+  if [ ! -e "$source" ]; then
+    echo "Installed package dependency is missing: $name" >&2
+    return 1
+  fi
+  mkdir -p "$(dirname "$target")"
+  ln -sfn "$source" "$target"
+}
+
+# QA Lab is intentionally mounted as harness source, so its package-local
+# runtime imports must resolve from the installed package dependency tree.
+for dependency in \
+  @modelcontextprotocol/sdk \
+  yaml \
+  zod; do
+  link_installed_package_dependency "$dependency"
+done
+
 echo "Running installed-package onboarding recovery hot path..."
 OPENAI_API_KEY="${OPENAI_API_KEY:-sk-openclaw-npm-telegram-hotpath}" openclaw onboard --non-interactive --accept-risk \
   --mode local \

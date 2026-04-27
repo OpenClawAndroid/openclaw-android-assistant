@@ -29,6 +29,8 @@ import {
   LMSTUDIO_LOCAL_API_KEY_PLACEHOLDER,
   LMSTUDIO_MODEL_PLACEHOLDER,
   LMSTUDIO_DEFAULT_BASE_URL,
+  LMSTUDIO_DOCKER_HOST_BASE_URL,
+  LMSTUDIO_DOCKER_HOST_INFERENCE_BASE_URL,
   LMSTUDIO_PROVIDER_LABEL,
   LMSTUDIO_DEFAULT_MODEL_ID,
   LMSTUDIO_PROVIDER_ID as PROVIDER_ID,
@@ -65,6 +67,22 @@ type LmstudioSetupDiscovery = {
   defaultModel: string | undefined;
   defaultModelId: string | undefined;
 };
+
+function isTruthyEnvValue(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
+}
+
+function resolveLmstudioSetupDefaultBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return isTruthyEnvValue(env.OPENCLAW_DOCKER_SETUP)
+    ? LMSTUDIO_DOCKER_HOST_BASE_URL
+    : LMSTUDIO_DEFAULT_BASE_URL;
+}
+
+function resolveLmstudioSetupDefaultInferenceBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return isTruthyEnvValue(env.OPENCLAW_DOCKER_SETUP)
+    ? LMSTUDIO_DOCKER_HOST_INFERENCE_BASE_URL
+    : LMSTUDIO_DEFAULT_INFERENCE_BASE_URL;
+}
 
 function stripLmstudioStoredAuthConfig(cfg: OpenClawConfig): OpenClawConfig {
   const { profiles: _profiles, order: _order, ...restAuth } = cfg.auth ?? {};
@@ -376,13 +394,14 @@ export async function promptAndConfigureLmstudioInteractive(params: {
     throw new Error("LM Studio interactive setup requires a text prompter.");
   }
   const note = params.prompter?.note ?? params.note;
+  const defaultBaseUrl = resolveLmstudioSetupDefaultBaseUrl();
   const baseUrlRaw = await promptText({
     message: `${LMSTUDIO_PROVIDER_LABEL} base URL`,
-    initialValue: LMSTUDIO_DEFAULT_BASE_URL,
-    placeholder: LMSTUDIO_DEFAULT_BASE_URL,
+    initialValue: defaultBaseUrl,
+    placeholder: defaultBaseUrl,
     validate: (value) => (value?.trim() ? undefined : "Required"),
   });
-  const baseUrl = resolveLmstudioInferenceBase(baseUrlRaw ?? "");
+  const baseUrl = resolveLmstudioInferenceBase(baseUrlRaw ?? defaultBaseUrl);
   let credentialInput: SecretInput | undefined;
   let credentialMode: SecretInputMode | undefined;
   const implicitRefMode = params.allowSecretRefPrompt === false && !params.secretInputMode;
@@ -548,7 +567,7 @@ export async function configureLmstudioNonInteractive(
 ): Promise<OpenClawConfig | null> {
   const customBaseUrl = normalizeOptionalSecretInput(ctx.opts.customBaseUrl);
   const baseUrl = resolveLmstudioInferenceBase(
-    customBaseUrl || LMSTUDIO_DEFAULT_INFERENCE_BASE_URL,
+    customBaseUrl || resolveLmstudioSetupDefaultInferenceBaseUrl(),
   );
   const normalizedCtx = customBaseUrl
     ? {
@@ -564,7 +583,7 @@ export async function configureLmstudioNonInteractive(
       ctx: configureCtx,
       providerId: PROVIDER_ID,
       providerLabel: LMSTUDIO_PROVIDER_LABEL,
-      defaultBaseUrl: LMSTUDIO_DEFAULT_INFERENCE_BASE_URL,
+      defaultBaseUrl: resolveLmstudioSetupDefaultInferenceBaseUrl(),
       defaultApiKeyEnvVar: LMSTUDIO_DEFAULT_API_KEY_ENV_VAR,
       modelPlaceholder: LMSTUDIO_MODEL_PLACEHOLDER,
     });

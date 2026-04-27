@@ -415,6 +415,7 @@ Use these as starting points and replace model IDs with the exact names from `ol
                 input: ["text"],
                 params: {
                   num_ctx: 32768,
+                  thinking: false,
                   keep_alive: "15m",
                 },
               },
@@ -585,6 +586,7 @@ Use these as starting points and replace model IDs with the exact names from `ol
     ```
 
     Use `compat.supportsTools: false` only when the model or server reliably fails on tool schemas. It trades agent capability for stability.
+    `localModelLean` removes the browser, cron, and message tools from the agent surface, but it does not change Ollama's runtime context or thinking mode. Pair it with explicit `params.num_ctx` and `params.thinking: false` for small Qwen-style thinking models that loop or spend their response budget on hidden reasoning.
 
   </Accordion>
 </AccordionGroup>
@@ -1012,7 +1014,7 @@ For the full setup and behavior details, see [Ollama Web Search](/tools/ollama-s
               {
                 id: "qwen3.5:9b",
                 name: "qwen3.5:9b",
-                params: { num_ctx: 32768 },
+                params: { num_ctx: 32768, thinking: false },
               },
             ],
           },

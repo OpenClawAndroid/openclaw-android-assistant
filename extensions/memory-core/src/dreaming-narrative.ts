@@ -171,7 +171,7 @@ async function startNarrativeRunOrFallback(params: {
         nowMs: params.nowMs,
         timezone: params.timezone,
       });
-      params.logger.warn(
+      params.logger.info(
         `memory-core: narrative generation used fallback for ${params.data.phase} phase because subagent runtime is request-scoped.`,
       );
     } catch (fallbackErr) {
@@ -861,6 +861,7 @@ export async function generateAndAppendDreamNarrative(params: {
   });
   const message = buildNarrativePrompt(params.data);
   let runId: string | null = null;
+  let shouldDeleteSession = false;
   try {
     runId = await startNarrativeRunOrFallback({
       subagent: params.subagent,
@@ -875,6 +876,7 @@ export async function generateAndAppendDreamNarrative(params: {
     if (!runId) {
       return;
     }
+    shouldDeleteSession = true;
 
     const result = await params.subagent.waitForRun({
       runId,
@@ -917,8 +919,9 @@ export async function generateAndAppendDreamNarrative(params: {
       `memory-core: narrative generation failed for ${params.data.phase} phase: ${formatErrorMessage(err)}`,
     );
   } finally {
-    // Guard against subagent becoming unavailable mid-flight (throws TypeError without this).
-    if (params.subagent) {
+    // Only cleanup after a run was accepted. Request-scoped fallback writes a
+    // local diary entry without creating a subagent session.
+    if (shouldDeleteSession && params.subagent) {
       try {
         await params.subagent.deleteSession({ sessionKey });
       } catch (cleanupErr) {

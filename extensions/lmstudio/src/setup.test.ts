@@ -8,7 +8,7 @@ import {
   type ProviderCatalogContext,
 } from "openclaw/plugin-sdk/provider-setup";
 import type { WizardPrompter } from "openclaw/plugin-sdk/setup";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LMSTUDIO_DEFAULT_API_KEY_ENV_VAR,
   LMSTUDIO_LOCAL_API_KEY_PLACEHOLDER,
@@ -173,6 +173,10 @@ function createQueuedWizardPrompterHarness(textValues: string[]): {
 }
 
 describe("lmstudio setup", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     fetchLmstudioModelsMock.mockReset();
     discoverLmstudioModelsMock.mockReset();
@@ -736,6 +740,36 @@ describe("lmstudio setup", () => {
       ],
     });
     expect(result.configPatch?.models?.providers?.lmstudio).not.toHaveProperty("auth");
+  });
+
+  it("interactive Docker setup defaults to the host LM Studio endpoint", async () => {
+    vi.stubEnv("OPENCLAW_DOCKER_SETUP", "1");
+    const { prompter, text } = createQueuedWizardPrompterHarness([
+      "http://host.docker.internal:1234",
+      "",
+      "",
+    ]);
+
+    const result = await promptAndConfigureLmstudioInteractive({
+      config: buildConfig(),
+      prompter,
+    });
+
+    expect(text).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        initialValue: "http://host.docker.internal:1234",
+        placeholder: "http://host.docker.internal:1234",
+      }),
+    );
+    expect(fetchLmstudioModelsMock).toHaveBeenCalledWith({
+      baseUrl: "http://host.docker.internal:1234/v1",
+      apiKey: LMSTUDIO_LOCAL_API_KEY_PLACEHOLDER,
+      timeoutMs: 5000,
+    });
+    expect(result.configPatch?.models?.providers?.lmstudio).toMatchObject({
+      baseUrl: "http://host.docker.internal:1234/v1",
+    });
   });
 
   it("interactive setup uses existing Authorization headers when the API key is blank", async () => {

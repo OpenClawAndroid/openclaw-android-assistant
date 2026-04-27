@@ -976,6 +976,23 @@
                 "pages": ["install/index", "install/installer", "install/node"]
               },
               {
+                "group": "Maintenance",
+                "pages": [
+                  "install/updating",
+                  {
+                    "group": "Migrating",
+                    "pages": [
+                      "install/migrating",
+                      "install/migrating-claude",
+                      "install/migrating-hermes",
+                      "install/migrating-matrix"
+                    ]
+                  },
+                  "install/uninstall",
+                  "install/development-channels"
+                ]
+              },
+              {
                 "group": "Containers",
                 "pages": [
                   "install/ansible",
@@ -1005,16 +1022,6 @@
                   "install/railway",
                   "install/raspberry-pi",
                   "install/render"
-                ]
-              },
-              {
-                "group": "Maintenance",
-                "pages": [
-                  "install/updating",
-                  "install/migrating",
-                  "install/migrating-matrix",
-                  "install/uninstall",
-                  "install/development-channels"
                 ]
               },
               {
@@ -1545,6 +1552,7 @@
                       "cli/gateway",
                       "cli/health",
                       "cli/logs",
+                      "cli/migrate",
                       "cli/onboard",
                       "cli/reset",
                       "cli/secrets",

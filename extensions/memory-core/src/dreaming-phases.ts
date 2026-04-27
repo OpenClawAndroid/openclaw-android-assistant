@@ -19,11 +19,7 @@ import {
   resolveMemoryRemDreamingConfig,
 } from "openclaw/plugin-sdk/memory-core-host-status";
 import { writeDailyDreamingPhaseBlock } from "./dreaming-markdown.js";
-import {
-  buildNarrativeSessionKey,
-  generateAndAppendDreamNarrative,
-  type NarrativePhaseData,
-} from "./dreaming-narrative.js";
+import { generateAndAppendDreamNarrative, type NarrativePhaseData } from "./dreaming-narrative.js";
 import { asRecord, formatErrorMessage, normalizeTrimmedString } from "./dreaming-shared.js";
 import {
   filterLiveShortTermRecallEntries,
@@ -1696,17 +1692,6 @@ async function runRemDreaming(params: {
   }
 }
 
-async function deleteNarrativeSessionBestEffort(
-  subagent: Parameters<typeof generateAndAppendDreamNarrative>[0]["subagent"],
-  sessionKey: string,
-): Promise<void> {
-  try {
-    await subagent.deleteSession({ sessionKey });
-  } catch {
-    // Cleanup is best-effort; request-scoped runtimes can throw synchronously.
-  }
-}
-
 export async function runDreamingSweepPhases(params: {
   workspaceDir: string;
   pluginConfig?: Record<string, unknown>;
@@ -1733,19 +1718,6 @@ export async function runDreamingSweepPhases(params: {
       nowMs: sweepNowMs,
       detachNarratives: params.detachNarratives,
     });
-    // Defensive cleanup: ensure the light-phase narrative session is deleted even if
-    // generateAndAppendDreamNarrative's primary cleanup was skipped due to an error.
-    // Skip when narratives are detached: the queued subagent run hasn't read the
-    // session yet, so eager cleanup would race the writer and silently drop the
-    // diary entry. The narrative function does its own cleanup in finally{}.
-    if (params.subagent && !params.detachNarratives) {
-      const lightSessionKey = buildNarrativeSessionKey({
-        workspaceDir: params.workspaceDir,
-        phase: "light",
-        nowMs: sweepNowMs,
-      });
-      await deleteNarrativeSessionBestEffort(params.subagent, lightSessionKey);
-    }
   }
 
   const rem = resolveMemoryRemDreamingConfig({
@@ -1762,16 +1734,6 @@ export async function runDreamingSweepPhases(params: {
       nowMs: sweepNowMs,
       detachNarratives: params.detachNarratives,
     });
-    // Defensive cleanup: ensure the REM-phase narrative session is deleted.
-    // Skip when narratives are detached (see light-phase comment above).
-    if (params.subagent && !params.detachNarratives) {
-      const remSessionKey = buildNarrativeSessionKey({
-        workspaceDir: params.workspaceDir,
-        phase: "rem",
-        nowMs: sweepNowMs,
-      });
-      await deleteNarrativeSessionBestEffort(params.subagent, remSessionKey);
-    }
   }
 }
 
