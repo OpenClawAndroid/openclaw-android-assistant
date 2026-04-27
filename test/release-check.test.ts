@@ -459,7 +459,6 @@ describe("collectForbiddenPackPaths", () => {
         "dist/plugin-sdk/qa-runtime.js",
         "dist/qa-runtime-B9LDtssJ.js",
         "docs/channels/qa-channel.md",
-        "docs/refactor/qa.md",
         "qa/scenarios/index.md",
       ]),
     ).toEqual([
@@ -473,7 +472,6 @@ describe("collectForbiddenPackPaths", () => {
       "dist/plugin-sdk/qa-runtime.js",
       "dist/qa-runtime-B9LDtssJ.js",
       "docs/channels/qa-channel.md",
-      "docs/refactor/qa.md",
       "qa/scenarios/index.md",
     ]);
   });

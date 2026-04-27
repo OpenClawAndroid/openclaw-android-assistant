@@ -48,7 +48,7 @@ docker run --rm \
     export OPENCLAW_DOCKER_OPENAI_BASE_URL=\"http://127.0.0.1:\$MOCK_PORT/v1\"
     node scripts/e2e/mock-openai-server.mjs >/tmp/cron-mcp-cleanup-mock-openai.log 2>&1 &
     mock_pid=\$!
-    node --import tsx scripts/e2e/cron-mcp-cleanup-seed.ts >/tmp/cron-mcp-cleanup-seed.log
+    tsx scripts/e2e/cron-mcp-cleanup-seed.ts >/tmp/cron-mcp-cleanup-seed.log
     node \"\$entry\" gateway --port $PORT --bind loopback --allow-unconfigured >/tmp/cron-mcp-cleanup-gateway.log 2>&1 &
     gateway_pid=\$!
     stop_process() {
@@ -101,7 +101,7 @@ docker run --rm \
       tail -n 120 /tmp/cron-mcp-cleanup-gateway.log 2>/dev/null || true
       exit 1
     fi
-    node --import tsx scripts/e2e/cron-mcp-cleanup-docker-client.ts
+    tsx scripts/e2e/cron-mcp-cleanup-docker-client.ts
   " >"$CLIENT_LOG" 2>&1
 status=${PIPESTATUS[0]}
 set -e

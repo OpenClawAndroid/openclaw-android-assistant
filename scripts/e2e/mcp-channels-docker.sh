@@ -53,7 +53,7 @@ docker run --rm \
       sleep 0.1
     done
     node -e \"fetch('http://127.0.0.1:' + process.argv[1] + '/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\" \"\$mock_port\"
-    node --import tsx scripts/e2e/mcp-channels-seed.ts >/tmp/mcp-channels-seed.log
+    tsx scripts/e2e/mcp-channels-seed.ts >/tmp/mcp-channels-seed.log
     node \"\$entry\" gateway --port $PORT --bind loopback --allow-unconfigured >/tmp/mcp-channels-gateway.log 2>&1 &
     gateway_pid=\$!
     stop_process() {
@@ -96,7 +96,7 @@ docker run --rm \
       tail -n 120 /tmp/mcp-channels-gateway.log 2>/dev/null || true
       exit 1
     fi
-    node --import tsx scripts/e2e/mcp-channels-docker-client.ts
+    tsx scripts/e2e/mcp-channels-docker-client.ts
   " >"$CLIENT_LOG" 2>&1
 status=${PIPESTATUS[0]}
 set -e

@@ -6,7 +6,14 @@ read_when:
   - You are debugging failing GitHub Actions checks
 ---
 
-The CI runs on every push to `main` and every pull request. It uses smart scoping to skip expensive jobs when only unrelated areas changed.
+The CI runs on every push to `main` and every pull request. It uses smart scoping to skip expensive jobs when only unrelated areas changed. Manual `workflow_dispatch` runs intentionally bypass smart scoping and fan out the full normal CI graph for release candidates or broad validation.
+
+`Full Release Validation` is the manual umbrella workflow for "run everything
+before release." It accepts a branch, tag, or full commit SHA, dispatches the
+manual `CI` workflow with that target, and dispatches `OpenClaw Release Checks`
+for install smoke, Docker release-path suites, live/E2E, OpenWebUI, QA Lab
+parity, Matrix, and Telegram lanes. It can also run the post-publish `NPM
+Telegram Beta E2E` workflow when a published package spec is provided.
 
 QA Lab has dedicated CI lanes outside the main smart-scoped workflow. The
 `Parity gate` workflow runs on matching PR changes and manual dispatch; it
@@ -55,29 +62,44 @@ gh workflow run duplicate-after-merge.yml \
 
 ## Job Overview
 
-| Job                              | Purpose                                                                                      | When it runs                         |
-| -------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `preflight`                      | Detect docs-only changes, changed scopes, changed extensions, and build the CI manifest      | Always on non-draft pushes and PRs   |
-| `security-scm-fast`              | Private key detection and workflow audit via `zizmor`                                        | Always on non-draft pushes and PRs   |
-| `security-dependency-audit`      | Dependency-free production lockfile audit against npm advisories                             | Always on non-draft pushes and PRs   |
-| `security-fast`                  | Required aggregate for the fast security jobs                                                | Always on non-draft pushes and PRs   |
-| `build-artifacts`                | Build `dist/`, Control UI, built-artifact checks, and reusable downstream artifacts          | Node-relevant changes                |
-| `checks-fast-core`               | Fast Linux correctness lanes such as bundled/plugin-contract/protocol checks                 | Node-relevant changes                |
-| `checks-fast-contracts-channels` | Sharded channel contract checks with a stable aggregate check result                         | Node-relevant changes                |
-| `checks-node-extensions`         | Full bundled-plugin test shards across the extension suite                                   | Node-relevant changes                |
-| `checks-node-core-test`          | Core Node test shards, excluding channel, bundled, contract, and extension lanes             | Node-relevant changes                |
-| `extension-fast`                 | Focused tests for only the changed bundled plugins                                           | Pull requests with extension changes |
-| `check`                          | Sharded main local gate equivalent: prod types, lint, guards, test types, and strict smoke   | Node-relevant changes                |
-| `check-additional`               | Architecture, boundary, extension-surface guards, package-boundary, and gateway-watch shards | Node-relevant changes                |
-| `build-smoke`                    | Built-CLI smoke tests and startup-memory smoke                                               | Node-relevant changes                |
-| `checks`                         | Verifier for built-artifact channel tests plus push-only Node 22 compatibility               | Node-relevant changes                |
-| `check-docs`                     | Docs formatting, lint, and broken-link checks                                                | Docs changed                         |
-| `skills-python`                  | Ruff + pytest for Python-backed skills                                                       | Python-skill-relevant changes        |
-| `checks-windows`                 | Windows-specific test lanes                                                                  | Windows-relevant changes             |
-| `macos-node`                     | macOS TypeScript test lane using the shared built artifacts                                  | macOS-relevant changes               |
-| `macos-swift`                    | Swift lint, build, and tests for the macOS app                                               | macOS-relevant changes               |
-| `android`                        | Android unit tests for both flavors plus one debug APK build                                 | Android-relevant changes             |
-| `test-performance-agent`         | Daily Codex slow-test optimization after trusted activity                                    | Main CI success or manual dispatch   |
+| Job                              | Purpose                                                                                      | When it runs                       |
+| -------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `preflight`                      | Detect docs-only changes, changed scopes, changed extensions, and build the CI manifest      | Always on non-draft pushes and PRs |
+| `security-scm-fast`              | Private key detection and workflow audit via `zizmor`                                        | Always on non-draft pushes and PRs |
+| `security-dependency-audit`      | Dependency-free production lockfile audit against npm advisories                             | Always on non-draft pushes and PRs |
+| `security-fast`                  | Required aggregate for the fast security jobs                                                | Always on non-draft pushes and PRs |
+| `build-artifacts`                | Build `dist/`, Control UI, built-artifact checks, and reusable downstream artifacts          | Node-relevant changes              |
+| `checks-fast-core`               | Fast Linux correctness lanes such as bundled/plugin-contract/protocol checks                 | Node-relevant changes              |
+| `checks-fast-contracts-channels` | Sharded channel contract checks with a stable aggregate check result                         | Node-relevant changes              |
+| `checks-node-extensions`         | Full bundled-plugin test shards across the extension suite                                   | Node-relevant changes              |
+| `checks-node-core-test`          | Core Node test shards, excluding channel, bundled, contract, and extension lanes             | Node-relevant changes              |
+| `check`                          | Sharded main local gate equivalent: prod types, lint, guards, test types, and strict smoke   | Node-relevant changes              |
+| `check-additional`               | Architecture, boundary, extension-surface guards, package-boundary, and gateway-watch shards | Node-relevant changes              |
+| `build-smoke`                    | Built-CLI smoke tests and startup-memory smoke                                               | Node-relevant changes              |
+| `checks`                         | Verifier for built-artifact channel tests                                                    | Node-relevant changes              |
+| `checks-node-compat-node22`      | Node 22 compatibility build and smoke lane                                                   | Manual CI dispatch for releases    |
+| `check-docs`                     | Docs formatting, lint, and broken-link checks                                                | Docs changed                       |
+| `skills-python`                  | Ruff + pytest for Python-backed skills                                                       | Python-skill-relevant changes      |
+| `checks-windows`                 | Windows-specific test lanes                                                                  | Windows-relevant changes           |
+| `macos-node`                     | macOS TypeScript test lane using the shared built artifacts                                  | macOS-relevant changes             |
+| `macos-swift`                    | Swift lint, build, and tests for the macOS app                                               | macOS-relevant changes             |
+| `android`                        | Android unit tests for both flavors plus one debug APK build                                 | Android-relevant changes           |
+| `test-performance-agent`         | Daily Codex slow-test optimization after trusted activity                                    | Main CI success or manual dispatch |
+
+Manual CI dispatches run the same job graph as normal CI but force every
+scoped lane on: Linux Node shards, bundled-plugin shards, channel contracts,
+Node 22 compatibility, `check`, `check-additional`, build smoke, docs checks,
+Python skills, Windows, macOS, Android, and Control UI i18n. Manual runs use a
+unique concurrency group so a release-candidate full suite is not cancelled by
+another push or PR run on the same ref. The optional `target_ref` input lets a
+trusted caller run that graph against a branch, tag, or full commit SHA while
+using the workflow file from the selected dispatch ref.
+
+```bash
+gh workflow run ci.yml --ref release/YYYY.M.D
+gh workflow run ci.yml --ref main -f target_ref=<branch-or-sha>
+gh workflow run full-release-validation.yml --ref main -f ref=<branch-or-sha>
+```
 
 ## Fail-fast order
 
@@ -86,9 +108,11 @@ Jobs are ordered so cheap checks fail before expensive ones run:
 1. `preflight` decides which lanes exist at all. The `docs-scope` and `changed-scope` logic are steps inside this job, not standalone jobs.
 2. `security-scm-fast`, `security-dependency-audit`, `security-fast`, `check`, `check-additional`, `check-docs`, and `skills-python` fail quickly without waiting on the heavier artifact and platform matrix jobs.
 3. `build-artifacts` overlaps with the fast Linux lanes so downstream consumers can start as soon as the shared build is ready.
-4. Heavier platform and runtime lanes fan out after that: `checks-fast-core`, `checks-fast-contracts-channels`, `checks-node-extensions`, `checks-node-core-test`, PR-only `extension-fast`, `checks`, `checks-windows`, `macos-node`, `macos-swift`, and `android`.
+4. Heavier platform and runtime lanes fan out after that: `checks-fast-core`, `checks-fast-contracts-channels`, `checks-node-extensions`, `checks-node-core-test`, `checks`, `checks-windows`, `macos-node`, `macos-swift`, and `android`.
 
 Scope logic lives in `scripts/ci-changed-scope.mjs` and is covered by unit tests in `src/scripts/ci-changed-scope.test.ts`.
+Manual dispatch skips changed-scope detection and makes the preflight manifest
+act as if every scoped area changed.
 CI workflow edits validate the Node CI graph plus workflow linting, but do not force Windows, Android, or macOS native builds by themselves; those platform lanes stay scoped to platform source changes.
 CI routing-only edits, selected cheap core-test fixture edits, and narrow plugin contract helper/test-routing edits use a fast Node-only manifest path: preflight, security, and a single `checks-fast-core` task. That path avoids build artifacts, Node 22 compatibility, channel contracts, full core shards, bundled-plugin shards, and additional guard matrices when the changed files are limited to the routing or helper surfaces that the fast task exercises directly.
 Windows Node checks are scoped to Windows-specific process/path wrappers, npm/pnpm/UI runner helpers, package manager config, and the CI workflow surfaces that execute that lane; unrelated source, plugin, install-smoke, and test-only changes stay on the Linux Node lanes so they do not reserve a 16-vCPU Windows worker for coverage that is already exercised by the normal test shards.
@@ -96,14 +120,12 @@ The separate `install-smoke` workflow reuses the same scope script through its o
 
 Local changed-lane logic lives in `scripts/changed-lanes.mjs` and is executed by `scripts/check-changed.mjs`. That local check gate is stricter about architecture boundaries than the broad CI platform scope: core production changes run core prod and core test typecheck plus core lint/guards, core test-only changes run only core test typecheck plus core lint, extension production changes run extension prod and extension test typecheck plus extension lint, and extension test-only changes run extension test typecheck plus extension lint. Public Plugin SDK or plugin-contract changes expand to extension typecheck because extensions depend on those core contracts, but Vitest extension sweeps are explicit test work. Release metadata-only version bumps run targeted version/config/root-dependency checks. Unknown root/config changes fail safe to all check lanes.
 
-On pushes, the `checks` matrix adds the push-only `compat-node22` lane. On pull requests, that lane is skipped and the matrix stays focused on the normal test/channel lanes.
+Manual CI dispatches run `checks-node-compat-node22` as release-candidate compatibility coverage. Normal pull requests and `main` pushes skip that lane and keep the matrix focused on the Node 24 test/channel lanes.
 
 The slowest Node test families are split or balanced so each job stays small without over-reserving runners: channel contracts run as three weighted shards, bundled plugin tests balance across six extension workers, small core unit lanes are paired, auto-reply runs as four balanced workers with the reply subtree split into agent-runner, dispatch, and commands/state-routing shards, and agentic gateway/plugin configs are spread across the existing source-only agentic Node jobs instead of waiting on built artifacts. Broad browser, QA, media, and miscellaneous plugin tests use their dedicated Vitest configs instead of the shared plugin catch-all. Extension shard jobs run up to two plugin config groups at a time with one Vitest worker per group and a larger Node heap so import-heavy plugin batches do not create extra CI jobs. The broad agents lane uses the shared Vitest file-parallel scheduler because it is import/scheduling dominated rather than owned by a single slow test file. `runtime-config` runs with the infra core-runtime shard to keep the shared runtime shard from owning the tail. Include-pattern shards record timing entries using the CI shard name, so `.artifacts/vitest-shard-timings.json` can distinguish a whole config from a filtered shard. `check-additional` keeps package-boundary compile/canary work together and separates runtime topology architecture from gateway watch coverage; the boundary guard shard runs its small independent guards concurrently inside one job. Gateway watch, channel tests, and the core support-boundary shard run concurrently inside `build-artifacts` after `dist/` and `dist-runtime/` are already built, keeping their old check names as lightweight verifier jobs while avoiding two extra Blacksmith workers and a second artifact-consumer queue.
 Android CI runs both `testPlayDebugUnitTest` and `testThirdPartyDebugUnitTest`, then builds the Play debug APK. The third-party flavor has no separate source set or manifest; its unit-test lane still compiles that flavor with the SMS/call-log BuildConfig flags, while avoiding a duplicate debug APK packaging job on every Android-relevant push.
-`extension-fast` is PR-only because push runs already execute the full bundled plugin shards. That keeps changed-plugin feedback for reviews without reserving an extra Blacksmith worker on `main` for coverage already present in `checks-node-extensions`.
-
 GitHub may mark superseded jobs as `cancelled` when a newer push lands on the same PR or `main` ref. Treat that as CI noise unless the newest run for the same ref is also failing. Aggregate shard checks use `!cancelled() && always()` so they still report normal shard failures but do not queue after the whole workflow has already been superseded.
-The CI concurrency key is versioned (`CI-v7-*`) so a GitHub-side zombie in an old queue group cannot indefinitely block newer main runs.
+The automatic CI concurrency key is versioned (`CI-v7-*`) so a GitHub-side zombie in an old queue group cannot indefinitely block newer main runs. Manual full-suite runs use `CI-manual-v1-*` and do not cancel in-progress runs.
 
 ## Runners
 

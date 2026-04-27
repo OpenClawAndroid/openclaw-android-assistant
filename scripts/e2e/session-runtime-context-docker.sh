@@ -27,7 +27,7 @@ docker run --rm \
   -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
   "${DOCKER_E2E_HARNESS_ARGS[@]}" \
   "$IMAGE_NAME" \
-  bash -lc 'set -euo pipefail; node --import tsx scripts/e2e/session-runtime-context-docker-client.ts' \
+  bash -lc 'set -euo pipefail; tsx scripts/e2e/session-runtime-context-docker-client.ts' \
   >"$RUN_LOG" 2>&1
 status=$?
 set -e

@@ -6,8 +6,10 @@
 
 FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS e2e-runner
 
+# python3 covers package/plugin install paths that execute helper scripts while
+# staying below a full build-essential toolchain.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates git \
+ && apt-get install -y --no-install-recommends ca-certificates git python3 \
  && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable
@@ -40,10 +42,14 @@ FROM bare AS functional
 # The app under test enters through the named BuildKit context, not by copying
 # checkout sources into the image.
 COPY --from=openclaw_package --chown=appuser:appuser openclaw-current.tgz /tmp/openclaw-current.tgz
+# Preserve package self-reference imports such as openclaw/plugin-sdk/* after
+# copying the installed package out of npm's global node_modules tree.
 RUN npm install -g --prefix /tmp/openclaw-prefix /tmp/openclaw-current.tgz --no-fund --no-audit \
  && cp -a /tmp/openclaw-prefix/lib/node_modules/openclaw/. /app/ \
  && mkdir -p "$HOME/.local/bin" \
  && ln -sf /app/openclaw.mjs "$HOME/.local/bin/openclaw" \
+ && mkdir -p /app/node_modules \
+ && ln -sf /app /app/node_modules/openclaw \
  && rm -rf /tmp/openclaw-prefix /tmp/openclaw-current.tgz
 
 CMD ["bash"]

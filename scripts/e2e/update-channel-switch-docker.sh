@@ -41,6 +41,20 @@ git_root="/tmp/openclaw-git"
 mkdir -p "$git_root"
 # Build the fake git install from the packed package contents, not the checkout.
 tar -xzf "$package_tgz" -C "$git_root" --strip-components=1
+# The package-derived fixture can carry patchedDependencies whose targets are
+# absent from the trimmed tarball install; that should not block update preflight.
+node - <<'"'"'NODE'"'"'
+const fs = require("node:fs");
+const packageJsonPath = "/tmp/openclaw-git/package.json";
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+packageJson.pnpm = { ...packageJson.pnpm, allowUnusedPatches: true };
+packageJson.scripts = {
+  ...packageJson.scripts,
+  build: "node -e \"console.log(\\\"fixture build skipped\\\")\"",
+  "ui:build": "node -e \"console.log(\\\"fixture ui build skipped\\\")\"",
+};
+fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+NODE
 (
   cd "$git_root"
   npm install --omit=optional --no-fund --no-audit >/tmp/openclaw-git-install.log 2>&1

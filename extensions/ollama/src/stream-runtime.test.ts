@@ -56,6 +56,30 @@ describe("buildOllamaChatRequest", () => {
       model: "qwen3:14b-q8_0",
     });
   });
+
+  it("strips the active custom provider prefix from chat model ids", () => {
+    expect(
+      buildOllamaChatRequest({
+        modelId: "ollama-spark/qwen3:32b",
+        providerId: "ollama-spark",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    ).toMatchObject({
+      model: "qwen3:32b",
+    });
+  });
+
+  it("keeps unrelated slash-containing Ollama model ids intact", () => {
+    expect(
+      buildOllamaChatRequest({
+        modelId: "library/qwen3:32b",
+        providerId: "ollama-spark",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    ).toMatchObject({
+      model: "library/qwen3:32b",
+    });
+  });
 });
 
 describe("createConfiguredOllamaCompatStreamWrapper", () => {
@@ -252,6 +276,109 @@ describe("createConfiguredOllamaCompatStreamWrapper", () => {
         expect(requestBody.think).toBe("high");
         expect(requestBody.options?.think).toBeUndefined();
         expect(requestBody.options?.num_ctx).toBe(131072);
+      },
+    );
+  });
+
+  it("sends custom-provider Ollama chat requests with the bare Ollama model id", async () => {
+    await withMockNdjsonFetch(
+      [
+        '{"model":"m","created_at":"t","message":{"role":"assistant","content":"ok"},"done":false}',
+        '{"model":"m","created_at":"t","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":1,"eval_count":1}',
+      ],
+      async (fetchMock) => {
+        const streamFn = createOllamaStreamFn("http://ollama-host:11434");
+        const model = {
+          api: "ollama",
+          provider: "ollama-spark",
+          id: "ollama-spark/qwen3:32b",
+          contextWindow: 131072,
+        };
+
+        const stream = await Promise.resolve(
+          streamFn(
+            model as never,
+            {
+              messages: [{ role: "user", content: "hello" }],
+            } as never,
+            {} as never,
+          ),
+        );
+
+        await collectStreamEvents(stream);
+
+        const requestInit = getGuardedFetchCall(fetchMock).init ?? {};
+        if (typeof requestInit.body !== "string") {
+          throw new Error("Expected string request body");
+        }
+        const requestBody = JSON.parse(requestInit.body) as { model?: string };
+        expect(requestBody.model).toBe("qwen3:32b");
+      },
+    );
+  });
+
+  it("adds direct type hints to native Ollama tool schemas before sending them", async () => {
+    await withMockNdjsonFetch(
+      [
+        '{"model":"m","created_at":"t","message":{"role":"assistant","content":"ok"},"done":false}',
+        '{"model":"m","created_at":"t","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":1,"eval_count":1}',
+      ],
+      async (fetchMock) => {
+        const streamFn = createOllamaStreamFn("http://ollama-host:11434");
+        const model = {
+          api: "ollama",
+          provider: "ollama",
+          id: "qwen3:32b",
+          contextWindow: 131072,
+        };
+
+        const stream = await Promise.resolve(
+          streamFn(
+            model as never,
+            {
+              messages: [{ role: "user", content: "hello" }],
+              tools: [
+                {
+                  name: "search",
+                  description: "search",
+                  parameters: {
+                    properties: {
+                      query: {
+                        anyOf: [{ type: "string" }, { type: "null" }],
+                      },
+                      tags: {
+                        items: { type: "string" },
+                      },
+                    },
+                    required: ["query"],
+                  },
+                },
+              ],
+            } as never,
+            {} as never,
+          ),
+        );
+
+        await collectStreamEvents(stream);
+
+        const requestInit = getGuardedFetchCall(fetchMock).init ?? {};
+        if (typeof requestInit.body !== "string") {
+          throw new Error("Expected string request body");
+        }
+        const requestBody = JSON.parse(requestInit.body) as {
+          tools?: Array<{
+            function?: {
+              parameters?: {
+                type?: string;
+                properties?: Record<string, { type?: string }>;
+              };
+            };
+          }>;
+        };
+        const parameters = requestBody.tools?.[0]?.function?.parameters;
+        expect(parameters?.type).toBe("object");
+        expect(parameters?.properties?.query?.type).toBe("string");
+        expect(parameters?.properties?.tags?.type).toBe("array");
       },
     );
   });
@@ -479,6 +606,73 @@ describe("buildAssistantMessage", () => {
     expect(toolCall.id).toMatch(/^ollama_call_[0-9a-f-]{36}$/);
   });
 
+  it("parses stringified tool call arguments from Ollama responses", () => {
+    const response = {
+      model: "qwen3:32b",
+      created_at: "2026-01-01T00:00:00Z",
+      message: {
+        role: "assistant" as const,
+        content: "",
+        tool_calls: [{ function: { name: "bash", arguments: '{"command":"ls","path":"/tmp"}' } }],
+      },
+      done: true,
+    };
+    const result = buildAssistantMessage(response, modelInfo);
+    expect(result.content[0]).toMatchObject({
+      type: "toolCall",
+      name: "bash",
+      arguments: { command: "ls", path: "/tmp" },
+    });
+  });
+
+  it("preserves unsafe integers in stringified tool call arguments", () => {
+    const response = {
+      model: "qwen3:32b",
+      created_at: "2026-01-01T00:00:00Z",
+      message: {
+        role: "assistant" as const,
+        content: "",
+        tool_calls: [
+          {
+            function: {
+              name: "send",
+              arguments: '{"target":9223372036854775807,"nested":{"thread":1234567890123456789}}',
+            },
+          },
+        ],
+      },
+      done: true,
+    };
+    const result = buildAssistantMessage(response, modelInfo);
+    expect(result.content[0]).toMatchObject({
+      type: "toolCall",
+      name: "send",
+      arguments: {
+        target: "9223372036854775807",
+        nested: { thread: "1234567890123456789" },
+      },
+    });
+  });
+
+  it("falls back to empty arguments for malformed stringified tool call arguments", () => {
+    const response = {
+      model: "qwen3:32b",
+      created_at: "2026-01-01T00:00:00Z",
+      message: {
+        role: "assistant" as const,
+        content: "",
+        tool_calls: [{ function: { name: "bash", arguments: '{"command":"ls"' } }],
+      },
+      done: true,
+    };
+    const result = buildAssistantMessage(response, modelInfo);
+    expect(result.content[0]).toMatchObject({
+      type: "toolCall",
+      name: "bash",
+      arguments: {},
+    });
+  });
+
   it("sets all costs to zero for local models", () => {
     const response = {
       model: "qwen3:32b",
@@ -574,7 +768,7 @@ describe("parseNdjsonStream", () => {
 
     // Simulate the accumulation logic from createOllamaStreamFn
     const accumulatedToolCalls: Array<{
-      function: { name: string; arguments: Record<string, unknown> };
+      function: { name: string; arguments: unknown };
     }> = [];
     const chunks = [];
     for await (const chunk of parseNdjsonStream(reader)) {

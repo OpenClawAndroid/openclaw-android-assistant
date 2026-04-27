@@ -25,7 +25,10 @@ function lane(name, command, options = {}) {
   return {
     cacheKey: options.cacheKey,
     command,
-    e2eImageKind: options.e2eImageKind ?? (options.live ? undefined : "functional"),
+    e2eImageKind:
+      options.e2eImageKind === false
+        ? undefined
+        : (options.e2eImageKind ?? (options.live ? undefined : "functional")),
     estimateSeconds: options.estimateSeconds,
     live: options.live === true,
     name,

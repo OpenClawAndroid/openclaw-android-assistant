@@ -232,6 +232,10 @@ import {
   shouldStripBootstrapFromEmbeddedContext,
 } from "./attempt-bootstrap-routing.js";
 export { shouldStripBootstrapFromEmbeddedContext } from "./attempt-bootstrap-routing.js";
+import {
+  rotateTranscriptAfterCompaction,
+  shouldRotateCompactionTranscript,
+} from "../compaction-successor-transcript.js";
 import { configureEmbeddedAttemptHttpRuntime } from "./attempt-http-runtime.js";
 import {
   assembleAttemptContextEngine,
@@ -2170,6 +2174,7 @@ export async function runEmbeddedAttempt(
 
       let messagesSnapshot: AgentMessage[] = [];
       let sessionIdUsed = activeSession.sessionId;
+      let sessionFileUsed: string | undefined = params.sessionFile;
       const onAbort = () => {
         externalAbort = true;
         const reason = params.abortSignal ? getAbortReason(params.abortSignal) : undefined;
@@ -2904,6 +2909,35 @@ export async function runEmbeddedAttempt(
           }
         }
 
+        if (
+          compactionOccurredThisAttempt &&
+          !promptError &&
+          !aborted &&
+          !timedOut &&
+          !idleTimedOut &&
+          !timedOutDuringCompaction &&
+          shouldRotateCompactionTranscript(params.config)
+        ) {
+          try {
+            const rotation = await rotateTranscriptAfterCompaction({
+              sessionManager,
+              sessionFile: params.sessionFile,
+            });
+            if (rotation.rotated) {
+              sessionIdUsed = rotation.sessionId ?? sessionIdUsed;
+              sessionFileUsed = rotation.sessionFile ?? sessionFileUsed;
+              log.info(
+                `[compaction] rotated active transcript after automatic compaction ` +
+                  `(sessionKey=${params.sessionKey ?? params.sessionId})`,
+              );
+            }
+          } catch (err) {
+            log.warn("[compaction] automatic transcript rotation failed", {
+              errorMessage: formatErrorMessage(err),
+            });
+          }
+        }
+
         cacheTrace?.recordStage("session:after", {
           messages: messagesSnapshot,
           note: timedOutDuringCompaction
@@ -3127,6 +3161,7 @@ export async function runEmbeddedAttempt(
         promptErrorSource,
         preflightRecovery,
         sessionIdUsed,
+        sessionFileUsed,
         diagnosticTrace,
         bootstrapPromptWarningSignaturesSeen: bootstrapPromptWarning.warningSignaturesSeen,
         bootstrapPromptWarningSignature: bootstrapPromptWarning.signature,

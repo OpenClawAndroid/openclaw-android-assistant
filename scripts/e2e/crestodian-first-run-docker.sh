@@ -28,7 +28,7 @@ docker run --rm \
   "${DOCKER_E2E_HARNESS_ARGS[@]}" \
   "$IMAGE_NAME" \
   bash -lc "set -euo pipefail
-    node --import tsx scripts/e2e/crestodian-first-run-docker-client.ts
+    tsx scripts/e2e/crestodian-first-run-docker-client.ts
   " >"$RUN_LOG" 2>&1
 status=${PIPESTATUS[0]}
 set -e

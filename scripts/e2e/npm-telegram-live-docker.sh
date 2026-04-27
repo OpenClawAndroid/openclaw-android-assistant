@@ -207,7 +207,7 @@ fi
 
 export OPENCLAW_NPM_TELEGRAM_SUT_COMMAND="$(command -v openclaw)"
 trap - ERR
-node --import tsx scripts/e2e/npm-telegram-live-runner.ts
+tsx scripts/e2e/npm-telegram-live-runner.ts
 EOF
 
 echo "published npm Telegram live Docker E2E passed ($PACKAGE_SPEC)"

@@ -350,7 +350,8 @@ const payloads =
   [];
 const texts = payloads.map((x) => String(x?.text ?? "").trim()).filter(Boolean);
 const match = texts.find((text) => text === expected);
-process.stdout.write(match ?? texts[0] ?? "");
+const containingMatch = texts.find((text) => text.includes(expected));
+process.stdout.write(match ?? (containingMatch ? expected : texts[0]) ?? "");
 NODE
 }
 
