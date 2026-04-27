@@ -20,7 +20,7 @@ const getProgramContextMock = vi.hoisted(() => vi.fn(() => null));
 const registerCoreCliByNameMock = vi.hoisted(() => vi.fn());
 const registerSubCliByNameMock = vi.hoisted(() => vi.fn());
 const restoreTerminalStateMock = vi.hoisted(() => vi.fn());
-const hasEnvHttpProxyConfiguredMock = vi.hoisted(() => vi.fn(() => false));
+const hasEnvHttpProxyAgentConfiguredMock = vi.hoisted(() => vi.fn(() => false));
 const ensureGlobalUndiciEnvProxyDispatcherMock = vi.hoisted(() => vi.fn());
 const runCrestodianMock = vi.hoisted(() => vi.fn(async () => {}));
 const progressDoneMock = vi.hoisted(() => vi.fn());
@@ -106,7 +106,7 @@ vi.mock("../terminal/restore.js", () => ({
 }));
 
 vi.mock("../infra/net/proxy-env.js", () => ({
-  hasEnvHttpProxyConfigured: hasEnvHttpProxyConfiguredMock,
+  hasEnvHttpProxyAgentConfigured: hasEnvHttpProxyAgentConfiguredMock,
 }));
 
 vi.mock("../infra/net/undici-global-dispatcher.js", () => ({
@@ -127,7 +127,7 @@ describe("runCli exit behavior", () => {
     hasMemoryRuntimeMock.mockReturnValue(false);
     outputPrecomputedBrowserHelpTextMock.mockReturnValue(false);
     outputPrecomputedRootHelpTextMock.mockReturnValue(false);
-    hasEnvHttpProxyConfiguredMock.mockReturnValue(false);
+    hasEnvHttpProxyAgentConfiguredMock.mockReturnValue(false);
     getProgramContextMock.mockReturnValue(null);
     delete process.env.OPENCLAW_DISABLE_CLI_STARTUP_HELP_FAST_PATH;
   });
@@ -178,7 +178,7 @@ describe("runCli exit behavior", () => {
     await runCli(["node", "openclaw", "--help"]);
 
     expect(outputPrecomputedRootHelpTextMock).toHaveBeenCalledTimes(1);
-    expect(hasEnvHttpProxyConfiguredMock).not.toHaveBeenCalled();
+    expect(hasEnvHttpProxyAgentConfiguredMock).not.toHaveBeenCalled();
     expect(ensureGlobalUndiciEnvProxyDispatcherMock).not.toHaveBeenCalled();
     expect(runCrestodianMock).not.toHaveBeenCalled();
   });
@@ -201,7 +201,7 @@ describe("runCli exit behavior", () => {
   });
 
   it("bootstraps env proxy before bare Crestodian startup", async () => {
-    hasEnvHttpProxyConfiguredMock.mockReturnValue(true);
+    hasEnvHttpProxyAgentConfiguredMock.mockReturnValue(true);
     const stdinTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
     const stdoutTty = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
     Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
@@ -230,7 +230,7 @@ describe("runCli exit behavior", () => {
   });
 
   it("bootstraps env proxy before modern onboard Crestodian startup", async () => {
-    hasEnvHttpProxyConfiguredMock.mockReturnValue(true);
+    hasEnvHttpProxyAgentConfiguredMock.mockReturnValue(true);
 
     await runCli(["node", "openclaw", "onboard", "--modern", "--json"]);
 

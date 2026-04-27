@@ -29,9 +29,20 @@ import {
   type TalkSpeakParams,
   validateTalkConfigParams,
   validateTalkModeParams,
+  validateTalkRealtimeRelayAudioParams,
+  validateTalkRealtimeRelayMarkParams,
+  validateTalkRealtimeRelayStopParams,
+  validateTalkRealtimeRelayToolResultParams,
   validateTalkRealtimeSessionParams,
   validateTalkSpeakParams,
 } from "../protocol/index.js";
+import {
+  acknowledgeTalkRealtimeRelayMark,
+  createTalkRealtimeRelaySession,
+  sendTalkRealtimeRelayAudio,
+  stopTalkRealtimeRelaySession,
+  submitTalkRealtimeRelayToolResult,
+} from "../talk-realtime-relay.js";
 import { formatForLog } from "../ws-log.js";
 import { asRecord } from "./record-shared.js";
 import type { GatewayRequestHandlers } from "./types.js";
@@ -197,6 +208,22 @@ function buildTalkRealtimeConfig(config: OpenClawConfig, requestedProvider?: str
 
 function buildRealtimeInstructions(): string {
   return `You are OpenClaw's realtime voice interface. Keep spoken replies concise. If the user asks for code, repository state, tools, files, current OpenClaw context, or deeper reasoning, call ${REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME} and then summarize the result naturally.`;
+}
+
+function withRealtimeBrowserOverrides(
+  providerConfig: RealtimeVoiceProviderConfig,
+  params: { model?: string; voice?: string },
+): RealtimeVoiceProviderConfig {
+  const overrides: RealtimeVoiceProviderConfig = {};
+  const model = normalizeOptionalString(params.model);
+  const voice = normalizeOptionalString(params.voice);
+  if (model) {
+    overrides.model = model;
+  }
+  if (voice) {
+    overrides.voice = voice;
+  }
+  return Object.keys(overrides).length > 0 ? { ...providerConfig, ...overrides } : providerConfig;
 }
 
 function isFallbackEligibleTalkReason(reason: TalkSpeakReason): boolean {
@@ -397,7 +424,7 @@ export const talkHandlers: GatewayRequestHandlers = {
 
     respond(true, { config: configPayload }, undefined);
   },
-  "talk.realtime.session": async ({ params, respond, context }) => {
+  "talk.realtime.session": async ({ params, respond, context, client }) => {
     if (!validateTalkRealtimeSessionParams(params)) {
       respond(
         false,
@@ -424,35 +451,146 @@ export const talkHandlers: GatewayRequestHandlers = {
         cfgForResolve: runtimeConfig,
         noRegisteredProviderMessage: "No realtime voice provider registered",
       });
-      if (!resolution.provider.createBrowserSession) {
+      if (resolution.provider.createBrowserSession) {
+        const session = await resolution.provider.createBrowserSession({
+          providerConfig: resolution.providerConfig,
+          instructions: buildRealtimeInstructions(),
+          tools: [REALTIME_VOICE_AGENT_CONSULT_TOOL],
+          model: normalizeOptionalString(typedParams.model),
+          voice: normalizeOptionalString(typedParams.voice),
+        });
+        respond(true, session, undefined);
+        return;
+      }
+
+      const connId = client?.connId;
+      if (!connId) {
         respond(
           false,
           undefined,
-          errorShape(
-            ErrorCodes.UNAVAILABLE,
-            `Realtime voice provider "${resolution.provider.id}" does not support browser WebRTC sessions`,
-          ),
+          errorShape(ErrorCodes.UNAVAILABLE, "Realtime relay requires a connected browser client"),
         );
         return;
       }
-      const session = await resolution.provider.createBrowserSession({
-        providerConfig: resolution.providerConfig,
+      const model = normalizeOptionalString(typedParams.model);
+      const voice = normalizeOptionalString(typedParams.voice);
+      const session = createTalkRealtimeRelaySession({
+        context,
+        connId,
+        provider: resolution.provider,
+        providerConfig: withRealtimeBrowserOverrides(resolution.providerConfig, { model, voice }),
         instructions: buildRealtimeInstructions(),
         tools: [REALTIME_VOICE_AGENT_CONSULT_TOOL],
-        model: normalizeOptionalString(typedParams.model),
-        voice: normalizeOptionalString(typedParams.voice),
+        model,
+        voice,
       });
+      respond(true, session, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+  "talk.realtime.relayAudio": async ({ params, respond, client }) => {
+    if (!validateTalkRealtimeRelayAudioParams(params)) {
       respond(
-        true,
-        {
-          provider: session.provider,
-          clientSecret: session.clientSecret,
-          ...(session.model ? { model: session.model } : {}),
-          ...(session.voice ? { voice: session.voice } : {}),
-          ...(typeof session.expiresAt === "number" ? { expiresAt: session.expiresAt } : {}),
-        },
+        false,
         undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid talk.realtime.relayAudio params: ${formatValidationErrors(validateTalkRealtimeRelayAudioParams.errors)}`,
+        ),
       );
+      return;
+    }
+    const connId = client?.connId;
+    if (!connId) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "realtime relay unavailable"));
+      return;
+    }
+    try {
+      sendTalkRealtimeRelayAudio({
+        relaySessionId: params.relaySessionId,
+        connId,
+        audioBase64: params.audioBase64,
+        timestamp: params.timestamp,
+      });
+      respond(true, { ok: true }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+  "talk.realtime.relayMark": async ({ params, respond, client }) => {
+    if (!validateTalkRealtimeRelayMarkParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid talk.realtime.relayMark params: ${formatValidationErrors(validateTalkRealtimeRelayMarkParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const connId = client?.connId;
+    if (!connId) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "realtime relay unavailable"));
+      return;
+    }
+    try {
+      acknowledgeTalkRealtimeRelayMark({ relaySessionId: params.relaySessionId, connId });
+      respond(true, { ok: true }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+  "talk.realtime.relayStop": async ({ params, respond, client }) => {
+    if (!validateTalkRealtimeRelayStopParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid talk.realtime.relayStop params: ${formatValidationErrors(validateTalkRealtimeRelayStopParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const connId = client?.connId;
+    if (!connId) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "realtime relay unavailable"));
+      return;
+    }
+    try {
+      stopTalkRealtimeRelaySession({ relaySessionId: params.relaySessionId, connId });
+      respond(true, { ok: true }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+  "talk.realtime.relayToolResult": async ({ params, respond, client }) => {
+    if (!validateTalkRealtimeRelayToolResultParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid talk.realtime.relayToolResult params: ${formatValidationErrors(validateTalkRealtimeRelayToolResultParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const connId = client?.connId;
+    if (!connId) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "realtime relay unavailable"));
+      return;
+    }
+    try {
+      submitTalkRealtimeRelayToolResult({
+        relaySessionId: params.relaySessionId,
+        connId,
+        callId: params.callId,
+        result: params.result,
+      });
+      respond(true, { ok: true }, undefined);
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }

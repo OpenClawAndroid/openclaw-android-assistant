@@ -7,6 +7,7 @@ import {
   approveNodePairing,
   listNodePairing,
   rejectNodePairing,
+  removePairedNode,
   renamePairedNode,
   requestNodePairing,
   verifyNodeToken,
@@ -44,6 +45,7 @@ import {
   validateNodePairApproveParams,
   validateNodePairListParams,
   validateNodePairRejectParams,
+  validateNodePairRemoveParams,
   validateNodePairRequestParams,
   validateNodePairVerifyParams,
   validateNodeRenameParams,
@@ -638,6 +640,35 @@ export const nodeHandlers: GatewayRequestHandlers = {
         { dropIfSlow: true },
       );
       respond(true, rejected, undefined);
+    });
+  },
+  "node.pair.remove": async ({ params, respond, context }) => {
+    if (!validateNodePairRemoveParams(params)) {
+      respondInvalidParams({
+        respond,
+        method: "node.pair.remove",
+        validator: validateNodePairRemoveParams,
+      });
+      return;
+    }
+    const { nodeId } = params as { nodeId: string };
+    await respondUnavailableOnThrow(respond, async () => {
+      const removed = await removePairedNode(nodeId);
+      if (!removed) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unknown nodeId"));
+        return;
+      }
+      context.broadcast(
+        "node.pair.resolved",
+        {
+          requestId: "",
+          nodeId: removed.nodeId,
+          decision: "removed",
+          ts: Date.now(),
+        },
+        { dropIfSlow: true },
+      );
+      respond(true, removed, undefined);
     });
   },
   "node.pair.verify": async ({ params, respond }) => {

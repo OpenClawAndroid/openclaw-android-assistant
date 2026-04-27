@@ -290,6 +290,10 @@ class BorrowedMemoryManager implements MemorySearchManager {
     return await this.inner.probeEmbeddingAvailability();
   }
 
+  getCachedEmbeddingAvailability(): MemoryEmbeddingProbeResult | null {
+    return this.inner.getCachedEmbeddingAvailability?.() ?? null;
+  }
+
   async probeVectorAvailability() {
     return await this.inner.probeVectorAvailability();
   }
@@ -430,6 +434,14 @@ class FallbackMemoryManager implements MemorySearchManager {
       return await fallback.probeEmbeddingAvailability();
     }
     return { ok: false, error: this.lastError ?? "memory embeddings unavailable" };
+  }
+
+  getCachedEmbeddingAvailability(): MemoryEmbeddingProbeResult | null {
+    this.ensureOpen();
+    if (!this.primaryFailed) {
+      return this.deps.primary.getCachedEmbeddingAvailability?.() ?? null;
+    }
+    return this.fallback?.getCachedEmbeddingAvailability?.() ?? null;
   }
 
   async probeVectorAvailability() {

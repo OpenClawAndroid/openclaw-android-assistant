@@ -595,6 +595,29 @@ export const PLUGIN_COMPAT_RECORDS = [
     ],
   },
   {
+    code: "runtime-config-load-write",
+    status: "deprecated",
+    owner: "sdk",
+    introduced: "2026-04-27",
+    deprecated: "2026-04-27",
+    warningStarts: "2026-04-27",
+    removeAfter: "2026-07-27",
+    replacement:
+      "`api.runtime.config.current()`, passed config values, `mutateConfigFile(...)`, or `replaceConfigFile(...)`",
+    docsPath: "/plugins/sdk-runtime#config-loading-and-writes",
+    surfaces: ["api.runtime.config.loadConfig", "api.runtime.config.writeConfigFile"],
+    diagnostics: [
+      "plugin runtime compatibility warning",
+      "deprecated internal config API guard",
+      "runtime channel config boundary guard",
+    ],
+    tests: [
+      "src/plugins/runtime/runtime-config.test.ts",
+      "src/plugins/contracts/deprecated-internal-config-api.test.ts",
+      "src/plugins/contracts/config-boundary-guard.test.ts",
+    ],
+  },
+  {
     code: "runtime-taskflow-legacy-alias",
     status: "deprecated",
     owner: "sdk",

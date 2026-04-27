@@ -291,7 +291,7 @@ enumeration of `src/gateway/server-methods/*.ts`.
     - `models.list` returns the runtime-allowed model catalog.
     - `usage.status` returns provider usage windows/remaining quota summaries.
     - `usage.cost` returns aggregated cost usage summaries for a date range.
-    - `doctor.memory.status` returns vector-memory / embedding readiness for the active default agent workspace.
+    - `doctor.memory.status` returns vector-memory / cached embedding readiness for the active default agent workspace. Pass `{ "probe": true }` or `{ "deep": true }` only when the caller explicitly wants a live embedding provider ping.
     - `sessions.usage` returns per-session usage summaries.
     - `sessions.usage.timeseries` returns timeseries usage for one session.
     - `sessions.usage.logs` returns usage log entries for one session.
@@ -369,7 +369,7 @@ enumeration of `src/gateway/server-methods/*.ts`.
   </Accordion>
 
   <Accordion title="Node pairing, invoke, and pending work">
-    - `node.pair.request`, `node.pair.list`, `node.pair.approve`, `node.pair.reject`, and `node.pair.verify` cover node pairing and bootstrap verification.
+    - `node.pair.request`, `node.pair.list`, `node.pair.approve`, `node.pair.reject`, `node.pair.remove`, and `node.pair.verify` cover node pairing and bootstrap verification.
     - `node.list` and `node.describe` return known/connected node state.
     - `node.rename` updates a paired node label.
     - `node.invoke` forwards a command to a connected node.
@@ -553,6 +553,10 @@ rather than the pre-handshake defaults.
   reused when the client is reusing the stored per-device token.
 - Device tokens can be rotated/revoked via `device.token.rotate` and
   `device.token.revoke` (requires `operator.pairing` scope).
+- `device.token.rotate` returns rotation metadata. It echoes the replacement
+  bearer token only for same-device calls that are already authenticated with
+  that device token, so token-only clients can persist their replacement before
+  reconnecting. Shared/admin rotations do not echo the bearer token.
 - Token issuance, rotation, and revocation stay bounded to the approved role set
   recorded in that device's pairing entry; token mutation cannot expand or
   target a device role that pairing approval never granted.

@@ -2314,7 +2314,7 @@ async function runInstalledBrowserOverrideImportSmoke(params) {
     cwd: packageRoot,
     env: {
       ...params.env,
-      OPENCLAW_BROWSER_CONTROL_MODULE: overridePath,
+      OPENCLAW_BROWSER_CONTROL_MODULE: pathToFileURL(overridePath).href,
       OPENCLAW_BROWSER_OVERRIDE_STARTED_PATH: startedPath,
       OPENCLAW_BROWSER_OVERRIDE_STOPPED_PATH: stoppedPath,
     },

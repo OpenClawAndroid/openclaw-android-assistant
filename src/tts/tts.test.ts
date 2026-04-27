@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const loadBundledPluginPublicSurfaceModuleSync = vi.hoisted(() => vi.fn());
 const loadActivatedBundledPluginPublicSurfaceModuleSync = vi.hoisted(() => vi.fn());
@@ -31,13 +31,9 @@ vi.mock("../plugin-sdk/facade-runtime.js", () => ({
   loadBundledPluginPublicSurfaceModuleSync,
 }));
 
+const tts = await import("./tts.js");
+
 describe("tts runtime facade", () => {
-  let tts: typeof import("./tts.js");
-
-  beforeAll(async () => {
-    tts = await import("./tts.js");
-  });
-
   beforeEach(() => {
     loadActivatedBundledPluginPublicSurfaceModuleSync.mockReset();
     loadBundledPluginPublicSurfaceModuleSync.mockReset();

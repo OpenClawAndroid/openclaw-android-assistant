@@ -84,8 +84,8 @@ function isCommanderParseExit(error: unknown): error is { exitCode: number } {
 
 async function ensureCliEnvProxyDispatcher(): Promise<void> {
   try {
-    const { hasEnvHttpProxyConfigured } = await import("../infra/net/proxy-env.js");
-    if (!hasEnvHttpProxyConfigured("https")) {
+    const { hasEnvHttpProxyAgentConfigured } = await import("../infra/net/proxy-env.js");
+    if (!hasEnvHttpProxyAgentConfigured()) {
       return;
     }
     const { ensureGlobalUndiciEnvProxyDispatcher } =

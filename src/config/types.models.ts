@@ -59,6 +59,7 @@ export type ModelCompatConfig = SupportedOpenAICompatFields &
   SupportedAnthropicMessagesCompatFields & {
     thinkingFormat?: SupportedThinkingFormat;
     supportedReasoningEfforts?: string[];
+    reasoningEffortMap?: Record<string, string>;
     visibleReasoningDetailTypes?: string[];
     supportsTools?: boolean;
     supportsPromptCacheKey?: boolean;

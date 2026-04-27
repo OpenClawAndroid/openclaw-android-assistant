@@ -345,6 +345,14 @@
       "destination": "/gateway/bonjour"
     },
     {
+      "source": "/gateway/config-tts",
+      "destination": "/tools/tts"
+    },
+    {
+      "source": "/gateway/observability",
+      "destination": "/gateway/opentelemetry"
+    },
+    {
       "source": "/browser",
       "destination": "/tools/browser"
     },

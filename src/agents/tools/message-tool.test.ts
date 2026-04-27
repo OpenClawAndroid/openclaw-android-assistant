@@ -749,6 +749,19 @@ describe("message tool description", () => {
     },
   });
 
+  it("surfaces explicit cross-channel target syntax in the target schema", () => {
+    const tool = createMessageTool({
+      config: {} as never,
+    });
+    const properties = getToolProperties(tool);
+    const target = properties.target as { description?: string } | undefined;
+
+    expect(target?.description).toContain(
+      "Discord/Slack/Mattermost <channelId|user:ID|channel:ID>",
+    );
+    expect(target?.description).toContain("Telegram chat id/@username");
+  });
+
   it("hides BlueBubbles group actions for DM targets", () => {
     setActivePluginRegistry(
       createTestRegistry([{ pluginId: "bluebubbles", source: "test", plugin: bluebubblesPlugin }]),

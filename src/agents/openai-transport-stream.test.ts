@@ -852,6 +852,34 @@ describe("openai transport stream", () => {
     });
   });
 
+  it("does not build OpenRouter reasoning params for Hunter Alpha when reasoning is disabled", () => {
+    const params = buildOpenAICompletionsParams(
+      {
+        id: "openrouter/hunter-alpha",
+        name: "Hunter Alpha",
+        api: "openai-completions",
+        provider: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1_048_576,
+        maxTokens: 65_536,
+      } satisfies Model<"openai-completions">,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [],
+      } as never,
+      {
+        reasoningEffort: "high",
+      } as never,
+    ) as { reasoning?: unknown; reasoning_effort?: unknown };
+
+    expect(params).not.toHaveProperty("reasoning");
+    expect(params).not.toHaveProperty("reasoning_effort");
+  });
+
   it("uses system role instead of developer for responses providers that disable developer role", () => {
     const params = buildOpenAIResponsesParams(
       {
@@ -1789,6 +1817,77 @@ describe("openai transport stream", () => {
     ) as { reasoning_effort?: unknown };
 
     expect(params.reasoning_effort).toBe("high");
+  });
+
+  it("uses provider-native reasoning effort values declared by model compat", () => {
+    const baseModel = {
+      id: "qwen/qwen3-32b",
+      name: "Qwen 3 32B",
+      api: "openai-completions",
+      provider: "groq",
+      baseUrl: "https://api.groq.com/openai/v1",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 131072,
+      maxTokens: 8192,
+      compat: {
+        supportsReasoningEffort: true,
+        supportedReasoningEfforts: ["none", "default"],
+        reasoningEffortMap: {
+          off: "none",
+          low: "default",
+          medium: "default",
+          high: "default",
+        },
+      },
+    } as unknown as Model<"openai-completions">;
+    const context = {
+      systemPrompt: "system",
+      messages: [],
+      tools: [],
+    } as never;
+
+    const enabled = buildOpenAICompletionsParams(baseModel, context, {
+      reasoning: "medium",
+    } as never) as { reasoning_effort?: unknown };
+    const disabled = buildOpenAICompletionsParams(baseModel, context, {
+      reasoning: "off",
+    } as never) as { reasoning_effort?: unknown };
+
+    expect(enabled.reasoning_effort).toBe("default");
+    expect(disabled.reasoning_effort).toBe("none");
+  });
+
+  it("omits unsupported disabled reasoning for completions providers", () => {
+    const params = buildOpenAICompletionsParams(
+      {
+        id: "openai/gpt-oss-120b",
+        name: "GPT OSS 120B",
+        api: "openai-completions",
+        provider: "groq",
+        baseUrl: "https://api.groq.com/openai/v1",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 131072,
+        maxTokens: 8192,
+        compat: {
+          supportsReasoningEffort: true,
+          supportedReasoningEfforts: ["low", "medium", "high"],
+        },
+      } as unknown as Model<"openai-completions">,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [],
+      } as never,
+      {
+        reasoning: "off",
+      } as never,
+    ) as { reasoning_effort?: unknown };
+
+    expect(params).not.toHaveProperty("reasoning_effort");
   });
 
   it("uses system role and streaming usage compat for native Qwen completions providers", () => {

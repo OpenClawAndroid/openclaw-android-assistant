@@ -37,6 +37,7 @@ export function parseLaneSelection(raw) {
   }
   const laneAliases = new Map([
     ["bundled-channel-deps", ["bundled-channel-deps-compat"]],
+    ["install-e2e", ["install-e2e-openai", "install-e2e-anthropic"]],
     [
       "bundled-plugin-install-uninstall",
       Array.from(
@@ -145,8 +146,11 @@ export function findLaneByName(name) {
 
 export function laneCredentialRequirements(poolLane) {
   const credentials = [];
-  if (poolLane.name === "install-e2e") {
-    credentials.push("openai", "anthropic");
+  if (poolLane.name === "install-e2e-openai") {
+    credentials.push("openai");
+  }
+  if (poolLane.name === "install-e2e-anthropic") {
+    credentials.push("anthropic");
   }
   if (poolLane.name === "openwebui" || poolLane.name === "openai-web-search-minimal") {
     credentials.push("openai");

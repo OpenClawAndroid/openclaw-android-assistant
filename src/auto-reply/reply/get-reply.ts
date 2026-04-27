@@ -10,6 +10,8 @@ import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, getRuntimeConfig } from "../../config/config.js";
+import { logVerbose } from "../../globals.js";
+import { formatErrorMessage } from "../../infra/errors.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
@@ -137,9 +139,17 @@ async function applyMediaUnderstandingIfNeeded(params: {
   if (!hasInboundMedia(params.ctx)) {
     return false;
   }
-  const { applyMediaUnderstanding } = await loadMediaUnderstandingApplyRuntime();
-  await applyMediaUnderstanding(params);
-  return true;
+  try {
+    const { applyMediaUnderstanding } = await loadMediaUnderstandingApplyRuntime();
+    await applyMediaUnderstanding(params);
+    return true;
+  } catch (err) {
+    mediaUnderstandingApplyRuntimePromise = null;
+    logVerbose(
+      `media understanding failed, proceeding with raw content: ${formatErrorMessage(err)}`,
+    );
+    return false;
+  }
 }
 
 async function applyLinkUnderstandingIfNeeded(params: {
@@ -149,9 +159,17 @@ async function applyLinkUnderstandingIfNeeded(params: {
   if (!hasLinkCandidate(params.ctx)) {
     return false;
   }
-  const { applyLinkUnderstanding } = await loadLinkUnderstandingApplyRuntime();
-  await applyLinkUnderstanding(params);
-  return true;
+  try {
+    const { applyLinkUnderstanding } = await loadLinkUnderstandingApplyRuntime();
+    await applyLinkUnderstanding(params);
+    return true;
+  } catch (err) {
+    linkUnderstandingApplyRuntimePromise = null;
+    logVerbose(
+      `link understanding failed, proceeding with raw content: ${formatErrorMessage(err)}`,
+    );
+    return false;
+  }
 }
 
 export async function getReplyFromConfig(

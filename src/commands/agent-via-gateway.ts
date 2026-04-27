@@ -32,6 +32,10 @@ type GatewayAgentResponse = {
 };
 
 const NO_GATEWAY_TIMEOUT_MS = 2_147_000_000;
+const EMBEDDED_FALLBACK_META = {
+  transport: "embedded",
+  fallbackFrom: "gateway",
+} as const;
 
 export type AgentCliOpts = {
   message: string;
@@ -203,7 +207,16 @@ export async function agentCliCommand(opts: AgentCliOpts, runtime: RuntimeEnv, d
   try {
     return await agentViaGatewayCommand(opts, runtime);
   } catch (err) {
-    runtime.error?.(`Gateway agent failed; falling back to embedded: ${String(err)}`);
-    return await agentCommand(localOpts, runtime, deps);
+    runtime.error?.(
+      `EMBEDDED FALLBACK: Gateway agent failed; running embedded agent: ${String(err)}`,
+    );
+    return await agentCommand(
+      {
+        ...localOpts,
+        resultMetaOverrides: EMBEDDED_FALLBACK_META,
+      },
+      runtime,
+      deps,
+    );
   }
 }

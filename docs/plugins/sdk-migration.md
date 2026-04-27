@@ -119,12 +119,36 @@ releases.
     Mutation results include a typed `followUp` summary for tests and logging;
     the gateway remains responsible for applying or scheduling the restart.
     `loadConfig` and `writeConfigFile` remain as deprecated compatibility
-    helpers for external plugins during the migration window and warn once when
-    called. Bundled plugins and repo runtime code are protected by scanner
-    guardrails in `pnpm check:deprecated-internal-config-api`: new production
-    plugin usage fails outright, direct config writes fail, gateway server
-    methods must use the request runtime snapshot, and long-lived runtime
-    modules have zero allowed ambient `loadConfig()` calls.
+    helpers for external plugins during the migration window and warn once with
+    the `runtime-config-load-write` compatibility code. Bundled plugins and repo
+    runtime code are protected by scanner guardrails in
+    `pnpm check:deprecated-internal-config-api` and
+    `pnpm check:no-runtime-action-load-config`: new production plugin usage
+    fails outright, direct config writes fail, gateway server methods must use
+    the request runtime snapshot, runtime channel send/action/client helpers
+    must receive config from their boundary, and long-lived runtime modules have
+    zero allowed ambient `loadConfig()` calls.
+
+    New plugin code should also avoid importing the broad
+    `openclaw/plugin-sdk/config-runtime` compatibility barrel. Use the narrow
+    SDK subpath that matches the job:
+
+    | Need | Import |
+    | --- | --- |
+    | Config types such as `OpenClawConfig` | `openclaw/plugin-sdk/config-types` |
+    | Already-loaded config assertions and plugin-entry config lookup | `openclaw/plugin-sdk/plugin-config-runtime` |
+    | Current runtime snapshot reads | `openclaw/plugin-sdk/runtime-config-snapshot` |
+    | Config writes | `openclaw/plugin-sdk/config-mutation` |
+    | Session store helpers | `openclaw/plugin-sdk/session-store-runtime` |
+    | Markdown table config | `openclaw/plugin-sdk/markdown-table-runtime` |
+    | Group policy runtime helpers | `openclaw/plugin-sdk/runtime-group-policy` |
+    | Secret input resolution | `openclaw/plugin-sdk/secret-input-runtime` |
+    | Model/session overrides | `openclaw/plugin-sdk/model-session-runtime` |
+
+    Bundled plugins and their tests are scanner-guarded against the broad
+    barrel so imports and mocks stay local to the behavior they need. The broad
+    barrel still exists for external compatibility, but new code should not
+    depend on it.
 
   </Step>
 
@@ -211,6 +235,7 @@ releases.
 
     ```bash
     grep -r "plugin-sdk/compat" my-plugin/
+    grep -r "plugin-sdk/config-runtime" my-plugin/
     grep -r "openclaw/extension-api" my-plugin/
     ```
 

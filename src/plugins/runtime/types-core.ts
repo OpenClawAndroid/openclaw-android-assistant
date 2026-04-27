@@ -47,6 +47,19 @@ type RuntimeReplaceConfigFileParams = {
   afterWrite: RuntimeConfigAfterWrite;
   writeOptions?: RuntimeWriteConfigOptions;
 };
+export type PluginRuntimeThinkingPolicyRequest = {
+  provider?: string | null;
+  model?: string | null;
+  catalog?: import("../../auto-reply/thinking.js").ThinkingCatalogEntry[];
+};
+export type PluginRuntimeThinkingPolicyLevel = {
+  id: import("../../auto-reply/thinking.js").ThinkLevel;
+  label: string;
+};
+export type PluginRuntimeThinkingPolicy = {
+  levels: PluginRuntimeThinkingPolicyLevel[];
+  defaultLevel?: import("../../auto-reply/thinking.js").ThinkLevel | null;
+};
 
 /** Structured logger surface injected into runtime-backed plugin helpers. */
 export type RuntimeLogger = {
@@ -116,6 +129,12 @@ export type PluginRuntimeCore = {
       model: string;
       catalog?: import("../../agents/model-catalog.types.js").ModelCatalogEntry[];
     }) => import("../../auto-reply/thinking.js").ThinkLevel;
+    normalizeThinkingLevel: (
+      raw?: string | null,
+    ) => import("../../auto-reply/thinking.js").ThinkLevel | undefined;
+    resolveThinkingPolicy: (
+      params: PluginRuntimeThinkingPolicyRequest,
+    ) => PluginRuntimeThinkingPolicy;
     runEmbeddedAgent: import("../../agents/pi-embedded-runtime.types.js").RunEmbeddedAgentFn;
     runEmbeddedPiAgent: import("../../agents/pi-embedded-runtime.types.js").RunEmbeddedPiAgentFn;
     resolveAgentTimeoutMs: typeof import("../../agents/timeout.js").resolveAgentTimeoutMs;

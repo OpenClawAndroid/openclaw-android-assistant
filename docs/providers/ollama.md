@@ -897,6 +897,41 @@ For the full setup and behavior details, see [Ollama Web Search](/tools/ollama-s
 ## Troubleshooting
 
 <AccordionGroup>
+  <Accordion title="WSL2 crash loop (repeated reboots)">
+    On WSL2 with NVIDIA/CUDA, the official Ollama Linux installer creates an `ollama.service` systemd unit with `Restart=always`. If that service autostarts and loads a GPU-backed model during WSL2 boot, Ollama can pin host memory while the model loads. Hyper-V memory reclaim cannot always reclaim those pinned pages, so Windows can terminate the WSL2 VM, systemd starts Ollama again, and the loop repeats.
+
+    Common evidence:
+
+    - repeated WSL2 reboots or terminations from the Windows side
+    - high CPU in `app.slice` or `ollama.service` shortly after WSL2 startup
+    - SIGTERM from systemd rather than a Linux OOM-killer event
+
+    OpenClaw logs a startup warning when it detects WSL2, `ollama.service` enabled with `Restart=always`, and visible CUDA markers.
+
+    Mitigation:
+
+    ```bash
+    sudo systemctl disable ollama
+    ```
+
+    Add this to `%USERPROFILE%\.wslconfig` on the Windows side, then run `wsl --shutdown`:
+
+    ```ini
+    [experimental]
+    autoMemoryReclaim=disabled
+    ```
+
+    Set a shorter keep-alive in the Ollama service environment, or start Ollama manually only when you need it:
+
+    ```bash
+    export OLLAMA_KEEP_ALIVE=5m
+    ollama serve
+    ```
+
+    See [ollama/ollama#11317](https://github.com/ollama/ollama/issues/11317).
+
+  </Accordion>
+
   <Accordion title="Ollama not detected">
     Make sure Ollama is running and that you set `OLLAMA_API_KEY` (or an auth profile), and that you did **not** define an explicit `models.providers.ollama` entry:
 

@@ -112,6 +112,10 @@ export type DoctorMemoryStatusPayload = {
   embedding: {
     ok: boolean;
     error?: string;
+    checked?: boolean;
+    cached?: boolean;
+    checkedAtMs?: number;
+    cacheExpiresAtMs?: number;
   };
   dreaming?: DoctorMemoryDreamingPayload;
 };
@@ -780,8 +784,22 @@ async function readDreamDiary(
   };
 }
 
+function shouldProbeMemoryEmbeddings(params: unknown): boolean {
+  if (!params || typeof params !== "object") {
+    return false;
+  }
+  const record = params as Record<string, unknown>;
+  return record.probe === true || record.deep === true;
+}
+
+const SKIPPED_MEMORY_EMBEDDING_PROBE = {
+  ok: false,
+  checked: false,
+  error: "memory embedding readiness not checked; run `openclaw memory status --deep` to probe",
+} as const;
+
 export const doctorHandlers: GatewayRequestHandlers = {
-  "doctor.memory.status": async ({ respond, context }) => {
+  "doctor.memory.status": async ({ respond, context, params }) => {
     const cfg = context.getRuntimeConfig();
     const agentId = resolveDefaultAgentId(cfg);
     const { manager, error } = await getActiveMemorySearchManager({
@@ -803,7 +821,10 @@ export const doctorHandlers: GatewayRequestHandlers = {
 
     try {
       const status = manager.status();
-      let embedding = await manager.probeEmbeddingAvailability();
+      const shouldProbe = shouldProbeMemoryEmbeddings(params);
+      let embedding = shouldProbe
+        ? await manager.probeEmbeddingAvailability()
+        : (manager.getCachedEmbeddingAvailability?.() ?? SKIPPED_MEMORY_EMBEDDING_PROBE);
       if (!embedding.ok && !embedding.error) {
         embedding = { ok: false, error: "memory embeddings unavailable" };
       }

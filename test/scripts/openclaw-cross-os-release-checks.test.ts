@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -308,6 +308,9 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     );
     expect(installedScript).toContain(
       'from "file:///C:/Users/runner/AppData/Roaming/npm/node_modules/openclaw/dist/plugin-sdk/browser-node-runtime.js"',
+    );
+    expect(readFileSync("scripts/openclaw-cross-os-release-checks.ts", "utf8")).toContain(
+      "OPENCLAW_BROWSER_CONTROL_MODULE: pathToFileURL(overridePath).href",
     );
   });
 

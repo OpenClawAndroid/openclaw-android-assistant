@@ -61,6 +61,11 @@ If config is invalid, install normally fails closed and points you at
 `openclaw doctor --fix`. The only recovery exception is a narrow bundled-plugin
 reinstall path for plugins that opt into
 `openclaw.install.allowInvalidConfigRecovery`.
+During Gateway startup, invalid config for one plugin is isolated to that plugin:
+startup logs the `plugins.entries.<id>.config` issue, skips that plugin during
+load, and keeps other plugins and channels online. Run `openclaw doctor --fix`
+to quarantine the bad plugin config by disabling that plugin entry and removing
+its invalid config payload; the normal config backup keeps the previous values.
 When a channel config references a plugin that is no longer discoverable but the
 same stale plugin id remains in plugin config or install records, Gateway startup
 logs warnings and skips that channel instead of blocking every other channel.
@@ -203,7 +208,7 @@ or use `openclaw gateway restart` against the running Gateway.
 <Accordion title="Plugin states: disabled vs missing vs invalid">
   - **Disabled**: plugin exists but enablement rules turned it off. Config is preserved.
   - **Missing**: config references a plugin id that discovery did not find.
-  - **Invalid**: plugin exists but its config does not match the declared schema.
+  - **Invalid**: plugin exists but its config does not match the declared schema. Gateway startup skips only that plugin; `openclaw doctor --fix` can quarantine the invalid entry by disabling it and removing its config payload.
 </Accordion>
 
 ## Discovery and precedence
@@ -407,6 +412,10 @@ marketplace installs persist marketplace source metadata instead of an npm spec.
 positives from the built-in dangerous-code scanner. It allows plugin installs
 and plugin updates to continue past built-in `critical` findings, but it still
 does not bypass plugin `before_install` policy blocks or scan-failure blocking.
+Install scans ignore common test files and directories such as `tests/`,
+`__tests__/`, `*.test.*`, and `*.spec.*` to avoid blocking packaged test mocks;
+declared plugin runtime entrypoints are still scanned even if they use one of
+those names.
 
 This CLI flag applies to plugin install/update flows only. Gateway-backed skill
 dependency installs use the matching `dangerouslyForceUnsafeInstall` request

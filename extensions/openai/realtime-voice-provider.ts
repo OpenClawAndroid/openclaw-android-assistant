@@ -665,7 +665,9 @@ async function createOpenAIRealtimeBrowserSession(
       : undefined;
   return {
     provider: "openai",
+    transport: "webrtc-sdp",
     clientSecret,
+    offerUrl: "https://api.openai.com/v1/realtime/calls",
     model,
     voice,
     ...(typeof expiresAt === "number" ? { expiresAt } : {}),

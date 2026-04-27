@@ -41,7 +41,14 @@ Persist changes with `api.runtime.config.mutateConfigFile(...)` or `api.runtime.
 
 The mutation helpers return `afterWrite` plus a typed `followUp` summary so callers can log or test whether they requested a restart. The gateway still owns when that restart actually happens.
 
-`api.runtime.config.loadConfig()` and `api.runtime.config.writeConfigFile(...)` are deprecated compatibility helpers. They warn once at runtime, and bundled plugins must not use them; the architecture guard fails if production plugin code calls them or imports those helpers from plugin SDK subpaths.
+`api.runtime.config.loadConfig()` and `api.runtime.config.writeConfigFile(...)` are deprecated compatibility helpers under `runtime-config-load-write`. They warn once at runtime, and remain available for old external plugins during the migration window. Bundled plugins must not use them; the config boundary guards fail if plugin code calls them or imports those helpers from plugin SDK subpaths.
+
+For direct SDK imports, use the focused config subpaths instead of the broad
+`openclaw/plugin-sdk/config-runtime` compatibility barrel: `config-types` for
+types, `plugin-config-runtime` for already-loaded config assertions and plugin
+entry lookup, `runtime-config-snapshot` for current process snapshots, and
+`config-mutation` for writes. Bundled plugin tests should mock these focused
+subpaths directly instead of mocking the broad compatibility barrel.
 
 Internal OpenClaw runtime code has the same direction: load config once at the CLI, gateway, or process boundary, then pass that value through. Successful mutation writes refresh the process runtime snapshot and advance its internal revision; long-lived caches should key off the runtime-owned cache key instead of serializing config locally. Long-lived runtime modules have a zero-tolerance scanner for ambient `loadConfig()` calls; use a passed `cfg`, a request `context.getRuntimeConfig()`, or `getRuntimeConfig()` at an explicit process boundary.
 
@@ -62,7 +69,18 @@ Internal OpenClaw runtime code has the same direction: load config once at the C
     const identity = api.runtime.agent.resolveAgentIdentity(cfg);
 
     // Get default thinking level
-    const thinking = api.runtime.agent.resolveThinkingDefault(cfg, provider, model);
+    const thinking = api.runtime.agent.resolveThinkingDefault({
+      cfg,
+      provider,
+      model,
+    });
+
+    // Validate a user-provided thinking level against the active provider profile
+    const policy = api.runtime.agent.resolveThinkingPolicy({ provider, model });
+    const level = api.runtime.agent.normalizeThinkingLevel("extra high");
+    if (level && policy.levels.some((entry) => entry.id === level)) {
+      // pass level to an embedded run
+    }
 
     // Get agent timeout
     const timeoutMs = api.runtime.agent.resolveAgentTimeoutMs(cfg);
@@ -85,6 +103,10 @@ Internal OpenClaw runtime code has the same direction: load config once at the C
     `runEmbeddedAgent(...)` is the neutral helper for starting a normal OpenClaw agent turn from plugin code. It uses the same provider/model resolution and agent-harness selection as channel-triggered replies.
 
     `runEmbeddedPiAgent(...)` remains as a compatibility alias.
+
+    `resolveThinkingPolicy(...)` returns the provider/model's supported thinking levels and optional default. Provider plugins own the model-specific profile through their thinking hooks, so tool plugins should call this runtime helper instead of importing or duplicating provider lists.
+
+    `normalizeThinkingLevel(...)` converts user text such as `on`, `x-high`, or `extra high` to the canonical stored level before checking it against the resolved policy.
 
     **Session store helpers** are under `api.runtime.agent.session`:
 

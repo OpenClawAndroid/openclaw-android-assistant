@@ -3075,6 +3075,24 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                               minLength: 1,
                             },
                           },
+                          supportedReasoningEfforts: {
+                            type: "array",
+                            items: {
+                              type: "string",
+                              minLength: 1,
+                            },
+                          },
+                          reasoningEffortMap: {
+                            type: "object",
+                            propertyNames: {
+                              type: "string",
+                              minLength: 1,
+                            },
+                            additionalProperties: {
+                              type: "string",
+                              minLength: 1,
+                            },
+                          },
                           maxTokensField: {
                             anyOf: [
                               {

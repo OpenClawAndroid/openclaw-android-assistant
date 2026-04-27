@@ -54,16 +54,16 @@ const makeRuntimeContext = () => ({ getRuntimeConfig: () => getRuntimeConfig() }
 
 const invokeDoctorMemoryStatus = async (
   respond: ReturnType<typeof vi.fn>,
-  context?: { cron?: { list?: ReturnType<typeof vi.fn> } },
+  options?: { cron?: { list?: ReturnType<typeof vi.fn> }; params?: unknown },
 ) => {
   const cronList =
-    context?.cron?.list ??
+    options?.cron?.list ??
     vi.fn(async () => {
       return [];
     });
   await doctorHandlers["doctor.memory.status"]({
     req: {} as never,
-    params: {} as never,
+    params: (options?.params ?? {}) as never,
     respond: respond as never,
     context: {
       ...makeRuntimeContext(),
@@ -182,7 +182,7 @@ describe("doctor.memory.status", () => {
     });
     const respond = vi.fn();
 
-    await invokeDoctorMemoryStatus(respond);
+    await invokeDoctorMemoryStatus(respond, { params: { probe: true } });
 
     expect(getMemorySearchManager).toHaveBeenCalledWith({
       cfg: expect.any(Object),
@@ -217,6 +217,63 @@ describe("doctor.memory.status", () => {
     expect(close).toHaveBeenCalled();
   });
 
+  it("does not live-probe embedding readiness by default", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const probeEmbeddingAvailability = vi.fn().mockResolvedValue({ ok: true });
+    getMemorySearchManager.mockResolvedValue({
+      manager: {
+        status: () => ({ provider: "gemini" }),
+        probeEmbeddingAvailability,
+        close,
+      },
+    });
+    const respond = vi.fn();
+
+    await invokeDoctorMemoryStatus(respond);
+
+    expect(probeEmbeddingAvailability).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        embedding: expect.objectContaining({ ok: false, checked: false }),
+      }),
+      undefined,
+    );
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("returns cached embedding readiness without a live probe", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const probeEmbeddingAvailability = vi.fn().mockResolvedValue({ ok: false });
+    getMemorySearchManager.mockResolvedValue({
+      manager: {
+        status: () => ({ provider: "gemini" }),
+        getCachedEmbeddingAvailability: vi.fn(() => ({
+          ok: true,
+          checked: true,
+          cached: true,
+          checkedAtMs: 123,
+          cacheExpiresAtMs: 456,
+        })),
+        probeEmbeddingAvailability,
+        close,
+      },
+    });
+    const respond = vi.fn();
+
+    await invokeDoctorMemoryStatus(respond);
+
+    expect(probeEmbeddingAvailability).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        embedding: expect.objectContaining({ ok: true, checked: true, cached: true }),
+      }),
+      undefined,
+    );
+    expect(close).toHaveBeenCalled();
+  });
+
   it("returns unavailable when memory manager is missing", async () => {
     getMemorySearchManager.mockResolvedValue({
       manager: null,
@@ -224,7 +281,7 @@ describe("doctor.memory.status", () => {
     });
     const respond = vi.fn();
 
-    await invokeDoctorMemoryStatus(respond);
+    await invokeDoctorMemoryStatus(respond, { params: { probe: true } });
 
     expectEmbeddingErrorResponse(respond, "memory search unavailable");
   });
@@ -240,7 +297,7 @@ describe("doctor.memory.status", () => {
     });
     const respond = vi.fn();
 
-    await invokeDoctorMemoryStatus(respond);
+    await invokeDoctorMemoryStatus(respond, { params: { probe: true } });
 
     expectEmbeddingErrorResponse(respond, "gateway memory probe failed: timeout");
     expect(close).toHaveBeenCalled();
@@ -460,7 +517,7 @@ describe("doctor.memory.status", () => {
         expect.objectContaining({
           agentId: "main",
           provider: "gemini",
-          embedding: { ok: true },
+          embedding: expect.objectContaining({ ok: false, checked: false }),
           dreaming: expect.objectContaining({
             enabled: true,
             timezone: "America/Los_Angeles",

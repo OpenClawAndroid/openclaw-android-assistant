@@ -1526,26 +1526,12 @@ function getCompletionsReasoningDeltas(
 }
 
 function detectCompat(model: OpenAIModeModel) {
-  const provider = model.provider;
-  const { capabilities, defaults: compatDefaults } = detectOpenAICompletionsCompat(model);
-  const endpointClass = capabilities.endpointClass;
-  const isDefaultRoute = endpointClass === "default";
-  const isGroq = endpointClass === "groq-native" || (isDefaultRoute && provider === "groq");
-  const reasoningEffortMap: Record<string, string> =
-    isGroq && model.id === "qwen/qwen3-32b"
-      ? {
-          minimal: "default",
-          low: "default",
-          medium: "default",
-          high: "default",
-          xhigh: "default",
-        }
-      : {};
+  const { defaults: compatDefaults } = detectOpenAICompletionsCompat(model);
   return {
     supportsStore: compatDefaults.supportsStore,
     supportsDeveloperRole: compatDefaults.supportsDeveloperRole,
     supportsReasoningEffort: compatDefaults.supportsReasoningEffort,
-    reasoningEffortMap,
+    reasoningEffortMap: {},
     supportsUsageInStreaming: compatDefaults.supportsUsageInStreaming,
     maxTokensField: compatDefaults.maxTokensField,
     requiresToolResultName: false,

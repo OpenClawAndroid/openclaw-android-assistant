@@ -123,6 +123,18 @@ export function createPluginRuntimeMock(overrides: DeepPartial<PluginRuntime> = 
       resolveThinkingDefault: vi.fn(
         () => "off",
       ) as unknown as PluginRuntime["agent"]["resolveThinkingDefault"],
+      normalizeThinkingLevel: vi.fn(
+        (raw?: string | null) => raw,
+      ) as unknown as PluginRuntime["agent"]["normalizeThinkingLevel"],
+      resolveThinkingPolicy: vi.fn(() => ({
+        levels: [
+          { id: "off", label: "off" },
+          { id: "minimal", label: "minimal" },
+          { id: "low", label: "low" },
+          { id: "medium", label: "medium" },
+          { id: "high", label: "high" },
+        ],
+      })) as unknown as PluginRuntime["agent"]["resolveThinkingPolicy"],
       runEmbeddedPiAgent: vi.fn().mockResolvedValue({
         payloads: [],
         meta: {},
