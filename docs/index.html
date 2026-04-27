@@ -730,74 +730,71 @@ bash scripts/build-server-bundle.sh && ./gradlew assembleDebug \
 <div class="section" id="release">
   <p class="section-label">Latest upstream release</p>
   <!-- RELEASE_START -->
-  <h2><em>openclaw 2026.4.24</em></h2>
-  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Apr 25, 2026</p>
+  <h2><em>OpenClaw 2026.4.25</em></h2>
+  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Apr 27, 2026</p>
   <div class="release-body" style="color:var(--text-dim);font-size:.92rem;line-height:1.75;max-width:800px">
-  <h3>Breaking</h3>
+  <h3>Changes</h3>
     <ul>
-    <li>Plugin SDK/tool-result transforms: remove the Pi-only `api.registerEmbeddedExtensionFactory(...)` compatibility path. Bundled tool-result rewrites must use `api.registerAgentToolResultMiddleware(...)` with `contracts.agentToolResultMiddleware` declaring the targeted harnesses, so transforms run consistently across Pi and Codex app-server dynamic tools</li>
-    </ul>
-    <h3>Changes</h3>
-    <ul>
-    <li>Control UI/Talk: add browser WebRTC realtime voice sessions backed by OpenAI Realtime, with Gateway-minted ephemeral client secrets and `openclaw_agent_consult` handoff to the full OpenClaw agent</li>
-    <li>Plugins/Google Meet: add a bundled participant plugin with personal Google auth, explicit meeting URL joins, Chrome and Twilio realtime transports, paired-node `chrome-node` support for Parallels-style Chrome/BlackHole/SoX hosts, and full-agent consults inside live voice sessions</li>
-    <li>Plugins/Google Meet: add artifact and attendance workflows for conference records, recordings, transcripts, smart notes, and participant sessions, including markdown/file output, latest-record lookup, and `--all-conference-records` history scans</li>
-    <li>Plugins/Google Meet: add OAuth and browser-state doctor/recovery flows, including `googlemeet doctor --oauth` and `recover_current_tab`/`recover-tab` so agents can inspect already-open Meet tabs without opening duplicates</li>
-    <li>Plugins/Voice Call: expose the shared `openclaw_agent_consult` realtime tool so live phone calls can ask the full OpenClaw agent for deeper/tool-backed answers</li>
-    <li>Plugins/Voice Call: add `voicecall setup` and a dry-run-by-default `voicecall smoke` command so Twilio/provider readiness can be checked before placing a live test call</li>
-    <li>Providers/Google: add a Gemini Live realtime voice provider for backend Voice Call and Google Meet audio bridges, with bidirectional audio and function-call support</li>
-    <li>Providers/Google: let Gemini TTS prepend configured `audioProfile` and `speakerName` prompt text for reusable speech style control</li>
-    <li>Gateway/VoiceClaw: add a realtime brain WebSocket endpoint backed by Gemini Live, with owner-auth gating and async OpenClaw tool handoff</li>
-    <li>Control UI: refine the agent Tool Access panel with compact live-tool chips, collapsible tool groups, direct per-tool toggles, and clearer runtime/source provenance</li>
-    <li>Control UI/chat: add a Steer action on queued messages so a browser follow-up can be injected into the active run without retyping it</li>
-    <li>Browser: add viewport coordinate clicks for managed and existing-session automation, plus `openclaw browser click-coords` for CLI use</li>
-    <li>Browser: add `browser.actionTimeoutMs` and use a 60s default action budget so healthy long browser waits do not fail at the client transport boundary</li>
-    <li>Browser/config: support per-profile `browser.profiles.&lt;name&gt;.headless` overrides for locally launched browser profiles, so one profile can run headless without forcing all browser profiles headless</li>
-    <li>Matrix: require full cross-signing identity trust for self-device verification and add `openclaw matrix verify self` so operators can establish that trust from the CLI</li>
-    <li>Gradium: add a bundled text-to-speech provider with voice-note and telephony output support</li>
-    <li>Memory-core/hybrid search: expose raw `vectorScore` and `textScore` alongside the combined `score` on hybrid memory search results, so callers can inspect vector-versus-text retrieval contribution before temporal decay or MMR reordering. Fixes #68166</li>
-    <li>Dependencies/memory: stop installing `node-llama-cpp` by default; local embeddings now load it only when operators install the optional runtime package</li>
-    <li>Providers/DeepSeek: add DeepSeek V4 Flash and V4 Pro to the bundled catalog and make V4 Flash the onboarding default</li>
-    <li>Dependencies/Pi: update bundled Pi packages to `0.70.2`, use Pi&#x27;s upstream `gpt-5.5` and DeepSeek V4 catalog metadata, and keep only local `gpt-5.5-pro` forward-compat handling</li>
-    <li>Models/CLI: speed up model listing with safe static catalogs for bundled providers, narrower row-source orchestration, and less broad registry enumeration for default `openclaw models list`. (#70632, #70883, #70867)</li>
-    <li>Models/commands: deprecate `/models add` so chat attempts now return a deprecation message instead of writing model configuration, and remove the add action from `/models` provider menus</li>
-    <li>Models/catalog: add manifest-sourced model rows, duplicate provider/model conflict reporting, and shared `src/model-catalog` normalization for provider index, cache, onboarding, and listing consumers without loading provider runtime. (#71368, #71360)</li>
-    <li>Codex harness/context-engine: run context-engine bootstrap, assembly, post-turn maintenance, and engine-owned compaction in Codex app-server sessions while keeping native Codex thread state and compaction auditable</li>
-    <li>Codex runtime plan: consolidate contract-first Pi/Codex parity coverage and accept legacy Codex auth-provider aliases in app-server profile login and refresh paths</li>
-    <li>Codex harness: bridge Codex-native tool hooks into OpenClaw plugin hooks and approvals, with bounded relay payloads and approval spam protection</li>
-    <li>Plugin SDK/Codex harness: add provider-owned transport/auth/follow-up seams and harness result classification so Codex-style runtimes can participate in fallback policy without core special-casing</li>
-    <li>Gateway/nodes: add disabled-by-default `gateway.nodes.pairing.autoApproveCidrs` for first-time node pairing from explicit trusted CIDRs, while keeping operator/browser pairing and all upgrade flows manual. Fixes #60800</li>
-    <li>WebChat/sessions: keep runtime-only prompt context out of visible transcript history and scrub legacy wrappers from session history surfaces</li>
-    <li>Agents/bootstrap: add `agents.defaults.contextInjection: &quot;never&quot;` to disable workspace bootstrap file injection for agents that fully own their prompt lifecycle</li>
-    <li>Plugins/manifest: add a `modelCatalog` contract for provider-owned model rows, aliases, suppression rules, and discovery mode metadata without loading plugin runtime</li>
-    <li>Plugins/setup: honor explicit `setup.requiresRuntime: false` as a descriptor-only setup contract while keeping omitted values on the legacy setup-api fallback path</li>
-    <li>Plugins/setup: report descriptor/runtime drift when setup-api registrations disagree with `setup.providers` or `setup.cliBackends`, without rejecting legacy setup plugins</li>
-    <li>Plugins/setup: include `setup.providers[].envVars` in generic provider auth/env lookups and warn non-bundled plugins that still rely on deprecated `providerAuthEnvVars` compatibility metadata</li>
-    <li>Plugins/setup: derive generic provider setup choices from descriptor-safe `setup.providers[].authMethods` before falling back to setup runtime</li>
-    <li>Plugins/setup: surface manifest provider auth choices directly in provider setup flow before falling back to setup runtime or install-catalog choices</li>
-    <li>Plugins/setup: warn when descriptor-only setup plugins still ship ignored setup runtime entries, keeping `setup.requiresRuntime: false` semantics explicit without breaking existing metadata</li>
-    <li>Plugins/channels: use manifest `channelConfigs` for read-only external channel discovery when no setup entry is available or setup descriptors declare runtime unnecessary</li>
-    <li>Plugin hooks: expose first-class run, message, sender, session, and trace correlation fields on message hook contexts and run lifecycle events</li>
-    <li>Plugins/PDF: move local PDF extraction into a bundled `document-extract` plugin so core no longer owns `pdfjs-dist` or PDF image-rendering dependencies</li>
-    <li>Providers/Anthropic Vertex: move the Vertex SDK runtime behind the bundled provider plugin so core no longer owns that provider-specific dependency</li>
-    <li>Plugins/activation: expose activation plan reasons and a richer plan API so callers can inspect why a plugin was selected while preserving existing id-list activation behavior</li>
-    <li>Plugins/source metadata: expose normalized install-source facts on provider and channel catalogs so onboarding can explain npm pinning, integrity state, and local availability before runtime loads</li>
-    <li>Plugins/catalog: pin the official external WeCom channel source to an exact npm release plus dist integrity, with a guard that official external sources stay integrity-pinned</li>
-    <li>Plugins/source metadata: warn when `openclaw.install.defaultChoice` is invalid or points at a missing source, keeping catalog diagnostics explicit without breaking existing plugins</li>
-    <li>Plugins/source metadata: warn when `openclaw.install.expectedIntegrity` is present without a valid npm source, keeping orphaned integrity metadata visible without rejecting existing plugins</li>
-    <li>Plugins/source metadata: warn when provider or channel catalog package identity drifts from `openclaw.install.npmSpec`, keeping diagnostics visible without rejecting compatible external catalogs</li>
-    <li>Plugins/Bonjour: move LAN Gateway discovery advertising into a default-enabled bundled plugin with its own `@homebridge/ciao` dependency, so users can disable Bonjour without cutting wide-area discovery</li>
-    <li>Plugins/compatibility: add a central plugin compatibility registry and docs for SDK/config/setup/runtime deprecation records, including dated migration metadata for legacy harness naming and other plugin-facing aliases</li>
-    <li>TUI/dependencies: remove direct `cli-highlight` usage from the OpenClaw TUI code-block renderer, keeping themed code coloring without the extra root dependency</li>
-    <li>Dependencies/SBOM: add an ownership-backed dependency risk report for root closure size, native/build-risk packages, and missing owner records</li>
-    <li>Diagnostics/OTEL: export run, model-call, and tool-execution diagnostic lifecycle events as OTEL spans without retaining live span state</li>
-    <li>Diagnostics/OTEL: accept opt-in `diagnostics.otel.captureContent` controls for future model/tool content span attributes while keeping raw content export disabled by default</li>
-    <li>Diagnostics/OTEL: add a lightweight diagnostic trace-context carrier for future span correlation without adding OTEL SDK state to core</li>
-    <li>Diagnostics/OTEL: attach diagnostic trace context to exported OTEL logs so log records can correlate with future spans without adding retained process state</li>
-    <li>Diagnostics/OTEL: pass immutable per-run diagnostic trace context through agent and tool hook contexts, and parent exported diagnostic spans from validated context without retaining global trace state</li>
-    <li>Diagnostics/OTEL: make exporter startup restart-safe so config reloads do not retain stale SDKs, log transports, or diagnostic event listeners</li>
-    <li>Diagnostics/OTEL: emit bounded exec-process diagnostics and export them as `openclaw.exec` spans without exposing command text, working directories, or container identifiers</li>
-    <li>Diagnostics/OTEL: support `OPENCLAW_OTEL_PRELOADED=1` so the plugin can reuse an already-registered OpenTelemetry SDK while keeping OpenClaw diagnostic listeners wired</li>
+    <li>TTS/WhatsApp: add `/tts latest` read-aloud support with duplicate suppression and `/tts chat on|off|default` session-scoped auto-TTS overrides, completing the on-demand voice-note UX for current-chat replies. Fixes #66032</li>
+    <li>TTS/channels: resolve channel and account TTS overrides generically, enabling Feishu and QQBot accounts to deep-merge `channels.&lt;channel&gt;.accounts.&lt;id&gt;.tts` over global and per-agent TTS config</li>
+    <li>TTS/agents: allow `agents.list[].tts` to override global `messages.tts` for per-agent voices, and make `/tts audio`, `/tts status`, and the `tts` agent tool honor the active voice/provider override while keeping shared provider credentials and preferences in the existing TTS config surface</li>
+    <li>Providers/Azure Speech: add Azure Speech as a bundled TTS provider with Speech-resource auth, voice listing, SSML escaping, native Ogg/Opus voice-note output, and telephony output</li>
+    <li>Google Meet: add calendar-backed attendance export workflows, export manifests, dry-run previews, and tool parity for meeting records</li>
+    <li>Control UI: add PWA install support and Web Push notifications for Gateway chat</li>
+    <li>Browser automation: add safe tab URLs in agent responses plus a CDP-native role snapshot fallback with iframe-aware refs, cursor-clickable detection, target attach preparation, and `openclaw browser doctor --deep` live snapshot probing</li>
+    <li>CLI/image generation: expose generic `--background` on `openclaw infer image generate` and `openclaw infer image edit`, keep `--openai-background` as an OpenAI alias, and let fal image generation honor `--output-format png|jpeg`</li>
+    <li>Browser/config: allow local managed Chrome launch discovery and post-launch CDP readiness timeouts to be raised for slower hosts such as Raspberry Pi. Fixes #66803</li>
+    <li>Discord: allow `channels.discord.voice.model` to override the LLM used for voice channel responses while keeping STT and TTS on their existing media settings</li>
+    <li>Browser/CLI: add `openclaw browser start --headless` as a one-shot local managed browser launch override without rewriting persisted browser config</li>
+    <li>CLI/Crestodian/TUI: add the first-run setup helper, local planner fallback, full-TUI interactive Crestodian, startup progress indicators, context mode selector, and a shorter startup greeting. (#71720, #71760) and @kevinlin-openai</li>
+    <li>Plugins: migrate the local plugin registry automatically during package install/update, keeping install metadata in the plugin index while indexing existing plugin manifests for the new cold registry path. and @shakkernerd</li>
+    <li>Plugins/doctor: make `openclaw doctor --fix` refresh the plugin index and cold registry index when needed without treating plugin install records as authored config. and @shakkernerd</li>
+    <li>Plugins/hooks: add before-agent-finalize hooks, cron `jobId` hook context, bounded native permission fingerprints, and Codex MCP hook relay support. (#71765, #71758, #71707) and @pashpashpash</li>
+    <li>Plugins/tokenjuice: bump the bundled tokenjuice runtime to 0.6.3</li>
+    <li>Diagnostics/OTEL: align model-call GenAI span attributes with OpenTelemetry stability opt-in semantics, keeping legacy `gen_ai.system` by default while emitting `gen_ai.provider.name` under `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`</li>
+    <li>Diagnostics/OTEL: support signal-specific OTLP endpoint overrides for traces, metrics, and logs via config or standard OTEL environment variables</li>
+    <li>Diagnostics/OTEL: emit bounded telemetry exporter health diagnostics for startup and log-export failures without exporting raw error text</li>
+    <li>Diagnostics/OTEL: export agent harness lifecycle telemetry as bounded `openclaw.harness.run` spans and `openclaw.harness.duration_ms` metrics so QA-lab, Codex, and future harnesses share one trace shape</li>
+    <li>Diagnostics/trace: propagate W3C `traceparent` headers from trusted model-call trace context to provider transports while replacing caller-supplied traceparent values</li>
+    <li>Diagnostics/Prometheus: add a bundled `diagnostics-prometheus` plugin with a protected gateway scrape route for low-cardinality diagnostics metrics</li>
+    <li>Plugins/CLI: add `openclaw plugins registry` for explicit persisted-registry inspection and `--refresh` repair without making normal startup rescan plugin locations</li>
+    <li>Plugins/CLI: make `openclaw plugins list` read the cold persisted registry snapshot by default, leaving module-aware diagnostics to `plugins doctor` and `plugins inspect`</li>
+    <li>Plugins/startup: move gateway startup plugin planning onto the versioned cold registry index, with postinstall repair for older registry files that predate startup metadata</li>
+    <li>Plugins/startup: normalize startup and provider plugin enablement through registry aliases so boot paths do not need the legacy manifest alias scan</li>
+    <li>Providers/plugins: resolve provider ownership, provider discovery scopes, and catalog-hook provider ids from the cold plugin registry instead of rescanning manifests on those paths</li>
+    <li>Plugins/registry: keep installed plugin index records focused on install/state/load paths and resolve plugin capabilities from manifests scoped to indexed plugins</li>
+    <li>Plugins/registry: route cold manifest and capability lookups through the installed plugin index so setup, channels, config, secrets, doctor, and provider metadata paths avoid broad plugin-root scans before runtime execution</li>
+    <li>CLI/models: speed up `models list --all --provider &lt;id&gt;` for static manifest-backed providers by loading catalog rows through the installed plugin index instead of broad manifest scans or runtime suppression hooks</li>
+    <li>CLI/models: use OpenClaw Provider Index preview rows as the final cold fallback for installable providers, while keeping user config, installed manifests, and refreshed cache rows above provider-index metadata</li>
+    <li>Providers/plugins: keep onboarding and auth-choice setup lists on cold manifest/install metadata and add Provider Index install metadata for not-yet-installed provider plugins</li>
+    <li>Providers/plugins: keep provider setup guidance and configure auth imports on cold manifest metadata, with a regression guard against static provider-runtime imports on setup/configure list paths</li>
+    <li>CLI/capabilities: keep capability command registration from importing the models auth runtime until `model auth login` actually runs</li>
+    <li>CLI/configure: keep web-search configure prompts on cold plugin registry metadata until the user chooses managed search setup</li>
+    <li>Plugins/chat commands: refresh the persisted plugin registry after `/plugins enable` and `/plugins disable`, matching the CLI mutation path</li>
+    <li>Plugins/compat: mark `OPENCLAW_DISABLE_PERSISTED_PLUGIN_REGISTRY` as a deprecated break-glass switch and point operators at registry repair instead</li>
+    <li>Plugins/compat: expand the central compatibility registry with dated owners, replacements, and maximum three-month removal targets for legacy SDK, manifest, setup, registry-migration, and agent-runtime surfaces</li>
+    <li>Plugins/registry: ignore stale persisted registry reads when plugin policy no longer matches current config, and stamp generated registry files with a do-not-edit warning</li>
+    <li>Config/plugins: keep plugin command-alias validation on cold manifest metadata instead of importing the runtime alias resolver</li>
+    <li>Security/plugins: keep web-search credential presence checks on cold config, env, and manifest metadata instead of importing web-search provider runtime</li>
+    <li>Diagnostics/OTEL: surface provider request identifiers as bounded hashes on model-call diagnostics and span events, without exporting raw request IDs or metric labels. and @vincentkoc</li>
+    <li>Plugins/diagnostics: add metadata-only `model_call_started` and `model_call_ended` hooks for provider/model call telemetry without exposing prompts, responses, headers, request bodies, or raw provider request IDs</li>
+    <li>Diagnostics/OTEL: emit bounded context assembly diagnostics and export `openclaw.context.assembled` spans with prompt/history sizes but no prompt, history, response, or session-key content</li>
+    <li>Diagnostics/OTEL: export existing tool-loop diagnostics as `openclaw.tool.loop` counters and spans without loop messages, session identifiers, params, or tool output</li>
+    <li>Diagnostics/OTEL: export diagnostic memory samples and pressure as bounded memory histograms, counters, and pressure spans to help spot leak regressions without session or payload data</li>
+    <li>Diagnostics/OTEL: add the GenAI `gen_ai.client.token.usage` histogram for input/output model usage while keeping session identifiers and aggregate cache counters out of the semantic metric</li>
+    <li>Diagnostics/OTEL: add a bounded `openclaw.agent` label to OpenClaw token metrics so per-agent Grafana dashboards can group usage without exporting session identifiers</li>
+    <li>Plugins/install: consolidate managed plugin install metadata into the state-managed plugin index at `plugins/installs.json`, replacing the temporary `plugins/installed-index.json` path and removing `plugins.installs` as an authored config surface. and @shakkernerd</li>
+    <li>Diagnostics/OTEL: add the GenAI `gen_ai.client.operation.duration` histogram for model-call latency in seconds with bounded provider/model/API and error attributes</li>
+    <li>Diagnostics/OTEL: add GenAI usage token attributes to model-usage spans, including cache read/write input token counts without session identifiers or prompt/response content</li>
+    <li>Diagnostics/OTEL: include bounded GenAI operation, provider, and request-model attributes on model-usage spans so token usage remains self-describing without diagnostic identifiers</li>
+    <li>Diagnostics/OTEL: keep model-usage span GenAI provider attributes aligned with the existing semantic-convention opt-in policy, using legacy `gen_ai.system` unless latest experimental GenAI conventions are enabled</li>
+    <li>Diagnostics/OTEL: keep `gen_ai.request.model` present on GenAI token usage metrics with a bounded `unknown` fallback when model usage events do not include a model</li>
+    <li>Docs/OTEL: document the GenAI token and model-call duration metrics, model-usage span attributes, and `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental` provider-attribute behavior</li>
+    <li>Docs: refresh the MCP, model provider, doctor, troubleshooting, BlueBubbles, media generation, TTS, subagents, skills, cron/tasks, exec approvals, and voice-call guides with structured Steps, Tabs, and Accordion content</li>
+    <li>Diagnostics/trace: add an internal traceparent propagation helper that only formats trusted dispatcher metadata, keeping plugin-emitted diagnostic traces out of outbound propagation by default</li>
+    <li>Diagnostics/OTEL: add bounded outbound message delivery lifecycle diagnostics and export them as low-cardinality delivery spans/metrics without message body, recipient, room, or media-path data. and @jlapenna</li>
+    <li>Diagnostics/OTEL: emit bounded exec-process diagnostics and export them as `openclaw.exec` spans without exposing command text, working directories, or container identifiers. and @jlapenna</li>
+    <li>Diagnostics/OTEL: support `OPENCLAW_OTEL_PRELOADED=1` so the plugin can reuse an already-registered OpenTelemetry SDK while keeping OpenClaw diagnostic listeners wired. and @jlapenna</li>
     </ul>
     <h3>Fixes</h3>
     <ul>
