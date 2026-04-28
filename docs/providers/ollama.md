@@ -27,6 +27,9 @@ Ollama provider config uses `baseUrl` as the canonical key. OpenClaw also accept
   <Accordion title="Custom provider ids">
     Custom provider ids that set `api: "ollama"` follow the same rules. For example, an `ollama-remote` provider that points at a private LAN Ollama host can use `apiKey: "ollama-local"` and sub-agents will resolve that marker through the Ollama provider hook instead of treating it as a missing credential. Memory search can also set `agents.defaults.memorySearch.provider` to that custom provider id so embeddings use the matching Ollama endpoint.
   </Accordion>
+  <Accordion title="Auth profiles">
+    `auth-profiles.json` stores the credential for a provider id. Put endpoint settings (`baseUrl`, `api`, model ids, headers, timeouts) in `models.providers.<id>`. Older flat auth-profile files such as `{ "ollama-windows": { "apiKey": "ollama-local" } }` are not a runtime format; run `openclaw doctor --fix` to rewrite them to the canonical `ollama-windows:default` API-key profile with a backup. `baseUrl` in that file is compatibility noise and should be moved to provider config.
+  </Accordion>
   <Accordion title="Memory embedding scope">
     When Ollama is used for memory embeddings, bearer auth is scoped to the host where it was declared:
 
@@ -57,6 +60,7 @@ Choose your preferred setup method and mode.
         - **Cloud + Local** — local Ollama host plus cloud models routed through that host
         - **Cloud only** — hosted Ollama models via `https://ollama.com`
         - **Local only** — local models only
+
       </Step>
       <Step title="Select a model">
         `Cloud only` prompts for `OLLAMA_API_KEY` and suggests hosted cloud defaults. `Cloud + Local` and `Local only` ask for an Ollama base URL, discover available models, and auto-pull the selected local model if it is not available yet. When Ollama reports an installed `:latest` tag such as `gemma4:latest`, setup shows that installed model once instead of showing both `gemma4` and `gemma4:latest` or pulling the bare alias again. `Cloud + Local` also checks whether that Ollama host is signed in for cloud access.
@@ -96,6 +100,7 @@ Choose your preferred setup method and mode.
         - **Cloud + Local**: install Ollama, sign in with `ollama signin`, and route cloud requests through that host
         - **Cloud only**: use `https://ollama.com` with an `OLLAMA_API_KEY`
         - **Local only**: install Ollama from [ollama.com/download](https://ollama.com/download)
+
       </Step>
       <Step title="Pull a local model (local only)">
         ```bash

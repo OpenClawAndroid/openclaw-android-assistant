@@ -268,6 +268,12 @@ plugins unless they declare `activation.onStartup: true`. Plugin status and
 compatibility reports warn with `legacy-implicit-startup-sidecar` when a plugin
 still relies on that fallback.
 
+For migration testing, set
+`OPENCLAW_DISABLE_LEGACY_IMPLICIT_STARTUP_SIDECARS=1` to disable only that
+deprecated fallback. This opt-in mode does not block explicit
+`activation.onStartup: true` plugins or plugins loaded by channel, config,
+agent-harness, memory, or other narrower activation triggers.
+
 ```json
 {
   "activation": {

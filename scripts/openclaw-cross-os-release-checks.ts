@@ -4,6 +4,7 @@
 
 import { spawn } from "node:child_process";
 import {
+  appendFileSync,
   chmodSync,
   createWriteStream,
   existsSync,
@@ -19,6 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve, win32 as pathWin32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertNoBundledRuntimeDepsStagingDebris } from "../src/infra/package-dist-inventory.ts";
+import { isLocalBuildMetadataDistPath } from "./lib/local-build-metadata-paths.mjs";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const PUBLISHED_INSTALLER_BASE_URL = "https://openclaw.ai";
@@ -476,6 +478,9 @@ function isPackagedDistPath(relativePath) {
     return false;
   }
   if (relativePath === PACKAGE_DIST_INVENTORY_RELATIVE_PATH) {
+    return false;
+  }
+  if (isLocalBuildMetadataDistPath(relativePath)) {
     return false;
   }
   if (relativePath.endsWith(".map")) {
@@ -2552,27 +2557,51 @@ async function runModelsSet(params) {
 }
 
 async function runAgentTurn(params) {
-  const sessionId = `cross-os-release-check-${params.label}-${Date.now()}`;
-  const result = await runOpenClaw({
-    lane: params.lane,
-    env: params.env,
-    args: [
-      "agent",
-      "--agent",
-      "main",
-      "--session-id",
-      sessionId,
-      "--message",
-      "Reply with exact ASCII text OK only.",
-      "--json",
-    ],
-    logPath: params.logPath,
-    timeoutMs: 10 * 60 * 1000,
-  });
-  if (!agentOutputHasExpectedOkMarker(result.stdout, { logPath: params.logPath })) {
-    throw new Error("Agent output did not contain the expected OK marker.");
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const sessionId = `cross-os-release-check-${params.label}-${Date.now()}-${attempt}`;
+    try {
+      const result = await runOpenClaw({
+        lane: params.lane,
+        env: params.env,
+        args: [
+          "agent",
+          "--agent",
+          "main",
+          "--session-id",
+          sessionId,
+          "--message",
+          "Reply with exact ASCII text OK only.",
+          "--json",
+        ],
+        logPath: params.logPath,
+        timeoutMs: 10 * 60 * 1000,
+      });
+      if (!agentOutputHasExpectedOkMarker(result.stdout, { logPath: params.logPath })) {
+        throw new Error("Agent output did not contain the expected OK marker.");
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= 2 || !shouldRetryCrossOsAgentTurnError(error)) {
+        throw error;
+      }
+      appendFileSync(
+        params.logPath,
+        `\n[release-checks] retrying agent turn after bundled runtime deps staging failure: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
   }
-  return result;
+  throw lastError;
+}
+
+export function shouldRetryCrossOsAgentTurnError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to (?:install|stage) bundled runtime deps|failed to stage bundled runtime deps after/u.test(
+    message,
+  );
 }
 
 export function agentOutputHasExpectedOkMarker(stdout, options = {}) {

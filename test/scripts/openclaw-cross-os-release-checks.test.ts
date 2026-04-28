@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
+import { LOCAL_BUILD_METADATA_DIST_PATHS } from "../../scripts/lib/local-build-metadata-paths.mjs";
 import {
   agentOutputHasExpectedOkMarker,
   buildReleaseOnboardArgs,
@@ -41,6 +42,7 @@ import {
   shouldSkipInstallerDaemonHealthCheck,
   shouldStopManagedGatewayBeforeManualFallback,
   shouldRunMainChannelDevUpdate,
+  shouldRetryCrossOsAgentTurnError,
   shouldUseManagedGatewayForInstallerRuntime,
   shouldUseManagedGatewayService,
   verifyDevUpdateStatus,
@@ -81,6 +83,22 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("retries transient bundled runtime deps staging failures during agent turns", () => {
+    expect(
+      shouldRetryCrossOsAgentTurnError(
+        new Error("document-extract: failed to install bundled runtime deps: npm install failed"),
+      ),
+    ).toBe(true);
+    expect(
+      shouldRetryCrossOsAgentTurnError(
+        new Error("document-extract failed to stage bundled runtime deps after 463ms"),
+      ),
+    ).toBe(true);
+    expect(shouldRetryCrossOsAgentTurnError(new Error("Agent output did not contain OK."))).toBe(
+      false,
+    );
   });
 
   it("treats explicit empty-string args as values instead of boolean flags", () => {
@@ -519,6 +537,33 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
           logPath: join(packageRoot, "npm-pack-dry-run.log"),
         }),
       ).rejects.toThrow("unexpected bundled-runtime-deps install staging debris");
+    } finally {
+      rmSync(packageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("omits local build metadata from candidate package inventories", async () => {
+    const packageRoot = mkdtempSync(join(tmpdir(), "openclaw-cross-os-local-stamps-"));
+    try {
+      mkdirSync(join(packageRoot, "dist"), { recursive: true });
+      writeFileSync(
+        join(packageRoot, "package.json"),
+        JSON.stringify({ name: "openclaw-fixture", version: "0.0.0", files: ["dist/"] }),
+        "utf8",
+      );
+      writeFileSync(join(packageRoot, "dist", "index.js"), "export {};\n", "utf8");
+      for (const relativePath of LOCAL_BUILD_METADATA_DIST_PATHS) {
+        writeFileSync(join(packageRoot, relativePath), "{}\n", "utf8");
+      }
+
+      await writePackageDistInventoryForCandidate({
+        sourceDir: packageRoot,
+        logPath: join(packageRoot, "npm-pack-dry-run.log"),
+      });
+
+      expect(
+        JSON.parse(readFileSync(join(packageRoot, "dist", "postinstall-inventory.json"), "utf8")),
+      ).toEqual(["dist/index.js"]);
     } finally {
       rmSync(packageRoot, { recursive: true, force: true });
     }

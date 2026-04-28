@@ -57,6 +57,28 @@ Tool policy, experimental toggles, provider-backed tool config, and custom
 provider / base-URL setup moved to a dedicated page — see
 [Configuration — tools and custom providers](/gateway/config-tools).
 
+## Models
+
+Provider definitions, model allowlists, and custom provider setup live in
+[Configuration — tools and custom providers](/gateway/config-tools#custom-providers-and-base-urls).
+The `models` root also owns global model-catalog behavior.
+
+```json5
+{
+  models: {
+    // Optional. Default: true. Requires a Gateway restart when changed.
+    pricing: { enabled: false },
+  },
+}
+```
+
+- `models.mode`: provider catalog behavior (`merge` or `replace`).
+- `models.providers`: custom provider map keyed by provider id.
+- `models.pricing.enabled`: controls the background pricing bootstrap. When
+  `false`, Gateway startup skips OpenRouter and LiteLLM pricing-catalog fetches;
+  configured `models.providers.*.models[].cost` values still work for local cost
+  estimates.
+
 ## MCP
 
 OpenClaw-managed MCP server definitions live under `mcp.servers` and are
@@ -800,6 +822,7 @@ Notes:
 
 - Per-agent profiles are stored at `<agentDir>/auth-profiles.json`.
 - `auth-profiles.json` supports value-level refs (`keyRef` for `api_key`, `tokenRef` for `token`) for static credential modes.
+- Legacy flat `auth-profiles.json` maps such as `{ "provider": { "apiKey": "..." } }` are not a runtime format; `openclaw doctor --fix` rewrites them to canonical `provider:default` API-key profiles with a `.legacy-flat.*.bak` backup.
 - OAuth-mode profiles (`auth.profiles.<id>.mode = "oauth"`) do not support SecretRef-backed auth-profile credentials.
 - Static runtime credentials come from in-memory resolved snapshots; legacy static `auth.json` entries are scrubbed when discovered.
 - Legacy OAuth imports from `~/.openclaw/credentials/oauth.json`.

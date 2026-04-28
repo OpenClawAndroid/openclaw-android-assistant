@@ -75,6 +75,7 @@ import {
   INTERNAL_MESSAGE_CHANNEL,
   isDeliverableMessageChannel,
   isGatewayMessageChannel,
+  isInternalNonDeliveryChannel,
   normalizeMessageChannel,
 } from "../../utils/message-channel.js";
 import { resolveAssistantIdentity } from "../assistant-identity.js";
@@ -540,7 +541,10 @@ export const agentHandlers: GatewayRequestHandlers = {
       }
     }
 
-    const isKnownGatewayChannel = (value: string): boolean => isGatewayMessageChannel(value);
+    // Accept internal non-delivery sources (heartbeat, cron, webhook) as valid
+    // channel hints so subagent spawns from those parent runs are not rejected.
+    const isKnownGatewayChannel = (value: string): boolean =>
+      isGatewayMessageChannel(value) || isInternalNonDeliveryChannel(value);
     const channelHints = [request.channel, request.replyChannel]
       .filter((value): value is string => typeof value === "string")
       .map((value) => value.trim())
@@ -1184,7 +1188,6 @@ export const agentHandlers: GatewayRequestHandlers = {
           messageChannel: originMessageChannel,
           runId,
           lane: request.lane,
-          cleanupBundleMcpOnRunEnd: request.cleanupBundleMcpOnRunEnd === true,
           modelRun: request.modelRun === true,
           promptMode: request.promptMode,
           extraSystemPrompt: request.extraSystemPrompt,
