@@ -5,7 +5,6 @@ import {
 import {
   expectAugmentedCodexCatalog,
   expectedAugmentedOpenaiCodexCatalogEntriesWithGpt55,
-  expectCodexBuiltInSuppression,
   expectCodexMissingAuthHint,
   importProviderRuntimeCatalogModule,
   loadBundledPluginPublicSurface,
@@ -49,17 +48,6 @@ vi.mock("openclaw/plugin-sdk/provider-catalog-runtime", async () => {
       }
       return supplemental;
     },
-    resolveProviderBuiltInModelSuppression: (params: {
-      context: Parameters<NonNullable<ProviderPlugin["suppressBuiltInModel"]>>[0];
-    }) => {
-      for (const provider of resolveCatalogHookProviders(params)) {
-        const result = provider.suppressBuiltInModel?.(params.context);
-        if (result?.suppress) {
-          return result;
-        }
-      }
-      return undefined;
-    },
     resolveOwningPluginIdsForProvider: (params: unknown) =>
       resolveOwningPluginIdsForProviderMock(params as never),
     resolveCatalogHookProviderPluginIds: (params: unknown) =>
@@ -86,15 +74,11 @@ export function describeOpenAIProviderCatalogContract() {
       })
     ).providers;
     const openaiProvider = requireRegisteredProvider(openaiProviders, "openai", "provider");
-    const {
-      augmentModelCatalogWithProviderPlugins,
-      resetProviderRuntimeHookCacheForTest,
-      resolveProviderBuiltInModelSuppression,
-    } = await importProviderRuntimeCatalogModule();
+    const { augmentModelCatalogWithProviderPlugins, resetProviderRuntimeHookCacheForTest } =
+      await importProviderRuntimeCatalogModule();
     return {
       augmentModelCatalogWithProviderPlugins,
       resetProviderRuntimeHookCacheForTest,
-      resolveProviderBuiltInModelSuppression,
       openaiProviders,
       openaiProvider,
     };
@@ -139,11 +123,6 @@ export function describeOpenAIProviderCatalogContract() {
           (params) => openaiProvider.buildMissingAuthMessage?.(params.context) ?? undefined,
           "openai-codex/gpt-5.5",
         );
-      });
-
-      it("keeps built-in model suppression wired through the provider runtime", async () => {
-        const { resolveProviderBuiltInModelSuppression } = await contractDepsPromise;
-        expectCodexBuiltInSuppression(resolveProviderBuiltInModelSuppression);
       });
 
       it("keeps bundled model augmentation wired through the provider runtime", async () => {

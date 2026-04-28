@@ -2240,7 +2240,7 @@ export function shouldRunWindowsInstalledBrowserOverrideImportSmoke(platform = p
 }
 
 export function buildInstalledBrowserOverrideImportProbeScript(
-  runtimeModuleSpecifier = "openclaw/plugin-sdk/browser-node-runtime",
+  runtimeModuleSpecifier = "openclaw/plugin-sdk/plugin-runtime",
 ) {
   return `
 import { existsSync } from "node:fs";
@@ -2309,7 +2309,7 @@ async function runInstalledBrowserOverrideImportSmoke(params) {
   const startedPath = join(probeDir, "started.txt");
   const stoppedPath = join(probeDir, "stopped.txt");
   const packageRoot = installedPackageRoot(params.prefixDir);
-  const runtimeModulePath = join(packageRoot, "dist", "plugin-sdk", "browser-node-runtime.js");
+  const runtimeModulePath = join(packageRoot, "dist", "plugin-sdk", "plugin-runtime.js");
   if (!existsSync(runtimeModulePath)) {
     throw new Error(`Installed browser runtime module not found: ${runtimeModulePath}`);
   }

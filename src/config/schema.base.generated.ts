@@ -5010,6 +5010,12 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                         description:
                           "Enables pre-compaction memory flush before the runtime performs stronger history reduction near token limits. Keep enabled unless you intentionally disable memory side effects in constrained environments.",
                       },
+                      model: {
+                        type: "string",
+                        title: "Compaction Memory Flush Model Override",
+                        description:
+                          "Optional provider/model override used only for pre-compaction memory flush turns. Set this to a local model such as ollama/qwen3:8b when durable memory extraction should avoid the active session's paid model. The override is exact and does not inherit the active model fallback chain.",
+                      },
                       softThresholdTokens: {
                         type: "integer",
                         minimum: 0,
@@ -22192,6 +22198,9 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                       type: "string",
                     },
                   },
+                  allowLoopback: {
+                    type: "boolean",
+                  },
                 },
                 required: ["userHeader"],
                 additionalProperties: false,
@@ -27030,6 +27039,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       help: "Enables pre-compaction memory flush before the runtime performs stronger history reduction near token limits. Keep enabled unless you intentionally disable memory side effects in constrained environments.",
       tags: ["advanced"],
     },
+    "agents.defaults.compaction.memoryFlush.model": {
+      label: "Compaction Memory Flush Model Override",
+      help: "Optional provider/model override used only for pre-compaction memory flush turns. Set this to a local model such as ollama/qwen3:8b when durable memory extraction should avoid the active session's paid model. The override is exact and does not inherit the active model fallback chain.",
+      tags: ["models"],
+    },
     "agents.defaults.compaction.memoryFlush.softThresholdTokens": {
       label: "Compaction Memory Flush Soft Threshold",
       help: "Threshold distance to compaction (in tokens) that triggers pre-compaction memory flush execution. Use earlier thresholds for safer persistence, or tighter thresholds for lower flush frequency.",
@@ -28772,6 +28786,6 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       tags: ["advanced", "url-secret"],
     },
   },
-  version: "2026.4.26",
+  version: "2026.4.27",
   generatedAt: "2026-03-22T21:17:33.302Z",
 };

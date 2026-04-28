@@ -756,6 +756,30 @@ describe("resolveTelegramFetch", () => {
     expectPinnedFallbackIpDispatcher(3);
   });
 
+  it("keeps the armed fallback sticky when all attempts fail", async () => {
+    undiciFetch
+      .mockRejectedValueOnce(buildFetchFallbackError("ETIMEDOUT"))
+      .mockRejectedValueOnce(buildFetchFallbackError("EHOSTUNREACH"))
+      .mockRejectedValueOnce(buildFetchFallbackError("ETIMEDOUT"))
+      .mockResolvedValueOnce({ ok: true } as Response);
+
+    const resolved = resolveTelegramFetchOrThrow(undefined, {
+      network: {
+        autoSelectFamily: true,
+        dnsResultOrder: "ipv4first",
+      },
+    });
+
+    await expect(resolved("https://api.telegram.org/botx/deleteWebhook")).rejects.toThrow(
+      "fetch failed",
+    );
+    await resolved("https://api.telegram.org/botx/getMe");
+
+    expect(undiciFetch).toHaveBeenCalledTimes(4);
+    expectPinnedFallbackIpDispatcher(3);
+    expect(getDispatcherFromUndiciCall(4)).toBe(getDispatcherFromUndiciCall(3));
+  });
+
   it("preserves caller-provided dispatcher across fallback retry", async () => {
     const fetchError = buildFetchFallbackError("EHOSTUNREACH");
     undiciFetch.mockRejectedValueOnce(fetchError).mockResolvedValueOnce({ ok: true } as Response);

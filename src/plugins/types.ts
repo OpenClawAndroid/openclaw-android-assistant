@@ -1005,9 +1005,8 @@ export type ProviderBuildUnknownModelHintContext = {
 /**
  * Built-in model suppression hook context.
  *
- * @deprecated Use manifest `modelCatalog.suppressions` for static suppression
- * rules. Runtime suppression hooks remain as compatibility fallback for
- * plugins that cannot express a rule declaratively yet.
+ * @deprecated Use manifest `modelCatalog.suppressions`. Runtime suppression
+ * hooks are no longer called by model resolution.
  */
 export type ProviderBuiltInModelSuppressionContext = {
   config?: OpenClawConfig;
@@ -1518,9 +1517,8 @@ export type ProviderPlugin = {
    * `errorMessage` when OpenClaw should surface a provider-specific hint for
    * direct model resolution failures.
    *
-   * @deprecated Use manifest `modelCatalog.suppressions` for static suppression
-   * rules. Runtime suppression hooks remain as compatibility fallback for
-   * plugins that cannot express a rule declaratively yet.
+   * @deprecated Use manifest `modelCatalog.suppressions`. Runtime suppression
+   * hooks are no longer called by model resolution.
    */
   suppressBuiltInModel?: (
     ctx: ProviderBuiltInModelSuppressionContext,

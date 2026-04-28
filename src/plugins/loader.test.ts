@@ -60,6 +60,7 @@ import {
   useNoBundledPlugins,
   writePlugin,
 } from "./loader.test-fixtures.js";
+import { loadPluginManifestRegistry } from "./manifest-registry.js";
 import {
   listMemoryEmbeddingProviders,
   registerMemoryEmbeddingProvider,
@@ -897,6 +898,31 @@ afterAll(() => {
 });
 
 describe("loadOpenClawPlugins", () => {
+  it("can load scoped plugins from a supplied manifest registry without rereading manifests", () => {
+    useNoBundledPlugins();
+    const plugin = writePlugin({
+      id: "supplied-manifest",
+      body: `module.exports = { id: "supplied-manifest", register() {} };`,
+    });
+    const config = {
+      plugins: {
+        load: { paths: [plugin.file] },
+        allow: [plugin.id],
+      },
+    };
+    const manifestRegistry = loadPluginManifestRegistry({ config, cache: false });
+    fs.rmSync(path.join(plugin.dir, "openclaw.plugin.json"));
+
+    const registry = loadOpenClawPlugins({
+      cache: false,
+      config,
+      manifestRegistry,
+      onlyPluginIds: [plugin.id],
+    });
+
+    expect(registry.plugins.find((entry) => entry.id === plugin.id)?.status).toBe("loaded");
+  });
+
   it("refreshes bundled plugin-sdk aliases without deleting the shared alias directory", () => {
     const distRoot = makeTempDir();
     const pluginSdkDir = path.join(distRoot, "plugin-sdk");

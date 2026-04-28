@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
 import {
   enqueueSystemEvent,
   resetSystemEventsForTest,

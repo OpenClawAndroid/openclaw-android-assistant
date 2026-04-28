@@ -135,6 +135,7 @@ describe("resolveBundledRuntimeDepsNpmRunner", () => {
           NPM_CONFIG_LOCATION: "global",
           NPM_CONFIG_PREFIX: "/Users/alice",
           npm_config_cache: "/Users/alice/.npm",
+          npm_config_dry_run: "true",
           npm_config_global: "true",
           npm_config_location: "global",
           npm_config_prefix: "/opt/homebrew",
@@ -144,6 +145,7 @@ describe("resolveBundledRuntimeDepsNpmRunner", () => {
     ).toEqual({
       PATH: "/usr/bin:/bin",
       npm_config_cache: "/opt/openclaw/runtime-cache",
+      npm_config_dry_run: "false",
       npm_config_global: "false",
       npm_config_legacy_peer_deps: "true",
       npm_config_location: "project",
@@ -320,6 +322,7 @@ describe("installBundledRuntimeDeps", () => {
         cwd: installRoot,
         windowsHide: true,
         env: expect.objectContaining({
+          npm_config_dry_run: "false",
           npm_config_legacy_peer_deps: "true",
           npm_config_package_lock: "false",
           npm_config_save: "false",

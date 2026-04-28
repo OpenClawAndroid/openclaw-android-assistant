@@ -52,6 +52,43 @@ export const PLUGIN_COMPAT_RECORDS = [
     ],
   },
   {
+    code: "bundled-channel-config-schema-legacy",
+    status: "deprecated",
+    owner: "sdk",
+    introduced: "2026-04-28",
+    deprecated: "2026-04-28",
+    warningStarts: "2026-04-28",
+    removeAfter: "2026-07-28",
+    replacement:
+      "`openclaw/plugin-sdk/bundled-channel-config-schema` for maintained bundled plugins; plugin-local schemas for third-party plugins",
+    docsPath: "/plugins/sdk-migration",
+    surfaces: ["openclaw/plugin-sdk/channel-config-schema-legacy"],
+    diagnostics: ["plugin SDK compatibility warning"],
+    tests: [
+      "src/plugins/contracts/config-footprint-guardrails.test.ts",
+      "test/extension-test-boundary.test.ts",
+    ],
+  },
+  {
+    code: "plugin-sdk-testing-barrel",
+    status: "deprecated",
+    owner: "sdk",
+    introduced: "2026-04-28",
+    deprecated: "2026-04-28",
+    warningStarts: "2026-04-28",
+    removeAfter: "2026-07-28",
+    replacement:
+      "focused `openclaw/plugin-sdk/*` test subpaths such as `plugin-test-runtime`, `channel-test-helpers`, `test-env`, and `test-fixtures`",
+    docsPath: "/plugins/sdk-migration",
+    surfaces: ["openclaw/plugin-sdk/testing"],
+    diagnostics: ["plugin SDK compatibility warning"],
+    tests: [
+      "src/plugins/compat/registry.test.ts",
+      "scripts/check-no-extension-test-core-imports.ts",
+      "test/extension-test-boundary.test.ts",
+    ],
+  },
+  {
     code: "channel-route-key-aliases",
     status: "deprecated",
     owner: "sdk",
@@ -169,6 +206,21 @@ export const PLUGIN_COMPAT_RECORDS = [
     surfaces: ["activation.onAgentHarnesses", "activation planner"],
     diagnostics: ["activation plan compat reason"],
     tests: ["src/plugins/activation-planner.test.ts"],
+  },
+  {
+    code: "legacy-implicit-startup-sidecar",
+    status: "deprecated",
+    owner: "plugin-execution",
+    introduced: "2026-04-28",
+    deprecated: "2026-04-28",
+    warningStarts: "2026-04-28",
+    removeAfter: "2026-07-28",
+    replacement:
+      "`activation.onStartup: true` for startup work or `activation.onStartup: false` for inert plugins",
+    docsPath: "/plugins/manifest",
+    surfaces: ["Gateway startup plugin planning", "openclaw.plugin.json activation"],
+    diagnostics: ["plugin compatibility notice"],
+    tests: ["src/plugins/channel-plugin-ids.test.ts", "src/plugins/installed-plugin-index.test.ts"],
   },
   {
     code: "activation-provider-hint",
@@ -668,7 +720,8 @@ export const PLUGIN_COMPAT_RECORDS = [
     deprecated: "2026-04-26",
     warningStarts: "2026-04-26",
     removeAfter: "2026-07-26",
-    replacement: "`api.runtime.tasks.flows`",
+    replacement:
+      "`api.runtime.tasks.managedFlows` for managed mutations or `api.runtime.tasks.flows` for DTO reads",
     docsPath: "/plugins/sdk-runtime",
     surfaces: ["api.runtime.taskFlow", "api.runtime.tasks.flow"],
     diagnostics: ["plugin runtime compatibility warning"],
@@ -793,7 +846,10 @@ export const PLUGIN_COMPAT_RECORDS = [
     docsPath: "/plugins/sdk-migration",
     surfaces: ["openclaw/plugin-sdk/test-utils"],
     diagnostics: ["plugin SDK compatibility warning"],
-    tests: ["src/plugins/contracts/plugin-sdk-subpaths.test.ts"],
+    tests: [
+      "src/plugins/compat/registry.test.ts",
+      "src/plugins/contracts/plugin-sdk-subpaths.test.ts",
+    ],
   },
 ] as const satisfies readonly PluginCompatRecord[];
 

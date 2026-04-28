@@ -2573,9 +2573,8 @@ extension NodeAppModel {
                 from: payload)
             guard !decoded.actions.isEmpty else { return }
             self.pendingActionLogger
-                .info(
-                    // swiftlint:disable:next line_length
-                    "Pending actions pulled trigger=\(trigger, privacy: .public) count=\(decoded.actions.count, privacy: .public)")
+                .info("pending actions trigger=\(trigger, privacy: .public)")
+            self.pendingActionLogger.info("pending actions count=\(decoded.actions.count, privacy: .public)")
             await self.applyPendingForegroundNodeActions(decoded.actions, trigger: trigger)
         } catch {
             // Best-effort only.
@@ -2598,9 +2597,9 @@ extension NodeAppModel {
                 paramsJSON: action.paramsJSON)
             let result = await self.handleInvoke(req)
             self.pendingActionLogger
-                .info(
-                    // swiftlint:disable:next line_length
-                    "Pending action replay trigger=\(trigger, privacy: .public) id=\(action.id, privacy: .public) command=\(action.command, privacy: .public) ok=\(result.ok, privacy: .public)")
+                .info("pending replay trigger=\(trigger, privacy: .public) id=\(action.id, privacy: .public)")
+            self.pendingActionLogger.info("pending replay ok=\(result.ok, privacy: .public)")
+            self.pendingActionLogger.info("pending replay command=\(action.command, privacy: .public)")
             guard result.ok else { return }
             let acked = await self.ackPendingForegroundNodeAction(
                 id: action.id,
@@ -2625,9 +2624,9 @@ extension NodeAppModel {
             return true
         } catch {
             self.pendingActionLogger
-                .error(
-                    // swiftlint:disable:next line_length
-                    "Pending action ack failed trigger=\(trigger, privacy: .public) id=\(id, privacy: .public) command=\(command, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                .error("pending ack failed trigger=\(trigger, privacy: .public) id=\(id, privacy: .public)")
+            self.pendingActionLogger.error("pending ack command=\(command, privacy: .public)")
+            self.pendingActionLogger.error("pending ack error=\(String(describing: error), privacy: .public)")
             return false
         }
     }
@@ -2840,8 +2839,9 @@ extension NodeAppModel {
         } catch {
             self.watchExecApprovalLogger
                 .error(
-                    // swiftlint:disable:next line_length
-                    "watch exec approval prompt failed id=\(prompt.id, privacy: .public) reason=\(reason, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                    "watch approval prompt failed id=\(prompt.id, privacy: .public) reason=\(reason, privacy: .public)")
+            self.watchExecApprovalLogger.error(
+                "watch approval prompt error=\(error.localizedDescription, privacy: .public)")
         }
         await self.syncWatchExecApprovalSnapshot(reason: "\(reason)_snapshot")
     }
@@ -2864,8 +2864,9 @@ extension NodeAppModel {
         } catch {
             self.watchExecApprovalLogger
                 .error(
-                    // swiftlint:disable:next line_length
-                    "watch exec approval resolved update failed id=\(normalizedApprovalID, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                    "watch approval resolve failed id=\(normalizedApprovalID, privacy: .public)")
+            self.watchExecApprovalLogger.error(
+                "watch approval resolve error=\(error.localizedDescription, privacy: .public)")
         }
         await self.syncWatchExecApprovalSnapshot(reason: "resolved_snapshot")
     }
@@ -2886,8 +2887,9 @@ extension NodeAppModel {
         } catch {
             self.watchExecApprovalLogger
                 .error(
-                    // swiftlint:disable:next line_length
-                    "watch exec approval expiry update failed id=\(normalizedApprovalID, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                    "watch approval expiry failed id=\(normalizedApprovalID, privacy: .public)")
+            self.watchExecApprovalLogger.error(
+                "watch approval expiry error=\(error.localizedDescription, privacy: .public)")
         }
         await self.syncWatchExecApprovalSnapshot(reason: "expired_\(reason.rawValue)")
     }
@@ -2917,16 +2919,17 @@ extension NodeAppModel {
             GatewayDiagnostics.log(
                 "watch exec approval: sync snapshot sent reason=\(reason) count=\(approvals.count)")
             self.watchExecApprovalLogger
-                .debug(
-                    // swiftlint:disable:next line_length
-                    "watch exec approval snapshot sent reason=\(reason, privacy: .public) count=\(approvals.count, privacy: .public)")
+                .debug("watch approval snapshot reason=\(reason, privacy: .public)")
+            self.watchExecApprovalLogger.debug(
+                "watch approval snapshot count=\(approvals.count, privacy: .public)")
         } catch {
             GatewayDiagnostics.log(
                 "watch exec approval: sync snapshot failed reason=\(reason) error=\(error.localizedDescription)")
             self.watchExecApprovalLogger
                 .error(
-                    // swiftlint:disable:next line_length
-                    "watch exec approval snapshot failed reason=\(reason, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                    "watch approval snapshot failed reason=\(reason, privacy: .public)")
+            self.watchExecApprovalLogger.error(
+                "watch approval snapshot error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -2993,9 +2996,9 @@ extension NodeAppModel {
                     notificationCenter: self.notificationCenter)
             case let .failed(message):
                 self.watchExecApprovalLogger
-                    .error(
-                        // swiftlint:disable:next line_length
-                        "watch exec approval hydrate failed id=\(approvalId, privacy: .public) reason=\(reason, privacy: .public) error=\(message, privacy: .public)")
+                    .error("watch approval hydrate failed id=\(approvalId, privacy: .public)")
+                self.watchExecApprovalLogger.error("watch approval hydrate reason=\(reason, privacy: .public)")
+                self.watchExecApprovalLogger.error("watch approval hydrate error=\(message, privacy: .public)")
             }
         }
     }
@@ -3078,8 +3081,8 @@ extension NodeAppModel {
         case let .failed(message):
             self.watchExecApprovalLogger
                 .error(
-                    // swiftlint:disable:next line_length
-                    "watch exec approval push fetch failed id=\(normalizedApprovalID, privacy: .public) error=\(message, privacy: .public)")
+                    "watch approval push fetch failed id=\(normalizedApprovalID, privacy: .public)")
+            self.watchExecApprovalLogger.error("watch approval push fetch error=\(message, privacy: .public)")
             return false
         }
     }
@@ -3134,8 +3137,7 @@ extension NodeAppModel {
             if handled {
                 self.execApprovalNotificationLogger
                     .info(
-                        // swiftlint:disable:next line_length
-                        "Handled exec approval request push wakeId=\(wakeId, privacy: .public) id=\(approvalId, privacy: .public)")
+                        "handled approval push wakeId=\(wakeId, privacy: .public) id=\(approvalId, privacy: .public)")
             }
             return handled
         }
@@ -3357,9 +3359,8 @@ extension NodeAppModel {
             await self.publishWatchExecApprovalExpired(approvalId: approvalId, reason: .notFound)
         case let .failed(message):
             self.execApprovalNotificationLogger
-                .error(
-                    // swiftlint:disable:next line_length
-                    "Exec approval prompt fetch failed id=\(approvalId, privacy: .public) reason=\(message, privacy: .public)")
+                .error("approval prompt fetch failed id=\(approvalId, privacy: .public)")
+            self.execApprovalNotificationLogger.error("approval prompt fetch reason=\(message, privacy: .public)")
         }
     }
 
@@ -3900,8 +3901,7 @@ extension NodeAppModel {
         let message = link.message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
         self.deepLinkLogger.info(
-            // swiftlint:disable:next line_length
-            "agent deep link received messageChars=\(message.count) url=\(originalURL.absoluteString, privacy: .public)")
+            "agent deep link messageChars=\(message.count) url=\(originalURL.absoluteString, privacy: .public)")
 
         if message.count > IOSDeepLinkAgentPolicy.maxMessageChars {
             self.screen.errorText = "Deep link too large (message exceeds "

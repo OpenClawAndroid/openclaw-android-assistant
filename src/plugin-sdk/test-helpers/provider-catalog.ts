@@ -1,7 +1,6 @@
 export {
   expectAugmentedCodexCatalog,
   expectedAugmentedOpenaiCodexCatalogEntriesWithGpt55,
-  expectCodexBuiltInSuppression,
   expectCodexMissingAuthHint,
 } from "../testing.js";
 export type { ProviderPlugin } from "../provider-model-shared.js";
@@ -12,20 +11,14 @@ export {
 
 type ProviderRuntimeCatalogModule = Pick<
   typeof import("openclaw/plugin-sdk/provider-catalog-runtime"),
-  | "augmentModelCatalogWithProviderPlugins"
-  | "resetProviderRuntimeHookCacheForTest"
-  | "resolveProviderBuiltInModelSuppression"
+  "augmentModelCatalogWithProviderPlugins" | "resetProviderRuntimeHookCacheForTest"
 >;
 
 export async function importProviderRuntimeCatalogModule(): Promise<ProviderRuntimeCatalogModule> {
-  const {
-    augmentModelCatalogWithProviderPlugins,
-    resetProviderRuntimeHookCacheForTest,
-    resolveProviderBuiltInModelSuppression,
-  } = await import("openclaw/plugin-sdk/provider-catalog-runtime");
+  const { augmentModelCatalogWithProviderPlugins, resetProviderRuntimeHookCacheForTest } =
+    await import("openclaw/plugin-sdk/provider-catalog-runtime");
   return {
     augmentModelCatalogWithProviderPlugins,
     resetProviderRuntimeHookCacheForTest,
-    resolveProviderBuiltInModelSuppression,
   };
 }

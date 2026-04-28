@@ -57,6 +57,7 @@ import {
   listRegisteredCompactionProviders,
   restoreRegisteredCompactionProviders,
 } from "./compaction-provider.js";
+import type { PluginCompatCode } from "./compat/registry.js";
 import {
   applyTestPluginDefaults,
   createPluginActivationSource,
@@ -68,9 +69,10 @@ import {
   type NormalizedPluginsConfig,
   type PluginActivationState,
 } from "./config-state.js";
-import { discoverOpenClawPlugins } from "./discovery.js";
+import { discoverOpenClawPlugins, type PluginCandidate } from "./discovery.js";
 import { getGlobalHookRunner, initializeGlobalHookRunner } from "./hook-runner-global.js";
 import { toSafeImportPath } from "./import-specifier.js";
+import { collectPluginManifestCompatCodes } from "./installed-plugin-index-record-builder.js";
 import { loadInstalledPluginIndexInstallRecordsSync } from "./installed-plugin-index-records.js";
 import {
   clearPluginInteractiveHandlers,
@@ -79,7 +81,11 @@ import {
 } from "./interactive-registry.js";
 import { getCachedPluginJitiLoader, type PluginJitiLoaderCache } from "./jiti-loader-cache.js";
 import { PluginLoaderCacheState } from "./loader-cache-state.js";
-import { loadPluginManifestRegistry, type PluginManifestRecord } from "./manifest-registry.js";
+import {
+  loadPluginManifestRegistry,
+  type PluginManifestRecord,
+  type PluginManifestRegistry,
+} from "./manifest-registry.js";
 import type { PluginBundleFormat, PluginDiagnostic, PluginFormat } from "./manifest-types.js";
 import type { PluginManifestContracts } from "./manifest.js";
 import {
@@ -173,6 +179,7 @@ export type PluginLoadOptions = {
   installBundledRuntimeDeps?: boolean;
   throwOnLoadError?: boolean;
   bundledRuntimeDepsInstaller?: (params: BundledRuntimeDepsInstallParams) => void;
+  manifestRegistry?: PluginManifestRegistry;
 };
 
 const CLI_METADATA_ENTRY_BASENAMES = [
@@ -252,6 +259,20 @@ const LAZY_RUNTIME_REFLECTION_KEYS = [
   "state",
   "modelAuth",
 ] as const satisfies readonly (keyof PluginRuntime)[];
+
+function createPluginCandidatesFromManifestRegistry(
+  manifestRegistry: PluginManifestRegistry,
+): PluginCandidate[] {
+  return manifestRegistry.plugins.map((record) => ({
+    idHint: record.id,
+    rootDir: record.rootDir,
+    source: record.source,
+    origin: record.origin,
+    ...(record.workspaceDir !== undefined ? { workspaceDir: record.workspaceDir } : {}),
+    ...(record.format !== undefined ? { format: record.format } : {}),
+    ...(record.bundleFormat !== undefined ? { bundleFormat: record.bundleFormat } : {}),
+  }));
+}
 
 export function clearPluginLoaderCache(): void {
   pluginLoaderCacheState.clear();
@@ -1736,6 +1757,7 @@ function createPluginRecord(params: {
   origin: PluginRecord["origin"];
   workspaceDir?: string;
   enabled: boolean;
+  compat?: readonly PluginCompatCode[];
   activationState?: PluginActivationState;
   syntheticAuthRefs?: string[];
   configSchema: boolean;
@@ -1754,6 +1776,7 @@ function createPluginRecord(params: {
     origin: params.origin,
     workspaceDir: params.workspaceDir,
     enabled: params.enabled,
+    compat: params.compat,
     explicitlyEnabled: params.activationState?.explicitlyEnabled,
     activated: params.activationState?.activated,
     activationSource: params.activationState?.source,
@@ -2311,21 +2334,29 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
       activateGlobalSideEffects: shouldActivate,
     });
 
-    const discovery = discoverOpenClawPlugins({
-      workspaceDir: options.workspaceDir,
-      extraPaths: normalized.loadPaths,
-      cache: options.cache,
-      env,
-    });
-    const manifestRegistry = loadPluginManifestRegistry({
-      config: cfg,
-      workspaceDir: options.workspaceDir,
-      cache: options.cache,
-      env,
-      candidates: discovery.candidates,
-      diagnostics: discovery.diagnostics,
-      installRecords: Object.keys(installRecords).length > 0 ? installRecords : undefined,
-    });
+    const suppliedManifestRegistry = options.manifestRegistry;
+    const discovery = suppliedManifestRegistry
+      ? {
+          candidates: createPluginCandidatesFromManifestRegistry(suppliedManifestRegistry),
+          diagnostics: [] as PluginDiagnostic[],
+        }
+      : discoverOpenClawPlugins({
+          workspaceDir: options.workspaceDir,
+          extraPaths: normalized.loadPaths,
+          cache: options.cache,
+          env,
+        });
+    const manifestRegistry =
+      suppliedManifestRegistry ??
+      loadPluginManifestRegistry({
+        config: cfg,
+        workspaceDir: options.workspaceDir,
+        cache: options.cache,
+        env,
+        candidates: discovery.candidates,
+        diagnostics: discovery.diagnostics,
+        installRecords: Object.keys(installRecords).length > 0 ? installRecords : undefined,
+      });
     pushDiagnostics(registry.diagnostics, manifestRegistry.diagnostics);
     warnWhenAllowlistIsOpen({
       emitWarning: shouldActivate,
@@ -2408,6 +2439,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
           origin: candidate.origin,
           workspaceDir: candidate.workspaceDir,
           enabled: false,
+          compat: collectPluginManifestCompatCodes(manifestRecord),
           activationState,
           syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
           configSchema: Boolean(manifestRecord.configSchema),
@@ -2442,6 +2474,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
         origin: candidate.origin,
         workspaceDir: candidate.workspaceDir,
         enabled: enableState.enabled,
+        compat: collectPluginManifestCompatCodes(manifestRecord),
         activationState,
         syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
         configSchema: Boolean(manifestRecord.configSchema),
@@ -3315,6 +3348,7 @@ export async function loadOpenClawPluginCliRegistry(
         origin: candidate.origin,
         workspaceDir: candidate.workspaceDir,
         enabled: false,
+        compat: collectPluginManifestCompatCodes(manifestRecord),
         activationState,
         syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
         configSchema: Boolean(manifestRecord.configSchema),
@@ -3349,6 +3383,7 @@ export async function loadOpenClawPluginCliRegistry(
       origin: candidate.origin,
       workspaceDir: candidate.workspaceDir,
       enabled: enableState.enabled,
+      compat: collectPluginManifestCompatCodes(manifestRecord),
       activationState,
       syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
       configSchema: Boolean(manifestRecord.configSchema),
