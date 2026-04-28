@@ -256,6 +256,9 @@ export function buildGroupChatContext(params: {
     lines.push(
       `If you only react or otherwise handle the message without a text reply, your final answer must still be exactly "${params.silentToken}". Never say that you are staying quiet, keeping channel noise low, making a context-only note, or sending no channel reply.`,
     );
+    lines.push(
+      `Any prose describing silence is wrong; the whole final answer must be only "${params.silentToken}".`,
+    );
   }
   return lines.join(" ");
 }

@@ -1,4 +1,4 @@
-import { createProviderUsageFetch, makeResponse } from "openclaw/plugin-sdk/testing";
+import { createProviderUsageFetch, makeResponse } from "openclaw/plugin-sdk/test-env";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCopilotModelDefinition, getDefaultCopilotModelIds } from "./models-defaults.js";
 import { fetchCopilotUsage } from "./usage.js";

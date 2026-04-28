@@ -241,6 +241,20 @@ async function waitForStart(started: Promise<void>) {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+async function waitForAssertion(assertion: () => void, maxTicks = 20) {
+  for (let tick = 0; tick < maxTicks; tick += 1) {
+    try {
+      assertion();
+      return;
+    } catch (err) {
+      if (tick === maxTicks - 1) {
+        throw err;
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+}
+
 async function createSignaledLoopHarness(exitCallOrder?: string[]) {
   const close = vi.fn(async () => {});
   const { start, started } = createSignaledStart(close);
@@ -302,7 +316,7 @@ describe("runGatewayLoop", () => {
         reason: "gateway restarting",
         restartExpectedMs: 1500,
       });
-      expect(start).toHaveBeenCalledTimes(2);
+      await waitForAssertion(() => expect(start).toHaveBeenCalledTimes(2));
 
       sigint();
       await expect(exited).resolves.toBe(0);

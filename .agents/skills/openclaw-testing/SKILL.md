@@ -275,16 +275,25 @@ job:
 
 - `native-live-src-agents`
 - `native-live-src-gateway-core`
+- `native-live-src-gateway-profiles` (release CI runs this with provider
+  filters such as `OPENCLAW_LIVE_GATEWAY_PROVIDERS=anthropic`)
 - `native-live-src-gateway-backends`
 - `native-live-test`
 - `native-live-extensions-a-k`
 - `native-live-extensions-l-n`
 - `native-live-extensions-openai`
 - `native-live-extensions-o-z`
+- `native-live-extensions-o-z-other`
+- `native-live-extensions-xai`
 - `native-live-extensions-media`
+- `native-live-extensions-media-audio`
+- `native-live-extensions-media-music`
+- `native-live-extensions-media-video`
 
 Use `node scripts/test-live-shard.mjs <shard> --list` to see the exact files
-before rerunning a failed native live shard.
+before rerunning a failed native live shard. The aggregate `o-z` and `media`
+shards remain useful locally; release CI uses the smaller provider/media shards
+so one live-provider flake does not force a broad native live rerun.
 
 For model-list or provider-selection fixes, use `live_models_only=true` plus the
 specific `live_model_providers` allowlist. Confirm logs show the expected

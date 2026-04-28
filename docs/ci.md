@@ -28,13 +28,17 @@ release box rerun bounded after a focused fix.
 
 The release live/E2E child keeps broad native `pnpm test:live` coverage, but it
 runs it as named shards (`native-live-src-agents`,
-`native-live-src-gateway-core`, `native-live-src-gateway-backends`,
-`native-live-test`, `native-live-extensions-a-k`,
-`native-live-extensions-l-n`, `native-live-extensions-openai`,
-`native-live-extensions-o-z`, and `native-live-extensions-media`) through
+`native-live-src-gateway-core`, provider-filtered
+`native-live-src-gateway-profiles` jobs,
+`native-live-src-gateway-backends`, `native-live-test`,
+`native-live-extensions-a-k`, `native-live-extensions-l-n`,
+`native-live-extensions-openai`, `native-live-extensions-o-z-other`,
+`native-live-extensions-xai`, and split media audio/music/video shards) through
 `scripts/test-live-shard.mjs` instead of one serial job. That keeps the same
 file coverage while making slow live provider failures easier to rerun and
-diagnose.
+diagnose. The aggregate `native-live-extensions-o-z` and
+`native-live-extensions-media` shard names remain valid for manual one-shot
+reruns.
 
 `Package Acceptance` is the side-run workflow for validating a package artifact
 without blocking the release workflow. It resolves one candidate from a

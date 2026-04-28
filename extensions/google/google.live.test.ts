@@ -1,8 +1,8 @@
 import {
-  isLiveTestEnabled,
   registerProviderPlugin,
   requireRegisteredProvider,
-} from "openclaw/plugin-sdk/testing";
+} from "openclaw/plugin-sdk/plugin-test-runtime";
+import { isLiveTestEnabled } from "openclaw/plugin-sdk/test-env";
 import { describe, expect, it } from "vitest";
 import { normalizeTranscriptForMatch } from "../../test/helpers/stt-live-audio.js";
 import plugin from "./index.js";

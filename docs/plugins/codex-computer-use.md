@@ -3,6 +3,8 @@ summary: "Set up Codex Computer Use for Codex-mode OpenClaw agents"
 title: "Codex Computer Use"
 read_when:
   - You want Codex-mode OpenClaw agents to use Codex Computer Use
+  - You are deciding between Codex Computer Use, PeekabooBridge, and direct cua-driver MCP
+  - You are deciding between Codex Computer Use and a direct cua-driver MCP setup
   - You are configuring computerUse for the bundled Codex plugin
   - You are troubleshooting /codex computer-use status or install
 ---
@@ -16,6 +18,61 @@ then lets Codex own the native MCP tool calls during Codex-mode turns.
 
 Use this page when OpenClaw is already using the native Codex harness. For the
 runtime setup itself, see [Codex harness](/plugins/codex-harness).
+
+## OpenClaw.app and Peekaboo
+
+OpenClaw.app's Peekaboo integration is separate from Codex Computer Use. The
+macOS app can host a PeekabooBridge socket so the `peekaboo` CLI can reuse the
+app's local Accessibility and Screen Recording grants for Peekaboo's own
+automation tools. That bridge does not install or proxy Codex Computer Use, and
+Codex Computer Use does not call through the PeekabooBridge socket.
+
+Use [Peekaboo bridge](/platforms/mac/peekaboo) when you want OpenClaw.app to be
+a permission-aware host for Peekaboo CLI automation. Use this page when a
+Codex-mode OpenClaw agent should have Codex's native `computer-use` MCP plugin
+available before the turn starts.
+
+## iOS app
+
+The iOS app is separate from Codex Computer Use. It does not install or proxy
+the Codex `computer-use` MCP server and it is not a desktop-control backend.
+Instead, the iOS app connects as an OpenClaw node and exposes mobile
+capabilities through node commands such as `canvas.*`, `camera.*`, `screen.*`,
+`location.*`, and `talk.*`.
+
+Use [iOS](/platforms/ios) when you want an agent to drive an iPhone node through
+the gateway. Use this page when a Codex-mode agent should control the local
+macOS desktop through Codex's native Computer Use plugin.
+
+## Direct cua-driver MCP
+
+Codex Computer Use is not the only way to expose desktop control. If you want
+OpenClaw-managed runtimes to call TryCua's driver directly, use the upstream
+`cua-driver mcp` server through OpenClaw's MCP registry instead of the
+Codex-specific marketplace flow.
+
+After installing `cua-driver`, either ask it for the OpenClaw command:
+
+```bash
+cua-driver mcp-config --client openclaw
+```
+
+or register the stdio server yourself:
+
+```bash
+openclaw mcp set cua-driver '{"command":"cua-driver","args":["mcp"]}'
+```
+
+That path keeps the upstream MCP tool surface intact, including the driver
+schemas and structured MCP responses. Use it when you want the CUA driver
+available as a normal OpenClaw MCP server. Use the Codex Computer Use setup on
+this page when Codex app-server should own plugin installation, MCP reloads,
+and native tool calls inside Codex-mode turns.
+
+CUA's driver is macOS-specific and still requires the local macOS permissions
+that its app prompts for, such as Accessibility and Screen Recording. OpenClaw
+does not install `cua-driver`, grant those permissions, or bypass the upstream
+driver's safety model.
 
 ## Quick setup
 

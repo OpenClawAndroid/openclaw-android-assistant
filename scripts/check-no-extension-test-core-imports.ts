@@ -11,7 +11,11 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; hint: string }> = [
   },
   {
     pattern: /["']openclaw\/plugin-sdk\/test-utils["']/,
-    hint: "Use openclaw/plugin-sdk/testing for the public extension test surface.",
+    hint: "Use a focused plugin-sdk test subpath for the public extension test surface.",
+  },
+  {
+    pattern: /["']openclaw\/plugin-sdk\/testing["']/,
+    hint: "Use a focused plugin-sdk test subpath instead of the broad compatibility testing barrel.",
   },
   {
     pattern: /["']openclaw\/plugin-sdk\/compat["']/,
@@ -19,19 +23,31 @@ const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; hint: string }> = [
   },
   {
     pattern: /["'](?:\.\.\/)+(?:test-utils\/)[^"']+["']/,
-    hint: "Use test/helpers/plugins/* for repo-only bundled extension test helpers.",
+    hint: "Use a documented openclaw/plugin-sdk test subpath for bundled extension test helpers.",
+  },
+  {
+    pattern: /["'](?:\.\.\/)+(?:test\/helpers\/plugins\/)[^"']+["']/,
+    hint: "Use a documented openclaw/plugin-sdk test subpath instead of repo-only plugin helper bridges.",
+  },
+  {
+    pattern: /["'](?:\.\.\/)+(?:test\/helpers\/channels\/)[^"']+["']/,
+    hint: "Use openclaw/plugin-sdk/channel-test-helpers or another focused SDK test subpath instead of repo-only channel helper bridges.",
+  },
+  {
+    pattern: /["'](?:\.\.\/)+(?:src\/channels\/plugins\/contracts\/test-helpers\/)[^"']+["']/,
+    hint: "Use openclaw/plugin-sdk/channel-test-helpers or another focused SDK test subpath instead of core-only channel contract helpers.",
   },
   {
     pattern: /["'](?:\.\.\/)+(?:src\/test-utils\/)[^"']+["']/,
-    hint: "Use test/helpers/plugins/* for repo-only helpers, or openclaw/plugin-sdk/testing for public surfaces.",
+    hint: "Use a documented openclaw/plugin-sdk test subpath for public surfaces.",
   },
   {
     pattern: /["'](?:\.\.\/)+(?:src\/plugins\/types\.js)["']/,
-    hint: "Use public plugin-sdk/core types or test/helpers/plugins/* instead.",
+    hint: "Use public plugin-sdk/core types or documented plugin-sdk test helpers instead.",
   },
   {
     pattern: /["'](?:\.\.\/)+(?:src\/channels\/plugins\/contracts\/test-helpers\.js)["']/,
-    hint: "Use openclaw/plugin-sdk/testing for channel contract test helpers.",
+    hint: "Use openclaw/plugin-sdk/channel-contract-testing for channel contract test helpers.",
   },
 ];
 
@@ -41,25 +57,56 @@ const MOCK_RELATIVE_MODULE_PATTERN =
   /\bvi\.(?:mock|doMock|unmock|doUnmock)\s*\(\s*["']([^"']+)["']/g;
 
 const RELATIVE_CORE_HINT =
-  "Use openclaw/plugin-sdk/testing or a focused plugin-sdk test/runtime subpath instead of core internals.";
+  "Use a focused plugin-sdk test/runtime subpath instead of core internals.";
 
+// Tombstones for retired repo-only plugin helper bridge files. Keep this list so
+// deleted bridges fail loudly if they are recreated instead of using SDK subpaths.
 const RETIRED_EXTENSION_TEST_HELPER_BRIDGE_FILES = [
   "test/helpers/plugins/env.ts",
   "test/helpers/plugins/fetch-mock.ts",
   "test/helpers/plugins/frozen-time.ts",
   "test/helpers/plugins/media-understanding.ts",
   "test/helpers/plugins/mock-http-response.ts",
+  "test/helpers/plugins/contracts-testkit.ts",
+  "test/helpers/plugins/direct-smoke.ts",
+  "test/helpers/plugins/directory.ts",
+  "test/helpers/plugins/jiti-runtime-api.ts",
+  "test/helpers/plugins/onboard-config.ts",
+  "test/helpers/plugins/outbound-delivery.ts",
+  "test/helpers/plugins/package-manifest-contract.ts",
   "test/helpers/plugins/plugin-api.ts",
+  "test/helpers/plugins/plugin-registration-contract-cases.ts",
+  "test/helpers/plugins/plugin-registration-contract.ts",
   "test/helpers/plugins/plugin-registration.ts",
+  "test/helpers/plugins/plugin-runtime-mock.ts",
   "test/helpers/plugins/plugin-registry.ts",
+  "test/helpers/plugins/provider-auth-contract.ts",
+  "test/helpers/plugins/provider-catalog.ts",
+  "test/helpers/plugins/provider-contract-suites.ts",
+  "test/helpers/plugins/provider-contract.ts",
+  "test/helpers/plugins/provider-discovery-contract.ts",
+  "test/helpers/plugins/provider-onboard.ts",
   "test/helpers/plugins/provider-registration.ts",
+  "test/helpers/plugins/provider-runtime-contract.ts",
   "test/helpers/plugins/provider-usage-fetch.ts",
+  "test/helpers/plugins/provider-wizard-contract-suites.ts",
+  "test/helpers/plugins/public-artifacts.ts",
+  "test/helpers/plugins/public-surface-loader.ts",
   "test/helpers/plugins/runtime-taskflow.ts",
   "test/helpers/plugins/runtime-env.ts",
+  "test/helpers/plugins/send-config.ts",
   "test/helpers/plugins/setup-wizard.ts",
+  "test/helpers/plugins/start-account-context.ts",
+  "test/helpers/plugins/start-account-lifecycle.ts",
+  "test/helpers/plugins/status-issues.ts",
+  "test/helpers/plugins/stream-hooks.ts",
+  "test/helpers/plugins/subagent-hooks.ts",
   "test/helpers/plugins/temp-dir.ts",
   "test/helpers/plugins/temp-home.ts",
+  "test/helpers/plugins/tts-contract-suites.ts",
   "test/helpers/plugins/typed-cases.ts",
+  "test/helpers/plugins/web-fetch-provider-contract.ts",
+  "test/helpers/plugins/web-search-provider-contract.ts",
 ];
 
 function isExtensionTestFile(filePath: string): boolean {
@@ -135,9 +182,20 @@ function collectRelativeCoreImportOffenders(
 function main() {
   const extensionsDir = path.join(process.cwd(), "extensions");
   const pluginHelpersDir = path.join(process.cwd(), "test/helpers/plugins");
+  const retiredChannelHelpersDir = path.join(process.cwd(), "test/helpers/channels");
   const files = collectExtensionTestFiles(extensionsDir);
   const pluginHelperFiles = collectPluginHelperFiles(pluginHelpersDir);
+  const retiredChannelHelperFiles = fs.existsSync(retiredChannelHelpersDir)
+    ? collectFilesSync(retiredChannelHelpersDir, { includeFile: isCodeFile })
+    : [];
   const offenders: Offender[] = [];
+
+  for (const file of retiredChannelHelperFiles) {
+    offenders.push({
+      file,
+      hint: "Keep core channel contract helpers under src/channels/plugins/contracts/test-helpers and public plugin helpers under focused openclaw/plugin-sdk test subpaths.",
+    });
+  }
 
   for (const file of RETIRED_EXTENSION_TEST_HELPER_BRIDGE_FILES) {
     const filePath = path.join(process.cwd(), file);

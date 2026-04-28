@@ -1,5 +1,5 @@
 import { ChannelType, type Guild } from "@buape/carbon";
-import { typedCases } from "openclaw/plugin-sdk/testing";
+import { typedCases } from "openclaw/plugin-sdk/test-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allowListMatches,

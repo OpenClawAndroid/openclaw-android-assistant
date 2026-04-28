@@ -155,6 +155,10 @@ plugin discovery rather than silently falling back to source paths.
   <Accordion title="Memory plugins">
     - `memory-core` — bundled memory search (default via `plugins.slots.memory`)
     - `memory-lancedb` — install-on-demand long-term memory with auto-recall/capture (set `plugins.slots.memory = "memory-lancedb"`)
+
+    See [Memory LanceDB](/plugins/memory-lancedb) for OpenAI-compatible
+    embedding setup, Ollama examples, recall limits, and troubleshooting.
+
   </Accordion>
 
   <Accordion title="Speech providers (enabled by default)">

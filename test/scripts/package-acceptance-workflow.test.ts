@@ -48,6 +48,8 @@ describe("package acceptance workflow", () => {
     expect(workflow).toContain(
       "package_artifact_name: ${{ needs.resolve_package.outputs.package_artifact_name }}",
     );
+    expect(workflow).toContain("telegram_scenarios:");
+    expect(workflow).toContain("scenario: ${{ inputs.telegram_scenarios }}");
     expect(workflow).toContain(
       "package_label: openclaw@${{ needs.resolve_package.outputs.package_version }}",
     );
@@ -103,11 +105,22 @@ describe("package artifact reuse", () => {
     expect(workflow).toContain("command: node scripts/test-live-shard.mjs native-live-src-agents");
     expect(workflow).toContain("suite_id: native-live-src-gateway-core");
     expect(workflow).toContain("suite_id: native-live-src-gateway-backends");
+    expect(workflow).toContain("suite_id: native-live-src-gateway-profiles-deepseek");
+    expect(workflow).toContain("suite_id: native-live-src-gateway-profiles-opencode-go");
+    expect(workflow).toContain("suite_id: native-live-src-gateway-profiles-openrouter");
+    expect(workflow).toContain("suite_id: native-live-src-gateway-profiles-xai");
+    expect(workflow).toContain("suite_id: native-live-src-gateway-profiles-zai");
+    expect(workflow).not.toContain(
+      "OPENCLAW_LIVE_GATEWAY_PROVIDERS=deepseek,opencode-go,openrouter,xai,zai",
+    );
     expect(workflow).toContain("suite_id: native-live-extensions-a-k");
     expect(workflow).toContain("suite_id: native-live-extensions-l-n");
     expect(workflow).toContain("suite_id: native-live-extensions-openai");
     expect(workflow).toContain("suite_id: native-live-extensions-o-z");
     expect(workflow).toContain("suite_id: native-live-extensions-media");
+    expect(workflow).toMatch(
+      /suite_id: native-live-extensions-media-audio[\s\S]*?needs_ffmpeg: true/u,
+    );
     expect(workflow).toContain("if: matrix.needs_ffmpeg");
   });
 
@@ -137,6 +150,9 @@ describe("package artifact reuse", () => {
     expect(workflow).toContain("suite_profile: custom");
     expect(workflow).toContain("docker_lanes: bundled-channel-deps-compat plugins-offline");
     expect(workflow).toContain("telegram_mode: mock-openai");
+    expect(workflow).toContain(
+      "telegram_scenarios: telegram-help-command,telegram-commands-command,telegram-tools-compact-command,telegram-whoami-command,telegram-context-command,telegram-mention-gating",
+    );
     expect(workflow).toContain("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}");
     expect(workflow).toContain("ANTHROPIC_API_TOKEN: ${{ secrets.ANTHROPIC_API_TOKEN }}");
     expect(workflow).toContain(

@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import { buildPluginApi, registerSingleProviderPlugin } from "openclaw/plugin-sdk/testing";
+import {
+  buildPluginApi,
+  registerSingleProviderPlugin,
+} from "openclaw/plugin-sdk/plugin-test-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBedrockDiscoveryCacheForTest } from "./discovery.js";
 import amazonBedrockPlugin from "./index.js";

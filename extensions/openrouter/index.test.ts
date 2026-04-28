@@ -1,4 +1,7 @@
-import { registerProviderPlugin, registerSingleProviderPlugin } from "openclaw/plugin-sdk/testing";
+import {
+  registerProviderPlugin,
+  registerSingleProviderPlugin,
+} from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { expectPassthroughReplayPolicy } from "../../test/helpers/provider-replay-policy.ts";
 import openrouterPlugin from "./index.js";
