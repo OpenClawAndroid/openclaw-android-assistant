@@ -25,6 +25,7 @@ import {
   resolveBundledRuntimeDependencyInstallRootPlan,
   resolveBundledRuntimeDepsNpmRunner,
   scanBundledPluginRuntimeDeps,
+  shouldMaterializeBundledRuntimeMirrorDistFile,
   type BundledRuntimeDepsInstallParams,
 } from "./bundled-runtime-deps.js";
 
@@ -99,9 +100,40 @@ afterEach(() => {
   spawnMock.mockReset();
   spawnSyncMock.mockReset();
   bundledRuntimeDepsActivityTesting.resetBundledRuntimeDepsInstallActivity();
+  bundledRuntimeDepsTesting.clearBundledRuntimeMirrorMaterializeCache();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("shouldMaterializeBundledRuntimeMirrorDistFile", () => {
+  it("reuses unchanged root dist file decisions without rereading source", () => {
+    const root = makeTempDir();
+    const sourcePath = path.join(root, "shared-runtime.js");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        `//#region extensions/browser/src/runtime.ts`,
+        `export const marker = "shared-runtime";`,
+        `//#endregion`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const realReadFileSync = fs.readFileSync.bind(fs);
+    let sourceReads = 0;
+    vi.spyOn(fs, "readFileSync").mockImplementation(((target, options) => {
+      if (path.resolve(target.toString()) === path.resolve(sourcePath)) {
+        sourceReads += 1;
+      }
+      return realReadFileSync(target, options as never);
+    }) as typeof fs.readFileSync);
+
+    expect(shouldMaterializeBundledRuntimeMirrorDistFile(sourcePath)).toBe(true);
+    expect(shouldMaterializeBundledRuntimeMirrorDistFile(sourcePath)).toBe(true);
+
+    expect(sourceReads).toBe(1);
+  });
 });
 
 describe("resolveBundledRuntimeDepsNpmRunner", () => {
