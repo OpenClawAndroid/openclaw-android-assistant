@@ -5693,6 +5693,13 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                         type: "number",
                         exclusiveMinimum: 0,
                       },
+                      gpus: {
+                        type: "string",
+                        minLength: 1,
+                        title: "Sandbox Docker GPUs",
+                        description:
+                          'Optional Docker GPU passthrough value passed to --gpus, for example "all" or "device=GPU-uuid". Requires a compatible host runtime such as NVIDIA Container Toolkit.',
+                      },
                       ulimits: {
                         type: "object",
                         propertyNames: {
@@ -7441,6 +7448,13 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                         cpus: {
                           type: "number",
                           exclusiveMinimum: 0,
+                        },
+                        gpus: {
+                          type: "string",
+                          minLength: 1,
+                          title: "Agent Sandbox Docker GPUs",
+                          description:
+                            "Per-agent Docker GPU passthrough override for sandbox containers.",
                         },
                         ulimits: {
                           type: "object",
@@ -27191,6 +27205,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       help: "DANGEROUS break-glass override that allows sandbox Docker network mode container:<id>. This joins another container namespace and weakens sandbox isolation.",
       tags: ["security", "access", "storage", "advanced"],
     },
+    "agents.defaults.sandbox.docker.gpus": {
+      label: "Sandbox Docker GPUs",
+      help: 'Optional Docker GPU passthrough value passed to --gpus, for example "all" or "device=GPU-uuid". Requires a compatible host runtime such as NVIDIA Container Toolkit.',
+      tags: ["storage"],
+    },
     "commands.native": {
       label: "Native Commands",
       help: "Registers native slash/menu commands with channels that support command registration (Discord, Slack, Telegram). Keep enabled for discoverability unless you intentionally run text-only command workflows.",
@@ -28323,6 +28342,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       label: "Agent Sandbox Docker Allow Container Namespace Join",
       help: "Per-agent DANGEROUS override for container namespace joins in sandbox Docker network mode.",
       tags: ["security", "access", "storage", "advanced"],
+    },
+    "agents.list[].sandbox.docker.gpus": {
+      label: "Agent Sandbox Docker GPUs",
+      help: "Per-agent Docker GPU passthrough override for sandbox containers.",
+      tags: ["storage"],
     },
     "discovery.mdns.mode": {
       label: "mDNS Discovery Mode",

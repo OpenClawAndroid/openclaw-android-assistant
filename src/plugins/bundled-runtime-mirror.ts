@@ -31,22 +31,9 @@ export function refreshBundledPluginRuntimeMirrorRoot(params: {
   if (isBundledRuntimeMirrorRootFresh(params.targetRoot, metadata)) {
     return false;
   }
-  const tempDir = fs.mkdtempSync(
-    path.join(
-      params.tempDirParent ?? path.dirname(params.targetRoot),
-      `.plugin-${sanitizeBundledRuntimeMirrorTempId(params.pluginId)}-`,
-    ),
-  );
-  const stagedRoot = path.join(tempDir, "plugin");
-  try {
-    copyBundledPluginRuntimeRoot(params.sourceRoot, stagedRoot);
-    writeBundledRuntimeMirrorMetadata(stagedRoot, metadata);
-    fs.rmSync(params.targetRoot, { recursive: true, force: true });
-    fs.renameSync(stagedRoot, params.targetRoot);
-    return true;
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
+  copyBundledPluginRuntimeRoot(params.sourceRoot, params.targetRoot);
+  writeBundledRuntimeMirrorMetadata(params.targetRoot, metadata);
+  return true;
 }
 
 export function copyBundledPluginRuntimeRoot(sourceRoot: string, targetRoot: string): void {
@@ -54,24 +41,29 @@ export function copyBundledPluginRuntimeRoot(sourceRoot: string, targetRoot: str
     return;
   }
   fs.mkdirSync(targetRoot, { recursive: true, mode: 0o755 });
+  const mirroredNames = new Set<string>();
   for (const entry of fs.readdirSync(sourceRoot, { withFileTypes: true })) {
     if (shouldIgnoreBundledRuntimeMirrorEntry(entry.name)) {
       continue;
     }
+    if (!entry.isDirectory() && !entry.isSymbolicLink() && !entry.isFile()) {
+      continue;
+    }
+    mirroredNames.add(entry.name);
     const sourcePath = path.join(sourceRoot, entry.name);
     const targetPath = path.join(targetRoot, entry.name);
     if (entry.isDirectory()) {
+      removeBundledRuntimeMirrorPathIfTypeChanged(targetPath, "directory");
       copyBundledPluginRuntimeRoot(sourcePath, targetPath);
       continue;
     }
     if (entry.isSymbolicLink()) {
-      fs.symlinkSync(fs.readlinkSync(sourcePath), targetPath);
+      removeBundledRuntimeMirrorPathIfTypeChanged(targetPath, "symlink");
+      replaceBundledRuntimeMirrorSymlinkAtomic(fs.readlinkSync(sourcePath), targetPath);
       continue;
     }
-    if (!entry.isFile()) {
-      continue;
-    }
-    fs.copyFileSync(sourcePath, targetPath);
+    removeBundledRuntimeMirrorPathIfTypeChanged(targetPath, "file");
+    copyBundledRuntimeMirrorFileAtomic(sourcePath, targetPath);
     try {
       const sourceMode = fs.statSync(sourcePath).mode;
       fs.chmodSync(targetPath, sourceMode | 0o600);
@@ -79,6 +71,72 @@ export function copyBundledPluginRuntimeRoot(sourceRoot: string, targetRoot: str
       // Readable copied files are enough for plugin loading.
     }
   }
+  pruneStaleBundledRuntimeMirrorEntries(targetRoot, mirroredNames);
+}
+
+function pruneStaleBundledRuntimeMirrorEntries(
+  targetRoot: string,
+  mirroredNames: Set<string>,
+): void {
+  for (const entry of fs.readdirSync(targetRoot, { withFileTypes: true })) {
+    if (shouldIgnoreBundledRuntimeMirrorEntry(entry.name)) {
+      continue;
+    }
+    if (mirroredNames.has(entry.name)) {
+      continue;
+    }
+    fs.rmSync(path.join(targetRoot, entry.name), { recursive: true, force: true });
+  }
+}
+
+function removeBundledRuntimeMirrorPathIfTypeChanged(
+  targetPath: string,
+  expectedType: "directory" | "file" | "symlink",
+): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(targetPath);
+  } catch {
+    return;
+  }
+  const matches =
+    expectedType === "directory"
+      ? stat.isDirectory()
+      : expectedType === "symlink"
+        ? stat.isSymbolicLink()
+        : stat.isFile();
+  if (!matches) {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+  }
+}
+
+function replaceBundledRuntimeMirrorSymlinkAtomic(linkTarget: string, targetPath: string): void {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true, mode: 0o755 });
+  const tempPath = createBundledRuntimeMirrorTempPath(targetPath);
+  try {
+    fs.symlinkSync(linkTarget, tempPath);
+    fs.renameSync(tempPath, targetPath);
+  } finally {
+    fs.rmSync(tempPath, { force: true });
+  }
+}
+
+function copyBundledRuntimeMirrorFileAtomic(sourcePath: string, targetPath: string): void {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true, mode: 0o755 });
+  const tempPath = createBundledRuntimeMirrorTempPath(targetPath);
+  try {
+    fs.copyFileSync(sourcePath, tempPath);
+    fs.renameSync(tempPath, targetPath);
+  } finally {
+    fs.rmSync(tempPath, { force: true });
+  }
+}
+
+function createBundledRuntimeMirrorTempPath(targetPath: string): string {
+  return path.join(
+    path.dirname(targetPath),
+    `.openclaw-mirror-${process.pid}-${process.hrtime.bigint()}-${path.basename(targetPath)}.tmp`,
+  );
 }
 
 export function precomputeBundledRuntimeMirrorMetadata(params: {
@@ -234,8 +292,4 @@ function resolveBundledRuntimeMirrorSourceRootId(sourceRoot: string): string {
 
 function shouldIgnoreBundledRuntimeMirrorEntry(name: string): boolean {
   return name === "node_modules" || name === BUNDLED_RUNTIME_MIRROR_METADATA_FILE;
-}
-
-function sanitizeBundledRuntimeMirrorTempId(pluginId: string): string {
-  return pluginId.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 }

@@ -1062,6 +1062,18 @@ For the full setup and behavior details, see [Ollama Web Search](/tools/ollama-s
 
   </Accordion>
 
+  <Accordion title="Kimi or GLM returns garbled symbols">
+    Hosted Kimi/GLM responses that are long, non-linguistic symbol runs are treated as failed provider output instead of a successful assistant answer. That lets normal retry, fallback, or error handling take over without persisting the corrupted text into the session.
+
+    If it happens repeatedly, capture the raw model name, the current session file, and whether the run used `Cloud + Local` or `Cloud only`, then try a fresh session and a fallback model:
+
+    ```bash
+    openclaw infer model run --model ollama/kimi-k2.5:cloud --prompt "Reply with exactly: ok" --json
+    openclaw models set ollama/gemma4
+    ```
+
+  </Accordion>
+
   <Accordion title="Cold local model times out">
     Large local models can need a long first load before streaming begins. Keep the timeout scoped to the Ollama provider, and optionally ask Ollama to keep the model loaded between turns:
 

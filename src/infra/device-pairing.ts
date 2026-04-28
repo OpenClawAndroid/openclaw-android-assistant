@@ -14,6 +14,7 @@ import {
   pruneExpiredPending,
   readDurableJsonFile,
   reconcilePendingPairingRequests,
+  coercePairingStateRecord,
   resolvePairingPaths,
   writeJsonAtomic,
 } from "./pairing-files.js";
@@ -152,12 +153,12 @@ export function formatDevicePairingForbiddenMessage(result: DevicePairingForbidd
 async function loadState(baseDir?: string): Promise<DevicePairingStateFile> {
   const { pendingPath, pairedPath } = resolvePairingPaths(baseDir, "devices");
   const [pending, paired] = await Promise.all([
-    readDurableJsonFile<Record<string, DevicePairingPendingRequest>>(pendingPath),
-    readDurableJsonFile<Record<string, PairedDevice>>(pairedPath),
+    readDurableJsonFile<unknown>(pendingPath),
+    readDurableJsonFile<unknown>(pairedPath),
   ]);
   const state: DevicePairingStateFile = {
-    pendingById: pending ?? {},
-    pairedByDeviceId: paired ?? {},
+    pendingById: coercePairingStateRecord<DevicePairingPendingRequest>(pending),
+    pairedByDeviceId: coercePairingStateRecord<PairedDevice>(paired),
   };
   pruneExpiredPending(state.pendingById, Date.now(), PENDING_TTL_MS);
   return state;
