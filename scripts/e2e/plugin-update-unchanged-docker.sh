@@ -138,6 +138,7 @@ before_config_hash=\"\"
 if [ \"\$OPENCLAW_PACKAGE_ACCEPTANCE_LEGACY_COMPAT\" != \"1\" ]; then
   before_config_hash=\$(sha256sum \"\$OPENCLAW_CONFIG_PATH\" | awk '{print \$1}')
 fi
+plugin_update_timeout_seconds=\"\${OPENCLAW_PLUGIN_UPDATE_TIMEOUT_SECONDS:-180}\"
 
 node --input-type=module > /tmp/plugin-update-before.json <<'NODE'
   import fs from \"node:fs\";
@@ -171,7 +172,18 @@ node --input-type=module > /tmp/plugin-update-before.json <<'NODE'
   process.stdout.write(JSON.stringify(snapshot, null, 2));
 NODE
 
-node \"\$entry\" plugins update @example/lossless-claw > /tmp/plugin-update-output.log 2>&1
+set +e
+timeout \"\${plugin_update_timeout_seconds}s\" node \"\$entry\" plugins update @example/lossless-claw > /tmp/plugin-update-output.log 2>&1
+plugin_update_status=\$?
+set -e
+if [ \"\$plugin_update_status\" -ne 0 ]; then
+  echo \"Plugin update command failed or timed out after \${plugin_update_timeout_seconds}s (status \${plugin_update_status})\"
+  echo \"--- plugin update output ---\"
+  cat /tmp/plugin-update-output.log || true
+  echo \"--- local registry output ---\"
+  cat /tmp/openclaw-e2e-registry.log || true
+  exit \"\$plugin_update_status\"
+fi
 
 if [ -n \"\$before_config_hash\" ]; then
   after_config_hash=\$(sha256sum \"\$OPENCLAW_CONFIG_PATH\" | awk '{print \$1}')
