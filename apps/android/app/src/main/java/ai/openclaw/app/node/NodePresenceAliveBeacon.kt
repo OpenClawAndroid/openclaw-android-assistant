@@ -10,7 +10,9 @@ internal object NodePresenceAliveBeacon {
   const val MIN_SUCCESS_INTERVAL_MS: Long = 10 * 60 * 1000
   private const val MAX_RESPONSE_JSON_CHARS: Int = 16 * 1024
 
-  enum class Trigger(val rawValue: String) {
+  enum class Trigger(
+    val rawValue: String,
+  ) {
     Background("background"),
     SilentPush("silent_push"),
     BackgroundAppRefresh("bg_app_refresh"),
@@ -40,7 +42,11 @@ internal object NodePresenceAliveBeacon {
   }
 
   fun androidPlatformLabel(): String {
-    val release = Build.VERSION.RELEASE?.trim().orEmpty().ifEmpty { "unknown" }
+    val release =
+      Build.VERSION.RELEASE
+        ?.trim()
+        .orEmpty()
+        .ifEmpty { "unknown" }
     return "Android $release (SDK ${Build.VERSION.SDK_INT})"
   }
 

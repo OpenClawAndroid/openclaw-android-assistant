@@ -833,6 +833,45 @@ describe("gateway agent handler", () => {
     resetTimeConfig();
   });
 
+  it("keeps model-run gateway prompts undecorated and forwards raw-run flags", async () => {
+    setupNewYorkTimeConfig("2026-01-29T01:30:00.000Z");
+    primeMainAgentRun({ cfg: mocks.loadConfigReturn });
+
+    await invokeAgent(
+      {
+        message: "Reply exactly: pong",
+        agentId: "main",
+        provider: "ollama",
+        model: "llama3.2:latest",
+        modelRun: true,
+        promptMode: "none",
+        sessionKey: "agent:main:main",
+        idempotencyKey: "test-model-run-raw",
+      },
+      {
+        reqId: "model-run-raw",
+        client: { connect: { scopes: ["operator.admin"] } } as AgentHandlerArgs["client"],
+      },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+
+    const callArgs = mocks.agentCommand.mock.calls[0][0] as {
+      message?: string;
+      modelRun?: boolean;
+      promptMode?: string;
+    };
+    expect(callArgs).toEqual(
+      expect.objectContaining({
+        message: "Reply exactly: pong",
+        modelRun: true,
+        promptMode: "none",
+      }),
+    );
+
+    resetTimeConfig();
+  });
+
   it.each([
     {
       name: "passes senderIsOwner=false for write-scoped gateway callers",

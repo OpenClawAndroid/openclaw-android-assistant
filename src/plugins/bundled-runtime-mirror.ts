@@ -12,16 +12,22 @@ type BundledRuntimeMirrorMetadata = {
   sourceFingerprint: string;
 };
 
+export type PrecomputedBundledRuntimeMirrorMetadata = Pick<
+  BundledRuntimeMirrorMetadata,
+  "sourceRoot" | "sourceFingerprint"
+>;
+
 export function refreshBundledPluginRuntimeMirrorRoot(params: {
   pluginId: string;
   sourceRoot: string;
   targetRoot: string;
   tempDirParent?: string;
+  precomputedSourceMetadata?: PrecomputedBundledRuntimeMirrorMetadata;
 }): boolean {
   if (path.resolve(params.sourceRoot) === path.resolve(params.targetRoot)) {
     return false;
   }
-  const metadata = createBundledRuntimeMirrorMetadata(params);
+  const metadata = createBundledRuntimeMirrorMetadata(params, params.precomputedSourceMetadata);
   if (isBundledRuntimeMirrorRootFresh(params.targetRoot, metadata)) {
     return false;
   }
@@ -75,15 +81,31 @@ export function copyBundledPluginRuntimeRoot(sourceRoot: string, targetRoot: str
   }
 }
 
-function createBundledRuntimeMirrorMetadata(params: {
-  pluginId: string;
+export function precomputeBundledRuntimeMirrorMetadata(params: {
   sourceRoot: string;
-}): BundledRuntimeMirrorMetadata {
+}): PrecomputedBundledRuntimeMirrorMetadata {
+  return {
+    sourceRoot: resolveBundledRuntimeMirrorSourceRootId(params.sourceRoot),
+    sourceFingerprint: fingerprintBundledRuntimeMirrorSourceRoot(params.sourceRoot),
+  };
+}
+
+function createBundledRuntimeMirrorMetadata(
+  params: {
+    pluginId: string;
+    sourceRoot: string;
+  },
+  precomputedSourceMetadata?: PrecomputedBundledRuntimeMirrorMetadata,
+): BundledRuntimeMirrorMetadata {
+  const sourceRoot = resolveBundledRuntimeMirrorSourceRootId(params.sourceRoot);
   return {
     version: BUNDLED_RUNTIME_MIRROR_METADATA_VERSION,
     pluginId: params.pluginId,
-    sourceRoot: resolveBundledRuntimeMirrorSourceRootId(params.sourceRoot),
-    sourceFingerprint: fingerprintBundledRuntimeMirrorSourceRoot(params.sourceRoot),
+    sourceRoot,
+    sourceFingerprint:
+      precomputedSourceMetadata?.sourceRoot === sourceRoot
+        ? precomputedSourceMetadata.sourceFingerprint
+        : fingerprintBundledRuntimeMirrorSourceRoot(params.sourceRoot),
   };
 }
 

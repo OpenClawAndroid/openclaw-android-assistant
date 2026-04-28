@@ -503,7 +503,19 @@ export default definePluginEntry({
   configSchema: memoryConfigSchema,
 
   register(api: OpenClawPluginApi) {
-    const cfg = memoryConfigSchema.parse(api.pluginConfig);
+    let cfg: MemoryConfig;
+    try {
+      cfg = memoryConfigSchema.parse(api.pluginConfig);
+    } catch (error) {
+      api.registerService({
+        id: "memory-lancedb",
+        start: () => {
+          const message = error instanceof Error ? error.message : String(error);
+          api.logger.warn(`memory-lancedb: disabled until configured (${message})`);
+        },
+      });
+      return;
+    }
     const dbPath = cfg.dbPath!;
     const resolvedDbPath = dbPath.includes("://") ? dbPath : api.resolvePath(dbPath);
     const { model, dimensions } = cfg.embedding;

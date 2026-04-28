@@ -38,17 +38,18 @@ class NodePresenceAliveBeaconTest {
   @Test
   fun makePayloadJson_includesAndroidPresenceMetadata() {
     val payload =
-      Json.parseToJsonElement(
-        NodePresenceAliveBeacon.makePayloadJson(
-          trigger = NodePresenceAliveBeacon.Trigger.Connect,
-          sentAtMs = 123,
-          displayName = "Pixel Node",
-          version = "2026.4.28",
-          platform = "Android 15 (SDK 35)",
-          deviceFamily = "Android",
-          modelIdentifier = "Google Pixel 9",
-        ),
-      ).jsonObject
+      Json
+        .parseToJsonElement(
+          NodePresenceAliveBeacon.makePayloadJson(
+            trigger = NodePresenceAliveBeacon.Trigger.Connect,
+            sentAtMs = 123,
+            displayName = "Pixel Node",
+            version = "2026.4.28",
+            platform = "Android 15 (SDK 35)",
+            deviceFamily = "Android",
+            modelIdentifier = "Google Pixel 9",
+          ),
+        ).jsonObject
 
     assertEquals("connect", payload["trigger"]?.jsonPrimitive?.content)
     assertEquals("123", payload["sentAtMs"]?.jsonPrimitive?.content)

@@ -43,6 +43,7 @@ function lane(name, command, options = {}) {
     retryPatterns: options.retryPatterns ?? [],
     retries: options.retries ?? 0,
     resources: options.resources ?? [],
+    stateScenario: options.stateScenario,
     timeoutMs: options.timeoutMs,
     weight: options.weight ?? 1,
   };
@@ -225,17 +226,19 @@ export const mainLanes = [
     weight: 5,
   }),
   serviceLane("onboard", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:onboard", {
+    stateScenario: "empty",
     weight: 2,
   }),
   npmLane(
     "npm-onboard-channel-agent",
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:npm-onboard-channel-agent",
-    { resources: ["service"], weight: 3 },
+    { resources: ["service"], stateScenario: "empty", weight: 3 },
   ),
   serviceLane("gateway-network", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:gateway-network"),
   serviceLane(
     "agents-delete-shared-workspace",
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:agents-delete-shared-workspace",
+    { stateScenario: "empty" },
   ),
   serviceLane("mcp-channels", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:mcp-channels", {
     resources: ["npm"],
@@ -256,6 +259,7 @@ export const mainLanes = [
     "update-channel-switch",
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:update-channel-switch",
     {
+      stateScenario: "update-stable",
       timeoutMs: 30 * 60 * 1000,
       weight: 3,
     },
@@ -418,11 +422,14 @@ const releasePathPluginRuntimeLanes = [
   ),
 ];
 
-const releasePathPluginRuntimeCoreLanes = [
+const releasePathPluginRuntimePluginLanes = [
   lane("plugins", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:plugins", {
     resources: ["npm", "service"],
     weight: 6,
   }),
+];
+
+const releasePathPluginRuntimeServiceLanes = [
   serviceLane(
     "cron-mcp-cleanup",
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:cron-mcp-cleanup",
@@ -436,6 +443,11 @@ const releasePathPluginRuntimeCoreLanes = [
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:openai-web-search-minimal",
     { timeoutMs: 8 * 60 * 1000 },
   ),
+];
+
+const releasePathPluginRuntimeCoreLanes = [
+  ...releasePathPluginRuntimePluginLanes,
+  ...releasePathPluginRuntimeServiceLanes,
 ];
 
 const releasePathBundledChannelLanes = [
@@ -469,7 +481,7 @@ const releasePathPackageUpdateCoreLanes = [
   npmLane(
     "npm-onboard-channel-agent",
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:npm-onboard-channel-agent",
-    { resources: ["service"], weight: 3 },
+    { resources: ["service"], stateScenario: "empty", weight: 3 },
   ),
   npmLane("doctor-switch", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:doctor-switch", {
     weight: 3,
@@ -478,6 +490,7 @@ const releasePathPackageUpdateCoreLanes = [
     "update-channel-switch",
     "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:update-channel-switch",
     {
+      stateScenario: "update-stable",
       timeoutMs: 30 * 60 * 1000,
       weight: 3,
     },
@@ -488,6 +501,7 @@ const primaryReleasePathChunks = {
   core: [
     lane("qr", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:qr"),
     serviceLane("onboard", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:onboard", {
+      stateScenario: "empty",
       weight: 2,
     }),
     serviceLane("gateway-network", "OPENCLAW_SKIP_DOCKER_BUILD=1 pnpm test:docker:gateway-network"),
@@ -508,9 +522,12 @@ const primaryReleasePathChunks = {
   "package-update-openai": releasePathPackageInstallOpenAiLanes,
   "package-update-anthropic": releasePathPackageInstallAnthropicLanes,
   "package-update-core": releasePathPackageUpdateCoreLanes,
-  "plugins-runtime-core": releasePathPluginRuntimeCoreLanes,
-  "plugins-runtime-install-a": bundledPluginInstallUninstallLanes.slice(0, 4),
-  "plugins-runtime-install-b": bundledPluginInstallUninstallLanes.slice(4),
+  "plugins-runtime-plugins": releasePathPluginRuntimePluginLanes,
+  "plugins-runtime-services": releasePathPluginRuntimeServiceLanes,
+  "plugins-runtime-install-a": bundledPluginInstallUninstallLanes.slice(0, 2),
+  "plugins-runtime-install-b": bundledPluginInstallUninstallLanes.slice(2, 4),
+  "plugins-runtime-install-c": bundledPluginInstallUninstallLanes.slice(4, 6),
+  "plugins-runtime-install-d": bundledPluginInstallUninstallLanes.slice(6),
   "bundled-channels-core": [releasePathBundledChannelLanes[0], ...bundledChannelSmokeLanes],
   "bundled-channels-update-a": [bundledChannelUpdateLanes[0], bundledChannelUpdateLanes[4]],
   "bundled-channels-update-discord": [bundledChannelUpdateLanes[1]],
@@ -529,6 +546,7 @@ const legacyReleasePathChunks = {
     ...releasePathPackageInstallAnthropicLanes,
     ...releasePathPackageUpdateCoreLanes,
   ],
+  "plugins-runtime-core": releasePathPluginRuntimeCoreLanes,
   "plugins-runtime": releasePathPluginRuntimeLanes,
   "plugins-integrations": [...releasePathPluginRuntimeLanes, ...releasePathBundledChannelLanes],
   "bundled-channels": releasePathBundledChannelLanes,
@@ -560,7 +578,8 @@ export function releasePathChunkLanes(chunk, options = {}) {
     return options.includeOpenWebUI ? [openWebUILane()] : [];
   }
   if (
-    (chunk !== "plugins-runtime-core" &&
+    (chunk !== "plugins-runtime-services" &&
+      chunk !== "plugins-runtime-core" &&
       chunk !== "plugins-runtime" &&
       chunk !== "plugins-integrations") ||
     !options.includeOpenWebUI

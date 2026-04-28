@@ -18,6 +18,7 @@ import { formatAgentInternalEventsForPrompt, type AgentInternalEvent } from "../
 import { deliverSubagentAnnouncement } from "../subagent-announce-delivery.js";
 
 const log = createSubsystemLogger("agents/tools/media-generate-background-shared");
+const MEDIA_GENERATION_TASK_KEEPALIVE_INTERVAL_MS = 60_000;
 
 export type MediaGenerationTaskHandle = {
   taskId: string;
@@ -131,6 +132,30 @@ export function recordMediaGenerationTaskProgress(params: {
     progressSummary: params.progressSummary,
     eventSummary: params.eventSummary,
   });
+}
+
+export async function withMediaGenerationTaskKeepalive<T>(params: {
+  handle: MediaGenerationTaskHandle | null;
+  progressSummary: string;
+  eventSummary?: string;
+  run: () => Promise<T>;
+}): Promise<T> {
+  if (!params.handle) {
+    return await params.run();
+  }
+  const interval = setInterval(() => {
+    recordMediaGenerationTaskProgress({
+      handle: params.handle,
+      progressSummary: params.progressSummary,
+      eventSummary: params.eventSummary,
+    });
+  }, MEDIA_GENERATION_TASK_KEEPALIVE_INTERVAL_MS);
+  interval.unref?.();
+  try {
+    return await params.run();
+  } finally {
+    clearInterval(interval);
+  }
 }
 
 export function completeMediaGenerationTaskRun(params: {

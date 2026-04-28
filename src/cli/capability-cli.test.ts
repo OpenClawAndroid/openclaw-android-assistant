@@ -521,6 +521,32 @@ describe("capability cli", () => {
     );
   });
 
+  it("passes image describe prompts through media understanding", async () => {
+    await runRegisteredCli({
+      register: registerCapabilityCli as (program: Command) => void,
+      argv: [
+        "capability",
+        "image",
+        "describe",
+        "--file",
+        "photo.jpg",
+        "--prompt",
+        "Read the menu text",
+        "--timeout-ms",
+        "90000",
+        "--json",
+      ],
+    });
+
+    expect(mocks.describeImageFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: expect.stringMatching(/photo\.jpg$/),
+        prompt: "Read the menu text",
+        timeoutMs: 90000,
+      }),
+    );
+  });
+
   it("uses the explicit media-understanding provider for image describe model overrides", async () => {
     await runRegisteredCli({
       register: registerCapabilityCli as (program: Command) => void,
@@ -532,6 +558,10 @@ describe("capability cli", () => {
         "photo.jpg",
         "--model",
         "ollama/qwen2.5vl:7b",
+        "--prompt",
+        "Count visible buttons",
+        "--timeout-ms",
+        "120000",
         "--json",
       ],
     });
@@ -541,6 +571,8 @@ describe("capability cli", () => {
         filePath: expect.stringMatching(/photo\.jpg$/),
         provider: "ollama",
         model: "qwen2.5vl:7b",
+        prompt: "Count visible buttons",
+        timeoutMs: 120000,
       }),
     );
     expect(mocks.describeImageFile).not.toHaveBeenCalled();
@@ -548,6 +580,44 @@ describe("capability cli", () => {
       expect.objectContaining({
         provider: "ollama",
         model: "gpt-4.1-mini",
+      }),
+    );
+  });
+
+  it("passes describe-many prompts to each image", async () => {
+    await runRegisteredCli({
+      register: registerCapabilityCli as (program: Command) => void,
+      argv: [
+        "capability",
+        "image",
+        "describe-many",
+        "--file",
+        "a.jpg",
+        "--file",
+        "b.jpg",
+        "--prompt",
+        "Extract all visible labels",
+        "--timeout-ms",
+        "45000",
+        "--json",
+      ],
+    });
+
+    expect(mocks.describeImageFile).toHaveBeenCalledTimes(2);
+    expect(mocks.describeImageFile).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        filePath: expect.stringMatching(/a\.jpg$/),
+        prompt: "Extract all visible labels",
+        timeoutMs: 45000,
+      }),
+    );
+    expect(mocks.describeImageFile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        filePath: expect.stringMatching(/b\.jpg$/),
+        prompt: "Extract all visible labels",
+        timeoutMs: 45000,
       }),
     );
   });

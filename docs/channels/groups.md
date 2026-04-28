@@ -45,6 +45,8 @@ That means the agent still processes the turn and can update memory/session stat
 
 This replaces the old pattern of forcing the model to answer `NO_REPLY` for most lurk-mode turns. In tool-only mode, doing nothing visible simply means not calling the message tool.
 
+Typing indicators are still sent while the agent works in tool-only mode. The default group typing mode is upgraded from "message" to "instant" for these turns because there may never be normal assistant message text before the agent decides whether to call the message tool. Explicit typing-mode config still wins.
+
 To restore legacy automatic final replies for group/channel rooms:
 
 ```json5

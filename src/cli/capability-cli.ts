@@ -199,14 +199,14 @@ const CAPABILITY_METADATA: CapabilityMetadata[] = [
     id: "image.describe",
     description: "Describe one image file through media-understanding providers.",
     transports: ["local"],
-    flags: ["--file", "--prompt", "--model", "--json"],
+    flags: ["--file", "--prompt", "--model", "--timeout-ms", "--json"],
     resultShape: "normalized text output",
   },
   {
     id: "image.describe-many",
     description: "Describe multiple image files independently.",
     transports: ["local"],
-    flags: ["--file", "--prompt", "--model", "--json"],
+    flags: ["--file", "--prompt", "--model", "--timeout-ms", "--json"],
     resultShape: "one text output per file",
   },
   {
@@ -855,10 +855,13 @@ async function runImageDescribe(params: {
   capability: "image.describe" | "image.describe-many";
   files: string[];
   model?: string;
+  prompt?: string;
+  timeoutMs?: number;
 }) {
   const cfg = getRuntimeConfig();
   const agentDir = resolveAgentDir(cfg, resolveDefaultAgentId(cfg));
   const activeModel = requireProviderModelOverride(params.model);
+  const prompt = normalizeOptionalString(params.prompt);
   const outputs = await Promise.all(
     params.files.map(async (filePath) => {
       const resolvedPath = path.resolve(filePath);
@@ -869,12 +872,15 @@ async function runImageDescribe(params: {
             agentDir,
             provider: activeModel.provider,
             model: activeModel.model,
-            prompt: "Describe the image.",
+            prompt: prompt ?? "Describe the image.",
+            timeoutMs: params.timeoutMs,
           })
         : await describeImageFile({
             filePath: resolvedPath,
             cfg,
             agentDir,
+            prompt,
+            timeoutMs: params.timeoutMs,
           });
       if (!result.text) {
         throw new Error(`No description returned for image: ${resolvedPath}`);
@@ -1676,7 +1682,9 @@ export function registerCapabilityCli(program: Command) {
     .command("describe")
     .description("Describe one image file")
     .requiredOption("--file <path>", "Image file")
+    .option("--prompt <text>", "Prompt hint")
     .option("--model <provider/model>", "Model override")
+    .option("--timeout-ms <ms>", "Provider request timeout in milliseconds")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
       await runCommandWithRuntime(defaultRuntime, async () => {
@@ -1684,6 +1692,8 @@ export function registerCapabilityCli(program: Command) {
           capability: "image.describe",
           files: [String(opts.file)],
           model: opts.model as string | undefined,
+          prompt: opts.prompt as string | undefined,
+          timeoutMs: parseOptionalFiniteNumber(opts.timeoutMs, "--timeout-ms"),
         });
         emitJsonOrText(defaultRuntime, Boolean(opts.json), result, formatEnvelopeForText);
       });
@@ -1693,7 +1703,9 @@ export function registerCapabilityCli(program: Command) {
     .command("describe-many")
     .description("Describe multiple image files")
     .requiredOption("--file <path>", "Image file", collectOption, [])
+    .option("--prompt <text>", "Prompt hint")
     .option("--model <provider/model>", "Model override")
+    .option("--timeout-ms <ms>", "Provider request timeout in milliseconds")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
       await runCommandWithRuntime(defaultRuntime, async () => {
@@ -1701,6 +1713,8 @@ export function registerCapabilityCli(program: Command) {
           capability: "image.describe-many",
           files: opts.file as string[],
           model: opts.model as string | undefined,
+          prompt: opts.prompt as string | undefined,
+          timeoutMs: parseOptionalFiniteNumber(opts.timeoutMs, "--timeout-ms"),
         });
         emitJsonOrText(defaultRuntime, Boolean(opts.json), result, formatEnvelopeForText);
       });

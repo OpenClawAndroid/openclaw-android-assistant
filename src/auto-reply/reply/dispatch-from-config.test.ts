@@ -3944,6 +3944,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
         isTailDispatch: true,
         sendPolicy: "deny",
         suppressUserDelivery: true,
+        suppressReplyLifecycle: true,
       }),
       expect.any(Object),
     );
@@ -4274,6 +4275,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(hookMocks.runner.runReplyDispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         suppressUserDelivery: true,
+        suppressReplyLifecycle: false,
         sourceReplyDeliveryMode: "message_tool_only",
         sendPolicy: "allow",
       }),

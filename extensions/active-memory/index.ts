@@ -1879,7 +1879,7 @@ async function maybeResolveActiveRecall(params: {
     if (controller.signal.aborted) {
       const result: ActiveRecallResult = {
         status: "timeout",
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs: params.config.timeoutMs,
         summary: null,
       };
       if (params.config.logging) {
