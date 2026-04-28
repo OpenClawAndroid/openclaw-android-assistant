@@ -5,6 +5,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { LOCAL_BUILD_METADATA_DIST_PATHS } from "./lib/local-build-metadata-paths.mjs";
+import { collectPackageDistImportErrors } from "./lib/package-dist-imports.mjs";
 
 function usage() {
   return "Usage: node scripts/check-openclaw-package-tarball.mjs <openclaw.tgz>";
@@ -194,6 +195,13 @@ if (entrySet.has("dist/postinstall-inventory.json")) {
     );
   }
 }
+
+errors.push(
+  ...collectPackageDistImportErrors({
+    files: normalized,
+    readText: readTarEntry,
+  }),
+);
 
 if (errors.length > 0) {
   fail(`OpenClaw package tarball integrity failed:\n${errors.join("\n")}`);
