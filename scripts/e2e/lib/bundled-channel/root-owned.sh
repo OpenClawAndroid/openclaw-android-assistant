@@ -4,16 +4,15 @@
 # Sourced by scripts/e2e/bundled-channel-runtime-deps-docker.sh.
 
 run_root_owned_global_scenario() {
-  local run_log
-  run_log="$(docker_e2e_run_log bundled-channel-root-owned)"
-
   echo "Running bundled channel root-owned global install Docker E2E..."
-  if ! timeout "$DOCKER_RUN_TIMEOUT" docker run --rm --user root \
+  run_logged_print bundled-channel-root-owned timeout "$DOCKER_RUN_TIMEOUT" docker run --rm --user root \
     -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     "${DOCKER_E2E_PACKAGE_ARGS[@]}" \
-    -i "$IMAGE_NAME" bash -s >"$run_log" 2>&1 <<'EOF'
+    "${DOCKER_E2E_HARNESS_ARGS[@]}" \
+    -i "$IMAGE_NAME" bash -s <<'EOF'
 set -euo pipefail
 
+source scripts/lib/openclaw-e2e-instance.sh
 export HOME="/root"
 export OPENAI_API_KEY="sk-openclaw-bundled-channel-root-owned-e2e"
 export OPENCLAW_NO_ONBOARD=1
@@ -174,12 +173,4 @@ fi
 
 echo "root-owned global install Docker E2E passed"
 EOF
-  then
-    docker_e2e_print_log "$run_log"
-    rm -f "$run_log"
-    exit 1
-  fi
-
-  docker_e2e_print_log "$run_log"
-  rm -f "$run_log"
 }
