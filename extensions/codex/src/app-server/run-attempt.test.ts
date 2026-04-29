@@ -329,8 +329,118 @@ describe("runCodexAppServerAttempt", () => {
     nativeHookRelayTesting.clearNativeHookRelaysForTests();
     resetAgentEventsForTest();
     resetGlobalHookRunner();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("returns a failed dynamic tool response when an app-server tool call exceeds the deadline", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const onTimeout = vi.fn();
+    const response = __testing.handleDynamicToolCallWithTimeout({
+      call: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        callId: "call-timeout",
+        namespace: null,
+        tool: "message",
+        arguments: { action: "send", text: "hello" },
+      },
+      toolBridge: {
+        handleToolCall: vi.fn((_call, options) => {
+          capturedSignal = options?.signal;
+          return new Promise<never>(() => undefined);
+        }),
+      },
+      signal: new AbortController().signal,
+      timeoutMs: 1,
+      onTimeout,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(response).resolves.toEqual({
+      success: false,
+      contentItems: [
+        { type: "inputText", text: "OpenClaw dynamic tool call timed out after 1ms." },
+      ],
+    });
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the session when Codex never completes after a dynamic tool response", async () => {
+    let handleRequest:
+      | ((request: { id: string; method: string; params?: unknown }) => Promise<unknown>)
+      | undefined;
+    const request = vi.fn(async (method: string) => {
+      if (method === "thread/start") {
+        return threadStartResult("thread-1");
+      }
+      if (method === "turn/start") {
+        return turnStartResult("turn-1", "inProgress");
+      }
+      return {};
+    });
+    __testing.setCodexAppServerClientFactoryForTests(
+      async () =>
+        ({
+          request,
+          addNotificationHandler: () => () => undefined,
+          addRequestHandler: (
+            handler: (request: {
+              id: string;
+              method: string;
+              params?: unknown;
+            }) => Promise<unknown>,
+          ) => {
+            handleRequest = handler;
+            return () => undefined;
+          },
+        }) as never,
+    );
+    const params = createParams(
+      path.join(tempDir, "session.jsonl"),
+      path.join(tempDir, "workspace"),
+    );
+    params.timeoutMs = 60_000;
+
+    const run = runCodexAppServerAttempt(params, { turnCompletionIdleTimeoutMs: 5 });
+    await vi.waitFor(() => expect(handleRequest).toBeTypeOf("function"), { interval: 1 });
+
+    await expect(
+      handleRequest?.({
+        id: "request-tool-1",
+        method: "item/tool/call",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          callId: "call-1",
+          namespace: null,
+          tool: "message",
+          arguments: { action: "send", text: "already sent" },
+        },
+      }),
+    ).resolves.toMatchObject({
+      success: false,
+      contentItems: [{ type: "inputText", text: "Unknown OpenClaw tool: message" }],
+    });
+
+    await expect(run).resolves.toMatchObject({
+      aborted: true,
+      timedOut: true,
+      promptError: "codex app-server turn idle timed out waiting for turn/completed",
+    });
+    await vi.waitFor(
+      () =>
+        expect(request).toHaveBeenCalledWith("turn/interrupt", {
+          threadId: "thread-1",
+          turnId: "turn-1",
+        }),
+      { interval: 1 },
+    );
+    expect(queueAgentHarnessMessage("session-1", "after timeout")).toBe(false);
   });
 
   it("applies before_prompt_build to Codex developer instructions and turn input", async () => {
