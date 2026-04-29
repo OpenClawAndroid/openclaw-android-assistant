@@ -283,7 +283,15 @@ describe("package artifact reuse", () => {
       'pnpm openclaw qa matrix --help 2>/dev/null | grep -F -q -- "--fail-fast"',
     );
     expect(releaseWorkflow).toContain("matrix_args+=(--fail-fast)");
-    expect(releaseWorkflow).toContain('pnpm openclaw qa matrix "${matrix_args[@]}"');
+    expect(releaseWorkflow).toContain(
+      'pnpm openclaw qa matrix --output-dir "${attempt_output_dir}" "${matrix_args[@]}"',
+    );
+    expect(releaseWorkflow).toContain(
+      'echo "Matrix live lane failed on attempt ${attempt}; retrying once..." >&2',
+    );
+    expect(releaseWorkflow).toContain(
+      'echo "Telegram live lane failed on attempt ${attempt}; retrying once..." >&2',
+    );
     expect(qaWorkflow).toContain(
       'pnpm openclaw qa matrix --help 2>/dev/null | grep -F -q -- "--fail-fast"',
     );

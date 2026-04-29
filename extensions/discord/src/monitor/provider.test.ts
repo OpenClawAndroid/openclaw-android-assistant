@@ -653,7 +653,7 @@ describe("monitorDiscordProvider", () => {
     expect("listenerTimeoutMs" in (params ?? {})).toBe(false);
   });
 
-  it("ignores deprecated inbound worker timeout config", async () => {
+  it("ignores legacy inbound worker timeout config", async () => {
     resolveDiscordAccountMock.mockReturnValue({
       accountId: "default",
       token: "MTIz.abc.def",

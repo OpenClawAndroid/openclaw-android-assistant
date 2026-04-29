@@ -3489,10 +3489,6 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
         label: "Discord Thread Parent Inheritance",
         help: "If true, Discord thread sessions inherit the parent channel transcript (default: false).",
       },
-      "inboundWorker.runTimeoutMs": {
-        label: "Deprecated Discord Inbound Worker Timeout",
-        help: "Ignored compatibility setting. Discord no longer aborts queued agent runs at the channel layer; session/tool/runtime lifecycle controls long-running work.",
-      },
       "eventQueue.listenerTimeout": {
         label: "Discord EventQueue Listener Timeout (ms)",
         help: "Canonical Discord listener timeout control in ms for gateway normalization/enqueue handlers. Default is 120000 in OpenClaw; set per account via channels.discord.accounts.<id>.eventQueue.listenerTimeout.",

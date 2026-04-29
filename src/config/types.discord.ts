@@ -340,13 +340,13 @@ export type DiscordAccountConfig = {
   /** Streaming URL (Twitch/YouTube). Required when activityType=1. */
   activityUrl?: string;
   /**
-   * @deprecated Kept for config compatibility. Discord no longer enforces
-   * channel-owned timeouts for queued inbound agent runs.
+   * Legacy compatibility block. Discord no longer enforces channel-owned
+   * timeouts for queued inbound agent runs.
    */
   inboundWorker?: {
     /**
-     * @deprecated Ignored. Queued Discord agent runs are governed by the
-     * session/tool/runtime lifecycle, not by Discord channel config.
+     * Ignored. Queued Discord agent runs are governed by the session/tool/runtime
+     * lifecycle, not by Discord channel config.
      */
     runTimeoutMs?: number;
   };
