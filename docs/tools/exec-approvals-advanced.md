@@ -313,6 +313,13 @@ Shared behavior:
 - pending exec approvals expire after 30 minutes by default
 - if no operator UI or configured approval client can accept the request, the prompt falls back to `askFallback`
 
+Sensitive owner-only group commands such as `/diagnostics` and `/export-trajectory` use private
+owner routing for approval prompts and final results. OpenClaw first tries a private route on the
+same surface where the owner ran the command. If that surface has no private owner route, it falls
+back to the first available owner route from `commands.ownerAllowFrom`, so a Discord group command
+can still send the approval and result to the owner's Telegram DM when Telegram is the configured
+primary private interface. The group chat only gets a short acknowledgement.
+
 Telegram defaults to approver DMs (`target: "dm"`). You can switch to `channel` or `both` when you
 want approval prompts to appear in the originating Telegram chat/topic as well. For Telegram forum
 topics, OpenClaw preserves the topic for the approval prompt and the post-approval follow-up.

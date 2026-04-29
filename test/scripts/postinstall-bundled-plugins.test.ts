@@ -401,6 +401,28 @@ describe("bundled plugin postinstall", () => {
     await expect(fs.stat(staleFile)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("keeps imported dist chunks even when inventory is stale", async () => {
+    const packageRoot = await createTempDirAsync("openclaw-packaged-install-import-");
+    const entryFile = path.join(packageRoot, "dist", "cli", "run-main.js");
+    const importedChunk = path.join(packageRoot, "dist", "memory-state-CcqRgDZU.js");
+    const staleFile = path.join(packageRoot, "dist", "memory-state-old.js");
+    await fs.mkdir(path.dirname(entryFile), { recursive: true });
+    await fs.writeFile(entryFile, 'await import("../memory-state-CcqRgDZU.js");\n');
+    await writePackageDistInventory(packageRoot);
+    await fs.writeFile(importedChunk, "export {};\n");
+    await fs.writeFile(staleFile, "export {};\n");
+
+    expect(
+      pruneInstalledPackageDist({
+        packageRoot,
+        log: { log: vi.fn(), warn: vi.fn() },
+      }),
+    ).toEqual(["dist/memory-state-old.js"]);
+
+    await expect(fs.stat(importedChunk)).resolves.toBeTruthy();
+    await expect(fs.stat(staleFile)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("prunes stale private QA files without restoring compat sidecars", async () => {
     const packageRoot = await createTempDirAsync("openclaw-packaged-install-qa-compat-");
     const currentFile = path.join(packageRoot, "dist", "entry.js");

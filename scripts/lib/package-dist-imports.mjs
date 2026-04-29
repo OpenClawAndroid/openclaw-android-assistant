@@ -113,6 +113,22 @@ export function collectPackageDistImportErrors(params) {
   const fileSet = new Set(files);
   const errors = [];
 
+  for (const { importerPath, importedPath } of collectPackageDistImports({
+    files,
+    readText: params.readText,
+  })) {
+    if (!fileSet.has(importedPath)) {
+      errors.push(`${importerPath} imports missing ${importedPath}`);
+    }
+  }
+
+  return errors;
+}
+
+export function collectPackageDistImports(params) {
+  const files = [...new Set(params.files.map(normalizePackagePath))];
+  const imports = [];
+
   for (const importerPath of files.toSorted((left, right) => left.localeCompare(right))) {
     if (!JS_DIST_FILE_RE.test(importerPath) || importerPath.includes("/node_modules/")) {
       continue;
@@ -120,12 +136,35 @@ export function collectPackageDistImportErrors(params) {
     const source = params.readText(importerPath);
     for (const specifier of collectImportSpecifiers(source)) {
       const importedPath = resolveDistImportPath(importerPath, specifier);
-      if (!importedPath || fileSet.has(importedPath)) {
+      if (!importedPath) {
         continue;
       }
-      errors.push(`${importerPath} imports missing ${importedPath}`);
+      imports.push({ importerPath, importedPath });
     }
   }
 
-  return errors;
+  return imports;
+}
+
+export function expandPackageDistImportClosure(params) {
+  const files = [...new Set(params.files.map(normalizePackagePath))];
+  const fileSet = new Set(files);
+  const expectedSet = new Set(params.seedFiles.map(normalizePackagePath));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const { importedPath } of collectPackageDistImports({
+      files: [...expectedSet].filter((file) => fileSet.has(file)),
+      readText: params.readText,
+    })) {
+      if (!fileSet.has(importedPath) || expectedSet.has(importedPath)) {
+        continue;
+      }
+      expectedSet.add(importedPath);
+      changed = true;
+    }
+  }
+
+  return [...expectedSet].toSorted((left, right) => left.localeCompare(right));
 }

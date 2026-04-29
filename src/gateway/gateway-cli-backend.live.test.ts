@@ -237,10 +237,7 @@ describeLive("gateway live (cli backend)", () => {
         : undefined;
       process.env.OPENCLAW_STATE_DIR = stateDir;
       const bundleMcp = backendResolved?.bundleMcp === true;
-      const bootstrapWorkspace =
-        backendResolved?.bundleMcpMode === "claude-config-file"
-          ? await createBootstrapWorkspace(tempDir)
-          : null;
+      const bootstrapWorkspace = await createBootstrapWorkspace(tempDir);
       const disableMcpConfig = process.env.OPENCLAW_LIVE_CLI_BACKEND_DISABLE_MCP_CONFIG !== "0";
       let cliArgs = baseCliArgs;
       if (
