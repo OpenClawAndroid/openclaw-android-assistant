@@ -73,6 +73,7 @@ Docs: https://docs.openclaw.ai
 - Auto-reply/session: carry the tail of user/assistant turns into the freshly-rotated transcript on silent in-reply session resets (compaction failure, role-ordering conflict) so direct-chat continuity survives the rebind. Fixes #70853. (#70898) Thanks @neeravmakwana.
 - Config: skip malformed non-string `env.vars` entries before env-reference checks, so config loading no longer crashes on JSON values like numbers or booleans. (#42402) Thanks @MiltonHeYan.
 - Docker Compose: default missing config and workspace bind mounts to `${HOME:-/tmp}/.openclaw` so manual compose runs do not create invalid empty-source volume specs. (#64485) Thanks @jlapenna.
+- Channels/WhatsApp: restrict pairing verification replies to real inbound user content, preventing unsolicited prompts from receipts, typing indicators, presence updates, and other non-message Baileys upserts. Fixes #73797. (#73823) Thanks @hclsys.
 
 ## 2026.4.27
 
