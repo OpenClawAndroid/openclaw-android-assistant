@@ -2,6 +2,12 @@
 
 Docs: https://docs.openclaw.ai
 
+## Unreleased
+
+### Fixes
+
+- CLI/progress: suppress nested progress spinners and line clears while TUI input owns raw stdin, so Crestodian `/status` no longer disturbs the active input row. (#75003) Thanks @velvet-shark.
+
 ## 2026.4.29
 
 ### Highlights
@@ -62,6 +68,7 @@ Docs: https://docs.openclaw.ai
 - Feishu: skip empty-text messages (e.g. `{"text":""}`) that carry no media, so no blank user turn is written to the session and downstream LLM providers cannot reject the request with "messages must not be empty". (#74634) Thanks @xdengli and @hclsys.
 - Feishu/Bitable: clean up newly created placeholder rows whose fields contain only default empty values while preserving meaningful link, attachment, user, number, boolean, and location values during create-app cleanup. (#73920) Carries forward #40602. Thanks @boat2moon.
 - macOS app: keep attach-only mode and the Debug Settings launchd toggle marker-only, so launching with `--attach-only`/`--no-launchd` no longer uninstalls the Gateway LaunchAgent or drops active sessions. (#72174) Thanks @DolencLuka.
+- macOS Canvas: stop auto-reloading the current A2UI host during push/eval/snapshot flows, so pushed A2UI content remains visible instead of returning to the empty Canvas shell. Fixes #73337. Thanks @Gr4via.
 - Plugin SDK: restore the deprecated `plugin-sdk/zalouser` command-auth facade so published Lark/Zalo plugins that import it load on current hosts. Fixes #74702. Thanks @Goron01.
 - Plugins/runtime-deps: include bundled provider plugins when `models.providers`, auth profiles, agent defaults, or subagent model refs configure that provider, while keeping inactive default-enabled provider plugins out of doctor repair. Refs #74307. Thanks @Skeptomenos.
 - Plugins/runtime: resolve relative plugin `api.resolvePath` inputs against the plugin root instead of the host working directory, while keeping absolute and home paths user-resolved. Fixes #74718. Thanks @jimdawdy-hub.
@@ -329,6 +336,7 @@ Docs: https://docs.openclaw.ai
 - Providers/GitHub Copilot: support the GUI/RPC wizard device-code auth flow so onboarding from non-TTY clients (gateway RPC bridge, GUI wizards) completes instead of returning empty profiles. Dangerous-state handling now distinguishes `access_denied` and `expired_token` from transport errors. (#73290) Thanks @indierawk2k2.
 - Installer/Linux: warn before switching an unwritable npm global prefix to `~/.npm-global`, then tell users to run future global updates with `npm i -g openclaw@latest` without `sudo` so npm keeps using the redirected user prefix. Fixes #44365; carries forward #50479. Thanks @Sayeem3051.
 - Gateway/plugins: enable the native `require()` fast path on Windows for bundled plugin modules so plugin loading uses `require()` instead of Jiti's transform pipeline, reducing startup from ~39s to ~2s on typical 6-plugin setups. Fixes #68656. (#74173) Thanks @galiniliev.
+- macOS app: detect stale Gateway TLS certificate pins, automatically repair trusted Tailscale Serve rotations, and surface paired-but-disconnected Mac companion nodes so partial Gateway connections no longer look healthy. Thanks @guti.
 
 ## 2026.4.27
 
