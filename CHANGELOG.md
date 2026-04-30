@@ -40,9 +40,16 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Security/outbound: strip re-formed HTML tags during plain-text sanitization so nested tag fragments cannot leave a CodeQL-detected `<script>` sequence behind. Thanks @vincentkoc.
+- Security/secrets: compare credential bytes with padded timing-safe buffers instead of hashing candidate passwords before equality checks. Thanks @vincentkoc.
+- Security/QQBot: sanitize debug log arguments before writing to `console.*`, so gateway payload fields cannot forge extra log lines when debug logging is enabled. Thanks @vincentkoc.
+- CLI/agents/status: keep `openclaw agents`, text `agents list`, and plain text `status` on read-only metadata paths so human output no longer preloads plugin runtimes or live channel scans before printing. Fixes #74195. Thanks @NianJiuZst.
+- Agents/local models: derive context-window guard thresholds from the effective model window with 4k/8k safety floors, so small local models are no longer rejected by fixed 16k/32k preflight cutoffs. Fixes #42999. Thanks @chengjialu8888.
+- PDF extraction: resolve PDF.js standard fonts from the installed package root and pass a filesystem path to the Node fallback extractor, so built-in font PDFs render without `file://` URL lookup failures. Fixes #51455; carries forward #70936, #54447, and #62175. Thanks @anyech, @JuanRdBO, and @solomonneas.
 - Media: treat legacy Word/OLE attachments with `application/msword` or `application/x-cfb` MIME as binary so printable-looking `.doc` files are not embedded into prompts as text. Fixes #54176; carries forward #54380. Thanks @andyliu.
 - Config: accept documented `browser.tabCleanup` keys in strict root config validation, so configured tab cleanup no longer fails before runtime reads it. Fixes #74577. Thanks @lonexreb and @ezdlp.
 - Cron: validate disabled job schedule edits before persisting updates, so invalid cron changes no longer partially mutate stored jobs. Fixes #74459. Thanks @yfge.
+- CLI/cron: warn when `openclaw cron add --message` omits a nonblank `--agent`, including blank agent values and session-key jobs, so scheduled agent-turn jobs make default-agent fallback explicit while system events stay quiet. Fixes #42196; carries forward #42245. Thanks @ethanclaw.
 - Channels/status: keep Telegram, Slack, and Google Chat read-only allowlist/default-target accessors on config-only paths, so status and channel summaries do not resolve SecretRef-backed runtime credentials. Thanks @eusine.
 - Active Memory: clarify the deprecated `modelFallbackPolicy` warning and config help so `modelFallback` is described as a chain-resolution last resort, not runtime failover. (#74602) Thanks @jeffrey701.
 - Channels/Discord: keep read-only allowlist/default-target accessors from resolving SecretRef-backed bot tokens, so status and channel summaries no longer fail when tokens are only available in gateway runtime. (#74737) Thanks @eusine.
@@ -72,6 +79,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/models: serve the last successful model catalog while stale reloads refresh in the background, so Gateway control-plane and OpenAI-compatible requests no longer block behind model-provider rediscovery after model config changes. Refs #74135, #74630, and #74633. Thanks @DerFlash, @moltar-bot, and @Saboor711.
 - CLI/status: resolve read-only channel setup runtime fallback from the packaged OpenClaw dist root, so `status --all`, `status --deep`, channel, and doctor paths do not crash when an external channel plugin needs setup metadata. Fixes #74693. Thanks @giangthb.
 - SDK/events: keep per-run SDK event streams from surfacing duplicate raw chat projection frames, while normalizing chat-only projection frames and preserving raw access through `rawEvents`. Refs #74704. Thanks @BunsDev.
+- SDK: report Gateway terminal `agent.wait` timeout snapshots with lifecycle metadata as `timed_out` while keeping bare wait deadlines non-terminal. Thanks @clawsweeper.
 - Google Meet: block managed Chrome intro/test speech until browser health proves the participant is in-call, and expose `speechReady` diagnostics so login, admission, permission, and audio-bridge blockers no longer look like successful speech. Refs #72478. Thanks @DougButdorf.
 - Slack/commands: keep native command argument menus on select controls for encoded choice values up to Slack's option limit and truncate fallback button labels to Slack's button-text limit, so long valid choices no longer render invalid Slack blocks. Thanks @slackapi.
 - Agents/Codex: flush accepted debounced steering messages before normal app-server turn cleanup, so inbound follow-ups acknowledged as queued are not dropped when the turn completes before the debounce fires. Thanks @vincentkoc.
@@ -108,6 +116,7 @@ Docs: https://docs.openclaw.ai
 - Sandbox/Docker: tolerate Docker daemon unavailability when sandbox mode is off, so doctor and preflight checks no longer fail on installs that do not run the Docker daemon. Fixes #73671. Thanks @kaseonedge.
 - Control UI/mobile: persist mobile chat settings through Lit-managed state and route mobile navigation through the same view-state path so chat panel toggles survive transitions on small viewports. Thanks @BunsDev.
 - Control UI/exports: align sidebar trigger affordances across the resizable divider, mobile layout, and exported-HTML transcript template so the sidebar toggle and exported transcript sidebar render with consistent hit areas and styling. Thanks @BunsDev.
+- Control UI/chat: disable the page refresh affordance while a chat run is active so accidental refreshes do not abort an in-flight reply. Thanks @BunsDev.
 - Media: include redacted per-attempt resize failures and resolved model input capabilities in vision-pipeline errors so ARM64 image failures are diagnosable without closing the remaining routing investigation. Refs #74552. Thanks @1yihui.
 - Control UI/i18n: route zh-CN agent, debug, channel-refresh, and exec-approval copy through the locale source while preserving the English `Cron Jobs` agent tab label and the security-audit command styling. Carries forward #39692 repair context. Thanks @hepeng154833488 and @vincentkoc.
 - Auto-reply: honor explicit `silentReply.direct: "allow"` for clean empty or reasoning-only direct chat turns while keeping the default direct-chat empty-response guard conservative. Fixes #74409. Thanks @jesuskannolis.
@@ -294,6 +303,7 @@ Docs: https://docs.openclaw.ai
 - Pairing/doctor: bootstrap `commands.ownerAllowFrom` from the first approved DM pairing when no command owner exists, and have doctor explain missing owners so privileged slash commands are not accidentally unusable after onboarding. Thanks @pashpashpash.
 - Telegram/exec: infer native exec approvers from `commands.ownerAllowFrom` and auto-enable the Telegram approval client when an owner is resolvable, so owner-only commands such as `/diagnostics` can be approved in Telegram without duplicate per-channel approver config. Thanks @pashpashpash.
 - Auto-reply/session: carry the tail of user/assistant turns into the freshly-rotated transcript on silent in-reply session resets (compaction failure, role-ordering conflict) so direct-chat continuity survives the rebind. Fixes #70853. (#70898) Thanks @neeravmakwana.
+- Skills: load grouped skill directories such as `skills/<group>/<skill>/SKILL.md` from configured skill roots while keeping grouped discovery capped for large directories. Fixes #56915. (#72534) Thanks @ottodeng, @MoerAI, and @i010542.
 - Config: skip malformed non-string `env.vars` entries before env-reference checks, so config loading no longer crashes on JSON values like numbers or booleans. (#42402) Thanks @MiltonHeYan.
 - Docker Compose: default missing config and workspace bind mounts to `${HOME:-/tmp}/.openclaw` so manual compose runs do not create invalid empty-source volume specs. (#64485) Thanks @jlapenna.
 - Agents/context engines: preserve the child agent's configured `agentDir` when subagent cleanup re-resolves a context engine, so `onSubagentEnded` hooks keep operating on the correct per-agent state. (#67243) Thanks @jarimustonen.
@@ -314,6 +324,7 @@ Docs: https://docs.openclaw.ai
 - Auth/device pairing: bound bootstrap handoff token issuance, redemption, and approved pairing baselines to the documented per-role scope allowlist, so bootstrap approvals cannot persistently grant `operator.admin`, `operator.pairing`, or `node.exec` scopes. Thanks @eleqtrizit.
 - Providers/GitHub Copilot: support the GUI/RPC wizard device-code auth flow so onboarding from non-TTY clients (gateway RPC bridge, GUI wizards) completes instead of returning empty profiles. Dangerous-state handling now distinguishes `access_denied` and `expired_token` from transport errors. (#73290) Thanks @indierawk2k2.
 - Installer/Linux: warn before switching an unwritable npm global prefix to `~/.npm-global`, then tell users to run future global updates with `npm i -g openclaw@latest` without `sudo` so npm keeps using the redirected user prefix. Fixes #44365; carries forward #50479. Thanks @Sayeem3051.
+- Gateway/plugins: enable the native `require()` fast path on Windows for bundled plugin modules so plugin loading uses `require()` instead of Jiti's transform pipeline, reducing startup from ~39s to ~2s on typical 6-plugin setups. Fixes #68656. (#74173) Thanks @galiniliev.
 
 ## 2026.4.27
 

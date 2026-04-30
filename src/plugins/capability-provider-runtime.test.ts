@@ -103,7 +103,6 @@ function expectBundledCompatLoadPath(params: {
     config: params.enablementCompat,
     onlyPluginIds: ["openai"],
     activate: false,
-    installBundledRuntimeDeps: false,
   });
 }
 
@@ -409,7 +408,6 @@ describe("resolvePluginCapabilityProviders", () => {
       }),
       onlyPluginIds: ["microsoft"],
       activate: false,
-      installBundledRuntimeDeps: false,
     });
   });
 
@@ -584,7 +582,6 @@ describe("resolvePluginCapabilityProviders", () => {
       config: expect.anything(),
       onlyPluginIds: [],
       activate: false,
-      installBundledRuntimeDeps: false,
     });
   });
 
@@ -629,8 +626,63 @@ describe("resolvePluginCapabilityProviders", () => {
       config: compatConfig,
       onlyPluginIds: ["google"],
       activate: false,
+    });
+  });
+
+  it("honors explicit bundled runtime dependency install opt-out for fallback snapshots", () => {
+    const cfg = { plugins: { allow: ["custom-plugin"] } } as OpenClawConfig;
+    const enablementCompat = {
+      plugins: {
+        allow: ["custom-plugin", "openai"],
+        entries: { openai: { enabled: true } },
+      },
+    };
+    setBundledCapabilityFixture("mediaUnderstandingProviders");
+    mocks.withBundledPluginEnablementCompat.mockReturnValue(enablementCompat);
+    mocks.withBundledPluginVitestCompat.mockReturnValue(enablementCompat);
+
+    expectNoResolvedCapabilityProviders(
+      resolvePluginCapabilityProviders({
+        key: "mediaUnderstandingProviders",
+        cfg,
+        installBundledRuntimeDeps: false,
+      }),
+    );
+
+    expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith({
+      config: enablementCompat,
+      onlyPluginIds: ["openai"],
+      activate: false,
       installBundledRuntimeDeps: false,
     });
+  });
+
+  it("does not load bundled capability providers when plugins are globally disabled", () => {
+    const cfg = { plugins: { enabled: false, allow: ["custom-plugin"] } } as OpenClawConfig;
+    const loaded = createEmptyPluginRegistry();
+    loaded.mediaUnderstandingProviders.push({
+      pluginId: "openai",
+      pluginName: "openai",
+      source: "test",
+      provider: {
+        id: "openai",
+        capabilities: ["image"],
+      },
+    } as never);
+    mocks.resolveRuntimePluginRegistry.mockReturnValue(loaded);
+
+    expectNoResolvedCapabilityProviders(
+      resolvePluginCapabilityProviders({
+        key: "mediaUnderstandingProviders",
+        cfg,
+      }),
+    );
+
+    expect(mocks.loadPluginManifestRegistry).not.toHaveBeenCalled();
+    expect(mocks.withBundledPluginAllowlistCompat).not.toHaveBeenCalled();
+    expect(mocks.withBundledPluginEnablementCompat).not.toHaveBeenCalled();
+    expect(mocks.withBundledPluginVitestCompat).not.toHaveBeenCalled();
+    expect(mocks.resolveRuntimePluginRegistry).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -653,7 +705,6 @@ describe("resolvePluginCapabilityProviders", () => {
       config: expect.anything(),
       onlyPluginIds: [],
       activate: false,
-      installBundledRuntimeDeps: false,
     });
   });
 
@@ -791,7 +842,34 @@ describe("resolvePluginCapabilityProviders", () => {
       config: enablementCompat,
       onlyPluginIds: ["google"],
       activate: false,
-      installBundledRuntimeDeps: false,
     });
+  });
+
+  it("does not load targeted bundled capability providers when plugins are globally disabled", () => {
+    const cfg = { plugins: { enabled: false, allow: ["custom-plugin"] } } as OpenClawConfig;
+    const loaded = createEmptyPluginRegistry();
+    loaded.memoryEmbeddingProviders.push({
+      pluginId: "google",
+      pluginName: "google",
+      source: "test",
+      provider: {
+        id: "gemini",
+        create: async () => ({ provider: null }),
+      },
+    } as never);
+    mocks.resolveRuntimePluginRegistry.mockReturnValue(loaded);
+
+    const provider = resolvePluginCapabilityProvider({
+      key: "memoryEmbeddingProviders",
+      providerId: "gemini",
+      cfg,
+    });
+
+    expect(provider).toBeUndefined();
+    expect(mocks.loadPluginManifestRegistry).not.toHaveBeenCalled();
+    expect(mocks.withBundledPluginAllowlistCompat).not.toHaveBeenCalled();
+    expect(mocks.withBundledPluginEnablementCompat).not.toHaveBeenCalled();
+    expect(mocks.withBundledPluginVitestCompat).not.toHaveBeenCalled();
+    expect(mocks.resolveRuntimePluginRegistry).not.toHaveBeenCalled();
   });
 });
