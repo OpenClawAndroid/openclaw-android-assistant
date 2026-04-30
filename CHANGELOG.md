@@ -11,6 +11,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- TTS/providers: keep bundled speech-provider compat fallback available when plugins are globally disabled, so cold gateway and CLI startup can still resolve fallback speech providers instead of leaving explicit TTS provider selection with no registered providers. Thanks @vincentkoc.
 - Discord: collapse repeated native slash-command deploy rate-limit startup logs into one non-fatal warning while keeping per-request REST timing in verbose output. Thanks @discord.
 - Providers/OpenAI Codex: preserve existing wrapped Codex streams during OpenAI attribution so PI OAuth bearer injection reaches ChatGPT/Codex Responses, and strip native Codex-only unsupported payload fields without touching custom compatible endpoints. (#75111) Thanks @keshavbotagent.
 - Agents/tool-result guard: use the resolved runtime context token budget for non-context-engine tool-result overflow checks, so long tool-heavy sessions no longer compact early when `contextTokens` is larger than native `contextWindow`. Fixes #74917. Thanks @kAIborg24.
@@ -39,6 +40,7 @@ Docs: https://docs.openclaw.ai
 - Infra/tmp: tolerate concurrent temp-dir permission repairs by rechecking directories that another process already tightened, so parallel ACP subprocess startup no longer throws `Unsafe fallback OpenClaw temp dir`. Fixes #66867. Thanks @Kane808-AI and @jarvisz8.
 - Agents/compaction: add an opt-in `agents.defaults.compaction.midTurnPrecheck` mid-turn precheck that detects tool-loop context pressure and triggers compaction before the next tool call instead of waiting for end-of-turn. (#73499) Thanks @marchpure and @haoxingjun.
 - Gateway/approvals: let loopback token/password-backed native approval clients resolve exec approvals without attaching stale paired Gateway identities, while remote and unauthenticated approval clients keep normal device identity behavior. (#74472)
+- Gateway/config: include rejected validation paths in foreground and service last-known-good recovery logs plus main-agent notices, so unsupported direct edits explain which key caused restore instead of looking like silent reversion. Fixes #75060. Thanks @amknight.
 
 ## 2026.4.29
 
