@@ -321,8 +321,10 @@ console.log(JSON.stringify(result));
       expect(script, scriptPath).toContain("minimal");
       expect(script, scriptPath).toContain("finalAssistant(Raw|Visible)Text");
     }
-    expect(readFileSync(TS_PATHS.macos, "utf8")).toContain("providerTimeoutConfigJson");
-    expect(readFileSync(TS_PATHS.linux, "utf8")).toContain("providerTimeoutConfigJson");
+    expect(readFileSync(TS_PATHS.macos, "utf8")).toContain("modelProviderConfigBatchJson");
+    expect(readFileSync(TS_PATHS.macos, "utf8")).toContain("config set --batch-file");
+    expect(readFileSync(TS_PATHS.linux, "utf8")).toContain("modelProviderConfigBatchJson");
+    expect(readFileSync(TS_PATHS.linux, "utf8")).toContain("config set --batch-file");
     expect(readFileSync(TS_PATHS.windows, "utf8")).toContain("windowsModelProviderTimeoutScript");
     expect(readFileSync(TS_PATHS.powershell, "utf8")).toContain("config set --batch-file");
 
@@ -334,6 +336,8 @@ console.log(JSON.stringify(result));
     expect(npmUpdateScripts).toContain("finalAssistant(Raw|Visible)Text");
     expect(npmUpdateScripts).toContain("posixAssertAgentOkScript");
     expect(npmUpdateScripts).toContain("windowsModelProviderTimeoutScript");
+    expect(npmUpdateScripts).toContain("modelProviderConfigBatchJson");
+    expect(npmUpdateScripts).toContain("config set --batch-file");
   });
 
   it("clears phase timers and applies phase deadlines to guest commands", () => {
@@ -484,6 +488,8 @@ console.log(JSON.stringify(result));
     expect(powershell).toContain("windowsOpenClawResolver");
     expect(powershell).toContain("providerTimeoutConfigJson");
     expect(powershell).toContain("models.providers.${providerId}");
+    expect(powershell).toContain("agents.defaults.models.${modelId}");
+    expect(powershell).toContain('transport: "sse"');
     expect(powershell).toContain("Resolve-OpenClawCommand");
     expect(powershell).toContain("npm\\node_modules\\openclaw\\openclaw.mjs");
     expect(powershell).toContain("$ErrorActionPreference = 'Continue'");
