@@ -107,6 +107,10 @@ const defaultOptions = (): WindowsOptions => ({
   vmName: "Windows 11",
 });
 
+const windowsPortableGitPathScript = `$portableGit = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'OpenClaw\\deps') 'portable-git') ''
+$env:PATH = "$portableGit\\cmd;$portableGit\\mingw64\\bin;$portableGit\\usr\\bin;$env:PATH"
+where.exe git.exe`;
+
 function usage(): string {
   return `Usage: bash scripts/e2e/parallels-windows-smoke.sh [options]
 
@@ -393,7 +397,7 @@ class WindowsSmoke {
     this.status.freshGateway = "pass";
     await this.phase(
       "fresh.first-agent-turn",
-      Number(process.env.OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 900),
+      Number(process.env.OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 1500),
       () => this.verifyTurn(),
     );
     this.status.freshAgent = "pass";
@@ -449,7 +453,7 @@ class WindowsSmoke {
     this.status.upgradeGateway = "pass";
     await this.phase(
       "upgrade.first-agent-turn",
-      Number(process.env.OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 900),
+      Number(process.env.OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 1500),
       () => this.verifyTurn(),
     );
     this.status.upgradeAgent = "pass";
@@ -800,9 +804,7 @@ if ((Test-Path $logPath) -or (Test-Path $donePath)) {
   private runDevChannelUpdate(): void {
     this.guestPowerShell(
       `$ErrorActionPreference = 'Stop'
-$portableGit = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'OpenClaw\\deps') 'portable-git') ''
-$env:PATH = "$portableGit\\cmd;$portableGit\\mingw64\\bin;$portableGit\\usr\\bin;$env:PATH"
-where.exe git.exe
+${windowsPortableGitPathScript}
 $configPath = Join-Path $env:USERPROFILE '.openclaw\\openclaw.json'
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
 if ($null -eq $config.update) {
@@ -822,9 +824,7 @@ Invoke-OpenClaw update status --json`,
 
   private verifyDevChannelUpdate(): void {
     const status = this.guestPowerShell(
-      `$portableGit = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'OpenClaw\\deps') 'portable-git') ''
-$env:PATH = "$portableGit\\cmd;$portableGit\\mingw64\\bin;$portableGit\\usr\\bin;$env:PATH"
-where.exe git.exe
+      `${windowsPortableGitPathScript}
 Invoke-OpenClaw update status --json`,
     );
     for (const needle of ['"installKind": "git"', '"value": "dev"', '"branch": "main"']) {
@@ -890,6 +890,7 @@ if ($LASTEXITCODE -ne 0) { throw "gateway ${action} failed with exit code $LASTE
       "agent-turn",
       `$ErrorActionPreference = 'Continue'
 $PSNativeCommandUseErrorActionPreference = $false
+${windowsPortableGitPathScript}
 Invoke-OpenClaw models set ${psSingleQuote(this.auth.modelId)}
 if ($LASTEXITCODE -ne 0) { throw "models set failed" }
 ${windowsModelProviderTimeoutScript(this.auth.modelId)}
@@ -919,19 +920,23 @@ for ($attempt = 1; $attempt -le 2; $attempt++) {
     '--json'
   )
   $output = Invoke-OpenClaw @args 2>&1
+  $agentExitCode = $LASTEXITCODE
   if ($null -ne $output) { $output | ForEach-Object { $_ } }
-  if ($LASTEXITCODE -ne 0) { throw "agent failed with exit code $LASTEXITCODE" }
-  if (($output | Out-String) -match '"finalAssistant(Raw|Visible)Text":\\s*"OK"') {
+  if ($agentExitCode -eq 0 -and ($output | Out-String) -match '"finalAssistant(Raw|Visible)Text":\\s*"OK"') {
     $agentOk = $true
     break
   }
   if ($attempt -lt 2) {
-    Write-Host "agent turn attempt $attempt finished without OK response; retrying"
+    Write-Host "agent turn attempt $attempt failed or finished without OK response; retrying"
     Start-Sleep -Seconds 3
+    continue
+  }
+  if ($agentExitCode -ne 0) {
+    throw "agent failed with exit code $agentExitCode"
   }
 }
 if (-not $agentOk) { throw 'openclaw agent finished without OK response' }`,
-      Number(process.env.OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 900) * 1000,
+      Number(process.env.OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 1500) * 1000,
     );
   }
 

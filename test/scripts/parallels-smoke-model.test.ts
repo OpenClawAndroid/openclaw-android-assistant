@@ -324,6 +324,7 @@ console.log(JSON.stringify(result));
     expect(readFileSync(TS_PATHS.macos, "utf8")).toContain("providerTimeoutConfigJson");
     expect(readFileSync(TS_PATHS.linux, "utf8")).toContain("providerTimeoutConfigJson");
     expect(readFileSync(TS_PATHS.windows, "utf8")).toContain("windowsModelProviderTimeoutScript");
+    expect(readFileSync(TS_PATHS.powershell, "utf8")).toContain("config set --batch-file");
 
     const npmUpdateScripts = readFileSync(TS_PATHS.npmUpdateScripts, "utf8");
     expect(npmUpdateScripts).toContain("posixAgentWorkspaceScript");
@@ -458,9 +459,11 @@ console.log(JSON.stringify(result));
 
     expect(script).toContain('guestPowerShellBackground(\n      "agent-turn"');
     expect(script).toContain("OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S");
+    expect(script).toContain("OPENCLAW_PARALLELS_WINDOWS_AGENT_TIMEOUT_S || 1500");
     expect(script).toContain("windowsModelProviderTimeoutScript(this.auth.modelId)");
     expect(script).toContain("finalAssistant(Raw|Visible)Text");
     expect(script).toContain("parallels-windows-smoke-retry-$attempt");
+    expect(script).toContain("agent turn attempt $attempt failed or finished without OK response");
     expect(script).not.toContain("$config.models.providers");
     expect(script).not.toContain("timeoutSeconds = 300");
     expect(script).toContain('"$sessionId.jsonl"');
