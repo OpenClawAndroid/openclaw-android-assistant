@@ -11,7 +11,8 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
-- Plugins/runtime-deps: accept already materialized package-level runtime-deps supersets as converged, so later lazy plugin activation no longer prunes and relaunches `pnpm install` after gateway startup pre-staging. Fixes #75283. Thanks @brokemac79.
+- Agents/commitments: keep inferred follow-ups internal when heartbeat target is none, strip raw source text from stored commitments, disable tools during due-commitment heartbeat turns, bound hidden extraction queue growth, expire stale commitments, and add QA/Docker safety coverage. Thanks @vignesh07.
+- Plugins/runtime-deps: accept already materialized package-level runtime-deps supersets as converged, so later lazy plugin activation no longer prunes and relaunches `pnpm install` after gateway startup pre-staging, reducing event-loop pressure from repeated runtime-deps repair on packaged installs. Fixes #75283; refs #75297 and #72338. Thanks @brokemac79, @lisandromachado, and @midhunmonachan.
 - TTS/providers: keep bundled speech-provider compat fallback available when plugins are globally disabled, so cold gateway and CLI startup can still resolve fallback speech providers instead of leaving explicit TTS provider selection with no registered providers. Refs #75265. Thanks @sliekens.
 - Discord: collapse repeated native slash-command deploy rate-limit startup logs into one non-fatal warning while keeping per-request REST timing in verbose output. Thanks @discord.
 - Providers/OpenAI Codex: preserve existing wrapped Codex streams during OpenAI attribution so PI OAuth bearer injection reaches ChatGPT/Codex Responses, and strip native Codex-only unsupported payload fields without touching custom compatible endpoints. (#75111) Thanks @keshavbotagent.
@@ -57,6 +58,7 @@ Docs: https://docs.openclaw.ai
 ### Changes
 
 - Security/tools: configured tool sections (`tools.exec`, `tools.fs`) no longer implicitly widen restrictive profiles (`messaging`, `minimal`). Users who need those tools under a restricted profile must add explicit `alsoAllow` entries; a startup warning identifies affected configs. Fixes #47487. Thanks @amknight.
+- Gateway/SDK: add SDK-facing artifact list/get/download RPCs and App SDK helpers with transcript provenance and download-source guardrails. Refs #74706. Thanks @tmimmanuel.
 - Agents/commitments: add opt-in inferred follow-up commitments with hidden batched extraction, per-agent/per-channel scoping, heartbeat delivery, CLI management, a simple `commitments.enabled`/`commitments.maxPerDay` config, and heartbeat-interval due-time clamping so magical check-ins do not echo immediately. (#74189) Thanks @vignesh07.
 - Messages/queue: make `steer` drain all pending Pi steering messages at the next model boundary, keep legacy one-at-a-time steering as `queue`, and add a dedicated steering queue docs page. Thanks @vincentkoc.
 - Messages/queue: default active-run queueing to `steer` with a 500ms followup fallback debounce, and document the queue modes, precedence, and drop policies on the command queue page. Thanks @vincentkoc.
