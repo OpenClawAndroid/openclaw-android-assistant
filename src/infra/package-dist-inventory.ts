@@ -32,6 +32,8 @@ const OMITTED_PRIVATE_QA_PLUGIN_SDK_FILES = new Set([
 ]);
 const OMITTED_PRIVATE_QA_DIST_PREFIXES = ["dist/qa-runtime-"];
 const OMITTED_DIST_SUBTREE_PATTERNS = [
+  /^dist\/extensions\/node_modules(?:\/|$)/u,
+  /^dist\/extensions\/[^/]+\/node_modules(?:\/|$)/u,
   /^dist\/extensions\/qa-matrix(?:\/|$)/u,
   new RegExp(`^dist/plugin-sdk/extensions/${LEGACY_QA_CHANNEL_DIR}(?:/|$)`, "u"),
   new RegExp(`^dist/plugin-sdk/extensions/${LEGACY_QA_LAB_DIR}(?:/|$)`, "u"),
@@ -44,6 +46,21 @@ function normalizeRelativePath(value: string): string {
 
 function isInstallStageDirName(value: string): boolean {
   return INSTALL_STAGE_DEBRIS_DIR_PATTERN.test(value);
+}
+
+function isLegacyPluginDependencyDirPath(relativePath: string): boolean {
+  const parts = normalizeRelativePath(relativePath).split("/");
+  if (parts[0]?.toLowerCase() !== "dist" || parts[1]?.toLowerCase() !== "extensions") {
+    return false;
+  }
+
+  const rootDependencyDir = parts[2] ?? "";
+  if (rootDependencyDir.toLowerCase() === "node_modules") {
+    return true;
+  }
+
+  const pluginDependencyDir = parts[3] ?? "";
+  return pluginDependencyDir.toLowerCase() === "node_modules";
 }
 
 export function isLegacyPluginDependencyInstallStagePath(relativePath: string): boolean {
@@ -59,6 +76,9 @@ export function isLegacyPluginDependencyInstallStagePath(relativePath: string): 
 
 function isPackagedDistPath(relativePath: string): boolean {
   if (!relativePath.startsWith("dist/")) {
+    return false;
+  }
+  if (isLegacyPluginDependencyDirPath(relativePath)) {
     return false;
   }
   if (relativePath === PACKAGE_DIST_INVENTORY_RELATIVE_PATH) {
@@ -87,7 +107,10 @@ function isPackagedDistPath(relativePath: string): boolean {
 }
 
 function isOmittedDistSubtree(relativePath: string): boolean {
-  return OMITTED_DIST_SUBTREE_PATTERNS.some((pattern) => pattern.test(relativePath));
+  return (
+    isLegacyPluginDependencyDirPath(relativePath) ||
+    OMITTED_DIST_SUBTREE_PATTERNS.some((pattern) => pattern.test(relativePath))
+  );
 }
 
 async function collectRelativeFiles(rootDir: string, baseDir: string): Promise<string[]> {
