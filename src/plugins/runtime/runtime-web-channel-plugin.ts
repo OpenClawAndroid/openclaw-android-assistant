@@ -9,14 +9,15 @@ import {
 } from "../../media/web-media.js";
 import type { PollInput } from "../../polls.js";
 import type { PluginJitiLoaderCache } from "../jiti-loader-cache.js";
+import type { PluginOrigin } from "../plugin-origin.types.js";
 import {
-  loadPluginBoundaryModuleWithJiti,
+  loadPluginBoundaryModule,
   resolvePluginRuntimeRecordByEntryBaseNames,
   resolvePluginRuntimeModulePath,
 } from "./runtime-plugin-boundary.js";
 
 type WebChannelPluginRecord = {
-  origin?: string;
+  origin?: PluginOrigin;
   rootDir?: string;
   source: string;
 };
@@ -132,25 +133,22 @@ function resolveWebChannelRuntimeModulePath(
 }
 
 function loadCurrentHeavyModuleSync(): WebChannelHeavyRuntimeModule {
-  const modulePath = resolveWebChannelRuntimeModulePath(
-    resolveWebChannelPluginRecord(),
-    "runtime-api",
-  );
-  return loadPluginBoundaryModuleWithJiti<WebChannelHeavyRuntimeModule>(modulePath, jitiLoaders);
+  const record = resolveWebChannelPluginRecord();
+  const modulePath = resolveWebChannelRuntimeModulePath(record, "runtime-api");
+  return loadPluginBoundaryModule<WebChannelHeavyRuntimeModule>(modulePath, jitiLoaders, {
+    origin: record.origin,
+  });
 }
 
 function loadWebChannelLightModule(): WebChannelLightRuntimeModule {
-  const modulePath = resolveWebChannelRuntimeModulePath(
-    resolveWebChannelPluginRecord(),
-    "light-runtime-api",
-  );
+  const record = resolveWebChannelPluginRecord();
+  const modulePath = resolveWebChannelRuntimeModulePath(record, "light-runtime-api");
   if (cachedLightModule && cachedLightModulePath === modulePath) {
     return cachedLightModule;
   }
-  const loaded = loadPluginBoundaryModuleWithJiti<WebChannelLightRuntimeModule>(
-    modulePath,
-    jitiLoaders,
-  );
+  const loaded = loadPluginBoundaryModule<WebChannelLightRuntimeModule>(modulePath, jitiLoaders, {
+    origin: record.origin,
+  });
   cachedLightModulePath = modulePath;
   cachedLightModule = loaded;
   return loaded;
@@ -162,10 +160,9 @@ async function loadWebChannelHeavyModule(): Promise<WebChannelHeavyRuntimeModule
   if (cachedHeavyModule && cachedHeavyModulePath === modulePath) {
     return cachedHeavyModule;
   }
-  const loaded = loadPluginBoundaryModuleWithJiti<WebChannelHeavyRuntimeModule>(
-    modulePath,
-    jitiLoaders,
-  );
+  const loaded = loadPluginBoundaryModule<WebChannelHeavyRuntimeModule>(modulePath, jitiLoaders, {
+    origin: record.origin,
+  });
   cachedHeavyModulePath = modulePath;
   cachedHeavyModule = loaded;
   return loaded;

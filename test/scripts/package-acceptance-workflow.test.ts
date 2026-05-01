@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 const PACKAGE_ACCEPTANCE_WORKFLOW = ".github/workflows/package-acceptance.yml";
 const LIVE_E2E_WORKFLOW = ".github/workflows/openclaw-live-and-e2e-checks-reusable.yml";
@@ -8,7 +9,52 @@ const PACKAGE_JSON = "package.json";
 const RELEASE_CHECKS_WORKFLOW = ".github/workflows/openclaw-release-checks.yml";
 const FULL_RELEASE_VALIDATION_WORKFLOW = ".github/workflows/full-release-validation.yml";
 const QA_LIVE_TRANSPORTS_WORKFLOW = ".github/workflows/qa-live-transports-convex.yml";
+const UPDATE_MIGRATION_WORKFLOW = ".github/workflows/update-migration.yml";
 const UPGRADE_SURVIVOR_RUN_SCRIPT = "scripts/e2e/lib/upgrade-survivor/run.sh";
+
+type WorkflowStep = {
+  env?: Record<string, string>;
+  if?: string;
+  name?: string;
+  run?: string;
+  uses?: string;
+  with?: Record<string, string>;
+};
+
+type WorkflowJob = {
+  env?: Record<string, string>;
+  if?: string;
+  name?: string;
+  needs?: string | string[];
+  steps?: WorkflowStep[];
+};
+
+type Workflow = {
+  jobs?: Record<string, WorkflowJob>;
+};
+
+function readWorkflow(path: string): Workflow {
+  return parse(readFileSync(path, "utf8")) as Workflow;
+}
+
+function workflowJob(path: string, jobName: string): WorkflowJob {
+  const job = readWorkflow(path).jobs?.[jobName];
+  expect(job, `expected workflow job ${jobName}`).toBeDefined();
+  return job!;
+}
+
+function workflowStep(job: WorkflowJob, stepName: string): WorkflowStep {
+  const step = job.steps?.find((candidate) => candidate.name === stepName);
+  expect(step, `expected workflow step ${stepName}`).toBeDefined();
+  return step!;
+}
+
+function expectTextToIncludeAll(text: string | undefined, snippets: string[]): void {
+  expect(text).toBeDefined();
+  for (const snippet of snippets) {
+    expect(text).toContain(snippet);
+  }
+}
 
 describe("package acceptance workflow", () => {
   it("resolves candidate package sources before reusing Docker E2E lanes", () => {
@@ -39,6 +85,7 @@ describe("package acceptance workflow", () => {
 
   it("offers bounded product profiles and can run Telegram against the resolved artifact", () => {
     const workflow = readFileSync(PACKAGE_ACCEPTANCE_WORKFLOW, "utf8");
+    const npmTelegramWorkflow = readFileSync(NPM_TELEGRAM_WORKFLOW, "utf8");
 
     expect(workflow).toContain("suite_profile:");
     expect(workflow).toContain("published_upgrade_survivor_baseline:");
@@ -48,6 +95,7 @@ describe("package acceptance workflow", () => {
     expect(workflow).toContain("--history-count 6");
     expect(workflow).toContain("--include-version 2026.4.23");
     expect(workflow).toContain("--pre-date 2026-03-15T00:00:00Z");
+    expect(workflow).toContain('"all-since-"');
     expect(workflow).toContain("npm-onboard-channel-agent gateway-network config-reload");
     expect(workflow).toContain("npm-onboard-channel-agent doctor-switch");
     expect(workflow).toContain("update-channel-switch upgrade-survivor");
@@ -64,6 +112,10 @@ describe("package acceptance workflow", () => {
     expect(workflow).toContain(
       "package_label: openclaw@${{ needs.resolve_package.outputs.package_version }}",
     );
+    expect(npmTelegramWorkflow).toContain("package_artifact_run_id:");
+    expect(npmTelegramWorkflow).toContain("Download package-under-test artifact from release run");
+    expect(npmTelegramWorkflow).toContain("run-id: ${{ inputs.package_artifact_run_id }}");
+    expect(npmTelegramWorkflow).toContain("github-token: ${{ github.token }}");
     expect(workflow).toContain(
       "package_source_sha: ${{ steps.resolve.outputs.package_source_sha }}",
     );
@@ -82,6 +134,22 @@ describe("package acceptance workflow", () => {
     expect(workflow).toContain("Published upgrade survivor baseline:");
     expect(workflow).toContain("Published upgrade survivor baselines:");
     expect(workflow).toContain("Published upgrade survivor scenarios:");
+  });
+
+  it("keeps exhaustive update migration as a separate manual package gate", () => {
+    const workflow = readFileSync(UPDATE_MIGRATION_WORKFLOW, "utf8");
+    const packageWorkflow = readFileSync(PACKAGE_ACCEPTANCE_WORKFLOW, "utf8");
+
+    expect(workflow).toContain("name: Update Migration");
+    expect(workflow).toContain("uses: ./.github/workflows/package-acceptance.yml");
+    expect(workflow).toContain("source: ref");
+    expect(workflow).toContain("suite_profile: custom");
+    expect(workflow).toContain("docker_lanes: update-migration");
+    expect(workflow).toContain("default: all-since-2026.4.23");
+    expect(workflow).toContain("default: plugin-deps-cleanup");
+    expect(workflow).toContain("telegram_mode: none");
+    expect(workflow).toContain("secrets: inherit");
+    expect(packageWorkflow).toContain("published-upgrade-survivor/update-migration");
   });
 });
 
@@ -442,24 +510,99 @@ describe("package artifact reuse", () => {
 
   it("runs full release children from the trusted workflow ref", () => {
     const workflow = readFileSync(FULL_RELEASE_VALIDATION_WORKFLOW, "utf8");
+    const npmTelegramJob = workflowJob(FULL_RELEASE_VALIDATION_WORKFLOW, "npm_telegram");
+    const dispatchStep = workflowStep(npmTelegramJob, "Dispatch and monitor npm Telegram E2E");
 
     expect(workflow).toContain("CHILD_WORKFLOW_REF: ${{ github.ref_name }}");
     expect(workflow).toContain('gh workflow run "$workflow" --ref "$CHILD_WORKFLOW_REF" "$@"');
-    expect(workflow).toContain(
+    expect(npmTelegramJob.name).toBe("Run package Telegram E2E");
+    expect(npmTelegramJob.needs).toEqual(["resolve_target", "release_checks"]);
+    expect(npmTelegramJob.if).toContain(
+      "inputs.rerun_group == 'all' && inputs.release_profile == 'full'",
+    );
+    expect(dispatchStep.env).toMatchObject({
+      RELEASE_CHECKS_RUN_ID: "${{ needs.release_checks.outputs.run_id }}",
+      TARGET_SHA: "${{ needs.resolve_target.outputs.sha }}",
+    });
+    expectTextToIncludeAll(dispatchStep.run, [
       'gh workflow run npm-telegram-beta-e2e.yml --ref "$CHILD_WORKFLOW_REF" "${args[@]}"',
-    );
-    expect(workflow).toContain('-f harness_ref="$TARGET_SHA"');
-    expect(workflow).toContain("child_rerun_group=all");
-    expect(workflow).toContain('-f rerun_group="$child_rerun_group"');
-    expect(workflow).toContain('args+=(-f live_suite_filter="$LIVE_SUITE_FILTER")');
-    expect(workflow).toContain(
+      '-f harness_ref="$TARGET_SHA"',
+      'args=(-f package_spec="${PACKAGE_SPEC:-openclaw@beta}"',
+      'if [[ -z "${PACKAGE_SPEC// }" ]]; then',
+      "-f package_artifact_name=release-package-under-test",
+      '-f package_artifact_run_id="$RELEASE_CHECKS_RUN_ID"',
+      '-f package_label="full-release-${TARGET_SHA:0:12}"',
+      'args+=(-f scenario="$SCENARIO")',
+    ]);
+    expectTextToIncludeAll(workflow, [
+      "child_rerun_group=all",
+      '-f rerun_group="$child_rerun_group"',
+      'args+=(-f live_suite_filter="$LIVE_SUITE_FILTER")',
       "cancel-in-progress: ${{ inputs.ref == 'main' && inputs.rerun_group == 'all' }}",
-    );
-    expect(workflow).toContain("gh run cancel");
+      "gh run cancel",
+      "NORMAL_CI_RESULT: ${{ needs.normal_ci.result }}",
+    ]);
     expect(workflow).not.toContain("force-cancel");
-    expect(workflow).toContain("NORMAL_CI_RESULT: ${{ needs.normal_ci.result }}");
     expect(workflow).not.toContain("workflow_ref:");
     expect(workflow).not.toContain("inputs.workflow_ref");
+  });
+
+  it("documents the full-release Telegram package path in operator summaries", () => {
+    const workflow = readFileSync(FULL_RELEASE_VALIDATION_WORKFLOW, "utf8");
+    const releaseDocs = readFileSync("docs/reference/RELEASING.md", "utf8");
+    const fullReleaseDocs = readFileSync("docs/reference/full-release-validation.md", "utf8");
+
+    expectTextToIncludeAll(workflow, [
+      "Published-package Telegram E2E:",
+      "Package Telegram E2E: release package artifact from \\`OpenClaw Release Checks\\`",
+      "Package Telegram E2E: skipped unless \\`release_profile=full\\` or \\`npm_telegram_package_spec\\` is provided",
+    ]);
+    expect(releaseDocs).toContain(
+      "Focused `npm-telegram` reruns require `npm_telegram_package_spec`",
+    );
+    expectTextToIncludeAll(fullReleaseDocs, [
+      "full pre-publish candidate",
+      "silently skip that",
+      "Telegram package lane",
+      "| `npm-telegram`      | Published-package Telegram E2E; requires `npm_telegram_package_spec`. |",
+    ]);
+  });
+
+  it("lets npm Telegram consume current-run or release-run package artifacts", () => {
+    const job = workflowJob(NPM_TELEGRAM_WORKFLOW, "run_package_telegram_e2e");
+    const currentRunDownload = workflowStep(job, "Download package-under-test artifact");
+    const releaseRunDownload = workflowStep(
+      job,
+      "Download package-under-test artifact from release run",
+    );
+    const validateStep = workflowStep(job, "Validate inputs and secrets");
+    const runStep = workflowStep(job, "Run package Telegram E2E");
+
+    expect(currentRunDownload).toMatchObject({
+      if: "inputs.package_artifact_name != '' && inputs.package_artifact_run_id == ''",
+      uses: "actions/download-artifact@v8",
+      with: {
+        name: "${{ inputs.package_artifact_name }}",
+        path: ".artifacts/telegram-package-under-test",
+      },
+    });
+    expect(releaseRunDownload).toMatchObject({
+      if: "inputs.package_artifact_name != '' && inputs.package_artifact_run_id != ''",
+      uses: "actions/download-artifact@v8",
+      with: {
+        "github-token": "${{ github.token }}",
+        name: "${{ inputs.package_artifact_name }}",
+        path: ".artifacts/telegram-package-under-test",
+        "run-id": "${{ inputs.package_artifact_run_id }}",
+      },
+    });
+    expectTextToIncludeAll(validateStep.run, [
+      'if [[ -z "${PACKAGE_ARTIFACT_NAME// }" ]]; then',
+      "package_spec must be openclaw@beta",
+    ]);
+    expectTextToIncludeAll(runStep.run, [
+      'export OPENCLAW_NPM_TELEGRAM_PACKAGE_TGZ="${package_tgzs[0]}"',
+    ]);
   });
 
   it("keeps release QA and repo E2E lanes off scarce 32-core runners", () => {

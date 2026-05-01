@@ -200,6 +200,31 @@ describe("installPluginFromGitSpec", () => {
     }
   });
 
+  it("redacts authenticated git URLs from command failure details", async () => {
+    runCommandWithTimeoutMock.mockResolvedValueOnce({
+      code: 1,
+      stdout: "",
+      stderr:
+        "fatal: could not read Username for 'https://token:secret@github.com/acme/demo.git' while retrying https://other:credential@github.com/acme/fallback.git",
+    });
+
+    const result = await installPluginFromGitSpec({
+      spec: "git:https://token:secret@github.com/acme/demo.git",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("failed to clone github.com/acme/demo");
+      expect(result.error).toContain("https://***:***@github.com/acme/demo.git");
+      expect(result.error).toContain("https://***:***@github.com/acme/fallback.git");
+      expect(result.error).not.toContain("token");
+      expect(result.error).not.toContain("secret");
+      expect(result.error).not.toContain("other");
+      expect(result.error).not.toContain("credential");
+    }
+    expect(installPluginFromInstalledPackageDirMock).not.toHaveBeenCalled();
+  });
+
   it("keeps the existing managed repo when replacement install fails", async () => {
     const gitDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-git-install-preserve-"));
     const normalizedSpec = "git:https://github.com/acme/demo.git";
