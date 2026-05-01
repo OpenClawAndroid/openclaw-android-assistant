@@ -35,8 +35,13 @@ import { buildMeetDtmfSequence, normalizeDialInNumber } from "./src/transports/t
 import type { GoogleMeetSession } from "./src/transports/types.js";
 
 const voiceCallMocks = vi.hoisted(() => ({
-  joinMeetViaVoiceCallGateway: vi.fn(async () => ({ callId: "call-1", dtmfSent: true })),
+  joinMeetViaVoiceCallGateway: vi.fn(async () => ({
+    callId: "call-1",
+    dtmfSent: true,
+    introSent: true,
+  })),
   endMeetVoiceCallGatewayCall: vi.fn(async () => {}),
+  speakMeetViaVoiceCallGateway: vi.fn(async () => {}),
 }));
 
 const fetchGuardMocks = vi.hoisted(() => ({
@@ -54,13 +59,18 @@ const fetchGuardMocks = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
-  fetchWithSsrFGuard: fetchGuardMocks.fetchWithSsrFGuard,
-}));
+vi.mock("openclaw/plugin-sdk/ssrf-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/ssrf-runtime")>();
+  return {
+    ...actual,
+    fetchWithSsrFGuard: fetchGuardMocks.fetchWithSsrFGuard,
+  };
+});
 
 vi.mock("./src/voice-call-gateway.js", () => ({
   joinMeetViaVoiceCallGateway: voiceCallMocks.joinMeetViaVoiceCallGateway,
   endMeetVoiceCallGatewayCall: voiceCallMocks.endMeetVoiceCallGatewayCall,
+  speakMeetViaVoiceCallGateway: voiceCallMocks.speakMeetViaVoiceCallGateway,
 }));
 
 function setup(
@@ -348,7 +358,12 @@ describe("google-meet plugin", () => {
           "BlackHole 2ch",
         ],
       },
-      voiceCall: { enabled: true, requestTimeoutMs: 30000, dtmfDelayMs: 2500 },
+      voiceCall: {
+        enabled: true,
+        requestTimeoutMs: 30000,
+        dtmfDelayMs: 2500,
+        postDtmfSpeechDelayMs: 5000,
+      },
       realtime: {
         provider: "openai",
         introMessage: "Say exactly: I'm here and listening.",
@@ -955,12 +970,15 @@ describe("google-meet plugin", () => {
         dtmfSequence: "123456#",
         voiceCallId: "call-1",
         dtmfSent: true,
+        introSent: true,
       },
     });
     expect(voiceCallMocks.joinMeetViaVoiceCallGateway).toHaveBeenCalledWith({
       config: expect.objectContaining({ defaultTransport: "twilio" }),
       dialInNumber: "+15551234567",
       dtmfSequence: "123456#",
+      logger: expect.objectContaining({ info: expect.any(Function) }),
+      message: "Say exactly: I'm here and listening.",
     });
   });
 
@@ -981,6 +999,32 @@ describe("google-meet plugin", () => {
     expect(voiceCallMocks.endMeetVoiceCallGatewayCall).toHaveBeenCalledWith({
       config: expect.objectContaining({ defaultTransport: "twilio" }),
       callId: "call-1",
+    });
+  });
+
+  it("delegates Twilio session speech through voice-call", async () => {
+    const { tools } = setup({ defaultTransport: "twilio" });
+    const tool = tools[0] as {
+      execute: (id: string, params: unknown) => Promise<{ details: { session: { id: string } } }>;
+    };
+    const joined = await tool.execute("id", {
+      action: "join",
+      url: "https://meet.google.com/abc-defg-hij",
+      dialInNumber: "+15551234567",
+      pin: "123456",
+    });
+
+    const spoken = await tool.execute("id", {
+      action: "speak",
+      sessionId: joined.details.session.id,
+      message: "Say exactly: hello after joining.",
+    });
+
+    expect(spoken.details).toMatchObject({ spoken: true });
+    expect(voiceCallMocks.speakMeetViaVoiceCallGateway).toHaveBeenCalledWith({
+      config: expect.objectContaining({ defaultTransport: "twilio" }),
+      callId: "call-1",
+      message: "Say exactly: hello after joining.",
     });
   });
 
@@ -1363,7 +1407,10 @@ describe("google-meet plugin", () => {
             entries: {
               "voice-call": {
                 enabled: true,
-                config: { provider: "twilio" },
+                config: {
+                  provider: "twilio",
+                  publicUrl: "https://voice.example.com/voice/webhook",
+                },
               },
             },
           },
@@ -1390,16 +1437,20 @@ describe("google-meet plugin", () => {
           id: "twilio-voice-call-credentials",
           ok: true,
         }),
+        expect.objectContaining({
+          id: "twilio-voice-call-webhook",
+          ok: true,
+        }),
       ]),
     );
   });
 
-  it("reports missing voice-call wiring for Twilio transport", async () => {
+  it("reports missing voice-call wiring for explicit Twilio transport", async () => {
     vi.stubEnv("TWILIO_ACCOUNT_SID", "");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "");
     vi.stubEnv("TWILIO_FROM_NUMBER", "");
     const { tools } = setup(
-      { defaultTransport: "twilio" },
+      { defaultTransport: "chrome" },
       {
         fullConfig: {
           plugins: {
@@ -1418,7 +1469,7 @@ describe("google-meet plugin", () => {
       ) => Promise<{ details: { ok?: boolean; checks?: unknown[] } }>;
     };
 
-    const result = await tool.execute("id", { action: "setup_status" });
+    const result = await tool.execute("id", { action: "setup_status", transport: "twilio" });
 
     expect(result.details.ok).toBe(false);
     expect(result.details.checks).toEqual(
@@ -1434,6 +1485,56 @@ describe("google-meet plugin", () => {
       ]),
     );
   });
+
+  it.each([
+    "http://127.0.0.1:3334/voice/webhook",
+    "http://[::1]:3334/voice/webhook",
+    "http://[fd00::1]/voice/webhook",
+  ])(
+    "reports local voice-call publicUrl %s as unusable for Twilio transport",
+    async (publicUrl) => {
+      vi.stubEnv("TWILIO_ACCOUNT_SID", "AC123");
+      vi.stubEnv("TWILIO_AUTH_TOKEN", "secret");
+      vi.stubEnv("TWILIO_FROM_NUMBER", "+15550001234");
+      const { tools } = setup(
+        { defaultTransport: "twilio" },
+        {
+          fullConfig: {
+            plugins: {
+              allow: ["google-meet", "voice-call"],
+              entries: {
+                "voice-call": {
+                  enabled: true,
+                  config: {
+                    provider: "twilio",
+                    publicUrl,
+                  },
+                },
+              },
+            },
+          },
+        },
+      );
+      const tool = tools[0] as {
+        execute: (
+          id: string,
+          params: unknown,
+        ) => Promise<{ details: { ok?: boolean; checks?: unknown[] } }>;
+      };
+
+      const result = await tool.execute("id", { action: "setup_status" });
+
+      expect(result.details.ok).toBe(false);
+      expect(result.details.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "twilio-voice-call-webhook",
+            ok: false,
+          }),
+        ]),
+      );
+    },
+  );
 
   it("opens local Chrome Meet in observe-only mode without BlackHole checks", async () => {
     const originalPlatform = process.platform;

@@ -9,7 +9,11 @@ import {
   type ResolvedRealtimeVoiceProvider,
 } from "openclaw/plugin-sdk/realtime-voice";
 import type { VoiceCallConfig } from "./config.js";
-import { resolveVoiceCallConfig, validateProviderConfig } from "./config.js";
+import {
+  resolveTwilioAuthToken,
+  resolveVoiceCallConfig,
+  validateProviderConfig,
+} from "./config.js";
 import type { CoreAgentDeps, CoreConfig } from "./core-bridge.js";
 import { CallManager } from "./manager.js";
 import type { VoiceCallProvider } from "./providers/base.js";
@@ -18,6 +22,10 @@ import { resolveVoiceResponseModel } from "./response-model.js";
 import type { TelephonyTtsRuntime } from "./telephony-tts.js";
 import { createTelephonyTtsProvider } from "./telephony-tts.js";
 import { startTunnel, type TunnelResult } from "./tunnel.js";
+import {
+  isProviderUnreachableWebhookUrl,
+  providerRequiresPublicWebhook,
+} from "./webhook-exposure.js";
 import { VoiceCallWebhookServer } from "./webhook.js";
 import { cleanupTailscaleExposure, setupTailscaleExposure } from "./webhook/tailscale.js";
 
@@ -166,40 +174,6 @@ function isLoopbackBind(bind: string | undefined): boolean {
   return bind === "127.0.0.1" || bind === "::1" || bind === "localhost";
 }
 
-function providerRequiresPublicWebhook(providerName: VoiceCallProvider["name"]): boolean {
-  return providerName === "twilio" || providerName === "telnyx" || providerName === "plivo";
-}
-
-function isLocalOnlyWebhookHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase();
-  if (!host) {
-    return false;
-  }
-  if (
-    host === "localhost" ||
-    host === "0.0.0.0" ||
-    host === "::" ||
-    host === "::1" ||
-    host.startsWith("127.")
-  ) {
-    return true;
-  }
-  if (host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.")) {
-    return true;
-  }
-  const private172 = /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
-  return private172 || host.startsWith("fc") || host.startsWith("fd");
-}
-
-function isProviderUnreachableWebhookUrl(webhookUrl: string): boolean {
-  try {
-    const parsed = new URL(webhookUrl);
-    return isLocalOnlyWebhookHost(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
-
 async function resolveProvider(config: VoiceCallConfig): Promise<VoiceCallProvider> {
   const allowNgrokFreeTierLoopbackBypass =
     config.tunnel?.provider === "ngrok" &&
@@ -225,7 +199,7 @@ async function resolveProvider(config: VoiceCallConfig): Promise<VoiceCallProvid
       return new TwilioProvider(
         {
           accountSid: config.twilio?.accountSid,
-          authToken: config.twilio?.authToken,
+          authToken: resolveTwilioAuthToken(config),
         },
         {
           allowNgrokFreeTierLoopbackBypass,

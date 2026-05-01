@@ -6,6 +6,7 @@ import { createVoiceCallBaseConfig } from "./test-fixtures.js";
 
 const mocks = vi.hoisted(() => ({
   resolveVoiceCallConfig: vi.fn(),
+  resolveTwilioAuthToken: vi.fn(),
   validateProviderConfig: vi.fn(),
   managerInitialize: vi.fn(),
   managerGetCall: vi.fn(),
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./config.js", () => ({
   resolveVoiceCallConfig: mocks.resolveVoiceCallConfig,
+  resolveTwilioAuthToken: mocks.resolveTwilioAuthToken,
   validateProviderConfig: mocks.validateProviderConfig,
 }));
 
@@ -109,6 +111,9 @@ describe("createVoiceCallRuntime lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.resolveVoiceCallConfig.mockImplementation((cfg: VoiceCallConfig) => cfg);
+    mocks.resolveTwilioAuthToken.mockImplementation(
+      (cfg: VoiceCallConfig) => cfg.twilio?.authToken,
+    );
     mocks.validateProviderConfig.mockReturnValue({ valid: true, errors: [] });
     mocks.managerInitialize.mockResolvedValue(undefined);
     mocks.managerGetCall.mockReset();
@@ -210,6 +215,24 @@ describe("createVoiceCallRuntime lifecycle", () => {
       expect(mocks.webhookStop).toHaveBeenCalledTimes(1);
     },
   );
+
+  it.each([
+    "http://127.0.0.1:3334/voice/webhook",
+    "http://[::1]:3334/voice/webhook",
+    "http://[fd00::1]/voice/webhook",
+  ])("fails closed when Twilio publicUrl %s points at a local-only webhook", async (publicUrl) => {
+    await expect(
+      createVoiceCallRuntime({
+        config: createExternalProviderConfig({
+          provider: "twilio",
+          publicUrl,
+        }),
+        coreConfig: {} as CoreConfig,
+        agentRuntime: {} as never,
+      }),
+    ).rejects.toThrow("twilio requires a publicly reachable webhook URL");
+    expect(mocks.webhookStop).toHaveBeenCalledTimes(1);
+  });
 
   it("accepts an explicit public URL for external voice providers", async () => {
     const runtime = await createVoiceCallRuntime({
