@@ -758,6 +758,14 @@ function hasExplicitCompatibilityInputs(options: PluginLoadOptions): boolean {
   );
 }
 
+function resolveCoreGatewayMethodNames(options: PluginLoadOptions): string[] {
+  const names = new Set(options.coreGatewayMethodNames ?? []);
+  for (const name of Object.keys(options.coreGatewayHandlers ?? {})) {
+    names.add(name);
+  }
+  return Array.from(names).toSorted();
+}
+
 function pluginLoadOptionsMatchCacheKey(
   options: PluginLoadOptions,
   expectedCacheKey: string,
@@ -890,12 +898,7 @@ function resolvePluginLoadCacheContext(options: PluginLoadOptions = {}) {
   const preferSetupRuntimeForChannelPlugins = options.preferSetupRuntimeForChannelPlugins === true;
   const shouldInstallBundledRuntimeDeps = options.installBundledRuntimeDeps !== false;
   const runtimeSubagentMode = resolveRuntimeSubagentMode(options.runtimeOptions);
-  const coreGatewayMethodNames = Array.from(
-    new Set([
-      ...(options.coreGatewayMethodNames ?? []),
-      ...Object.keys(options.coreGatewayHandlers ?? {}),
-    ]),
-  ).toSorted();
+  const coreGatewayMethodNames = resolveCoreGatewayMethodNames(options);
   const installRecords = {
     ...loadInstalledPluginIndexInstallRecordsSync({ env }),
     ...cfg.plugins?.installs,
@@ -1459,6 +1462,8 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
           compat: collectPluginManifestCompatCodes(manifestRecord),
           activationState,
           syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
+          channelIds: manifestRecord.channels,
+          providerIds: manifestRecord.providers,
           configSchema: Boolean(manifestRecord.configSchema),
           contracts: manifestRecord.contracts,
         });
@@ -1494,6 +1499,8 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
         compat: collectPluginManifestCompatCodes(manifestRecord),
         activationState,
         syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
+        channelIds: manifestRecord.channels,
+        providerIds: manifestRecord.providers,
         configSchema: Boolean(manifestRecord.configSchema),
         contracts: manifestRecord.contracts,
       });
@@ -2302,6 +2309,8 @@ export async function loadOpenClawPluginCliRegistry(
         compat: collectPluginManifestCompatCodes(manifestRecord),
         activationState,
         syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
+        channelIds: manifestRecord.channels,
+        providerIds: manifestRecord.providers,
         configSchema: Boolean(manifestRecord.configSchema),
         contracts: manifestRecord.contracts,
       });
@@ -2337,6 +2346,8 @@ export async function loadOpenClawPluginCliRegistry(
       compat: collectPluginManifestCompatCodes(manifestRecord),
       activationState,
       syntheticAuthRefs: manifestRecord.syntheticAuthRefs,
+      channelIds: manifestRecord.channels,
+      providerIds: manifestRecord.providers,
       configSchema: Boolean(manifestRecord.configSchema),
       contracts: manifestRecord.contracts,
     });

@@ -767,7 +767,9 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       pluginsWithChannelRegistrationConflict.add(record.id);
       return;
     }
-    record.channelIds.push(id);
+    if (!record.channelIds.includes(id)) {
+      record.channelIds.push(id);
+    }
     registry.channelSetups.push({
       pluginId: record.id,
       pluginName: record.name,
@@ -809,7 +811,9 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       });
       return;
     }
-    record.providerIds.push(id);
+    if (!record.providerIds.includes(id)) {
+      record.providerIds.push(id);
+    }
     registry.providers.push({
       pluginId: record.id,
       pluginName: record.name,
@@ -966,7 +970,9 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
       });
       return;
     }
-    params.ownedIds.push(id);
+    if (!params.ownedIds.includes(id)) {
+      params.ownedIds.push(id);
+    }
     params.registrations.push({
       pluginId: record.id,
       pluginName: record.name,
