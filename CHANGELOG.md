@@ -6,8 +6,10 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Agents/Codex: stop prompting message-tool-only source turns to finish with `NO_REPLY`, so quiet turns are represented by not calling the visible message tool instead of conflicting final-text instructions. Thanks @pashpashpash.
 - Gateway/config: report failed backup restores as failed in logs and config observe audit records instead of marking them valid. (#70515) Thanks @davidangularme.
 - Compaction: use the active session model fallback chain for implicit summarization failures without persisting fallback model selection, so Azure content-filter 400s can recover. Fixes #64960. (#74470) Thanks @jalehman and @OpenCodeEngineer.
+- Gateway/config: allow `gateway config.patch` to update documented subagent thinking defaults. Fixes #75764. (#75802) Thanks @kAIborg24.
 
 ## 2026.4.30
 
@@ -45,6 +47,7 @@ Docs: https://docs.openclaw.ai
 - Plugins/TTS: keep bundled speech-provider discovery available on cold package Gateway paths and add bundled plugin matrix runtime probes for health, readiness, RPC, TTS discovery, and post-ready runtime-deps watchdog coverage. Refs #75283. Thanks @vincentkoc.
 - Google Meet/Twilio: show delegated voice call ID, DTMF, and intro-greeting state in `googlemeet doctor`, and avoid claiming DTMF was sent when no Meet PIN sequence was configured. Refs #72478. Thanks @DougButdorf.
 - Plugins/tools: prefer built bundled plugin code during tool discovery and skip channel runtime hydration while preserving companion provider registrations, reducing per-run plugin-tool prep cost without dropping executable plugin tools. Fixes #75290. Thanks @thanos-openclaw.
+- Plugins/loader: scope plugin-tool registry reuse to the enabled plugin plan and stored Gateway method keys, so embedded runner tool lookup can reuse compatible startup registries without hiding enabled non-startup plugin tools. Fixes #75520. Thanks @whtoo.
 - Voice Call/Twilio: send notify-mode initial TwiML directly in the outbound create-call request while keeping conversation and pre-connect DTMF calls webhook-driven, so one-shot notify calls do not depend on a first-answer webhook fetch. Supersedes #72758. Thanks @tyshepps.
 - Discord/Slack: defer status-reaction cleanup until run finalization so queued, thinking, tool, and terminal reactions no longer flicker during normal progress updates. (#75582)
 - Discord/voice: leave Discord voice off for text-only configs unless `channels.discord.voice` is explicitly configured, avoiding default `GuildVoiceStates` traffic and idle gateway CPU pressure for bots that do not use `/vc`. Fixes #73753; refs #74044. Thanks @sanchezm86 and @SecureCloudProjO.
@@ -163,6 +166,7 @@ Docs: https://docs.openclaw.ai
 - Agents/failover: carry `sessionId`, `lane`, `provider`, `model`, and `profileId` attribution through `FailoverError` and `describeFailoverError`/`coerceToFailoverError` so structured error logs (e.g. `gateway.err.log` ingestion) can attribute exhausted-fallback wrapper errors to the originating session and last-attempted provider instead of dropping the metadata after the per-profile errors. Fixes #42713. (#73506) Thanks @wenxu007.
 - Context Engine: treat assembled prompt as the default authority for preemptive overflow prechecks so engines that return a windowed, self-contained context no longer trigger false hard-fail compactions on huge raw history. Engines whose assembled view can hide overflow risk can opt back into the legacy behavior with `AssembleResult.promptAuthority: "preassembly_may_overflow"`. (#74255) Thanks @100yenadmin.
 - Mattermost: refresh current native slash command registrations before accepting callbacks so stale tokens from deleted or regenerated commands stop being accepted without a gateway restart while failed validations stay briefly cached and lookup starts are rate-limited per command, gate each callback against the resolved command's own startup token so a token leaked for one slash command cannot poison another command's failure cache, redact slash validation lookup errors, and add a body read timeout to the multi-account routing path so slow callback senders cannot tie up the dispatcher. Thanks @feynman-hou and @eleqtrizit.
+- Security/dotenv: block `COMSPEC` in workspace `.env` so a malicious repo cannot redirect Windows `cmd.exe` resolution, and lock in case-insensitive workspace-`.env` regression coverage for the full Windows shell trust-root family (`COMSPEC`, `PROGRAMFILES`, `PROGRAMW6432`, `SYSTEMROOT`, `WINDIR`). (#74460) Thanks @mmaps.
 
 ## 2026.4.29
 

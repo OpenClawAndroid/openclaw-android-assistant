@@ -103,6 +103,21 @@ describe("Parallels smoke model selection", () => {
     }
   });
 
+  it("writes full model ids as config map keys in provider batches", () => {
+    const source = `
+import { modelProviderConfigBatchJson } from "./${TS_PATHS.common}";
+const result = modelProviderConfigBatchJson("openai/gpt-4.1-mini", "windows");
+console.log(result);
+`;
+    const batch = JSON.parse(runTsEval(source, { OPENAI_API_KEY: "sk-openai" })) as Array<{
+      path: string;
+    }>;
+
+    expect(batch.map((entry) => entry.path)).toContain(
+      'agents.defaults.models["openai/gpt-4.1-mini"]',
+    );
+  });
+
   it("keeps snapshot, host, package, and quote helpers shared", () => {
     const common = readFileSync(TS_PATHS.common, "utf8");
     const hostCommand = readFileSync(TS_PATHS.hostCommand, "utf8");
@@ -413,7 +428,7 @@ console.log(JSON.stringify(result));
     expect(macos).not.toContain("Authorization: Bot");
     expect(discord).toContain("Authorization: Bot");
     expect(discord).toContain('"--silent"');
-    expect(discord).toContain("plugins deps --repair");
+    expect(discord).toContain("doctor --fix --yes --non-interactive");
     expect(discord).toContain("channels status --probe --json");
     expect(discord).toContain("Stop ${this.input.vmName} after successful Discord smoke");
   });
@@ -488,7 +503,8 @@ console.log(JSON.stringify(result));
     expect(powershell).toContain("windowsOpenClawResolver");
     expect(powershell).toContain("providerTimeoutConfigJson");
     expect(powershell).toContain("models.providers.${providerId}");
-    expect(powershell).toContain("agents.defaults.models.${modelId}");
+    expect(powershell).toContain("agents.defaults.models${configPathMapKey(modelId)}");
+    expect(powershell).toContain("configPathMapKey");
     expect(powershell).toContain('transport: "sse"');
     expect(powershell).toContain("Resolve-OpenClawCommand");
     expect(powershell).toContain("npm\\node_modules\\openclaw\\openclaw.mjs");
