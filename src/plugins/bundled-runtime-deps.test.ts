@@ -1458,6 +1458,32 @@ describe("createBundledRuntimeDepsPackagePlan config policy", () => {
     ).not.toThrow();
   });
 
+  it("accepts staged runtime deps that expose a package bin entry", () => {
+    const installRoot = makeTempDir();
+    const packageDir = path.join(installRoot, "node_modules", "@zed-industries", "codex-acp");
+    fs.mkdirSync(path.join(packageDir, "bin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "@zed-industries/codex-acp",
+        version: "0.12.0",
+        bin: {
+          "codex-acp": "bin/codex-acp.js",
+        },
+      }),
+      "utf8",
+    );
+    fs.writeFileSync(path.join(packageDir, "bin", "codex-acp.js"), "#!/usr/bin/env node\n");
+    writeGeneratedRuntimeDepsManifest(installRoot, ["@zed-industries/codex-acp@0.12.0"]);
+
+    expect(isRuntimeDepsPlanMaterialized(installRoot, ["@zed-industries/codex-acp@0.12.0"])).toBe(
+      true,
+    );
+    expect(() =>
+      assertBundledRuntimeDepsInstalled(installRoot, ["@zed-industries/codex-acp@0.12.0"]),
+    ).not.toThrow();
+  });
+
   it("accepts staged runtime deps with exported package entry files", () => {
     const installRoot = makeTempDir();
     const packageDir = path.join(installRoot, "node_modules", "alpha-runtime");
@@ -1635,6 +1661,29 @@ describe("createBundledRuntimeDepsPackagePlan config policy", () => {
     fs.writeFileSync(
       path.join(packageDir, "package.json"),
       JSON.stringify({ name: "alpha-runtime", version: "1.0.0" }),
+      "utf8",
+    );
+    writeGeneratedRuntimeDepsManifest(installRoot, ["alpha-runtime@1.0.0"]);
+
+    expect(isRuntimeDepsPlanMaterialized(installRoot, ["alpha-runtime@1.0.0"])).toBe(false);
+    expect(() => assertBundledRuntimeDepsInstalled(installRoot, ["alpha-runtime@1.0.0"])).toThrow(
+      /alpha-runtime@1\.0\.0/,
+    );
+  });
+
+  it("reports staged runtime deps as missing when a package bin entry is absent", () => {
+    const installRoot = makeTempDir();
+    const packageDir = path.join(installRoot, "node_modules", "alpha-runtime");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "alpha-runtime",
+        version: "1.0.0",
+        bin: {
+          "alpha-runtime": "bin/alpha-runtime.js",
+        },
+      }),
       "utf8",
     );
     writeGeneratedRuntimeDepsManifest(installRoot, ["alpha-runtime@1.0.0"]);
@@ -3369,7 +3418,7 @@ describe("ensureBundledPluginRuntimeDeps", () => {
     },
   );
 
-  it("prunes stale unknown external runtime roots while keeping newest and locked roots", () => {
+  it("prunes stale unknown and legacy versioned external runtime roots", () => {
     const stageDir = makeTempDir();
     const nowMs = Date.parse("2026-04-29T08:00:00.000Z");
     const makeRoot = (name: string, ageMs: number, locked = false) => {
@@ -3391,7 +3440,9 @@ describe("ensureBundledPluginRuntimeDeps", () => {
     const newest = makeRoot("openclaw-unknown-newest", 1_000);
     const stale = makeRoot("openclaw-unknown-stale", 120_000);
     const locked = makeRoot("openclaw-unknown-locked", 120_000, true);
-    const versioned = makeRoot("openclaw-2026.4.25-versioned", 120_000);
+    const legacyVersioned = makeRoot("openclaw-2026.4.25-discord", 1_000);
+    const lockedLegacyVersioned = makeRoot("openclaw-2026.4.25-telegram", 1_000, true);
+    const modernVersioned = makeRoot("openclaw-2026.4.25-abcdef123456", 120_000);
 
     const result = pruneUnknownBundledRuntimeDepsRoots({
       env: { OPENCLAW_PLUGIN_STAGE_DIR: stageDir },
@@ -3400,11 +3451,13 @@ describe("ensureBundledPluginRuntimeDeps", () => {
       minAgeMs: 60_000,
     });
 
-    expect(result).toEqual({ scanned: 3, removed: 1, skippedLocked: 1 });
+    expect(result).toEqual({ scanned: 5, removed: 2, skippedLocked: 2 });
     expect(fs.existsSync(newest)).toBe(true);
     expect(fs.existsSync(stale)).toBe(false);
     expect(fs.existsSync(locked)).toBe(true);
-    expect(fs.existsSync(versioned)).toBe(true);
+    expect(fs.existsSync(legacyVersioned)).toBe(false);
+    expect(fs.existsSync(lockedLegacyVersioned)).toBe(true);
+    expect(fs.existsSync(modernVersioned)).toBe(true);
   });
 
   it("uses the plugin-local stage for source-checkout runtime deps", () => {
