@@ -130,7 +130,9 @@ peer such as `src/index.ts` to `dist/index.js`.
 Use `openclaw.runtimeExtensions` when published runtime files do not live at the
 same paths as the source entries. When present, `runtimeExtensions` must contain
 exactly one entry for every `extensions` entry. Mismatched lists fail install and
-plugin discovery rather than silently falling back to source paths.
+plugin discovery rather than silently falling back to source paths. If you also
+publish `openclaw.setupEntry`, use `openclaw.runtimeSetupEntry` for its built
+JavaScript peer; that file is required when declared.
 
 ```json
 {
@@ -185,7 +187,7 @@ current OpenClaw or a local checkout until a newer npm package is published.
 
   <Accordion title="Memory plugins">
     - `memory-core` — bundled memory search (default via `plugins.slots.memory`)
-    - `memory-lancedb` — install-on-demand long-term memory with auto-recall/capture (set `plugins.slots.memory = "memory-lancedb"`)
+    - `memory-lancedb` — LanceDB-backed long-term memory with auto-recall/capture (set `plugins.slots.memory = "memory-lancedb"`)
 
     See [Memory LanceDB](/plugins/memory-lancedb) for OpenAI-compatible
     embedding setup, Ollama examples, recall limits, and troubleshooting.

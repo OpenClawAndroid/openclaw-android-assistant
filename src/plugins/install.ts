@@ -201,7 +201,6 @@ type PackageInstallCommonParams = InstallSafetyOverrides & {
   dryRun?: boolean;
   expectedPluginId?: string;
   requirePluginManifest?: boolean;
-  installDependencies?: boolean;
   installPolicyRequest?: PluginInstallPolicyRequest;
 };
 
@@ -228,7 +227,6 @@ function pickPackageInstallCommonParams(
     dryRun: params.dryRun,
     expectedPluginId: params.expectedPluginId,
     requirePluginManifest: params.requirePluginManifest,
-    installDependencies: params.installDependencies,
     installPolicyRequest: params.installPolicyRequest,
   };
 }
@@ -555,7 +553,7 @@ async function detectNativePackageInstallSource(packageDir: string): Promise<boo
 }
 
 /**
- * After the staged plugin tree has been scanned, symlink the host openclaw
+ * After the installed package tree has been scanned, symlink the host openclaw
  * package for plugins that declare it as a peer dependency.
  */
 async function linkOpenClawPeerDependencies(params: {
@@ -606,13 +604,6 @@ type ValidatedPackagePlugin = {
   extensions: string[];
   peerDependencies: Record<string, string>;
 };
-
-function hasInstallablePackageDependencies(manifest: PackageManifest): boolean {
-  return (
-    Object.keys(manifest.dependencies ?? {}).length > 0 ||
-    Object.keys(manifest.optionalDependencies ?? {}).length > 0
-  );
-}
 
 async function validatePackagePluginInstallSource(params: {
   runtime: Awaited<ReturnType<typeof loadPluginInstallRuntime>>;
@@ -776,7 +767,7 @@ async function validatePackagePluginInstallSource(params: {
 async function scanAndLinkInstalledPackage(params: {
   runtime: Awaited<ReturnType<typeof loadPluginInstallRuntime>>;
   installedDir: string;
-  dependencyTreeRootDir?: string;
+  dependencyScanRootDir?: string;
   pluginId: string;
   peerDependencies: Record<string, string>;
   logger: PluginInstallLogger;
@@ -786,7 +777,7 @@ async function scanAndLinkInstalledPackage(params: {
     scan: async () =>
       await params.runtime.scanInstalledPackageDependencyTree({
         logger: params.logger,
-        packageDir: params.dependencyTreeRootDir ?? params.installedDir,
+        packageDir: params.dependencyScanRootDir ?? params.installedDir,
         pluginId: params.pluginId,
       }),
   });
@@ -804,7 +795,7 @@ async function scanAndLinkInstalledPackage(params: {
 export async function installPluginFromInstalledPackageDir(
   params: {
     packageDir: string;
-    dependencyTreeRootDir?: string;
+    dependencyScanRootDir?: string;
   } & PackageInstallCommonParams,
 ): Promise<InstallPluginResult> {
   const runtime = await loadPluginInstallRuntime();
@@ -825,7 +816,7 @@ export async function installPluginFromInstalledPackageDir(
   const postInstallError = await scanAndLinkInstalledPackage({
     runtime,
     installedDir: params.packageDir,
-    dependencyTreeRootDir: params.dependencyTreeRootDir,
+    dependencyScanRootDir: params.dependencyScanRootDir,
     pluginId: validated.plugin.pluginId,
     peerDependencies: validated.plugin.peerDependencies,
     logger,
@@ -902,9 +893,8 @@ async function installPluginFromPackageDir(
     mode: preparedTarget.effectiveMode,
     dryRun,
     copyErrorPrefix: "failed to copy plugin",
-    hasDeps:
-      params.installDependencies === true && hasInstallablePackageDependencies(plugin.manifest),
-    depsLogMessage: "Installing plugin dependencies with npm…",
+    hasDeps: false,
+    depsLogMessage: "",
     nameEncoder: encodePluginInstallDirName,
     afterInstall: async (installedDir) => {
       return await scanAndLinkInstalledPackage({
@@ -955,7 +945,6 @@ export async function installPluginFromArchive(
           dryRun: params.dryRun,
           expectedPluginId: params.expectedPluginId,
           requirePluginManifest: true,
-          installDependencies: true,
           installPolicyRequest,
         }),
       }),
@@ -1093,7 +1082,7 @@ export async function installPluginFromNpmSpec(
   },
 ): Promise<InstallPluginResult> {
   const runtime = await loadPluginInstallRuntime();
-  const { logger, timeoutMs, dryRun } = runtime.resolveTimedInstallModeOptions(
+  const { logger, timeoutMs, mode, dryRun } = runtime.resolveTimedInstallModeOptions(
     params,
     defaultLogger,
   );
@@ -1159,6 +1148,19 @@ export async function installPluginFromNpmSpec(
 
   const npmRoot = params.npmDir ? resolveUserPath(params.npmDir) : resolveDefaultPluginNpmDir();
   const installRoot = path.join(npmRoot, "node_modules", parsedSpec.name);
+  const effectiveMode = await resolveEffectiveInstallMode({
+    runtime,
+    requestedMode: mode,
+    targetPath: installRoot,
+  });
+  const availability = await ensureInstallTargetAvailableForMode({
+    runtime,
+    targetPath: installRoot,
+    mode: effectiveMode,
+  });
+  if (!availability.ok) {
+    return availability;
+  }
   if (dryRun) {
     return {
       ok: true,
@@ -1200,9 +1202,10 @@ export async function installPluginFromNpmSpec(
   const result = await installPluginFromInstalledPackageDir({
     dangerouslyForceUnsafeInstall: params.dangerouslyForceUnsafeInstall,
     packageDir: installRoot,
-    dependencyTreeRootDir: npmRoot,
+    dependencyScanRootDir: npmRoot,
     logger,
     expectedPluginId,
+    mode: effectiveMode,
     installPolicyRequest: {
       kind: "plugin-npm",
       requestedSpecifier: spec,

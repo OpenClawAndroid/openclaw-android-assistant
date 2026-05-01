@@ -4,12 +4,20 @@ Docs: https://docs.openclaw.ai
 
 ## Unreleased
 
+### Changes
+
+- Dependencies: refresh workspace dependency pins, including TypeBox 1.1.37, AWS SDK 3.1041.0, Microsoft Teams 2.0.9, and Marked 18.0.3. Thanks @mariozechner, @aws, and @microsoft.
+
 ### Fixes
 
+- Slack/setup: print the generated app manifest as plain JSON instead of embedding it inside the framed setup note, so it can be copied into Slack without deleting border characters. Fixes #65751. Thanks @theDanielJLewis.
+- Channels/WhatsApp: route CLI logout through the live Gateway and stop runtime-backed listeners before channel removal, so removing a WhatsApp account does not leave the old socket replying until restart. Fixes #67746. Thanks @123Mismail.
 - Agents/Codex: stop prompting message-tool-only source turns to finish with `NO_REPLY`, so quiet turns are represented by not calling the visible message tool instead of conflicting final-text instructions. Thanks @pashpashpash.
 - Gateway/config: report failed backup restores as failed in logs and config observe audit records instead of marking them valid. (#70515) Thanks @davidangularme.
 - Compaction: use the active session model fallback chain for implicit summarization failures without persisting fallback model selection, so Azure content-filter 400s can recover. Fixes #64960. (#74470) Thanks @jalehman and @OpenCodeEngineer.
 - Gateway/config: allow `gateway config.patch` to update documented subagent thinking defaults. Fixes #75764. (#75802) Thanks @kAIborg24.
+- Plugins/CLI: keep git plugin install paths credential-free, preserve existing git checkouts until replacement succeeds, honor duplicate npm install mode, and remove managed git repos on uninstall. Thanks @vincentkoc.
+- Channels/status reactions: remove stale non-terminal lifecycle reactions when a run reaches done or error, so Discord does not leave a permanent thinking emoji after completion. Fixes #75458. Thanks @davelutztx.
 
 ## 2026.4.30
 
@@ -32,6 +40,7 @@ Docs: https://docs.openclaw.ai
 - Agents/Codex: default Codex app-server dynamic tools to native-first, keeping OpenClaw integration tools while leaving file, patch, exec, and process ownership to the Codex harness. (#75308) Thanks @pashpashpash.
 - Agents/Codex: default Codex-harness direct source replies to the OpenClaw `message` tool when visible reply delivery is not explicitly configured, keeping channel-visible output as a deliberate tool call. (#75765) Thanks @pashpashpash.
 - Heartbeats/agents: add a structured `heartbeat_respond` tool for tool-capable heartbeat runs so agents can record quiet outcomes or explicit notification text without relying only on `HEARTBEAT_OK` parsing. (#75765) Thanks @pashpashpash.
+- Gateway/config: allow `$include` directives to read files from operator-approved `OPENCLAW_INCLUDE_ROOTS` directories while preserving default config-directory confinement. Thanks @ificator.
 
 ### Fixes
 

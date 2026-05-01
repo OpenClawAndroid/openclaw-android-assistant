@@ -618,7 +618,7 @@ beforeEach(() => {
 });
 
 describe("installPluginFromArchive", () => {
-  it("runs npm for package archive runtime dependencies", async () => {
+  it("does not run npm for package archive runtime dependencies", async () => {
     const result = await installArchivePackageAndReturnResult({
       packageJson: {
         name: "archive-with-deps",
@@ -631,14 +631,7 @@ describe("installPluginFromArchive", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(vi.mocked(runCommandWithTimeout)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(runCommandWithTimeout).mock.calls[0]?.[0]).toEqual([
-      "npm",
-      "install",
-      "--omit=dev",
-      "--loglevel=error",
-      "--ignore-scripts",
-    ]);
+    expect(vi.mocked(runCommandWithTimeout)).not.toHaveBeenCalled();
   });
 
   it("installs scoped archives, rejects duplicate installs, and allows updates", async () => {
@@ -924,6 +917,38 @@ describe("installPluginFromArchive", () => {
       expect(result.code).toBe(PLUGIN_INSTALL_ERROR_CODE.INVALID_OPENCLAW_EXTENSIONS);
       expect(result.error).toContain("runtimeExtensions length (1)");
       expect(result.error).toContain("extensions length (2)");
+    }
+  });
+
+  it("rejects package installs when runtimeSetupEntry is missing", async () => {
+    const { pluginDir, extensionsDir } = setupPluginInstallDirs();
+    fs.mkdirSync(path.join(pluginDir, "src"), { recursive: true });
+    fs.mkdirSync(path.join(pluginDir, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginDir, "package.json"),
+      JSON.stringify({
+        name: "missing-runtime-setup-plugin",
+        version: "1.0.0",
+        openclaw: {
+          extensions: ["./dist/index.js"],
+          setupEntry: "./src/setup-entry.ts",
+          runtimeSetupEntry: "./dist/setup-entry.js",
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(pluginDir, "dist", "index.js"), "export {};\n");
+    fs.writeFileSync(path.join(pluginDir, "src", "setup-entry.ts"), "export {};\n");
+
+    const result = await installPluginFromDir({
+      dirPath: pluginDir,
+      extensionsDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(PLUGIN_INSTALL_ERROR_CODE.INVALID_OPENCLAW_EXTENSIONS);
+      expect(result.error).toContain("runtime setup entry not found");
+      expect(result.error).toContain("./dist/setup-entry.js");
     }
   });
 
