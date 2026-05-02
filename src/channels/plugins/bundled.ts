@@ -15,6 +15,10 @@ import {
 import { normalizePluginsConfig } from "../../plugins/config-state.js";
 import { passesManifestOwnerBasePolicy } from "../../plugins/manifest-owner-policy.js";
 import { unwrapDefaultModuleExport } from "../../plugins/module-export.js";
+import {
+  getCachedPluginModuleLoader,
+  type PluginModuleLoaderCache,
+} from "../../plugins/plugin-module-loader-cache.js";
 import type { PluginRuntime } from "../../plugins/runtime/types.js";
 import { normalizeOptionalLowercaseString } from "../../shared/string-coerce.js";
 import { resolveBundledChannelRootScope, type BundledChannelRootScope } from "./bundled-root.js";
@@ -90,6 +94,11 @@ type BundledChannelLoadContext = {
 const log = createSubsystemLogger("channels");
 const MAX_BUNDLED_CHANNEL_LOAD_CONTEXTS = 32;
 const bundledChannelLoadContextsByRoot = new Map<string, BundledChannelLoadContext>();
+const sourceBundledEntryLoaderCache: PluginModuleLoaderCache = new Map();
+
+function isSourceModulePath(modulePath: string): boolean {
+  return /\.(?:c|m)?tsx?$/iu.test(modulePath);
+}
 
 function resolveChannelPluginModuleEntry(
   moduleExport: unknown,
@@ -204,11 +213,25 @@ function loadGeneratedBundledChannelModule(params: {
     metadata: params.metadata,
     modulePath,
   });
-  return loadChannelPluginModule({
-    modulePath,
-    rootDir: boundaryRoot,
-    boundaryRootDir: boundaryRoot,
-  });
+  try {
+    return loadChannelPluginModule({
+      modulePath,
+      rootDir: boundaryRoot,
+      boundaryRootDir: boundaryRoot,
+    });
+  } catch (error) {
+    if (!isSourceModulePath(modulePath)) {
+      throw error;
+    }
+    const loader = getCachedPluginModuleLoader({
+      cache: sourceBundledEntryLoaderCache,
+      modulePath,
+      importerUrl: import.meta.url,
+      preferBuiltDist: true,
+      cacheScopeKey: "bundled-channel-source-entry",
+    });
+    return loader(modulePath);
+  }
 }
 
 function loadGeneratedBundledChannelEntry(params: {

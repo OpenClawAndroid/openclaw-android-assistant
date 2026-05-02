@@ -77,7 +77,9 @@ describe("package acceptance workflow", () => {
     expect(workflow).toContain(
       "uses: ./.github/workflows/openclaw-live-and-e2e-checks-reusable.yml",
     );
-    expect(workflow).toContain("ref: ${{ inputs.workflow_ref }}");
+    expect(workflow).toContain(
+      "ref: ${{ needs.resolve_package.outputs.package_source_sha || inputs.workflow_ref }}",
+    );
     expect(workflow).toContain(
       "package_artifact_name: ${{ needs.resolve_package.outputs.package_artifact_name }}",
     );
@@ -214,6 +216,12 @@ describe("package artifact reuse", () => {
     expect(publishedUpgradeSurvivor).toContain("validate_baseline_package_spec");
     expect(publishedUpgradeSurvivor).toContain("openclaw@(beta|latest|");
     expect(publishedUpgradeSurvivor).toContain("probe_gateway_endpoint");
+    expect(publishedUpgradeSurvivor).toContain(
+      "assert_legacy_plugin_dependency_debris_before_doctor",
+    );
+    expect(publishedUpgradeSurvivor).toContain(
+      "Legacy plugin dependency debris was already removed before doctor",
+    );
     expect(
       publishedUpgradeSurvivor.indexOf('validate_baseline_package_spec "$baseline_spec"'),
     ).toBeLessThan(

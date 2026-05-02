@@ -21780,6 +21780,22 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                         },
                       ],
                     },
+                    clawpackSha256: {
+                      type: "string",
+                    },
+                    clawpackSpecVersion: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
+                    clawpackManifestSha256: {
+                      type: "string",
+                    },
+                    clawpackSize: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
                     gitUrl: {
                       type: "string",
                     },
