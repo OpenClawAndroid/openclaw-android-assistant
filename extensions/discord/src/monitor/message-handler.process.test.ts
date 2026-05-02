@@ -357,6 +357,8 @@ function getLastDispatchCtx():
       CommandBody?: string;
       From?: string;
       MediaTranscribedIndexes?: number[];
+      MessageSid?: string;
+      MessageSidFull?: string;
       MessageThreadId?: string | number;
       ModelParentSessionKey?: string;
       OriginatingTo?: string;
@@ -375,6 +377,8 @@ function getLastDispatchCtx():
           CommandBody?: string;
           From?: string;
           MediaTranscribedIndexes?: number[];
+          MessageSid?: string;
+          MessageSidFull?: string;
           MessageThreadId?: string | number;
           ModelParentSessionKey?: string;
           OriginatingTo?: string;
@@ -900,7 +904,7 @@ describe("processDiscordMessage session routing", () => {
     expect(createDiscordDraftStream).not.toHaveBeenCalled();
   });
 
-  it("suppresses automatic status reactions for always-on guild replies", async () => {
+  it("sends the configured ack while suppressing automatic status reactions for always-on guild replies", async () => {
     const ctx = await createBaseContext({
       shouldRequireMention: false,
       effectiveWasMentioned: false,
@@ -921,8 +925,27 @@ describe("processDiscordMessage session routing", () => {
     await runProcessDiscordMessage(ctx);
 
     expect(getLastDispatchReplyOptions()?.sourceReplyDeliveryMode).toBe("message_tool_only");
-    expect(sendMocks.reactMessageDiscord).not.toHaveBeenCalled();
+    expect(getReactionEmojis()).toEqual(["👀"]);
     expect(sendMocks.removeReactionDiscord).not.toHaveBeenCalled();
+  });
+
+  it("uses PluralKit original ids for inbound dedupe while preserving the Discord message id", async () => {
+    const ctx = await createBaseContext({
+      canonicalMessageId: "orig-123",
+      message: {
+        id: "proxy-456",
+        channelId: "c1",
+        timestamp: new Date().toISOString(),
+        attachments: [],
+      },
+    });
+
+    await runProcessDiscordMessage(ctx);
+
+    expect(getLastDispatchCtx()).toMatchObject({
+      MessageSid: "orig-123",
+      MessageSidFull: "proxy-456",
+    });
   });
 
   it("defaults guild replies to message-tool-only source delivery", async () => {
