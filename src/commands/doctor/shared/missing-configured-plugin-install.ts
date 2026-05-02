@@ -10,8 +10,16 @@ import { loadInstalledPluginIndexInstallRecords } from "../../../plugins/install
 import { writePersistedInstalledPluginIndexInstallRecords } from "../../../plugins/installed-plugin-index-records.js";
 import { buildNpmResolutionInstallFields } from "../../../plugins/installs.js";
 import { loadManifestMetadataSnapshot } from "../../../plugins/manifest-contract-eligibility.js";
+import type { PluginPackageInstall } from "../../../plugins/manifest.js";
+import {
+  listOfficialExternalPluginCatalogEntries,
+  resolveOfficialExternalPluginId,
+  resolveOfficialExternalPluginInstall,
+  resolveOfficialExternalPluginLabel,
+} from "../../../plugins/official-external-plugin-catalog.js";
 import { resolveProviderInstallCatalogEntries } from "../../../plugins/provider-install-catalog.js";
 import { updateNpmInstalledPlugins } from "../../../plugins/update.js";
+import { resolveWebSearchInstallCatalogEntry } from "../../../plugins/web-search-install-catalog.js";
 import { asObjectRecord } from "./object.js";
 
 type DownloadableInstallCandidate = {
@@ -20,7 +28,22 @@ type DownloadableInstallCandidate = {
   npmSpec?: string;
   clawhubSpec?: string;
   expectedIntegrity?: string;
+  defaultChoice?: PluginPackageInstall["defaultChoice"];
 };
+
+const RUNTIME_PLUGIN_INSTALL_CANDIDATES: readonly DownloadableInstallCandidate[] = [
+  {
+    pluginId: "acpx",
+    label: "ACPX Runtime",
+    npmSpec: "@openclaw/acpx",
+  },
+  // Runtime-only configs do not have a provider/channel integration catalog entry.
+  {
+    pluginId: "codex",
+    label: "Codex",
+    npmSpec: "@openclaw/codex@beta",
+  },
+];
 
 function buildOpenClawClawHubSpec(npmSpec: string): string | undefined {
   const parsed = parseRegistryNpmSpec(npmSpec);
@@ -37,6 +60,24 @@ function shouldFallbackClawHubToNpm(result: { ok: false; code?: string }): boole
   );
 }
 
+function normalizeInstallDefaultChoice(
+  value: PluginPackageInstall["defaultChoice"] | undefined,
+): PluginPackageInstall["defaultChoice"] | undefined {
+  return value === "clawhub" || value === "npm" || value === "local" ? value : undefined;
+}
+
+function resolveCandidateClawHubSpec(install: PluginPackageInstall): string | undefined {
+  const explicit = install.clawhubSpec?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const npmSpec = install.npmSpec?.trim();
+  if (!npmSpec || normalizeInstallDefaultChoice(install.defaultChoice) === "npm") {
+    return undefined;
+  }
+  return buildOpenClawClawHubSpec(npmSpec);
+}
+
 function collectConfiguredPluginIds(cfg: OpenClawConfig): Set<string> {
   const ids = new Set<string>();
   const plugins = asObjectRecord(cfg.plugins);
@@ -51,6 +92,23 @@ function collectConfiguredPluginIds(cfg: OpenClawConfig): Set<string> {
     if (pluginId.trim()) {
       ids.add(pluginId.trim());
     }
+  }
+  const searchProvider = cfg.tools?.web?.search?.provider;
+  if (typeof searchProvider === "string") {
+    const installEntry = resolveWebSearchInstallCatalogEntry({ providerId: searchProvider });
+    if (installEntry?.pluginId) {
+      ids.add(installEntry.pluginId);
+    }
+  }
+  const acp = asObjectRecord(cfg.acp);
+  const acpBackend = typeof acp?.backend === "string" ? acp.backend.trim().toLowerCase() : "";
+  if (
+    (acpBackend === "acpx" ||
+      acp?.enabled === true ||
+      asObjectRecord(acp?.dispatch)?.enabled === true) &&
+    (!acpBackend || acpBackend === "acpx")
+  ) {
+    ids.add("acpx");
   }
   return ids;
 }
@@ -95,9 +153,7 @@ function collectDownloadableInstallCandidates(params: {
       continue;
     }
     const npmSpec = entry.install.npmSpec?.trim();
-    const clawhubSpec =
-      entry.install.clawhubSpec?.trim() ??
-      (npmSpec ? buildOpenClawClawHubSpec(npmSpec) : undefined);
+    const clawhubSpec = resolveCandidateClawHubSpec(entry.install);
     if (!npmSpec && !clawhubSpec) {
       continue;
     }
@@ -109,6 +165,7 @@ function collectDownloadableInstallCandidates(params: {
       ...(entry.install.expectedIntegrity
         ? { expectedIntegrity: entry.install.expectedIntegrity }
         : {}),
+      ...(entry.install.defaultChoice ? { defaultChoice: entry.install.defaultChoice } : {}),
     });
   }
 
@@ -124,9 +181,7 @@ function collectDownloadableInstallCandidates(params: {
       continue;
     }
     const npmSpec = entry.install.npmSpec?.trim();
-    const clawhubSpec =
-      entry.install.clawhubSpec?.trim() ??
-      (npmSpec ? buildOpenClawClawHubSpec(npmSpec) : undefined);
+    const clawhubSpec = resolveCandidateClawHubSpec(entry.install);
     if (!npmSpec && !clawhubSpec) {
       continue;
     }
@@ -138,7 +193,45 @@ function collectDownloadableInstallCandidates(params: {
       ...(entry.install.expectedIntegrity
         ? { expectedIntegrity: entry.install.expectedIntegrity }
         : {}),
+      ...(entry.install.defaultChoice ? { defaultChoice: entry.install.defaultChoice } : {}),
     });
+  }
+
+  for (const entry of listOfficialExternalPluginCatalogEntries()) {
+    const pluginId = resolveOfficialExternalPluginId(entry);
+    if (!pluginId || candidates.has(pluginId) || params.blockedPluginIds?.has(pluginId)) {
+      continue;
+    }
+    if (!configuredPluginIds.has(pluginId) && !params.missingPluginIds.has(pluginId)) {
+      continue;
+    }
+    const install = resolveOfficialExternalPluginInstall(entry);
+    if (!install) {
+      continue;
+    }
+    const npmSpec = install.npmSpec?.trim();
+    const clawhubSpec = resolveCandidateClawHubSpec(install);
+    if (!npmSpec && !clawhubSpec) {
+      continue;
+    }
+    candidates.set(pluginId, {
+      pluginId,
+      label: resolveOfficialExternalPluginLabel(entry),
+      ...(npmSpec ? { npmSpec } : {}),
+      ...(clawhubSpec ? { clawhubSpec } : {}),
+      ...(install.expectedIntegrity ? { expectedIntegrity: install.expectedIntegrity } : {}),
+      ...(install.defaultChoice ? { defaultChoice: install.defaultChoice } : {}),
+    });
+  }
+
+  for (const entry of RUNTIME_PLUGIN_INSTALL_CANDIDATES) {
+    if (!configuredPluginIds.has(entry.pluginId) && !params.missingPluginIds.has(entry.pluginId)) {
+      continue;
+    }
+    if (params.blockedPluginIds?.has(entry.pluginId)) {
+      continue;
+    }
+    candidates.set(entry.pluginId, entry);
   }
 
   return [...candidates.values()].toSorted((left, right) =>
@@ -157,7 +250,7 @@ async function installCandidate(params: {
   const { candidate } = params;
   const extensionsDir = resolveDefaultPluginExtensionsDir();
   const changes: string[] = [];
-  if (candidate.clawhubSpec) {
+  if (candidate.clawhubSpec && candidate.defaultChoice !== "npm") {
     const clawhubResult = await installPluginFromClawHub({
       spec: candidate.clawhubSpec,
       extensionsDir,
