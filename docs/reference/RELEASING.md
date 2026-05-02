@@ -59,10 +59,12 @@ the maintainer-only release runbook.
    intentionally carried.
 4. Create `release/YYYY.M.D` from current `main`; do not do normal release work
    directly on `main`.
-5. Bump every required version location for the intended tag, then run the
-   local deterministic preflight:
+5. Bump every required version location for the intended tag, run
+   `pnpm plugins:sync` so publishable plugin packages share the release
+   version and compatibility metadata, then run the local deterministic preflight:
    `pnpm check:test-types`, `pnpm check:architecture`,
-   `pnpm build && pnpm ui:build`, and `pnpm release:check`.
+   `pnpm build && pnpm ui:build`, `pnpm plugins:sync:check`, and
+   `pnpm release:check`.
 6. Run `OpenClaw NPM Release` with `preflight_only=true`. Before a tag exists,
    a full 40-character release-branch SHA is allowed for validation-only
    preflight. Save the successful `preflight_run_id`.
@@ -73,15 +75,19 @@ the maintainer-only release runbook.
    file, lane, workflow job, package profile, provider, or model allowlist that
    proves the fix. Rerun the full umbrella only when the changed surface makes
    prior evidence stale.
-9. For beta, tag `vYYYY.M.D-beta.N`, publish with npm dist-tag `beta`, then run
-   post-publish package acceptance against the published `openclaw@YYYY.M.D-beta.N`
-   or `openclaw@beta` package. If a pushed or published beta needs a fix, cut
-   the next `-beta.N`; do not delete or rewrite the old beta.
+9. For beta, tag `vYYYY.M.D-beta.N`, then run `OpenClaw Release Publish` from
+   the matching `release/YYYY.M.D` branch. It verifies `pnpm plugins:sync:check`,
+   publishes all publishable plugin packages to npm first, publishes the same
+   set to ClawHub second, and then promotes the prepared OpenClaw npm preflight
+   artifact with dist-tag `beta`. After publish, run post-publish package
+   acceptance against the published `openclaw@YYYY.M.D-beta.N` or `openclaw@beta`
+   package. If a pushed or published beta needs a fix, cut the next `-beta.N`;
+   do not delete or rewrite the old beta.
 10. For stable, continue only after the vetted beta or release candidate has the
-    required validation evidence. Stable npm publish reuses the successful
-    preflight artifact via `preflight_run_id`; stable macOS release readiness
-    also requires the packaged `.zip`, `.dmg`, `.dSYM.zip`, and updated
-    `appcast.xml` on `main`.
+    required validation evidence. Stable npm publish also goes through
+    `OpenClaw Release Publish`, reusing the successful preflight artifact via
+    `preflight_run_id`; stable macOS release readiness also requires the
+    packaged `.zip`, `.dmg`, `.dSYM.zip`, and updated `appcast.xml` on `main`.
 11. After publish, run the npm post-publish verifier, optional standalone
     published-npm Telegram E2E when you need post-publish channel proof,
     dist-tag promotion when needed, GitHub release/prerelease notes from the
@@ -97,6 +103,12 @@ the maintainer-only release runbook.
 - Run `pnpm build && pnpm ui:build` before `pnpm release:check` so the expected
   `dist/*` release artifacts and Control UI bundle exist for the pack
   validation step
+- Run `pnpm plugins:sync` after the root version bump and before tagging. It
+  updates publishable plugin package versions, OpenClaw peer/API compatibility
+  metadata, build metadata, and plugin changelog stubs to match the core
+  release version. `pnpm plugins:sync:check` is the non-mutating release guard;
+  the publish workflow fails before any registry mutation if this step was
+  forgotten.
 - Run the manual `Full Release Validation` workflow before release approval to
   kick off all pre-release test boxes from one entrypoint. It accepts a branch,
   tag, or full commit SHA, dispatches manual `CI`, and dispatches
@@ -143,6 +155,14 @@ the maintainer-only release runbook.
   span names, bounded attributes, and content/identifier redaction without
   requiring Opik, Langfuse, or another external collector.
 - Run `pnpm release:check` before every tagged release
+- Run `OpenClaw Release Publish` for the mutating publish sequence after the
+  tag exists. Dispatch it from `release/YYYY.M.D` (or `main` when publishing a
+  main-reachable tag), pass the release tag and successful OpenClaw npm
+  `preflight_run_id`, and keep the default plugin publish scope
+  `all-publishable` unless you are deliberately running a focused repair. The
+  workflow serializes plugin npm publish, plugin ClawHub publish, and OpenClaw
+  npm publish so the core package is not published before its externalized
+  plugins.
 - Release checks now run in a separate manual workflow:
   `OpenClaw Release Checks`
 - `OpenClaw Release Checks` also runs the QA Lab mock parity gate plus the fast
@@ -504,6 +524,56 @@ For package-candidate Telegram proof, enable `telegram_mode=mock-openai` or
 resolved `package-under-test` tarball into the Telegram lane; the standalone
 Telegram workflow still accepts a published npm spec for post-publish checks.
 
+## Release publish automation
+
+`OpenClaw Release Publish` is the normal mutating publish entrypoint. It
+orchestrates the trusted-publisher workflows in the order the release needs:
+
+1. Check out the release tag and resolve its commit SHA.
+2. Verify the tag is reachable from `main` or `release/*`.
+3. Run `pnpm plugins:sync:check`.
+4. Dispatch `Plugin NPM Release` with `publish_scope=all-publishable` and
+   `ref=<release-sha>`.
+5. Dispatch `Plugin ClawHub Release` with the same scope and SHA.
+6. Dispatch `OpenClaw NPM Release` with the release tag, npm dist-tag, and
+   saved `preflight_run_id`.
+
+Beta publish example:
+
+```bash
+gh workflow run openclaw-release-publish.yml \
+  --ref release/YYYY.M.D \
+  -f tag=vYYYY.M.D-beta.N \
+  -f preflight_run_id=<successful-openclaw-npm-preflight-run-id> \
+  -f npm_dist_tag=beta
+```
+
+Stable publish to the default beta dist-tag:
+
+```bash
+gh workflow run openclaw-release-publish.yml \
+  --ref release/YYYY.M.D \
+  -f tag=vYYYY.M.D \
+  -f preflight_run_id=<successful-openclaw-npm-preflight-run-id> \
+  -f npm_dist_tag=beta
+```
+
+Stable promotion directly to `latest` is explicit:
+
+```bash
+gh workflow run openclaw-release-publish.yml \
+  --ref release/YYYY.M.D \
+  -f tag=vYYYY.M.D \
+  -f preflight_run_id=<successful-openclaw-npm-preflight-run-id> \
+  -f npm_dist_tag=latest
+```
+
+Use the lower-level `Plugin NPM Release` and `Plugin ClawHub Release` workflows
+only for focused repair or republish work. For a selected plugin repair, pass
+`plugin_publish_scope=selected` and `plugins=@openclaw/name` to
+`OpenClaw Release Publish`, or dispatch the child workflow directly when the
+OpenClaw package must not be published.
+
 ## NPM workflow inputs
 
 `OpenClaw NPM Release` accepts these operator-controlled inputs:
@@ -516,6 +586,19 @@ Telegram workflow still accepts a published npm spec for post-publish checks.
 - `preflight_run_id`: required on the real publish path so the workflow reuses
   the prepared tarball from the successful preflight run
 - `npm_dist_tag`: npm target tag for the publish path; defaults to `beta`
+
+`OpenClaw Release Publish` accepts these operator-controlled inputs:
+
+- `tag`: required release tag; must already exist
+- `preflight_run_id`: successful `OpenClaw NPM Release` preflight run id;
+  required when `publish_openclaw_npm=true`
+- `npm_dist_tag`: npm target tag for the OpenClaw package
+- `plugin_publish_scope`: defaults to `all-publishable`; use `selected` only
+  for focused repair work
+- `plugins`: comma-separated `@openclaw/*` package names when
+  `plugin_publish_scope=selected`
+- `publish_openclaw_npm`: defaults to `true`; set `false` only when using the
+  workflow as a plugin-only repair orchestrator
 
 `OpenClaw Release Checks` accepts these operator-controlled inputs:
 
@@ -549,8 +632,9 @@ When cutting a stable npm release:
 4. If you intentionally only need the deterministic normal test graph, run the
    manual `CI` workflow on the release ref instead
 5. Save the successful `preflight_run_id`
-6. Run `OpenClaw NPM Release` again with `preflight_only=false`, the same
-   `tag`, the same `npm_dist_tag`, and the saved `preflight_run_id`
+6. Run `OpenClaw Release Publish` with the same `tag`, the same `npm_dist_tag`,
+   and the saved `preflight_run_id`; it publishes externalized plugins to npm
+   and ClawHub before promoting the OpenClaw npm package
 7. If the release landed on `beta`, use the private
    `openclaw/releases-private/.github/workflows/openclaw-npm-dist-tags.yml`
    workflow to promote that stable version from `beta` to `latest`

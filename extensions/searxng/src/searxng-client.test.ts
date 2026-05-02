@@ -39,6 +39,53 @@ describe("searxng client", () => {
     ).toEqual([{ title: "One", url: "https://example.com/1", content: "A" }]);
   });
 
+  it("preserves img_src from image search results", () => {
+    expect(
+      __testing.parseSearxngResponseText(
+        JSON.stringify({
+          results: [
+            {
+              title: "Kitten",
+              url: "https://example.com/kitten",
+              content: "A cute kitten",
+              img_src: "https://cdn.example.com/kitten.jpg",
+            },
+            {
+              title: "No Image",
+              url: "https://example.com/text",
+              content: "Text only",
+            },
+            {
+              title: "Bad Image",
+              url: "https://example.com/bad",
+              img_src: { url: "https://cdn.example.com/bad.jpg" },
+            },
+          ],
+        }),
+        10,
+      ),
+    ).toEqual([
+      {
+        title: "Kitten",
+        url: "https://example.com/kitten",
+        content: "A cute kitten",
+        img_src: "https://cdn.example.com/kitten.jpg",
+      },
+      {
+        title: "No Image",
+        url: "https://example.com/text",
+        content: "Text only",
+        img_src: undefined,
+      },
+      {
+        title: "Bad Image",
+        url: "https://example.com/bad",
+        content: undefined,
+        img_src: undefined,
+      },
+    ]);
+  });
+
   it("drops malformed result rows instead of failing the whole response", () => {
     expect(
       __testing.parseSearxngResponseText(
@@ -66,8 +113,11 @@ describe("searxng client", () => {
 
   it("allows https public hosts", async () => {
     await expect(
-      __testing.validateSearxngBaseUrl("https://search.example.com/searxng"),
-    ).resolves.toBeUndefined();
+      __testing.validateSearxngBaseUrl(
+        "https://search.example.com/searxng",
+        createLookupFn([{ address: "93.184.216.34", family: 4 }]),
+      ),
+    ).resolves.toBe("strict");
   });
 
   it("allows cleartext private-network hosts", async () => {
@@ -76,7 +126,16 @@ describe("searxng client", () => {
         "http://matrix-synapse:8080",
         createLookupFn([{ address: "10.0.0.5", family: 4 }]),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("selfHosted");
+  });
+
+  it("routes https private-network hosts through the self-hosted guard", async () => {
+    await expect(
+      __testing.validateSearxngBaseUrl(
+        "https://search.internal/searxng",
+        createLookupFn([{ address: "10.0.0.5", family: 4 }]),
+      ),
+    ).resolves.toBe("selfHosted");
   });
 
   it("rejects cleartext public hosts", async () => {

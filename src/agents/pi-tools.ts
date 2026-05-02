@@ -14,6 +14,7 @@ import {
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 import { createApplyPatchTool } from "./apply-patch.js";
+import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { describeExecTool, describeProcessTool } from "./bash-tools.descriptions.js";
 import type { ExecToolDefaults } from "./bash-tools.exec-types.js";
 import type { ProcessToolDefaults } from "./bash-tools.process.js";
@@ -362,8 +363,12 @@ export function createOpenClawCodingTools(options?: {
    * Keep this narrowly scoped; it is not a replacement for sender ownership.
    */
   ownerOnlyToolAllowlist?: string[];
+  /** Auth profiles already loaded for this run; used for prompt-time tool availability. */
+  authProfileStore?: AuthProfileStore;
   /** Callback invoked when sessions_yield tool is called. */
   onYield?: (message: string) => Promise<void> | void;
+  /** Optional instrumentation callback for tool preparation stage timing. */
+  recordToolPrepStage?: (name: string) => void;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -461,6 +466,7 @@ export function createOpenClawCodingTools(options?: {
     sandboxToolPolicy,
     subagentPolicy,
   ]);
+  options?.recordToolPrepStage?.("tool-policy");
   const execConfig = resolveExecConfig({ cfg: options?.config, agentId });
   const fsConfig = resolveToolFsConfig({ cfg: options?.config, agentId });
   const fsPolicy = createToolFsPolicy({
@@ -489,6 +495,7 @@ export function createOpenClawCodingTools(options?: {
     throw new Error("Sandbox filesystem bridge is unavailable.");
   }
   const imageSanitization = resolveImageSanitizationLimits(options?.config);
+  options?.recordToolPrepStage?.("workspace-policy");
 
   const base = includeCoreTools
     ? (createCodingTools(workspaceRoot) as unknown as AnyAgentTool[]).flatMap((tool) => {
@@ -535,6 +542,7 @@ export function createOpenClawCodingTools(options?: {
         return [tool];
       })
     : [];
+  options?.recordToolPrepStage?.("base-coding-tools");
   const { cleanupMs: cleanupMsOverride, ...execDefaults } = options?.exec ?? {};
   const execTool = includeCoreTools
     ? createLazyExecTool({
@@ -594,6 +602,7 @@ export function createOpenClawCodingTools(options?: {
               : undefined,
           workspaceOnly: applyPatchWorkspaceOnly,
         });
+  options?.recordToolPrepStage?.("shell-tools");
   const pluginToolAllowlist = collectExplicitAllowlist([
     profilePolicy,
     providerProfilePolicy,
@@ -708,13 +717,16 @@ export function createOpenClawCodingTools(options?: {
           ...(cronSelfRemoveOnlyJobId ? { cronSelfRemoveOnlyJobId } : {}),
           requesterAgentIdOverride: agentId,
           requesterSenderId: options?.senderId,
+          authProfileStore: options?.authProfileStore,
           senderIsOwner: options?.senderIsOwner,
           sessionId: options?.sessionId,
           onYield: options?.onYield,
           allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
+          recordToolPrepStage: options?.recordToolPrepStage,
         })
       : pluginToolsOnly),
   ];
+  options?.recordToolPrepStage?.("openclaw-tools");
   const toolsForMemoryFlush =
     isMemoryFlushRun && memoryFlushWritePath
       ? tools.flatMap((tool) => {
@@ -741,6 +753,7 @@ export function createOpenClawCodingTools(options?: {
     toolsForMemoryFlush,
     options?.messageProvider,
   );
+  options?.recordToolPrepStage?.("message-provider-policy");
   const toolsForModelProvider = applyModelProviderToolPolicy(toolsForMessageProvider, {
     config: options?.config,
     modelProvider: options?.modelProvider,
@@ -750,6 +763,7 @@ export function createOpenClawCodingTools(options?: {
     modelCompat: options?.modelCompat,
     suppressManagedWebSearch: options?.suppressManagedWebSearch,
   });
+  options?.recordToolPrepStage?.("model-provider-policy");
   // Security: treat unknown/undefined as unauthorized (opt-in, not opt-out)
   const senderIsOwner = options?.senderIsOwner === true;
   const toolsByAuthorization = applyOwnerOnlyToolPolicy(
@@ -780,6 +794,7 @@ export function createOpenClawCodingTools(options?: {
       { policy: subagentPolicy, label: "subagent tools.allow" },
     ],
   });
+  options?.recordToolPrepStage?.("authorization-policy");
   // Always normalize tool JSON Schemas before handing them to pi-agent/pi-ai.
   // Without this, some providers (notably OpenAI) will reject root-level union schemas.
   // Provider-specific cleaning: Gemini needs constraint keywords stripped, but Anthropic expects them.
@@ -790,6 +805,7 @@ export function createOpenClawCodingTools(options?: {
       modelCompat: options?.modelCompat,
     }),
   );
+  options?.recordToolPrepStage?.("schema-normalization");
   const withHooks = normalized.map((tool) =>
     wrapToolWithBeforeToolCallHook(tool, {
       agentId,
@@ -800,12 +816,15 @@ export function createOpenClawCodingTools(options?: {
       loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
     }),
   );
+  options?.recordToolPrepStage?.("tool-hooks");
   const withAbort = options?.abortSignal
     ? withHooks.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
     : withHooks;
+  options?.recordToolPrepStage?.("abort-wrappers");
   const withDeferredFollowupDescriptions = applyDeferredFollowupToolDescriptions(withAbort, {
     agentId,
   });
+  options?.recordToolPrepStage?.("deferred-followup-descriptions");
 
   // NOTE: Keep canonical (lowercase) tool names here.
   // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names

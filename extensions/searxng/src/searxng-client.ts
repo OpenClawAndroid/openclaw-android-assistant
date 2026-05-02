@@ -9,12 +9,16 @@ import {
   resolveSearchCount,
   resolveSiteName,
   resolveTimeoutSeconds,
+  withSelfHostedWebSearchEndpoint,
   withTrustedWebSearchEndpoint,
   wrapWebContent,
   writeCache,
 } from "openclaw/plugin-sdk/provider-web-search";
 import {
   assertHttpUrlTargetsPrivateNetwork,
+  isBlockedHostnameOrIp,
+  isPrivateIpAddress,
+  resolvePinnedHostnameWithPolicy,
   type LookupFn,
 } from "openclaw/plugin-sdk/ssrf-runtime";
 import {
@@ -25,6 +29,7 @@ import {
 
 const DEFAULT_TIMEOUT_SECONDS = 20;
 const MAX_RESPONSE_BYTES = 1_000_000;
+type SearxngEndpointMode = "selfHosted" | "strict";
 
 const SEARXNG_SEARCH_CACHE = new Map<
   string,
@@ -35,6 +40,7 @@ type SearxngResult = {
   url: string;
   title: string;
   content?: string;
+  img_src?: string;
 };
 
 type SearxngResponse = {
@@ -46,7 +52,12 @@ function normalizeSearxngResult(value: unknown): SearxngResult | null {
     return null;
   }
 
-  const candidate = value as { url?: unknown; title?: unknown; content?: unknown };
+  const candidate = value as {
+    url?: unknown;
+    title?: unknown;
+    content?: unknown;
+    img_src?: unknown;
+  };
   if (typeof candidate.url !== "string" || typeof candidate.title !== "string") {
     return null;
   }
@@ -55,6 +66,7 @@ function normalizeSearxngResult(value: unknown): SearxngResult | null {
     url: candidate.url,
     title: candidate.title,
     content: typeof candidate.content === "string" ? candidate.content : undefined,
+    img_src: typeof candidate.img_src === "string" ? candidate.img_src : undefined,
   };
 }
 
@@ -79,7 +91,31 @@ function buildSearxngSearchUrl(params: {
   return url.toString();
 }
 
-async function validateSearxngBaseUrl(baseUrl: string, lookupFn?: LookupFn): Promise<void> {
+async function searxngEndpointTargetsPrivateNetwork(
+  url: URL,
+  lookupFn?: LookupFn,
+): Promise<boolean> {
+  if (isBlockedHostnameOrIp(url.hostname)) {
+    return true;
+  }
+  try {
+    const pinned = await resolvePinnedHostnameWithPolicy(url.hostname, {
+      lookupFn,
+      policy: {
+        allowPrivateNetwork: true,
+        allowRfc2544BenchmarkRange: true,
+      },
+    });
+    return pinned.addresses.every((address) => isPrivateIpAddress(address));
+  } catch {
+    return false;
+  }
+}
+
+async function validateSearxngBaseUrl(
+  baseUrl: string,
+  lookupFn?: LookupFn,
+): Promise<SearxngEndpointMode> {
   let parsed: URL;
   try {
     parsed = new URL(baseUrl);
@@ -98,7 +134,10 @@ async function validateSearxngBaseUrl(baseUrl: string, lookupFn?: LookupFn): Pro
       errorMessage:
         "SearXNG HTTP base URL must target a trusted private or loopback host. Use https:// for public hosts.",
     });
+    return "selfHosted";
   }
+
+  return (await searxngEndpointTargetsPrivateNetwork(parsed, lookupFn)) ? "selfHosted" : "strict";
 }
 
 function parseSearxngResponseText(text: string, count: number): SearxngResult[] {
@@ -152,7 +191,7 @@ export async function runSearxngSearch(params: {
       "SearXNG base URL is not configured. Set SEARXNG_BASE_URL or configure plugins.entries.searxng.config.webSearch.baseUrl.",
     );
   }
-  await validateSearxngBaseUrl(baseUrl);
+  const endpointMode = await validateSearxngBaseUrl(baseUrl);
 
   const cacheKey = normalizeCacheKey(
     JSON.stringify({
@@ -177,7 +216,9 @@ export async function runSearxngSearch(params: {
   });
 
   const startedAt = Date.now();
-  const results = await withTrustedWebSearchEndpoint(
+  const withEndpoint =
+    endpointMode === "selfHosted" ? withSelfHostedWebSearchEndpoint : withTrustedWebSearchEndpoint;
+  const results = await withEndpoint(
     {
       url,
       timeoutSeconds,
@@ -220,6 +261,7 @@ export async function runSearxngSearch(params: {
       url: result.url,
       snippet: result.content ? wrapWebContent(result.content, "web_search") : "",
       siteName: resolveSiteName(result.url) || undefined,
+      img_src: result.img_src || undefined,
     })),
   } satisfies Record<string, unknown>;
 
