@@ -58,6 +58,8 @@ export type EmbeddedRunAttemptResult = {
   idleTimedOut: boolean;
   /** True if the timeout occurred while compaction was in progress or pending. */
   timedOutDuringCompaction: boolean;
+  /** Optional because this type is re-exported as `AgentHarnessAttemptResult`. */
+  timedOutDuringToolExecution?: boolean;
   promptError: unknown;
   /**
    * Identifies which phase produced the promptError.

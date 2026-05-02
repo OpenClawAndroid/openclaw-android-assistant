@@ -101,6 +101,7 @@ import {
   resolveBootstrapPromptTruncationWarningMode,
   resolveBootstrapTotalMaxChars,
 } from "../../pi-embedded-helpers.js";
+import { countActiveToolExecutions } from "../../pi-embedded-subscribe.handlers.tools.js";
 import { subscribeEmbeddedPiSession } from "../../pi-embedded-subscribe.js";
 import { createPreparedEmbeddedPiSettingsManager } from "../../pi-project-settings.js";
 import {
@@ -138,6 +139,7 @@ import {
 import {
   acquireSessionWriteLock,
   resolveSessionLockMaxHoldFromTimeout,
+  resolveSessionWriteLockAcquireTimeoutMs,
 } from "../../session-write-lock.js";
 import { detectRuntimeShell } from "../../shell-utils.js";
 import {
@@ -782,6 +784,7 @@ export async function runEmbeddedAttempt(
   let timedOut = false;
   let idleTimedOut = false;
   let timedOutDuringCompaction = false;
+  let timedOutDuringToolExecution = false;
   let promptError: unknown = null;
   let emitDiagnosticRunCompleted:
     | ((outcome: "completed" | "aborted" | "error", err?: unknown) => void)
@@ -1379,6 +1382,7 @@ export async function runEmbeddedAttempt(
     // from taking over the same session when a gateway run stalls before model I/O.
     const sessionLock = await acquireSessionWriteLock({
       sessionFile: params.sessionFile,
+      timeoutMs: resolveSessionWriteLockAcquireTimeoutMs(params.config),
       maxHoldMs: resolveSessionLockMaxHoldFromTimeout({
         timeoutMs: resolveRunTimeoutWithCompactionGraceMs({
           runTimeoutMs: params.timeoutMs,
@@ -1451,6 +1455,7 @@ export async function runEmbeddedAttempt(
             reason: contextParams.reason,
             sessionManager: contextParams.sessionManager as never,
             runtimeContext: contextParams.runtimeContext,
+            config: params.config,
           }),
         warn: (message) => log.warn(message),
       });
@@ -2250,6 +2255,9 @@ export async function runEmbeddedAttempt(
         aborted = true;
         if (isTimeout) {
           timedOut = true;
+          if (!timedOutDuringCompaction && countActiveToolExecutions(params.runId) > 0) {
+            timedOutDuringToolExecution = true;
+          }
         }
         if (isTimeout) {
           runAbortController.abort(reason ?? makeTimeoutAbortReason());
@@ -3239,8 +3247,10 @@ export async function runEmbeddedAttempt(
                 reason: contextParams.reason,
                 sessionManager: contextParams.sessionManager as never,
                 runtimeContext: contextParams.runtimeContext,
+                config: params.config,
               }),
             sessionManager,
+            config: params.config,
             warn: (message) => log.warn(message),
           });
         }
@@ -3456,6 +3466,7 @@ export async function runEmbeddedAttempt(
         timedOut,
         idleTimedOut,
         timedOutDuringCompaction,
+        timedOutDuringToolExecution,
         promptError: promptError ? formatErrorMessage(promptError) : undefined,
         promptErrorSource,
         usage: attemptUsage,
@@ -3474,6 +3485,7 @@ export async function runEmbeddedAttempt(
           timedOut,
           idleTimedOut,
           timedOutDuringCompaction,
+          timedOutDuringToolExecution,
           promptError: promptError ? formatErrorMessage(promptError) : undefined,
           promptErrorSource,
           usage: attemptUsage,
@@ -3498,6 +3510,7 @@ export async function runEmbeddedAttempt(
         timedOut,
         idleTimedOut,
         timedOutDuringCompaction,
+        timedOutDuringToolExecution,
         promptError: promptError ? formatErrorMessage(promptError) : undefined,
       });
       trajectoryEndRecorded = true;
@@ -3511,6 +3524,7 @@ export async function runEmbeddedAttempt(
         timedOut,
         idleTimedOut,
         timedOutDuringCompaction,
+        timedOutDuringToolExecution,
         promptError,
         promptErrorSource,
         preflightRecovery,
@@ -3555,6 +3569,7 @@ export async function runEmbeddedAttempt(
           timedOut,
           idleTimedOut,
           timedOutDuringCompaction,
+          timedOutDuringToolExecution,
           promptError: promptError ? formatErrorMessage(promptError) : undefined,
         });
       }

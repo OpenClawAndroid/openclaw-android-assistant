@@ -187,6 +187,9 @@ source "$trusted_scripts_dir/lib/live-docker-stage.sh"
 openclaw_live_stage_source_tree "$tmp_dir"
 openclaw_live_stage_node_modules "$tmp_dir"
 openclaw_live_link_runtime_tree "$tmp_dir"
+if [ -d /app/dist/extensions/codex ]; then
+  export OPENCLAW_BUNDLED_PLUGINS_DIR=/app/dist/extensions
+fi
 openclaw_live_stage_state_dir "$tmp_dir/.openclaw-state"
 if [ -n "${OPENCLAW_LIVE_CODEX_TRUSTED_HARNESS_DIR:-}" ] && [ -d "$OPENCLAW_LIVE_CODEX_TRUSTED_HARNESS_DIR" ]; then
   for harness_file in src/gateway/gateway-codex-harness.live-helpers.ts; do
@@ -223,6 +226,7 @@ openclaw_live_codex_harness_append_build_extension codex
 # Codex. This lane must rebuild the live image so the plugin-owned harness is
 # present under the bundled plugin runtime directory.
 OPENCLAW_SKIP_DOCKER_BUILD=0
+export OPENCLAW_SKIP_DOCKER_BUILD
 OPENCLAW_LIVE_DOCKER_REPO_ROOT="$ROOT_DIR" "$TRUSTED_HARNESS_DIR/scripts/test-live-build-docker.sh"
 
 echo "==> Run Codex harness live test in Docker"

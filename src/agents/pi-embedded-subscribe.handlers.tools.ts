@@ -92,6 +92,17 @@ function buildToolStartKey(runId: string, toolCallId: string): string {
   return `${runId}:${toolCallId}`;
 }
 
+export function countActiveToolExecutions(runId: string): number {
+  const prefix = `${runId}:`;
+  let count = 0;
+  for (const key of toolStartData.keys()) {
+    if (key.startsWith(prefix)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 function isCronAddAction(args: unknown): boolean {
   if (!args || typeof args !== "object") {
     return false;
