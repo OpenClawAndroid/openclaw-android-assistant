@@ -414,7 +414,15 @@ function expandInstalledDistImportClosure(params) {
       if (!JS_DIST_FILE_RE.test(importerPath) || importerPath.includes("/node_modules/")) {
         continue;
       }
-      const source = params.readText(importerPath);
+      let source;
+      try {
+        source = params.readText(importerPath);
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          continue;
+        }
+        throw error;
+      }
       for (const specifier of collectImportSpecifiers(source)) {
         const importedPath = resolveDistImportPath(importerPath, specifier);
         if (!importedPath || !fileSet.has(importedPath) || expectedSet.has(importedPath)) {
@@ -705,10 +713,22 @@ export async function runPluginRegistryPostinstallMigration(params = {}) {
 
 export function isSourceCheckoutRoot(params) {
   const pathExists = params.existsSync ?? existsSync;
+  const readFile = params.readFileSync ?? readFileSync;
   const hasPostinstallInventory = pathExists(join(params.packageRoot, DIST_INVENTORY_PATH));
+  let hasDeclaredMirroredPackageRuntimeDeps = false;
+  try {
+    const packageJson = JSON.parse(readFile(join(params.packageRoot, "package.json"), "utf8"));
+    const mirrored = packageJson?.openclaw?.bundle?.mirroredRootRuntimeDependencies;
+    hasDeclaredMirroredPackageRuntimeDeps = Array.isArray(mirrored) && mirrored.length > 0;
+  } catch {
+    hasDeclaredMirroredPackageRuntimeDeps = false;
+  }
+  const hasPackagedRuntimeDepsLayout =
+    hasPostinstallInventory || hasDeclaredMirroredPackageRuntimeDeps;
   return (
     (pathExists(join(params.packageRoot, ".git")) ||
-      (pathExists(join(params.packageRoot, "pnpm-workspace.yaml")) && !hasPostinstallInventory)) &&
+      (pathExists(join(params.packageRoot, "pnpm-workspace.yaml")) &&
+        !hasPackagedRuntimeDepsLayout)) &&
     pathExists(join(params.packageRoot, "src")) &&
     pathExists(join(params.packageRoot, "extensions"))
   );

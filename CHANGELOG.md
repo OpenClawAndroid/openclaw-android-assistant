@@ -6,23 +6,98 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Docs/Codex: clarify that ChatGPT/Codex subscription setups should use `openai/gpt-*` with `agentRuntime.id: "codex"` for native Codex runtime, while `openai-codex/*` remains the PI OAuth route. Thanks @pashpashpash.
 - Plugins/source checkout: load bundled plugins from the `extensions/*` pnpm workspace tree in source checkouts, so plugin-local dependencies and edits are used directly while packaged installs keep using the built runtime tree. Thanks @vincentkoc.
+- Plugins/beta: prepare BlueBubbles, diagnostics Prometheus, Google Meet, Nextcloud Talk, Nostr, Zalo, and Zalo Personal for `2026.5.1-beta.2` npm and ClawHub publishing. Thanks @vincentkoc.
+- Plugins/beta: prepare diagnostics OpenTelemetry, Discord, Diffs, Lobster, Memory LanceDB, Microsoft Teams, QQ Bot, Voice Call, and WhatsApp for `2026.5.1-beta.1` npm and ClawHub publishing. Thanks @vincentkoc.
+- Plugins/beta: prepare Brave, Codex, Feishu, Synology Chat, Tlon, and Twitch for `2026.5.1-beta.1` npm and ClawHub publishing. Thanks @vincentkoc.
+- Providers/xAI: add Grok 4.3 to the bundled catalog and make it the default xAI chat model.
 - Plugins/ClawHub: prefer versioned ClawPack artifacts when ClawHub publishes digest metadata, verifying the ClawPack response header and downloaded bytes before installing. Thanks @vincentkoc.
 - Plugins/ClawHub: persist ClawPack digest metadata on ClawHub plugin install and update records so registry refreshes and download verification can reuse stored artifact facts. Thanks @vincentkoc.
 - Plugins/ClawHub: allow official bundled-plugin cutovers to prefer ClawHub installs with npm fallback only when the ClawHub package or version is absent. Thanks @vincentkoc.
+- Plugins/Crestodian: add ClawHub plugin search plus Crestodian plugin list/search/install/uninstall operations, with approval and audit coverage for install and uninstall.
 - Providers/OpenAI: add `extraBody`/`extra_body` passthrough for OpenAI-compatible TTS endpoints, so custom speech servers can receive fields such as `lang` in `/audio/speech` requests. Fixes #39900. Thanks @R3NK0R.
 - Dependencies: refresh workspace dependency pins, including TypeBox 1.1.37, AWS SDK 3.1041.0, Microsoft Teams 2.0.9, and Marked 18.0.3. Thanks @mariozechner, @aws, and @microsoft.
 - Discord/channels: add reusable message-channel access groups plus Discord channel-audience DM authorization, so allowlists can reference `accessGroup:<name>` across channel auth paths. (#75813)
+- Crabbox/scripts: print the selected Crabbox binary, version, and supported providers before `pnpm crabbox:*` commands, and reject stale binaries that lack `blacksmith-testbox` provider support.
 
 ### Fixes
 
+- Telegram: inherit the process DNS result order for Bot API transport and downgrade recovered sticky IPv4 fallback promotions to debug logs, while keeping pinned-IP escalation warnings visible. Fixes #75904. Thanks @highfly-hi and @neeravmakwana.
+- Web search/MiniMax: allow `MINIMAX_OAUTH_TOKEN` to satisfy MiniMax Search credentials, so OAuth-authorized MiniMax Token Plan setups do not need a separate web-search key. Fixes #65768. Thanks @kikibrian and @zhouhe-xydt.
+- Providers/MiniMax: derive Coding Plan usage polling from the configured MiniMax base URL, so global setups no longer query the CN usage host. Fixes #65054. Thanks @sixone74 and @Yanhu007.
+- Subagents: honor `sessions_spawn` with `expectsCompletionMessage: false` by skipping parent completion handoff delivery while still running child cleanup. Fixes #75848. Thanks @alfredjbclaw.
+- Gateway/logging: keep deferred channel startup logs on the subsystem logger, so Slack, Discord, Telegram, and voice-call startup messages keep timestamped prefixes. Thanks @vincentkoc.
+- Replies/typing: keep typing alive for queued follow-up messages that are genuinely waiting behind an active run, instead of making chat surfaces look idle while work is queued. Fixes #65685. Thanks @papag00se.
+- ACP/Discord: suppress completion announce delivery for inline thread-bound ACP session runs, so Discord thread-bound ACP replies are not delivered twice. Fixes #60780. Thanks @solavrc.
+- Discord/threads: ignore webhook-authored copies in already-bound Discord session threads even when the webhook id differs, preventing PluralKit proxy copies from creating duplicate turn pressure. Fixes #52005. Thanks @acgh213.
+- Discord/threads: return the created thread as partial success when the follow-up initial message fails, so agents do not retry thread creation and create empty duplicate threads. Fixes #48450. Thanks @dahifi.
+- Discord/components: consume every button or select in a non-reusable component message after the first authorized click, so single-use panels cannot fire sibling callbacks. Fixes #54227. Thanks @fujiwarakasei.
+- macOS/config: preserve existing `gateway.auth` and unrelated config keys during app fallback writes, so dashboard or Talk settings changes cannot strand Control UI clients by dropping persisted auth. Fixes #75631. Thanks @Fuma2013.
+- Discord/reactions: skip reaction listener registration when DMs and group DMs are disabled and every configured guild has `reactionNotifications: "off"`, avoiding needless reaction-event queue work. Fixes #47516. Thanks @x4v13r1120.
+- CLI sessions: preserve explicit manual-attach reuse bindings so trusted CLI sessions are not invalidated on the first turn when auth, prompt, or MCP fingerprints drift. Fixes #75849. Thanks @alfredjbclaw.
+- Telegram/streaming: keep partial preview streaming enabled for plain reply-to replies, disabling drafts only for real native quote excerpts that require Telegram quote parameters. Fixes #73505. Thanks @choury.
+- Config: log the "newer OpenClaw" version warning once per process instead of once per config snapshot read. (#75927) Thanks @romneyda.
+- Telegram/message actions: treat benign delete-message 400s as no-op warnings instead of runtime errors, so stale or already-removed messages do not create noisy delete failures. Fixes #73726. Thanks @Avicennasis.
+- Telegram: split long default markdown sends and media follow-up text into safe HTML chunks, so outbound messages over Telegram's limit no longer fail as one oversized Bot API request. Fixes #75868. Thanks @zhengsx.
+- Gateway/chat history: merge Claude CLI transcript imports for Anthropic-routed sessions that still have a Claude CLI binding, so local chat history does not hide CLI JSONL turns. Fixes #75850. Thanks @alfredjbclaw.
+- Media: trim serialized JSON suffixes after local `MEDIA:` directive file extensions, so generated-image metadata cannot pollute the parsed media path and cause false `ENOENT` delivery failures. Fixes #75182. Thanks @TnzGit and @hclsys.
+- Cron: make scheduler reload schedule comparison tolerate malformed persisted jobs, so one bad cron entry no longer aborts the whole tick. Fixes #75886. Thanks @samfox-ai.
+- Doctor/channels: warn after migrations when default Telegram or Discord accounts have no configured token and their env fallback (`TELEGRAM_BOT_TOKEN` or `DISCORD_BOT_TOKEN`) is unavailable, with secret-safe migration docs for checking state-dir `.env`. Fixes #74298. Thanks @lolaopenclaw.
+- Gateway/diagnostics: keep idle liveness samples in telemetry instead of visible warning logs unless diagnostic work is active, waiting, or queued. Thanks @vincentkoc.
+- Channels/cron: reject provider-prefixed targets for the wrong channel and let prefixed announce targets such as `telegram:123` select their channel when delivery falls back to `last`, so Telegram IDs cannot be coerced into WhatsApp phone numbers. Fixes #56839. Thanks @bencoremans.
+- Control UI/chat: keep live replies visible when a raw session alias such as `main` sends the chat turn but Gateway emits events under the canonical session key for the same run. Fixes #73716. Thanks @teebes.
+- CLI/models: reject `--agent` on `openclaw models set` and `set-image` instead of silently writing agent-scoped requests to global model defaults. Fixes #68391. Thanks @derrickabellard.
+- CLI: stop treating the legacy singular `openclaw tool ...` token as a plugin id under restrictive `plugins.allow`, so it falls through as a normal unknown/reserved command instead of suggesting a stale allowlist entry. Fixes #64732. Thanks @efe-arv, @SweetSophia, and @hashtag1974.
+- Media: write inbound media buffers through same-directory temp files before rename, so failed disk writes do not leave zero-byte artifacts for later voice transcription. Fixes #55966. Thanks @OpenCodeEngineer.
+- TTS/Telegram: keep trusted local audio generated by the TTS tool queued for voice-note delivery even when the run-level built-in tool list omits the raw `tts` name. Fixes #74752. Thanks @Loveworld3033 and @andyliu.
+- TTS: require explicit user or config audio intent for the agent speech tool so dashboard chats stay text unless audio is requested. Fixes #69777. Thanks @alexandre-leng.
+- Plugins/config: keep bundled source-checkout plugins from being runtime-gated by install-only `minHostVersion` metadata, accept prerelease host floors, trim plugin-service startup failures to one log line, and avoid broad channel-runtime loading during base config parsing. Thanks @vincentkoc.
+- Heartbeat: strip legacy `[TOOL_CALL]...[/TOOL_CALL]` and `[TOOL_RESULT]...[/TOOL_RESULT]` pseudo-call blocks from heartbeat replies before channel delivery. Fixes #54138. Thanks @Deniable9570.
+- macOS/Voice Wake: send wake-word and Push-to-Talk transcripts through the selected macOS session target instead of always falling back to main WebChat. Fixes #51040. Thanks @carl-jeffrolc.
+- Providers/xAI: give Grok `web_search` a 60s default timeout, harden malformed xAI Responses parsing, and return structured timeout errors instead of aborting the tool call. Fixes #58063 and #58733. Thanks @dnishimura, @marvcasasola-svg, and @Nanako0129.
+- Providers/configure: preserve the existing default model when adding or reauthing a provider whose plugin returns a default-model config patch. Fixes #50268. Thanks @rixcorp-oc.
+- Slack/message actions: send media before the follow-up Block Kit message when Slack `send` includes a file plus presentation or interactive controls, so file attachments are no longer rejected. Fixes #51458. Thanks @HirokiKobayashi-R.
+- Slack/DMs: honor `dmHistoryLimit` for fresh 1:1 Slack DM sessions by backfilling recent conversation history before the current reply. Fixes #64427. Thanks @brantley-creator.
+- Slack/DMs: keep top-level direct messages on the stable DM session even when `replyToMode` targets Slack thread replies, preserving context across DM turns. Fixes #58832. Thanks @daye-jjeong.
+- Slack/delivery: preserve Slack Web API missing-scope details in outbound delivery errors, so queued retry state identifies the OAuth scope to add. Fixes #62391. Thanks @alexey-pelykh.
+- Slack/DMs: send text/block-only proactive DMs directly with `chat.postMessage(channel=<user id>)` while keeping conversation resolution for uploads and threaded sends. Fixes #62042. Thanks @MarkMolina.
+- Slack/routing: match route bindings written with Slack target syntax such as `channel:C...`, `user:U...`, or `<@U...>`, so bound Slack peers route to the configured agent instead of `main`. Fixes #41608. Thanks @Winnsolutionsadmin.
+- Slack/delivery: retry Slack Web API writes only when the SDK wraps a DNS request failure such as `EAI_AGAIN`, so transient resolver hiccups can recover without retrying platform errors that may duplicate messages. Fixes #68789. Thanks @sonnyb9.
+- Slack/message actions: forward agent-scoped media roots through the bundled upload-file action path, so workspace files can be attached without failing the local-media guard. Fixes #64625. Thanks @benpchandler.
+- Slack/mentions: resolve `<!subteam^...>` user-group mentions through Slack `usergroups.users.list` and treat them as explicit mentions only when the bot user is a member, so mention-gated agent channels wake for real user-group mentions without config-only allowlists. Fixes #73827. Thanks @CG-Intelligence-Agent-Jack.
+- Slack/message tool: let `read` fetch an exact Slack message timestamp, including a specific thread reply when paired with `threadId`, instead of returning only the parent thread or recent channel history. Fixes #53943. Thanks @zomars.
+- PDF/Gemini: send native PDF analysis API keys in the `x-goog-api-key` header instead of the request URL, keeping secrets out of proxy and access logs. Supersedes #60600. Thanks @garagon.
+- Web search/Gemini: route agent abort signals into provider fetches and log provider-side abort failures as normal tool errors instead of silently aborting the run. Fixes #72995. Thanks @RoseKongPS.
+- Web search: point missing-key errors to `web_fetch` for known URLs and the browser tool for interactive pages. Thanks @zhaoyang97.
+- Web search: late-bind managed agent `web_search` calls to the current runtime config snapshot, so existing sessions do not keep stale unresolved SecretRefs after secrets reload. Fixes #75420. Thanks @richardmqq.
+- Web search/Gemini: reuse `models.providers.google.apiKey` and `models.providers.google.baseUrl` as lower-priority fallbacks for Gemini web search after dedicated search config and `GEMINI_API_KEY`. Supersedes #57496. Thanks @Aoiujz.
+- Web search/Gemini: pass `freshness` and `date_after`/`date_before` filters through Google Search grounding time ranges. Fixes #66498. Thanks @ismael-81.
+- Web search/DuckDuckGo: include the keyless DuckDuckGo provider in the web search setup wizard. Fixes #65862 and supersedes #65940. Thanks @Jah-yee.
+- Web search: honor `baseUrl` overrides for Gemini, Grok, and x_search provider-owned config, so proxy-backed search tools no longer dial hardcoded public endpoints. Supersedes #61972. Thanks @Lanfei.
+- Web search/Brave: point Brave provider metadata at the canonical `/tools/brave-search` docs page and make the legacy `/brave-search` docs page a redirect stub. Fixes #65870 and supersedes #65892. Thanks @Magicray1217 and @Jah-yee.
+- Web search/Brave: allow `freshness` and bounded date ranges in `llm-context` mode, matching Brave's documented LLM Context API support. Supersedes #51005. Thanks @remusao.
+- Web fetch: resolve external plugin `webFetchProviders` for non-sandboxed `web_fetch`, while keeping sandboxed fetches limited to bundled providers. Fixes #74915. Thanks @ultrahighsuper and @mingmingtsao.
+- Heartbeat: strip legacy `[TOOL_CALL]...[/TOOL_CALL]` and `[TOOL_RESULT]...[/TOOL_RESULT]` pseudo-call blocks from heartbeat replies before channel delivery. Fixes #54138. Thanks @Deniable9570.
+- macOS/Voice Wake: send wake-word and Push-to-Talk transcripts through the selected macOS session target instead of always falling back to main WebChat. Fixes #51040. Thanks @carl-jeffrolc.
+- Providers/xAI: give Grok `web_search` a 60s default timeout, harden malformed xAI Responses parsing, and return structured timeout errors instead of aborting the tool call. Fixes #58063 and #58733. Thanks @dnishimura, @marvcasasola-svg, and @Nanako0129.
+- Slack/directory: make `openclaw directory peers/groups list --channel slack` prefer token-backed live readers and return the connected Slack account from `directory self`, so valid Slack tokens no longer produce empty directory CLI results. Fixes #50776. Thanks @pjaillon.
+- Slack: keep assistant typing status, temporary typing reactions, and status reactions active for group/channel turns that use message-tool-only visible replies, while still suppressing automatic source replies. Fixes #75877. Thanks @teosborne.
+- Slack: recover full inbound DM text from top-level rich-text blocks when Slack sends a shortened message preview, so long direct messages still reach the agent intact. Fixes #55358. Thanks @tonyjwinter.
+- Replies: strip legacy `[TOOL_CALL]{tool => ..., args => ...}[/TOOL_CALL]` pseudo-call text from user-facing replies and flag it in tool-call diagnostics instead of showing raw tool syntax in channels. Fixes #63610. Thanks @canh0chua.
+- WhatsApp: close long-lived web sockets through Baileys `end(error)` before falling back to raw websocket close, so listener teardown runs Baileys cleanup instead of leaving zombie sockets. Fixes #52442. Thanks @essendigitalgroup-cyber.
+- Twitch/plugins: emit a flat JSON Schema for Twitch channel config so single-account and multi-account configs validate before runtime load, and add source-checkout diagnostics for missing pnpm workspace dependencies. Thanks @vincentkoc.
 - Gateway/sessions: move hot transcript reads and mirror appends onto async bounded IO with serialized parent-linked writes, keeping large session histories from stalling Gateway requests and channel replies. Fixes #75656. Thanks @DerFlash.
+- macOS/Talk Mode: downmix multi-channel microphone buffers before handing them to Apple Speech across Push-to-Talk, Talk Mode, Voice Wake, and the wake-word tester, so pro audio interfaces no longer produce empty transcripts. Fixes #42533. Thanks @jbuecker.
+- macOS/Talk Mode: subscribe native WebChat to active-session transcript updates and render external spoken user turns in the chat thread instead of only showing assistant replies. Fixes #75155. Thanks @SledderBling.
+- macOS/Voice Wake: accept trigger-only phrases in the built-in Voice Wake test, matching the settings UI and runtime trigger-only path instead of requiring extra command text after the wake word. Fixes #64986. Thanks @zoiks65.
 - Cron/TTS: run cron announce payloads through the normal TTS directive transform before outbound delivery, so scheduled `[[tts]]` replies generate voice payloads instead of leaking raw tags. Fixes #52125. Thanks @kenchen3000.
 - WhatsApp: save downloadable quoted image media from reply context as inbound media, so agents can inspect an image that a user replied to instead of only seeing `<media:image>`. Fixes #59174. Thanks @gaffner.
 - Doctor/WhatsApp: warn when Linux crontabs still run the legacy `ensure-whatsapp.sh` health check, which can misreport `Gateway inactive` when cron lacks the systemd user-bus environment. Fixes #60204. Thanks @mySebbe.
 - Slack/setup: print the generated app manifest as plain JSON instead of embedding it inside the framed setup note, so it can be copied into Slack without deleting border characters. Fixes #65751. Thanks @theDanielJLewis.
 - Channels/WhatsApp: route CLI logout through the live Gateway and stop runtime-backed listeners before channel removal, so removing a WhatsApp account does not leave the old socket replying until restart. Fixes #67746. Thanks @123Mismail.
 - Voice Call/Twilio: honor TTS directive text and provider voice/model overrides during telephony synthesis, so `[[tts:...]]` tags are not spoken literally and voiceId overrides reach OpenAI/ElevenLabs calls. Fixes #58114. Thanks @legonhilltech-jpg.
+- Agents/session-locks: reclaim untracked current-process session locks with matching starttime during acquisition and startup cleanup, so Gateway restarts recover from self-owned orphan `.jsonl.lock` files. Fixes #75805; refs #49603. Thanks @cdznho.
 - Agents/subagents: initialize built-in context engines before native `sessions_spawn` resolves spawn preparation, so cliBackend-only cold starts no longer fail with an unregistered `legacy` context engine. Fixes #73095. (#73904) Thanks @brokemac79.
 - Agents/Codex: stop prompting message-tool-only source turns to finish with `NO_REPLY`, so quiet turns are represented by not calling the visible message tool instead of conflicting final-text instructions. Thanks @pashpashpash.
 - Gateway/config: report failed backup restores as failed in logs and config observe audit records instead of marking them valid. (#70515) Thanks @davidangularme.
@@ -33,8 +108,18 @@ Docs: https://docs.openclaw.ai
 - Channels/status reactions: remove stale non-terminal lifecycle reactions when a run reaches done or error, so Discord does not leave a permanent thinking emoji after completion. Fixes #75458. Thanks @davelutztx.
 - Discord/doctor: migrate unsupported per-channel `agentId` entries under guild channel config into top-level `bindings[]` routes, so `openclaw doctor --fix` preserves the intended agent route instead of stripping it as an unknown key. Fixes #62455. Thanks @lobster-biscuit.
 - Discord/DMs: set inbound direct-message `ctx.To` to the semantic `user:<id>` target while keeping delivery routed through the DM channel, so mirror and recovery paths do not treat DMs as channel conversations. Fixes #68126. Thanks @illuminate0623.
+- Discord/DMs: keep no-guild inbound messages on direct-message routing when Discord channel lookup is temporarily unavailable, preventing degraded DMs from forking into channel sessions. Fixes #59817. Thanks @DooPeePey.
+- Discord: retry outbound API calls on HTTP 5xx, request-timeout, and transient transport failures instead of only Discord rate limits, reducing dropped cron and agent replies during short Discord or network outages. Fixes #52396. Thanks @sunshineo.
+- Discord: include Components v2 Text Display content from referenced replies and forwarded snapshots, so component-only messages still appear in reply context. Fixes #56228. Thanks @HollandDrive.
+- Discord: add configurable gateway READY timeouts for startup and runtime reconnects, so staggered multi-account setups can avoid false restart loops. Fixes #72273. Thanks @sergionsantos.
+- Discord: preserve native slash-command description localizations through command reconcile, so localized Discord descriptions no longer get overwritten by English defaults. Fixes #56580. Thanks @mhseo93.
+- Discord: add configured outbound mention aliases so known `@Name` references can be rewritten to real Discord user mentions instead of relying only on the transient directory cache. Fixes #67587. Thanks @McoreD.
+- Discord: avoid startup REST amplification by skipping native command deploy retries after Discord rate limits and deriving the bot id from parseable bot tokens instead of requiring a `/users/@me` lookup. Fixes #75341. Thanks @PrinceOfEgypt.
+- Plugins/hooks: derive hook `ctx.channelId` from the conversation target instead of the provider name, so Discord and other channel plugins can keep per-channel state isolated. Fixes #59881. Thanks @bradfreels.
 - Gateway/config: log config health-state write failures instead of silently hiding config observe-recovery write errors. Thanks @sallyom.
 - Diagnostics: reset stuck-session timers on reply, tool, status, block, and ACP progress events, and back off repeated `session.stuck` diagnostics while a session remains unchanged. Supersedes #72010. Thanks @rubencu.
+- Agents/OpenAI: normalize parameter-free MCP tool schemas whose `properties` value is null or undefined, so OpenAI no longer rejects MCP tools without parameters. Fixes #75362. (#75401) Thanks @SymbolStar.
+- Gateway/agents: avoid rebuilding core tools for plugin-only allowlists and keep the full plugin registry cache warm across scoped plugin loads, reducing per-turn latency spikes. Fixes #75882, #75907, #75906, #75887, and #75851. (#75922) Thanks @obviyus.
 
 ## 2026.4.30
 

@@ -1,6 +1,7 @@
 import { createJiti } from "jiti";
 import { toSafeImportPath } from "../shared/import-specifier.js";
 import { tryNativeRequireJavaScriptModule } from "./native-module-require.js";
+import { PluginLruCache } from "./plugin-cache-primitives.js";
 import {
   buildPluginLoaderJitiOptions,
   createPluginLoaderModuleCacheKey,
@@ -10,7 +11,18 @@ import {
 
 export type PluginModuleLoader = ReturnType<typeof createJiti>;
 export type PluginModuleLoaderFactory = typeof createJiti;
-export type PluginModuleLoaderCache = Map<string, PluginModuleLoader>;
+export type PluginModuleLoaderCache = Pick<
+  PluginLruCache<PluginModuleLoader>,
+  "clear" | "get" | "set" | "size"
+>;
+
+const DEFAULT_PLUGIN_MODULE_LOADER_CACHE_ENTRIES = 128;
+
+export function createPluginModuleLoaderCache(
+  maxEntries = DEFAULT_PLUGIN_MODULE_LOADER_CACHE_ENTRIES,
+): PluginModuleLoaderCache {
+  return new PluginLruCache<PluginModuleLoader>(maxEntries);
+}
 
 export function getCachedPluginModuleLoader(params: {
   cache: PluginModuleLoaderCache;
@@ -24,15 +36,9 @@ export function getCachedPluginModuleLoader(params: {
   tryNative?: boolean;
   pluginSdkResolution?: PluginSdkResolutionPreference;
   cacheScopeKey?: string;
+  sharedCacheScopeKey?: string;
 }): PluginModuleLoader {
   const loaderFilename = toSafeImportPath(params.loaderFilename ?? params.modulePath);
-  if (params.cacheScopeKey) {
-    const scopedCacheKey = `${loaderFilename}::${params.cacheScopeKey}`;
-    const cached = params.cache.get(scopedCacheKey);
-    if (cached) {
-      return cached;
-    }
-  }
   const hasAliasOverride = Boolean(params.aliasMap);
   const hasTryNativeOverride = typeof params.tryNative === "boolean";
   const defaultConfig =
@@ -71,7 +77,10 @@ export function getCachedPluginModuleLoader(params: {
       tryNative,
       aliasMap,
     });
-  const scopedCacheKey = `${loaderFilename}::${params.cacheScopeKey ?? cacheKey}`;
+  const scopedCacheKey = `${loaderFilename}::${
+    params.sharedCacheScopeKey ??
+    (params.cacheScopeKey ? `${params.cacheScopeKey}::${cacheKey}` : cacheKey)
+  }`;
   const cached = params.cache.get(scopedCacheKey);
   if (cached) {
     return cached;
