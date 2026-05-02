@@ -148,7 +148,6 @@ const INVALID_PROBE_DIAGNOSTIC_SURFACE_MODES = new Set(["full", "conformance", "
 
 function assertExpectedDiagnostics(surfaceMode, errorMessages) {
   const expectedErrorMessages = new Set([
-    'agent harness "kitchen-sink-agent-harness" registration missing required runtime methods',
     'channel "kitchen-sink-channel-probe" registration missing required config helpers',
     "cli registration missing explicit commands metadata",
     "only bundled plugins can register Codex app-server extension factories",
@@ -158,6 +157,7 @@ function assertExpectedDiagnostics(surfaceMode, errorMessages) {
     "http route registration missing or invalid auth: /kitchen-sink/http-route",
     "plugin must own memory slot or declare contracts.memoryEmbeddingProviders for adapter: kitchen-sink-memory-embedding-provider",
     "plugin must declare contracts.tools for: kitchen-sink-tool",
+    'agent harness "kitchen-sink-agent-harness" registration missing required runtime methods',
     "memory prompt supplement registration missing builder",
   ]);
   if (!INVALID_PROBE_DIAGNOSTIC_SURFACE_MODES.has(surfaceMode)) {

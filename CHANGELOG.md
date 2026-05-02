@@ -2,7 +2,7 @@
 
 Docs: https://docs.openclaw.ai
 
-## Unreleased
+## 2026.5.2
 
 ### Changes
 
@@ -33,12 +33,15 @@ Docs: https://docs.openclaw.ai
 ### Fixes
 
 - Models CLI: restore `openclaw models list --provider <id>` catalog and registry fallback rows for unconfigured providers, so provider-specific verification commands no longer report "No models found." Fixes #75517; supersedes #75615. Thanks @lotsoftick and @koshaji.
+- Gateway/macOS: write LaunchAgent services with a canonical system PATH and stop preserving old plist PATH entries, so Volta, asdf, fnm, and pnpm shell paths no longer affect gateway child-process Node resolution. Fixes #75233; supersedes #75246. Thanks @nphyde2.
+- Slack/hooks: preserve bot alert attachment text in message-received hook content when command text is blank. Fixes #76035; refs #76036. Thanks @amsminn.
 - Control UI/chat: show inline feedback when local slash-command dispatch is unavailable or fails unexpectedly instead of clearing the composer silently. Fixes #52105. Thanks @MooreQiao.
 - Memory/markdown: replace CRLF managed blocks in place and collapse duplicate marker blocks without rewriting unmanaged markdown, so Dreaming and Memory Wiki files self-heal from repeated generated sections. Fixes #75491; supersedes #75495, #75810, and #76008. Thanks @asaenokkostya-coder, @ottodeng, @everettjf, and @lrg913427-dot.
 - Agents/tools: return critical tool-loop circuit-breaker stops as blocked tool results instead of thrown tool failures, so models see the guardrail and stop retrying the same call. Thanks @rayraiser.
 - Model commands: clarify direct and inline `/model` acknowledgements for non-default selections as session-scoped. Thanks @addu2612.
 - Doctor/gateway: stop warning that non-existent, unconfigured user-bin directories are required in the Gateway service PATH. Fixes #76017. Thanks @xiphis.
 - TUI/chat: skip full provider model normalization during context-window warmup while preserving provider-owned context metadata, avoiding cold-start stalls with large model registries. Thanks @547895019.
+- Agents: enable malformed tool-call argument repair for Codex and Azure OpenAI Responses transports while keeping generic OpenAI Responses paths out of the repair gate. Fixes #75154. Thanks @Nimraakram22.
 - Memory Wiki: accept relative Markdown links that include the `.md` suffix during broken-wikilink validation, avoiding false positives for native render-mode links. Thanks @Kenneth8128.
 - OpenAI Codex: show the device-pairing code in the interactive SSH/headless prompt while keeping the short-lived code out of persistent runtime logs. Fixes #74212. Thanks @da22le123.
 - QA Lab: stop gateway children when the suite parent disappears, so interrupted local QA runs cannot leave hot orphaned gateways behind.
@@ -54,6 +57,8 @@ Docs: https://docs.openclaw.ai
 - Hooks/doctor: warn when `hooks.transformsDir` points outside the canonical hooks transform directory, so invalid workspace skill paths get a direct recovery hint before the Gateway crash-loops. Fixes #75853. Thanks @midobk.
 - Proxy/audio: convert standard `FormData` bodies before proxy-backed undici fetches, so audio transcription and multipart uploads no longer send `[object FormData]` when `HTTP_PROXY` or `HTTPS_PROXY` is configured. Fixes #48554. Thanks @dco5.
 - Discord: allow explicitly configured ack reactions in tool-only guild channels while keeping automatic lifecycle/status reactions suppressed. Fixes #74922. Thanks @samvilian and @BlueBirdBack.
+- Discord/native commands: return an explicit warning when slash command dispatch or direct plugin execution produces no visible reply instead of a success-style completion ack. Fixes #58986; supersedes #62057. Thanks @jb510.
+- Discord: keep typing indicators alive during long tool runs and auto-compaction while keepalive ticks continue, so active sessions do not appear stalled before the final reply. Thanks @Squirbie.
 - Discord: preserve multipart Content-Type headers for attachment uploads across REST fetch paths, so generated images and other media no longer fail delivery with `CONTENT_TYPE_INVALID`. Thanks @FunJim.
 - Discord: preserve attachment and sticker filenames when saving inbound media, so agents can see human-readable file names instead of only UUID-based paths. Fixes #59744. Thanks @xela92 and @rockcent.
 - Discord: preserve non-ASCII channel names in session display labels while keeping allowlist matching on the existing ASCII slug contract. Thanks @swjeong9.
@@ -72,6 +77,7 @@ Docs: https://docs.openclaw.ai
 - CLI backends/Claude: make live-session JSONL turn caps bounded and configurable via `reliability.outputLimits`, raising the default guard for tool-heavy Claude CLI turns while preserving memory limits. Fixes #75838. Thanks @hcordoba840.
 - Telegram/DMs: keep incidental `message_thread_id` reply-with-quote metadata on the flat DM session by default while preserving opt-in DM topic isolation for configured topics, `dm.threadReplies`, and `direct.<chatId>.threadReplies`. Fixes #75975. Thanks @ProjectEvolutionEVE.
 - Telegram/network: raise outbound text and typing Bot API request guards to 60 seconds, keep low grammY client timeouts from preempting those guards, let higher `timeoutSeconds` configs extend safe method guards, and retry timed-out typing indicators through the transport fallback without risking duplicate messages. Fixes #76013. Thanks @iaki1206.
+- Telegram/native commands: register and clear command menus in both default and group-chat scopes, so `/status` and plugin commands stay available in forum topics. Fixes #74032; updates #6457. Thanks @dae-sun and @WouldenShyp.
 - Providers/OpenAI: resolve `keychain:<service>:<account>` `OPENAI_API_KEY` refs before creating OpenAI Realtime browser sessions or voice bridges, with a bounded cached Keychain lookup. Fixes #72120. Thanks @ctbritt.
 - Discord/gateway: reconnect when the gateway socket closes while waiting for the shared IDENTIFY concurrency window, instead of silently skipping IDENTIFY and leaving the bot online but unresponsive. Fixes #74617. Thanks @zeeskdr-ai.
 - Voice Call: add `sessionScope: "per-call"` for fresh per-call agent memory while preserving the default per-phone caller history. Fixes #45280. Thanks @pondcountry.
@@ -125,6 +131,7 @@ Docs: https://docs.openclaw.ai
 - Web search/MiniMax: include MiniMax Search in the web-search setup flow and let `MINIMAX_API_KEY` participate in MiniMax Search auto-detection. Supersedes #65828. Thanks @Jah-yee.
 - Plugins/ClawHub: preserve official source-linked trust through archive installs, so OpenClaw can install trusted ClawHub plugin packages that trigger the built-in dangerous-pattern scanner. Thanks @vincentkoc.
 - Plugins/ClawHub: install package runtime dependencies for archive-backed plugin installs, so ClawHub packages such as WhatsApp load declared dependencies after download. Thanks @vincentkoc.
+- Plugins/tools: cache repeated plugin tool factory results only for matching request context, reducing per-turn tool prep without leaking sandbox, session, browser, delivery, or runtime config state. Fixes #75956. Thanks @Linux2010.
 - Providers/LM Studio: allow `models.providers.lmstudio.params.preload: false` to skip OpenClaw's native model-load call so LM Studio JIT loading, idle TTL, and auto-evict can own model lifecycle. Fixes #75921. Thanks @garyd9.
 - Agents/transcripts: keep chat history, restart recovery, fork token checks, and stale-token compaction checks on bounded async transcript reads or cached async indexes instead of reparsing large session files. Thanks @mariozechner.
 - Telegram: inherit the process DNS result order for Bot API transport and downgrade recovered sticky IPv4 fallback promotions to debug logs, while keeping pinned-IP escalation warnings visible. Fixes #75904. Thanks @highfly-hi and @neeravmakwana.
@@ -239,6 +246,8 @@ Docs: https://docs.openclaw.ai
 - Gateway/agents: avoid rebuilding core tools for plugin-only allowlists and keep the full plugin registry cache warm across scoped plugin loads, reducing per-turn latency spikes. Fixes #75882, #75907, #75906, #75887, and #75851. (#75922) Thanks @obviyus.
 - Agents/failover: classify bare `status: internal server error` provider messages as retryable server errors so model fallback can rotate instead of stopping. (#73844) Thanks @thesomewhatyou.
 - Gateway/startup: return the shared retryable startup-sidecars error for startup-gated control-plane RPCs such as sessions.create, sessions.send, sessions.abort, agent.wait, and tools.effective, so clients can retry early sidecar races. (#76012) Thanks @scoootscooob.
+- Providers/Google: fix Gemini 2.5 Flash-Lite `reasoning: "minimal"` rejections by raising its thinking-budget floor to 512 while preserving the existing Gemini 2.5 Pro and Flash minimal presets. (#70629) Thanks @ericberic.
+- Agents/status: resolve `session_status(sessionKey="current")` for sparse channel-plugin sessions after literal current lookups miss, so Scope, Slack, Discord, and other plugin-driven agents avoid retrying through `Unknown sessionKey: current`. Fixes #74141. (#72306) Thanks @bittoby.
 
 ## 2026.4.30
 
@@ -411,6 +420,7 @@ Docs: https://docs.openclaw.ai
 - Context Engine: treat assembled prompt as the default authority for preemptive overflow prechecks so engines that return a windowed, self-contained context no longer trigger false hard-fail compactions on huge raw history. Engines whose assembled view can hide overflow risk can opt back into the legacy behavior with `AssembleResult.promptAuthority: "preassembly_may_overflow"`. (#74255) Thanks @100yenadmin.
 - Mattermost: refresh current native slash command registrations before accepting callbacks so stale tokens from deleted or regenerated commands stop being accepted without a gateway restart while failed validations stay briefly cached and lookup starts are rate-limited per command, gate each callback against the resolved command's own startup token so a token leaked for one slash command cannot poison another command's failure cache, redact slash validation lookup errors, and add a body read timeout to the multi-account routing path so slow callback senders cannot tie up the dispatcher. Thanks @feynman-hou and @eleqtrizit.
 - Security/dotenv: block `COMSPEC` in workspace `.env` so a malicious repo cannot redirect Windows `cmd.exe` resolution, and lock in case-insensitive workspace-`.env` regression coverage for the full Windows shell trust-root family (`COMSPEC`, `PROGRAMFILES`, `PROGRAMW6432`, `SYSTEMROOT`, `WINDIR`). (#74460) Thanks @mmaps.
+- Gateway/install: drop stale version-manager and package-manager PATH entries preserved from old service files during `gateway install --force` and doctor repair, so the repair path no longer recreates `gateway-path-nonminimal` warnings. Fixes #75220. (#75440) Thanks @leonaIee, @renaudcerrato, and @aaajiao.
 
 ## 2026.4.29
 
