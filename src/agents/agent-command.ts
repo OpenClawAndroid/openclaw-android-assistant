@@ -66,6 +66,7 @@ import {
 } from "./model-selection.js";
 import { classifyEmbeddedPiRunResultForModelFallback } from "./pi-embedded-runner/result-fallback-classifier.js";
 import { resolveProviderIdForAuth } from "./provider-auth-aliases.js";
+import { hydrateResolvedSkillsAsync } from "./skills/snapshot-hydration.js";
 import { normalizeSpawnedRunMetadata } from "./spawned-context.js";
 import { resolveAgentTimeoutMs } from "./timeout.js";
 import { ensureAgentWorkspace } from "./workspace.js";
@@ -632,35 +633,38 @@ async function agentCommandInternal(
       shouldRefreshSnapshotForVersion(currentSkillsSnapshot.version, skillsSnapshotVersion) ||
       !matchesSkillFilter(currentSkillsSnapshot.skillFilter, skillFilter);
     const needsSkillsSnapshot = isNewSession || shouldRefreshSkillsSnapshot;
+    const buildSkillsSnapshot = async () => {
+      const [
+        { buildWorkspaceSkillSnapshot },
+        { getRemoteSkillEligibility },
+        { canExecRequestNode },
+      ] = await Promise.all([
+        loadSkillsRuntime(),
+        loadSkillsRemoteRuntime(),
+        loadExecDefaultsRuntime(),
+      ]);
+      return buildWorkspaceSkillSnapshot(workspaceDir, {
+        config: cfg,
+        eligibility: {
+          remote: getRemoteSkillEligibility({
+            advertiseExecNode: canExecRequestNode({
+              cfg,
+              sessionEntry,
+              sessionKey,
+              agentId: sessionAgentId,
+            }),
+          }),
+        },
+        snapshotVersion: skillsSnapshotVersion,
+        skillFilter,
+        agentId: sessionAgentId,
+      });
+    };
     const skillsSnapshot = needsSkillsSnapshot
-      ? await (async () => {
-          const [
-            { buildWorkspaceSkillSnapshot },
-            { getRemoteSkillEligibility },
-            { canExecRequestNode },
-          ] = await Promise.all([
-            loadSkillsRuntime(),
-            loadSkillsRemoteRuntime(),
-            loadExecDefaultsRuntime(),
-          ]);
-          return buildWorkspaceSkillSnapshot(workspaceDir, {
-            config: cfg,
-            eligibility: {
-              remote: getRemoteSkillEligibility({
-                advertiseExecNode: canExecRequestNode({
-                  cfg,
-                  sessionEntry,
-                  sessionKey,
-                  agentId: sessionAgentId,
-                }),
-              }),
-            },
-            snapshotVersion: skillsSnapshotVersion,
-            skillFilter,
-            agentId: sessionAgentId,
-          });
-        })()
-      : currentSkillsSnapshot;
+      ? await buildSkillsSnapshot()
+      : !currentSkillsSnapshot
+        ? undefined
+        : await hydrateResolvedSkillsAsync(currentSkillsSnapshot, buildSkillsSnapshot);
 
     if (skillsSnapshot && sessionStore && sessionKey && needsSkillsSnapshot) {
       const now = Date.now();
