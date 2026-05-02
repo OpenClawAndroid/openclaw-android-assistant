@@ -13,6 +13,9 @@ Manage Gateway plugins, hook packs, and compatible bundles.
   <Card title="Plugin system" href="/tools/plugin">
     End-user guide for installing, enabling, and troubleshooting plugins.
   </Card>
+  <Card title="Manage plugins" href="/plugins/manage-plugins">
+    Quick examples for install, list, update, uninstall, and publishing.
+  </Card>
   <Card title="Plugin bundles" href="/plugins/bundles">
     Bundle compatibility model.
   </Card>
@@ -68,7 +71,7 @@ Native OpenClaw plugins must ship `openclaw.plugin.json` with an inline JSON Sch
 
 ```bash
 openclaw plugins search "calendar"                   # search ClawHub plugins
-openclaw plugins install <package>                      # ClawHub first, then npm
+openclaw plugins install <package>                      # npm by default
 openclaw plugins install clawhub:<package>              # ClawHub only
 openclaw plugins install npm:<package>                  # npm only
 openclaw plugins install git:github.com/<owner>/<repo>  # git repo
@@ -83,7 +86,7 @@ openclaw plugins install <plugin> --marketplace https://github.com/<owner>/<repo
 ```
 
 <Warning>
-Bare package names are checked against ClawHub first, then npm. Treat plugin installs like running code. Prefer pinned versions.
+Bare package names install from npm by default during the launch cutover. Use `clawhub:<package>` for ClawHub. Treat plugin installs like running code. Prefer pinned versions.
 </Warning>
 
 `plugins search` queries ClawHub for installable plugin packages and prints
@@ -129,7 +132,7 @@ current OpenClaw or a local checkout until a newer npm package is published.
 
     Npm specs are **registry-only** (package name + optional **exact version** or **dist-tag**). Git/URL/file specs and semver ranges are rejected. Dependency installs run project-local with `--ignore-scripts` for safety, even when your shell has global npm install settings.
 
-    Use `npm:<package>` when you want to skip ClawHub lookup and install directly from npm. Bare package specs still prefer ClawHub and only fall back to npm when ClawHub does not have that package or version.
+    Use `npm:<package>` when you want to make npm resolution explicit. Bare package specs also install directly from npm during the launch cutover.
 
     Bare specs and `@latest` stay on the stable track. If npm resolves either of those to a prerelease, OpenClaw stops and asks you to opt in explicitly with a prerelease tag such as `@beta`/`@rc` or an exact prerelease version such as `@1.2.3-beta.4`.
 
@@ -159,13 +162,13 @@ openclaw plugins install clawhub:openclaw-codex-app-server
 openclaw plugins install clawhub:openclaw-codex-app-server@1.2.3
 ```
 
-OpenClaw now also prefers ClawHub for bare npm-safe plugin specs. It only falls back to npm if ClawHub does not have that package or version:
+Bare npm-safe plugin specs install from npm by default during the launch cutover:
 
 ```bash
 openclaw plugins install openclaw-codex-app-server
 ```
 
-Use `npm:` to force npm-only resolution, for example when ClawHub is unreachable or you know the package exists only on npm:
+Use `npm:` to make npm-only resolution explicit:
 
 ```bash
 openclaw plugins install npm:openclaw-codex-app-server
@@ -237,11 +240,17 @@ openclaw plugins search <query> --json
   Switch from the table view to per-plugin detail lines with source/origin/version/activation metadata.
 </ParamField>
 <ParamField path="--json" type="boolean">
-  Machine-readable inventory plus registry diagnostics.
+  Machine-readable inventory plus registry diagnostics and package dependency install state.
 </ParamField>
 
 <Note>
 `plugins list` reads the persisted local plugin registry first, with a manifest-only derived fallback when the registry is missing or invalid. It is useful for checking whether a plugin is installed, enabled, and visible to cold startup planning, but it is not a live runtime probe of an already-running Gateway process. After changing plugin code, enablement, hook policy, or `plugins.load.paths`, restart the Gateway that serves the channel before expecting new `register(api)` code or hooks to run. For remote/container deployments, verify you are restarting the actual `openclaw gateway run` child, not only a wrapper process.
+
+`plugins list --json` includes each plugin's `dependencyStatus` from `package.json`
+`dependencies` and `optionalDependencies`. OpenClaw checks whether those package
+names are present along the plugin's normal Node `node_modules` lookup path; it
+does not import plugin runtime code, run a package manager, or repair missing
+dependencies.
 </Note>
 
 `plugins search` is a remote ClawHub catalog lookup. It does not inspect local
@@ -312,6 +321,10 @@ Updates apply to tracked plugin installs in the managed plugin index and tracked
     For npm installs, you can also pass an explicit npm package spec with a dist-tag or exact version. OpenClaw resolves that package name back to the tracked plugin record, updates that installed plugin, and records the new npm spec for future id-based updates.
 
     Passing the npm package name without a version or tag also resolves back to the tracked plugin record. Use this when a plugin was pinned to an exact version and you want to move it back to the registry's default release line.
+
+  </Accordion>
+  <Accordion title="Beta channel updates">
+    `openclaw plugins update` reuses the tracked plugin spec unless you pass a new spec. `openclaw update` additionally knows the active OpenClaw update channel: on the beta channel, default-line npm and ClawHub plugin records try `@beta` first, then fall back to the recorded default/latest spec if no plugin beta release exists. Exact versions and explicit tags stay pinned to that selector.
 
   </Accordion>
   <Accordion title="Version checks and integrity drift">

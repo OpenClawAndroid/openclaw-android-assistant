@@ -94,8 +94,25 @@ export type ClawHubResolvedArtifact =
       moderationState?: ClawHubArtifactModerationState | null;
     };
 export type ClawHubPackageArtifactResolverResponse = {
-  package?: { name?: string | null } | null;
-  version?: { version?: string | null } | string | null;
+  package?: {
+    name?: string | null;
+    displayName?: string | null;
+    family?: ClawHubPackageFamily | (string & {}) | null;
+  } | null;
+  version?:
+    | ({
+        version?: string | null;
+        createdAt?: number | null;
+        changelog?: string | null;
+        distTags?: string[];
+        files?: unknown[];
+        sha256hash?: string | null;
+        compatibility?: ClawHubPackageCompatibility | null;
+        artifact?: ClawHubPackageArtifactSummary | null;
+        clawpack?: ClawHubPackageClawPackSummary | null;
+      } & Record<string, unknown>)
+    | string
+    | null;
   artifact?: ClawHubResolvedArtifact | null;
 };
 export type ClawHubPackageSecurityResponse = {
@@ -224,7 +241,7 @@ export type ClawHubPackageVersion = {
     distTags?: string[];
     files?: Array<{
       path: string;
-      size: number;
+      size?: number;
       sha256: string;
       contentType?: string;
     }>;
@@ -427,12 +444,25 @@ export async function resolveClawHubAuthToken(): Promise<string | undefined> {
   return undefined;
 }
 
+function normalizePartialComparableVersion(version: string): {
+  version: string;
+  isPartial: boolean;
+} {
+  const trimmed = version.trim();
+  return /^[vV]?[0-9]+\.[0-9]+$/.test(trimmed)
+    ? { version: `${trimmed}.0`, isPartial: true }
+    : { version: trimmed, isPartial: false };
+}
+
 function compareSemver(left: string, right: string): number | null {
-  return compareComparableSemver(parseComparableSemver(left), parseComparableSemver(right));
+  return compareComparableSemver(
+    parseComparableSemver(normalizePartialComparableVersion(left).version),
+    parseComparableSemver(normalizePartialComparableVersion(right).version),
+  );
 }
 
 function upperBoundForCaret(version: string): string | null {
-  const parsed = parseComparableSemver(version);
+  const parsed = parseComparableSemver(normalizePartialComparableVersion(version).version);
   if (!parsed) {
     return null;
   }
@@ -475,12 +505,13 @@ function satisfiesComparator(version: string, token: string): boolean {
   if (!match) {
     return false;
   }
-  const operator = match[1] ?? "=";
+  const operator = match[1];
   const target = match[2]?.trim();
   if (!target) {
     return false;
   }
-  const cmp = compareSemver(version, target);
+  const normalizedTarget = normalizePartialComparableVersion(target);
+  const cmp = compareSemver(version, normalizedTarget.version);
   if (cmp == null) {
     return false;
   }
@@ -495,7 +526,7 @@ function satisfiesComparator(version: string, token: string): boolean {
       return cmp < 0;
     case "=":
     default:
-      return cmp === 0;
+      return normalizedTarget.isPartial && !operator ? cmp >= 0 : cmp === 0;
   }
 }
 
