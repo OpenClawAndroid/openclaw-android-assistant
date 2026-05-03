@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   listExplicitlyDisabledChannelIdsForConfig,
   listPotentialConfiguredChannelIds,
@@ -13,6 +15,7 @@ import { loadInstalledPluginIndexInstallRecords } from "../../../plugins/install
 import { writePersistedInstalledPluginIndexInstallRecords } from "../../../plugins/installed-plugin-index-records.js";
 import { buildNpmResolutionInstallFields } from "../../../plugins/installs.js";
 import { loadManifestMetadataSnapshot } from "../../../plugins/manifest-contract-eligibility.js";
+import type { PluginManifestRecord } from "../../../plugins/manifest-registry.js";
 import type { PluginPackageInstall } from "../../../plugins/manifest.js";
 import {
   listOfficialExternalPluginCatalogEntries,
@@ -24,6 +27,7 @@ import type { PluginMetadataSnapshot } from "../../../plugins/plugin-metadata-sn
 import { resolveProviderInstallCatalogEntries } from "../../../plugins/provider-install-catalog.js";
 import { updateNpmInstalledPlugins } from "../../../plugins/update.js";
 import { resolveWebSearchInstallCatalogEntry } from "../../../plugins/web-search-install-catalog.js";
+import { resolveUserPath } from "../../../utils.js";
 import { asObjectRecord } from "./object.js";
 
 type DownloadableInstallCandidate = {
@@ -50,6 +54,7 @@ const RUNTIME_PLUGIN_INSTALL_CANDIDATES: readonly DownloadableInstallCandidate[]
 ];
 
 const MISSING_CHANNEL_CONFIG_DESCRIPTOR_DIAGNOSTIC = "without channelConfigs metadata";
+const UPDATE_IN_PROGRESS_ENV = "OPENCLAW_UPDATE_IN_PROGRESS";
 
 function shouldFallbackClawHubToNpm(result: { ok: false; code?: string }): boolean {
   return (
@@ -169,6 +174,9 @@ function collectDownloadableInstallCandidates(params: {
     env: params.env,
     excludeWorkspace: true,
   })) {
+    if (entry.origin === "bundled") {
+      continue;
+    }
     const pluginId = entry.pluginId ?? entry.id;
     if (params.blockedPluginIds?.has(pluginId)) {
       continue;
@@ -288,6 +296,43 @@ function collectConfiguredPluginIdsWithMissingChannelConfigDescriptors(params: {
     }
   }
   return stalePluginIds;
+}
+
+function isInstalledRecordMissingOnDisk(
+  record: PluginInstallRecord | undefined,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  const installPath = record?.installPath?.trim();
+  if (!installPath) {
+    return true;
+  }
+  const resolved = resolveUserPath(installPath, env);
+  return !existsSync(path.join(resolved, "package.json"));
+}
+
+function isUpdatePackageDoctorPass(env: NodeJS.ProcessEnv): boolean {
+  return env[UPDATE_IN_PROGRESS_ENV] === "1";
+}
+
+function recordMatchesBundledPackage(
+  record: PluginInstallRecord,
+  bundled: PluginManifestRecord,
+): boolean {
+  const packageName = bundled.packageName?.trim() || bundled.name?.trim();
+  if (!packageName) {
+    return false;
+  }
+  if (record.source === "npm") {
+    return [record.spec, record.resolvedName, record.resolvedSpec].some((value) =>
+      value?.trim().startsWith(packageName),
+    );
+  }
+  if (record.source === "clawhub") {
+    return [record.clawhubPackage, record.spec].some((value) =>
+      value?.trim().includes(packageName),
+    );
+  }
+  return false;
 }
 
 async function installCandidate(params: {
@@ -436,6 +481,11 @@ async function repairMissingPluginInstalls(params: {
     env,
   });
   const knownIds = new Set(snapshot.plugins.map((plugin) => plugin.id));
+  const bundledPluginsById = new Map(
+    snapshot.plugins
+      .filter((plugin) => plugin.origin === "bundled")
+      .map((plugin) => [plugin.id, plugin]),
+  );
   const configuredPluginIdsWithStaleDescriptors =
     collectConfiguredPluginIdsWithMissingChannelConfigDescriptors({
       snapshot,
@@ -443,14 +493,52 @@ async function repairMissingPluginInstalls(params: {
       configuredChannelIds: params.channelIds,
     });
   const records = await loadInstalledPluginIndexInstallRecords({ env });
-  const missingRecordedPluginIds = Object.keys(records).filter(
-    (pluginId) =>
-      (params.pluginIds.has(pluginId) && !knownIds.has(pluginId)) ||
-      configuredPluginIdsWithStaleDescriptors.has(pluginId),
-  );
   const changes: string[] = [];
   const warnings: string[] = [];
+  const deferredPluginIds = new Set<string>();
   let nextRecords = records;
+
+  for (const [pluginId, record] of Object.entries(records)) {
+    const bundled = bundledPluginsById.get(pluginId);
+    if (
+      !bundled ||
+      !params.pluginIds.has(pluginId) ||
+      !recordMatchesBundledPackage(record, bundled)
+    ) {
+      continue;
+    }
+    if (nextRecords === records) {
+      nextRecords = { ...records };
+    }
+    delete nextRecords[pluginId];
+    changes.push(`Removed stale managed install record for bundled plugin "${pluginId}".`);
+  }
+
+  if (isUpdatePackageDoctorPass(env)) {
+    for (const pluginId of params.pluginIds) {
+      const record = nextRecords[pluginId];
+      if (!record || !isInstalledRecordMissingOnDisk(record, env)) {
+        continue;
+      }
+      if (nextRecords === records) {
+        nextRecords = { ...records };
+      }
+      delete nextRecords[pluginId];
+      deferredPluginIds.add(pluginId);
+      changes.push(
+        `Deferred missing configured plugin "${pluginId}" install repair until post-update doctor.`,
+      );
+    }
+  }
+
+  const missingRecordedPluginIds = Object.keys(records).filter(
+    (pluginId) =>
+      Object.hasOwn(nextRecords, pluginId) &&
+      !bundledPluginsById.has(pluginId) &&
+      ((params.pluginIds.has(pluginId) &&
+        (!knownIds.has(pluginId) || isInstalledRecordMissingOnDisk(nextRecords[pluginId], env))) ||
+        configuredPluginIdsWithStaleDescriptors.has(pluginId)),
+  );
 
   if (missingRecordedPluginIds.length > 0) {
     const updateResult = await updateNpmInstalledPlugins({
@@ -458,7 +546,7 @@ async function repairMissingPluginInstalls(params: {
         ...params.cfg,
         plugins: {
           ...params.cfg.plugins,
-          installs: records,
+          installs: nextRecords,
         },
       },
       pluginIds: missingRecordedPluginIds,
@@ -479,9 +567,18 @@ async function repairMissingPluginInstalls(params: {
   }
 
   const missingPluginIds = new Set(
-    [...params.pluginIds].filter(
-      (pluginId) => !knownIds.has(pluginId) && !Object.hasOwn(nextRecords, pluginId),
-    ),
+    [...params.pluginIds].filter((pluginId) => {
+      if (deferredPluginIds.has(pluginId)) {
+        return false;
+      }
+      const hasRecord = Object.hasOwn(nextRecords, pluginId);
+      return (
+        (!knownIds.has(pluginId) && !hasRecord && !bundledPluginsById.has(pluginId)) ||
+        (hasRecord &&
+          !bundledPluginsById.has(pluginId) &&
+          isInstalledRecordMissingOnDisk(nextRecords[pluginId], env))
+      );
+    }),
   );
   for (const candidate of collectDownloadableInstallCandidates({
     cfg: params.cfg,
@@ -489,9 +586,18 @@ async function repairMissingPluginInstalls(params: {
     missingPluginIds,
     configuredPluginIds: params.pluginIds,
     configuredChannelIds: params.channelIds,
-    blockedPluginIds: params.blockedPluginIds,
+    blockedPluginIds:
+      deferredPluginIds.size > 0
+        ? new Set([...(params.blockedPluginIds ?? []), ...deferredPluginIds])
+        : params.blockedPluginIds,
   })) {
-    if (knownIds.has(candidate.pluginId) || Object.hasOwn(nextRecords, candidate.pluginId)) {
+    const hasUsableRecord =
+      Object.hasOwn(nextRecords, candidate.pluginId) &&
+      !isInstalledRecordMissingOnDisk(nextRecords[candidate.pluginId], env);
+    if (knownIds.has(candidate.pluginId) && hasUsableRecord) {
+      continue;
+    }
+    if (hasUsableRecord) {
       continue;
     }
     const installed = await installCandidate({ candidate, records: nextRecords });

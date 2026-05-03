@@ -13,6 +13,15 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Maintainer workflow: push prepared PR heads through GitHub's verified commit API by default and require an explicit override before git-protocol pushes can publish unsigned commits. Thanks @BunsDev.
+- Feishu: resolve setup/status probes through the selected/default account so multi-account configs with account-scoped app credentials show as configured and probeable. Fixes #72930. Thanks @brokemac79.
+- Gateway/responses: emit every client tool call from `/v1/responses` JSON and SSE responses when the agent invokes multiple client tools in a single turn, so multi-tool plans, graph orchestration calls, and similar batched flows no longer drop every call but the last. Fixes #52288. Thanks @CharZhou and @bonelli.
+- Slack/reactions: treat missing no_reaction remove responses as idempotent success and route own-reaction cleanup through the remove helper, so concurrent cleanup no longer surfaces Slack race errors. Fixes #50733. (#76304) Thanks @martingarramon and @Hollychou924.
+- Control UI/Gateway: avoid full session-list reloads for locally applied message-phase session updates, carry known session keys through transcript-file update events, and defer media provider listing when explicit generation model config is present. Refs #76236, #76203, #76188, #76107, and #76166. Thanks @BunsDev.
+- Install/update: prune the obsolete `plugin-runtime-deps` state directory during packaged postinstall so upgrades from pre-2026.5.2 releases reclaim old bundled-plugin dependency caches without touching external plugin installs.
+- Auto-reply/queue: treat reset-triggered `/new` and `/reset` turns as interrupt runs across active-run queue handling, so steer/followup modes cannot delay a fresh session behind existing work. Fixes #74093. (#74144) Thanks @ruji9527 and @yelog.
+- Cron: preserve manual `cron.run` IDs in `cron.runs` history so manual run acknowledgements can be correlated with finished run records. Fixes #76276.
+- CLI/devices: request `operator.admin` for `openclaw devices approve <requestId>` only when the exact pending device request would mint or inherit admin-scoped operator access, while keeping lower-scope approvals on the pairing scope.
 - Gateway: keep directly requested plugin tools invokable under restrictive tool profiles while preserving explicit deny lists and the HTTP safety deny list, preventing catalog/invoke mismatches that surface as "Tool not available". Thanks @BunsDev.
 - Gateway/update: allow beta binaries to refresh gateway services when the config was last written by the matching stable release version, avoiding false newer-config downgrade blocks during beta channel updates.
 - Channels: keep Matrix and Mattermost bundled in the core package instead of advertising external npm installs before those channels are cut over. Thanks @vincentkoc.
@@ -20,6 +29,7 @@ Docs: https://docs.openclaw.ai
 - Channels/setup: label installable channel picker hints as remote npm installs and hide remote install hints for bundled plugins that already ship with OpenClaw.
 - CLI/plugins: stop treating the non-plugin `auth` command root as a bundled plugin id, so restrictive `plugins.allow` configs no longer tell users to add stale `auth` plugin entries.
 - Doctor/plugins: update configured plugin installs whose stale manifests still declare channels without `channelConfigs`, so beta upgrades repair old Discord-style package payloads during `doctor --fix`.
+- Doctor/plugins: repair configured external plugin installs whose persisted install record points at a missing package directory, so upgrades reconcile phantom npm metadata before plugin runtime validation. Thanks @vincentkoc.
 - Active Memory: keep non-empty `memory_search` results from being fast-failed as empty when debug telemetry reports zero hits.
 - Plugins/externalization: repair missing configured plugin installs from npm by default, reserve ClawHub downloads for explicit `clawhubSpec` metadata, and cover agent-runtime/env-selected plugin repair. Thanks @vincentkoc.
 - Plugins/install: allow official catalog-matched npm channel plugins such as Feishu to pass the trusted install scanner path while keeping spoofed package names blocked. Thanks @vincentkoc.
@@ -51,9 +61,11 @@ Docs: https://docs.openclaw.ai
 - Gateway: avoid repeated plugin tool descriptor config hashing so large runtime configs do not block reply startup and trigger reconnect/timeouts. (#75944) Thanks @joshavant.
 - Plugins/externalization: keep diagnostics ClawHub packages and persisted bundled-plugin relocation on npm-first install metadata for launch, and omit Discord from the core package now that its external package is published. Thanks @vincentkoc.
 - Setup/TUI: bound the Terminal hatch bootstrap run so a stalled provider request times out instead of leaving first-run hatching stuck behind the watchdog. (#76241) Thanks @joshavant.
+- Cron/CLI runtimes: route isolated cron jobs through configured per-agent CLI runtimes only when the resolved model provider is compatible, so OpenAI job overrides no longer inherit a mismatched Claude CLI backend. Thanks @vishutdhar.
 - Plugins/Codex: allow the official npm Codex plugin to install without the unsafe-install override, keep `/codex` command ownership, and cover the real npm Docker live path through managed `.openclaw/npm` dependencies plus uninstall failure proof.
 - Gateway/status: add concrete service, config, listener-owner, and log collection next steps when gateway probes fail and Bonjour finds no local gateway, so frozen or port-conflict reports include the data needed for root-cause triage. Refs #49012. Thanks @vincentkoc.
 - Codex harness: forward OpenClaw workspace bootstrap files such as `SOUL.md` through native Codex config instructions while leaving `AGENTS.md` to Codex project-doc discovery. Fixes #76273. Thanks @zknicker.
+- Parallels/Windows update smoke: escape the stale post-swap import regex in the generated PowerShell script so expected `ERR_MODULE_NOT_FOUND` update handoffs continue to post-update health checks. (#75315)
 
 ## 2026.5.2
 
@@ -356,6 +368,10 @@ Docs: https://docs.openclaw.ai
 
 ## 2026.4.30
 
+### Highlights
+
+- Plugins/file-transfer: add bundled file-transfer plugin with `file_fetch`, `dir_list`, `dir_fetch`, and `file_write` agent tools for binary file ops on paired nodes; default-deny per-node path policy under `plugins.entries.file-transfer.config.nodes` with operator approval, symlink traversal refused by default (opt-in `followSymlinks`), and a 16 MB byte ceiling per round-trip. (#74742) Thanks @omarshahine.
+
 ### Changes
 
 - Dependencies: refresh bundled runtime and plugin dependency pins, including Pi 0.71.1, OpenAI 6.35.0, Codex 0.128.0, Zod 4.4.1, and Matrix 41.4.0. Thanks @mariozechner.
@@ -474,6 +490,7 @@ Docs: https://docs.openclaw.ai
 - Telegram/agents: keep typing indicators and optional generation tools off the reply critical path, so fresh Telegram replies no longer stall while provider catalogs and media models load. (#75360) Thanks @obviyus.
 - Agents/commitments: run hidden follow-up extraction on the configured agent/default model instead of falling back to direct OpenAI, so OpenAI Codex OAuth-only gateways no longer spam background API-key failures. Fixes #75334. Thanks @sene1337.
 - Agents/media: keep async music generation completions on the requester-session wake path even when direct-send completion is enabled, so finished audio stays agent-mediated while video can still opt into direct channel delivery. (#75335) Thanks @vincentkoc.
+- Agents/media: keep image and video provider inventory internal when tool output is hidden, so shared chat surfaces no longer expose provider/model/auth-hint details from list results. Fixes #75166. Thanks @MkDev11.
 - Security/config-audit: redact CLI argv and execArgv secrets before persisting config audit records, covering write, observe, and recovery paths. Fixes #60826. Thanks @koshaji.
 - Gateway/models: keep default and configured model-list views responsive when provider catalog discovery stalls, without hiding real catalog load failures, while `--all` still waits for the exact full catalog. Fixes #75297; refs #74404. Thanks @lisandromachado and @najef1979-code.
 - Plugins/runtime-deps: accept already materialized package-level runtime-deps supersets as converged, so later lazy plugin activation no longer prunes and relaunches `pnpm install` after gateway startup pre-staging, reducing event-loop pressure from repeated runtime-deps repair on packaged installs. Fixes #75283; refs #75297 and #72338. Thanks @brokemac79, @lisandromachado, and @midhunmonachan.
