@@ -1784,19 +1784,41 @@ describe("chat voice controls", () => {
       realtimeTalkInputLevel: inputLevel,
     });
 
-    const statusRegion = container.querySelector('[role="status"].agent-chat__talk-status');
-    const visualizer = statusRegion?.querySelector<HTMLElement>(
+    const stopVoiceButton = container.querySelector('button[aria-label="Stop voice input"]');
+    const visualizer = stopVoiceButton?.querySelector<HTMLElement>(
       `.agent-chat__voice-activity[data-status="${status}"]`,
     );
     expect(visualizer?.getAttribute("data-level")).toBe("0.64");
     expect(visualizer?.getAttribute("data-source")).toBe("microphone");
-    expect(visualizer?.getAttribute("role")).toBe("img");
-    expect(visualizer?.getAttribute("aria-label")).toBe(t("chat.composer.microphoneInput"));
+    expect(visualizer?.getAttribute("aria-hidden")).toBe("true");
     expect(visualizer?.querySelectorAll(".agent-chat__voice-activity-bar")).toHaveLength(7);
+    const statusRegion = container.querySelector('[role="status"].agent-chat__voice-status');
     expect(statusRegion?.getAttribute("aria-live")).toBe("polite");
     expect(statusRegion?.getAttribute("aria-atomic")).toBe("true");
-    expect(statusRegion?.querySelector(".agent-chat__sr-only")?.textContent?.trim()).toBe(label);
-    expect(statusRegion?.querySelector(".agent-chat__talk-status-text")).toBeNull();
+    expect(statusRegion?.textContent?.trim()).toBe(label);
+    expect(container.querySelector(".agent-chat__talk-status")).toBeNull();
+  });
+
+  it("keeps the stop control without a live meter when a running session errors", () => {
+    const container = renderChatView({
+      realtimeTalkActive: true,
+      realtimeTalkStatus: "error",
+      realtimeTalkDetail: "Microphone unavailable",
+    });
+
+    const stopVoiceButton = requireElement(
+      container,
+      '[aria-label="Stop voice input"]',
+      "stop voice input button",
+    );
+    expect(stopVoiceButton.classList.contains("chat-send-btn--voice-error")).toBe(true);
+    expect(stopVoiceButton.querySelector(".agent-chat__voice-activity")).toBeNull();
+    expect(container.querySelector(".agent-chat__voice-status")).toBeNull();
+    expect(
+      container
+        .querySelector('[role="alert"].agent-chat__talk-status .agent-chat__talk-status-text')
+        ?.textContent?.trim(),
+    ).toBe("Microphone unavailable");
   });
 
   it("clamps the rendered microphone level", () => {
@@ -2218,6 +2240,38 @@ describe("chat composer IME composition", () => {
     expect(arrowEvent.defaultPrevented).toBe(false);
     expect(onSend).not.toHaveBeenCalled();
     expect(onHistoryKeydown).not.toHaveBeenCalled();
+  });
+
+  it("invalidates after handled input history navigation", () => {
+    const onRequestUpdate = vi.fn();
+    const onHistoryKeydown = vi.fn(() => ({
+      handled: true,
+      preventDefault: true,
+      restoreCaret: "up" as const,
+      decision: "handled:history-up" as const,
+      historyNavigationActiveBefore: false,
+      historyNavigationActiveAfter: true,
+      selectionStart: 0,
+      selectionEnd: 0,
+      valueLength: 0,
+    }));
+    const container = renderChatView({ onHistoryKeydown, onRequestUpdate });
+    const textarea = requireElement(
+      container,
+      ".agent-chat__composer-combobox > textarea",
+      "composer textarea",
+    ) as HTMLTextAreaElement;
+    const arrowEvent = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
+    });
+
+    textarea.dispatchEvent(arrowEvent);
+
+    expect(arrowEvent.defaultPrevented).toBe(true);
+    expect(onHistoryKeydown).toHaveBeenCalledOnce();
+    expect(onRequestUpdate).toHaveBeenCalledOnce();
   });
 
   it("does not force textarea resize during IME composition", () => {
@@ -4193,6 +4247,35 @@ describe("right-click Reply", () => {
     document.dispatchEvent(evt);
 
     expect(evt.defaultPrevented).toBe(true);
+    expect(document.querySelector(".chat-reply-context-menu")).toBeNull();
+  });
+
+  it("dismisses the reply context menu before a later context menu opens", () => {
+    const frameCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        frameCallbacks.push(callback);
+        return frameCallbacks.length;
+      }),
+    );
+    const container = renderChatView({ onSetReply: vi.fn() });
+    const section = container.querySelector<HTMLElement>(".card.chat");
+    const group = document.createElement("div");
+    group.className = "chat-group";
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    bubble.dataset.messageText = "hello world";
+    group.appendChild(bubble);
+    section!.querySelector(".chat-thread-inner")!.appendChild(group);
+    bubble.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    for (const callback of frameCallbacks.splice(0)) {
+      callback(0);
+    }
+    expect(document.querySelector(".chat-reply-context-menu")).not.toBeNull();
+
+    document.body.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+
     expect(document.querySelector(".chat-reply-context-menu")).toBeNull();
   });
 
