@@ -24,7 +24,6 @@ import { renderSettingsWorkspace } from "../../components/settings-workspace.ts"
 import { t } from "../../i18n/index.ts";
 import { isMissingOperatorReadScopeError } from "../../lib/gateway-errors.ts";
 import { renderMcp } from "./mcp.ts";
-import { getPresetById } from "./presets.ts";
 import {
   renderQuickSettings,
   type QuickSettingsChannel,
@@ -104,7 +103,6 @@ const KNOWN_CHANNELS = [
   { id: "imessage", label: "iMessage" },
 ] as const;
 
-const BASE_RADII = { sm: 6, md: 10, lg: 14, xl: 20, full: 9999, default: 10 };
 const SYSTEM_INFO_POLL_INTERVAL_MS = 10_000;
 
 function isUnknownSystemInfoMethodError(error: unknown): boolean {
@@ -261,20 +259,6 @@ function extractQuickSettingsSecurity(config: unknown): QuickSettingsSecurity {
     browserEnabled: browser?.enabled !== false,
     toolProfile: typeof profile === "string" && profile.trim() ? profile.trim() : "full",
   };
-}
-
-function applyBorderRadius(value: number) {
-  if (typeof document === "undefined") {
-    return;
-  }
-  const root = document.documentElement;
-  const scale = value / 50;
-  root.style.setProperty("--radius-sm", `${Math.round(BASE_RADII.sm * scale)}px`);
-  root.style.setProperty("--radius-md", `${Math.round(BASE_RADII.md * scale)}px`);
-  root.style.setProperty("--radius-lg", `${Math.round(BASE_RADII.lg * scale)}px`);
-  root.style.setProperty("--radius-xl", `${Math.round(BASE_RADII.xl * scale)}px`);
-  root.style.setProperty("--radius-full", `${Math.round(BASE_RADII.full * scale)}px`);
-  root.style.setProperty("--radius", `${Math.round(BASE_RADII.default * scale)}px`);
 }
 
 function applyTextScale(value: unknown) {
@@ -534,10 +518,8 @@ export class ConfigPage extends LitElement {
       theme: next.theme,
       themeMode: next.themeMode,
       customTheme: next.customTheme,
-      borderRadius: next.borderRadius,
       textScale: next.textScale,
     });
-    applyBorderRadius(this.settings.borderRadius);
     applyTextScale(this.settings.textScale);
     this.context.theme.refresh();
   }
@@ -568,10 +550,6 @@ export class ConfigPage extends LitElement {
       context,
       applyTheme: () => this.applySettings(next),
     });
-  }
-
-  private setBorderRadius(value: number) {
-    this.applySettings({ ...this.settings, borderRadius: value });
   }
 
   private setTextScale(value: number) {
@@ -729,8 +707,6 @@ export class ConfigPage extends LitElement {
       onImportCustomTheme: () => void this.importCustomTheme(),
       onClearCustomTheme: () => this.clearCustomTheme(),
       onOpenCustomThemeImport: () => this.openCustomThemeImport(),
-      borderRadius: this.settings.borderRadius,
-      setBorderRadius: (value) => this.setBorderRadius(value),
       textScale: this.settings.textScale ?? 100,
       setTextScale: (value) => this.setTextScale(value),
       gatewayUrl: this.context.gateway.connection.gatewayUrl,
@@ -795,7 +771,6 @@ export class ConfigPage extends LitElement {
       themeMode: this.settings.themeMode,
       hasCustomTheme: Boolean(this.settings.customTheme),
       customThemeLabel: this.settings.customTheme?.label,
-      borderRadius: this.settings.borderRadius,
       textScale: this.settings.textScale ?? 100,
       setTheme: (theme, transitionContext) => this.setTheme(theme, transitionContext),
       setThemeMode: (mode, transitionContext) => this.setThemeMode(mode, transitionContext),
@@ -807,7 +782,6 @@ export class ConfigPage extends LitElement {
         };
         this.navigate("ai-agents");
       },
-      setBorderRadius: (value) => this.setBorderRadius(value),
       setTextScale: (value) => this.setTextScale(value),
       onOpenCustomThemeImport: () => {
         this.pageId = "appearance";
@@ -824,21 +798,10 @@ export class ConfigPage extends LitElement {
       assistantName: appConfig.assistantIdentity.name,
       version:
         appConfig.serverVersion ?? this.context.gateway.snapshot.hello?.server?.version ?? "",
-      configObject,
-      savedConfigObject:
-        asConfigRecord(
-          runtimeConfig.state.configFormOriginal ?? runtimeConfig.state.configSnapshot?.config,
-        ) ?? {},
       configDirty: runtimeConfig.state.configFormDirty,
       configSaving: runtimeConfig.state.configSaving,
       configApplying: runtimeConfig.state.configApplying,
       configReady: Boolean(runtimeConfig.state.configSnapshot?.hash),
-      onSelectPreset: (id) => {
-        const preset = getPresetById(id);
-        if (preset) {
-          runtimeConfig.stagePreset(preset.patch);
-        }
-      },
       onResetConfig: () => runtimeConfig.resetDraft(),
       onSaveConfig: () => void runtimeConfig.save(),
       onApplyConfig: () => void runtimeConfig.apply(),
