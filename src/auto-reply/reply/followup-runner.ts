@@ -38,6 +38,8 @@ import {
   buildAgentRuntimeDeliveryPlan,
   buildAgentRuntimeOutcomePlan,
 } from "../../agents/runtime-plan/build.js";
+import { resolveSessionRuntimeOverrideForProvider } from "../../agents/session-runtime-compat.js";
+import { resolveCandidateThinkingLevel } from "../../agents/thinking-runtime.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { loadSessionEntry, updateSessionEntry } from "../../config/sessions/session-accessor.js";
 import type { TypingMode } from "../../config/types.js";
@@ -78,7 +80,6 @@ import {
   buildCommandOutputFromToolResultEvent,
   buildPreflightCompactionFailureText,
   resolveRunAfterAutoFallbackPrimaryProbeRecheck,
-  resolveSessionRuntimeOverrideForProvider,
 } from "./agent-runner-execution.js";
 import { runPreflightCompactionIfNeeded } from "./agent-runner-memory.js";
 import { appendUsageLine, resolveResponseUsageLine } from "./agent-runner-usage-line.js";
@@ -105,6 +106,7 @@ import {
   warnPrivateMessageToolFinal,
 } from "./private-message-tool-final.js";
 import {
+  admitFollowupRunLifecycle,
   completeFollowupRunLifecycle,
   enqueueFollowupRun,
   FollowupRunDeferredError,
@@ -715,7 +717,7 @@ export function createFollowupRunner(params: {
       replyOperation.retainFailureUntilComplete();
       // Multi-source collected turns become atomic at reply-lane admission.
       // Their queue owner uses this boundary to retire source cancellation ids.
-      effectiveQueued.queuedLifecycle?.onAdmitted?.();
+      await admitFollowupRunLifecycle(effectiveQueued);
       if (replyOperation.sessionId !== run.sessionId) {
         run = { ...run, sessionId: replyOperation.sessionId };
         effectiveQueued = { ...effectiveQueued, run };
@@ -1039,6 +1041,15 @@ export function createFollowupRunner(params: {
             const suppressAssistantErrorPersistenceForCandidate =
               assistantErrorPersistedAcrossFallback;
             const candidateRun = resolveRunForFallbackCandidate(provider, model);
+            const candidateThinkLevel = resolveCandidateThinkingLevel({
+              cfg: runtimeConfig,
+              provider,
+              modelId: model,
+              level: run.thinkLevel,
+              agentId: run.agentId,
+              sessionKey: run.runtimePolicySessionKey ?? replySessionKey,
+              sessionEntry: activeSessionEntry,
+            });
             const candidateFastMode = resolveRunFastModeForFallbackCandidate({
               run: candidateRun,
               config: runtimeConfig,
@@ -1252,7 +1263,7 @@ export function createFollowupRunner(params: {
                     ...resolveRunAuthProfile(candidateRun, cliExecutionProvider, {
                       config: runtimeConfig,
                     }),
-                    thinkLevel: run.thinkLevel,
+                    thinkLevel: candidateThinkLevel,
                     fastMode: candidateFastMode.fastMode,
                     fastModeStartedAtMs,
                     fastModeAutoOnSeconds: candidateFastMode.fastModeAutoOnSeconds,
@@ -1386,7 +1397,7 @@ export function createFollowupRunner(params: {
                 provider,
                 model,
                 ...selectedAuthProfile,
-                thinkLevel: run.thinkLevel,
+                thinkLevel: candidateThinkLevel,
                 fastMode: candidateFastMode.fastMode,
                 fastModeStartedAtMs,
                 fastModeAutoOnSeconds: candidateFastMode.fastModeAutoOnSeconds,
