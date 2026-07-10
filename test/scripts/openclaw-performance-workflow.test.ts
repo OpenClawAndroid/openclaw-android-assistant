@@ -91,8 +91,12 @@ describe("OpenClaw performance workflow", () => {
     expect(installRun).toContain(
       'npm --prefix "$KOVA_SRC" ci --ignore-scripts --no-audit --no-fund',
     );
-    expect(installRun).toContain('for (const dependency of ["mock-ai-provider", "zod"])');
-    expect(installRun).toContain("require.resolve(dependency, { paths: [root] })");
+    expect(installRun).toContain('require.resolve("mock-ai-provider/package.json", {');
+    expect(installRun).toContain('packageJson.bin?.["mock-ai-provider"]');
+    expect(installRun).toContain('path.join(root, "node_modules", ".bin", "mock-ai-provider")');
+    expect(installRun).toContain("fs.constants.X_OK");
+    expect(installRun).toContain('require.resolve("zod", { paths: [root] })');
+    expect(installRun).not.toContain('require.resolve("mock-ai-provider",');
     expect(
       installRun.indexOf('npm --prefix "$KOVA_SRC" ci --ignore-scripts --no-audit --no-fund'),
     ).toBeLessThan(installRun.indexOf('cat > "$HOME/.local/bin/kova"'));
@@ -123,6 +127,26 @@ describe("OpenClaw performance workflow", () => {
         .flatMap((job) => job.steps ?? [])
         .filter((step) => step.name === "Resolve OpenClaw target ref"),
     ).toHaveLength(1);
+  });
+
+  it("pins the Kova model through exact current source owners and fails closed on drift", () => {
+    const pinModel = findStep("Pin Kova OpenAI model to GPT 5.6");
+    const run = pinModel.run ?? "";
+    const configuredFiles = [...run.matchAll(/^\s*"((?:support|states)\/[^"]+)",?$/gm)].map(
+      (match) => match[1],
+    );
+
+    expect(configuredFiles).toEqual([
+      "support/configure-openclaw-mock-auth.mjs",
+      "support/configure-openclaw-live-auth.mjs",
+      "states/mock-openai-provider.json",
+    ]);
+    expect(run).not.toContain("support/mock-openai-server.mjs");
+    expect(run).toContain("if (!before.includes(sourceModel))");
+    expect(run).toContain("after.includes(sourceModel) || !after.includes(targetModel)");
+    expect(run.indexOf("const rewrites = files.map")).toBeLessThan(
+      run.indexOf("fs.writeFileSync(file, after"),
+    );
   });
 
   it("fetches the public clawgrit baseline without publisher credentials", () => {
@@ -332,10 +356,14 @@ describe("OpenClaw performance workflow", () => {
     expect(publisher?.env?.PERFORMANCE_PUBLISHER_HELPER).toContain(
       "scripts/lib/kova-report-publish-files.mjs",
     );
+    expect(publisher?.env?.PERFORMANCE_REPORT_SELECTOR).toContain(
+      "scripts/lib/kova-report-selector.mjs",
+    );
     expect(helper.with).toMatchObject({
       ref: "${{ github.sha }}",
       path: ".artifacts/performance-publisher",
-      "sparse-checkout": "scripts/lib/kova-report-publish-files.mjs",
+      "sparse-checkout":
+        "scripts/lib/kova-report-publish-files.mjs\nscripts/lib/kova-report-selector.mjs\n",
       "sparse-checkout-cone-mode": false,
       "persist-credentials": false,
     });
@@ -685,6 +713,20 @@ esac
     expect(run).toContain('--model "$PERFORMANCE_MODEL_ID"');
   });
 
+  it("selects exactly one full Kova report across producer and publisher paths", () => {
+    const runKova = findStep("Run Kova");
+    const validate = findStep("Validate Kova evidence");
+    const publish = findStep("Prepare clawgrit report commit", "publish");
+
+    expect(runKova.run).toContain('kova-report-selector.mjs" --report-dir "$REPORT_DIR"');
+    expect(validate.run).toContain('kova-report-selector.mjs" --report-dir "$REPORT_DIR"');
+    expect(publish.run).toContain(
+      'node "$PERFORMANCE_REPORT_SELECTOR" --report-dir "${report_dirs[0]}"',
+    );
+    expect(runKova.run).not.toContain("tail -n 1");
+    expect(publish.run).not.toContain("report_jsons");
+  });
+
   it("installs local workspace packages beside the OCM root tarball", () => {
     const configure = findStep("Configure OCM local workspace dependencies");
 
@@ -719,7 +761,7 @@ esac
 
     expect(validateEvidence.if).toContain("always()");
     expect(validateEvidence.if).toContain("steps.lane.outputs.run == 'true'");
-    expect(validateEvidence.run).toContain('"$REPORT_DIR" -maxdepth 1 -type f -name');
+    expect(validateEvidence.run).toContain('kova-report-selector.mjs" --report-dir "$REPORT_DIR"');
     expect(validateEvidence.run).toContain('"$BUNDLE_DIR/bundle.json"');
     expect(validateEvidence.run).toContain('"$SUMMARY_DIR/${LANE_ID}.md"');
     expect(validateEvidence.run).toContain("exit 1");

@@ -482,7 +482,20 @@ const GITHUB_WORKFLOW_OWNER_TEST_TARGETS = new Map([
       "test/scripts/plugin-prerelease-test-plan.test.ts",
     ],
   ],
-  [".github/workflows/install-smoke.yml", ["test/scripts/test-install-sh-docker.test.ts"]],
+  [
+    ".github/workflows/install-smoke.yml",
+    [
+      "test/scripts/install-smoke-no-push-workflow.test.ts",
+      "test/scripts/test-install-sh-docker.test.ts",
+    ],
+  ],
+  [
+    ".github/workflows/install-smoke-reusable.yml",
+    [
+      "test/scripts/install-smoke-no-push-workflow.test.ts",
+      "test/scripts/test-install-sh-docker.test.ts",
+    ],
+  ],
   [
     ".github/workflows/ios-periphery-comment.yml",
     ["test/scripts/ios-periphery-comment-workflow.test.ts"],
@@ -552,6 +565,10 @@ const GITHUB_WORKFLOW_OWNER_TEST_TARGETS = new Map([
     ],
   ],
   [
+    ".github/workflows/openclaw-shared-image-publish-reusable.yml",
+    ["test/scripts/release-no-push-workflow.test.ts"],
+  ],
+  [
     ".github/workflows/openclaw-npm-release.yml",
     [
       "test/openclaw-npm-postpublish-verify.test.ts",
@@ -577,7 +594,10 @@ const GITHUB_WORKFLOW_OWNER_TEST_TARGETS = new Map([
   ],
   [
     ".github/workflows/openclaw-scheduled-live-checks.yml",
-    ["test/scripts/package-acceptance-workflow.test.ts"],
+    [
+      "test/scripts/package-acceptance-workflow.test.ts",
+      "test/scripts/release-no-push-workflow.test.ts",
+    ],
   ],
   [
     ".github/workflows/openclaw-stable-main-closeout.yml",
@@ -597,7 +617,10 @@ const GITHUB_WORKFLOW_OWNER_TEST_TARGETS = new Map([
   ],
   [
     ".github/workflows/plugin-npm-release.yml",
-    ["test/scripts/package-acceptance-workflow.test.ts"],
+    [
+      "test/scripts/package-acceptance-workflow.test.ts",
+      "test/scripts/plugin-npm-extended-stable-workflow.test.ts",
+    ],
   ],
   [".github/workflows/plugin-prerelease.yml", ["test/scripts/plugin-prerelease-test-plan.test.ts"]],
   [
@@ -1202,6 +1225,7 @@ const TOOLING_SOURCE_TEST_TARGETS = new Map([
   ["scripts/lib/local-heavy-check-runtime.mjs", ["test/scripts/local-heavy-check-runtime.test.ts"]],
   ["scripts/lib/kova-report-gate.mjs", ["test/scripts/kova-report-gate.test.ts"]],
   ["scripts/lib/kova-report-publish-files.mjs", ["test/scripts/kova-report-publish-files.test.ts"]],
+  ["scripts/lib/kova-report-selector.mjs", ["test/scripts/kova-report-selector.test.ts"]],
   ["scripts/lib/kova-workflow-evidence.mjs", ["test/scripts/kova-workflow-evidence.test.ts"]],
   ["scripts/lib/managed-child-process.mjs", ["test/scripts/managed-child-process.test.ts"]],
   [
