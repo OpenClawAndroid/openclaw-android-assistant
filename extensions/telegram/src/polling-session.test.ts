@@ -3510,6 +3510,34 @@ describe("TelegramPollingSession", () => {
 
       const runPromise = session.runUntilAbort();
       await vi.waitFor(() => expect(createWorker).toHaveBeenCalledTimes(2));
+      const firstFetchSignal = mockObjectArg(
+        createTelegramBotMock,
+        "first createTelegramBot",
+        0,
+      ).fetchAbortSignal;
+      const firstMediaSignal = mockObjectArg(
+        createTelegramBotMock,
+        "first createTelegramBot",
+        0,
+      ).mediaAbortSignal;
+      const secondFetchSignal = mockObjectArg(
+        createTelegramBotMock,
+        "second createTelegramBot",
+        1,
+      ).fetchAbortSignal;
+      const secondMediaSignal = mockObjectArg(
+        createTelegramBotMock,
+        "second createTelegramBot",
+        1,
+      ).mediaAbortSignal;
+      expect(firstFetchSignal).toBeInstanceOf(AbortSignal);
+      expect(firstMediaSignal).toBeInstanceOf(AbortSignal);
+      expect(secondFetchSignal).toBeInstanceOf(AbortSignal);
+      expect(secondMediaSignal).toBeInstanceOf(AbortSignal);
+      expect((firstFetchSignal as AbortSignal).aborted).toBe(false);
+      expect((firstMediaSignal as AbortSignal).aborted).toBe(true);
+      expect((secondFetchSignal as AbortSignal).aborted).toBe(false);
+      expect((secondMediaSignal as AbortSignal).aborted).toBe(false);
       expectLogIncludes(log, "isolated polling ingress failed: worker crashed");
       expect(
         statusPatches(setStatus).some(
@@ -3520,7 +3548,234 @@ describe("TelegramPollingSession", () => {
       abort.abort();
       await vi.advanceTimersByTimeAsync(20_000);
       await runPromise;
+      expect((firstFetchSignal as AbortSignal).aborted).toBe(true);
+      expect((secondFetchSignal as AbortSignal).aborted).toBe(true);
+      expect((secondMediaSignal as AbortSignal).aborted).toBe(true);
     } finally {
+      vi.useRealTimers();
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("waits for a fresh bot before draining updates after an isolated worker crash", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const abort = new AbortController();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-telegram-spool-"));
+    let releaseBackoff: (() => void) | undefined;
+    const backoff = new Promise<void>((resolve) => {
+      releaseBackoff = resolve;
+    });
+    sleepWithAbortMock.mockImplementationOnce(async () => {
+      await backoff;
+      return undefined;
+    });
+
+    let firstMediaSignal: AbortSignal | undefined;
+    let rejectFirstWorker: ((err: Error) => void) | undefined;
+    const firstWorkerDone = new Promise<void>((_resolve, reject) => {
+      rejectFirstWorker = reject;
+    });
+    const firstHandleUpdate = vi.fn(async () => {
+      rejectFirstWorker?.(new Error("worker crashed"));
+      if (!firstMediaSignal) {
+        throw new Error("Expected the first polling cycle signal");
+      }
+      await waitForAbortSignal(firstMediaSignal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+    const secondHandleUpdate = vi.fn(async () => undefined);
+    const createBot = (handleUpdate: (update: { update_id?: number }) => Promise<unknown>) => ({
+      api: {
+        deleteWebhook: vi.fn(async () => true),
+        config: { use: vi.fn() },
+      },
+      init: vi.fn(async () => undefined),
+      handleUpdate,
+      stop: vi.fn(async () => undefined),
+    });
+    createTelegramBotMock
+      .mockImplementationOnce((opts: { mediaAbortSignal?: AbortSignal }) => {
+        firstMediaSignal = opts.mediaAbortSignal;
+        return createBot(firstHandleUpdate);
+      })
+      .mockReturnValueOnce(createBot(secondHandleUpdate));
+
+    let workerIndex = 0;
+    let stopSecondWorker: (() => void) | undefined;
+    const secondWorkerDone = new Promise<void>((resolve) => {
+      stopSecondWorker = resolve;
+    });
+    const createWorker = vi.fn(() => {
+      workerIndex += 1;
+      if (workerIndex === 1) {
+        return {
+          onMessage: vi.fn(() => () => undefined),
+          stop: vi.fn(async () => undefined),
+          task: vi.fn(async () => await firstWorkerDone),
+        };
+      }
+      return {
+        onMessage: vi.fn(() => () => undefined),
+        stop: vi.fn(async () => {
+          stopSecondWorker?.();
+        }),
+        task: vi.fn(async () => await secondWorkerDone),
+      };
+    });
+
+    try {
+      const session = createPollingSession({
+        abortSignal: abort.signal,
+        isolatedIngress: {
+          enabled: true,
+          spoolDir: tempDir,
+          createWorker,
+          drainIntervalMs: 10,
+        },
+      });
+      const runPromise = session.runUntilAbort();
+      await vi.waitFor(() => expect(createWorker).toHaveBeenCalledTimes(1));
+
+      await writeSpooledTestUpdates(tempDir, [
+        topicUpdate(42, 10, "crash the old bot"),
+        topicUpdate(43, 11, "wait for the fresh bot"),
+      ]);
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.waitFor(() => expect(firstHandleUpdate).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(sleepWithAbortMock).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(firstHandleUpdate).toHaveBeenCalledTimes(1);
+      await vi.waitFor(async () => {
+        const unstarted = (
+          await listTelegramSpooledUpdates({ spoolDir: tempDir, limit: "all" })
+        ).find((update) => update.updateId === 43);
+        expect(unstarted).toMatchObject({ attempts: 0 });
+        expect(unstarted?.lastAttemptAt).toBeUndefined();
+        expect(unstarted?.lastError).toBeUndefined();
+      });
+
+      releaseBackoff?.();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.waitFor(() => expect(secondHandleUpdate).toHaveBeenCalledTimes(2));
+      abort.abort();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await runPromise;
+
+      expect(createWorker).toHaveBeenCalledTimes(2);
+      expect(firstHandleUpdate).toHaveBeenCalledTimes(1);
+      expect(await pendingUpdateIds(tempDir, "all")).toEqual([]);
+    } finally {
+      releaseBackoff?.();
+      abort.abort();
+      stopSecondWorker?.();
+      vi.useRealTimers();
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps adopted-turn Bot API delivery alive when an isolated worker crashes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const abort = new AbortController();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-telegram-spool-"));
+    let releaseBackoff: (() => void) | undefined;
+    const backoff = new Promise<void>((resolve) => {
+      releaseBackoff = resolve;
+    });
+    sleepWithAbortMock.mockImplementationOnce(async () => {
+      await backoff;
+      return undefined;
+    });
+
+    let adopted: (() => void) | undefined;
+    const adoptedTurn = new Promise<void>((resolve) => {
+      adopted = resolve;
+    });
+    let deliveryResolve: (() => void) | undefined;
+    let deliveryReject: ((err: unknown) => void) | undefined;
+    const delivery = new Promise<void>((resolve, reject) => {
+      deliveryResolve = resolve;
+      deliveryReject = reject;
+    });
+    let firstFetchSignal: AbortSignal | undefined;
+    let firstMediaSignal: AbortSignal | undefined;
+    const sendMessage = vi.fn(async () => {
+      if (firstFetchSignal?.aborted) {
+        throw new Error("adopted-turn Bot API client was aborted");
+      }
+    });
+    createTelegramBotMock.mockImplementationOnce(
+      (opts: { fetchAbortSignal?: AbortSignal; mediaAbortSignal?: AbortSignal }) => {
+        firstFetchSignal = opts.fetchAbortSignal;
+        firstMediaSignal = opts.mediaAbortSignal;
+        const api = {
+          deleteWebhook: vi.fn(async () => true),
+          sendMessage,
+          config: { use: vi.fn() },
+        };
+        return {
+          api,
+          init: vi.fn(async () => undefined),
+          handleUpdate: vi.fn(async (update: { update_id?: number }) => {
+            const participant = createTelegramSpooledReplayDeferredParticipant(
+              `test-adopted-delivery:${update.update_id}`,
+            );
+            if (!participant || !firstMediaSignal) {
+              throw new Error("Expected a spooled participant and media signal");
+            }
+            participant.settle({ kind: "completed" });
+            adopted?.();
+            void (async () => {
+              try {
+                await waitForAbortSignal(firstMediaSignal);
+                // Streaming, edits, and native-quote fallbacks retain this adopted bot client.
+                await api.sendMessage();
+                deliveryResolve?.();
+              } catch (err) {
+                deliveryReject?.(err);
+              }
+            })();
+          }),
+          stop: vi.fn(async () => undefined),
+        };
+      },
+    );
+
+    const createWorker = vi.fn(() => ({
+      onMessage: vi.fn(() => () => undefined),
+      stop: vi.fn(async () => undefined),
+      task: vi.fn(async () => {
+        await adoptedTurn;
+        throw new Error("worker crashed after turn adoption");
+      }),
+    }));
+
+    try {
+      await writeSpooledTestUpdates(tempDir, [topicUpdate(42, 10, "finish after worker crash")]);
+      const session = createPollingSession({
+        abortSignal: abort.signal,
+        isolatedIngress: {
+          enabled: true,
+          spoolDir: tempDir,
+          createWorker,
+          drainIntervalMs: 10,
+        },
+      });
+      const runPromise = session.runUntilAbort();
+
+      await delivery;
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(firstMediaSignal?.aborted).toBe(true);
+      expect(firstFetchSignal?.aborted).toBe(false);
+      await vi.waitFor(async () => expect(await pendingUpdateIds(tempDir, "all")).toEqual([]));
+
+      abort.abort();
+      releaseBackoff?.();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await runPromise;
+      expect(firstFetchSignal?.aborted).toBe(true);
+    } finally {
+      releaseBackoff?.();
+      abort.abort();
       vi.useRealTimers();
       await fs.rm(tempDir, { recursive: true, force: true });
     }
