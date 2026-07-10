@@ -165,6 +165,32 @@ struct SwiftUIRenderSmokeTests {
         }
     }
 
+    @Test @MainActor func `markdown heading hierarchy builds with inline formatting and table`() {
+        let markdown = """
+        # First **strong** heading
+        ## Second [linked](https://example.com) heading
+        ### Third `code` heading
+        #### Fourth heading
+        ##### Fifth heading
+        ###### Sixth heading
+
+        | Surface | State |
+        | --- | --- |
+        | iOS | Native |
+        """
+        for typeSize in [DynamicTypeSize.large, .accessibility2] {
+            let root = ChatMarkdownRenderer(
+                text: markdown,
+                context: .assistant,
+                variant: .standard,
+                font: OpenClawChatTypography.body,
+                textColor: OpenClawChatTheme.assistantText)
+                .environment(\.dynamicTypeSize, typeSize)
+
+            _ = Self.host(root, size: CGSize(width: 393, height: 700))
+        }
+    }
+
     @Test @MainActor func `streaming assistant bubble builds mixed prose and code`() {
         let text = """
         Earlier prose stays visible.
@@ -187,6 +213,46 @@ struct SwiftUIRenderSmokeTests {
             isClean: false)
 
         _ = Self.host(root, size: CGSize(width: 393, height: 400))
+    }
+
+    @Test @MainActor func `assistant usage footer builds across dynamic type sizes`() throws {
+        let usage = try JSONDecoder().decode(
+            OpenClawChatUsage.self,
+            from: Data(#"{"input":12000,"output":300,"cacheRead":438400,"cacheWrite":307000,"cost":{"total":0.0123}}"#
+                .utf8))
+        let message = OpenClawChatMessage(
+            role: "assistant",
+            content: [OpenClawChatMessageContent(
+                type: "text",
+                text: "A completed assistant response with per-run usage.",
+                thinking: nil,
+                thinkingSignature: nil,
+                mimeType: nil,
+                fileName: nil,
+                content: nil,
+                id: nil,
+                name: nil,
+                arguments: nil)],
+            timestamp: nil,
+            usage: usage)
+
+        for typeSize in [DynamicTypeSize.large, .accessibility2] {
+            let root = ChatMessageBubble(
+                message: message,
+                style: .standard,
+                markdownVariant: .standard,
+                userAccent: nil,
+                showsAssistantTrace: false,
+                assistantName: "OpenClaw",
+                assistantAvatarText: "OC",
+                assistantAvatarTint: nil,
+                showsAssistantAvatar: true,
+                isClean: false,
+                contextWindowTokens: 1_000_000)
+                .environment(\.dynamicTypeSize, typeSize)
+
+            _ = Self.host(root, size: CGSize(width: 320, height: 280))
+        }
     }
 
     @Test @MainActor func `root tabs builds device orientation shell matrix`() {
