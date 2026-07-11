@@ -2859,6 +2859,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Listing and reading sessions
   - H2: Sending cross-session messages
   - H2: Status and orchestration helpers
+  - H2: Session state changes
   - H2: Spawning sub-agents
   - H2: Visibility
   - H2: Further reading
@@ -7103,6 +7104,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /plugins/sdk-channel-outbound
 - Headings:
   - H2: Adapter
+  - H2: Plain-text sanitization
   - H2: Delivery Evidence
   - H2: Existing outbound adapters
   - H2: Durable sends
