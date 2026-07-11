@@ -92,7 +92,7 @@ export type ChatProps = {
   error: string | null;
   sessions: SessionsListResult | null;
   /** Host context resolving global-alias session keys (scope=global fleets). */
-  sessionHost?: Pick<UiSessionDefaultsHost, "agentsList" | "hello"> | null;
+  sessionHost?: UiSessionDefaultsHost | null;
   providerUsage?: ProviderUsageDisplayProps;
   focusMode?: boolean;
   onLoadSidebarFullMessage?: (
@@ -199,6 +199,8 @@ export function renderChat(props: ChatProps) {
     props.sessionWorkspace &&
     (props.sessionWorkspace.dock === "bottom" || props.sessionWorkspace.narrowLayout),
   );
+  const tasksOpen = props.backgroundTasks?.collapsed === false;
+  const tasksDockBottom = tasksOpen && props.backgroundTasks?.narrowLayout === true;
   const canCompose = props.canSend;
   let chatSection: HTMLElement | null = null;
 
@@ -245,6 +247,7 @@ export function renderChat(props: ChatProps) {
     // Archived/non-composable sessions must not offer selection actions:
     // withholding the callback keeps the popup from rendering at all.
     onSideQuestion: props.canSend ? props.onSideQuestion : undefined,
+    onOpenSession: props.onSessionSelect,
     onFocusComposer: () =>
       chatSection
         ?.querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox > textarea")
@@ -396,10 +399,10 @@ export function renderChat(props: ChatProps) {
       <div
         class="chat-workbench ${props.sessionWorkspace?.collapsed
           ? "chat-workbench--workspace-collapsed"
-          : ""} ${workspaceDockBottom ? "chat-workbench--dock-bottom" : ""} ${props.backgroundTasks
-          ?.collapsed === false
+          : ""} ${workspaceDockBottom ? "chat-workbench--dock-bottom" : ""} ${tasksOpen &&
+        !tasksDockBottom
           ? "chat-workbench--tasks-open"
-          : ""}"
+          : ""} ${tasksDockBottom ? "chat-workbench--tasks-dock-bottom" : ""}"
       >
         ${renderSessionWorkspaceRail(props.sessionWorkspace)}
         ${renderBackgroundTasksRail(props.backgroundTasks)}
