@@ -522,12 +522,34 @@ describe("release Telegram QA workflow", () => {
     expect(source).toContain("Telegram SUT launcher failed: stage=%s line=%s status=%s");
     expect(source).toContain("launcher_stage=root-run-setup");
     expect(source).toContain("launcher_stage=enter-mount-namespace");
-    expect(source).toContain("launcher_stage=mask-host-paths");
-    expect(source).toContain("launcher_stage=mount-proc");
-    expect(source).toContain("launcher_stage=write-identity");
+    expect(source).toContain("set_launcher_stage mask-host-paths");
+    expect(source).toContain('launcher_stage_file="${RUNTIME_ROOT}/launcher-stage-${BASHPID}"');
+    expect(source).toContain('set_launcher_stage "mask-host-path:${masked_path}"');
+    expect(source).toContain("set_launcher_stage mount-proc");
+    expect(source).toContain("set_launcher_stage write-identity");
+    expect(source).toContain("set_launcher_stage launch-runtime");
+    expect(source).toMatch(/set_launcher_stage launch-runtime\n\s+unset launcher_stage_file/u);
+    expect(source).toContain("Telegram SUT runtime preflight failed: stage=%s line=%s status=%s");
+    expect(source).toContain("runtime_stage=verify-runtime-identity");
+    expect(source).toContain("runtime_stage=verify-runtime-privileges");
+    expect(source).toContain("runtime_stage=verify-parent-proc-hidden");
+    expect(source).toContain("runtime_stage=verify-proc-visibility");
+    expect(source).toMatch(
+      /kill "\$control_pid" >\/dev\/null 2>&1 \|\| true\n\s+wait "\$control_pid" \|\| true/u,
+    );
+    expect(source).toContain("runtime_stage=verify-secret-env-hidden");
+    expect(source).toContain("runtime_stage=verify-runner-fds-hidden");
+    expect(source).toContain("runtime_stage=verify-runtime-files");
+    expect(source).toContain("runtime_stage=verify-host-paths-hidden");
+    expect(source).toContain("runtime_stage=sanitize-runtime-env");
+    expect(source).toContain("runtime_stage=verify-runtime-env");
+    expect(source).toContain("runtime_stage=write-sandbox-proof");
+    expect(source).toContain("runtime_stage=exec-runtime");
     expect(source).toContain('TMPDIR="${SUT_RUNTIME_ROOT}/tmp"');
     expect(source).toContain('"$RUNTIME_ROOT"/tmp/openclaw-qa-suite-*');
-    expect(source).toMatch(/launcher_stage=enter-mount-namespace\n\s+\/usr\/bin\/unshare/u);
+    expect(source.indexOf("launcher_stage=enter-mount-namespace")).toBeLessThan(
+      source.indexOf("/usr/bin/unshare"),
+    );
     expect(source).not.toContain("exec /usr/bin/unshare");
     expect(source).not.toContain("set -x");
     expect(source).toContain('source_node_bin="$(realpath -e "$(command -v node)")"');
@@ -608,6 +630,46 @@ describe("release Telegram QA workflow", () => {
     expect(result.status).toBe(23);
     expect(result.stderr).toMatch(
       /Telegram SUT launcher failed: stage=enter-mount-namespace line=[0-9]+ status=23/u,
+    );
+  });
+
+  it("reports the persisted inner launcher stage when namespace supervision fails", () => {
+    const source = readFileSync(WORKFLOW_PATH, "utf8");
+    const trapLine = source.match(/^\s+(trap 'exit_status=.*' ERR)$/mu)?.[1];
+    expect(trapLine).toBeTruthy();
+
+    const workdir = tempDirs.make("openclaw-telegram-launcher-stage-");
+    const stagePath = join(workdir, "stage");
+    writeFileSync(stagePath, "mount-proc\n");
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `set -Eeuo pipefail\nlauncher_stage=enter-mount-namespace\nlauncher_stage_file=${JSON.stringify(stagePath)}\n${trapLine}\nbash -c 'exit 23'`,
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status).toBe(23);
+    expect(result.stderr).toMatch(
+      /Telegram SUT launcher failed: stage=mount-proc line=[0-9]+ status=23/u,
+    );
+  });
+
+  it("reports the exact failing runtime preflight line", () => {
+    const source = readFileSync(WORKFLOW_PATH, "utf8");
+    const diagnosticSource = source.match(
+      /^\s+(fail_runtime_stage\(\) \{[\s\S]*?^\s+\}\n\s+trap "fail_runtime_stage \\?\$\? \\?\$LINENO" ERR)$/mu,
+    )?.[1];
+    expect(diagnosticSource).toBeTruthy();
+
+    const script = `set -Eeuo pipefail\nruntime_stage=runtime-test\n${diagnosticSource}\nfalse`;
+    const failureLine = script.split("\n").findIndex((line) => line === "false") + 1;
+    const result = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      `Telegram SUT runtime preflight failed: stage=runtime-test line=${failureLine} status=1`,
     );
   });
 });
