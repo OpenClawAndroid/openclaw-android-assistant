@@ -3246,6 +3246,8 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: gateway.tls
   - H3: gateway.reload
   - H2: Cloud worker environments
+  - H3: Crabbox profile
+  - H3: Static SSH development profile
   - H2: Hooks
   - H3: Gmail integration
   - H2: Canvas plugin host
@@ -6018,6 +6020,15 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Surface
   - H2: Related docs
 
+## plugins/reference/crabbox.md
+
+- Route: /plugins/reference/crabbox
+- Headings:
+  - H1: Crabbox plugin
+  - H2: Distribution
+  - H2: Surface
+  - H2: Configure
+
 ## plugins/reference/deepgram.md
 
 - Route: /plugins/reference/deepgram
@@ -6948,6 +6959,14 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Distribution
   - H2: Surface
   - H2: Related docs
+
+## plugins/reference/workspaces.md
+
+- Route: /plugins/reference/workspaces
+- Headings:
+  - H1: Workspaces plugin
+  - H2: Distribution
+  - H2: Surface
 
 ## plugins/reference/xai.md
 
