@@ -75,7 +75,16 @@ import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 import { pluginTabKey, pluginTabSearch } from "../pages/plugin/route.ts";
 import { icons, type IconName } from "./icons.ts";
-import { lobsterPetSeed, resolveLobsterPetMode, resolveLobsterRunOutcome } from "./lobster-pet.ts";
+import {
+  LOBSTER_LOGO_VISIT_EVENT,
+  LOBSTER_PET_BUILD_MULS,
+  LOBSTER_PET_CLAW_MULS,
+  lobsterPetSeed,
+  renderLobsterSvg,
+  resolveLobsterPetMode,
+  resolveLobsterRunOutcome,
+  type LobsterLogoVisitDetail,
+} from "./lobster-pet.ts";
 import { fetchSessionMenuWork } from "./session-menu-work.ts";
 import type { SessionMenuAction, SessionMenuWork } from "./session-menu.ts";
 
@@ -121,8 +130,27 @@ type SidebarSessionGroupDropTarget = {
 
 const SIDEBAR_SESSION_GROUPING_STORAGE_KEY = "openclaw:sidebar:sessions:grouping";
 const SIDEBAR_AGENT_SESSION_LIST_LIMIT = 60;
+const SIDEBAR_SESSION_PAGE_SIZE = 10;
+const SIDEBAR_SESSION_SEE_LESS_THRESHOLD = 30;
 const SIDEBAR_SESSION_COLLAPSED_SECTIONS_STORAGE_KEY =
   "openclaw:sidebar:sessions:collapsed-sections";
+
+function limitSidebarSessionRows(rows: SidebarRecentSession[], limit: number) {
+  const requiredCount = rows.filter((row) => row.active || row.pinned).length;
+  let optionalSlots = Math.max(0, limit - requiredCount);
+  // Active and pinned sessions remain reachable without changing their
+  // relative order, even when their sort position falls outside the page.
+  return rows.filter((row) => {
+    if (row.active || row.pinned) {
+      return true;
+    }
+    if (optionalSlots === 0) {
+      return false;
+    }
+    optionalSlots -= 1;
+    return true;
+  });
+}
 
 const PALETTE_SHORTCUT = /Mac|iP(hone|ad|od)/i.test(globalThis.navigator?.platform ?? "")
   ? "⌘K"
@@ -226,11 +254,13 @@ class AppSidebar extends OpenClawLightDomContentsElement {
   @state() private sessionSortMode: SidebarSessionSortMode = "created";
   @state() private sessionsGrouping: SidebarSessionsGrouping = loadStoredSidebarSessionsGrouping();
   @state() private sessionSortMenuPosition: { x: number; y: number } | null = null;
+  @state() private visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
   @state() private sessionsResult: SessionsListResult | null = null;
   @state() private sessionsAgentId: string | null = null;
   @state() private sessionsLoading = false;
   @state() private nativeSessionSidebarReady = false;
   @state() private sessionsScrollState: SidebarSessionsScrollState = "none";
+  @state() private logoVisit: LobsterLogoVisitDetail | null = null;
 
   private readonly subscriptions = new SubscriptionsController(this);
   private customizeMenuTrigger: HTMLElement | null = null;
@@ -256,6 +286,9 @@ class AppSidebar extends OpenClawLightDomContentsElement {
 
   constructor() {
     super();
+    // Host listener: the footer pet announces logo stand-in phases (bubbling
+    // custom event) and the brand slot here renders the swap.
+    this.addEventListener(LOBSTER_LOGO_VISIT_EVENT, this.handleLogoVisit as EventListener);
     this.subscriptions
       .watch(
         () => this.context?.gateway,
@@ -423,6 +456,42 @@ class AppSidebar extends OpenClawLightDomContentsElement {
     this.sessionsAgentId = null;
     this.sessionRowsByAgent = {};
     this.sessionCreatedOrder.clear();
+    this.visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
+  }
+
+  private readonly handleLogoVisit = (event: Event) => {
+    const detail = (event as CustomEvent<LobsterLogoVisitDetail>).detail;
+    this.logoVisit = detail.phase === "out" || !detail.look ? null : detail;
+  };
+
+  // Rare treat: on planned loads the footer pet's first visit perches here
+  // instead, filling in for the brand mark (see lobster-pet.ts logo visits).
+  private renderLogoStandIn() {
+    const visit = this.logoVisit;
+    if (!visit?.look) {
+      return nothing;
+    }
+    const look = visit.look;
+    const classes = [
+      "sidebar-brand__pet",
+      `lobster-pet--palette-${look.palette.id}`,
+      visit.phase === "leaving" ? "sidebar-brand__pet--leaving" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const style = [
+      `--lob-shell:${look.palette.shell}`,
+      `--lob-claw:${look.palette.claw}`,
+      `--lob-blink-delay:${look.blinkDelayS}s`,
+      `--lob-w:${LOBSTER_PET_BUILD_MULS[look.build].w}`,
+      `--lob-h:${LOBSTER_PET_BUILD_MULS[look.build].h}`,
+      `--lob-claw-scale:${LOBSTER_PET_CLAW_MULS[look.clawSize]}`,
+    ].join(";");
+    // Native title tooltip like the ledge sprite's names: no i18n surface.
+    const title = `${visit.name} · filling in for the logo`;
+    return html`
+      <span class=${classes} style=${style} title=${title}>${renderLobsterSvg(look)}</span>
+    `;
   }
 
   private renderBrand() {
@@ -430,12 +499,15 @@ class AppSidebar extends OpenClawLightDomContentsElement {
     return html`
       <div class="sidebar-brand">
         <div class="sidebar-brand__identity">
-          <img
-            class="sidebar-brand__logo"
-            src=${controlUiPublicAssetPath("apple-touch-icon.png", this.basePath)}
-            alt=""
-            aria-hidden="true"
-          />
+          <span class="sidebar-brand__logo-slot">
+            <img
+              class="sidebar-brand__logo ${this.logoVisit ? "sidebar-brand__logo--vacated" : ""}"
+              src=${controlUiPublicAssetPath("apple-touch-icon.png", this.basePath)}
+              alt=""
+              aria-hidden="true"
+            />
+            ${this.renderLogoStandIn()}
+          </span>
           <span class="sidebar-brand__title">OpenClaw</span>
         </div>
         <div class="sidebar-brand__actions">
@@ -571,10 +643,13 @@ class AppSidebar extends OpenClawLightDomContentsElement {
       agents.length > 1
         ? this.sidebarRowsForAgent(this.expandedAgentId(), navigationState)
         : navigationState.visibleSessions;
-    const sections = groupSidebarSessionRows(rows, {
-      grouping: this.sessionsGrouping,
-      knownGroups: this.sessionsGrouping === "category" ? this.knownSessionGroups() : undefined,
-    });
+    const sections = groupSidebarSessionRows(
+      limitSidebarSessionRows(rows, this.visibleSessionLimit),
+      {
+        grouping: this.sessionsGrouping,
+        knownGroups: this.sessionsGrouping === "category" ? this.knownSessionGroups() : undefined,
+      },
+    );
     return sections.flatMap((section) => {
       // Mirrors renderSessionSection: only headered sections can collapse.
       const showHeader = section.id === "pinned" || this.sessionsGrouping === "category";
@@ -670,6 +745,7 @@ class AppSidebar extends OpenClawLightDomContentsElement {
       return;
     }
     this.clearSessionSelection();
+    this.visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
     context.agentSelection.set(nextAgentId);
     void context.sessions.refresh({
       agentId: nextAgentId,
@@ -1983,7 +2059,8 @@ class AppSidebar extends OpenClawLightDomContentsElement {
     rows: SidebarRecentSession[],
     options: { showDraft: boolean; showFallback: boolean },
   ) {
-    const sections = groupSidebarSessionRows(rows, {
+    const visibleRows = limitSidebarSessionRows(rows, this.visibleSessionLimit);
+    const sections = groupSidebarSessionRows(visibleRows, {
       grouping: this.sessionsGrouping,
       // Stored-but-empty groups stay visible as sections so a freshly created
       // group is usable as a move target before its first session arrives.
@@ -1997,6 +2074,45 @@ class AppSidebar extends OpenClawLightDomContentsElement {
           options.showFallback && rows.length === 0 && section.id === "ungrouped",
         ),
       )}
+      ${this.renderSessionPagination(rows, visibleRows.length)}
+    `;
+  }
+
+  private renderSessionPagination(rows: SidebarRecentSession[], visible: number) {
+    const canShowMore = visible < rows.length;
+    const collapsedVisible = limitSidebarSessionRows(rows, SIDEBAR_SESSION_PAGE_SIZE).length;
+    const canShowLess = visible > SIDEBAR_SESSION_SEE_LESS_THRESHOLD && visible > collapsedVisible;
+    if (!canShowMore && !canShowLess) {
+      return nothing;
+    }
+    return html`
+      <div class="sidebar-session-pagination">
+        ${canShowMore
+          ? html`<button
+              type="button"
+              class="sidebar-session-pagination__button"
+              aria-label=${t("codexSessions.loadMore")}
+              @click=${() => {
+                this.visibleSessionLimit = visible + SIDEBAR_SESSION_PAGE_SIZE;
+              }}
+            >
+              ${t("codexSessions.loadMore")}
+            </button>`
+          : nothing}
+        ${canShowLess
+          ? html`<button
+              type="button"
+              class="sidebar-session-pagination__button"
+              aria-label=${t("usage.details.collapse")}
+              @click=${() => {
+                this.clearSessionSelection();
+                this.visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
+              }}
+            >
+              ${t("usage.details.collapse")}
+            </button>`
+          : nothing}
+      </div>
     `;
   }
 
