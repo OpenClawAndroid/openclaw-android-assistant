@@ -1499,6 +1499,25 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: macOS: launchctl env overrides
   - H2: Related
 
+## cli/fleet.md
+
+- Route: /cli/fleet
+- Headings:
+  - H1: openclaw fleet
+  - H2: Quick start
+  - H2: Tenant IDs
+  - H2: fleet create
+  - H3: Create options
+  - H2: fleet list
+  - H2: fleet status
+  - H2: fleet start, fleet stop, and fleet restart
+  - H2: fleet upgrade
+  - H2: fleet rm
+  - H2: Storage and container layout
+  - H2: Security profile
+  - H2: Token handling
+  - H2: Related
+
 ## cli/flows.md
 
 - Route: /cli/flows
@@ -3463,6 +3482,19 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Console formatting (subsystem logging)
   - H2: Related
 
+## gateway/multi-tenant-hosting.md
+
+- Route: /gateway/multi-tenant-hosting
+- Headings:
+  - H1: Multi-tenant hosting
+  - H2: Why each tenant needs a cell
+  - H2: Architecture
+  - H2: Trust boundary
+  - H2: Isolation ladder
+  - H2: Quick start
+  - H2: Deferred from the MVP
+  - H2: Related
+
 ## gateway/multiple-gateways.md
 
 - Route: /gateway/multiple-gateways
@@ -5212,6 +5244,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: First run
   - H2: Updates
   - H2: Open dashboard links
+  - H2: Import browser logins
   - H2: Choose a Gateway mode
   - H2: What the app owns
   - H2: macOS detail pages
