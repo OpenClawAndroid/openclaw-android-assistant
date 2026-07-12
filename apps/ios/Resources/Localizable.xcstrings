@@ -45833,6 +45833,142 @@
         }
       }
     },
+    "Disable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停用"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停用"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deaktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivar"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성화"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "बंद करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعطيل"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabilita"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devre dışı bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнути"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nonaktifkan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłącz"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดใช้"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitschakelen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غیرفعال کردن"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключить"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktivera"
+          }
+        }
+      }
+    },
     "Disable All": {
       "localizations": {
         "en": {
@@ -50045,6 +50181,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aktivera"
+          }
+        }
+      }
+    },
+    "Enable & Share Summaries": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable & Share Summaries"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用并共享摘要"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用並分享摘要"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar e compartilhar resumos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassungen aktivieren und teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar y compartir resúmenes"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概要を有効にして共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 활성화 및 공유"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer et partager les résumés"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सारांश चालू करके साझा करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمكين الملخصات ومشاركتها"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abilita e condividi i riepiloghi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özetleri etkinleştir ve paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути підсумки й ділитися ними"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktifkan & Bagikan Ringkasan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz i udostępniaj podsumowania"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้และแชร์สรุป"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật và chia sẻ tóm tắt"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overzichten inschakelen en delen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعال‌سازی و اشتراک‌گذاری خلاصه‌ها"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить и делиться сводками"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivera och dela sammanfattningar"
           }
         }
       }
@@ -61741,6 +62013,278 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hälsokontroll"
+          }
+        }
+      }
+    },
+    "Health Summaries": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health Summaries"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健康摘要"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健康摘要"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumos de Saúde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesundheitszusammenfassungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resúmenes de salud"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルスケア概要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "건강 요약"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résumés de santé"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "स्वास्थ्य सारांश"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملخصات الصحة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepiloghi salute"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağlık Özetleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсумки здоров’я"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ringkasan Kesehatan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowania zdrowia"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สรุปข้อมูลสุขภาพ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tóm tắt sức khỏe"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gezondheidsoverzichten"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلاصه‌های سلامت"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводки о здоровье"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hälsosammanfattningar"
+          }
+        }
+      }
+    },
+    "Health data is unavailable on this device.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health data is unavailable on this device."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备无法使用健康数据。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置無法使用健康資料。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados de saúde não estão disponíveis neste dispositivo."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesundheitsdaten sind auf diesem Gerät nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos de salud no están disponibles en este dispositivo."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスではヘルスケアデータを利用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서는 건강 데이터를 사용할 수 없습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de santé ne sont pas disponibles sur cet appareil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस डिवाइस पर स्वास्थ्य डेटा उपलब्ध नहीं है।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بيانات الصحة غير متاحة على هذا الجهاز."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati sanitari non sono disponibili su questo dispositivo."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağlık verileri bu aygıtta kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дані про здоров’я недоступні на цьому пристрої."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data kesehatan tidak tersedia di perangkat ini."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dane zdrowotne są niedostępne na tym urządzeniu."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลสุขภาพไม่พร้อมใช้งานบนอุปกรณ์นี้"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dữ liệu sức khỏe không khả dụng trên thiết bị này."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gezondheidsgegevens zijn niet beschikbaar op dit apparaat."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "داده‌های سلامت در این دستگاه در دسترس نیست."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Данные о здоровье недоступны на этом устройстве."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hälsodata är inte tillgängliga på den här enheten."
           }
         }
       }
@@ -90709,6 +91253,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Av"
+          }
+        }
+      }
+    },
+    "Off by default. Enabling lets requested aggregates leave this iPhone through your Gateway and configured AI provider.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default. Enabling lets requested aggregates leave this iPhone through your Gateway and configured AI provider."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认关闭。启用后，请求的汇总数据可通过您的 Gateway 和已配置的 AI 提供商离开此 iPhone。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設關閉。啟用後，要求的彙整資料可透過您的 Gateway 和已設定的 AI 供應商離開此 iPhone。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado por padrão. A ativação permite que os dados agregados solicitados saiam deste iPhone por meio do seu Gateway e do provedor de IA configurado."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmäßig deaktiviert. Durch Aktivieren können angeforderte aggregierte Daten dieses iPhone über dein Gateway und den konfigurierten KI-Anbieter verlassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado de forma predeterminada. Al activarlo, los datos agregados solicitados pueden salir de este iPhone mediante tu Gateway y el proveedor de IA configurado."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトではオフです。有効にすると、要求された集計データが Gateway と設定済みの AI プロバイダーを経由してこの iPhone から送信されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본적으로 꺼져 있습니다. 활성화하면 요청된 집계 데이터가 Gateway 및 구성된 AI 제공업체를 통해 이 iPhone 외부로 전송될 수 있습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé par défaut. L’activation permet aux données agrégées demandées de quitter cet iPhone via votre Gateway et votre fournisseur d’IA configuré."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "डिफ़ॉल्ट रूप से बंद। चालू करने पर अनुरोधित समेकित डेटा इस iPhone से आपके Gateway और कॉन्फ़िगर किए गए AI प्रदाता के माध्यम से बाहर जा सकता है।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف افتراضيًا. يتيح التمكين للبيانات المجمعة المطلوبة مغادرة هذا الـ iPhone عبر Gateway وموفر الذكاء الاصطناعي الذي أعددته."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato per impostazione predefinita. L’attivazione consente ai dati aggregati richiesti di lasciare questo iPhone tramite il tuo Gateway e il provider IA configurato."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan olarak kapalıdır. Etkinleştirme, istenen toplu verilerin Gateway ve yapılandırdığınız yapay zeka sağlayıcısı üzerinden bu iPhone'dan çıkmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За замовчуванням вимкнено. Після ввімкнення запитані агреговані дані можуть залишати цей iPhone через ваш Gateway і налаштованого постачальника ШІ."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nonaktif secara default. Jika diaktifkan, data agregat yang diminta dapat meninggalkan iPhone ini melalui Gateway dan penyedia AI yang Anda konfigurasikan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślnie wyłączone. Włączenie pozwala żądanym danym zbiorczym opuścić ten iPhone przez Twój Gateway i skonfigurowanego dostawcę AI."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดไว้เป็นค่าเริ่มต้น การเปิดใช้จะอนุญาตให้ข้อมูลสรุปรวมที่ร้องขอออกจาก iPhone เครื่องนี้ผ่าน Gateway และผู้ให้บริการ AI ที่คุณกำหนดค่าไว้"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt theo mặc định. Khi bật, dữ liệu tổng hợp được yêu cầu có thể rời khỏi iPhone này qua Gateway và nhà cung cấp AI mà bạn đã cấu hình."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standaard uitgeschakeld. Na inschakeling kunnen gevraagde geaggregeerde gegevens deze iPhone verlaten via je Gateway en geconfigureerde AI-provider."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "به‌طور پیش‌فرض خاموش است. با فعال‌کردن، داده‌های تجمیعی درخواستی می‌توانند از طریق Gateway و ارائه‌دهنده هوش مصنوعی پیکربندی‌شده شما از این iPhone خارج شوند."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию выключено. После включения запрошенные агрегированные данные могут покидать этот iPhone через ваш Gateway и настроенного поставщика ИИ."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av som standard. När funktionen aktiveras kan begärda sammanställda data lämna denna iPhone via din Gateway och konfigurerade AI-leverantör."
           }
         }
       }
@@ -126749,6 +127429,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dela intag"
+          }
+        }
+      }
+    },
+    "Shares only requested step, sleep, resting heart rate, and workout aggregates through your Gateway with your configured AI provider. Results may remain in chat history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shares only requested step, sleep, resting heart rate, and workout aggregates through your Gateway with your configured AI provider. Results may remain in chat history."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅通过您的 Gateway 与已配置的 AI 提供商共享请求的步数、睡眠、静息心率和体能训练汇总数据。结果可能会保留在聊天记录中。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅透過您的 Gateway 與已設定的 AI 供應商分享要求的步數、睡眠、靜止心率和體能訓練彙整資料。結果可能會保留在聊天記錄中。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilha somente os dados agregados solicitados de passos, sono, frequência cardíaca em repouso e exercícios por meio do seu Gateway com o provedor de IA configurado. Os resultados podem permanecer no histórico do chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilt nur angeforderte aggregierte Daten zu Schritten, Schlaf, Ruhepuls und Trainings über dein Gateway mit deinem konfigurierten KI-Anbieter. Ergebnisse können im Chatverlauf verbleiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo comparte los datos agregados solicitados de pasos, sueño, frecuencia cardíaca en reposo y entrenamientos mediante tu Gateway con el proveedor de IA que hayas configurado. Los resultados pueden permanecer en el historial del chat."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要求された歩数、睡眠、安静時心拍数、ワークアウトの集計データのみを、Gateway 経由で設定済みの AI プロバイダーと共有します。結果はチャット履歴に残る場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청된 걸음 수, 수면, 안정 시 심박수 및 운동 집계 데이터만 Gateway를 통해 구성된 AI 제공업체와 공유합니다. 결과는 채팅 기록에 남을 수 있습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage uniquement les données agrégées demandées concernant les pas, le sommeil, la fréquence cardiaque au repos et les entraînements via votre Gateway avec votre fournisseur d’IA configuré. Les résultats peuvent rester dans l’historique des discussions."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपके Gateway के माध्यम से आपके कॉन्फ़िगर किए गए AI प्रदाता के साथ केवल कदम, नींद, आराम की हृदय गति और वर्कआउट का अनुरोधित समेकित डेटा साझा करता है। परिणाम चैट इतिहास में रह सकते हैं।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتم مشاركة البيانات المجمعة المطلوبة فقط للخطوات والنوم ومعدل ضربات القلب أثناء الراحة والتمارين عبر Gateway مع موفر الذكاء الاصطناعي الذي أعددته. قد تبقى النتائج في سجل الدردشة."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivide solo i dati aggregati richiesti relativi a passi, sonno, frequenza cardiaca a riposo e allenamenti tramite il tuo Gateway con il provider IA configurato. I risultati potrebbero rimanere nella cronologia chat."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca istenen adım, uyku, dinlenme kalp atış hızı ve antrenman toplu verilerini Gateway üzerinden yapılandırdığınız yapay zeka sağlayıcısıyla paylaşır. Sonuçlar sohbet geçmişinde kalabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передає налаштованому постачальнику ШІ через ваш Gateway лише запитані агреговані дані про кроки, сон, пульс у стані спокою та тренування. Результати можуть залишатися в історії чату."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hanya membagikan data agregat yang diminta untuk langkah, tidur, detak jantung saat istirahat, dan olahraga melalui Gateway Anda kepada penyedia AI yang dikonfigurasi. Hasil dapat tetap tersimpan dalam riwayat obrolan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnia skonfigurowanemu dostawcy AI przez Twój Gateway tylko żądane dane zbiorcze dotyczące kroków, snu, tętna spoczynkowego i treningów. Wyniki mogą pozostać w historii czatu."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์เฉพาะข้อมูลสรุปรวมที่ร้องขอเกี่ยวกับจำนวนก้าว การนอนหลับ อัตราการเต้นของหัวใจขณะพัก และการออกกำลังกายผ่าน Gateway ของคุณกับผู้ให้บริการ AI ที่กำหนดค่าไว้ ผลลัพธ์อาจยังคงอยู่ในประวัติการแชท"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ chia sẻ dữ liệu tổng hợp được yêu cầu về số bước chân, giấc ngủ, nhịp tim lúc nghỉ và bài tập qua Gateway của bạn với nhà cung cấp AI đã cấu hình. Kết quả có thể được lưu trong lịch sử trò chuyện."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deelt alleen gevraagde geaggregeerde gegevens over stappen, slaap, rusthartslag en work-outs via je Gateway met je geconfigureerde AI-provider. Resultaten kunnen in de chatgeschiedenis blijven staan."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فقط داده‌های تجمیعی درخواستی مربوط به گام‌ها، خواب، ضربان قلب در حالت استراحت و تمرین‌ها را از طریق Gateway شما با ارائه‌دهنده هوش مصنوعی پیکربندی‌شده به اشتراک می‌گذارد. نتایج ممکن است در تاریخچه گفتگو باقی بمانند."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передает настроенному поставщику ИИ через ваш Gateway только запрошенные агрегированные данные о шагах, сне, пульсе в состоянии покоя и тренировках. Результаты могут сохраняться в истории чата."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delar endast begärda sammanställda data om steg, sömn, vilopuls och träningspass via din Gateway med din konfigurerade AI-leverantör. Resultat kan finnas kvar i chatthistoriken."
           }
         }
       }
