@@ -6,6 +6,7 @@ import { escapeRegExp, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utilit
 import { readRequestBodyWithLimit } from "openclaw/plugin-sdk/webhook-ingress";
 import { closeQaHttpServer } from "../../bus-server.js";
 import { QA_LAB_WEB_SEARCH_DENIED_INPUT_QUERY } from "../../qa-web-search-provider.js";
+import { parseQaDebugRequestCursor } from "../shared/debug-request-cursor.js";
 import { writeJson } from "../shared/http-json.js";
 
 type ResponsesInputItem = Record<string, unknown>;
@@ -97,6 +98,7 @@ export function resolveProviderVariant(model: string | undefined): MockOpenAiPro
 }
 
 type MockOpenAiRequestSnapshot = {
+  cursor: number;
   raw: string;
   body: Record<string, unknown>;
   prompt: string;
@@ -112,6 +114,8 @@ type MockOpenAiRequestSnapshot = {
   toolOutputCallId?: string;
   toolOutputStructuredError?: true;
 };
+
+type MockOpenAiRequestSnapshotInput = Omit<MockOpenAiRequestSnapshot, "cursor">;
 
 // Runtime-context delimiters are owned by src/agents/internal-runtime-context.ts.
 // This mock mirrors the wire shape so delimiter drift fails through QA timeouts.
@@ -239,6 +243,8 @@ const QA_RELEASE_AUDIT_PROMPT_RE = /release readiness audit for the small projec
 const QA_TOOL_SEARCH_PROMPT_RE = /tool search qa check/i;
 const QA_TOOL_SEARCH_FAILURE_PROMPT_RE = /tool search qa failure/i;
 const QA_MCP_CODE_MODE_PROMPT_RE = /mcp code mode qa check/i;
+const QA_RESTART_CODE_MODE_WAIT_PROMPT_RE = /code mode restart wait qa check/i;
+const QA_RESTART_RECOVERY_PROMPT_RE = /previous turn was interrupted by a gateway restart/i;
 const QA_AUDIO_TRANSCRIPTION_TEXT =
   "Reply with only this exact marker: WHATSAPP_QA_AUDIO_TRANSCRIPT_OK";
 const QA_GROUP_AUDIO_TRANSCRIPTION_TEXT =
@@ -1247,6 +1253,12 @@ function hasDeclaredTool(body: Record<string, unknown>, name: string) {
   return false;
 }
 
+function hasToolDefinition(body: Record<string, unknown>, name: string) {
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  const dynamicTools = Array.isArray(body.dynamicTools) ? body.dynamicTools : [];
+  return [...tools, ...dynamicTools].some((tool) => toolDefinitionMentionsName(tool, name));
+}
+
 function toolDefinitionMentionsName(value: unknown, name: string, depth = 0): boolean {
   if (depth > 6 || !value || typeof value !== "object") {
     return false;
@@ -2226,6 +2238,39 @@ async function buildResponsesPayload(
     if (targetTool && (hasDeclaredTool(body, targetTool) || isQaToolSearchFixture(allInputText))) {
       return buildToolCallEventsWithArgs(targetTool, plannedArgs);
     }
+  }
+  if (QA_RESTART_CODE_MODE_WAIT_PROMPT_RE.test(allInputText)) {
+    if (QA_RESTART_RECOVERY_PROMPT_RE.test(allInputText)) {
+      if (toolOutput.includes("unsafe-probe-executed")) {
+        return buildAssistantEvents("RESTART-CODE-MODE-WAIT-FAIL");
+      }
+      if (hasToolDefinition(body, "qa_restart_unsafe_probe")) {
+        return buildToolCallEventsWithArgs("qa_restart_unsafe_probe", {});
+      }
+      return buildAssistantEvents(exactReplyDirective ?? "RESTART-CODE-MODE-WAIT-OK");
+    }
+    if (toolJson?.status === "completed" && toolJson.value === "RESTART-CODE-MODE-WAIT-OK") {
+      return buildAssistantEvents(exactReplyDirective ?? "RESTART-CODE-MODE-WAIT-OK");
+    }
+    if (
+      toolJson?.status === "waiting" &&
+      typeof toolJson.runId === "string" &&
+      hasDeclaredTool(body, "wait")
+    ) {
+      return buildToolCallEventsWithArgs("wait", { runId: toolJson.runId });
+    }
+    if (!toolOutput && hasDeclaredTool(body, "exec")) {
+      return buildToolCallEventsWithArgs("exec", {
+        language: "javascript",
+        restartSafe: true,
+        code: [
+          'const matches = await tools.search("qa_restart_wait");',
+          "await tools.call(matches[0].id, {});",
+          'return "RESTART-CODE-MODE-WAIT-OK";',
+        ].join("\n"),
+      });
+    }
+    return buildAssistantEvents("RESTART-CODE-MODE-WAIT-FAIL");
   }
   if (
     QA_MCP_CODE_MODE_API_FILE_PROMPT_RE.test(allInputText) ||
@@ -3743,6 +3788,16 @@ export async function startQaMockOpenAiServer(params?: {
   };
   let lastRequest: MockOpenAiRequestSnapshot | null = null;
   const requests: MockOpenAiRequestSnapshot[] = [];
+  let nextRequestCursor = 1;
+  const recordRequest = (snapshot: MockOpenAiRequestSnapshotInput) => {
+    const recorded = { ...snapshot, cursor: nextRequestCursor++ };
+    lastRequest = recorded;
+    requests.push(recorded);
+    if (requests.length > MOCK_OPENAI_DEBUG_REQUEST_LIMIT) {
+      requests.splice(0, requests.length - MOCK_OPENAI_DEBUG_REQUEST_LIMIT);
+    }
+    return recorded;
+  };
   const inflightRequests = new Map<number, { prompt: string; allInputText: string }>();
   let nextInflightRequestId = 1;
   const imageGenerationRequests: Array<Record<string, unknown>> = [];
@@ -3771,8 +3826,45 @@ export async function startQaMockOpenAiServer(params?: {
         writeJson(res, 200, lastRequest ?? { ok: false, error: "no request recorded" });
         return;
       }
+      if (req.method === "GET" && url.pathname === "/debug/request-cursor") {
+        writeJson(res, 200, { cursor: nextRequestCursor - 1 });
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/debug/requests") {
-        writeJson(res, 200, requests);
+        const afterText = url.searchParams.get("after");
+        if (afterText === null) {
+          writeJson(res, 200, requests);
+          return;
+        }
+        const after = parseQaDebugRequestCursor(afterText);
+        if (after === null) {
+          writeJson(res, 400, { error: "after must be a non-negative safe integer" });
+          return;
+        }
+        const latestCursor = nextRequestCursor - 1;
+        const oldestCursor = requests[0]?.cursor ?? nextRequestCursor;
+        if (after > latestCursor) {
+          writeJson(res, 409, {
+            error: "request cursor is ahead of the latest recorded request",
+            after,
+            latestCursor,
+          });
+          return;
+        }
+        if (after < oldestCursor - 1) {
+          writeJson(res, 409, {
+            error: "request cursor expired",
+            after,
+            oldestCursor,
+            latestCursor,
+          });
+          return;
+        }
+        writeJson(
+          res,
+          200,
+          requests.filter((request) => request.cursor > after),
+        );
         return;
       }
       if (req.method === "GET" && url.pathname === "/debug/inflight-requests") {
@@ -3856,7 +3948,7 @@ export async function startQaMockOpenAiServer(params?: {
           inflightRequests.delete(inflightRequestId);
         }
         const resolvedModel = typeof body.model === "string" ? body.model : "";
-        lastRequest = {
+        recordRequest({
           raw,
           body,
           prompt,
@@ -3871,11 +3963,7 @@ export async function startQaMockOpenAiServer(params?: {
           plannedToolArgs: extractPlannedToolArgs(events),
           toolOutputCallId: extractToolOutputCallId(input) || undefined,
           ...(extractToolOutputStructuredError(input) ? { toolOutputStructuredError: true } : {}),
-        };
-        requests.push(lastRequest);
-        if (requests.length > MOCK_OPENAI_DEBUG_REQUEST_LIMIT) {
-          requests.splice(0, requests.length - MOCK_OPENAI_DEBUG_REQUEST_LIMIT);
-        }
+        });
         if (body.stream === false) {
           const completion = events.at(-1);
           if (!completion || completion.type !== "response.completed") {
@@ -3918,7 +4006,7 @@ export async function startQaMockOpenAiServer(params?: {
         // is what lets a single parity run diff assertions across both lanes.
         // Reuse the normalized model so an empty-string body.model no longer
         // leaks through to `lastRequest.model`.
-        lastRequest = {
+        recordRequest({
           raw,
           body: body as Record<string, unknown>,
           prompt: extractLastUserText(input),
@@ -3932,11 +4020,7 @@ export async function startQaMockOpenAiServer(params?: {
           plannedToolArgs: extractPlannedToolArgs(events),
           toolOutputCallId: extractToolOutputCallId(input) || undefined,
           ...(extractToolOutputStructuredError(input) ? { toolOutputStructuredError: true } : {}),
-        };
-        requests.push(lastRequest);
-        if (requests.length > MOCK_OPENAI_DEBUG_REQUEST_LIMIT) {
-          requests.splice(0, requests.length - MOCK_OPENAI_DEBUG_REQUEST_LIMIT);
-        }
+        });
         if (body.stream === true) {
           writeAnthropicSse(res, streamEvents);
           return;
