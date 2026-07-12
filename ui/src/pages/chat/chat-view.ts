@@ -74,7 +74,11 @@ export type ChatProps = {
   compactionStatus?: CompactionStatus | null;
   fallbackStatus?: FallbackStatus | null;
   messages: unknown[];
-  historyPagination?: { loading: boolean; onLoadOlder: () => void };
+  historyPagination?: {
+    loading: boolean;
+    manualFallback: boolean;
+    onLoadOlder: () => void;
+  };
   sideChatTurns?: ChatSideResult[];
   sideChatPending?: ChatSideResultPending | null;
   sideChatHidden?: boolean;
@@ -121,6 +125,7 @@ export type ChatProps = {
   assistantAttachmentAuthToken?: string | null;
   autoExpandToolCalls?: boolean;
   attachments?: ChatAttachment[];
+  getAttachments?: () => ChatAttachment[];
   onAttachmentsChange?: (attachments: ChatAttachment[]) => void;
   onAssistantAttachmentLoaded?: () => void;
   showNewMessages?: boolean;
@@ -224,6 +229,7 @@ export function renderChat(props: ChatProps) {
     paneId: props.paneId,
     sessionKey: props.sessionKey,
     loading: props.loading,
+    historyPagination: props.historyPagination,
     messages: props.messages,
     toolMessages: props.toolMessages,
     streamSegments: props.streamSegments,
@@ -292,6 +298,7 @@ export function renderChat(props: ChatProps) {
     assistantName: props.assistantName,
     sendShortcut: props.sendShortcut,
     attachments: props.attachments,
+    getAttachments: props.getAttachments,
     replyTarget: props.replyTarget,
     realtimeTalkActive: props.realtimeTalkActive,
     realtimeTalkStatus: props.realtimeTalkStatus,
@@ -418,19 +425,6 @@ export function renderChat(props: ChatProps) {
         },
         requestUpdate,
       )}
-      ${props.historyPagination
-        ? html`<div class="chat-history-pagination">
-            <button
-              class="btn btn--sm"
-              type="button"
-              ?disabled=${props.historyPagination.loading}
-              @click=${props.historyPagination.onLoadOlder}
-            >
-              ${props.historyPagination.loading ? t("common.loading") : t("chat.loadOlder")}
-            </button>
-          </div>`
-        : nothing}
-
       <div
         class="chat-workbench ${props.sessionWorkspace?.collapsed
           ? "chat-workbench--workspace-collapsed"
