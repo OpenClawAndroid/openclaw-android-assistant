@@ -129,7 +129,10 @@ function readSessionEntry(sessionId) {
   try {
     const row = db
       .prepare(
-        `SELECT se.session_key, se.entry_json, s.agent_harness_id
+        `SELECT se.session_key, se.entry_json, s.agent_harness_id,
+                (SELECT COUNT(*)
+                   FROM transcript_events AS te
+                  WHERE te.session_id = s.session_id) AS transcript_event_count
            FROM sessions AS s
            INNER JOIN session_entries AS se ON se.session_id = s.session_id
           WHERE s.session_id = ?
@@ -149,6 +152,7 @@ function readSessionEntry(sessionId) {
         sessionId,
       },
       sessionKey: row.session_key,
+      transcriptEventCount: Number(row.transcript_event_count),
     };
   } finally {
     db.close();
@@ -477,15 +481,15 @@ function assertAgentTurn() {
     );
   }
 
-  const { entry, sessionKey } = readSessionEntry(sessionId);
+  const { entry, sessionKey, transcriptEventCount } = readSessionEntry(sessionId);
   if (entry.agentHarnessId !== "codex") {
     throw new Error(`expected codex harness in session entry, got ${entry.agentHarnessId}`);
   }
   if (entry.modelOverride && entry.modelOverride !== modelRef) {
     throw new Error(`unexpected session model override: ${entry.modelOverride}`);
   }
-  if (typeof entry.sessionFile !== "string" || !fs.existsSync(entry.sessionFile)) {
-    throw new Error(`missing OpenClaw session file: ${entry.sessionFile}`);
+  if (!Number.isSafeInteger(transcriptEventCount) || transcriptEventCount < 1) {
+    throw new Error(`missing OpenClaw transcript events for ${sessionId}`);
   }
 
   const binding = readCodexBinding(sessionId, sessionKey);

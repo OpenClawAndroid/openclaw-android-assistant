@@ -173,7 +173,6 @@ function writeCodexBindingStateSqlite(params: {
 
 function writeSessionStoreSqlite(params: {
   stateDir: string;
-  sessionFile: string;
   sessionId: string;
   sessionKey: string;
 }) {
@@ -195,6 +194,13 @@ function writeSessionStoreSqlite(params: {
         entry_json TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE transcript_events (
+        session_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        event_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, seq)
+      );
     `);
     const now = Date.now();
     db.prepare(
@@ -210,11 +216,14 @@ function writeSessionStoreSqlite(params: {
       params.sessionId,
       JSON.stringify({
         sessionId: params.sessionId,
-        sessionFile: params.sessionFile,
         agentHarnessId: "codex",
       }),
       now,
     );
+    db.prepare(
+      `INSERT INTO transcript_events (session_id, seq, event_json, created_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run(params.sessionId, 0, '{"type":"session"}', now);
   } finally {
     db.close();
   }
@@ -222,10 +231,8 @@ function writeSessionStoreSqlite(params: {
 
 function createCodexNpmPluginLiveFixture(root: string, storedSessionId?: string) {
   const stateDir = path.join(root, "state");
-  const sessionsDir = path.join(stateDir, "agents", "main", "sessions");
   const sessionKey = "agent:main:codex-npm-plugin-live";
   const sessionId = "codex-npm-plugin-live";
-  const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
   const marker = "OPENCLAW-CODEX-NPM-PLUGIN-LIVE-OK";
   const threadId = "thread-codex-npm-live";
   const modelRef = "codex/gpt-5.4";
@@ -235,12 +242,9 @@ function createCodexNpmPluginLiveFixture(root: string, storedSessionId?: string)
   });
   writeSessionStoreSqlite({
     stateDir,
-    sessionFile,
     sessionId,
     sessionKey,
   });
-  mkdirSync(sessionsDir, { recursive: true });
-  writeFileSync(sessionFile, '{"type":"session"}\n', "utf8");
   writeJson(path.join(stateDir, "agents", "main", "codex-home", "sessions", "native.jsonl"), {
     threadId,
     marker,
