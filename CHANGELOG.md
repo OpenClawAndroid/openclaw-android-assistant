@@ -33,6 +33,9 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Browser auto-routing:** fall back to the Gateway host when an implicitly selected browser node reports that its control host is unreachable, while preserving explicit node pins and ambiguous action failures.
+- **Discord voice participant context:** maintain the live Gateway voice-state roster and include current channel participants in authorized voice agent turns so agents can answer who is present.
+- **OC Path JSONC insertion:** patch object and array insertions through `jsonc-parser` so comments, trailing commas, and CRLF formatting survive. (#106847)
 - **Control UI realtime Talk feedback:** request browser echo cancellation, noise suppression, and automatic gain control for every microphone transport, and keep PCM capture processors connected through zero-gain sinks so microphone input cannot play locally.
 - **Agent source-reply recovery:** preserve current-chat delivery evidence for message sends executed through Code Mode, preventing successful replies from triggering a redundant retry and misleading delivery-failure diagnostic.
 - **Gateway in-process restarts:** clear stale SIGUSR1 restart state and resume prepared host suspensions before rebuilding runtime admission, preventing restart cooldowns or paused scheduling from leaking into the next lifecycle.

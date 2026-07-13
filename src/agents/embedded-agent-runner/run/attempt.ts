@@ -26,7 +26,6 @@ import {
   buildAgentHookContextChannelFields,
   buildAgentHookContextIdentityFields,
 } from "../../../plugins/hook-agent-context.js";
-import { resolveBlockMessage } from "../../../plugins/hook-decision-types.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import { buildTrajectoryRunMetadata } from "../../../trajectory/metadata.js";
 import {
@@ -62,10 +61,7 @@ import { guardSessionManager } from "../../session-tool-result-guard-wrapper.js"
 import { acquireSessionWriteLock } from "../../session-write-lock.js";
 import { createAgentSession, SessionManager } from "../../sessions/index.js";
 import { wrapToolDefinition } from "../../sessions/tools/tool-definition-wrapper.js";
-import {
-  ackPendingAgentSteeringItems,
-  releasePendingAgentSteeringItems,
-} from "../../subagent-registry.js";
+import { releasePendingAgentSteeringItems } from "../../subagent-registry.js";
 import {
   clearToolSearchCatalog,
   resolveToolSearchCatalogTool,
@@ -81,21 +77,17 @@ import { buildEmbeddedExtensionFactories } from "../extensions.js";
 import { prepareGooglePromptCacheStreamFn } from "../google-prompt-cache.js";
 import { log } from "../logger.js";
 import type { PromptCacheBreak, PromptCacheChange } from "../prompt-cache-observability.js";
-import { normalizeAssistantReplayContent } from "../replay-history.js";
 import { createEmbeddedAgentResourceLoader } from "../resource-loader.js";
 import {
   clearActiveEmbeddedRun,
   type EmbeddedAgentQueueHandle,
   markActiveEmbeddedRunAbandoned,
-  updateActiveEmbeddedRunSnapshot,
 } from "../runs.js";
 import { prewarmSessionFile, trackSessionManagerAccess } from "../session-manager-cache.js";
 import { prepareSessionManagerForRun } from "../session-manager-init.js";
 import {
   cloneToolResultPromptProjectionState,
   getEmbeddedSessionPromptState,
-  hasSessionUserTurnBeenSent,
-  markSessionUserTurnsSent,
 } from "../session-prompt-state.js";
 import { resolveEmbeddedAgentApiKey } from "../stream-resolution.js";
 import { applySystemPromptToSession } from "../system-prompt.js";
@@ -107,22 +99,27 @@ import {
   resolveLiveToolResultMaxChars,
   resolveLiveToolResultAggregateMaxChars,
   truncateOversizedToolResultsInMessages,
-  truncateOversizedToolResultsInSessionManager,
 } from "../tool-result-truncation.js";
 import { flushPendingToolResultsAfterIdle } from "../wait-for-idle-before-flush.js";
 import { abortable as abortableWithSignal } from "./abortable.js";
 import { releaseEmbeddedAttemptSessionLockForAbort } from "./attempt-abort.js";
 import { completeEmbeddedAttemptAfterTurn } from "./attempt-after-turn.js";
+import { runEmbeddedAttemptBeforeAgentRun } from "./attempt-before-agent-run.js";
 import { prepareEmbeddedAttemptBootstrap } from "./attempt-bootstrap-prepare.js";
 import { prepareEmbeddedAttemptBundleTools } from "./attempt-bundle-tools.js";
 import { prepareEmbeddedAttemptClientTools } from "./attempt-client-tools.js";
-import { snapshotRecentMessages, summarizeSessionContext } from "./attempt-context-summary.js";
+import { summarizeSessionContext } from "./attempt-context-summary.js";
 import { prepareEmbeddedAttemptHistory } from "./attempt-history-prepare.js";
 import {
   replayTrailingEntriesForOrphanRepair,
   resolveOrphanRepairPlan,
 } from "./attempt-orphan-repair.js";
 import { prepareEmbeddedAttemptPromptAssembly } from "./attempt-prompt-assembly.js";
+import {
+  handleEmbeddedAttemptMidTurnPrecheck,
+  prepareEmbeddedAttemptPromptPreflight,
+} from "./attempt-prompt-preflight.js";
+import { submitEmbeddedAttemptPrompt } from "./attempt-prompt-submit.js";
 import { completeEmbeddedAttemptResult } from "./attempt-result.js";
 import { createEmbeddedAgentSessionWithResourceLoader } from "./attempt-session.js";
 import { prepareEmbeddedAttemptSetup } from "./attempt-setup.js";
@@ -143,7 +140,6 @@ import { prepareEmbeddedAttemptToolCatalog } from "./attempt-tool-catalog.js";
 import { flushEmbeddedAttemptTrajectoryRecorder } from "./attempt-trajectory-flush-cleanup.js";
 import {
   cloneHookMessages,
-  flushSessionManagerTranscript,
   removeTrailingMidTurnPrecheckAssistantError,
   repairAttemptToolUseResultPairing,
   resolveAttemptTrajectorySessionFile,
@@ -154,8 +150,6 @@ import {
   runAttemptContextEngineBootstrap,
 } from "./attempt.context-engine-helpers.js";
 import {
-  installModelPromptTransform,
-  installRuntimeContextMessageForPrompt,
   normalizeCurrentPromptTextForLlmBoundary,
   normalizeMessagesForCurrentPromptBoundary,
   normalizeMessagesForLlmBoundary,
@@ -187,19 +181,9 @@ import { shouldFlagCompactionTimeout } from "./compaction-timeout.js";
 import { installHistoryImagePruneContextTransform } from "./history-image-prune.js";
 import { detectAndLoadPromptImages } from "./images.js";
 import { installMessageToolOnlyTerminalHook } from "./message-tool-terminal.js";
-import { wrapStreamFnWithMessageTransform } from "./message-transform-stream-wrapper.js";
 import { isMidTurnPrecheckSignal, type MidTurnPrecheckRequest } from "./midturn-precheck.js";
-import {
-  detachPrePersistedCurrentUserTurn,
-  sessionMessagesContainIdempotencyKey,
-} from "./pre-persisted-user-turn.js";
-import {
-  PREEMPTIVE_OVERFLOW_ERROR_TEXT,
-  buildPrePromptContextBudgetStatus,
-  estimateLlmBoundaryTokenPressure,
-  formatPrePromptPrecheckLog,
-  shouldPreemptivelyCompactBeforePrompt,
-} from "./preemptive-compaction.js";
+import { detachPrePersistedCurrentUserTurn } from "./pre-persisted-user-turn.js";
+import { PREEMPTIVE_OVERFLOW_ERROR_TEXT } from "./preemptive-compaction.js";
 import {
   buildCurrentInboundPrompt,
   buildRuntimeContextCustomMessage,
@@ -207,22 +191,6 @@ import {
 } from "./runtime-context-prompt.js";
 import { clearToolActivityRun, notifyToolActivity } from "./tool-activity-heartbeat.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
-
-type PreflightRecoveryBudgetSnapshot = Pick<
-  MidTurnPrecheckRequest,
-  "estimatedPromptTokens" | "promptBudgetBeforeReserve" | "overflowTokens"
->;
-
-// Carries the measured prompt budget into the outer recovery loop. The synthetic
-// precheck error is only a routing signal, so compaction engines need these
-// fields to compact against the prompt OpenClaw actually rendered.
-function buildPreflightRecoveryBudgetSnapshot(snapshot: PreflightRecoveryBudgetSnapshot) {
-  return {
-    estimatedPromptTokens: snapshot.estimatedPromptTokens,
-    promptBudgetBeforeReserve: snapshot.promptBudgetBeforeReserve,
-    overflowTokens: snapshot.overflowTokens,
-  };
-}
 
 const aggregateToolResultPressureWarnings = new Set<string>();
 
@@ -1468,72 +1436,20 @@ export async function runEmbeddedAttempt(
       let preflightRecovery: EmbeddedRunAttemptResult["preflightRecovery"];
       let promptErrorSource: EmbeddedRunAttemptResult["promptErrorSource"] = null;
       const handleMidTurnPrecheckRequest = (request: MidTurnPrecheckRequest) => {
-        const logMidTurnPrecheck = (route: string, extra?: string) => {
-          log.warn(
-            `[context-overflow-midturn-precheck] sessionKey=${params.sessionKey ?? params.sessionId} ` +
-              `provider=${params.provider}/${params.modelId} route=${route} ` +
-              `estimatedPromptTokens=${request.estimatedPromptTokens} ` +
-              `promptBudgetBeforeReserve=${request.promptBudgetBeforeReserve} ` +
-              `overflowTokens=${request.overflowTokens} ` +
-              `toolResultReducibleChars=${request.toolResultReducibleChars} ` +
-              `effectiveReserveTokens=${request.effectiveReserveTokens} ` +
-              `prePromptMessageCount=${prePromptMessageCount} ` +
-              (extra ? `${extra} ` : "") +
-              `sessionFile=${params.sessionFile}`,
-          );
-        };
-        if (request.route === "truncate_tool_results_only") {
-          const contextTokenBudget = params.contextTokenBudget ?? DEFAULT_CONTEXT_TOKENS;
-          const toolResultMaxChars = resolveLiveToolResultMaxChars({
-            contextWindowTokens: contextTokenBudget,
-            cfg: params.config,
-            agentId: sessionAgentId,
-          });
-          const truncationResult = truncateOversizedToolResultsInSessionManager({
-            sessionManager: activeSessionManager,
-            contextWindowTokens: contextTokenBudget,
-            maxCharsOverride: toolResultMaxChars,
-            sessionFile: params.sessionFile,
-            sessionId: params.sessionId,
-            sessionKey: params.sessionKey,
-            agentId: sessionAgentId,
-          });
-          if (truncationResult.truncated) {
-            preflightRecovery = {
-              route: "truncate_tool_results_only",
-              source: "mid-turn",
-              ...buildPreflightRecoveryBudgetSnapshot(request),
-              handled: true,
-              truncatedCount: truncationResult.truncatedCount,
-            };
-            const sessionContext = activeSessionManager.buildSessionContext();
-            activeSession.agent.state.messages = sessionContext.messages;
-            logMidTurnPrecheck(
-              request.route,
-              `handled=true truncatedCount=${truncationResult.truncatedCount}`,
-            );
-          } else {
-            preflightRecovery = {
-              route: "compact_only",
-              source: "mid-turn",
-              ...buildPreflightRecoveryBudgetSnapshot(request),
-            };
-            promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
-            promptErrorSource = "precheck";
-            logMidTurnPrecheck(
-              "compact_only",
-              `truncateFallbackReason=${truncationResult.reason ?? "unknown"}`,
-            );
-          }
-        } else {
-          preflightRecovery = {
-            route: request.route,
-            source: "mid-turn",
-            ...buildPreflightRecoveryBudgetSnapshot(request),
-          };
-          promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
+        const outcome = handleEmbeddedAttemptMidTurnPrecheck({
+          attempt: params,
+          request,
+          sessionAgentId,
+          sessionManager: activeSessionManager,
+          prePromptMessageCount,
+          replaceSessionMessages: (messages) => {
+            activeSession.agent.state.messages = messages;
+          },
+        });
+        preflightRecovery = outcome.preflightRecovery;
+        if (outcome.promptError) {
+          promptError = outcome.promptError;
           promptErrorSource = "precheck";
-          logMidTurnPrecheck(request.route);
         }
       };
       let skipPromptSubmission = false;
@@ -1768,102 +1684,23 @@ export async function runEmbeddedAttempt(
           }
           const systemPromptForHook = systemPromptText;
 
-          const persistBlockedBeforeAgentRun = async (block: {
-            message: string;
-            pluginId: string;
-          }): Promise<boolean> => {
-            const idempotencyKey = `hook-block:before_agent_run:user:${params.runId}`;
-            if (sessionMessagesContainIdempotencyKey(activeSession.messages, idempotencyKey)) {
-              return true;
-            }
-            const nowMs = Date.now();
-            const redactedUserMessage = {
-              role: "user" as const,
-              content: [{ type: "text" as const, text: block.message }],
-              timestamp: nowMs,
-              idempotencyKey,
-              __openclaw: {
-                beforeAgentRunBlocked: {
-                  blockedBy: block.pluginId,
-                  blockedAt: nowMs,
-                },
-              },
-            };
-            try {
-              await withOwnedSessionWriteLock(() => {
-                activeSessionManager.appendMessage(
-                  redactedUserMessage as Parameters<typeof activeSessionManager.appendMessage>[0],
-                );
-                flushSessionManagerTranscript(activeSessionManager);
-              });
-              activeSession.agent.state.messages =
-                activeSessionManager.buildSessionContext().messages;
-              return true;
-            } catch (err) {
-              log.warn(
-                `before_agent_run block: failed to persist redacted user message: ${
-                  (err as Error)?.message ?? String(err)
-                }`,
-              );
-              return false;
-            }
-          };
-
-          if (hookRunner?.hasHooks("before_agent_run")) {
-            const beforeRunMessages = cloneHookMessages(hookMessagesForCurrentPrompt);
-            let beforeRunResult:
-              | Awaited<ReturnType<NonNullable<typeof hookRunner>["runBeforeAgentRun"]>>
-              | undefined;
-            try {
-              beforeRunResult = await hookRunner.runBeforeAgentRun(
-                {
-                  prompt: promptForModel,
-                  systemPrompt: systemPromptForHook,
-                  messages: beforeRunMessages,
-                  channelId: hookCtx.channelId,
-                  accountId: params.agentAccountId ?? undefined,
-                  senderId: params.senderId ?? undefined,
-                  senderIsOwner: params.senderIsOwner ?? undefined,
-                },
-                hookCtx,
-              );
-            } catch {
-              log.warn("before_agent_run hook failed; blocking request");
-              beforeAgentRunBlocked = true;
-              beforeAgentRunBlockedBy = "before_agent_run";
-              await persistBlockedBeforeAgentRun({
-                message: resolveBlockMessage(
-                  { outcome: "block", reason: "before_agent_run hook failed" },
-                  { blockedBy: "before_agent_run" },
-                ),
-                pluginId: "before_agent_run",
-              });
-              promptError = new Error(
-                resolveBlockMessage(
-                  { outcome: "block", reason: "before_agent_run hook failed" },
-                  { blockedBy: "before_agent_run" },
-                ),
-              );
-              promptErrorSource = "hook:before_agent_run";
-              skipPromptSubmission = true;
-            }
-            const beforeRunDecision = beforeRunResult?.decision;
-            const beforeRunPluginId = beforeRunResult?.pluginId ?? "unknown";
-            if (beforeRunDecision?.outcome === "block") {
-              beforeAgentRunBlocked = true;
-              beforeAgentRunBlockedBy = beforeRunPluginId;
-              const blockReplacementMsg = resolveBlockMessage(beforeRunDecision, {
-                blockedBy: beforeRunPluginId,
-              });
-              log.warn(`before_agent_run hook blocked by ${beforeRunPluginId}`);
-              await persistBlockedBeforeAgentRun({
-                message: blockReplacementMsg,
-                pluginId: beforeRunPluginId,
-              });
-              promptError = new Error(blockReplacementMsg);
-              promptErrorSource = "hook:before_agent_run";
-              skipPromptSubmission = true;
-            }
+          const beforeAgentRunOutcome = await runEmbeddedAttemptBeforeAgentRun({
+            attempt: params,
+            activeSession,
+            hookContext: hookCtx,
+            hookMessages: hookMessagesForCurrentPrompt,
+            hookRunner,
+            modelPrompt: promptForModel,
+            sessionManager: activeSessionManager,
+            systemPrompt: systemPromptForHook,
+            withOwnedSessionWriteLock,
+          });
+          if (beforeAgentRunOutcome) {
+            beforeAgentRunBlocked = true;
+            beforeAgentRunBlockedBy = beforeAgentRunOutcome.blockedBy;
+            promptError = beforeAgentRunOutcome.promptError;
+            promptErrorSource = "hook:before_agent_run";
+            skipPromptSubmission = true;
           }
 
           if (!skipPromptSubmission) {
@@ -2080,278 +1917,72 @@ export async function runEmbeddedAttempt(
               });
           }
 
-          const llmBoundaryOptionsForPrecheck =
-            boundaryTimezone || !includeBoundaryTimestamp
-              ? {
-                  ...(boundaryTimezone ? { timezone: boundaryTimezone } : {}),
-                  ...(includeBoundaryTimestamp ? {} : { includeTimestamp: false }),
-                }
-              : undefined;
-          const unwindowedLlmBoundaryMessagesForPrecheck =
-            contextEnginePromptAuthority === "preassembly_may_overflow" &&
-            unwindowedContextEngineMessagesForPrecheck
-              ? normalizeMessagesForLlmBoundary(
-                  unwindowedContextEngineMessagesForPrecheck,
-                  llmBoundaryOptionsForPrecheck,
-                )
-              : undefined;
-          const llmBoundaryTokenPressure = estimateLlmBoundaryTokenPressure({
-            messages: hookMessagesForCurrentPrompt,
+          const promptPreflight = await prepareEmbeddedAttemptPromptPreflight({
+            attempt: params,
+            ...(activeContextEngine ? { activeContextEngine } : {}),
+            contextEngineAssemblySucceeded,
+            contextEnginePromptAuthority,
+            contextTokenBudget,
+            hookMessagesForCurrentPrompt,
+            includeBoundaryTimestamp,
+            promptForPrecheck: llmBoundaryPromptForPrecheck,
+            reserveTokens,
+            sessionAgentId,
+            sessionManager: activeSessionManager,
+            sessionMessageCount: activeSession.messages.length,
+            state: {
+              contextBudgetStatus,
+              preflightRecovery,
+              promptError,
+              promptErrorSource,
+              skipPromptSubmission,
+            },
             systemPrompt: systemPromptForHook,
-            prompt: llmBoundaryPromptForPrecheck,
+            ...(boundaryTimezone ? { timezone: boundaryTimezone } : {}),
+            toolResultMaxChars: promptToolResultMaxChars,
+            ...(unwindowedContextEngineMessagesForPrecheck
+              ? { unwindowedContextEngineMessagesForPrecheck }
+              : {}),
+            withOwnedSessionWriteLock,
           });
-          let preemptiveCompaction = null;
-          const shouldSkipPrecheck =
-            skipPromptSubmission ||
-            (contextEngineAssemblySucceeded &&
-              activeContextEngine?.info.ownsCompaction &&
-              contextEnginePromptAuthority !== "preassembly_may_overflow");
-
-          if (shouldSkipPrecheck && !skipPromptSubmission) {
-            log.info(
-              `[context-overflow-precheck] skipped: context engine "${activeContextEngine!.info.id}" owns compaction`,
-            );
-          }
-
-          if (!shouldSkipPrecheck) {
-            preemptiveCompaction = shouldPreemptivelyCompactBeforePrompt({
-              messages: hookMessagesForCurrentPrompt,
-              ...(unwindowedLlmBoundaryMessagesForPrecheck
-                ? { unwindowedMessages: unwindowedLlmBoundaryMessagesForPrecheck }
-                : {}),
-              systemPrompt: systemPromptForHook,
-              prompt: llmBoundaryPromptForPrecheck,
-              contextTokenBudget,
-              reserveTokens,
-              toolResultMaxChars: promptToolResultMaxChars,
-              llmBoundaryTokenPressure: {
-                estimatedPromptTokens: llmBoundaryTokenPressure,
-                source: "llm_boundary_normalized_prompt",
-                renderedChars: llmBoundaryPromptForPrecheck.length,
-              },
-            });
-          }
-          if (preemptiveCompaction) {
-            contextBudgetStatus = buildPrePromptContextBudgetStatus({
-              result: preemptiveCompaction,
-              provider: params.provider,
-              modelId: params.modelId,
-              messageCount: activeSession.messages.length,
-              contextTokenBudget,
-              reserveTokens,
-              ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-              ...(contextEnginePromptAuthority === "preassembly_may_overflow" &&
-              unwindowedContextEngineMessagesForPrecheck
-                ? { unwindowedMessageCount: unwindowedContextEngineMessagesForPrecheck.length }
-                : {}),
-            });
-            log.debug(
-              formatPrePromptPrecheckLog({
-                result: preemptiveCompaction,
-                provider: params.provider,
-                modelId: params.modelId,
-                messageCount: activeSession.messages.length,
-                contextTokenBudget,
-                reserveTokens,
-                ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-                ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-                ...(contextEnginePromptAuthority === "preassembly_may_overflow" &&
-                unwindowedContextEngineMessagesForPrecheck
-                  ? { unwindowedMessageCount: unwindowedContextEngineMessagesForPrecheck.length }
-                  : {}),
-                ...(params.sessionFile ? { sessionFile: params.sessionFile } : {}),
-              }),
-            );
-          }
-          if (preemptiveCompaction?.route === "truncate_tool_results_only") {
-            const toolResultMaxChars = resolveLiveToolResultMaxChars({
-              contextWindowTokens: contextTokenBudget,
-              cfg: params.config,
-              agentId: sessionAgentId,
-            });
-            const truncationResult = await withOwnedSessionWriteLock(() =>
-              truncateOversizedToolResultsInSessionManager({
-                sessionManager: activeSessionManager,
-                contextWindowTokens: contextTokenBudget,
-                maxCharsOverride: toolResultMaxChars,
-                sessionFile: params.sessionFile,
-                sessionId: params.sessionId,
-                sessionKey: params.sessionKey,
-                agentId: sessionAgentId,
-              }),
-            );
-            if (truncationResult.truncated) {
-              preflightRecovery = {
-                route: "truncate_tool_results_only",
-                ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
-                handled: true,
-                truncatedCount: truncationResult.truncatedCount,
-              };
-              log.info(
-                `[context-overflow-precheck] early tool-result truncation succeeded for ` +
-                  `${params.provider}/${params.modelId} route=${preemptiveCompaction.route} ` +
-                  `truncatedCount=${truncationResult.truncatedCount} ` +
-                  `estimatedPromptTokens=${preemptiveCompaction.estimatedPromptTokens} ` +
-                  `promptBudgetBeforeReserve=${preemptiveCompaction.promptBudgetBeforeReserve} ` +
-                  `overflowTokens=${preemptiveCompaction.overflowTokens} ` +
-                  `toolResultReducibleChars=${preemptiveCompaction.toolResultReducibleChars} ` +
-                  `effectiveReserveTokens=${preemptiveCompaction.effectiveReserveTokens} ` +
-                  `sessionFile=${params.sessionFile}`,
-              );
-              skipPromptSubmission = true;
-            }
-            if (!skipPromptSubmission) {
-              log.warn(
-                `[context-overflow-precheck] early tool-result truncation did not help for ` +
-                  `${params.provider}/${params.modelId}; falling back to compaction ` +
-                  `reason=${truncationResult.reason ?? "unknown"} sessionFile=${params.sessionFile}`,
-              );
-              preflightRecovery = {
-                route: "compact_only",
-                ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
-              };
-              promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
-              promptErrorSource = "precheck";
-              skipPromptSubmission = true;
-            }
-          }
-          if (preemptiveCompaction?.shouldCompact) {
-            preflightRecovery =
-              preemptiveCompaction.route === "compact_then_truncate"
-                ? {
-                    route: "compact_then_truncate",
-                    ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
-                  }
-                : {
-                    route: "compact_only",
-                    ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
-                  };
-            promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
-            promptErrorSource = "precheck";
-            log.warn(
-              `[context-overflow-precheck] sessionKey=${params.sessionKey ?? params.sessionId} ` +
-                `provider=${params.provider}/${params.modelId} ` +
-                `route=${preemptiveCompaction.route} ` +
-                `estimatedPromptTokens=${preemptiveCompaction.estimatedPromptTokens} ` +
-                `promptBudgetBeforeReserve=${preemptiveCompaction.promptBudgetBeforeReserve} ` +
-                `overflowTokens=${preemptiveCompaction.overflowTokens} ` +
-                `toolResultReducibleChars=${preemptiveCompaction.toolResultReducibleChars} ` +
-                `reserveTokens=${reserveTokens} ` +
-                `effectiveReserveTokens=${preemptiveCompaction.effectiveReserveTokens} ` +
-                `sessionFile=${params.sessionFile}`,
-            );
-            skipPromptSubmission = true;
-          }
+          ({
+            contextBudgetStatus,
+            preflightRecovery,
+            promptError,
+            promptErrorSource,
+            skipPromptSubmission,
+          } = promptPreflight);
 
           if (!skipPromptSubmission) {
-            const normalizedReplayMessages = normalizeAssistantReplayContent(
-              activeSession.messages,
-            );
-            if (normalizedReplayMessages !== activeSession.messages) {
-              activeSession.agent.state.messages = normalizedReplayMessages;
-            }
-            const installProviderPromptHistoryTransform = (): (() => void) => {
-              const baseStreamFn = activeSession.agent.streamFn;
-              const providerPromptStreamFn = wrapStreamFnWithMessageTransform(
-                baseStreamFn,
-                (messages) => {
-                  const providerPromptHistoryTruncation = truncateOversizedToolResultsInMessages(
-                    messages,
-                    contextTokenBudget,
-                    promptToolResultMaxChars,
-                    promptToolResultAggregateMaxChars,
-                    toolResultPromptProjectionState,
-                  );
-                  const providerMessages =
-                    providerPromptHistoryTruncation.messages !== messages
-                      ? providerPromptHistoryTruncation.messages
-                      : messages;
-                  // This provider-dispatch transform marks the current turn sent so late
-                  // media appends instead of rewriting its prompt-cache slot (#99495).
-                  markSessionUserTurnsSent(sessionPromptState, providerMessages);
-                  const recorder = params.userTurnTranscriptRecorder;
-                  if (
-                    recorder &&
-                    hasSessionUserTurnBeenSent(sessionPromptState, recorder.message) !== false
-                  ) {
-                    recorder.markSentToProvider?.();
-                  }
-                  return providerMessages;
-                },
-              );
-              activeSession.agent.streamFn = providerPromptStreamFn;
-              return () => {
-                if (activeSession.agent.streamFn === providerPromptStreamFn) {
-                  activeSession.agent.streamFn = baseStreamFn;
-                }
-              };
-            };
-            finalPromptText = promptForSession;
-            trajectoryRecorder?.recordEvent("prompt.submitted", {
-              prompt: promptForModel,
-              systemPrompt: systemPromptForHook,
-              messages: activeSession.messages,
-              imagesCount: imageResult.images.length,
-            });
-            const btwSnapshotMessages = snapshotRecentMessages(normalizedReplayMessages);
-            updateActiveEmbeddedRunSnapshot(params.sessionId, {
-              transcriptLeafId,
-              messages: btwSnapshotMessages,
-              inFlightPrompt: promptForSession,
-            });
-            let captureCurrentPromptForModel = false;
-            const cleanupModelPromptTransform = installModelPromptTransform({
-              session: activeSession,
-              transcriptPrompt: promptForSession,
+            await submitEmbeddedAttemptPrompt({
+              attempt: params,
+              activeSession,
+              ...(promptBuildAppendContext ? { appendContext: promptBuildAppendContext } : {}),
+              contextTokenBudget,
+              images: imageResult.images,
+              ...(leasedSteering ? { leasedSteering } : {}),
               modelPrompt: promptForModel,
-              prependContext: promptBuildPrependContext,
-              appendContext: promptBuildAppendContext,
-              shouldCapturePrompt: () => captureCurrentPromptForModel,
-            });
-            const armModelPromptTransform = (submitted: boolean) => {
-              if (submitted) {
-                captureCurrentPromptForModel = true;
-              }
-            };
-            const cleanupProviderPromptHistoryTransform = installProviderPromptHistoryTransform();
-            try {
-              if (promptSubmission.runtimeOnly) {
-                await promptActiveSession(promptForSession, {
-                  preflightResult: armModelPromptTransform,
-                });
-              } else {
-                const cleanupRuntimeContextMessage = installRuntimeContextMessageForPrompt({
-                  session: activeSession,
-                  message: runtimeContextMessageForCurrentTurn,
-                });
-                try {
-                  // Only pass images option if there are actually images to pass
-                  // This avoids potential issues with models that don't expect the images parameter
-                  if (imageResult.images.length > 0) {
-                    await promptActiveSession(promptForSession, {
-                      images: imageResult.images,
-                      preflightResult: armModelPromptTransform,
-                    });
-                  } else {
-                    await promptActiveSession(promptForSession, {
-                      preflightResult: armModelPromptTransform,
-                    });
-                  }
-                } finally {
-                  cleanupRuntimeContextMessage();
-                }
-              }
-              if (leasedSteering) {
-                ackPendingAgentSteeringItems({
-                  runIds: leasedSteering.runIds,
-                  leaseId: leasedSteering.leaseId,
-                });
+              onFinalPromptText: (prompt) => {
+                finalPromptText = prompt;
+              },
+              onSteeringAcknowledged: () => {
                 leasedSteering = undefined;
-              }
-            } finally {
-              cleanupProviderPromptHistoryTransform();
-              cleanupModelPromptTransform();
-            }
+              },
+              ...(promptBuildPrependContext ? { prependContext: promptBuildPrependContext } : {}),
+              promptActiveSession,
+              ...(runtimeContextMessageForCurrentTurn
+                ? { runtimeContextMessage: runtimeContextMessageForCurrentTurn }
+                : {}),
+              runtimeOnly: promptSubmission.runtimeOnly === true,
+              sessionPromptState,
+              systemPrompt: systemPromptForHook,
+              toolResultAggregateMaxChars: promptToolResultAggregateMaxChars,
+              toolResultMaxChars: promptToolResultMaxChars,
+              toolResultPromptProjectionState,
+              trajectoryRecorder,
+              transcriptLeafId,
+              transcriptPrompt: promptForSession,
+            });
           } else {
             releaseLeasedSteering(promptError ?? "prompt submission skipped");
           }
