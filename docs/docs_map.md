@@ -3698,6 +3698,8 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: Environment variables
   - H2: Privacy and content capture
   - H2: Sampling and flushing
+  - H3: Model-call observation units
+  - H3: Claude Code CLI model-call fidelity
   - H2: Exported metrics
   - H3: Model usage
   - H3: Message flow
