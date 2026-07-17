@@ -2080,6 +2080,17 @@ describe("ci workflow guards", () => {
         'bash "$GITHUB_ACTION_PATH/sticky-importers.sh" capture "$STICKY_ROOT" "$GITHUB_WORKSPACE" "$OPENCLAW_STICKY_DEPS_FINGERPRINT"',
       ),
     );
+    // The exact snapshot fingerprint or successful install already owns
+    // dependency validation. pnpm's redundant check sees intentionally pruned
+    // plugin importers as stale, so it must not mutate during shard fanout.
+    const disableImplicitInstall =
+      'echo "pnpm_config_verify_deps_before_run=false" >> "$GITHUB_ENV"';
+    expect(installStep.run).toContain('if [ "$STICKY_DISK" = "true" ]; then');
+    expect(installStep.run).not.toContain("pnpm_config_verify_deps_before_run=install pnpm exec");
+    expect(installStep.run).toContain(disableImplicitInstall);
+    expect(installStep.run.indexOf('sticky-importers.sh" restore')).toBeLessThan(
+      installStep.run.indexOf(disableImplicitInstall),
+    );
     const cleanupAction = parse(
       readFileSync(".github/actions/register-bind-mount-cleanup/action.yml", "utf8"),
     );
@@ -3789,6 +3800,9 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(runStep.env.OPENCLAW_VITEST_NO_OUTPUT_RETRY).toBe("1");
     expect(runStep.env.OPENCLAW_NODE_TEST_ENV_JSON).toBe("${{ toJson(matrix.env) }}");
     expect(runStep.env.OPENCLAW_NODE_TEST_TARGETS_JSON).toBe("${{ toJson(matrix.targets) }}");
+    expect(runStep.env.OPENCLAW_NODE_TEST_VITEST_ARGS_JSON).toBe(
+      "${{ needs.preflight.outputs.compatibility_target == 'true' && '[\"--hookTimeout=300000\"]' || '[]' }}",
+    );
     expect(runStep.env.JOB_CONTEXT_JSON).toBe("${{ toJSON(job) }}");
     // Shard execution policy lives in the unit-tested wrapper script. Frozen
     // release targets load that wrapper from the exact trusted workflow SHA.

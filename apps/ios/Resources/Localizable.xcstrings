@@ -14689,6 +14689,414 @@
         }
       }
     },
+    "Apple Health": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 健康"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 健康"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saúde da Apple"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salud de Apple"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appleヘルスケア"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 건강"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Santé d’Apple"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صحّة Apple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salute di Apple"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Sağlık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สุขภาพ Apple"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Gezondheid"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سلامت اپل"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Apple Health"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Hälsa"
+          }
+        }
+      }
+    },
+    "Apple Health Summaries": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health Summaries"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 健康摘要"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 健康摘要"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumos da Saúde da Apple"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health-Zusammenfassungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resúmenes de Salud de Apple"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appleヘルスケアのサマリー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 건강 요약"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résumés de Santé d’Apple"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health सारांश"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملخصات صحّة Apple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepiloghi di Salute di Apple"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Sağlık Özetleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зведення Apple Health"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ringkasan Apple Health"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowania Apple Health"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สรุปข้อมูลสุขภาพ Apple"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản tóm tắt Apple Health"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Gezondheid-overzichten"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلاصه‌های سلامت اپل"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводки Apple Health"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sammanfattningar från Apple Hälsa"
+          }
+        }
+      }
+    },
+    "Apple Health data is unavailable on this device.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health data is unavailable on this device."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上无法使用 Apple 健康数据。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置無法使用 Apple 健康資料。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados da Saúde da Apple não estão disponíveis neste dispositivo."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health-Daten sind auf diesem Gerät nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos de Salud de Apple no están disponibles en este dispositivo."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスではAppleヘルスケアのデータを利用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서는 Apple 건강 데이터를 사용할 수 없습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de Santé d’Apple ne sont pas disponibles sur cet appareil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस डिवाइस पर Apple Health डेटा उपलब्ध नहीं है।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بيانات صحّة Apple غير متاحة على هذا الجهاز."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati di Salute di Apple non sono disponibili su questo dispositivo."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Sağlık verileri bu cihazda kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дані Apple Health недоступні на цьому пристрої."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Apple Health tidak tersedia di perangkat ini."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dane Apple Health są niedostępne na tym urządzeniu."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลสุขภาพ Apple ไม่พร้อมใช้งานบนอุปกรณ์นี้"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dữ liệu Apple Health không khả dụng trên thiết bị này."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Gezondheid-gegevens zijn niet beschikbaar op dit apparaat."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "داده‌های سلامت اپل در این دستگاه در دسترس نیست."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Данные Apple Health недоступны на этом устройстве."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data från Apple Hälsa är inte tillgängliga på den här enheten."
+          }
+        }
+      }
+    },
     "Apple Review demo mode": {
       "localizations": {
         "en": {
@@ -47465,6 +47873,142 @@
         }
       }
     },
+    "Creates read-only summaries from the Apple Health app for steps, sleep, resting heart rate, and workouts. Only requested summaries leave this device through your Gateway to your configured AI provider; raw samples stay on this device.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creates read-only summaries from the Apple Health app for steps, sleep, resting heart rate, and workouts. Only requested summaries leave this device through your Gateway to your configured AI provider; raw samples stay on this device."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据 Apple 健康 App 中的步数、睡眠、静息心率和体能训练数据创建只读摘要。只有请求的摘要会通过您的 Gateway 离开此设备并发送至您配置的 AI 提供商；原始样本会保留在此设备上。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根據 Apple 健康 App 中的步數、睡眠、靜止心率和體能訓練建立唯讀摘要。只有您要求的摘要會透過您的 Gateway 離開此裝置並傳送至您設定的 AI 供應商；原始樣本會保留在此裝置上。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cria resumos somente leitura com base no app Saúde da Apple sobre passos, sono, frequência cardíaca em repouso e exercícios. Somente os resumos solicitados saem deste dispositivo por meio do seu Gateway para o provedor de IA configurado; as amostras brutas permanecem neste dispositivo."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellt schreibgeschützte Zusammenfassungen aus der Apple Health-App zu Schritten, Schlaf, Ruhepuls und Trainings. Nur angeforderte Zusammenfassungen verlassen dieses Gerät über Ihr Gateway und werden an Ihren konfigurierten KI-Anbieter gesendet; Rohdaten verbleiben auf diesem Gerät."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea resúmenes de solo lectura a partir de la app Salud de Apple sobre pasos, sueño, frecuencia cardíaca en reposo y entrenamientos. Solo los resúmenes solicitados salen de este dispositivo a través de tu Gateway hacia el proveedor de IA configurado; las muestras sin procesar permanecen en este dispositivo."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appleヘルスケアアプリから、歩数、睡眠、安静時心拍数、ワークアウトの読み取り専用サマリーを作成します。リクエストされたサマリーのみがGatewayを経由して、設定済みのAIプロバイダーに送信されます。生のサンプルデータはこのデバイスに保持されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 건강 앱의 걸음 수, 수면, 안정 시 심박수 및 운동 데이터를 바탕으로 읽기 전용 요약을 생성합니다. 요청된 요약만 Gateway를 통해 구성된 AI 제공업체로 전송되며, 원시 샘플은 이 기기에 남아 있습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crée des résumés en lecture seule à partir de l’app Santé d’Apple pour les pas, le sommeil, la fréquence cardiaque au repos et les entraînements. Seuls les résumés demandés quittent cet appareil via votre Gateway pour être transmis au fournisseur d’IA que vous avez configuré ; les données brutes restent sur cet appareil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कदमों, नींद, आराम की हृदय गति और वर्कआउट के लिए Apple Health ऐप से केवल-पढ़ने योग्य सारांश बनाता है। केवल अनुरोधित सारांश ही आपके Gateway के माध्यम से आपके कॉन्फ़िगर किए गए AI प्रदाता तक इस डिवाइस से बाहर जाते हैं; मूल नमूने इस डिवाइस पर ही रहते हैं।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينشئ ملخصات للقراءة فقط من تطبيق صحّة Apple حول الخطوات والنوم ومعدل نبض القلب أثناء الراحة والتمارين. ولا تغادر هذا الجهاز سوى الملخصات المطلوبة عبر Gateway إلى مزوّد الذكاء الاصطناعي الذي أعددته؛ وتبقى العينات الأولية على هذا الجهاز."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea riepiloghi di sola lettura dall'app Salute di Apple relativi a passi, sonno, frequenza cardiaca a riposo e allenamenti. Solo i riepiloghi richiesti lasciano questo dispositivo tramite il tuo Gateway e vengono inviati al provider di IA configurato; i campioni non elaborati rimangono su questo dispositivo."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Sağlık uygulamasındaki adım, uyku, dinlenme kalp atış hızı ve antrenman verilerinden salt okunur özetler oluşturur. Bu cihazdan yalnızca istenen özetler Gateway üzerinden yapılandırılmış AI sağlayıcınıza gönderilir; ham örnekler bu cihazda kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Створює зведення лише для читання з програми Apple Health щодо кроків, сну, пульсу в стані спокою та тренувань. Лише запитані зведення залишають цей пристрій і передаються через ваш Gateway налаштованому постачальнику ШІ; необроблені зразки залишаються на цьому пристрої."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Membuat ringkasan hanya-baca dari aplikasi Apple Health untuk langkah, tidur, detak jantung saat istirahat, dan olahraga. Hanya ringkasan yang diminta yang dikirim dari perangkat ini melalui Gateway Anda ke penyedia AI yang dikonfigurasi; sampel mentah tetap berada di perangkat ini."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tworzy podsumowania tylko do odczytu na podstawie danych z aplikacji Apple Health dotyczących kroków, snu, tętna spoczynkowego i treningów. Tylko żądane podsumowania opuszczają to urządzenie za pośrednictwem Gateway i trafiają do skonfigurowanego dostawcy AI; nieprzetworzone próbki pozostają na tym urządzeniu."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างสรุปแบบอ่านอย่างเดียวจากแอปสุขภาพ Apple สำหรับจำนวนก้าว การนอนหลับ อัตราการเต้นของหัวใจขณะพัก และการออกกำลังกาย เฉพาะสรุปที่ขอเท่านั้นที่จะออกจากอุปกรณ์นี้ผ่าน Gateway ไปยังผู้ให้บริการ AI ที่คุณกำหนดค่าไว้ ส่วนตัวอย่างข้อมูลดิบจะยังคงอยู่ในอุปกรณ์นี้"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạo các bản tóm tắt chỉ đọc từ ứng dụng Apple Health về số bước chân, giấc ngủ, nhịp tim khi nghỉ và hoạt động tập luyện. Chỉ những bản tóm tắt được yêu cầu mới được gửi khỏi thiết bị này thông qua Gateway đến nhà cung cấp AI mà bạn đã cấu hình; các mẫu dữ liệu thô vẫn được lưu trên thiết bị này."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maakt alleen-lezenoverzichten op basis van de Apple Gezondheid-app voor stappen, slaap, rusthartslag en work-outs. Alleen aangevraagde overzichten verlaten dit apparaat via je Gateway en worden naar je geconfigureerde AI-provider verzonden; onbewerkte metingen blijven op dit apparaat."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلاصه‌های فقط‌خواندنی از برنامه سلامت اپل برای گام‌ها، خواب، ضربان قلب در حالت استراحت و تمرین‌ها ایجاد می‌کند. فقط خلاصه‌های درخواست‌شده از طریق Gateway شما به ارائه‌دهنده هوش مصنوعی پیکربندی‌شده ارسال می‌شوند؛ نمونه‌های خام در این دستگاه باقی می‌مانند."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создаёт сводки только для чтения на основе данных приложения Apple Health о шагах, сне, пульсе в состоянии покоя и тренировках. Через ваш Gateway настроенному поставщику ИИ передаются только запрошенные сводки; необработанные данные остаются на этом устройстве."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skapar skrivskyddade sammanfattningar från appen Apple Hälsa för steg, sömn, vilopuls och träningspass. Endast begärda sammanfattningar lämnar den här enheten via din Gateway till din konfigurerade AI-leverantör. Rådata stannar på enheten."
+          }
+        }
+      }
+    },
     "Creating...": {
       "localizations": {
         "en": {
@@ -59433,142 +59977,6 @@
         }
       }
     },
-    "Enable & Share Summaries": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable & Share Summaries"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "启用并共享摘要"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "啟用並分享摘要"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ativar e compartilhar resumos"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zusammenfassungen aktivieren und teilen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activar y compartir resúmenes"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "概要を有効にして共有"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "요약 활성화 및 공유"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activer et partager les résumés"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "सारांश चालू करके साझा करें"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تمكين الملخصات ومشاركتها"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abilita e condividi i riepiloghi"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Özetleri etkinleştir ve paylaş"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Увімкнути підсумки й ділитися ними"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktifkan & Bagikan Ringkasan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Włącz i udostępniaj podsumowania"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดใช้และแชร์สรุป"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bật và chia sẻ tóm tắt"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Overzichten inschakelen en delen"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فعال‌سازی و اشتراک‌گذاری خلاصه‌ها"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включить и делиться сводками"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktivera och dela sammanfattningar"
-          }
-        }
-      }
-    },
     "Enable All": {
       "localizations": {
         "en": {
@@ -59701,6 +60109,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aktivera alla"
+          }
+        }
+      }
+    },
+    "Enable Apple Health Summaries": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Apple Health Summaries"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 Apple 健康摘要"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 Apple 健康摘要"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar resumos da Saúde da Apple"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health-Zusammenfassungen aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar resúmenes de Salud de Apple"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appleヘルスケアのサマリーを有効にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 건강 요약 활성화"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer les résumés de Santé d’Apple"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Health सारांश सक्षम करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمكين ملخصات صحّة Apple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva i riepiloghi di Salute di Apple"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Sağlık Özetlerini Etkinleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути зведення Apple Health"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktifkan Ringkasan Apple Health"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz podsumowania Apple Health"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้สรุปข้อมูลสุขภาพ Apple"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật bản tóm tắt Apple Health"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Gezondheid-overzichten inschakelen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعال کردن خلاصه‌های سلامت اپل"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить сводки Apple Health"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivera sammanfattningar från Apple Hälsa"
           }
         }
       }
@@ -73573,278 +74117,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hälsokontroll"
-          }
-        }
-      }
-    },
-    "Health Summaries": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Health Summaries"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "健康摘要"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "健康摘要"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resumos de Saúde"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesundheitszusammenfassungen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resúmenes de salud"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ヘルスケア概要"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "건강 요약"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Résumés de santé"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "स्वास्थ्य सारांश"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ملخصات الصحة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riepiloghi salute"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sağlık Özetleri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Підсумки здоров’я"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ringkasan Kesehatan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podsumowania zdrowia"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สรุปข้อมูลสุขภาพ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tóm tắt sức khỏe"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gezondheidsoverzichten"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خلاصه‌های سلامت"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сводки о здоровье"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hälsosammanfattningar"
-          }
-        }
-      }
-    },
-    "Health data is unavailable on this device.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Health data is unavailable on this device."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此设备无法使用健康数据。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此裝置無法使用健康資料。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os dados de saúde não estão disponíveis neste dispositivo."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesundheitsdaten sind auf diesem Gerät nicht verfügbar."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los datos de salud no están disponibles en este dispositivo."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このデバイスではヘルスケアデータを利用できません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 기기에서는 건강 데이터를 사용할 수 없습니다."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les données de santé ne sont pas disponibles sur cet appareil."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "इस डिवाइस पर स्वास्थ्य डेटा उपलब्ध नहीं है।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بيانات الصحة غير متاحة على هذا الجهاز."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I dati sanitari non sono disponibili su questo dispositivo."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sağlık verileri bu aygıtta kullanılamıyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дані про здоров’я недоступні на цьому пристрої."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Data kesehatan tidak tersedia di perangkat ini."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dane zdrowotne są niedostępne na tym urządzeniu."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ข้อมูลสุขภาพไม่พร้อมใช้งานบนอุปกรณ์นี้"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dữ liệu sức khỏe không khả dụng trên thiết bị này."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gezondheidsgegevens zijn niet beschikbaar op dit apparaat."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "داده‌های سلامت در این دستگاه در دسترس نیست."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Данные о здоровье недоступны на этом устройстве."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hälsodata är inte tillgängliga på den här enheten."
           }
         }
       }
@@ -106897,142 +107169,6 @@
         }
       }
     },
-    "Off by default. Enabling lets requested aggregates leave this iPhone through your Gateway and configured AI provider.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off by default. Enabling lets requested aggregates leave this iPhone through your Gateway and configured AI provider."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认关闭。启用后，请求的汇总数据可通过您的 Gateway 和已配置的 AI 提供商离开此 iPhone。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預設關閉。啟用後，要求的彙整資料可透過您的 Gateway 和已設定的 AI 供應商離開此 iPhone。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desativado por padrão. A ativação permite que os dados agregados solicitados saiam deste iPhone por meio do seu Gateway e do provedor de IA configurado."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmäßig deaktiviert. Durch Aktivieren können angeforderte aggregierte Daten dieses iPhone über dein Gateway und den konfigurierten KI-Anbieter verlassen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desactivado de forma predeterminada. Al activarlo, los datos agregados solicitados pueden salir de este iPhone mediante tu Gateway y el proveedor de IA configurado."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルトではオフです。有効にすると、要求された集計データが Gateway と設定済みの AI プロバイダーを経由してこの iPhone から送信されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본적으로 꺼져 있습니다. 활성화하면 요청된 집계 데이터가 Gateway 및 구성된 AI 제공업체를 통해 이 iPhone 외부로 전송될 수 있습니다."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé par défaut. L’activation permet aux données agrégées demandées de quitter cet iPhone via votre Gateway et votre fournisseur d’IA configuré."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "डिफ़ॉल्ट रूप से बंद। चालू करने पर अनुरोधित समेकित डेटा इस iPhone से आपके Gateway और कॉन्फ़िगर किए गए AI प्रदाता के माध्यम से बाहर जा सकता है।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "متوقف افتراضيًا. يتيح التمكين للبيانات المجمعة المطلوبة مغادرة هذا الـ iPhone عبر Gateway وموفر الذكاء الاصطناعي الذي أعددته."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disattivato per impostazione predefinita. L’attivazione consente ai dati aggregati richiesti di lasciare questo iPhone tramite il tuo Gateway e il provider IA configurato."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsayılan olarak kapalıdır. Etkinleştirme, istenen toplu verilerin Gateway ve yapılandırdığınız yapay zeka sağlayıcısı üzerinden bu iPhone'dan çıkmasına izin verir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "За замовчуванням вимкнено. Після ввімкнення запитані агреговані дані можуть залишати цей iPhone через ваш Gateway і налаштованого постачальника ШІ."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nonaktif secara default. Jika diaktifkan, data agregat yang diminta dapat meninggalkan iPhone ini melalui Gateway dan penyedia AI yang Anda konfigurasikan."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domyślnie wyłączone. Włączenie pozwala żądanym danym zbiorczym opuścić ten iPhone przez Twój Gateway i skonfigurowanego dostawcę AI."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิดไว้เป็นค่าเริ่มต้น การเปิดใช้จะอนุญาตให้ข้อมูลสรุปรวมที่ร้องขอออกจาก iPhone เครื่องนี้ผ่าน Gateway และผู้ให้บริการ AI ที่คุณกำหนดค่าไว้"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tắt theo mặc định. Khi bật, dữ liệu tổng hợp được yêu cầu có thể rời khỏi iPhone này qua Gateway và nhà cung cấp AI mà bạn đã cấu hình."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standaard uitgeschakeld. Na inschakeling kunnen gevraagde geaggregeerde gegevens deze iPhone verlaten via je Gateway en geconfigureerde AI-provider."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "به‌طور پیش‌فرض خاموش است. با فعال‌کردن، داده‌های تجمیعی درخواستی می‌توانند از طریق Gateway و ارائه‌دهنده هوش مصنوعی پیکربندی‌شده شما از این iPhone خارج شوند."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "По умолчанию выключено. После включения запрошенные агрегированные данные могут покидать этот iPhone через ваш Gateway и настроенного поставщика ИИ."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Av som standard. När funktionen aktiveras kan begärda sammanställda data lämna denna iPhone via din Gateway och konfigurerade AI-leverantör."
-          }
-        }
-      }
-    },
     "Off in Settings": {
       "localizations": {
         "en": {
@@ -122125,6 +122261,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Läser katalogen med Gateway-Skills."
+          }
+        }
+      }
+    },
+    "Reads steps, sleep, resting heart rate, and workouts from Apple Health only when a summary is requested. Only the aggregate leaves this device through your Gateway to your configured AI provider; raw samples stay on this device and results may remain in chat history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reads steps, sleep, resting heart rate, and workouts from Apple Health only when a summary is requested. Only the aggregate leaves this device through your Gateway to your configured AI provider; raw samples stay on this device and results may remain in chat history."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在请求摘要时从 Apple Health 读取步数、睡眠、静息心率和锻炼数据。只有汇总数据会通过您的 Gateway 离开此设备并发送至您配置的 AI 提供商；原始样本会保留在此设备上，结果可能会保留在聊天记录中。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在要求摘要時，才會從 Apple Health 讀取步數、睡眠、靜止心率與體能訓練資料。只有彙總資料會透過您的 Gateway 離開此裝置並傳送至您設定的 AI 供應商；原始樣本會保留在此裝置上，而結果可能會保留在聊天記錄中。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lê passos, sono, frequência cardíaca em repouso e treinos do Apple Health somente quando um resumo é solicitado. Apenas os dados agregados saem deste dispositivo por meio do seu Gateway para o provedor de IA configurado; as amostras brutas permanecem neste dispositivo, e os resultados podem permanecer no histórico do chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liest Schritte, Schlaf, Ruheherzfrequenz und Trainingsdaten aus Apple Health nur dann aus, wenn eine Zusammenfassung angefordert wird. Nur die aggregierten Daten verlassen dieses Gerät über Ihr Gateway und werden an Ihren konfigurierten KI-Anbieter gesendet; Rohdaten verbleiben auf diesem Gerät und Ergebnisse können im Chatverlauf gespeichert bleiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lee los pasos, el sueño, la frecuencia cardíaca en reposo y los entrenamientos de Apple Health solo cuando se solicita un resumen. Únicamente los datos agregados salen de este dispositivo a través de tu Gateway hacia el proveedor de IA configurado; las muestras sin procesar permanecen en este dispositivo y los resultados pueden conservarse en el historial del chat."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サマリーがリクエストされた場合にのみ、Apple Healthから歩数、睡眠、安静時心拍数、ワークアウトを読み取ります。集計データのみがGatewayを通じて設定済みのAIプロバイダーに送信されます。生のサンプルはこのデバイスに保持され、結果はチャット履歴に残る場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 요청한 경우에만 Apple Health에서 걸음 수, 수면, 안정 시 심박수 및 운동 데이터를 읽습니다. 집계된 데이터만 Gateway를 통해 설정된 AI 제공업체로 이 기기 외부에 전송되며, 원시 샘플은 이 기기에 보관되고 결과는 채팅 기록에 남을 수 있습니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit les pas, le sommeil, la fréquence cardiaque au repos et les entraînements depuis Apple Health uniquement lorsqu’un résumé est demandé. Seules les données agrégées quittent cet appareil via votre Gateway pour être transmises à votre fournisseur d’IA configuré ; les échantillons bruts restent sur cet appareil et les résultats peuvent rester dans l’historique des conversations."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "केवल सारांश का अनुरोध किए जाने पर Apple Health से कदमों की संख्या, नींद, विश्राम की हृदय गति और वर्कआउट पढ़ता है। केवल समेकित डेटा ही आपके Gateway के माध्यम से आपके कॉन्फ़िगर किए गए AI प्रदाता को इस डिवाइस से भेजा जाता है; कच्चे नमूने इस डिवाइस पर ही रहते हैं और परिणाम चैट इतिहास में बने रह सकते हैं।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقرأ الخطوات والنوم ومعدل ضربات القلب أثناء الراحة والتمارين من Apple Health فقط عند طلب ملخص. لا يغادر هذا الجهاز عبر Gateway إلى مزود الذكاء الاصطناعي الذي أعددته سوى البيانات المجمعة؛ وتبقى العينات الأولية على هذا الجهاز، وقد تظل النتائج في سجل الدردشة."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legge passi, sonno, frequenza cardiaca a riposo e allenamenti da Apple Health solo quando viene richiesto un riepilogo. Solo i dati aggregati lasciano questo dispositivo passando attraverso il tuo Gateway verso il provider di IA configurato; i campioni grezzi rimangono su questo dispositivo e i risultati potrebbero restare nella cronologia della chat."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca bir özet istendiğinde Apple Health'ten adım, uyku, dinlenme kalp atış hızı ve antrenman verilerini okur. Bu cihazdan, Gateway'iniz üzerinden yapılandırılmış AI sağlayıcınıza yalnızca toplu veriler gönderilir; ham örnekler bu cihazda kalır ve sonuçlar sohbet geçmişinde tutulabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зчитує дані про кроки, сон, пульс у стані спокою та тренування з Apple Health лише за запитом на підсумок. Через ваш Gateway до налаштованого постачальника ШІ надсилаються лише агреговані дані; необроблені зразки залишаються на цьому пристрої, а результати можуть зберігатися в історії чату."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Membaca langkah, tidur, detak jantung saat istirahat, dan latihan dari Apple Health hanya saat ringkasan diminta. Hanya data agregat yang dikirim dari perangkat ini melalui Gateway ke penyedia AI yang Anda konfigurasi; sampel mentah tetap berada di perangkat ini dan hasilnya mungkin tetap tersimpan dalam riwayat chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczytuje kroki, sen, tętno spoczynkowe i treningi z Apple Health tylko wtedy, gdy zażądano podsumowania. Tylko dane zbiorcze opuszczają to urządzenie za pośrednictwem Gateway i trafiają do skonfigurowanego dostawcy AI; nieprzetworzone próbki pozostają na tym urządzeniu, a wyniki mogą pozostać w historii czatu."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านข้อมูลจำนวนก้าว การนอนหลับ อัตราการเต้นของหัวใจขณะพัก และการออกกำลังกายจาก Apple Health เฉพาะเมื่อมีการขอสรุปเท่านั้น มีเพียงข้อมูลรวมที่ออกจากอุปกรณ์นี้ผ่าน Gateway ไปยังผู้ให้บริการ AI ที่คุณกำหนดค่าไว้ ส่วนข้อมูลตัวอย่างดิบจะยังคงอยู่ในอุปกรณ์นี้ และผลลัพธ์อาจยังคงอยู่ในประวัติการแชท"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc số bước chân, giấc ngủ, nhịp tim khi nghỉ và các buổi tập từ Apple Health khi có yêu cầu tóm tắt. Chỉ dữ liệu tổng hợp rời khỏi thiết bị này thông qua Gateway để gửi đến nhà cung cấp AI mà bạn đã cấu hình; các mẫu dữ liệu thô vẫn lưu trên thiết bị này và kết quả có thể được lưu trong lịch sử trò chuyện."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leest stappen, slaap, hartslag in rust en work-outs uit Apple Health alleen wanneer om een samenvatting wordt gevraagd. Alleen de geaggregeerde gegevens verlaten dit apparaat via uw Gateway naar uw geconfigureerde AI-provider; ruwe metingen blijven op dit apparaat en resultaten kunnen in de chatgeschiedenis bewaard blijven."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فقط زمانی که خلاصه‌ای درخواست شود، داده‌های مربوط به تعداد قدم‌ها، خواب، ضربان قلب در حالت استراحت و تمرین‌ها را از Apple Health می‌خواند. فقط داده‌های تجمیعی از طریق Gateway شما به ارائه‌دهنده هوش مصنوعی پیکربندی‌شده ارسال می‌شوند؛ نمونه‌های خام روی این دستگاه باقی می‌مانند و نتایج ممکن است در تاریخچه چت حفظ شوند."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Считывает данные о шагах, сне, пульсе в состоянии покоя и тренировках из Apple Health только при запросе сводки. Через ваш Gateway выбранному поставщику ИИ отправляются только агрегированные данные; исходные показатели остаются на этом устройстве, а результаты могут сохраняться в истории чата."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läser steg, sömn, vilopuls och träningspass från Apple Hälsa endast när en sammanfattning begärs. Endast den sammanställda informationen lämnar den här enheten via din Gateway till din konfigurerade AI-leverantör. Rådata stannar på den här enheten och resultaten kan finnas kvar i chatthistoriken."
           }
         }
       }
@@ -150145,142 +150417,6 @@
         }
       }
     },
-    "Shares only requested step, sleep, resting heart rate, and workout aggregates through your Gateway with your configured AI provider. Results may remain in chat history.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shares only requested step, sleep, resting heart rate, and workout aggregates through your Gateway with your configured AI provider. Results may remain in chat history."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅通过您的 Gateway 与已配置的 AI 提供商共享请求的步数、睡眠、静息心率和体能训练汇总数据。结果可能会保留在聊天记录中。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "僅透過您的 Gateway 與已設定的 AI 供應商分享要求的步數、睡眠、靜止心率和體能訓練彙整資料。結果可能會保留在聊天記錄中。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartilha somente os dados agregados solicitados de passos, sono, frequência cardíaca em repouso e exercícios por meio do seu Gateway com o provedor de IA configurado. Os resultados podem permanecer no histórico do chat."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Teilt nur angeforderte aggregierte Daten zu Schritten, Schlaf, Ruhepuls und Trainings über dein Gateway mit deinem konfigurierten KI-Anbieter. Ergebnisse können im Chatverlauf verbleiben."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo comparte los datos agregados solicitados de pasos, sueño, frecuencia cardíaca en reposo y entrenamientos mediante tu Gateway con el proveedor de IA que hayas configurado. Los resultados pueden permanecer en el historial del chat."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要求された歩数、睡眠、安静時心拍数、ワークアウトの集計データのみを、Gateway 経由で設定済みの AI プロバイダーと共有します。結果はチャット履歴に残る場合があります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "요청된 걸음 수, 수면, 안정 시 심박수 및 운동 집계 데이터만 Gateway를 통해 구성된 AI 제공업체와 공유합니다. 결과는 채팅 기록에 남을 수 있습니다."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partage uniquement les données agrégées demandées concernant les pas, le sommeil, la fréquence cardiaque au repos et les entraînements via votre Gateway avec votre fournisseur d’IA configuré. Les résultats peuvent rester dans l’historique des discussions."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "आपके Gateway के माध्यम से आपके कॉन्फ़िगर किए गए AI प्रदाता के साथ केवल कदम, नींद, आराम की हृदय गति और वर्कआउट का अनुरोधित समेकित डेटा साझा करता है। परिणाम चैट इतिहास में रह सकते हैं।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تتم مشاركة البيانات المجمعة المطلوبة فقط للخطوات والنوم ومعدل ضربات القلب أثناء الراحة والتمارين عبر Gateway مع موفر الذكاء الاصطناعي الذي أعددته. قد تبقى النتائج في سجل الدردشة."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condivide solo i dati aggregati richiesti relativi a passi, sonno, frequenza cardiaca a riposo e allenamenti tramite il tuo Gateway con il provider IA configurato. I risultati potrebbero rimanere nella cronologia chat."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yalnızca istenen adım, uyku, dinlenme kalp atış hızı ve antrenman toplu verilerini Gateway üzerinden yapılandırdığınız yapay zeka sağlayıcısıyla paylaşır. Sonuçlar sohbet geçmişinde kalabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передає налаштованому постачальнику ШІ через ваш Gateway лише запитані агреговані дані про кроки, сон, пульс у стані спокою та тренування. Результати можуть залишатися в історії чату."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hanya membagikan data agregat yang diminta untuk langkah, tidur, detak jantung saat istirahat, dan olahraga melalui Gateway Anda kepada penyedia AI yang dikonfigurasi. Hasil dapat tetap tersimpan dalam riwayat obrolan."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Udostępnia skonfigurowanemu dostawcy AI przez Twój Gateway tylko żądane dane zbiorcze dotyczące kroków, snu, tętna spoczynkowego i treningów. Wyniki mogą pozostać w historii czatu."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แชร์เฉพาะข้อมูลสรุปรวมที่ร้องขอเกี่ยวกับจำนวนก้าว การนอนหลับ อัตราการเต้นของหัวใจขณะพัก และการออกกำลังกายผ่าน Gateway ของคุณกับผู้ให้บริการ AI ที่กำหนดค่าไว้ ผลลัพธ์อาจยังคงอยู่ในประวัติการแชท"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chỉ chia sẻ dữ liệu tổng hợp được yêu cầu về số bước chân, giấc ngủ, nhịp tim lúc nghỉ và bài tập qua Gateway của bạn với nhà cung cấp AI đã cấu hình. Kết quả có thể được lưu trong lịch sử trò chuyện."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deelt alleen gevraagde geaggregeerde gegevens over stappen, slaap, rusthartslag en work-outs via je Gateway met je geconfigureerde AI-provider. Resultaten kunnen in de chatgeschiedenis blijven staan."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فقط داده‌های تجمیعی درخواستی مربوط به گام‌ها، خواب، ضربان قلب در حالت استراحت و تمرین‌ها را از طریق Gateway شما با ارائه‌دهنده هوش مصنوعی پیکربندی‌شده به اشتراک می‌گذارد. نتایج ممکن است در تاریخچه گفتگو باقی بمانند."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передает настроенному поставщику ИИ через ваш Gateway только запрошенные агрегированные данные о шагах, сне, пульсе в состоянии покоя и тренировках. Результаты могут сохраняться в истории чата."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delar endast begärda sammanställda data om steg, sömn, vilopuls och träningspass via din Gateway med din konfigurerade AI-leverantör. Resultat kan finnas kvar i chatthistoriken."
-          }
-        }
-      }
-    },
     "Short-Term Recall": {
       "localizations": {
         "en": {
@@ -172445,6 +172581,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Prova en annan sökning eller ett annat statusfilter."
+          }
+        }
+      }
+    },
+    "Turn Off Summaries": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Summaries"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭摘要"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉摘要"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar resumos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassungen deaktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivar resúmenes"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サマリーをオフにする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 끄기"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver les résumés"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सारांश बंद करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف الملخصات"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattiva i riepiloghi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özetleri Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнути зведення"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nonaktifkan Ringkasan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłącz podsumowania"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดสรุปข้อมูล"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt bản tóm tắt"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overzichten uitschakelen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خاموش کردن خلاصه‌ها"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить сводки"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stäng av sammanfattningar"
           }
         }
       }
