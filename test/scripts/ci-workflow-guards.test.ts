@@ -1670,6 +1670,29 @@ describe("ci workflow guards", () => {
     }
   });
 
+  it("downloads the opengrep installer completely before execution", () => {
+    for (const workflowPath of [OPENGREP_PR_DIFF_WORKFLOW, OPENGREP_FULL_WORKFLOW]) {
+      const workflow = parse(readFileSync(workflowPath, "utf8"));
+      const run = expectDefined(
+        workflow.jobs.scan.steps.find((step: WorkflowStep) => step.name === "Install opengrep")
+          ?.run,
+        `Install opengrep step in ${workflowPath}`,
+      );
+
+      expect(run, workflowPath).toContain(
+        'installer="$(mktemp "${RUNNER_TEMP}/opengrep-install.XXXXXX")"',
+      );
+      expect(run, workflowPath).toContain("curl -fsSL --connect-timeout 10 --max-time 120 \\");
+      expect(run, workflowPath).toContain('-o "$installer"');
+      expect(run, workflowPath).toContain('bash "$installer" -v "$OPENGREP_VERSION"');
+      expect(run, workflowPath).toContain("trap 'rm -f \"$installer\"' EXIT");
+      expect(run.indexOf('-o "$installer"'), workflowPath).toBeLessThan(
+        run.indexOf('bash "$installer"'),
+      );
+      expect(run, workflowPath).not.toMatch(/\|\s*bash/u);
+    }
+  });
+
   it("runs real behavior proof from the trusted workflow revision", () => {
     const workflow = readRealBehaviorProofWorkflow();
     const source = readFileSync(".github/workflows/real-behavior-proof.yml", "utf8");
@@ -1985,6 +2008,44 @@ describe("ci workflow guards", () => {
     );
   });
 
+  it("persists content-validated public full-build declarations", () => {
+    const action = parse(readFileSync(".github/actions/setup-node-env/action.yml", "utf8"));
+    const installStep = action.runs.steps.find(
+      (step: WorkflowStep) => step.name === "Install dependencies",
+    );
+    const cacheStep = action.runs.steps.find(
+      (step: WorkflowStep) => step.name === "Restore and save build-all cache",
+    );
+
+    expect(action.inputs["build-all-cache-scope"].default).toBe("");
+    expect(cacheStep).toMatchObject({
+      if: "inputs.build-all-cache-scope != ''",
+      uses: "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+      with: { path: ".artifacts/build-all-cache" },
+    });
+    expect(cacheStep.with.key).toContain("build-all-v1-${{ inputs.build-all-cache-scope }}");
+    expect(cacheStep.with.key).toContain("${{ runner.os }}-${{ runner.arch }}");
+    expect(cacheStep.with.key).toContain("scripts/lib/optional-bundled-clusters.mjs");
+    expect(cacheStep.with.key).toContain("'src/**', 'packages/**', 'extensions/**'");
+    expect(cacheStep.with["restore-keys"]).not.toContain("hashFiles");
+    expect(action.runs.steps.indexOf(installStep)).toBeLessThan(
+      action.runs.steps.indexOf(cacheStep),
+    );
+
+    const privateQaWorkflows = [
+      ".github/workflows/mantis-discord-smoke.yml",
+      ".github/workflows/mantis-discord-status-reactions.yml",
+      ".github/workflows/mantis-discord-thread-attachment.yml",
+      ".github/workflows/mantis-slack-desktop-smoke.yml",
+      ".github/workflows/mantis-telegram-live.yml",
+      ".github/workflows/qa-live-transports-convex.yml",
+    ];
+    for (const workflowPath of privateQaWorkflows) {
+      const source = readFileSync(workflowPath, "utf8");
+      expect(source, workflowPath).not.toContain("build-all-cache-scope:");
+    }
+  });
+
   it("restores importer-local node_modules from sticky snapshots", () => {
     const root = mkdtempSync(path.join(tmpdir(), "openclaw-sticky-importers-"));
     try {
@@ -2048,6 +2109,9 @@ describe("ci workflow guards", () => {
     );
     const buildSetupNodeStep = workflow.jobs["build-artifacts"].steps.find(
       (step: WorkflowStep) => step.name === "Setup Node environment",
+    );
+    const buildStepCache = workflow.jobs["build-artifacts"].steps.find(
+      (step: WorkflowStep) => step.name === "Restore build-all step cache",
     );
 
     expect(setupNodeStep.with).toMatchObject({
@@ -2118,6 +2182,12 @@ describe("ci workflow guards", () => {
     expect(buildSetupNodeStep.with["node-compile-cache-scope"]).not.toBe(
       setupNodeStep.with["node-compile-cache-scope"],
     );
+    expect(buildStepCache.with.key).toContain("build-all-v4-");
+    expect(buildStepCache.with.key).toContain("'src/**'");
+    expect(buildStepCache.with.key).toContain("'packages/**'");
+    expect(buildStepCache.with.key).toContain("'!packages/**/dist/**'");
+    expect(buildStepCache.with.key).toContain("'!packages/**/node_modules/**'");
+    expect(buildStepCache.with["restore-keys"]).toContain("build-all-v4-");
   });
 
   it("warms protected caches without main-run cancellation and cleans closed PR archives", () => {
@@ -2154,7 +2224,7 @@ describe("ci workflow guards", () => {
     const source = readFileSync(".github/workflows/ci.yml", "utf8");
 
     expect(source).toContain("createNodeTestShardBundles");
-    expect(workflow.jobs["build-artifacts"]["runs-on"]).toContain("blacksmith-16vcpu-ubuntu-2404");
+    expect(workflow.jobs["build-artifacts"]["runs-on"]).toContain("blacksmith-32vcpu-ubuntu-2404");
     expect(buildArtifactsTestbox.jobs["build-artifacts"]["runs-on"]).toBe(
       "blacksmith-16vcpu-ubuntu-2404",
     );
@@ -2170,7 +2240,7 @@ describe("ci workflow guards", () => {
       check_name: "check-dependencies",
       task: "dependencies",
       // Concurrent Knip scans need cores and memory headroom.
-      runner: "blacksmith-16vcpu-ubuntu-2404",
+      runner: "blacksmith-32vcpu-ubuntu-2404",
     });
     expect(workflow.jobs["check-additional-shard"]["runs-on"]).toContain("matrix.runner");
     expect(workflow.jobs["check-additional-shard"].strategy.matrix.include).toContainEqual({

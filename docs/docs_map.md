@@ -3995,7 +3995,12 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /gateway/security/rate-limiting
 - Headings:
   - H2: Authentication attempts (pre-auth)
+  - H3: Browser-origin connections
+  - H3: Webhooks
   - H2: Control-plane writes (post-auth backstop)
+  - H2: ACP session creation
+  - H2: Restart cooldown
+  - H2: Operational notes
 
 ## gateway/security/secure-file-operations.md
 
@@ -6581,6 +6586,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: Llama Cpp plugin
   - H2: Distribution
   - H2: Surface
+  - H2: Default text model
   - H2: Related docs
 
 ## plugins/reference/llm-task.md
