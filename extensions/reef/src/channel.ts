@@ -14,6 +14,7 @@ import {
   ReefChannelConfigSchema,
   autonomyBudget,
   normalizeReefTarget,
+  parseReefRelayUrl,
   resolveReefConfig,
   type ReefCoreConfig,
 } from "./config-schema.js";
@@ -29,7 +30,7 @@ import {
 import { isRephrasedReefResend } from "./rejection-resend.js";
 import { getActiveReef, getOptionalReefRuntime, getReefRuntime, setActiveReef } from "./runtime.js";
 import { reefSetupAdapter, reefSetupWizard } from "./setup.js";
-import { loadKeys, openStores, resolveStateDir, ReviewApprovalStore } from "./state.js";
+import { assertReefIdentityBinding, loadKeys, openStores } from "./state.js";
 import {
   ReefInboxConnection,
   ReefTransportClient,
@@ -191,15 +192,18 @@ export const reefPlugin: ChannelPlugin<ReefAccount> = {
         throw new Error("Reef requires handle, email, and guard config");
       }
       const runtime = getReefRuntime();
-      const stateDir = resolveStateDir(ctx.account.config.stateDir);
-      const keys = await loadKeys(stateDir);
+      const keys = await loadKeys(runtime);
+      assertReefIdentityBinding(runtime, {
+        handle: ctx.account.config.handle!,
+        relayUrl: parseReefRelayUrl(ctx.account.config.relayUrl),
+      });
       const transport = new ReefTransportClient(
         ctx.account.config.relayUrl,
         ctx.account.config.handle!,
         keys,
       );
-      const stores = openStores(stateDir, keys);
-      const reviews = new ReviewApprovalStore(stateDir);
+      const stores = openStores(runtime, keys);
+      const reviews = stores.reviews;
       const pairing = createChannelPairingController({
         core: runtime,
         channel: "reef",
@@ -270,12 +274,12 @@ export const reefPlugin: ChannelPlugin<ReefAccount> = {
         config: ctx.account.config,
         trust,
         keys,
-        stateDir,
         transport,
         guard: createConfiguredGuard(ctx.account.config),
         audit: stores.audit,
         replay: stores.replay,
         reviews,
+        delivered: stores.delivered,
         onIngress,
         onOwnerNotice: async (text) =>
           ownerNotice({

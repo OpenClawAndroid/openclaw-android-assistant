@@ -233,7 +233,10 @@ describe("release Telegram QA workflow", () => {
   it("attributes GitHub web-flow and unsigned release merges to their exact maintainer merger", () => {
     const source = readFileSync(WORKFLOW_PATH, "utf8");
 
-    expect(source.match(/associatedPullRequests\(first:10\)/gu)).toHaveLength(2);
+    expect(source.match(/associatedPullRequests\(first:100\)/gu)).toHaveLength(2);
+    expect(source.match(/headRefOid == \$sha/gu)).toHaveLength(2);
+    expect(source.match(/\.headRepository\.nameWithOwner == \$repo/gu)).toHaveLength(2);
+    expect(source).not.toContain("commits/${candidate_sha}/pulls");
     expect(source.match(/if \.signature == null then "missing"/gu)).toHaveLength(2);
     expect(source.match(/\$signature_status" == "invalid"/gu)).toHaveLength(2);
     expect(
