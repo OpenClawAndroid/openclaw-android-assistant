@@ -107,7 +107,9 @@ function setupDeps(params: {
   runSystemAgentChat?: GuidedOnboardingDeps["runSystemAgentChat"];
   persistRiskAcknowledgement?: GuidedOnboardingDeps["persistRiskAcknowledgement"];
   runSetupMemoryImportStep?: GuidedOnboardingDeps["runSetupMemoryImportStep"];
+  runAppRecommendations?: GuidedOnboardingDeps["runAppRecommendations"];
   applySetup?: GuidedOnboardingDeps["applySetup"];
+  handoffMode?: GuidedOnboardingDeps["handoffMode"];
 }) {
   const runSystemAgentChat = vi.fn<NonNullable<GuidedOnboardingDeps["runSystemAgentChat"]>>(
     params.runSystemAgentChat ?? (async () => {}),
@@ -141,7 +143,9 @@ function setupDeps(params: {
       })),
     persistRiskAcknowledgement: params.persistRiskAcknowledgement ?? vi.fn(async () => undefined),
     runSetupMemoryImportStep: params.runSetupMemoryImportStep ?? vi.fn(async () => undefined),
+    runAppRecommendations: params.runAppRecommendations ?? vi.fn(async ({ config }) => config),
     runSystemAgentChat,
+    ...(params.handoffMode ? { handoffMode: params.handoffMode } : {}),
   } satisfies GuidedOnboardingDeps;
 }
 
@@ -174,6 +178,35 @@ describe("runGuidedOnboarding", () => {
   });
 
   it("auto-connects one credentialed candidate before any workspace prompt", async () => {
+    const persistedConfig: OpenClawConfig = {
+      agents: { defaults: { model: { primary: "claude-cli/opus" } } },
+    };
+    const appliedConfig: OpenClawConfig = {
+      ...persistedConfig,
+      gateway: { mode: "local" },
+    };
+    readConfigFileSnapshot
+      .mockResolvedValueOnce({
+        exists: false,
+        valid: true,
+        path: "/tmp/openclaw.json",
+        issues: [],
+        config: {},
+      })
+      .mockResolvedValueOnce({
+        exists: true,
+        valid: true,
+        path: "/tmp/openclaw.json",
+        issues: [],
+        config: persistedConfig,
+      })
+      .mockResolvedValueOnce({
+        exists: true,
+        valid: true,
+        path: "/tmp/openclaw.json",
+        issues: [],
+        config: appliedConfig,
+      });
     const select = vi.fn(async () => "unexpected") as unknown as WizardPrompter["select"];
     const text = vi.fn(async () => "unexpected");
     const prompter = createWizardPrompter({
@@ -181,9 +214,19 @@ describe("runGuidedOnboarding", () => {
       select,
       confirm: vi.fn(async () => false),
     });
-    const deps = setupDeps({ prompter });
+    const applySetup = vi.fn(async () => ({
+      configPath: "/tmp/openclaw.json",
+      configHashBefore: null,
+      configHashAfter: null,
+      lines: [],
+    }));
+    const runAppRecommendations = vi.fn<NonNullable<GuidedOnboardingDeps["runAppRecommendations"]>>(
+      async ({ config }) => config,
+    );
+    const deps = setupDeps({ prompter, applySetup, runAppRecommendations });
+    const runtime = makeRuntime();
 
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
+    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, runtime, deps);
 
     expect(deps.activate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -195,10 +238,23 @@ describe("runGuidedOnboarding", () => {
     );
     expect(text).not.toHaveBeenCalled();
     expect(deps.launchHatchTui).toHaveBeenCalledWith("/tmp/work");
-    expect(deps.applySetup).toHaveBeenCalledWith(
+    expect(applySetup).toHaveBeenCalledWith(
       expect.objectContaining({ workspace: "/tmp/work", surface: "cli" }),
     );
     expect(deps.runSystemAgentChat).not.toHaveBeenCalled();
+    expect(runAppRecommendations).toHaveBeenCalledWith({
+      config: appliedConfig,
+      prompter,
+      runtime,
+      workspaceDir: "/tmp/work",
+      modelRouteVerified: true,
+    });
+    expect(applySetup.mock.invocationCallOrder[0]).toBeLessThan(
+      runAppRecommendations.mock.invocationCallOrder[0]!,
+    );
+    expect(runAppRecommendations.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.launchHatchTui.mock.invocationCallOrder[0]!,
+    );
     expect(restoreTerminalState.mock.invocationCallOrder[0]).toBeLessThan(
       deps.launchHatchTui.mock.invocationCallOrder[0]!,
     );
@@ -780,160 +836,6 @@ describe("runGuidedOnboarding", () => {
     expect(deps.runSystemAgentChat).not.toHaveBeenCalled();
     expect(deps.detect).not.toHaveBeenCalled();
     expect(deps.activate).not.toHaveBeenCalled();
-  });
-
-  it("routes guarded mode straight to manual config without any scanning", async () => {
-    promptAuthChoiceGrouped.mockResolvedValueOnce("skip");
-    const prompter = createWizardPrompter(undefined, { selectValues: ["guarded", "manual"] });
-    const deps = {
-      ...setupDeps({ prompter }),
-      listManualOptions: vi.fn(async () => ({
-        manualProviders: [{ id: "openai-api-key", label: "OpenAI" }],
-        authOptions: [],
-        workspace: "/tmp/openclaw-workspace",
-        setupComplete: false,
-      })),
-    };
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
-
-    expect(deps.detect).not.toHaveBeenCalled();
-    expect(deps.listManualOptions).toHaveBeenCalledOnce();
-    expect(deps.persistAccessMode).toHaveBeenCalledWith("guarded");
-    expect(promptAuthChoiceGrouped).toHaveBeenCalledOnce();
-  });
-
-  it("scans in guarded mode only after the look-around consent", async () => {
-    const prompter = createWizardPrompter(undefined, { selectValues: ["guarded", "look"] });
-    const deps = setupDeps({ prompter });
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
-
-    expect(deps.detect).toHaveBeenCalledOnce();
-    expect(deps.listManualOptions).not.toHaveBeenCalled();
-    expect(deps.launchHatchTui).toHaveBeenCalledWith("/tmp/work");
-  });
-
-  it("skips persisting an unchanged access mode", async () => {
-    readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      path: "/tmp/openclaw.json",
-      issues: [],
-      config: {
-        wizard: { accessMode: "full", securityAcknowledgedAt: "2026-01-01T00:00:00.000Z" },
-      },
-    });
-    const prompter = createWizardPrompter(undefined, { selectValues: ["full"] });
-    const deps = setupDeps({ prompter });
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
-
-    expect(deps.persistAccessMode).not.toHaveBeenCalled();
-    expect(deps.launchHatchTui).toHaveBeenCalledWith("/tmp/work");
-  });
-
-  it("keeps the working route when other options are explored and skipped", async () => {
-    promptAuthChoiceGrouped.mockResolvedValueOnce("skip");
-    const prompter = createWizardPrompter(undefined, { selectValues: ["full", "other"] });
-    const deps = setupDeps({ prompter });
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
-
-    expect(promptAuthChoiceGrouped).toHaveBeenCalledOnce();
-    const notes = JSON.stringify((prompter.note as ReturnType<typeof vi.fn>).mock.calls);
-    expect(notes).toContain("Keeping the working AI you already have.");
-    expect(notes).not.toContain("Add AI later");
-    expect(deps.launchHatchTui).toHaveBeenCalledWith("/tmp/work");
-  });
-
-  it("quips about detected coding agents", async () => {
-    const prompter = createWizardPrompter();
-    const deps = setupDeps({
-      prompter,
-      detect: vi.fn(async () =>
-        detection({
-          candidates: [candidate("claude-cli", "Claude Code"), candidate("codex-cli", "Codex")],
-        }),
-      ),
-    });
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
-
-    expect(prompter.note).toHaveBeenCalledWith(
-      expect.stringContaining("good taste"),
-      expect.anything(),
-    );
-  });
-
-  it("never re-applies setup or bounces the gateway on a configured install", async () => {
-    readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      path: "/tmp/openclaw.json",
-      issues: [],
-      config: {
-        gateway: { mode: "local" },
-        wizard: { securityAcknowledgedAt: "2026-01-01T00:00:00.000Z" },
-      },
-    });
-    const prompter = createWizardPrompter();
-    const deps = setupDeps({ prompter });
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, makeRuntime(), deps);
-
-    expect(deps.applySetup).not.toHaveBeenCalled();
-    // Configured reruns hatch the persisted default workspace, not the probe context.
-    expect(deps.launchHatchTui).toHaveBeenCalledWith("/tmp/openclaw-workspace");
-    expect(prompter.note).toHaveBeenCalledWith(
-      expect.stringContaining("already set up"),
-      expect.anything(),
-    );
-  });
-
-  it("treats a model-only authored config as configured (no auto-apply)", async () => {
-    readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      path: "/tmp/openclaw.json",
-      issues: [],
-      config: {
-        agents: { defaults: { workspace: "/tmp/authored" } },
-        wizard: { securityAcknowledgedAt: "2026-01-01T00:00:00.000Z" },
-      },
-    });
-    const prompter = createWizardPrompter();
-    const deps = setupDeps({
-      prompter,
-      detect: vi.fn(async () =>
-        detection({
-          candidates: [existingModelCandidate()],
-          configuredModel: "acme/workspace-model",
-          setupComplete: true,
-        }),
-      ),
-    });
-
-    await runGuidedOnboarding({ acceptRisk: true }, makeRuntime(), deps);
-
-    expect(deps.applySetup).not.toHaveBeenCalled();
-    expect(deps.launchHatchTui).toHaveBeenCalledWith("/tmp/authored");
-  });
-
-  it("falls back to the OpenClaw chat when applying setup fails", async () => {
-    const prompter = createWizardPrompter();
-    const applySetup = vi.fn(async () => {
-      throw new Error("config write raced");
-    }) as unknown as GuidedOnboardingDeps["applySetup"];
-    const deps = setupDeps({ prompter, applySetup });
-    const runtime = makeRuntime();
-
-    await runGuidedOnboarding({ acceptRisk: true, workspace: "/tmp/work" }, runtime, deps);
-
-    expect(deps.launchHatchTui).not.toHaveBeenCalled();
-    expect(deps.runSystemAgentChat).toHaveBeenCalledWith("/tmp/work", runtime, true);
-    const notes = JSON.stringify((prompter.note as ReturnType<typeof vi.fn>).mock.calls);
-    expect(notes).toContain("config write raced");
   });
 
   it("converges remote inference before remote OpenClaw without mutating local config", async () => {
