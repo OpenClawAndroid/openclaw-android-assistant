@@ -102,6 +102,7 @@ import {
   takeCommandSessionMetadataChanges,
   type CommandSessionMetadataChange,
 } from "./command-session-metadata.js";
+import { capturePendingConversationTurnReply } from "./conversation-turn-capture.js";
 import {
   DispatchReplyOperationAbortedError,
   isDispatchReplyOperationAbortedError,
@@ -1101,7 +1102,17 @@ async function dispatchReplyFromConfigInner(
     }
   };
   markProcessing();
-
+  if (await capturePendingConversationTurnReply({ cfg, ctx })) {
+    emitMessageReceivedHooks();
+    commitInboundDedupeIfClaimed();
+    recordProcessed("completed", { reason: "conversation-turn-reply" });
+    markIdle("message_completed");
+    return attachSourceReplyDeliveryMode({
+      queuedFinal: false,
+      counts: dispatcher.getQueuedCounts(),
+      observedReplyDelivery: true,
+    });
+  }
   try {
     const abortRuntime = params.fastAbortResolver ? null : await loadAbortRuntime();
     const fastAbortResolver = params.fastAbortResolver ?? abortRuntime?.tryFastAbortFromMessage;
