@@ -283,6 +283,8 @@ export const en: TranslationMap = {
       adminRequired: "Administrator access is required to create setup codes.",
       title: "OpenClaw mobile",
       subtitle: "Scan this QR code in the mobile app to connect a new phone.",
+      noApp: "Don't have the app yet?",
+      getApps: "Get the apps",
       generating: "Creating a secure setup code…",
       accessTitle: "Mobile access",
       fullAccess: "Full access (recommended)",
@@ -625,6 +627,7 @@ export const en: TranslationMap = {
     showChildSessions: "Show {count} child sessions for {session}",
     hideChildSessions: "Hide {count} child sessions for {session}",
     childSessions: "Child sessions",
+    showMoreChildren: "Show {count} more",
     archived: "Archived",
     pinned: "Pinned",
     unread: "Unread",
@@ -1035,6 +1038,9 @@ export const en: TranslationMap = {
       },
     },
   },
+  // Historical namespace from the pre-restructure "quick settings" page; its
+  // keys now serve General, Privacy & Security, Appearance, and Profile.
+  // Renaming would force retranslation of every key, so the name stays.
   quickSettings: {
     language: "Language",
     model: {
@@ -1195,6 +1201,7 @@ export const en: TranslationMap = {
       xl: "XL",
       xxl: "XXL",
     },
+    syncedHint: "Synced across your devices through the gateway.",
     notifications: {
       title: "Push notifications",
       hint: "Receive browser push notifications from your gateway.",
@@ -1668,7 +1675,7 @@ export const en: TranslationMap = {
     nodes: "Paired devices, pairing approvals, and exec bindings.",
     chat: "Gateway chat for quick interventions.",
     custodian: "System setup and care.",
-    config: "Edit openclaw.json.",
+    config: "Model defaults, language, and gateway host.",
     profile: "Your agent's stats, streaks, and life in the reef.",
     communications: "Channels, messages, and audio settings.",
     appearance: "Theme, UI, and setup wizard settings.",
@@ -3731,10 +3738,11 @@ export const en: TranslationMap = {
         limitHours: "{hours}-hour limit",
       },
       takePhoto: "Take photo",
+      cameraAccessFailed: "Unable to access the camera.",
       cameraBusy: "The camera is busy or unavailable to the browser.",
       cameraNoneFound: "No camera was found.",
       cameraPermissionBlocked:
-        "Camera access is blocked. Allow camera and microphone access in browser site settings.",
+        "Camera access is blocked. Allow camera access in browser site settings.",
       cameraPreview: "Camera preview",
       dismissVoiceInputError: "Dismiss voice input error",
       microphoneAccessFailed: "Unable to access microphone inputs.",
@@ -3751,10 +3759,11 @@ export const en: TranslationMap = {
       selectedMicrophoneUnavailable:
         "The selected microphone is unavailable. Choose another input or System default.",
       startVoiceInput: "Start voice input",
-      startVideoTalk: "Start video talk",
       stillListening: "Still listening",
       stopVoiceInput: "Stop voice input",
       systemDefaultMicrophone: "System default",
+      turnCameraOff: "Turn camera off",
+      turnCameraOn: "Turn camera on",
       voiceTranscript: "Voice transcript",
     },
     selectors: {
