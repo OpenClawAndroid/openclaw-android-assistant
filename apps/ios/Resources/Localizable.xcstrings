@@ -9793,6 +9793,142 @@
         }
       }
     },
+    "Add attachment": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add attachment"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加附件"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入附件"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar anexo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir archivo adjunto"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첨부 추가"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une pièce jointe"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अटैचमेंट जोड़ें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة مرفق"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi allegato"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ek ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додати вкладення"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tambahkan lampiran"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj załącznik"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มไฟล์แนบ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm tệp đính kèm"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijlage toevoegen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افزودن پیوست"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить вложение"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lägg till bilaga"
+          }
+        }
+      }
+    },
     "Add events with least privilege.": {
       "localizations": {
         "en": {
@@ -17681,142 +17817,6 @@
         }
       }
     },
-    "Approval sent": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approval sent"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "审批已发送"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已傳送核准"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aprovação enviada"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmigung gesendet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aprobación enviada"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "承認を送信しました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "승인이 전송됨"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approbation envoyée"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "स्वीकृति भेजी गई"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم إرسال الموافقة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approvazione inviata"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Onay gönderildi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Схвалення надіслано"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Persetujuan terkirim"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zatwierdzenie wysłane"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งการอนุมัติแล้ว"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã gửi phê duyệt"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Goedkeuring verzonden"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تأیید ارسال شد"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подтверждение отправлено"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Godkännande skickat"
-          }
-        }
-      }
-    },
     "Approval set to Always Allow.": {
       "localizations": {
         "en": {
@@ -18629,142 +18629,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Godkänn den här enheten på Gateway.\n1) `%1$@`\n2) `/pair approve` i din OpenClaw-chatt\n%2$@\nOpenClaw försöker också automatiskt igen när du återvänder till den här appen."
-          }
-        }
-      }
-    },
-    "Approve this request on your gateway. Talk will start automatically when approval lands.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approve this request on your gateway. Talk will start automatically when approval lands."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请在您的 gateway 上批准此请求。审批完成后，Talk 将自动启动。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請在您的 gateway 上核准此要求。核准送達後，Talk 將自動開始。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aprove esta solicitação no seu gateway. O Talk será iniciado automaticamente quando a aprovação chegar."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmige diese Anfrage auf deiner Gateway. Talk startet automatisch, sobald die Genehmigung eintrifft."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aprueba esta solicitud en tu gateway. Talk se iniciará automáticamente cuando llegue la aprobación."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway でこのリクエストを承認してください。承認されると Talk が自動的に開始します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway에서 이 요청을 승인하세요. 승인이 완료되면 Talk가 자동으로 시작됩니다."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approuvez cette demande sur votre gateway. Talk démarrera automatiquement une fois l’approbation reçue."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "अपने gateway पर इस अनुरोध को स्वीकृत करें। स्वीकृति मिलते ही Talk अपने-आप शुरू हो जाएगा।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وافق على هذا الطلب على gateway الخاص بك. سيبدأ Talk تلقائيًا عند وصول الموافقة."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approva questa richiesta sul tuo gateway. Talk si avvierà automaticamente quando l'approvazione sarà ricevuta."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu isteği gateway’inizde onaylayın. Onay geldiğinde Talk otomatik olarak başlayacak."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Схваліть цей запит на вашому Gateway. Talk запуститься автоматично після отримання схвалення."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Setujui permintaan ini di gateway Anda. Talk akan dimulai otomatis saat persetujuan diterima."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zatwierdź tę prośbę na swoim gateway. Talk uruchomi się automatycznie po otrzymaniu zatwierdzenia."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อนุมัติคำขอนี้บน gateway ของคุณ Talk จะเริ่มโดยอัตโนมัติเมื่อได้รับการอนุมัติ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Phê duyệt yêu cầu này trên gateway của bạn. Talk sẽ tự động bắt đầu khi phê duyệt đến."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keur dit verzoek goed op je gateway. Talk start automatisch zodra de goedkeuring binnenkomt."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "این درخواست را در gateway خود تأیید کنید. پس از رسیدن تأیید، Talk به‌طور خودکار شروع می‌شود."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подтвердите этот запрос на вашем gateway. Talk запустится автоматически, когда будет получено подтверждение."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Godkänn den här förfrågan på din gateway. Talk startar automatiskt när godkännandet tas emot."
           }
         }
       }
@@ -22713,142 +22577,6 @@
         }
       }
     },
-    "Background listening": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Background listening"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "后台监听"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "背景聆聽"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escuta em segundo plano"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mithören im Hintergrund"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escucha en segundo plano"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "バックグラウンドでのリスニング"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "백그라운드 듣기"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écoute en arrière-plan"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "बैकग्राउंड में सुनना"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستماع في الخلفية"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ascolto in background"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arka planda dinleme"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фонове прослуховування"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mendengarkan di latar belakang"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nasłuchiwanie w tle"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การฟังในพื้นหลัง"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nghe trong nền"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Luisteren op de achtergrond"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "گوش‌دادن در پس‌زمینه"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фоновое прослушивание"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lyssning i bakgrunden"
-          }
-        }
-      }
-    },
     "Background location requests and significant-change updates are allowed.": {
       "localizations": {
         "en": {
@@ -25267,8 +24995,8 @@
         },
         "vi": {
           "stringUnit": {
-            "state": "new",
-            "value": "Camera"
+            "state": "translated",
+            "value": "Máy ảnh"
           }
         },
         "nl": {
@@ -28697,6 +28425,142 @@
         }
       }
     },
+    "Chat, voice active": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, voice active"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天，语音已开启"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天，語音已開啟"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, voz ativa"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, Sprache aktiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, voz activada"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット、音声オン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅, 음성 켜짐"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, voix activée"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "चैट, आवाज़ चालू"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دردشة، الصوت مفعّل"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, voce attiva"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet, ses açık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат, голос увімкнено"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, suara aktif"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat, głos włączony"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชท เปิดเสียงอยู่"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, giọng nói đang bật"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat, stem actief"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "چت، صدا فعال است"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат, голос включён"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatt, röst aktiv"
+          }
+        }
+      }
+    },
     "Check OpenClaw status": {
       "localizations": {
         "en": {
@@ -30189,6 +30053,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kontroller"
+          }
+        }
+      }
+    },
+    "Choose Image File": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Image File"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择图片文件"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇圖片檔案"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher arquivo de imagem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilddatei auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir archivo de imagen"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像ファイルを選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 파일 선택"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un fichier image"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इमेज फ़ाइल चुनें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر ملف صورة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli file immagine"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görüntü Dosyası Seç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрати файл зображення"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilih File Gambar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz plik obrazu"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกรูปภาพ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn tệp hình ảnh"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbeeldingsbestand kiezen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتخاب فایل تصویر"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать файл изображения"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj bildfil"
           }
         }
       }
@@ -32909,6 +32909,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dölj verktygsresultat"
+          }
+        }
+      }
+    },
+    "Collapsed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapsed"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收起"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收合"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolhido"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeklappt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraído"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접힘"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduit"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "संक्षिप्त"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطوي"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresso"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daraltılmış"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Згорнуто"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ciut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwinięte"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยุบอยู่"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu gọn"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingeklapt"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جمع‌شده"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свернуто"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihopfälld"
           }
         }
       }
@@ -38489,142 +38625,6 @@
         }
       }
     },
-    "Connect to your gateway to start a voice conversation.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect to your gateway to start a voice conversation."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接到 Gateway 以开始语音对话。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連線至 Gateway 以開始語音對話。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conecte-se ao seu Gateway para iniciar uma conversa por voz."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbinde dich mit deinem Gateway, um ein Sprachgespräch zu beginnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conéctate a tu Gateway para iniciar una conversación de voz."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音声会話を開始するには、Gatewayに接続してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "음성 대화를 시작하려면 Gateway에 연결하세요."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connectez-vous à votre Gateway pour démarrer une conversation vocale."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "वॉइस वार्तालाप शुरू करने के लिए अपने Gateway से कनेक्ट करें।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اتصل بـ Gateway لبدء محادثة صوتية."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connettiti al Gateway per avviare una conversazione vocale."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesli görüşme başlatmak için Gateway'inize bağlanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Підключіться до свого шлюзу, щоб розпочати голосову розмову."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hubungkan ke gateway Anda untuk memulai percakapan suara."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Połącz się z Gateway, aby rozpocząć rozmowę głosową."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เชื่อมต่อกับ Gateway ของคุณเพื่อเริ่มการสนทนาด้วยเสียง"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kết nối với Gateway của bạn để bắt đầu cuộc trò chuyện bằng giọng nói."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maak verbinding met je gateway om een spraakgesprek te starten."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "برای شروع مکالمه صوتی به Gateway خود متصل شوید."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подключитесь к Gateway, чтобы начать голосовой разговор."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anslut till din Gateway för att starta ett röstsamtal."
-          }
-        }
-      }
-    },
     "Connected": {
       "localizations": {
         "en": {
@@ -41749,278 +41749,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kontroll"
-          }
-        }
-      }
-    },
-    "Controls": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controls"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "控制"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "控制項"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controles"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Steuerelemente"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controles"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コントロール"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "컨트롤"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrôles"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "नियंत्रण"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عناصر التحكم"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controlli"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denetimler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Елементи керування"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontrol"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elementy sterujące"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การควบคุม"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Điều khiển"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bediening"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "کنترل‌ها"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Элементы управления"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontroller"
-          }
-        }
-      }
-    },
-    "Conversation": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversation"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对话"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對話"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversa"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unterhaltung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversación"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会話"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "대화"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Conversation"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "बातचीत"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المحادثة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversazione"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sohbet"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розмова"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Percakapan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konwersacja"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การสนทนา"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuộc trò chuyện"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesprek"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مکالمه"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Беседа"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konversation"
           }
         }
       }
@@ -46917,142 +46645,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Det gick inte att läsa TLS-certifikatet från %1$@:%2$@."
-          }
-        }
-      }
-    },
-    "Could not request approval": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not request approval"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法请求审批"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法要求核准"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível solicitar aprovação"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmigung konnte nicht angefordert werden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo solicitar la aprobación"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "承認をリクエストできませんでした"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "승인을 요청할 수 없음"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de demander l’approbation"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "स्वीकृति का अनुरोध नहीं किया जा सका"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر طلب الموافقة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile richiedere l'approvazione"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Onay istenemedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося надіслати запит на схвалення"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tidak dapat meminta persetujuan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się poprosić o zatwierdzenie"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่สามารถขออนุมัติได้"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể yêu cầu phê duyệt"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kon geen goedkeuring aanvragen"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "امکان درخواست تأیید وجود نداشت"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось запросить подтверждение"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunde inte begära godkännande"
           }
         }
       }
@@ -53857,142 +53449,6 @@
         }
       }
     },
-    "Demo Mode Only": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demo Mode Only"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅演示模式"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "僅限示範模式"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apenas modo de demonstração"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nur Demomodus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo modo demo"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デモモードのみ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "데모 모드 전용"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mode démo uniquement"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "केवल डेमो मोड"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وضع العرض التوضيحي فقط"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo modalità demo"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yalnızca Demo Modu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Лише деморежим"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hanya Mode Demo"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tylko tryb demonstracyjny"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหมดสาธิตเท่านั้น"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chỉ ở chế độ demo"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alleen demomodus"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فقط حالت دمو"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Только деморежим"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Endast demoläge"
-          }
-        }
-      }
-    },
     "Demo mode only": {
       "localizations": {
         "en": {
@@ -55621,6 +55077,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dagbok inte tillgänglig"
+          }
+        }
+      }
+    },
+    "Dictate message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictate message"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音输入消息"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音輸入訊息"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ditar mensagem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht diktieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictar mensaje"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージを音声入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 받아쓰기"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dicter le message"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "संदेश बोलकर लिखें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إملاء الرسالة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detta messaggio"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajı dikte et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продиктувати повідомлення"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikte pesan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dyktuj wiadomość"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พูดป้อนข้อความ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đọc để nhập tin nhắn"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bericht dicteren"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دیکته کردن پیام"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продиктовать сообщение"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktera meddelande"
           }
         }
       }
@@ -62561,142 +62153,6 @@
         }
       }
     },
-    "Enable Talk": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable Talk"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "启用 Talk"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "啟用 Talk"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ativar conversa"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talk aktivieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activar Talk"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talk を有効にする"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talk 활성화"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activer Talk"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talk सक्षम करें"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تفعيل Talk"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abilita Talk"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konuşmayı Etkinleştir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Увімкнути Talk"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktifkan Talk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Włącz Talk"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดใช้งาน Talk"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bật Talk"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesprek inschakelen"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فعال‌سازی Talk"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включить Talk"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktivera Talk"
-          }
-        }
-      }
-    },
     "Enable from iPhone": {
       "localizations": {
         "en": {
@@ -65281,6 +64737,142 @@
         }
       }
     },
+    "Expanded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expanded"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已展开"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已展開"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandido"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeklappt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandido"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "펼침"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développé"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "विस्तृत"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موسّع"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espanso"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genişletilmiş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розгорнуто"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buka"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozwinięte"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขยายอยู่"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở rộng"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitgeklapt"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بازشده"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Развернуто"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utfälld"
+          }
+        }
+      }
+    },
     "Expires": {
       "localizations": {
         "en": {
@@ -67453,6 +67045,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Filtrera agenter"
+          }
+        }
+      }
+    },
+    "Finish dictation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish dictation"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束语音输入"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束語音輸入"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerrar ditado"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktat beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finalizar dictado"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 종료"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer la dictée"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "डिक्टेशन समाप्त करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنهاء الإملاء"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termina dettatura"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikteyi bitir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити диктування"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selesai dikte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończ dyktowanie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสร็จสิ้นการป้อนด้วยเสียง"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết thúc đọc"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dicteren voltooien"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "پایان دیکته"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершить диктовку"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avsluta diktering"
           }
         }
       }
@@ -71809,138 +71537,138 @@
         }
       }
     },
-    "Gateway approval is required before this phone can capture voice.": {
+    "Gateway Settings": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gateway approval is required before this phone can capture voice."
+            "value": "Gateway Settings"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "此手机需要获得 Gateway 批准后才能采集语音。"
+            "value": "网关设置"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "此手機必須先獲得 Gateway 核准，才能擷取語音。"
+            "value": "閘道設定"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A aprovação do Gateway é necessária para que este telefone possa capturar voz."
+            "value": "Ajustes do gateway"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Genehmigung durch das Gateway ist erforderlich, bevor dieses Telefon Sprache erfassen kann."
+            "value": "Gateway-Einstellungen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se requiere la aprobación del Gateway para que este teléfono pueda capturar voz."
+            "value": "Ajustes de la pasarela"
           }
         },
         "ja-JP": {
           "stringUnit": {
             "state": "translated",
-            "value": "この電話で音声をキャプチャするには、Gatewayの承認が必要です。"
+            "value": "ゲートウェイ設定"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 휴대폰에서 음성을 캡처하려면 Gateway 승인이 필요합니다."
+            "value": "게이트웨이 설정"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’approbation du Gateway est requise avant que ce téléphone puisse enregistrer la voix."
+            "value": "Réglages de la passerelle"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "यह फ़ोन वॉइस कैप्चर कर सके, इससे पहले Gateway की मंज़ूरी आवश्यक है।"
+            "value": "गेटवे सेटिंग्स"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يلزم الحصول على موافقة Gateway قبل أن يتمكن هذا الهاتف من التقاط الصوت."
+            "value": "إعدادات البوابة"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "È necessaria l'approvazione del Gateway prima che questo telefono possa acquisire la voce."
+            "value": "Impostazioni gateway"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu telefonun ses yakalayabilmesi için Gateway onayı gereklidir."
+            "value": "Ağ Geçidi Ayarları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перш ніж цей телефон зможе записувати голос, потрібне схвалення Gateway."
+            "value": "Налаштування шлюзу"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Persetujuan Gateway diperlukan sebelum ponsel ini dapat merekam suara."
+            "value": "Pengaturan Gateway"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zanim ten telefon będzie mógł przechwytywać głos, wymagane jest zatwierdzenie przez Gateway."
+            "value": "Ustawienia bramy"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ต้องได้รับการอนุมัติจาก Gateway ก่อนที่โทรศัพท์เครื่องนี้จะสามารถบันทึกเสียงได้"
+            "value": "การตั้งค่าเกตเวย์"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cần có sự phê duyệt của Gateway trước khi điện thoại này có thể thu âm giọng nói."
+            "value": "Cài đặt cổng kết nối"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Goedkeuring van de gateway is vereist voordat deze telefoon spraak kan opnemen."
+            "value": "Gateway-instellingen"
           }
         },
         "fa": {
           "stringUnit": {
             "state": "translated",
-            "value": "پیش از اینکه این تلفن بتواند صدا را ضبط کند، تأیید Gateway لازم است."
+            "value": "تنظیمات درگاه"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Прежде чем этот телефон сможет записывать голос, требуется одобрение Gateway."
+            "value": "Настройки шлюза"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Godkännande från Gateway krävs innan den här telefonen kan spela in röst."
+            "value": "Gateway-inställningar"
           }
         }
       }
@@ -78061,6 +77789,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dölj samtalstranskription"
+          }
+        }
+      }
+    },
+    "Hides the gateway status label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the gateway status label"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏网关状态标签"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏閘道狀態標籤"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta o rótulo de status do gateway"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet die Gateway-Statusbezeichnung aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta la etiqueta de estado de la pasarela"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイのステータスラベルを非表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게이트웨이 상태 레이블 숨기기"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque le libellé d’état de la passerelle"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "गेटवे स्थिति लेबल छिपाता है"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي تسمية حالة البوابة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde l’etichetta di stato del gateway"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ağ geçidi durum etiketini gizler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховує мітку стану шлюзу"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sembunyikan label status gateway"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa etykietę stanu bramy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนป้ายสถานะเกตเวย์"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn nhãn trạng thái cổng kết nối"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbergt het gateway-statuslabel"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برچسب وضعیت درگاه را پنهان می‌کند"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает метку состояния шлюза"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Döljer gateway-statusetiketten"
           }
         }
       }
@@ -84593,6 +84457,142 @@
         }
       }
     },
+    "LIVE": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LIVE"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "LIVE"
+          }
+        }
+      }
+    },
     "Last Run": {
       "localizations": {
         "en": {
@@ -85133,142 +85133,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Senaste interaktion"
-          }
-        }
-      }
-    },
-    "Last issue": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Last issue"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上次问题"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上次問題"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Último problema"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Letztes Problem"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Último problema"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最後の問題"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "마지막 문제"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dernier problème"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "पिछली समस्या"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "آخر مشكلة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ultimo problema"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Son sorun"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Остання проблема"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Masalah terakhir"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ostatni problem"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปัญหาล่าสุด"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sự cố gần nhất"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laatste probleem"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "آخرین مشکل"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Последняя проблема"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Senaste problem"
           }
         }
       }
@@ -110025,6 +109889,142 @@
         }
       }
     },
+    "Not listening": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not listening"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在收听"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在聆聽"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não está ouvindo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hört nicht zu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No está escuchando"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "듣는 중 아님"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N’écoute pas"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "नहीं सुन रहा"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستمع"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non in ascolto"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dinlemiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не слухає"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidak mendengarkan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie nasłuchuje"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้ฟังอยู่"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không nghe"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luistert niet"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "در حال گوش دادن نیست"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не слушает"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lyssnar inte"
+          }
+        }
+      }
+    },
     "Not loaded": {
       "localizations": {
         "en": {
@@ -111517,6 +111517,142 @@
           "stringUnit": {
             "state": "new",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "OPENCLAW": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OPENCLAW"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "new",
+            "value": "OPENCLAW"
           }
         }
       }
@@ -114373,278 +114509,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Öppna Inställningar om du behöver ange en värd manuellt."
-          }
-        }
-      }
-    },
-    "Open Voice Settings": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Voice Settings"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开语音设置"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟語音設定"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir configurações de voz"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spracheinstellungen öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir configuración de voz"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音声設定を開く"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "음성 설정 열기"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir les paramètres vocaux"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voice सेटिंग्स खोलें"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح إعدادات الصوت"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri impostazioni voce"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ses Ayarlarını Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відкрити налаштування голосу"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buka Pengaturan Suara"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz ustawienia głosu"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดการตั้งค่าเสียง"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mở cài đặt giọng nói"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spraakinstellingen openen"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "باز کردن تنظیمات صدا"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть настройки голоса"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öppna röstinställningar"
-          }
-        }
-      }
-    },
-    "Open Voice settings after the gateway loads Talk configuration.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Voice settings after the gateway loads Talk configuration."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway 加载 Talk 配置后，打开语音设置。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway 載入 Talk 設定後，開啟語音設定。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abra os ajustes de Voz depois que o Gateway carregar a configuração do Talk."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öffne die Spracheinstellungen, nachdem das Gateway die Talk-Konfiguration geladen hat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abre los ajustes de voz después de que el Gateway cargue la configuración de Talk."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GatewayがTalk設定を読み込んだ後、音声設定を開いてください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway에서 Talk 구성을 불러온 후 음성 설정을 여세요."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrez les réglages de la voix une fois que le Gateway a chargé la configuration Talk."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway द्वारा Talk कॉन्फ़िगरेशन लोड किए जाने के बाद वॉइस सेटिंग्स खोलें।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "افتح إعدادات الصوت بعد أن يحمّل Gateway إعدادات Talk."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri le impostazioni Voce dopo che il Gateway ha caricato la configurazione di Talk."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway, Talk yapılandırmasını yükledikten sonra Ses ayarlarını açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відкрийте налаштування голосу після того, як шлюз завантажить конфігурацію Talk."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buka pengaturan Suara setelah gateway memuat konfigurasi Talk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz ustawienia głosu po wczytaniu konfiguracji Talk przez Gateway."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดการตั้งค่าเสียงหลังจาก Gateway โหลดการกำหนดค่า Talk แล้ว"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mở phần cài đặt Giọng nói sau khi Gateway tải cấu hình Talk."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open de spraakinstellingen nadat de gateway de Talk-configuratie heeft geladen."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "پس از اینکه Gateway پیکربندی Talk را بارگیری کرد، تنظیمات صدا را باز کنید."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Откройте настройки голоса после того, как Gateway загрузит конфигурацию Talk."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öppna röstinställningarna efter att Gateway har läst in Talk-konfigurationen."
           }
         }
       }
@@ -121177,142 +121041,6 @@
         }
       }
     },
-    "Permission": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permission"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "权限"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "權限"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permissão"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Berechtigung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permiso"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "権限"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "권한"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorisation"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "अनुमति"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الإذن"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorizzazione"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İzin"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дозвіл"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uprawnienie"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สิทธิ์อนุญาต"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quyền"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toestemming"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مجوز"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разрешение"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Behörighet"
-          }
-        }
-      }
-    },
     "Permission can be saved": {
       "localizations": {
         "en": {
@@ -121853,6 +121581,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Faser"
+          }
+        }
+      }
+    },
+    "Photo Library": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo Library"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照片图库"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照片圖庫"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fototeca"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotomediathek"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fototeca"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真ライブラリ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 보관함"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photothèque"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "फ़ोटो लाइब्रेरी"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكتبة الصور"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libreria foto"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotoğraf Arşivi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фототека"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perpustakaan Foto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biblioteka zdjęć"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลังรูปภาพ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư viện ảnh"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotobibliotheek"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "کتابخانه عکس"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиатека"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildbibliotek"
           }
         }
       }
@@ -128793,142 +128657,6 @@
         }
       }
     },
-    "Realtime voice and controls.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Realtime voice and controls."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "实时语音和控制。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "即時語音與控制。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voz e controles em tempo real."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Echtzeit-Sprache und -Steuerung."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voz y controles en tiempo real."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リアルタイム音声とコントロール。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실시간 음성 및 제어."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voix et commandes en temps réel."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "रीयलटाइम आवाज़ और नियंत्रण।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الصوت والتحكم في الوقت الفعلي."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voce e controlli in tempo reale."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gerçek zamanlı ses ve kontroller."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Голос і керування в реальному часі."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suara realtime dan kontrol."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Głos i sterowanie w czasie rzeczywistym."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เสียงและการควบคุมแบบเรียลไทม์"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Giọng nói và điều khiển thời gian thực."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Realtime spraak en bediening."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "صدای بلادرنگ و کنترل‌ها."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Голос и управление в реальном времени."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Realtidsröst och kontroller."
-          }
-        }
-      }
-    },
     "Realtime voice did not start.": {
       "localizations": {
         "en": {
@@ -135729,278 +135457,6 @@
         }
       }
     },
-    "Request Again": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Request Again"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再次请求"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再次要求"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solicitar novamente"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut anfordern"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solicitar de nuevo"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再リクエスト"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 요청"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander à nouveau"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "फिर से अनुरोध करें"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الطلب مرة أخرى"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Richiedi di nuovo"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tekrar iste"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запитати знову"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Minta Lagi"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Poproś ponownie"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ขออีกครั้ง"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yêu cầu lại"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opnieuw aanvragen"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "درخواست دوباره"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запросить снова"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Begär igen"
-          }
-        }
-      }
-    },
-    "Request ID": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Request ID"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请求 ID"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要求 ID"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID da solicitação"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anfrage-ID"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID de solicitud"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リクエスト ID"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "요청 ID"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID de la demande"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "अनुरोध ID"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "معرّف الطلب"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID richiesta"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İstek kimliği"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID запиту"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID Permintaan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID żądania"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID คำขอ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID yêu cầu"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aanvraag-ID"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شناسه درخواست"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID запроса"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Förfrågnings-ID"
-          }
-        }
-      }
-    },
     "Request ID: %@": {
       "localizations": {
         "en": {
@@ -141437,142 +140893,6 @@
           "stringUnit": {
             "state": "new",
             "value": "Routed on this phone"
-          }
-        }
-      }
-    },
-    "Routes voice to %@.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Routes voice to %@."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将语音路由到 %@。"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將語音導向 %@。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Encaminha a voz para %@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leitet Sprache an %@ weiter."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dirige la voz a %@."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音声を%@にルーティングします。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "음성을 %@로 라우팅합니다."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Achemine la voix vers %@."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "वॉइस को %@ पर रूट करता है।"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يوجّه الصوت إلى %@."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instrada la voce verso %@."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesi %@ hedefine yönlendirir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрямовує голос до %@."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Merutekan suara ke %@."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kieruje głos do %@."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำหนดเส้นทางเสียงไปยัง %@."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Định tuyến giọng nói đến %@."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leidt spraak door naar %@."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "صدا را به %@ هدایت می‌کند."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Направляет голосовой ввод в %@."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dirigerar röst till %@."
           }
         }
       }
@@ -150961,142 +150281,6 @@
         }
       }
     },
-    "Send Approval Request": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send Approval Request"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "发送审批请求"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "傳送核准要求"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviar solicitação de aprovação"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmigungsanfrage senden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviar solicitud de aprobación"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "承認リクエストを送信"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "승인 요청 보내기"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoyer une demande d’approbation"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "स्वीकृति अनुरोध भेजें"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إرسال طلب الموافقة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invia richiesta di approvazione"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Onay isteği gönder"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надіслати запит на схвалення"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kirim Permintaan Persetujuan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyślij prośbę o zatwierdzenie"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งคำขออนุมัติ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gửi yêu cầu phê duyệt"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Goedkeuringsaanvraag verzenden"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ارسال درخواست تأیید"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправить запрос на подтверждение"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skicka godkännandeförfrågan"
-          }
-        }
-      }
-    },
     "Send from watch": {
       "localizations": {
         "en": {
@@ -151641,278 +150825,6 @@
         }
       }
     },
-    "Sending a new pairing request to your gateway...": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sending a new pairing request to your gateway..."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在向您的 gateway 发送新的配对请求..."
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在將新的配對要求傳送至您的 gateway..."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviando uma nova solicitação de pareamento para seu gateway..."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eine neue Kopplungsanfrage wird an deine Gateway gesendet..."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviando una nueva solicitud de emparejamiento a tu gateway..."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway に新しいペアリングリクエストを送信しています..."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway에 새 페어링 요청을 전송하는 중..."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoi d’une nouvelle demande d’association à votre gateway..."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "आपके gateway को नया pairing अनुरोध भेजा जा रहा है..."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ إرسال طلب اقتران جديد إلى gateway الخاص بك..."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invio di una nuova richiesta di abbinamento al tuo gateway..."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway’inize yeni bir eşleştirme isteği gönderiliyor..."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надсилання нового запиту на сполучення до вашого Gateway..."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mengirim permintaan penyandingan baru ke gateway Anda..."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wysyłanie nowej prośby o parowanie do Twojego gateway..."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังส่งคำขอจับคู่ใหม่ไปยัง gateway ของคุณ..."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang gửi yêu cầu ghép đôi mới đến gateway của bạn..."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Een nieuw koppelingsverzoek naar je gateway verzenden..."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "در حال ارسال درخواست جفت‌سازی جدید به gateway شما..."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправка нового запроса на сопряжение вашему gateway..."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skickar en ny parkopplingsförfrågan till din gateway..."
-          }
-        }
-      }
-    },
-    "Sending approval request": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sending approval request"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在发送审批请求"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在傳送核准要求"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviando solicitação de aprovação"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genehmigungsanfrage wird gesendet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviando solicitud de aprobación"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "承認リクエストを送信中"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "승인 요청 전송 중"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoi de la demande d’approbation"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "स्वीकृति अनुरोध भेजा जा रहा है"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ إرسال طلب الموافقة"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invio della richiesta di approvazione"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Onay isteği gönderiliyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надсилання запиту на схвалення"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mengirim permintaan persetujuan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wysyłanie prośby o zatwierdzenie"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังส่งคำขออนุมัติ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang gửi yêu cầu phê duyệt"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Goedkeuringsaanvraag verzenden"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "در حال ارسال درخواست تأیید"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправка запроса на подтверждение"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skickar godkännandeförfrågan"
-          }
-        }
-      }
-    },
     "Sending decision...": {
       "localizations": {
         "en": {
@@ -152045,142 +150957,6 @@
           "stringUnit": {
             "state": "new",
             "value": "Sending decision..."
-          }
-        }
-      }
-    },
-    "Sending...": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sending..."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在发送..."
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在傳送..."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviando..."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird gesendet..."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enviando..."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信中..."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전송 중..."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Envoi..."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "भेजा जा रहा है..."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ الإرسال..."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invio..."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gönderiliyor..."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надсилання..."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mengirim..."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wysyłanie..."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังส่ง..."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang gửi..."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verzenden..."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "در حال ارسال..."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправка..."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skickar..."
           }
         }
       }
@@ -158577,6 +157353,142 @@
         }
       }
     },
+    "Shows the full gateway status label": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the full gateway status label"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示完整网关状态标签"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示完整閘道狀態標籤"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o rótulo completo de status do gateway"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die vollständige Gateway-Statusbezeichnung an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra la etiqueta completa de estado de la pasarela"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲートウェイの完全なステータスラベルを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 게이트웨이 상태 레이블 표시"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche le libellé d’état complet de la passerelle"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पूरा गेटवे स्थिति लेबल दिखाता है"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض تسمية حالة البوابة كاملة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra l’etichetta completa di stato del gateway"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam ağ geçidi durum etiketini gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує повну мітку стану шлюзу"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tampilkan label status gateway lengkap"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje pełną etykietę stanu bramy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงป้ายสถานะเกตเวย์แบบเต็ม"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện đầy đủ nhãn trạng thái cổng kết nối"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toont het volledige gateway-statuslabel"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برچسب کامل وضعیت درگاه را نشان می‌دهد"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает полную метку состояния шлюза"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visar hela gateway-statusetiketten"
+          }
+        }
+      }
+    },
     "Signal Entries": {
       "localizations": {
         "en": {
@@ -162109,142 +161021,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Taligenkänningsfel: %@"
-          }
-        }
-      }
-    },
-    "Speech language": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Speech language"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "语音语言"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "語音語言"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Idioma da fala"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sprache für Spracherkennung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Idioma de voz"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音声言語"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "음성 언어"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Langue vocale"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "बोलने की भाषा"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لغة الكلام"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lingua vocale"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konuşma dili"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мова мовлення"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bahasa ucapan"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Język mowy"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ภาษาพูด"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ngôn ngữ nói"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spraaktaal"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "زبان گفتار"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Язык речи"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talspråk"
           }
         }
       }
@@ -176393,142 +175169,6 @@
         }
       }
     },
-    "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 기기에서 Talk가 실시간 음성을 사용하려면 게이트웨이 승인이 필요합니다. 오디오는 이 기기에서 음성 제공자로 직접 전송됩니다."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "new",
-            "value": "This device needs gateway approval before Talk can use realtime voice. Audio will go directly from this device to the voice provider."
-          }
-        }
-      }
-    },
     "This disconnects, clears saved gateway credentials, and reopens onboarding.": {
       "localizations": {
         "en": {
@@ -178973,6 +177613,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spårar %@ i körningshistoriken."
+          }
+        }
+      }
+    },
+    "Transcribe speech into the message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribe speech into the message"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将语音转写到消息中。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將語音轉成訊息文字。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcreva a fala na mensagem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprache in die Nachricht transkribieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribe la voz en el mensaje."
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声をメッセージに文字起こしします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성을 메시지에 텍스트로 입력합니다."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcrire la parole dans le message."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "बोली को संदेश में लिखें।"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوّل الكلام إلى نص داخل الرسالة."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascrivi il parlato nel messaggio."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konuşmayı mesaja aktar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетворити мовлення на текст повідомлення."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transkripsikan ucapan ke dalam pesan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przepisz mowę do wiadomości."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถอดเสียงพูดเป็นข้อความในข้อความ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển lời nói thành văn bản trong tin nhắn."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet spraak om naar tekst in het bericht."
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "گفتار را به متن پیام تبدیل کنید."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Преобразовать речь в текст сообщения."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omvandla tal till text i meddelandet."
           }
         }
       }
@@ -184281,6 +183057,278 @@
         }
       }
     },
+    "Using %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using %@"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 %@"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando %@"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を使用中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 사용 중"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ का उपयोग करके"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За допомогою %@"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menggunakan %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przez %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang dùng %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met %@"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "با استفاده از %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С использованием %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med %@"
+          }
+        }
+      }
+    },
+    "Using a tool": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using a tool"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用工具"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用工具"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando uma ferramenta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando una herramienta"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールを使用中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 사용 중"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation d’un outil"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "टूल का उपयोग"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام أداة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso di uno strumento"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir araç kullanılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За допомогою інструмента"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menggunakan alat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korzystanie z narzędzia"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้เครื่องมือ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang dùng công cụ"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool gebruiken"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استفاده از ابزار"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С помощью инструмента"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Använder ett verktyg"
+          }
+        }
+      }
+    },
     "Using iOS Speech fallback": {
       "localizations": {
         "en": {
@@ -186049,142 +185097,6 @@
         }
       }
     },
-    "Voice & Talk Settings": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voice & Talk Settings"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "语音和通话设置"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "語音與通話設定"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurações de voz e fala"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einstellungen für Stimme & Sprechen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuración de voz y conversación"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音声と会話の設定"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "음성 및 대화 설정"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paramètres de voix et de conversation"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "वॉइस और बातचीत सेटिंग्स"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعدادات الصوت والتحدث"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impostazioni Voce e conversazione"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ses ve Konuşma Ayarları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Налаштування голосу й розмови"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pengaturan Suara & Bicara"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ustawienia głosu i rozmowy"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การตั้งค่าเสียงและการพูด"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cài đặt Giọng nói & Trò chuyện"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instellingen voor spraak en praten"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تنظیمات صدا و گفت‌وگو"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Настройки голоса и разговора"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inställningar för röst och samtal"
-          }
-        }
-      }
-    },
     "Voice Mode": {
       "localizations": {
         "en": {
@@ -186729,138 +185641,138 @@
         }
       }
     },
-    "Voice is disabled in Apple Review demo mode.": {
+    "Voice active": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice is disabled in Apple Review demo mode."
+            "value": "Voice active"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple 审核演示模式下已禁用语音。"
+            "value": "语音已开启"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple 審查展示模式已停用語音功能。"
+            "value": "語音已開啟"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A voz está desativada no modo de demonstração para a revisão da Apple."
+            "value": "Voz ativa"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sprache ist im Apple Review-Demomodus deaktiviert."
+            "value": "Sprache aktiv"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La voz está desactivada en el modo de demostración de Apple Review."
+            "value": "Voz activada"
           }
         },
         "ja-JP": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Reviewデモモードでは音声が無効になっています。"
+            "value": "音声オン"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Review 데모 모드에서는 음성이 비활성화됩니다."
+            "value": "음성 켜짐"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La voix est désactivée en mode démo Apple Review."
+            "value": "Voix activée"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Review डेमो मोड में वॉइस अक्षम है।"
+            "value": "आवाज़ चालू"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الصوت معطّل في وضع العرض التوضيحي لمراجعة Apple."
+            "value": "الصوت مفعّل"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La voce è disabilitata nella modalità demo per la revisione di Apple."
+            "value": "Voce attiva"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Review demo modunda ses devre dışıdır."
+            "value": "Ses açık"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Голос вимкнено в демонстраційному режимі Apple Review."
+            "value": "Голос увімкнено"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suara dinonaktifkan dalam mode demo Apple Review."
+            "value": "Suara aktif"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obsługa głosu jest wyłączona w trybie demonstracyjnym Apple Review."
+            "value": "Głos włączony"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เสียงถูกปิดใช้งานในโหมดสาธิตสำหรับ Apple Review"
+            "value": "เสียงเปิดอยู่"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tính năng giọng nói bị tắt trong chế độ demo Apple Review."
+            "value": "Giọng nói đang bật"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spraak is uitgeschakeld in de Apple Review-demomodus."
+            "value": "Stem actief"
           }
         },
         "fa": {
           "stringUnit": {
             "state": "translated",
-            "value": "صدا در حالت دموی Apple Review غیرفعال است."
+            "value": "صدا فعال است"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Голосовые функции отключены в демонстрационном режиме Apple Review."
+            "value": "Голос включён"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Röst är inaktiverat i demoläget för Apple Review."
+            "value": "Röst aktiv"
           }
         }
       }
@@ -187137,138 +186049,138 @@
         }
       }
     },
-    "Waiting for Approval": {
+    "Voice off": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for Approval"
+            "value": "Voice off"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "等待批准"
+            "value": "语音已关闭"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "等待核准"
+            "value": "語音已關閉"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aguardando aprovação"
+            "value": "Voz desativada"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Warten auf Genehmigung"
+            "value": "Sprache aus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esperando aprobación"
+            "value": "Voz desactivada"
           }
         },
         "ja-JP": {
           "stringUnit": {
             "state": "translated",
-            "value": "承認待ち"
+            "value": "音声オフ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "승인 대기 중"
+            "value": "음성 꺼짐"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "En attente d’approbation"
+            "value": "Voix désactivée"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "स्वीकृति की प्रतीक्षा है"
+            "value": "आवाज़ बंद"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "في انتظار الموافقة"
+            "value": "الصوت متوقف"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "In attesa di approvazione"
+            "value": "Voce disattivata"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onay Bekleniyor"
+            "value": "Ses kapalı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Очікування схвалення"
+            "value": "Голос вимкнено"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menunggu Persetujuan"
+            "value": "Suara mati"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oczekiwanie na zatwierdzenie"
+            "value": "Głos wyłączony"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กำลังรอการอนุมัติ"
+            "value": "เสียงปิดอยู่"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đang chờ phê duyệt"
+            "value": "Giọng nói đang tắt"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wachten op goedkeuring"
+            "value": "Stem uit"
           }
         },
         "fa": {
           "stringUnit": {
             "state": "translated",
-            "value": "در انتظار تأیید"
+            "value": "صدا خاموش است"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ожидает подтверждения"
+            "value": "Голос выключен"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Väntar på godkännande"
+            "value": "Röst av"
           }
         }
       }
