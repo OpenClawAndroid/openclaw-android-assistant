@@ -32777,6 +32777,142 @@
         }
       }
     },
+    "Collapse tool result": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse tool result"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折叠工具结果"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收合工具結果"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolher resultado da ferramenta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool-Ergebnis einklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraer el resultado de la herramienta"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールの結果を折りたたむ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 결과 접기"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduire le résultat de l’outil"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "टूल परिणाम संक्षिप्त करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طي نتيجة الأداة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi il risultato dello strumento"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Araç sonucunu daralt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Згорнути результат інструмента"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ciutkan hasil alat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwiń wynik narzędzia"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยุบผลลัพธ์ของเครื่องมือ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu gọn kết quả công cụ"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolresultaat samenvouwen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جمع کردن نتیجه ابزار"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свернуть результат инструмента"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dölj verktygsresultat"
+          }
+        }
+      }
+    },
     "Command": {
       "localizations": {
         "en": {
@@ -65005,6 +65141,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Visa plan"
+          }
+        }
+      }
+    },
+    "Expand tool result": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand tool result"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开工具结果"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開工具結果"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir resultado da ferramenta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool-Ergebnis ausklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir el resultado de la herramienta"
+          }
+        },
+        "ja-JP": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールの結果を展開"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 결과 펼치기"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développer le résultat de l’outil"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "टूल परिणाम विस्तृत करें"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توسيع نتيجة الأداة"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espandi il risultato dello strumento"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Araç sonucunu genişlet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розгорнути результат інструмента"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perluas hasil alat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozwiń wynik narzędzia"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขยายผลลัพธ์ของเครื่องมือ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở rộng kết quả công cụ"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolresultaat uitvouwen"
+          }
+        },
+        "fa": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "باز کردن نتیجه ابزار"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Развернуть результат инструмента"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visa verktygsresultat"
           }
         }
       }
@@ -143753,142 +144025,6 @@
         }
       }
     },
-    "Running tools…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Running tools…"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在运行工具…"
-          }
-        },
-        "zh-TW": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在執行工具…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Executando ferramentas…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tools werden ausgeführt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ejecutando herramientas…"
-          }
-        },
-        "ja-JP": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ツールを実行中…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "도구 실행 중…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exécution des outils…"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "टूल चल रहे हैं…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ تشغيل الأدوات…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esecuzione strumenti…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Araçlar çalıştırılıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Виконання інструментів…"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Menjalankan tools…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uruchamianie narzędzi…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังเรียกใช้เครื่องมือ…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang chạy công cụ…"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tools uitvoeren…"
-          }
-        },
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "در حال اجرای ابزارها…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запуск инструментов…"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kör verktyg…"
-          }
-        }
-      }
-    },
     "Runtime": {
       "localizations": {
         "en": {
@@ -157761,138 +157897,138 @@
         }
       }
     },
-    "Show full output": {
+    "Show all %lld lines": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show full output"
+            "value": "Show all %lld lines"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示完整输出"
+            "value": "显示全部 %lld 行"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示完整輸出"
+            "value": "顯示全部 %lld 行"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar saída completa"
+            "value": "Mostrar todas as %lld linhas"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vollständige Ausgabe anzeigen"
+            "value": "Alle %lld Zeilen anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar salida completa"
+            "value": "Mostrar las %lld líneas"
           }
         },
         "ja-JP": {
           "stringUnit": {
             "state": "translated",
-            "value": "完全な出力を表示"
+            "value": "%lld 行すべてを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전체 출력 표시"
+            "value": "%lld줄 모두 보기"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher la sortie complète"
+            "value": "Afficher les %lld lignes"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "पूरा आउटपुट दिखाएँ"
+            "value": "सभी %lld पंक्तियाँ दिखाएँ"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض المخرجات كاملة"
+            "value": "عرض جميع الأسطر البالغ عددها %lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra output completo"
+            "value": "Mostra tutte le %lld righe"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tam çıktıyı göster"
+            "value": "%lld satırın tümünü göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показати повний вивід"
+            "value": "Показати всі %lld рядків"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tampilkan output lengkap"
+            "value": "Tampilkan semua %lld baris"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokaż pełne dane wyjściowe"
+            "value": "Pokaż wszystkie wiersze (%lld)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงผลลัพธ์ทั้งหมด"
+            "value": "แสดงทั้งหมด %lld บรรทัด"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hiển thị toàn bộ đầu ra"
+            "value": "Hiển thị tất cả %lld dòng"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Volledige uitvoer tonen"
+            "value": "Alle %lld regels weergeven"
           }
         },
         "fa": {
           "stringUnit": {
             "state": "translated",
-            "value": "نمایش خروجی کامل"
+            "value": "نمایش همه %lld خط"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показать полный вывод"
+            "value": "Показать все %lld строк"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visa fullständig utdata"
+            "value": "Visa alla %lld rader"
           }
         }
       }
