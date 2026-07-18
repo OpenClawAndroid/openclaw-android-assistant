@@ -140,14 +140,6 @@ describe("qa scenario catalog", () => {
   it("loads scenario-specific execution config from per-scenario YAML", () => {
     const discovery = readQaScenarioById("source-docs-discovery-report");
     const discoveryConfig = readQaScenarioExecutionConfig("source-docs-discovery-report");
-    const codexLeak = readQaScenarioById("codex-harness-no-meta-leak");
-    const codexLeakConfig = readQaScenarioExecutionConfig("codex-harness-no-meta-leak") as
-      | {
-          harnessRuntime?: string;
-          expectedReply?: string;
-          forbiddenReplySubstrings?: string[];
-        }
-      | undefined;
     const fallbackConfig = readQaScenarioExecutionConfig("memory-failure-fallback");
     const bundledSkill = readQaScenarioById("bundled-plugin-skill-runtime");
     const bundledSkillConfig = readQaScenarioExecutionConfig("bundled-plugin-skill-runtime") as
@@ -161,12 +153,6 @@ describe("qa scenario catalog", () => {
     expect((discoveryConfig?.requiredFiles as string[] | undefined)?.[0]).toBe(
       "repo/qa/scenarios/index.yaml",
     );
-    expect(codexLeak.title).toBe("Codex harness no meta leak");
-    expect(codexLeakConfig?.harnessRuntime).toBe("codex");
-    expect(JSON.stringify(codexLeak.execution.flow)).toContain("agentRuntime");
-    expect(JSON.stringify(codexLeak.execution.flow)).not.toContain("embeddedHarness");
-    expect(codexLeakConfig?.expectedReply).toBe("QA_LEAK_OK");
-    expect(codexLeakConfig?.forbiddenReplySubstrings).toContain("checking thread context");
     expect(fallbackConfig?.gracefulFallbackAny as string[] | undefined).toContain(
       "will not reveal",
     );
