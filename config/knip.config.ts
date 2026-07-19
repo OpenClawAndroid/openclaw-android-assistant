@@ -68,6 +68,8 @@ const repositoryScriptEntries = [
   // Oxlint loads this JS plugin by path from config/oxlint/boundary-guards.json.
   "scripts/oxlint-boundary-guards.mjs!",
   "scripts/plugin-prerelease-liveish-matrix.mjs!",
+  // Generates the checked-in native protocol models from core descriptor metadata.
+  "scripts/protocol-gen.ts!",
   "scripts/pr-gates-lock.mjs!",
   "scripts/pr-lib/ci-dispatch.mjs!",
   "scripts/pr-lib/review-artifacts.mjs!",
@@ -252,6 +254,9 @@ const rootToolingAndWorkspaceDependencies = [
   // scripts/ui.js anchors these lookups at ui/package.json before invoking the UI workspace.
   "@vitest/browser-playwright",
   "dompurify",
+  // Root typecheck/test projects compile @openclaw/net-policy source directly.
+  // Keep its exact dependency available without externalizing it from packaged builds.
+  "ipaddr.js",
   "jscpd",
   "lit",
   "oxlint",
