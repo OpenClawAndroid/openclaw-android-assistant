@@ -71,6 +71,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Payloads
   - H3: Agent-turn options
   - H3: Command payloads
+  - H3: Script payloads
   - H2: Execution styles
   - H2: Delivery and output
   - H3: Failure notifications
@@ -4120,6 +4121,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: How it works
   - H2: Configuration
   - H3: Configuration reference
+  - H2: Automatic device approval
   - H2: Control UI pairing behavior
   - H2: Operator scopes header
   - H2: TLS termination and HSTS
@@ -5965,6 +5967,19 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Notes
   - H2: Related
 
+## plugins/meeting-plugins.md
+
+- Route: /plugins/meeting-plugins
+- Headings:
+  - H2: Choose a plugin
+  - H2: Choose a mode
+  - H2: Prepare Chrome and audio
+  - H2: Enable the plugin
+  - H2: Verify and join
+  - H2: Handle platform policy prompts
+  - H2: Discord voice chat
+  - H2: Platform guides
+
 ## plugins/memory-lancedb.md
 
 - Route: /plugins/memory-lancedb
@@ -7571,6 +7586,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Modes
   - H2: Guest join limits
   - H2: Tool and gateway surface
+  - H2: Related
 
 ## plugins/tool-plugins.md
 
@@ -7703,6 +7719,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Modes
   - H2: Guest join limits
   - H2: Tool and gateway surface
+  - H2: Related
 
 ## prose.md
 

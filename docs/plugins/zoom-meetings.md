@@ -65,3 +65,7 @@ The Zoom Web App has been live-validated with an official Zoom test meeting for 
 ## Tool and gateway surface
 
 The `zoom_meetings` agent tool supports `join`, `leave`, `status`, `transcript`, and `speak`. Gateway methods use the `zoommeetings.*` prefix. The node command is `zoommeetings.chrome`.
+
+## Related
+
+- [Meeting plugins overview](/plugins/meeting-plugins)
