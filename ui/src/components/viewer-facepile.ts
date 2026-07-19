@@ -1,6 +1,7 @@
-import { html, nothing, type PropertyValues } from "lit";
-import { property, state } from "lit/decorators.js";
+import { html, nothing } from "lit";
+import { property } from "lit/decorators.js";
 import type { PresenceEntry } from "../api/types.ts";
+import { resolveAvatar } from "../lib/identity-avatar.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
 import "./tooltip.ts";
 
@@ -112,58 +113,39 @@ function avatarColor(userId: string): string {
   return `hsl(${(hash >>> 0) % 360} 48% 42%)`;
 }
 
-type GravatarCacheEntry = string | Promise<string | null> | { failedUntil: number };
-
-// An <img> error cannot distinguish a Gravatar 404 from a transient network or
-// 5xx failure, so negative entries expire instead of poisoning the page lifetime.
-// Accepted tradeoff: re-resolution happens on the next user-prop update (any
-// presence/snapshot event), not on a timer — a fully idle page keeps initials
-// until activity resumes rather than each avatar owning a retry timer.
-const GRAVATAR_NEGATIVE_CACHE_MS = 10 * 60 * 1000;
-const gravatarUrlCache = new Map<string, GravatarCacheEntry>();
-
-function negativeEntry(): GravatarCacheEntry {
-  return { failedUntil: Date.now() + GRAVATAR_NEGATIVE_CACHE_MS };
+function renderAvatarInitials(user: PresenceViewer) {
+  return html`<span style=${`background: ${avatarColor(user.id)}`}>${initialsFor(user)}</span>`;
 }
 
-function normalizedEmail(email: string | null | undefined): string | undefined {
-  return normalized(email)?.toLowerCase();
-}
-
-function gravatarUrlForEmail(email: string): string | null | Promise<string | null> {
-  const normalizedValue = normalizedEmail(email);
-  if (!normalizedValue) {
-    return null;
+function resolveViewerAvatar(user: PresenceViewer) {
+  const avatar = resolveAvatar({
+    id: user.email ?? user.id,
+    name: user.name,
+    profileAvatarUrl: user.avatarUrl,
+  });
+  if (avatar.kind === "initials") {
+    return renderAvatarInitials(user);
   }
-  const cached = gravatarUrlCache.get(normalizedValue);
-  if (cached !== undefined) {
-    if (typeof cached === "object" && cached !== null && "failedUntil" in cached) {
-      if (cached.failedUntil > Date.now()) {
-        return null;
-      }
-      gravatarUrlCache.delete(normalizedValue);
-    } else {
-      return cached;
-    }
-  }
-  const pending = Promise.resolve()
-    .then(() =>
-      globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalizedValue)),
-    )
-    .then((digest) => {
-      const hash = [...new Uint8Array(digest)]
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
-      const url = `https://gravatar.com/avatar/${hash}?d=404&s=128`;
-      gravatarUrlCache.set(normalizedValue, url);
-      return url;
-    })
-    .catch(() => {
-      gravatarUrlCache.set(normalizedValue, negativeEntry());
-      return null;
-    });
-  gravatarUrlCache.set(normalizedValue, pending);
-  return pending;
+  return html`<img
+      src=${avatar.url}
+      alt=""
+      referrerpolicy="no-referrer"
+      @error=${(event: Event) => {
+        const image = event.currentTarget;
+        if (image instanceof HTMLImageElement) {
+          image.closest<HTMLElement>(".viewer-avatar")?.classList.add("is-fallback");
+        }
+      }}
+      @load=${(event: Event) => {
+        const image = event.currentTarget;
+        if (image instanceof HTMLImageElement) {
+          image.closest<HTMLElement>(".viewer-avatar")?.classList.remove("is-fallback");
+        }
+      }}
+    />
+    <span class="viewer-avatar__fallback" style=${`background: ${avatarColor(user.id)}`}
+      >${initialsFor(user)}</span
+    >`;
 }
 
 export type ViewerAvatarVariant = "session" | "footer" | "profile";
@@ -172,89 +154,18 @@ class ViewerAvatar extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) user: PresenceViewer | null = null;
   @property() variant: ViewerAvatarVariant = "session";
 
-  @state() private gravatar: { email: string; url: string } | null = null;
-
-  private failedImageUrl: string | null = null;
-  private resolutionId = 0;
-
-  protected override willUpdate(changedProperties: PropertyValues<this>) {
-    if (changedProperties.has("user")) {
-      this.failedImageUrl = null;
-    }
-  }
-
-  protected override updated(changedProperties: PropertyValues<this>) {
-    if (!changedProperties.has("user")) {
-      return;
-    }
-    const resolutionId = ++this.resolutionId;
-    const email = this.user?.avatarUrl ? undefined : normalizedEmail(this.user?.email);
-    if (!email) {
-      return;
-    }
-    const applyResolvedUrl = (url: string | null) => {
-      if (
-        resolutionId === this.resolutionId &&
-        !this.user?.avatarUrl &&
-        normalizedEmail(this.user?.email) === email
-      ) {
-        this.gravatar = url ? { email, url } : null;
-      }
-    };
-    const resolved = gravatarUrlForEmail(email);
-    if (typeof resolved === "string") {
-      applyResolvedUrl(resolved);
-      return;
-    }
-    if (resolved) {
-      void resolved.then(applyResolvedUrl);
-    }
-  }
-
-  private readonly handleImageError = (event: Event) => {
-    const imageUrl = (event.currentTarget as HTMLImageElement).getAttribute("src");
-    const user = this.user;
-    if (!imageUrl || !user) {
-      return;
-    }
-    const email = normalizedEmail(user.email);
-    if (
-      !user.avatarUrl &&
-      email &&
-      imageUrl === this.gravatar?.url &&
-      email === this.gravatar.email
-    ) {
-      gravatarUrlCache.set(email, negativeEntry());
-      this.gravatar = null;
-      return;
-    }
-    this.failedImageUrl = imageUrl;
-    this.requestUpdate();
-  };
-
   override render() {
     const user = this.user;
     if (!user) {
       return nothing;
     }
     const label = presenceViewerLabel(user);
-    const email = normalizedEmail(user.email);
-    const gravatarUrl = this.gravatar && this.gravatar.email === email ? this.gravatar.url : null;
-    const imageUrl = user.avatarUrl ?? gravatarUrl;
     return html`<span
       class="viewer-avatar viewer-avatar--${this.variant}"
       data-viewer-id=${user.id}
       aria-label=${label}
     >
-      ${imageUrl && imageUrl !== this.failedImageUrl
-        ? html`<img
-            src=${imageUrl}
-            alt=""
-            referrerpolicy="no-referrer"
-            loading="lazy"
-            @error=${this.handleImageError}
-          />`
-        : html`<span style=${`background: ${avatarColor(user.id)}`}>${initialsFor(user)}</span>`}
+      ${resolveViewerAvatar(user)}
     </span>`;
   }
 }
