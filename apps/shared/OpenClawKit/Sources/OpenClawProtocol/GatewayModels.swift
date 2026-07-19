@@ -4636,6 +4636,82 @@ public struct SessionsCompactionRestoreResult: Codable, Sendable {
     }
 }
 
+public struct SessionsRewindParams: Codable, Sendable {
+    public let sessionkey: String
+    public let agentid: String?
+    public let entryid: String
+
+    public init(
+        sessionkey: String,
+        agentid: String? = nil,
+        entryid: String)
+    {
+        self.sessionkey = sessionkey
+        self.agentid = agentid
+        self.entryid = entryid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case agentid = "agentId"
+        case entryid = "entryId"
+    }
+}
+
+public struct SessionsRewindResult: Codable, Sendable {
+    public let editortext: String?
+
+    public init(
+        editortext: String? = nil)
+    {
+        self.editortext = editortext
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case editortext = "editorText"
+    }
+}
+
+public struct SessionsForkParams: Codable, Sendable {
+    public let sessionkey: String
+    public let agentid: String?
+    public let entryid: String
+
+    public init(
+        sessionkey: String,
+        agentid: String? = nil,
+        entryid: String)
+    {
+        self.sessionkey = sessionkey
+        self.agentid = agentid
+        self.entryid = entryid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case agentid = "agentId"
+        case entryid = "entryId"
+    }
+}
+
+public struct SessionsForkResult: Codable, Sendable {
+    public let sessionkey: String
+    public let editortext: String?
+
+    public init(
+        sessionkey: String,
+        editortext: String? = nil)
+    {
+        self.sessionkey = sessionkey
+        self.editortext = editortext
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case editortext = "editorText"
+    }
+}
+
 public struct SessionFileBrowserEntry: Codable, Sendable {
     public let path: String
     public let name: String
@@ -12571,6 +12647,9 @@ public struct ExecApprovalRequestParams: Codable, Sendable {
     public let agentid: AnyCodable?
     public let resolvedpath: AnyCodable?
     public let sessionkey: AnyCodable?
+    public let sessionid: AnyCodable?
+    public let runid: AnyCodable?
+    public let toolcallid: AnyCodable?
     public let turnsourcechannel: AnyCodable?
     public let turnsourceto: AnyCodable?
     public let turnsourceaccountid: AnyCodable?
@@ -12598,6 +12677,9 @@ public struct ExecApprovalRequestParams: Codable, Sendable {
         agentid: AnyCodable? = nil,
         resolvedpath: AnyCodable? = nil,
         sessionkey: AnyCodable? = nil,
+        sessionid: AnyCodable? = nil,
+        runid: AnyCodable? = nil,
+        toolcallid: AnyCodable? = nil,
         turnsourcechannel: AnyCodable? = nil,
         turnsourceto: AnyCodable? = nil,
         turnsourceaccountid: AnyCodable? = nil,
@@ -12624,6 +12706,9 @@ public struct ExecApprovalRequestParams: Codable, Sendable {
         self.agentid = agentid
         self.resolvedpath = resolvedpath
         self.sessionkey = sessionkey
+        self.sessionid = sessionid
+        self.runid = runid
+        self.toolcallid = toolcallid
         self.turnsourcechannel = turnsourcechannel
         self.turnsourceto = turnsourceto
         self.turnsourceaccountid = turnsourceaccountid
@@ -12652,6 +12737,9 @@ public struct ExecApprovalRequestParams: Codable, Sendable {
         case agentid = "agentId"
         case resolvedpath = "resolvedPath"
         case sessionkey = "sessionKey"
+        case sessionid = "sessionId"
+        case runid = "runId"
+        case toolcallid = "toolCallId"
         case turnsourcechannel = "turnSourceChannel"
         case turnsourceto = "turnSourceTo"
         case turnsourceaccountid = "turnSourceAccountId"

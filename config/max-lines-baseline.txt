@@ -93,7 +93,6 @@ extensions/discord/src/channel.ts
 extensions/discord/src/monitor.test.ts
 extensions/discord/src/monitor/message-handler.preflight.test.ts
 extensions/discord/src/monitor/message-handler.preflight.ts
-extensions/discord/src/monitor/message-handler.process.test.ts
 extensions/discord/src/monitor/message-handler.process.ts
 extensions/discord/src/monitor/message-utils.test.ts
 extensions/discord/src/monitor/model-picker.test.ts
@@ -760,7 +759,6 @@ src/cron/isolated-agent/run-executor.ts
 src/cron/isolated-agent/run.message-tool-policy.test.ts
 src/cron/isolated-agent/run.test-harness.ts
 src/cron/isolated-agent/run.ts
-src/cron/normalize.ts
 src/cron/service.jobs.test.ts
 src/cron/service/jobs.ts
 src/cron/service/ops.test.ts
