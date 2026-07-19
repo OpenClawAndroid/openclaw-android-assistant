@@ -284,7 +284,9 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: SwarmConfig exposes the tools.swarm contract through config-types.
       // +3: harness sessionFork capability params, result, and failure-code contracts.
       // +2: upstream-link registry write/delete for harness-owned session forks.
-      8183,
+      // Harvest: mention-pattern schemas and helper exports -3.
+      // +1: config-backed main-session resolver for Gateway-hosted plugin services.
+      8180,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -330,7 +332,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: bounded visible transcript cursor reader.
       // +3: shared ingress monitor factory across channel-outbound and compat mirrors.
       // +2: upstream-link registry write/delete for harness-owned session forks.
-      4548,
+      // +1: config-backed main-session resolver for Gateway-hosted plugin services.
+      4549,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
