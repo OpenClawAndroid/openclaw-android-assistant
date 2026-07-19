@@ -657,6 +657,7 @@ async function runSetupWizardOnce(
     });
   }
 
+  let commitAppRecommendationResult: (() => void) | undefined;
   if (flow !== "quickstart") {
     const { setupOfficialPluginInstalls } = await import("./setup.official-plugins.js");
     nextConfig = await setupOfficialPluginInstalls({
@@ -666,13 +667,15 @@ async function runSetupWizardOnce(
       workspaceDir,
     });
     const { setupAppRecommendations } = await import("./setup.app-recommendations.js");
-    nextConfig = await setupAppRecommendations({
+    const recommendationOutcome = await setupAppRecommendations({
       config: nextConfig,
       prompter,
       runtime,
       workspaceDir,
       modelRouteVerified: liveModelVerified,
     });
+    nextConfig = recommendationOutcome.config;
+    commitAppRecommendationResult = recommendationOutcome.commitResult;
     const { setupPluginConfig } = await import("./setup.plugin-config.js");
     nextConfig = await setupPluginConfig({
       config: nextConfig,
@@ -690,6 +693,7 @@ async function runSetupWizardOnce(
   nextConfig = await writeSetupConfigFile(nextConfig, {
     allowConfigSizeDrop: false,
   });
+  commitAppRecommendationResult?.();
 
   const { finalizeSetupWizard } = await import("./setup.finalize.js");
   const finalizeResult = await finalizeSetupWizard({
