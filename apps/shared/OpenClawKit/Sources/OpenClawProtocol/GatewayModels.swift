@@ -7690,6 +7690,7 @@ public struct SystemAgentChatResult: Codable, Sendable {
     public let sessionid: String
     public let reply: String
     public let sensitive: Bool?
+    public let wizardinputpending: Bool?
     public let action: AnyCodable
     public let agentdraft: String?
     public let agentid: String?
@@ -7701,6 +7702,7 @@ public struct SystemAgentChatResult: Codable, Sendable {
         sessionid: String,
         reply: String,
         sensitive: Bool? = nil,
+        wizardinputpending: Bool? = nil,
         action: AnyCodable,
         agentdraft: String? = nil,
         agentid: String? = nil,
@@ -7711,6 +7713,7 @@ public struct SystemAgentChatResult: Codable, Sendable {
         self.sessionid = sessionid
         self.reply = reply
         self.sensitive = sensitive
+        self.wizardinputpending = wizardinputpending
         self.action = action
         self.agentdraft = agentdraft
         self.agentid = agentid
@@ -7723,6 +7726,7 @@ public struct SystemAgentChatResult: Codable, Sendable {
         case sessionid = "sessionId"
         case reply
         case sensitive
+        case wizardinputpending = "wizardInputPending"
         case action
         case agentdraft = "agentDraft"
         case agentid = "agentId"
