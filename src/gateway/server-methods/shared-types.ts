@@ -103,6 +103,16 @@ export type RespondFn = (
 ) => void;
 
 /** Minimal hosted OpenClaw contract retained by the gateway request router. */
+/**
+ * Structural mirror of the engine's SystemAgentAssistantTurn. Kept local as a
+ * leaf contract: importing the assistant module here closes a madge cycle
+ * through the agents/config cluster.
+ */
+type SystemAgentHistoryTurn = {
+  role: "user" | "assistant";
+  text: string;
+};
+
 type GatewaySystemAgentSession = {
   engine: {
     handle: (message: string) => Promise<{
@@ -111,6 +121,9 @@ type GatewaySystemAgentSession = {
       sensitive?: boolean;
       question?: SystemAgentChatQuestion;
     }>;
+    seedHistory: (turns: readonly SystemAgentHistoryTurn[]) => void;
+    historyLength: () => number;
+    historySince: (index: number) => SystemAgentHistoryTurn[];
     getPendingOperatorProposal: () => { operation: SystemAgentOperation; hash: string } | null;
     resolveOperatorApproval: (
       decision: "allow-once" | "allow-always" | "deny" | null,
