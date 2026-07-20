@@ -1374,6 +1374,24 @@ public struct McpAppViewExpiredErrorDetails: Codable, Sendable {
     }
 }
 
+public struct UnknownAgentIdErrorDetails: Codable, Sendable {
+    public let code: String
+    public let agentid: String
+
+    public init(
+        code: String,
+        agentid: String)
+    {
+        self.code = code
+        self.agentid = agentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case agentid = "agentId"
+    }
+}
+
 public struct GatewaySuspendTaskBlocker: Codable, Sendable {
     public let taskid: String
     public let status: String
@@ -10528,6 +10546,46 @@ public struct ModelChoice: Codable, Sendable {
     }
 }
 
+public struct ModelsAuthLogoutParams: Codable, Sendable {
+    public let provider: String
+    public let profileids: [String]?
+    public let agentid: String?
+
+    public init(
+        provider: String,
+        profileids: [String]? = nil,
+        agentid: String? = nil)
+    {
+        self.provider = provider
+        self.profileids = profileids
+        self.agentid = agentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provider
+        case profileids = "profileIds"
+        case agentid = "agentId"
+    }
+}
+
+public struct ModelsAuthStatusParams: Codable, Sendable {
+    public let refresh: Bool?
+    public let agentid: String?
+
+    public init(
+        refresh: Bool? = nil,
+        agentid: String? = nil)
+    {
+        self.refresh = refresh
+        self.agentid = agentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case refresh
+        case agentid = "agentId"
+    }
+}
+
 public struct ModelsListParams: Codable, Sendable {
     public let includeprovidercapabilities: Bool?
     public let view: AnyCodable?
@@ -10564,21 +10622,25 @@ public struct ModelsProbeParams: Codable, Sendable {
     public let provider: String
     public let profileid: String?
     public let timeoutms: Int?
+    public let agentid: String?
 
     public init(
         provider: String,
         profileid: String? = nil,
-        timeoutms: Int? = nil)
+        timeoutms: Int? = nil,
+        agentid: String? = nil)
     {
         self.provider = provider
         self.profileid = profileid
         self.timeoutms = timeoutms
+        self.agentid = agentid
     }
 
     private enum CodingKeys: String, CodingKey {
         case provider
         case profileid = "profileId"
         case timeoutms = "timeoutMs"
+        case agentid = "agentId"
     }
 }
 
@@ -15862,6 +15924,7 @@ public enum BoardCommand: Codable, Sendable {
 public enum GatewayErrorDetails: Codable, Sendable {
     case missingScope(MissingScopeErrorDetails)
     case mcpAppViewExpired(McpAppViewExpiredErrorDetails)
+    case unknownAgentId(UnknownAgentIdErrorDetails)
 
     public init(code: String, missingscope: String, requiredscopes: [String]) {
         self = .missingScope(
@@ -15877,6 +15940,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
         switch self {
         case .missingScope(let value): value.code
         case .mcpAppViewExpired(let value): value.code
+        case .unknownAgentId(let value): value.code
         }
     }
 
@@ -15900,6 +15964,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
         switch discriminator {
         case "MISSING_SCOPE": self = try .missingScope(MissingScopeErrorDetails(from: decoder))
         case "MCP_APP_VIEW_EXPIRED": self = try .mcpAppViewExpired(McpAppViewExpiredErrorDetails(from: decoder))
+        case "UNKNOWN_AGENT_ID": self = try .unknownAgentId(UnknownAgentIdErrorDetails(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .discriminator,
@@ -15913,6 +15978,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
         switch self {
         case .missingScope(let value): try value.encode(to: encoder)
         case .mcpAppViewExpired(let value): try value.encode(to: encoder)
+        case .unknownAgentId(let value): try value.encode(to: encoder)
         }
     }
 }

@@ -43,6 +43,8 @@ import {
   AgentsUpdateParamsSchema,
   AgentsUpdateResultSchema,
   ModelChoiceSchema,
+  ModelsAuthLogoutParamsSchema,
+  ModelsAuthStatusParamsSchema,
   ModelsListParamsSchema,
   ModelsListResultSchema,
   ModelsProbeParamsSchema,
@@ -291,6 +293,7 @@ import {
   GatewayErrorDetailsSchema,
   McpAppViewExpiredErrorDetailsSchema,
   MissingScopeErrorDetailsSchema,
+  UnknownAgentIdErrorDetailsSchema,
 } from "./error-codes.js";
 import {
   ExecApprovalsGetParamsSchema,
@@ -648,6 +651,7 @@ export const ProtocolSchemas = {
   ErrorShape: ErrorShapeSchema,
   MissingScopeErrorDetails: MissingScopeErrorDetailsSchema,
   McpAppViewExpiredErrorDetails: McpAppViewExpiredErrorDetailsSchema,
+  UnknownAgentIdErrorDetails: UnknownAgentIdErrorDetailsSchema,
   GatewayErrorDetails: GatewayErrorDetailsSchema,
   GatewaySuspendTaskBlocker: GatewaySuspendTaskBlockerSchema,
   GatewaySuspendBlocker: GatewaySuspendBlockerSchema,
@@ -973,6 +977,8 @@ export const ProtocolSchemas = {
   AgentsListParams: AgentsListParamsSchema,
   AgentsListResult: AgentsListResultSchema,
   ModelChoice: ModelChoiceSchema,
+  ModelsAuthLogoutParams: ModelsAuthLogoutParamsSchema,
+  ModelsAuthStatusParams: ModelsAuthStatusParamsSchema,
   ModelsListParams: ModelsListParamsSchema,
   ModelsListResult: ModelsListResultSchema,
   ModelsProbeParams: ModelsProbeParamsSchema,

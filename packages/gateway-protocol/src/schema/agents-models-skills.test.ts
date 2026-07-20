@@ -5,6 +5,8 @@ import {
   AgentsDeleteResultSchema,
   AgentsListResultSchema,
   AgentsUpdateParamsSchema,
+  ModelsAuthLogoutParamsSchema,
+  ModelsAuthStatusParamsSchema,
   ModelsListParamsSchema,
   ModelsListResultSchema,
   ModelsProbeParamsSchema,
@@ -112,6 +114,31 @@ describe("ModelsListParamsSchema", () => {
   });
 });
 
+describe("Models auth params schemas", () => {
+  it("accepts optional agent-scoped status and logout requests", () => {
+    expect(Value.Check(ModelsAuthStatusParamsSchema, {})).toBe(true);
+    expect(Value.Check(ModelsAuthStatusParamsSchema, { refresh: true, agentId: "writer" })).toBe(
+      true,
+    );
+    expect(Value.Check(ModelsAuthStatusParamsSchema, { agentId: "" })).toBe(true);
+
+    expect(
+      Value.Check(ModelsAuthLogoutParamsSchema, {
+        provider: "openai",
+        profileIds: ["openai:writer"],
+        agentId: "writer",
+      }),
+    ).toBe(true);
+    expect(Value.Check(ModelsAuthLogoutParamsSchema, { provider: "openai" })).toBe(true);
+    expect(Value.Check(ModelsAuthLogoutParamsSchema, { provider: "openai", agentId: "" })).toBe(
+      true,
+    );
+    expect(Value.Check(ModelsAuthLogoutParamsSchema, { provider: "openai", profileIds: [] })).toBe(
+      false,
+    );
+  });
+});
+
 describe("ModelsListResultSchema", () => {
   it("accepts stable public input capabilities", () => {
     const model = {
@@ -143,8 +170,10 @@ describe("ModelsProbe schemas", () => {
         provider: "openai",
         profileId: "work",
         timeoutMs: 20_000,
+        agentId: "writer",
       }),
     ).toBe(true);
+    expect(Value.Check(ModelsProbeParamsSchema, { provider: "openai", agentId: "" })).toBe(true);
     expect(
       Value.Check(ModelsProbeResultSchema, {
         provider: "openai",
