@@ -280,6 +280,7 @@ export const en: TranslationMap = {
     genericSubtitle: "Something went wrong while loading this panel.",
     staleTitle: "A new version is available",
     staleSubtitle: "OpenClaw was updated in the background. Reload to get the latest panel.",
+    reloading: "Reloading…",
     retry: "Retry",
   },
   nodes: {
@@ -4152,8 +4153,8 @@ export const en: TranslationMap = {
       show: "Show discussion",
       disconnected: "Gateway is disconnected.",
       loading: "Loading discussion…",
-      open: "Open discussion",
       opening: "Opening discussion…",
+      requiresWriteAccess: "Operator write access is required to open this discussion.",
       opened: "Session discussion",
       openExternal: "Open discussion in a new tab",
       frameTitle: "Session discussion",
