@@ -26,7 +26,11 @@ import type { ChatSideResult, ChatSideResultPending } from "../../lib/chat/side-
 import type { EmbedSandboxMode } from "../../lib/chat/tool-display.ts";
 import type { ProviderUsageDisplayProps } from "../../lib/provider-quota-summary.ts";
 import type { UiSessionDefaultsHost } from "../../lib/sessions/session-key.ts";
-import { handleChatAttachmentDrop } from "./components/chat-attachments.ts";
+import {
+  handleChatAttachmentDrop,
+  isEditableDropTarget,
+  isFileDrag,
+} from "./components/chat-attachments.ts";
 import {
   renderBackgroundTasksRail,
   type BackgroundTasksProps,
@@ -67,10 +71,6 @@ import type { ChatRunUiStatus } from "./run-lifecycle.ts";
 import type { CompactionStatus, FallbackStatus, PlanStatus } from "./tool-stream.ts";
 import "../../components/resizable-divider.ts";
 
-function isFileDrag(dataTransfer: DataTransfer | null): boolean {
-  return Array.from(dataTransfer?.types ?? []).includes("Files");
-}
-
 export type ChatProps = {
   transcript: ChatTranscriptController;
   paneId: string;
@@ -84,6 +84,7 @@ export type ChatProps = {
   sending: boolean;
   canAbort?: boolean;
   runStatus?: ChatRunUiStatus | null;
+  waitingApproval?: boolean;
   compactionStatus?: CompactionStatus | null;
   fallbackStatus?: FallbackStatus | null;
   planStatus?: PlanStatus | null;
@@ -336,6 +337,7 @@ export function renderChat(props: ChatProps) {
       showToolCalls: props.showToolCalls,
       runActive: Boolean(props.canAbort),
       runWorking: isChatRunWorking(props),
+      waitingApproval: props.waitingApproval,
       planStatus: props.planStatus,
       questionPrompts: props.gatewayQuestionPrompts,
       sessions: props.sessions,
@@ -396,6 +398,7 @@ export function renderChat(props: ChatProps) {
     sending: props.sending,
     canAbort: props.canAbort,
     runStatus: props.runStatus,
+    waitingApproval: props.waitingApproval,
     compactionStatus: props.compactionStatus,
     fallbackStatus: props.fallbackStatus,
     planStatus: props.planStatus,
@@ -480,6 +483,15 @@ export function renderChat(props: ChatProps) {
           : {},
       )}
       @drop=${(event: DragEvent) => {
+        // Text/URL drops stay native only inside editable controls; anywhere
+        // else they are cancelled so a dropped link cannot navigate the app
+        // away. Session drags are handled by the parent chat page either way.
+        if (!isFileDrag(event.dataTransfer)) {
+          if (!isEditableDropTarget(event)) {
+            event.preventDefault();
+          }
+          return;
+        }
         event.preventDefault();
         clearAttachmentDropActive(event);
         if (canCompose) {
@@ -489,9 +501,18 @@ export function renderChat(props: ChatProps) {
       @dragenter=${(event: DragEvent) => setAttachmentDropActive(event, true)}
       @dragleave=${(event: DragEvent) => setAttachmentDropActive(event, false)}
       @dragover=${(event: DragEvent) => {
+        if (!isFileDrag(event.dataTransfer)) {
+          if (!isEditableDropTarget(event)) {
+            event.preventDefault();
+            if (event.dataTransfer) {
+              event.dataTransfer.dropEffect = "none";
+            }
+          }
+          return;
+        }
         event.preventDefault();
-        if (canCompose && event.dataTransfer && isFileDrag(event.dataTransfer)) {
-          event.dataTransfer.dropEffect = "copy";
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = canCompose ? "copy" : "none";
         }
       }}
       @keydown=${(event: KeyboardEvent) => {
