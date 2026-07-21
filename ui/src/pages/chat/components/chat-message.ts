@@ -1,4 +1,5 @@
 // Control UI chat module implements grouped render behavior.
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { until } from "lit/directives/until.js";
@@ -47,6 +48,7 @@ import {
   formatTimeAgo,
 } from "../../../lib/format.ts";
 import "../../../components/tooltip.ts";
+import { resolveIdentityHue } from "../../../lib/identity-avatar.ts";
 import { getMediaFileExtension } from "../../../lib/media-file-extension.ts";
 import {
   openExternalUrlSafe,
@@ -802,8 +804,16 @@ type RenderMessageGroupOptions = {
   allowExternalEmbedUrls?: boolean;
   contextWindow?: number | null;
   onDelete?: () => void;
+  onReply?: (target: MessageReplyTarget) => void;
   onRewind?: () => void;
   rewindDisabled?: boolean;
+};
+
+export type MessageReplyTarget = {
+  messageId: string;
+  text: string;
+  senderLabel?: string | null;
+  sourceMessageId?: string | null;
 };
 
 type GroupedMessageRenderOptions = Parameters<typeof renderGroupedMessage>[2];
@@ -986,13 +996,30 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
   }
 
   const messageActionDetails = group.messages.map((item) =>
-    resolveMessageActionDetails(item.message, opts.onOpenSidebar),
+    resolveMessageActionDetails({
+      message: item.message,
+      messageId: item.key,
+      onOpenSidebar: opts.onOpenSidebar,
+      onReply: opts.onReply,
+      senderLabel: who,
+    }),
   );
   const lastMessageIndex = group.messages.length - 1;
   const footerActionDetails = messageActionDetails[lastMessageIndex] ?? null;
 
+  // Attributed (logged-in) senders tint their bubbles with the same stable
+  // identity hue as their avatar initials; CSS owns per-theme lightness so
+  // the tint stays readable in both light and dark modes. Unattributed local
+  // messages keep the accent skin.
+  const senderHue =
+    normalizedRole === "user" && group.sender ? resolveIdentityHue(group.sender) : null;
+
   return html`
-    <div class="chat-group ${roleClass}" data-chat-row-key=${group.key}>
+    <div
+      class="chat-group ${roleClass}${senderHue === null ? "" : " chat-group--sender-tint"}"
+      style=${senderHue === null ? nothing : `--chat-sender-hue: ${senderHue}`}
+      data-chat-row-key=${group.key}
+    >
       ${renderChatAvatar(
         group.role,
         {
@@ -1019,7 +1046,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
             )}
             ${actionDetails && index < lastMessageIndex
               ? html`
-                  <div class="chat-message-actions-row">
+                  <div class="chat-message-actions-row" data-message-actions-for=${item.key}>
                     ${renderMessageActionButtons(actionDetails, opts, opts.onOpenSidebar)}
                   </div>
                 `
@@ -1040,13 +1067,20 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
           </div>
           ${footerActionDetails || (opts.onDelete && normalizedRole !== "user")
             ? html`
-                <div class="chat-group-footer-actions">
-                  ${opts.onDelete && normalizedRole !== "user"
-                    ? renderDeleteButton(opts.onDelete, "right")
-                    : nothing}
+                <div
+                  class="chat-group-footer-actions"
+                  data-message-actions-for=${group.messages[lastMessageIndex]?.key ?? nothing}
+                >
                   ${footerActionDetails
-                    ? renderMessageActionButtons(footerActionDetails, opts, opts.onOpenSidebar)
-                    : nothing}
+                    ? renderMessageActionButtons(
+                        footerActionDetails,
+                        opts,
+                        opts.onOpenSidebar,
+                        normalizedRole !== "user" ? opts.onDelete : undefined,
+                      )
+                    : opts.onDelete && normalizedRole !== "user"
+                      ? renderDeleteButton(opts.onDelete, "right")
+                      : nothing}
                 </div>
               `
             : nothing}
@@ -1204,8 +1238,10 @@ const DELETE_CONFIRM_VIEWPORT_MARGIN_PX = 8;
 const DELETE_CONFIRM_TRIGGER_GAP_PX = 6;
 
 type DeleteConfirmSide = "left" | "right";
+type DeleteConfirmDismissOptions = { restoreFocus?: boolean };
+type DeleteConfirmDismisser = (options?: DeleteConfirmDismissOptions) => void;
 
-const deleteConfirmDismissers = new WeakMap<Element, () => void>();
+const deleteConfirmDismissers = new WeakMap<Element, DeleteConfirmDismisser>();
 
 function shouldSkipActionConfirm(preferenceName: string): boolean {
   try {
@@ -1215,13 +1251,19 @@ function shouldSkipActionConfirm(preferenceName: string): boolean {
   }
 }
 
-function dismissDeleteConfirm(element: Element) {
+function dismissDeleteConfirm(element: Element, options?: DeleteConfirmDismissOptions) {
   const dismiss = deleteConfirmDismissers.get(element);
   if (dismiss) {
-    dismiss();
+    dismiss(options);
     return;
   }
   element.remove();
+}
+
+export function dismissConfirmedActionPopovers(owner: ParentNode): void {
+  owner.querySelectorAll(".chat-delete-confirm").forEach((popover) => {
+    dismissDeleteConfirm(popover);
+  });
 }
 
 function resolveViewportBounds() {
@@ -1337,6 +1379,16 @@ export function openChatRewindConfirmation(trigger: HTMLElement, action: () => v
   });
 }
 
+export function openChatHideConfirmation(trigger: HTMLElement, action: () => void): void {
+  openConfirmedActionPopover(trigger, {
+    action,
+    confirmLabel: t("chat.messages.hide"),
+    confirmText: t("chat.messages.hideConfirm"),
+    preferenceName: SKIP_DELETE_CONFIRM_PREFERENCE,
+    side: "right",
+  });
+}
+
 function openConfirmedActionPopover(
   btn: HTMLElement,
   params: Pick<
@@ -1354,11 +1406,14 @@ function openConfirmedActionPopover(
   }
   const existing = wrap.querySelector(".chat-delete-confirm");
   if (existing) {
-    dismissDeleteConfirm(existing);
+    dismissDeleteConfirm(existing, { restoreFocus: true });
     return;
   }
   const popover = document.createElement("div");
   popover.className = `chat-delete-confirm chat-delete-confirm--${params.side}`;
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute("aria-modal", "true");
+  popover.setAttribute("aria-label", params.confirmText);
   popover.innerHTML = `
     <p class="chat-delete-confirm__text"></p>
     <label class="chat-delete-confirm__remember">
@@ -1381,18 +1436,23 @@ function openConfirmedActionPopover(
   wrap.appendChild(popover);
   placeDeleteConfirmPopover(btn, popover, params.side);
 
-  const cancel = popover.querySelector(".chat-delete-confirm__cancel")!;
-  const yes = popover.querySelector(".chat-delete-confirm__yes")!;
-  const check = popover.querySelector(".chat-delete-confirm__check") as HTMLInputElement;
+  const cancel = popover.querySelector<HTMLButtonElement>(".chat-delete-confirm__cancel")!;
+  const yes = popover.querySelector<HTMLButtonElement>(".chat-delete-confirm__yes")!;
+  const check = popover.querySelector<HTMLInputElement>(".chat-delete-confirm__check")!;
   let dismissed = false;
-  function dismissPopover() {
+  function dismissPopover(options?: DeleteConfirmDismissOptions) {
     if (dismissed) {
       return;
     }
     dismissed = true;
     document.removeEventListener("click", closeOnOutside, true);
+    document.removeEventListener("contextmenu", closeOnContextMenu, true);
+    window.removeEventListener("keydown", closeOnEscape, true);
     deleteConfirmDismissers.delete(popover);
     popover.remove();
+    if (options?.restoreFocus && btn.isConnected) {
+      btn.focus({ preventScroll: true });
+    }
   }
   function closeOnOutside(evt: MouseEvent) {
     const target = evt.target;
@@ -1400,8 +1460,36 @@ function openConfirmedActionPopover(
       dismissPopover();
     }
   }
+  function closeOnContextMenu(evt: MouseEvent) {
+    const target = evt.target;
+    if (target instanceof Node && !popover.contains(target)) {
+      dismissPopover();
+    }
+  }
+  function closeOnEscape(evt: KeyboardEvent) {
+    if (evt.key !== "Escape" || !popover.contains(document.activeElement)) {
+      return;
+    }
+    evt.preventDefault();
+    evt.stopImmediatePropagation();
+    dismissPopover({ restoreFocus: true });
+  }
+  function containKeyboardFocus(evt: KeyboardEvent) {
+    if (evt.key !== "Tab") {
+      return;
+    }
+    const first = check;
+    const last = yes;
+    if (evt.shiftKey && document.activeElement === first) {
+      evt.preventDefault();
+      last.focus();
+    } else if (!evt.shiftKey && document.activeElement === last) {
+      evt.preventDefault();
+      first.focus();
+    }
+  }
   deleteConfirmDismissers.set(popover, dismissPopover);
-  cancel.addEventListener("click", dismissPopover);
+  cancel.addEventListener("click", () => dismissPopover({ restoreFocus: true }));
   yes.addEventListener("click", () => {
     if (check.checked) {
       try {
@@ -1411,6 +1499,10 @@ function openConfirmedActionPopover(
     dismissPopover();
     params.action();
   });
+  popover.addEventListener("keydown", containKeyboardFocus);
+  document.addEventListener("contextmenu", closeOnContextMenu, true);
+  window.addEventListener("keydown", closeOnEscape, true);
+  cancel.focus({ preventScroll: true });
   requestAnimationFrame(() => {
     if (!dismissed && popover.isConnected) {
       placeDeleteConfirmPopover(btn, popover, params.side);
@@ -1973,7 +2065,7 @@ function resolveAssistantAttachmentAvailability(
 }
 
 function renderAssistantAttachmentStatusCard(params: {
-  kind: "image" | "audio" | "video" | "document";
+  kind: AttachmentItem["attachment"]["kind"];
   label: string;
   badge: string;
   reason?: string;
@@ -2252,8 +2344,9 @@ function renderExpandButton(
 }
 
 type MessageActionDetails = {
-  markdown: string;
+  markdown?: string;
   messageId?: string;
+  replyTarget?: MessageReplyTarget;
   shouldFetchFullMessage: boolean;
 };
 
@@ -2269,17 +2362,23 @@ function resolveNormalizedMessageMarkdown(normalizedMessage: NormalizedMessage):
     .trim();
 }
 
-function resolveMessageActionDetails(
-  message: unknown,
-  onOpenSidebar?: (content: SidebarContent) => void,
-): MessageActionDetails | null {
+function resolveMessageActionDetails(params: {
+  message: unknown;
+  messageId: string;
+  onOpenSidebar?: (content: SidebarContent) => void;
+  onReply?: (target: MessageReplyTarget) => void;
+  senderLabel: string;
+}): MessageActionDetails | null {
+  const { message, messageId: renderMessageId, onOpenSidebar, onReply, senderLabel } = params;
   const record = message as Record<string, unknown>;
   const normalizedMessage = normalizeMessage(message);
-  if (normalizeRoleForGrouping(normalizedMessage.role) !== "assistant") {
-    return null;
-  }
-  const markdown = stripThinkingTags(resolveNormalizedMessageMarkdown(normalizedMessage)).trim();
-  if (!markdown) {
+  const normalizedMarkdown = resolveNormalizedMessageMarkdown(normalizedMessage);
+  const role = normalizeRoleForGrouping(normalizedMessage.role);
+  const visibleMarkdown =
+    role === "assistant" ? stripThinkingTags(normalizedMarkdown).trim() : normalizedMarkdown.trim();
+  const markdown = role === "assistant" ? visibleMarkdown : undefined;
+  const replyText = onReply ? truncateUtf16Safe(visibleMarkdown, 500) : "";
+  if (!markdown && !replyText) {
     return null;
   }
   const transcriptMeta =
@@ -2294,14 +2393,25 @@ function resolveMessageActionDetails(
       : typeof record.messageId === "string"
         ? record.messageId
         : undefined;
+  const sourceMessageId = persistedMessageEntryId(message);
   return {
-    markdown,
+    ...(markdown ? { markdown } : {}),
     messageId,
+    ...(replyText
+      ? {
+          replyTarget: {
+            messageId: renderMessageId,
+            text: replyText,
+            senderLabel,
+            ...(sourceMessageId ? { sourceMessageId } : {}),
+          },
+        }
+      : {}),
     shouldFetchFullMessage: Boolean(
       onOpenSidebar &&
       messageId &&
       !record.openclawMessageToolMirror &&
-      (transcriptMeta?.truncated === true || markdown.includes("\n...(truncated)...")),
+      (transcriptMeta?.truncated === true || markdown?.includes("\n...(truncated)...")),
     ),
   };
 }
@@ -2311,18 +2421,42 @@ function renderMessageActionButtons(
   opts: {
     sessionKey?: string;
     agentId?: string;
+    onReply?: (target: MessageReplyTarget) => void;
   },
   onOpenSidebar?: (content: SidebarContent) => void,
+  onDelete?: () => void,
 ) {
   return html`
-    ${onOpenSidebar
+    ${details.replyTarget && opts.onReply
+      ? renderReplyButton(details.replyTarget, opts.onReply)
+      : nothing}
+    ${onDelete ? renderDeleteButton(onDelete, "right") : nothing}
+    ${details.markdown && onOpenSidebar
       ? renderExpandButton(details.markdown, onOpenSidebar, {
           sessionKey: opts.sessionKey,
           agentId: opts.agentId,
           messageId: details.shouldFetchFullMessage ? details.messageId : undefined,
         })
       : nothing}
-    ${renderCopyAsMarkdownButton(details.markdown)}
+    ${details.markdown ? renderCopyAsMarkdownButton(details.markdown) : nothing}
+  `;
+}
+
+function renderReplyButton(
+  target: MessageReplyTarget,
+  onReply: (target: MessageReplyTarget) => void,
+) {
+  return html`
+    <openclaw-tooltip .content=${t("chat.messages.reply")}>
+      <button
+        class="chat-reply-btn"
+        type="button"
+        aria-label=${t("chat.messages.replyToMessage")}
+        @click=${() => onReply(target)}
+      >
+        ${icons.messageSquare}
+      </button>
+    </openclaw-tooltip>
   `;
 }
 
