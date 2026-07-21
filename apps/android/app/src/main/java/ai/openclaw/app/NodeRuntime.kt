@@ -109,6 +109,7 @@ import ai.openclaw.app.wear.WearProxyController
 import ai.openclaw.app.wear.WearProxyGatewayException
 import ai.openclaw.app.wear.WearProxyModel
 import ai.openclaw.app.wear.WearRealtimeTalkController
+import ai.openclaw.app.wear.wearConnectionFailure
 import ai.openclaw.wear.shared.WearMessage
 import ai.openclaw.wear.shared.WearRealtimeTalkCodec
 import ai.openclaw.wear.shared.WearRealtimeTalkSnapshot
@@ -1327,13 +1328,18 @@ class NodeRuntime private constructor(
         clearOperatorGatewayState(retirePendingCronRuns = false)
         chat.applyMainSessionKey(resolveMainSessionKey())
         chat.onDisconnected(message)
+        val wearFailure = wearConnectionFailure(operatorConnectionProblem?.code, message)
         updateStatus {
           operatorConnected = false
           operatorStatusText = message
           operatorConnectionProblem = gatewayProblemAfterDisconnect(operatorConnectionProblem, message)
         }
         micCapture.onGatewayConnectionChanged(false)
-        wearProxyBridge()?.publishConnection(connected = false, status = message)
+        wearProxyBridge()?.publishConnection(
+          connected = false,
+          status = message,
+          failure = wearFailure,
+        )
       },
       onConnectFailure = { error, pauseReconnect ->
         if (wearRealtimeTalkControllerLazy.isInitialized()) wearRealtimeTalkController.abort()
@@ -1344,7 +1350,11 @@ class NodeRuntime private constructor(
           operatorConnectionProblem = problem
         }
         micCapture.onGatewayConnectionChanged(false)
-        wearProxyBridge()?.publishConnection(connected = false, status = problem.message)
+        wearProxyBridge()?.publishConnection(
+          connected = false,
+          status = problem.message,
+          failure = wearConnectionFailure(problem.code, problem.message),
+        )
       },
       onEvent = { event, payloadJson ->
         handleGatewayEvent(event, payloadJson)
@@ -8258,10 +8268,11 @@ internal fun backgroundGatewayFleetPlan(
   val desiredSet = desiredStableIds.toSet()
   val entriesByStableId = entries.associateBy(GatewayRegistryEntry::stableId)
   val resolvedEndpoints =
-    desiredStableIds.mapNotNull { stableId ->
-      val entry = entriesByStableId[stableId] ?: return@mapNotNull null
-      resolveEndpoint(entry)?.let { stableId to it }
-    }.toMap()
+    desiredStableIds
+      .mapNotNull { stableId ->
+        val entry = entriesByStableId[stableId] ?: return@mapNotNull null
+        resolveEndpoint(entry)?.let { stableId to it }
+      }.toMap()
 
   // Discovery gaps remove the current route from resolvedEndpoints, but the desired ID remains.
   // Disconnect only when the user disables, forgets, or focuses the gateway.
