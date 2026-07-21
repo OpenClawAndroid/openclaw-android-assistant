@@ -19,6 +19,7 @@ import {
 } from "../../app/context.ts";
 import { resolveControlUiAuthToken } from "../../app/control-ui-auth.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
+import { selectableAgentsList } from "../../lib/agents/display.ts";
 import {
   loadToolsCatalog,
   loadToolsEffective,
@@ -291,9 +292,9 @@ class AgentsPage extends OpenClawLightDomElement implements AgentsState {
     const agentState = agents.state;
     this.agentsLoading = agentState.agentsLoading;
     this.agentsError = agentState.agentsError;
-    this.agentsList = agentState.agentsList;
-    if (agentState.agentsList) {
-      this.ensureSelectedAgentInList(agentState.agentsList);
+    this.agentsList = agentState.agentsList ? selectableAgentsList(agentState.agentsList) : null;
+    if (this.agentsList) {
+      this.ensureSelectedAgentInList(this.agentsList);
     }
     this.syncCurrentAgentFiles(agents);
   }
