@@ -18,6 +18,7 @@ import ai.openclaw.app.chat.ChatQuestionPrompt
 import ai.openclaw.app.chat.ChatSessionEntry
 import ai.openclaw.app.chat.ChatThinkingLevelOption
 import ai.openclaw.app.chat.ChatThinkingLevelSelection
+import ai.openclaw.app.chat.ChatTranscriptAnchorState
 import ai.openclaw.app.chat.ChatWidgetResource
 import ai.openclaw.app.chat.MessageSpeechPhase
 import ai.openclaw.app.chat.MessageSpeechState
@@ -53,6 +54,7 @@ import ai.openclaw.app.ui.gatewayDiagnosticsEndpoint
 import ai.openclaw.app.ui.gatewayStatusForDisplay
 import ai.openclaw.app.ui.localizedUppercase
 import ai.openclaw.app.ui.mobileCallout
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -240,6 +242,7 @@ fun ChatScreen(
   onOpenGatewaySettings: () -> Unit,
 ) {
   val messages by viewModel.chatMessages.collectAsState()
+  val transcriptAnchor by viewModel.chatTranscriptAnchor.collectAsState()
   val historyLoading by viewModel.chatHistoryLoading.collectAsState()
   val errorText by viewModel.chatError.collectAsState()
   val pendingRunCount by viewModel.pendingRunCount.collectAsState()
@@ -285,6 +288,14 @@ fun ChatScreen(
       fallbackSupported = thinkingSupportedForSelection(selectedModelRef, modelCatalog),
     )
   val contextUsage = resolveChatContextUsage(sessionKey = sessionKey, mainSessionKey = mainSessionKey, sessions = sessions)
+  val activeSession =
+    sessions.firstOrNull {
+      isActiveSessionChoice(
+        choiceKey = it.key,
+        sessionKey = sessionKey,
+        mainSessionKey = mainSessionKey,
+      )
+    }
   val gatewayAddress = gatewayDiagnosticsEndpoint(remoteAddress = remoteAddress, manualHost = manualHost, manualPort = manualPort, manualTls = manualTls)
   val gatewayProblemMessage = gatewayConnectionDisplay.problem?.message?.takeIf { it.isNotBlank() }
   val offlineStatus = gatewayStatusForDisplay(gatewayProblemMessage ?: gatewayConnectionDisplay.statusText)
@@ -632,7 +643,9 @@ fun ChatScreen(
 
     ChatMessageList(
       sessionKey = sessionKey,
+      session = activeSession,
       messages = messages,
+      transcriptAnchor = transcriptAnchor,
       historyLoading = historyLoading,
       pendingRunCount = pendingRunCount,
       pendingToolCalls = pendingToolCalls,
@@ -1120,7 +1133,9 @@ private fun HeaderIcon(
 @Composable
 private fun ChatMessageList(
   sessionKey: String,
+  session: ChatSessionEntry?,
   messages: List<ChatMessage>,
+  transcriptAnchor: ChatTranscriptAnchorState?,
   historyLoading: Boolean,
   pendingRunCount: Int,
   pendingToolCalls: List<ChatPendingToolCall>,
@@ -1141,7 +1156,7 @@ private fun ChatMessageList(
   resolveInlineWidgetResource: suspend (String, ChatWidgetResource?) -> ChatWidgetResource?,
   modifier: Modifier = Modifier,
 ) {
-  val timeline =
+  val baseTimeline =
     remember(messages, pendingRunCount, pendingToolCalls, questions, streamingAssistantText, outboxItems, recoveryOutboxItems) {
       buildChatTimeline(
         messages = messages,
@@ -1153,12 +1168,33 @@ private fun ChatMessageList(
         questions = questions,
       )
     }
+  val indicatorVisible = pendingRunCount > 0
+  val workingRunTracker = remember(sessionKey) { ChatWorkingRunTracker(sessionKey) }
+  val workingRun = workingRunTracker.resolve(indicatorVisible, session, SystemClock.elapsedRealtime())
+  val turnRecapResolver = remember { TurnRecapResolver() }
+  val turnRecap =
+    turnRecapResolver.resolve(
+      sessionKey = sessionKey,
+      indicatorVisible = indicatorVisible,
+      row = session,
+      transcript =
+        TurnRecapTranscriptState(
+          sessionKey = transcriptAnchor?.sessionKey,
+          newestItemId = transcriptAnchor?.newestItemId,
+          completedEndedAt = transcriptAnchor?.completedEndedAt,
+          completedNewestItemId = transcriptAnchor?.completedNewestItemId,
+        ),
+    )
+  val timeline = remember(baseTimeline, turnRecap) { baseTimeline.withTurnRecap(turnRecap) }
   val readerScroll =
     rememberChatReaderScrollController(
       sessionKey = sessionKey,
       timeline = timeline,
       historyLoading = historyLoading,
     )
+  DisposableEffect(sessionKey, turnRecapResolver) {
+    onDispose { turnRecapResolver.abandonActiveWatch(sessionKey) }
+  }
 
   Box(modifier = modifier.fillMaxWidth()) {
     LazyColumn(
@@ -1208,6 +1244,7 @@ private fun ChatMessageList(
           is ChatTimelineItem.PendingTools -> ToolBubble(toolCalls = item.toolCalls)
           is ChatTimelineItem.QuestionPrompt ->
             ChatQuestionCard(prompt = item.prompt, onSubmit = onResolveQuestion, onSkip = onSkipQuestion)
+          is ChatTimelineItem.TurnRecapSummary -> ChatTurnRecapRow(item.recap)
           is ChatTimelineItem.StreamingAssistant ->
             ChatBubble(
               messageId = null,
@@ -1221,7 +1258,12 @@ private fun ChatMessageList(
               inlineWidgetResolverReady = healthOk,
               resolveInlineWidgetResource = resolveInlineWidgetResource,
             )
-          ChatTimelineItem.Thinking -> ChatThinkingBubble()
+          ChatTimelineItem.Thinking -> {
+            val run = workingRun
+            if (run != null) {
+              ChatTypingIndicatorBubble(runKey = run.key, observedAtElapsedMs = run.observedAtElapsedMs)
+            }
+          }
         }
       }
     }
@@ -1269,6 +1311,55 @@ private fun ChatMessageList(
         }
       }
     }
+  }
+}
+
+internal data class ChatWorkingRun(
+  val key: String,
+  val observedAtElapsedMs: Long,
+  val authoritativeRunId: String?,
+  val authoritativeStartedAtMs: Long?,
+)
+
+internal class ChatWorkingRunTracker(
+  private val sessionKey: String,
+) {
+  private var current: ChatWorkingRun? = null
+
+  fun resolve(
+    indicatorVisible: Boolean,
+    session: ChatSessionEntry?,
+    nowElapsedMs: Long,
+  ): ChatWorkingRun? {
+    if (!indicatorVisible) {
+      current = null
+      return null
+    }
+    val runId = session?.activeRunIds?.lastOrNull()
+    val startedAt = session?.startedAt?.takeIf { session.endedAt == null }
+    val previous = current
+    val replacementByRunId = previous?.authoritativeRunId != null && runId != null && previous.authoritativeRunId != runId
+    val replacementByStart =
+      previous?.authoritativeStartedAtMs != null && startedAt != null && previous.authoritativeStartedAtMs != startedAt
+    val replacement = replacementByRunId || replacementByStart
+    if (previous == null || replacement) {
+      return ChatWorkingRun(
+        key = runId ?: "$sessionKey:${startedAt ?: nowElapsedMs}",
+        observedAtElapsedMs = nowElapsedMs,
+        authoritativeRunId = runId,
+        authoritativeStartedAtMs = startedAt,
+      ).also { current = it }
+    }
+    val adoptsRunId = previous.authoritativeRunId == null && runId != null
+    val adoptsStartedAt = previous.authoritativeStartedAtMs == null && startedAt != null
+    if (adoptsRunId || adoptsStartedAt) {
+      current =
+        previous.copy(
+          authoritativeRunId = runId ?: previous.authoritativeRunId,
+          authoritativeStartedAtMs = startedAt ?: previous.authoritativeStartedAtMs,
+        )
+    }
+    return current
   }
 }
 
@@ -1616,16 +1707,6 @@ private fun ToolBubble(toolCalls: List<ChatPendingToolCall>) {
       if (toolCalls.size > 4) {
         Text(text = nativeString("+\${toolCalls.size - 4} more", toolCalls.size - 4), style = ClawTheme.type.caption, color = ClawTheme.colors.textSubtle)
       }
-    }
-  }
-}
-
-@Composable
-private fun ChatThinkingBubble() {
-  ClawPanel {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      ClawStatusPill(text = nativeString("Thinking"), status = ClawStatus.Warning)
-      Text(text = nativeString("OpenClaw is preparing a response."), style = ClawTheme.type.body, color = ClawTheme.colors.textMuted)
     }
   }
 }
