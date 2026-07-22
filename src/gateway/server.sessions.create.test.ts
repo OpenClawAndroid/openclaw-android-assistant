@@ -758,12 +758,16 @@ test.each([undefined, "main"])(
 
     const created = await directSessionReq<{
       key?: string;
-      entry?: { parentSessionKey?: string };
+      entry?: { parentSessionKey?: string; spawnDepth?: number };
     }>("sessions.create", { agentId: "main" });
 
     expect(created.ok, JSON.stringify(created.error)).toBe(true);
     expect(created.payload?.key).toMatch(/^agent:main:dashboard:/);
     expect(created.payload?.entry?.parentSessionKey).toBe("agent:main:main");
+    // Auto-parented operator sessions must stay spawn-capable roots: without the
+    // explicit depth, spawn admission derives depth 1 from parentSessionKey and
+    // rejects all sessions_spawn calls at the default maxSpawnDepth of 1.
+    expect(created.payload?.entry?.spawnDepth).toBe(0);
   },
 );
 
@@ -778,7 +782,7 @@ test("sessions.create preserves an explicit parent under main dmScope", async ()
 
   const created = await directSessionReq<{
     key?: string;
-    entry?: { parentSessionKey?: string };
+    entry?: { parentSessionKey?: string; spawnDepth?: number };
   }>("sessions.create", {
     agentId: "main",
     parentSessionKey: "agent:main:explicit-parent",
@@ -786,6 +790,9 @@ test("sessions.create preserves an explicit parent under main dmScope", async ()
 
   expect(created.ok, JSON.stringify(created.error)).toBe(true);
   expect(created.payload?.entry?.parentSessionKey).toBe("agent:main:explicit-parent");
+  // Operator creations with a parent (UI forks/threads) are still roots: only a
+  // declared spawnDepth marks spawn lineage.
+  expect(created.payload?.entry?.spawnDepth).toBe(0);
 
   const reused = await directSessionReq<{
     entry?: { parentSessionKey?: string };
@@ -796,6 +803,42 @@ test("sessions.create preserves an explicit parent under main dmScope", async ()
 
   expect(reused.ok, JSON.stringify(reused.error)).toBe(true);
   expect(reused.payload?.entry?.parentSessionKey).toBe("agent:main:explicit-parent");
+});
+
+test("sessions.create persists declared spawn lineage for spawn-owned creations", async () => {
+  await createSessionStoreDir();
+  testState.sessionConfig = { dmScope: "main" };
+  await writeSessionStore({
+    entries: {
+      "agent:main:main": sessionStoreEntry("sess-spawn-parent"),
+    },
+  });
+
+  const created = await directSessionReq<{
+    entry?: { parentSessionKey?: string; spawnDepth?: number };
+  }>("sessions.create", {
+    agentId: "main",
+    parentSessionKey: "agent:main:main",
+    spawnDepth: 2,
+  });
+
+  expect(created.ok, JSON.stringify(created.error)).toBe(true);
+  expect(created.payload?.entry?.parentSessionKey).toBe("agent:main:main");
+  expect(created.payload?.entry?.spawnDepth).toBe(2);
+});
+
+test("sessions.create rejects spawnDepth without parentSessionKey", async () => {
+  await createSessionStoreDir();
+
+  const created = await directSessionReq("sessions.create", {
+    agentId: "main",
+    spawnDepth: 1,
+  });
+
+  expect(created.ok).toBe(false);
+  expect(created.error).toMatchObject({
+    message: "spawnDepth requires parentSessionKey",
+  });
 });
 
 test("sessions.create leaves dashboard sessions unparented under per-channel-peer dmScope", async () => {

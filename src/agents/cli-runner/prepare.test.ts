@@ -153,40 +153,45 @@ async function createTestMcpLoopbackServer(port = 0) {
   };
 }
 
-function createCliBackendConfig(
-  params: {
-    bundleMcp?: boolean;
-    reseedFromRawTranscriptWhenUncompacted?: boolean;
-    systemPromptWhen?: "first" | "always" | "never";
-  } = {},
-): OpenClawConfig {
+type TestCliBackendParams = {
+  bundleMcp?: boolean;
+  reseedFromRawTranscriptWhenUncompacted?: boolean;
+  systemPromptWhen?: "first" | "always" | "never";
+};
+
+function buildDefaultTestCliBackend(
+  params: TestCliBackendParams = {},
+): CliBackendPlugin & { pluginId: string } {
   return {
-    agents: {
-      defaults: {
-        cliBackends: {
-          "test-cli": {
-            command: "test-cli",
-            args: ["--print"],
-            systemPromptArg: "--system-prompt",
-            systemPromptWhen: params.systemPromptWhen ?? "first",
-            sessionMode: "existing",
-            output: "text",
-            input: "arg",
-            ...(params.reseedFromRawTranscriptWhenUncompacted
-              ? { reseedFromRawTranscriptWhenUncompacted: true }
-              : {}),
-            ...(params.bundleMcp
-              ? { bundleMcp: true, bundleMcpMode: "claude-config-file" as const }
-              : {}),
-          },
-        },
-      },
+    id: "test-cli",
+    pluginId: "test-cli-plugin",
+    bundleMcp: params.bundleMcp === true,
+    ...(params.bundleMcp ? { bundleMcpMode: "claude-config-file" as const } : {}),
+    config: {
+      command: "test-cli",
+      args: ["--print"],
+      systemPromptArg: "--system-prompt",
+      systemPromptWhen: params.systemPromptWhen ?? "first",
+      sessionMode: "existing",
+      output: "text",
+      input: "arg",
+      ...(params.reseedFromRawTranscriptWhenUncompacted
+        ? { reseedFromRawTranscriptWhenUncompacted: true }
+        : {}),
     },
-  } satisfies OpenClawConfig;
+  };
+}
+
+let defaultTestCliBackend = buildDefaultTestCliBackend();
+
+function createCliBackendConfig(params: TestCliBackendParams = {}): OpenClawConfig {
+  defaultTestCliBackend = buildDefaultTestCliBackend(params);
+  return {};
 }
 
 function setCliBackendForPrepareTest(
   params: {
+    authEpochMode?: CliBackendPlugin["authEpochMode"];
     autoSelectAuthProfile?: boolean;
     bundleMcp?: boolean;
     command?: string;
@@ -211,10 +216,12 @@ function setCliBackendForPrepareTest(
         pluginId: params.pluginId ?? "anthropic",
         modelProvider: params.modelProvider ?? "anthropic",
         bundleMcp: params.bundleMcp ?? false,
+        ...(params.authEpochMode ? { authEpochMode: params.authEpochMode } : {}),
         ...(params.bundleMcp ? { bundleMcpMode: "claude-config-file" as const } : {}),
         ...(params.autoSelectAuthProfile !== undefined
           ? { autoSelectAuthProfile: params.autoSelectAuthProfile }
           : {}),
+        ...(params.authEpochMode ? { authEpochMode: params.authEpochMode } : {}),
         ...(params.prepareExecution ? { prepareExecution: params.prepareExecution } : {}),
         config: {
           command: params.command ?? "claude",
@@ -415,9 +422,10 @@ describe("prepareCliRunContext", () => {
   beforeEach(() => {
     // Install narrow test doubles for external runtime seams so preparation
     // remains about data flow, not bundled plugin or loopback startup cost.
+    defaultTestCliBackend = buildDefaultTestCliBackend();
     cliBackendsTesting.setDepsForTest({
       resolvePluginSetupCliBackend: () => undefined,
-      resolveRuntimeCliBackends: () => [],
+      resolveRuntimeCliBackends: () => [defaultTestCliBackend],
     });
     setCliRunnerPrepareTestDeps({
       isWorkspaceBootstrapPending: vi.fn(async () => false),
@@ -914,7 +922,7 @@ describe("prepareCliRunContext", () => {
     }
   });
 
-  it("does not expose auth profile credentials to non-Gemini CLI prepare hooks", async () => {
+  it("does not expose auth profile credentials to non-bundled prepare hooks", async () => {
     const { dir, sessionFile } = createSessionFile();
     const agentDir = path.join(dir, "agents", "main", "agent");
     const authProfileId = "test-cli:secret";
@@ -973,6 +981,75 @@ describe("prepareCliRunContext", () => {
         }),
       );
       expect(prepareExecution.mock.calls[0]?.[0]).not.toHaveProperty("authCredential");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes and forwards a selected Claude CLI OAuth profile", async () => {
+    const { dir, sessionFile } = createSessionFile();
+    const agentDir = path.join(dir, "agents", "main", "agent");
+    const authProfileId = "anthropic:claude-cli";
+    const prepareExecution = vi.fn(async () => undefined);
+    fs.mkdirSync(agentDir, { recursive: true });
+    saveAuthProfileStore(
+      {
+        version: 1,
+        profiles: {
+          [authProfileId]: {
+            type: "oauth",
+            provider: "claude-cli",
+            access: "stored-access-token",
+            refresh: "stored-refresh-token",
+            expires: Date.now() + 60 * 60_000,
+          },
+        },
+      },
+      agentDir,
+    );
+    setCliBackendForPrepareTest({ prepareExecution, authEpochMode: "profile-only" });
+    setCliRunnerPrepareTestDeps({
+      resolveApiKeyForProfile: vi.fn(async () => ({
+        apiKey: "stored-access-token",
+        provider: "claude-cli",
+        profileId: authProfileId,
+        profileType: "oauth",
+        credential: {
+          type: "oauth",
+          provider: "claude-cli",
+          access: "stored-access-token",
+          refresh: "stored-refresh-token",
+          expires: Date.now() + 60 * 60_000,
+        },
+      })),
+    });
+
+    try {
+      await prepareCliRunContext({
+        sessionId: "session-test",
+        sessionKey: "agent:main:main",
+        sessionFile,
+        workspaceDir: dir,
+        agentDir,
+        prompt: "latest ask",
+        provider: "claude-cli",
+        model: "sonnet",
+        timeoutMs: 1_000,
+        runId: "run-test-claude-profile-forwarding",
+        authProfileId,
+        config: {},
+      });
+
+      expect(prepareExecution).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authProfileId,
+          authCredential: expect.objectContaining({
+            type: "oauth",
+            provider: "claude-cli",
+            access: "stored-access-token",
+          }),
+        }),
+      );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -1038,6 +1115,43 @@ describe("prepareCliRunContext", () => {
       expect(prepareExecution).toHaveBeenCalledWith(
         expect.objectContaining({ authProfileId: testCase.expectedAuthProfileId }),
       );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps bundled Claude secret input on the private prepared runner context", async () => {
+    const { dir, sessionFile } = createSessionFile();
+    const secretInput = {
+      fd: 3,
+      fingerprint: "credential-a",
+      createData: () => Buffer.from("secret"),
+    };
+    const prepareExecution = vi.fn(async () => ({
+      env: { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" },
+      secretInput,
+    }));
+
+    try {
+      setCliBackendForPrepareTest({
+        prepareExecution: prepareExecution as CliBackendPlugin["prepareExecution"],
+      });
+      const context = await prepareCliRunContext({
+        sessionId: "session-test",
+        sessionFile,
+        workspaceDir: dir,
+        prompt: "latest ask",
+        provider: "claude-cli",
+        model: "sonnet",
+        timeoutMs: 1_000,
+        runId: "run-test-private-secret-input",
+        config: {},
+      });
+
+      expect(context.preparedBackend.secretInput).toBe(secretInput);
+      expect(context.preparedBackend.env).toMatchObject({
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+      });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -2518,7 +2632,7 @@ describe("prepareCliRunContext", () => {
           sourceReplyDeliveryMode: "message_tool_only",
           currentMessageId: "msg-1",
           cliSessionBindingFacts,
-          config: createCliBackendConfig({ bundleMcp: true }),
+          config: createCliBackendConfig(),
         });
         const second = await prepareCliRunContext({
           sessionId: "session-test",
@@ -2541,7 +2655,7 @@ describe("prepareCliRunContext", () => {
             promptToolNamesHash: first.promptToolNamesHash,
             cwdHash: hashCliSessionText(dir),
           },
-          config: createCliBackendConfig({ bundleMcp: true }),
+          config: createCliBackendConfig(),
         });
 
         expect(first.extraSystemPromptHash).toBe(hashCliSessionText(staticPrompt));
@@ -3997,9 +4111,19 @@ describe("prepareCliRunContext", () => {
       message: { role: "user", content: "gateway-only history", timestamp: 1 },
     });
     try {
+      const prepareExecution = vi.fn(async () => ({
+        env: { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" },
+        secretInput: {
+          fd: 3,
+          fingerprint: "selected-node-token-fingerprint",
+          createData: () => Buffer.from("selected-node-token"),
+        },
+        clearEnv: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+      }));
       setCliBackendForPrepareTest({
         bundleMcp: true,
         liveSession: true,
+        prepareExecution,
         reseedFromRawTranscriptWhenUncompacted: true,
       });
       const ensureMcpLoopbackServer = vi.fn(createTestMcpLoopbackServer);
@@ -4075,6 +4199,16 @@ describe("prepareCliRunContext", () => {
       expect(prepareClaudeCliSkillsPlugin).not.toHaveBeenCalled();
       expect(transcriptCheck).not.toHaveBeenCalled();
       expect(orphanCheck).not.toHaveBeenCalled();
+      expect(prepareExecution).toHaveBeenCalledOnce();
+      expect(context.preparedBackend.env).toMatchObject({
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+      });
+      expect(context.preparedBackend.secretInput?.fingerprint).toBe(
+        "selected-node-token-fingerprint",
+      );
+      expect(context.preparedBackend.backend.clearEnv).toEqual(
+        expect.arrayContaining(["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]),
+      );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
