@@ -73,8 +73,6 @@ import type { CompactionStatus, FallbackStatus, PlanStatus } from "./tool-stream
 import type { WorkspaceResultConflict } from "./workspace-conflict.ts";
 import "../../components/resizable-divider.ts";
 
-export { resetChatViewState } from "./chat-view-state.ts";
-
 type ChatReplyTarget = {
   messageId: string;
   text: string;
@@ -136,6 +134,7 @@ export type ChatProps = {
   realtimeTalkVideoPending?: boolean;
   realtimeTalkCameraError?: boolean;
   connected: boolean;
+  offline?: boolean;
   gatewayClient?: GatewayBrowserClient | null;
   composerHoldToRecord?: boolean;
   canSend: boolean;
@@ -398,6 +397,7 @@ export function renderChat(props: ChatProps) {
     sessionKey: props.sessionKey,
     currentAgentId: props.currentAgentId,
     connected: props.connected,
+    offline: props.offline,
     canSend: props.canSend,
     disabledReason: props.disabledReason,
     disabledBanner: props.disabledBanner,
