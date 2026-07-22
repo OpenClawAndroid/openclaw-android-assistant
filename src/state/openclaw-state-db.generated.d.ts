@@ -277,6 +277,23 @@ export interface ClawInstalls {
   workspace: string;
 }
 
+export interface ClawPackageRefs {
+  agent_id: string;
+  claw_name: string;
+  independent_owner: number;
+  installed_at_ms: number;
+  origin: string;
+  package_integrity: string;
+  package_kind: string;
+  package_ref: string;
+  package_source: string;
+  package_status: string;
+  package_version: string;
+  relationship: string;
+  schema_version: string;
+  updated_at_ms: number;
+}
+
 export interface ClawWorkspaceFiles {
   agent_id: string;
   content_digest: string;
@@ -356,6 +373,12 @@ export interface ConfigHealthEntries {
   last_observed_suspicious_signature: string | null;
   last_promoted_good_json: string | null;
   updated_at_ms: number;
+}
+
+export interface ConfigMachineState {
+  state_key: string;
+  updated_at_ms: number;
+  value_json: string;
 }
 
 export interface CronJobs {
@@ -1390,12 +1413,14 @@ export interface DB {
   channel_pairing_allow_entries: ChannelPairingAllowEntries;
   channel_pairing_requests: ChannelPairingRequests;
   claw_installs: ClawInstalls;
+  claw_package_refs: ClawPackageRefs;
   claw_workspace_files: ClawWorkspaceFiles;
   clawhub_promotion_claims: ClawhubPromotionClaims;
   clawhub_promotions_feed_state: ClawhubPromotionsFeedState;
   command_log_entries: CommandLogEntries;
   commitments: Commitments;
   config_health_entries: ConfigHealthEntries;
+  config_machine_state: ConfigMachineState;
   cron_jobs: CronJobs;
   current_conversation_bindings: CurrentConversationBindings;
   delivery_queue_entries: DeliveryQueueEntries;

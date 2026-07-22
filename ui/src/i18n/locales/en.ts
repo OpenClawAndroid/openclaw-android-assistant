@@ -508,7 +508,9 @@ export const en: TranslationMap = {
     browserLoadFailed: "Couldn't list that folder.",
     hiddenFolder: "Hidden folder",
     worktree: "Worktree",
-    worktreeUnavailable: "Agent workspace is not a git checkout",
+    checkingGit: "Checking Git availability…",
+    gitCheckUnavailable: "Couldn't verify Git for this folder. Choose it again to retry.",
+    worktreeUnavailable: "Selected folder is not a Git checkout",
     baseBranch: "Base branch",
     worktreeName: "Worktree name",
     worktreeNamePlaceholder: "auto",
@@ -3676,6 +3678,12 @@ export const en: TranslationMap = {
   chat: {
     disconnected: "Disconnected from gateway.",
     waitingForApproval: "Waiting for approval…",
+    startupStatus: {
+      preparingWorkspace: "Preparing workspace…",
+      provisioningEnvironment: "Provisioning environment…",
+      preparingContext: "Preparing context…",
+      startingModel: "Starting model…",
+    },
     archivedSessionDisabled: "Restore this thread to send messages.",
     loadOlder: "Load older",
     sessionHeader: {
@@ -4012,6 +4020,12 @@ export const en: TranslationMap = {
       checksPassing: "{count} passed",
       checksFailing: "{count} failed",
       checksPending: "{count} running",
+      askLabel: "Ask about this session",
+      askPlaceholder: "Why is it doing that?",
+      askSubmit: "Ask",
+      askPending: "Checking the observations…",
+      askBusy: "The observer is already answering a question.",
+      askUnavailable: "The observer cannot answer right now.",
       health: {
         "on-track": "On track",
         grinding: "Working",
