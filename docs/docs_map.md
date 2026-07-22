@@ -1376,6 +1376,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Inspect and preview
   - H2: Inspect installed state
   - H2: Remove an installed Claw
+  - H2: Export an installed agent
   - H2: Command reference
   - H2: See also
 
@@ -2776,6 +2777,15 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Platform examples
   - H2: Common patterns
   - H2: Per-agent sandbox and tool configuration
+  - H2: Related
+
+## concepts/multi-user.md
+
+- Route: /concepts/multi-user
+- Headings:
+  - H2: Trust boundary
+  - H2: Ownership and presence
+  - H2: Turn attribution
   - H2: Related
 
 ## concepts/oauth.md

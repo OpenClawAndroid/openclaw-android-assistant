@@ -214,6 +214,8 @@ export const en: TranslationMap = {
       subtitle: "A short guided setup — you can fine-tune everything later.",
       starting: "Starting setup…",
       working: "Working…",
+      sessionExpired:
+        "This setup session expired after the Gateway restarted. Close this dialog, then start channel setup again.",
       continue: "Continue",
       finish: "Finish",
       copyText: "Copy",
@@ -584,6 +586,9 @@ export const en: TranslationMap = {
     active: "Updated within",
     limit: "Limit",
     filters: "Filters",
+    createdBy: "Created by {name}",
+    filterByCreator: "Filter by creator",
+    allCreators: "All people",
     filterControls: "Thread filters",
     sourceFilters: "Thread source filters",
     global: "Global",
@@ -1911,6 +1916,8 @@ export const en: TranslationMap = {
       copy: "Copy",
       expires: "Expires in {count} minutes",
       cancelled: "Provider sign-in was cancelled.",
+      sessionExpired:
+        "This setup session expired after the Gateway restarted. Close this dialog, then start model setup again.",
       notComplete: "Sign-in finished, but model setup is not complete yet.",
     },
   },
@@ -4021,6 +4028,13 @@ export const en: TranslationMap = {
       unavailable: "Unavailable",
       expired: "Expired",
       cancelled: "Cancelled",
+    },
+    imageLightbox: {
+      label: "Image preview: {title}",
+      open: "Open image {title}",
+      openOriginal: "Open original",
+      close: "Close image preview",
+      untitled: "Image",
     },
     messages: {
       activity: "Activity",

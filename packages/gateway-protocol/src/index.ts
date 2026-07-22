@@ -23,8 +23,10 @@ export type {
   GatewayErrorDetails,
   McpAppViewExpiredErrorDetails,
   MissingScopeErrorDetails,
+  WizardNotFoundErrorDetails,
 } from "./schema/error-codes.js";
 export * from "./schema/board.js";
+export { SessionCreatorIdentitySchema, type SessionCreatorIdentity } from "./schema/sessions.js";
 export * from "./migration-api.js";
 export type * from "./public-session-catalog.js";
 import {
@@ -277,6 +279,7 @@ import {
   GatewayErrorDetailCodes,
   GatewayErrorDetailsSchema,
   MissingScopeErrorDetailsSchema,
+  WizardNotFoundErrorDetailsSchema,
   EnvironmentSummarySchema,
   EnvironmentsCreateParamsSchema,
   EnvironmentsCreateResultSchema,
@@ -1004,6 +1007,7 @@ export {
   ErrorShapeSchema,
   GatewayErrorDetailsSchema,
   MissingScopeErrorDetailsSchema,
+  WizardNotFoundErrorDetailsSchema,
   WorkerAdmissionFailureReasonSchema,
   WorkerAdmissionHandshakeSchema,
   WorkerAdmissionResponseFrameSchema,

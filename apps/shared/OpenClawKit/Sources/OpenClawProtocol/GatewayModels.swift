@@ -1452,6 +1452,20 @@ public struct UnknownAgentIdErrorDetails: Codable, Sendable {
     }
 }
 
+public struct WizardNotFoundErrorDetails: Codable, Sendable {
+    public let code: String
+
+    public init(
+        code: String)
+    {
+        self.code = code
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+    }
+}
+
 public struct GatewaySuspendTaskBlocker: Codable, Sendable {
     public let taskid: String
     public let status: String
@@ -3958,6 +3972,7 @@ public struct SessionsListParams: Codable, Sendable {
     public let includederivedtitles: Bool?
     public let includelastmessage: Bool?
     public let label: String?
+    public let creatorid: String?
     public let spawnedby: String?
     public let agentid: String?
     public let search: String?
@@ -3975,6 +3990,7 @@ public struct SessionsListParams: Codable, Sendable {
         includederivedtitles: Bool? = nil,
         includelastmessage: Bool? = nil,
         label: String? = nil,
+        creatorid: String? = nil,
         spawnedby: String? = nil,
         agentid: String? = nil,
         search: String? = nil,
@@ -3991,6 +4007,7 @@ public struct SessionsListParams: Codable, Sendable {
         self.includederivedtitles = includederivedtitles
         self.includelastmessage = includelastmessage
         self.label = label
+        self.creatorid = creatorid
         self.spawnedby = spawnedby
         self.agentid = agentid
         self.search = search
@@ -4009,6 +4026,7 @@ public struct SessionsListParams: Codable, Sendable {
         case includederivedtitles = "includeDerivedTitles"
         case includelastmessage = "includeLastMessage"
         case label
+        case creatorid = "creatorId"
         case spawnedby = "spawnedBy"
         case agentid = "agentId"
         case search
@@ -4098,6 +4116,7 @@ public struct SessionCatalogSession: Codable, Sendable {
     public let pullrequest: SessionCatalogPullRequestSummary?
     public let archived: Bool
     public let sessionkey: String?
+    public let createdby: [String: AnyCodable]?
     public let cancontinue: Bool
     public let canarchive: Bool
     public let canopenterminal: Bool?
@@ -4118,6 +4137,7 @@ public struct SessionCatalogSession: Codable, Sendable {
         pullrequest: SessionCatalogPullRequestSummary? = nil,
         archived: Bool,
         sessionkey: String? = nil,
+        createdby: [String: AnyCodable]? = nil,
         cancontinue: Bool,
         canarchive: Bool,
         canopenterminal: Bool? = nil)
@@ -4137,6 +4157,7 @@ public struct SessionCatalogSession: Codable, Sendable {
         self.pullrequest = pullrequest
         self.archived = archived
         self.sessionkey = sessionkey
+        self.createdby = createdby
         self.cancontinue = cancontinue
         self.canarchive = canarchive
         self.canopenterminal = canopenterminal
@@ -4158,6 +4179,7 @@ public struct SessionCatalogSession: Codable, Sendable {
         case pullrequest = "pullRequest"
         case archived
         case sessionkey = "sessionKey"
+        case createdby = "createdBy"
         case cancontinue = "canContinue"
         case canarchive = "canArchive"
         case canopenterminal = "canOpenTerminal"
@@ -16411,6 +16433,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
     case missingScope(MissingScopeErrorDetails)
     case mcpAppViewExpired(McpAppViewExpiredErrorDetails)
     case unknownAgentId(UnknownAgentIdErrorDetails)
+    case wizardNotFound(WizardNotFoundErrorDetails)
 
     public init(code: String, missingscope: String, requiredscopes: [String]) {
         self = .missingScope(
@@ -16427,6 +16450,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
         case .missingScope(let value): value.code
         case .mcpAppViewExpired(let value): value.code
         case .unknownAgentId(let value): value.code
+        case .wizardNotFound(let value): value.code
         }
     }
 
@@ -16451,6 +16475,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
         case "MISSING_SCOPE": self = try .missingScope(MissingScopeErrorDetails(from: decoder))
         case "MCP_APP_VIEW_EXPIRED": self = try .mcpAppViewExpired(McpAppViewExpiredErrorDetails(from: decoder))
         case "UNKNOWN_AGENT_ID": self = try .unknownAgentId(UnknownAgentIdErrorDetails(from: decoder))
+        case "WIZARD_NOT_FOUND": self = try .wizardNotFound(WizardNotFoundErrorDetails(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .discriminator,
@@ -16465,6 +16490,7 @@ public enum GatewayErrorDetails: Codable, Sendable {
         case .missingScope(let value): try value.encode(to: encoder)
         case .mcpAppViewExpired(let value): try value.encode(to: encoder)
         case .unknownAgentId(let value): try value.encode(to: encoder)
+        case .wizardNotFound(let value): try value.encode(to: encoder)
         }
     }
 }
