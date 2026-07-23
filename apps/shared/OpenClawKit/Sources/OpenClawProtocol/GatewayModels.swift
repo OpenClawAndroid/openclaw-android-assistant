@@ -6895,6 +6895,7 @@ public struct SessionsCreateParams: Codable, Sendable {
     public let model: String?
     public let thinkinglevel: String?
     public let incognito: Bool?
+    public let visibility: SessionVisibility?
     public let catalogid: String?
     public let parentsessionkey: String?
     public let spawndepth: Int?
@@ -6917,6 +6918,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         model: String? = nil,
         thinkinglevel: String? = nil,
         incognito: Bool? = nil,
+        visibility: SessionVisibility? = nil,
         catalogid: String? = nil,
         parentsessionkey: String? = nil,
         spawndepth: Int? = nil,
@@ -6938,6 +6940,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         self.model = model
         self.thinkinglevel = thinkinglevel
         self.incognito = incognito
+        self.visibility = visibility
         self.catalogid = catalogid
         self.parentsessionkey = parentsessionkey
         self.spawndepth = spawndepth
@@ -6961,6 +6964,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         case model
         case thinkinglevel = "thinkingLevel"
         case incognito
+        case visibility
         case catalogid = "catalogId"
         case parentsessionkey = "parentSessionKey"
         case spawndepth = "spawnDepth"
