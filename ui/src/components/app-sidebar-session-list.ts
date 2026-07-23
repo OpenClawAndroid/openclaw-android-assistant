@@ -29,22 +29,20 @@ export abstract class AppSidebarSessionListElement
       this.draftSessionAgentId &&
       this.collapsedSessionSections.has("ungrouped")
     ) {
-      this.toggleSection("ungrouped");
+      this.sessionOrganizer.toggleSection("ungrouped");
     }
   }
 
   startSessionDrag(session: SidebarRecentSession): void {
-    this.draggingSessionKey = session.key;
-    this.draggingSidebarEntry = session.pinned ? `session:${session.key}` : null;
+    this.sessionOrganizer.startSessionDrag(session);
   }
 
   finishSessionDrag(): void {
-    this.finishSidebarEntryDrag();
-    this.sessionDropTarget = null;
+    this.sessionOrganizer.finishSessionDrag();
   }
 
   toggleSessionPin(session: SidebarRecentSession): void {
-    void this.patchSession(session, { pinned: !session.pinned });
+    void this.sessionOrganizer.patchSession(session, { pinned: !session.pinned });
   }
 
   toggleSessionMenu(
@@ -52,21 +50,48 @@ export abstract class AppSidebarSessionListElement
     menuSession: SidebarRecentSession,
     trigger: HTMLElement,
   ): void {
-    if (this.sessionMenu?.session.key === session.key) {
-      this.closeSessionMenu();
+    if (this.sidebarMenus.sessionMenu?.session.key === session.key) {
+      this.sidebarMenus.closeSessionMenu();
       return;
     }
     const rect = trigger.getBoundingClientRect();
-    this.openSessionMenu(menuSession, rect.right, rect.bottom + 4, trigger);
+    this.sidebarMenus.openSessionMenu(menuSession, rect.right, rect.bottom + 4, trigger);
   }
 
   startSessionGroupDrag(group: string): void {
-    this.draggingSessionGroup = group;
+    this.sessionOrganizer.startSessionGroupDrag(group);
   }
 
   finishSessionGroupDrag(): void {
-    this.draggingSessionGroup = null;
-    this.sessionGroupDropTarget = null;
+    this.sessionOrganizer.finishSessionGroupDrag();
+  }
+
+  sectionDragOver(event: DragEvent, sectionId: string, group?: string): void {
+    this.sessionOrganizer.sectionDragOver(event, sectionId, group);
+  }
+
+  sectionDragLeave(event: DragEvent, sectionId: string, group?: string): void {
+    this.sessionOrganizer.sectionDragLeave(event, sectionId, group);
+  }
+
+  sectionDrop(event: DragEvent, sectionId: string, group?: string): void {
+    this.sessionOrganizer.sectionDrop(event, sectionId, group);
+  }
+
+  toggleSection(sectionId: string): void {
+    this.sessionOrganizer.toggleSection(sectionId);
+  }
+
+  handleSessionListDragOver(event: DragEvent): void {
+    this.sessionOrganizer.handleSessionListDragOver(event);
+  }
+
+  handleSessionListDragLeave(event: DragEvent): void {
+    this.sessionOrganizer.handleSessionListDragLeave(event);
+  }
+
+  handleSessionListDrop(event: DragEvent): void {
+    this.sessionOrganizer.handleSessionListDrop(event);
   }
 
   openNewSession(): void {
@@ -93,7 +118,7 @@ export abstract class AppSidebarSessionListElement
     y: number,
     trigger?: HTMLElement,
   ): void {
-    this.catalogMenu.open(request, x, y, trigger);
+    this.sidebarMenus.catalogMenu.open(request, x, y, trigger);
   }
 
   protected renderPinnedSidebarSession(session: SidebarRecentSession): TemplateResult {

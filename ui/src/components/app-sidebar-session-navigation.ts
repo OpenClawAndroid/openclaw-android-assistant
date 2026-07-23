@@ -63,7 +63,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
   @state() protected collapsedActiveChildSessionKeys: ReadonlySet<string> = new Set();
   @state() fullyShownChildSessionKeys: ReadonlySet<string> = new Set();
   @state() sessionsGrouping: SidebarSessionsGrouping = loadStoredSidebarSessionsGrouping();
-  @state() protected sessionsShowCron = loadStoredSidebarSessionsShowCron();
+  @state() sessionsShowCron = loadStoredSidebarSessionsShowCron();
   @state() sessionsStatusFilter: SidebarSessionStatusFilter =
     loadStoredSidebarSessionStatusFilter();
 
@@ -123,7 +123,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return this.getSessionNavigationState().toSidebarSession(row);
   }
 
-  protected getRouteSessionKey(): string {
+  getRouteSessionKey(): string {
     return this.sessionKey.trim() || this.context?.gateway.snapshot.sessionKey.trim() || "";
   }
 
@@ -131,7 +131,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return this.outboxCountForSession(sessionKey);
   }
 
-  protected getSessionNavigationState() {
+  getSessionNavigationState() {
     const context = this.context;
     const routeSessionKey = this.getRouteSessionKey();
     const navigation = resolveSessionNavigation({
@@ -235,7 +235,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return this.sessionsStatusFilter;
   }
 
-  protected readonly selectSession = (sessionKey: string) => {
+  readonly selectSession = (sessionKey: string) => {
     this.context?.gateway.setSessionKey(sessionKey);
     this.onNavigate?.("chat", {
       search: searchForSession(sessionKey),
@@ -288,7 +288,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return { sections: limitedSections, expandedRows, visibleRows };
   }
 
-  protected reconciledSidebarZone() {
+  reconciledSidebarZone() {
     const navigationState = this.getSessionNavigationState();
     const rows = this.selectedAgentSessionRows(navigationState);
     const pinnedRows = rows.filter((row) => row.pinned);
@@ -317,7 +317,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
    * (e.g. the Sessions page) rely on reconcileSidebarZone's known-unpinned
    * pruning at the next canonical write, which keeps the slot hidden meanwhile.
    */
-  protected pruneSidebarSessionEntry(key: string) {
+  pruneSidebarSessionEntry(key: string) {
     const serialized = serializeSidebarEntry({ type: "session", key });
     if (!this.sidebarEntries.includes(serialized)) {
       return;
@@ -341,7 +341,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return [...pinnedRows, ...visibleRows];
   }
 
-  protected selectedVisibleSessions(): SidebarRecentSession[] {
+  selectedVisibleSessions(): SidebarRecentSession[] {
     if (this.selectedSessionKeys.size === 0) {
       return [];
     }
@@ -418,7 +418,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     }
   }
 
-  protected readonly replaceCurrentSession = (sessionKey: string) => {
+  readonly replaceCurrentSession = (sessionKey: string) => {
     this.context?.gateway.setSessionKey(sessionKey);
     if (this.activeRouteId === "chat") {
       this.onNavigate?.("chat", {
@@ -452,7 +452,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
       : normalizeAgentId(this.getSessionNavigationState().selectedAgentId);
   }
 
-  protected activeChipAgent() {
+  activeChipAgent() {
     const roster = this.context?.agents.state.agentsList?.agents ?? [];
     const activeId = this.expandedAgentId();
     const agent = roster.find((entry) => normalizeAgentId(entry.id) === activeId);
@@ -514,13 +514,13 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return t("agentChip.ready");
   }
 
-  protected switchChipAgent(agentId: string) {
+  switchChipAgent(agentId: string) {
     this.closeAgentMenu();
     this.expandAgent(agentId);
     this.openAgentConversation(agentId);
   }
 
-  protected askAgentCapabilities(agentId: string) {
+  askAgentCapabilities(agentId: string) {
     this.closeAgentMenu();
     if (!this.connected) {
       return;
@@ -531,7 +531,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     this.onNavigate?.("chat", { search: `${searchForSession(key)}&draft=${draft}` });
   }
 
-  protected knownSessionGroups(): string[] {
+  knownSessionGroups(): string[] {
     const catalog = this.context?.sessions.state.groups ?? [];
     const catalogSet = new Set(catalog);
     const discovered = (this.sessionData.sessionsResult?.sessions ?? [])
@@ -539,6 +539,23 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
       .filter((name): name is string => typeof name === "string" && !catalogSet.has(name))
       .toSorted((a, b) => a.localeCompare(b));
     return [...catalog, ...new Set(discovered)];
+  }
+
+  findSidebarSessionByKey(sessionKey: string): SidebarRecentSession | undefined {
+    const navigationState = this.getSessionNavigationState();
+    const active = navigationState.visibleSessions.find(
+      (candidate) => candidate.key === sessionKey,
+    );
+    if (active) {
+      return active;
+    }
+    for (const rows of Object.values(this.sessionData.sessionRowsByAgent)) {
+      const row = rows.find((candidate) => candidate.key === sessionKey);
+      if (row) {
+        return navigationState.toSidebarSession(row);
+      }
+    }
+    return undefined;
   }
 
   /** The list follows the chip-selected agent without flashing stale rows mid-switch. */
@@ -716,7 +733,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     this.fullyShownChildSessionKeys = new Set(this.fullyShownChildSessionKeys).add(sessionKey);
   }
 
-  protected agentUnreadCount(agentId: string): number {
+  agentUnreadCount(agentId: string): number {
     const rows = this.sessionData.sessionRowsByAgent[normalizeAgentId(agentId)] ?? [];
     return rows.filter((row) => row.unread === true && row.archived !== true).length;
   }
