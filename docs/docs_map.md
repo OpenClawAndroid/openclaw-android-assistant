@@ -502,7 +502,6 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Private API actions
   - H2: Config writes
   - H2: Coalescing split-send DMs (command + URL in one composition)
-  - H3: Scenarios and what the agent sees
   - H2: Inbound recovery after a bridge or gateway restart
   - H3: Operator-visible signal
   - H3: Migration
@@ -1372,7 +1371,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /cli/claws
 - Headings:
   - H1: openclaw claws
-  - H2: Create a grouped manifest
+  - H2: Create a Claw package
   - H2: Inspect and preview
   - H2: Inspect installed state
   - H2: Update an installed Claw
@@ -8756,6 +8755,9 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Version naming
   - H2: Release cadence
   - H2: Monthly Gateway extended-stable publication
+  - H3: Prepare and stabilize the candidate
+  - H3: Publish the npm packages
+  - H3: Verify and recover
   - H2: Regular release operator checklist
   - H2: Stable main closeout
   - H2: Release preflight
@@ -8827,6 +8829,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 
 - Route: /reference/full-release-validation
 - Headings:
+  - H2: Extended-stable exception
   - H2: Top-level stages
   - H2: Release checks stages
   - H2: Docker release-path chunks

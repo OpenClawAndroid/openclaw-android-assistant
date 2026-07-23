@@ -128,7 +128,6 @@ extensions/google-meet/index.test.ts
 extensions/google-meet/index.ts
 extensions/google-meet/src/cli.test.ts
 extensions/google-meet/src/cli.ts
-extensions/google-meet/src/meet.ts
 extensions/google/oauth.test.ts
 extensions/google/realtime-voice-provider.test.ts
 extensions/google/realtime-voice-provider.ts
@@ -867,7 +866,6 @@ src/gateway/session-utils.test.ts
 src/gateway/session-utils.ts
 src/gateway/sessions-history-http.test.ts
 src/gateway/sessions-patch.test.ts
-src/gateway/sessions-patch.ts
 src/gateway/talk-realtime-relay.test.ts
 src/gateway/talk-realtime-relay.ts
 src/gateway/test-helpers.server.ts

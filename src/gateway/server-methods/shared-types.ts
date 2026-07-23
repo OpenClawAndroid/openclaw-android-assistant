@@ -1,5 +1,4 @@
 import type {
-  SessionCreatorIdentity,
   SessionApprovalReplay,
   SystemAgentChatQuestion,
 } from "../../../packages/gateway-protocol/src/index.js";
@@ -58,6 +57,7 @@ import type {
   WorkerEnvironmentServiceContract,
   WorkerPlacementDispatchContract,
 } from "../worker-environments/service-contract.js";
+import type { TrustedSessionCreation } from "./session-creation-provenance.js";
 
 /**
  * Shared gateway request types used by every server-method module.
@@ -78,8 +78,6 @@ export type GatewayClient = {
     hasAvatar: boolean;
     updatedAt: number;
   };
-  /** Trusted operator identity resolved once during connection admission. */
-  operatorIdentity?: SessionCreatorIdentity;
   pluginSurfaceUrls?: Record<string, string>;
   pluginNodeCapabilitySurfaces?: Record<string, PluginNodeCapabilitySurface>;
   pluginNodeCapabilities?: Record<string, { capability: string; expiresAtMs: number }>;
@@ -89,6 +87,10 @@ export type GatewayClient = {
   /** Signed shared-auth session admitted only to approve its own upgrade pairing. */
   isControlUiDeviceAuthMigration?: boolean;
   internal?: {
+    /** Marks the server-constructed client used by trusted in-process dispatch. */
+    syntheticClient?: true;
+    /** Trusted session creation provenance; never accepted from Gateway wire params. */
+    sessionCreation?: TrustedSessionCreation;
     allowModelOverride?: boolean;
     approvalRuntime?: boolean;
     cronRunContinuation?: boolean;
