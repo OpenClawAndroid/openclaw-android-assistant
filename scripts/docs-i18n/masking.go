@@ -87,8 +87,8 @@ func maskMarkdownDocSyntax(text string, nextPlaceholder func() string, placehold
 	}
 	inlineRanges = append(inlineRanges, protectedMarkdownLinkRanges(text)...)
 	masked := maskByteRanges(text, inlineRanges, nextPlaceholder, placeholders, mapping)
-
-	return maskByteRanges(masked, markdownListMarkerRanges(masked), nextPlaceholder, placeholders, mapping)
+	masked = maskByteRanges(masked, markdownListMarkerRanges(masked), nextPlaceholder, placeholders, mapping)
+	return maskByteRanges(masked, compositeNumericValueRanges(masked), nextPlaceholder, placeholders, mapping)
 }
 
 func markdownListMarkerRanges(text string) [][2]int {
@@ -306,11 +306,20 @@ func markdownInlineLinkDestination(value string) string {
 }
 
 func extractNumericValues(text string) []string {
+	ranges := compositeNumericValueRanges(text)
+	values := make([]string, 0, len(ranges))
+	for _, span := range ranges {
+		values = append(values, text[span[0]:span[1]])
+	}
+	return values
+}
+
+func compositeNumericValueRanges(text string) [][2]int {
 	protocolRanges := make([][2]int, 0)
 	for _, span := range placeholderRe.FindAllStringIndex(text, -1) {
 		protocolRanges = append(protocolRanges, [2]int{span[0], span[1]})
 	}
-	values := make([]string, 0)
+	ranges := make([][2]int, 0)
 	for _, span := range numericValueRe.FindAllStringIndex(text, -1) {
 		candidate := [2]int{span[0], span[1]}
 		if hasCompositeNumericLeadingContinuation(text, candidate[0]) ||
@@ -318,9 +327,9 @@ func extractNumericValues(text string) []string {
 			rangeOverlapsAny(candidate, protocolRanges) {
 			continue
 		}
-		values = append(values, text[span[0]:span[1]])
+		ranges = append(ranges, [2]int{span[0], span[1]})
 	}
-	return values
+	return ranges
 }
 
 func hasClockMeridiemSuffix(text string, span [2]int) bool {

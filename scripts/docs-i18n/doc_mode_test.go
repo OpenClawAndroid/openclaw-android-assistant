@@ -2404,6 +2404,7 @@ func TestTranslateDocBodyChunkedMasksInlineCodeAndListMarkers(t *testing.T) {
 	body := strings.Join([]string{
 		"- Visible prose uses `openclaw config`.",
 		"  1. Visible prose keeps ``nested `ticks` `` exact.",
+		"- Visible prose keeps Hailuo 2.3/02 exact.",
 		"- Channel configs:",
 		"  - Telegram: Visible prose.",
 		"  - WhatsApp: Visible prose.",
@@ -2428,7 +2429,7 @@ func TestTranslateDocBodyChunkedMasksInlineCodeAndListMarkers(t *testing.T) {
 		t.Fatal("expected raw translator inputs")
 	}
 	for _, input := range translator.rawInputs {
-		if strings.Contains(input, "`openclaw config`") || strings.Contains(input, "``nested `ticks` ``") {
+		if strings.Contains(input, "`openclaw config`") || strings.Contains(input, "``nested `ticks` ``") || strings.Contains(input, "2.3/02") {
 			t.Fatalf("expected inline code outside fences to be masked:\n%s", input)
 		}
 		if strings.Contains(input, "- Visible prose uses") || strings.Contains(input, "1. Visible prose keeps") || strings.Contains(input, "> - Visible prose inside a quote.") {
@@ -2441,6 +2442,7 @@ func TestTranslateDocBodyChunkedMasksInlineCodeAndListMarkers(t *testing.T) {
 	for _, exact := range []string{
 		"- Видимый текст uses `openclaw config`.",
 		"  1. Видимый текст keeps ``nested `ticks` `` exact.",
+		"- Видимый текст keeps Hailuo 2.3/02 exact.",
 		"- Channel configs:\n  - Telegram: Видимый текст.\n  - WhatsApp: Видимый текст.",
 		"> - Видимый текст inside a quote.",
 		"```md\n- Видимый текст and `fenced example` stay exposed.\n```",
