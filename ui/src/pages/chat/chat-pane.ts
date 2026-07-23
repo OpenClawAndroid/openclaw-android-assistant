@@ -169,7 +169,7 @@ import {
 import { markQueuedChatSendsWaitingForReconnect } from "./chat-queue.ts";
 import { dismissRealtimeTalkError } from "./chat-realtime.ts";
 import { activeChatRunStartupStatus } from "./chat-run-startup.ts";
-import { flushChatQueueForEvent, retryReconnectableQueuedChatSends } from "./chat-send.ts";
+import { flushChatQueueForEvent, retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
 import {
   flushChatQueueAfterIdleSessionReconciliation,
   switchChatFastMode,
@@ -194,7 +194,7 @@ import {
   type ChatPageHost,
 } from "./chat-state.ts";
 import { resetChatViewState } from "./chat-view-state.ts";
-import { renderChat, renderChatResizableDivider, type ChatProps } from "./chat-view.ts";
+import { renderChat, type ChatProps } from "./chat-view.ts";
 import { renderCatalogTerminalButton } from "./components/catalog-terminal-button.ts";
 import { chatAttachmentFromDataUrl } from "./components/chat-attachments.ts";
 import {
@@ -217,6 +217,7 @@ import {
   dismissChatPullRequest,
   listDismissedChatPullRequests,
 } from "./components/chat-pull-requests.ts";
+import { renderChatResizableDivider } from "./components/chat-resizable-divider.ts";
 import {
   renderChatSessionSharing,
   type ChatSessionSharingState,

@@ -56,6 +56,7 @@ class NewSessionPage extends OpenClawLightDomElement {
   @state() private agentId = "";
   @state() private folder = "";
   @state() private worktree = false;
+  @state() private incognito = false;
   @state() private worktreeName = "";
   @state() private baseRef = "";
   @state() private repository: DraftRepositoryState = { kind: "idle" };
@@ -232,6 +233,7 @@ class NewSessionPage extends OpenClawLightDomElement {
     this.folder = "";
     this.folderSelectedByUser = false;
     this.worktree = false;
+    this.incognito = false;
     this.worktreeName = "";
     this.baseRefEditGeneration += 1;
     this.nodes = [];
@@ -451,6 +453,7 @@ class NewSessionPage extends OpenClawLightDomElement {
     this.folder = "";
     this.folderSelectedByUser = false;
     this.worktree = false;
+    this.incognito = false;
     this.worktreeName = "";
     this.baseRef = "";
     this.repository = { kind: "idle" };
@@ -465,6 +468,7 @@ class NewSessionPage extends OpenClawLightDomElement {
       this.agentId = this.pendingCloud.agentId;
       this.cloudProfileId = this.pendingCloud.profileId;
       this.worktree = true;
+      this.incognito = this.pendingCloud.createParams?.incognito === true;
       // Show the staged repo (not the agent workspace) while the draft is locked.
       this.folder = this.pendingCloud.createParams?.cwd ?? "";
       this.pendingCloud.restored = false;
@@ -516,6 +520,7 @@ class NewSessionPage extends OpenClawLightDomElement {
     this.agentId = recovery.agentId;
     this.cloudProfileId = recovery.profileId;
     this.worktree = true;
+    this.incognito = recovery.createParams?.incognito === true;
     // Show the staged repo (not the agent workspace) while the draft is locked.
     this.folder = recovery.createParams?.cwd ?? "";
     this.message = recovery.message;
@@ -783,6 +788,7 @@ class NewSessionPage extends OpenClawLightDomElement {
         message: cloudProfileId ? "" : message,
         model: this.modelControl.selected,
         thinkingLevel: this.modelControl.thinkingLevel,
+        incognito: this.incognito,
         attachments: cloudProfileId ? undefined : apiAttachments,
         worktree: this.worktree,
         baseRef: this.baseRef,
@@ -803,6 +809,7 @@ class NewSessionPage extends OpenClawLightDomElement {
               gatewayUrl: submissionGatewayUrl,
               recoveryScope: submissionRecoveryScope,
               createParams,
+              persistent: !this.incognito,
             })
         : undefined;
       if (cloudProfileId && !pendingCloud && !cloudCreateParams) {
@@ -870,6 +877,7 @@ class NewSessionPage extends OpenClawLightDomElement {
           gatewayUrl: submissionGatewayUrl,
           recoveryScope: submissionRecoveryScope,
           recoveryPhase,
+          persistRecovery: this.pendingCloud.persistent,
           recovering: pendingCloud,
           isCurrent: isSubmissionCurrent,
           ownsRecovery: ownsSubmissionRecovery,
@@ -1360,6 +1368,7 @@ class NewSessionPage extends OpenClawLightDomElement {
           context: this.context,
           isCatalogTarget: catalog.isTarget(this.data),
           message: this.message,
+          incognito: this.incognito,
           modelControl: this.modelControl,
           requiresModifier: loadSettings().chatSendShortcut === "modifier-enter",
           submitting: this.submitting,
@@ -1367,6 +1376,11 @@ class NewSessionPage extends OpenClawLightDomElement {
           onInput: (message) => {
             if (!this.submitting && !this.pendingCloud.sessionKey) {
               this.message = message;
+            }
+          },
+          onToggleIncognito: () => {
+            if (!this.submitting && !this.pendingCloud.sessionKey) {
+              this.incognito = !this.incognito;
             }
           },
           onSubmit: () => void this.submit(),
