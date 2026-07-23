@@ -3600,11 +3600,10 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: What each flag does
   - H3: Per-channel vs per-account examples
   - H3: Common patterns
-  - H2: HEARTBEAT.md (optional)
+  - H2: Monitor scratch (optional)
   - H3: tasks: blocks
-  - H3: Can the agent update HEARTBEAT.md?
+  - H3: Can the agent update its scratch?
   - H2: Manual wake (on-demand)
-  - H2: Reasoning delivery (optional)
   - H2: Cost awareness
   - H2: Context overflow after heartbeat
   - H2: Related
@@ -7571,6 +7570,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: What changed
   - H3: Why
   - H2: Compatibility policy
+  - H3: Published channel setup compatibility
   - H3: Channel setup input field compatibility
   - H4: Verifying readers
   - H2: How to migrate

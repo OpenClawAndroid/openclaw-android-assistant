@@ -589,6 +589,7 @@ export const en: TranslationMap = {
     limit: "Limit",
     filters: "Filters",
     createdBy: "Created by {name}",
+    archivedBy: "Archived by {name}",
     filterByCreator: "Filter by creator",
     allCreators: "All people",
     filterControls: "Thread filters",
@@ -3753,6 +3754,9 @@ export const en: TranslationMap = {
   },
   chat: {
     disconnected: "Disconnected from gateway.",
+    sendErrors: {
+      activeLeafChanged: "The thread switched branches — review and resend.",
+    },
     waitingForApproval: "Waiting for approval…",
     startupStatus: {
       preparingWorkspace: "Preparing workspace…",

@@ -205,6 +205,38 @@ func markdownWhitespaceRunStart(text string, position int) int {
 	return position
 }
 
+func escapeUnexpectedListItemBodyMarkers(source, translated string, listPlaceholders map[string]string) string {
+	type insertion struct {
+		position int
+	}
+	insertions := make([]insertion, 0)
+	for placeholder := range listPlaceholders {
+		sourcePosition := strings.Index(source, placeholder)
+		translatedPosition := strings.Index(translated, placeholder)
+		if sourcePosition < 0 || translatedPosition < 0 {
+			continue
+		}
+		sourceBody := source[sourcePosition+len(placeholder):]
+		translatedBody := translated[translatedPosition+len(placeholder):]
+		sourceMatch := listMarkerRe.FindStringSubmatchIndex(sourceBody)
+		translatedMatch := listMarkerRe.FindStringSubmatchIndex(translatedBody)
+		if len(translatedMatch) < 6 || len(sourceMatch) >= 6 {
+			continue
+		}
+		markerStart, markerEnd := translatedMatch[4], translatedMatch[5]
+		insertAt := markerStart
+		if markerEnd-markerStart > 1 {
+			insertAt = markerEnd - 1
+		}
+		insertions = append(insertions, insertion{position: translatedPosition + len(placeholder) + insertAt})
+	}
+	sort.Slice(insertions, func(i, j int) bool { return insertions[i].position > insertions[j].position })
+	for _, item := range insertions {
+		translated = translated[:item.position] + `\` + translated[item.position:]
+	}
+	return translated
+}
+
 func escapeUnexpectedMarkdownListMarkers(text string, listPlaceholders map[string]string) string {
 	ranges := markdownListMarkerRanges(text)
 	if len(ranges) == 0 {
