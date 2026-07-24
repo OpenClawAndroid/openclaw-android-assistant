@@ -179,7 +179,6 @@ extensions/memory-core/src/memory/search-manager.test.ts
 extensions/memory-core/src/memory/search-manager.ts
 extensions/memory-core/src/rem-evidence.ts
 extensions/memory-core/src/short-term-promotion.test.ts
-extensions/memory-core/src/short-term-promotion.ts
 extensions/memory-core/src/tools.test.ts
 extensions/memory-core/src/tools.ts
 extensions/memory-lancedb/index.test.ts
@@ -302,7 +301,6 @@ extensions/telegram/src/message-cache.ts
 extensions/telegram/src/polling-session.test.ts
 extensions/telegram/src/polling-session.ts
 extensions/telegram/src/send.test.ts
-extensions/telegram/src/send.ts
 extensions/telegram/src/thread-bindings.ts
 extensions/telegram/src/webhook.test.ts
 extensions/tlon/src/monitor/index.ts
