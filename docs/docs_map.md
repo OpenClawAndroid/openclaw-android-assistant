@@ -247,6 +247,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /channels/ambient-room-events
 - Headings:
   - H2: Recommended setup
+  - H2: Prerequisites
   - H2: What changes
   - H2: Discord example
   - H2: Slack example
@@ -353,6 +354,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Forum channels
   - H2: Interactive components
   - H2: Access control and routing
+  - H3: Guild channel maps are allowlists
   - H3: Role-based agent routing
   - H2: Native commands and command auth
   - H2: Feature details
@@ -1020,6 +1022,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: QQ Bot failure signatures
   - H2: Matrix
   - H3: Matrix failure signatures
+  - H2: Gateway up but channel never connects
   - H2: Related
 
 ## channels/twitch.md
@@ -8552,7 +8555,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Privacy modes
   - H2: Getting started
   - H2: Model selection
-  - H2: Built-in catalog (30 models)
+  - H2: Built-in catalog (16 visible models)
   - H2: Model discovery
   - H2: DeepSeek V4 replay behavior
   - H2: Streaming and tool support
