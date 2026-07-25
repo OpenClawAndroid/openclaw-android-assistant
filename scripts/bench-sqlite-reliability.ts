@@ -40,6 +40,9 @@ function printProofLines(report: ReliabilityReport): void {
     `SQLITE_RELIABILITY_CRASH_EXIT_SIGNAL=${report.crashRecoveryProof.exit.signal ?? "none"}`,
   );
   console.log(
+    `SQLITE_RELIABILITY_PUBLICATION_INTERRUPTION=${report.publicationInterruptionProof.beforePublish.recoveryVerified && report.publicationInterruptionProof.afterPublish.targetVerifiedAfterCrash && report.publicationInterruptionProof.afterPublish.recoveryVerified ? "verified" : "missing"}`,
+  );
+  console.log(
     `SQLITE_RELIABILITY_WAL_SENTINEL=${report.transactionProof.committedWalSentinel ? "verified" : "missing"}`,
   );
   console.log(`SQLITE_RELIABILITY_HELD_BATCH=${report.transactionProof.heldBatch}`);
@@ -48,6 +51,9 @@ function printProofLines(report: ReliabilityReport): void {
   console.log(`SQLITE_RELIABILITY_SNAPSHOT_BYTES_MAX=${report.snapshotBytes.max}`);
   console.log(
     `SQLITE_RELIABILITY_COMPACT_RECLAIMED_BYTES=${report.maintenanceProof.compaction.reclaimedBytes}`,
+  );
+  console.log(
+    `SQLITE_RELIABILITY_VACUUM_INTERRUPTION=${report.maintenanceProof.vacuumInterruption.recoveryVerified ? "verified" : "missing"}`,
   );
   console.log(
     `SQLITE_RELIABILITY_POST_COMPACT_RESTORE=${report.maintenanceProof.postCompact.restoreVerified ? "verified" : "missing"}`,
