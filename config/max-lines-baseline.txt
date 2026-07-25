@@ -361,7 +361,6 @@ src/agents/agent-hooks/compaction-safeguard.ts
 src/agents/agent-scope.test.ts
 src/agents/agent-tools.before-tool-call.e2e.test.ts
 src/agents/agent-tools.before-tool-call.integration.e2e.test.ts
-src/agents/agent-tools.before-tool-call.ts
 src/agents/agent-tools.create-openclaw-coding-tools.test.ts
 src/agents/agent-tools.read.ts
 src/agents/agent-tools.schema.test.ts
@@ -411,7 +410,6 @@ src/agents/embedded-agent-runner.sanitize-session-history.test.ts
 src/agents/embedded-agent-runner/compact.hooks.harness.ts
 src/agents/embedded-agent-runner/compact.hooks.test.ts
 src/agents/embedded-agent-runner/compact.queued.ts
-src/agents/embedded-agent-runner/compact.ts
 src/agents/embedded-agent-runner/context-engine-maintenance.test.ts
 src/agents/embedded-agent-runner/extra-params.ts
 src/agents/embedded-agent-runner/model.provider-runtime.test-support.ts
