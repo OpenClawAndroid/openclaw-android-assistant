@@ -29,6 +29,8 @@ import {
   type ReliabilityStateProof,
 } from "./sqlite-reliability-contract.js";
 import { runPublicationInterruptionProof } from "./sqlite-reliability-publication.js";
+import { runRepositoryInterruptionProof } from "./sqlite-reliability-repository.js";
+import { runRestoreInterruptionProof } from "./sqlite-reliability-restore.js";
 import { monitorSqliteWalDuring } from "./sqlite-reliability-wal-monitor.js";
 import {
   crashWriter,
@@ -469,6 +471,7 @@ async function runMaintenanceRoundTrip(params: {
   syncedProvider: ReturnType<typeof createLocalSqliteSnapshotProvider>;
   syncedRepository: string;
   target: TargetDatabase;
+  validationRoot: string;
 }): Promise<ReliabilityReport["maintenanceProof"]> {
   const autoVacuumBeforeKill = prepareVacuumRollbackSentinel(params.target.path);
   const bloatBytes = createCompactionBloat(params.target.path);
@@ -484,6 +487,49 @@ async function runMaintenanceRoundTrip(params: {
       `compaction payload setup failed: rows=${expectedPayload.rows} bytes=${expectedPayload.bytes}`,
     );
   }
+  const repositoryInterruption = await runRepositoryInterruptionProof({
+    expectedPayload,
+    expectedState,
+    identity: params.target.identity,
+    repositoryPath: path.join(params.restoreRoot, "repository-interruptions"),
+    sourcePath: params.target.path,
+    validationRootPath: params.validationRoot,
+    verifyPayload: readCompactionPayload,
+    verifyState: (databasePath) =>
+      verifyRestoredDatabase({
+        expectedState,
+        identity: params.target.identity,
+        path: databasePath,
+        rowsPerBatch: params.rowsPerBatch,
+        uncommittedBatch: null,
+      }),
+  });
+  const interruptedSnapshot = await params.repositoryProvider.create({
+    identity: params.target.identity,
+    path: params.target.path,
+  });
+  const interruptedCopiedPath = copySnapshotDirectory(
+    interruptedSnapshot.ref.path,
+    params.syncedRepository,
+  );
+  const restoreInterruption = await runRestoreInterruptionProof({
+    expectedPayload,
+    expectedSnapshotBytes: interruptedSnapshot.manifest.artifact.sizeBytes,
+    expectedState,
+    repositoryPath: params.syncedRepository,
+    scratchPath: path.join(params.restoreRoot, "interrupted"),
+    snapshotPath: interruptedCopiedPath,
+    validationRootPath: params.validationRoot,
+    verifyPayload: readCompactionPayload,
+    verifyState: (databasePath) =>
+      verifyRestoredDatabase({
+        expectedState,
+        identity: params.target.identity,
+        path: databasePath,
+        rowsPerBatch: params.rowsPerBatch,
+        uncommittedBatch: null,
+      }),
+  });
   const vacuumInterruption = await runVacuumInterruptionProof({
     env: params.env,
     expectedAutoVacuum: autoVacuumBeforeKill,
@@ -542,6 +588,8 @@ async function runMaintenanceRoundTrip(params: {
       snapshotMs: Number(snapshotMs.toFixed(3)),
       state,
     },
+    repositoryInterruption,
+    restoreInterruption,
     vacuumInterruption,
   };
 }
@@ -700,6 +748,7 @@ export async function runReliabilityStress(options: CliOptions): Promise<Reliabi
       syncedProvider,
       syncedRepository,
       target,
+      validationRoot,
     });
     const snapshotBytes = metrics.map((metric) => metric.snapshotBytes);
     return {
@@ -727,7 +776,7 @@ export async function runReliabilityStress(options: CliOptions): Promise<Reliabi
       profile: options.profile,
       publicationInterruptionProof,
       retainedBatches: profile.retainedBatches,
-      restoresVerified: metrics.length + 1,
+      restoresVerified: metrics.length + 3,
       rowsPerBatch: profile.rowsPerBatch,
       snapshotBytes: {
         max: Math.max(...snapshotBytes),
