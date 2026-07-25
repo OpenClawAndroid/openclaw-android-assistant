@@ -3332,6 +3332,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: CLI backend selection
   - H3: agents.defaults.promptOverlays
   - H3: agents.defaults.heartbeat
+  - H3: agents.defaults.systemAgent
   - H3: agents.defaults.compaction
   - H3: agents.defaults.contextPruning
   - H3: Block streaming
@@ -7865,7 +7866,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Getting started
   - H2: Claude sessions across computers
   - H2: Thinking defaults (Claude Opus 5, Sonnet 5, Mythos 5, Fable 5, 4.8, and 4.6)
-  - H2: Safety refusal fallback (Claude Fable 5)
+  - H2: Safety refusal fallback (Claude Opus 5 and Fable 5)
   - H3: Why this exists
   - H3: How it works
   - H3: Observability and billing
