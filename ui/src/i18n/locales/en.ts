@@ -4034,6 +4034,7 @@ export const en: TranslationMap = {
       coding: "Coding",
       catalogViewOptions: "View options",
       catalogGroupByProject: "Project",
+      catalogGroupByPerson: "Person",
       openSessionMenu: "Open thread menu",
       sortBy: "Sort by",
       sortCreated: "Created",
@@ -4212,6 +4213,14 @@ export const en: TranslationMap = {
       renderedMarkdownHint: "Sanitized rich-text preview for quick reading.",
       noPreviewableMarkdown: "No previewable markdown content.",
       noContent: "No content available",
+    },
+    sidebarColumns: {
+      chat: "Chat",
+      discussion: "Discussion",
+      detail: "Details",
+      close: "Close {panel}",
+      drag: "Drag {panel}",
+      resize: "Resize {panel}",
     },
     thread: {
       search: "Search messages",
