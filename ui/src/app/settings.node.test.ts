@@ -361,65 +361,6 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(sessionStorage.length).toBe(1);
   });
 
-  it("persists sidebar entries across save and load, normalizing bad values", () => {
-    setTestLocation({
-      protocol: "https:",
-      host: "gateway.example:8443",
-      pathname: "/",
-    });
-
-    const gwUrl = expectedGatewayUrl("");
-    saveSettings({
-      gatewayUrl: gwUrl,
-      token: "",
-      sessionKey: "main",
-      lastActiveSessionKey: "main",
-      theme: "claw",
-      themeMode: "system",
-      chatShowThinking: true,
-      chatShowToolCalls: true,
-      navCollapsed: false,
-      navWidth: 258,
-      sidebarEntries: ["route:tasks", "route:cron"],
-      textScale: 100,
-    });
-
-    expect(loadSettings().sidebarEntries).toEqual(["route:tasks", "route:cron"]);
-    expect(loadSettings().navWidth).toBe(258);
-
-    // Corrupt the persisted list; load falls back to the default pinned set.
-    const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
-    const persisted = JSON.parse(localStorage.getItem(scopedKey) ?? "{}") as Record<
-      string,
-      unknown
-    >;
-    persisted.sidebarEntries = "route:tasks";
-    persisted.navWidth = 220;
-    localStorage.setItem(scopedKey, JSON.stringify(persisted));
-
-    expect(loadSettings().sidebarEntries).toEqual(["route:cron", "route:plugins"]);
-    expect(loadSettings().navWidth).toBe(258);
-  });
-
-  it("migrates the legacy route-only list once and writes only sidebarEntries", () => {
-    setTestLocation({
-      protocol: "https:",
-      host: "gateway.example:8443",
-      pathname: "/",
-    });
-    const gwUrl = expectedGatewayUrl("");
-    const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
-    const legacy = makeSettings(gwUrl) as unknown as Record<string, unknown>;
-    delete legacy.sidebarEntries;
-    legacy.sidebarPinnedRoutes = ["usage", "tasks", "usage", "worktrees", 7];
-    localStorage.setItem(scopedKey, JSON.stringify(legacy));
-
-    expect(loadSettings().sidebarEntries).toEqual(["route:usage", "route:tasks"]);
-    const migrated = JSON.parse(localStorage.getItem(scopedKey) ?? "{}") as Record<string, unknown>;
-    expect(migrated.sidebarEntries).toEqual(["route:usage", "route:tasks"]);
-    expect(migrated).not.toHaveProperty("sidebarPinnedRoutes");
-  });
-
   it("persists pinned agents and drops malformed or duplicate entries", () => {
     setTestLocation({
       protocol: "https:",

@@ -39,13 +39,13 @@
    rules sit after the collapse/dock modifiers so the extra column wins at
    equal specificity. */
 .chat-workbench--tasks-open {
-  grid-template-columns: minmax(0, 1fr) minmax(230px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 330px);
 }
 
 .chat-workbench--tasks-open:not(.chat-workbench--workspace-collapsed):not(
   .chat-workbench--dock-bottom
 ) {
-  grid-template-columns: minmax(0, 1fr) minmax(230px, 280px) minmax(230px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 280px) minmax(270px, 330px);
 }
 
 /* Compact icon button shared by the pane header actions. Sizing only — chrome
@@ -331,6 +331,39 @@ openclaw-chat-sidebar-region,
 
 .sidebar-column__divider {
   z-index: 2;
+}
+
+.sidebar-empty-side-drop-zone {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.sidebar-empty-side-drop-zone--left {
+  left: 0;
+}
+
+.sidebar-empty-side-drop-zone--right {
+  right: 0;
+}
+
+.sidebar-empty-side-drop-zone__boundary {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.sidebar-empty-side-drop-zone--left .sidebar-empty-side-drop-zone__boundary {
+  right: 0;
+}
+
+.sidebar-empty-side-drop-zone--right .sidebar-empty-side-drop-zone__boundary {
+  left: 0;
 }
 
 .sidebar-region--narrow {
@@ -873,6 +906,13 @@ openclaw-chat-sidebar-region,
   overflow: auto;
 }
 
+/* List mode splits scrolling per section: running work owns the rail and the
+   finished history pins to the bottom, so a long history can never clip the
+   active tasks (each section scrolls on its own instead of the container). */
+.chat-tasks-rail__scroll--split {
+  overflow: hidden;
+}
+
 .chat-tasks-rail__section {
   display: flex;
   flex: 0 1 auto;
@@ -880,6 +920,16 @@ openclaw-chat-sidebar-region,
   min-height: 0;
   overflow-y: auto;
   padding-top: 8px;
+}
+
+.chat-tasks-rail__scroll--split > [data-tasks-section="running"] {
+  flex: 1 1 auto;
+}
+
+/* Cap only when running work is present; alone, finished may fill the rail. */
+.chat-tasks-rail__scroll--split > [data-tasks-section="running"] + [data-tasks-section="finished"] {
+  max-height: 50%;
+  border-top: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
 }
 
 .chat-tasks-rail__section-title {
@@ -1836,6 +1886,10 @@ openclaw-session-discussion {
   flex: 1 0 260px;
   min-width: 0;
   overflow-y: auto;
+  /* Undo the vertical split's bottom-pin cap: strip sections are full-height
+     columns and separate with border-left instead. */
+  max-height: none;
+  border-top: none;
 }
 
 .chat-workbench--tasks-dock-bottom

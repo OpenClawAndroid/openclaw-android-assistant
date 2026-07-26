@@ -3,7 +3,12 @@
 import { html } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../../../components/resizable-divider.ts";
-import { mergePanelIntoColumn, openSlot } from "../sidebar-layout.ts";
+import {
+  mergePanelIntoColumn,
+  openSlot,
+  type SidebarSide,
+  type SidebarSlotId,
+} from "../sidebar-layout.ts";
 import "./chat-sidebar-region.runtime.ts";
 
 type Region = HTMLElementTagNameMap["openclaw-chat-sidebar-region"] & {
@@ -12,7 +17,10 @@ type Region = HTMLElementTagNameMap["openclaw-chat-sidebar-region"] & {
 
 const regions: Region[] = [];
 
-async function createRegion(narrow: boolean) {
+async function createRegion(
+  narrow: boolean,
+  panelMutationEnabled: Partial<Record<SidebarSlotId, boolean>> = {},
+) {
   const shell = document.createElement("div");
   shell.className = `sidebar-region ${narrow ? "sidebar-region--narrow" : ""}`;
   const region = document.createElement("openclaw-chat-sidebar-region") as Region;
@@ -22,6 +30,7 @@ async function createRegion(narrow: boolean) {
     detail: html`<div data-panel="detail">Detail panel</div>`,
     discussion: html`<div data-panel="discussion">Discussion panel</div>`,
   };
+  region.panelMutationEnabled = panelMutationEnabled;
   region.callbacks = {
     activatePanel: vi.fn(),
     closeSlot: vi.fn(),
@@ -47,6 +56,30 @@ async function createRegion(narrow: boolean) {
 
 function regionRoot(region: Region): HTMLElement {
   return region.parentElement!;
+}
+
+function startPanelDrag(source: HTMLElement) {
+  const values = new Map<string, string>();
+  const dataTransfer = {
+    effectAllowed: "none",
+    dropEffect: "none",
+    getData: (type: string) => values.get(type) ?? "",
+    setData: (type: string, value: string) => values.set(type, value),
+  };
+  const start = new Event("dragstart", { bubbles: true }) as DragEvent;
+  Object.defineProperty(start, "dataTransfer", { value: dataTransfer });
+  source.dispatchEvent(start);
+  return dataTransfer;
+}
+
+function dropPanel(target: HTMLElement, dataTransfer: object, clientX: number) {
+  const drop = new Event("drop", { bubbles: true }) as DragEvent;
+  Object.defineProperties(drop, {
+    clientX: { value: clientX },
+    clientY: { value: 50 },
+    dataTransfer: { value: dataTransfer },
+  });
+  target.dispatchEvent(drop);
 }
 
 afterEach(() => {
@@ -142,6 +175,129 @@ describe("chat sidebar region", () => {
       region.layout.columns[1]?.id,
       1,
     );
+  });
+
+  it("gates chat close while keeping non-chat close controls functional", async () => {
+    const region = await createRegion(false, { chat: false });
+    const closeButtons = () =>
+      Array.from(
+        regionRoot(region).querySelectorAll<HTMLButtonElement>(".sidebar-column__actions button"),
+      );
+    const closeButton = (panel: string) =>
+      closeButtons().find((button) => button.getAttribute("aria-label") === `Close ${panel}`);
+
+    expect(closeButton("Chat")).toBeUndefined();
+    closeButton("Details")?.click();
+    closeButton("Discussion")?.click();
+    expect(region.callbacks?.closeSlot).toHaveBeenCalledWith("detail");
+    expect(region.callbacks?.closeSlot).toHaveBeenCalledWith("discussion");
+
+    region.panelMutationEnabled = { chat: true };
+    await region.updateComplete;
+
+    closeButton("Chat")?.click();
+    closeButton("Details")?.click();
+    closeButton("Discussion")?.click();
+    expect(region.callbacks?.closeSlot).toHaveBeenCalledWith("chat");
+    expect(region.callbacks?.closeSlot).toHaveBeenCalledWith("detail");
+    expect(region.callbacks?.closeSlot).toHaveBeenCalledWith("discussion");
+  });
+
+  it("gates chat dragging while keeping non-chat panels draggable", async () => {
+    const region = await createRegion(false, { chat: false });
+    const tabs = () =>
+      Array.from(regionRoot(region).querySelectorAll<HTMLElement>(".sidebar-column__tab"));
+    const tab = (panel: string) =>
+      tabs().find((candidate) => candidate.textContent?.trim() === panel);
+
+    expect(tab("Chat")?.draggable).toBe(false);
+    expect(tab("Details")?.draggable).toBe(true);
+    expect(tab("Discussion")?.draggable).toBe(true);
+
+    region.panelMutationEnabled = { chat: true };
+    await region.updateComplete;
+
+    expect(tab("Chat")?.draggable).toBe(true);
+    expect(tab("Details")?.draggable).toBe(true);
+    expect(tab("Discussion")?.draggable).toBe(true);
+  });
+
+  it.each([
+    { sourceSide: "left", targetSide: "right", boundaryX: 100, dropX: 124 },
+    { sourceSide: "right", targetSide: "left", boundaryX: 48, dropX: 24 },
+  ] satisfies Array<{
+    sourceSide: SidebarSide;
+    targetSide: SidebarSide;
+    boundaryX: number;
+    dropX: number;
+  }>)(
+    "detaches a panel into the empty $targetSide side at index zero",
+    async ({ sourceSide, targetSide, boundaryX, dropX }) => {
+      const region = await createRegion(false);
+      region.layout = openSlot({ columns: [] }, "detail", sourceSide);
+      await region.updateComplete;
+      const source = regionRoot(region).querySelector<HTMLElement>(".sidebar-column__tab")!;
+      const dataTransfer = startPanelDrag(source);
+      await region.updateComplete;
+      const target = regionRoot(region).querySelector<HTMLElement>(
+        `.sidebar-empty-side-drop-zone--${targetSide}`,
+      );
+      expect(target).not.toBeNull();
+      expect(target?.getAttribute("aria-label")).toBe(
+        `Move Details to the empty ${targetSide} sidebar`,
+      );
+      const boundary = target!.querySelector<HTMLElement>(
+        ".sidebar-empty-side-drop-zone__boundary",
+      )!;
+      boundary.getBoundingClientRect = () =>
+        ({ left: boundaryX, top: 0, width: 1, height: 100 }) as DOMRect;
+
+      dropPanel(target!, dataTransfer, dropX);
+
+      expect(region.callbacks?.detachPanel).toHaveBeenCalledWith(
+        region.layout.columns[0]?.panels[0]?.id,
+        targetSide,
+        0,
+      );
+    },
+  );
+
+  it("shows empty-side drop zones only for the lifetime of a panel drag", async () => {
+    const region = await createRegion(false);
+    region.layout = openSlot({ columns: [] }, "detail", "right");
+    await region.updateComplete;
+    const dropZones = () => regionRoot(region).querySelectorAll(".sidebar-empty-side-drop-zone");
+    const source = regionRoot(region).querySelector<HTMLElement>(".sidebar-column__tab")!;
+
+    expect(dropZones()).toHaveLength(0);
+    startPanelDrag(source);
+    await region.updateComplete;
+    expect(dropZones()).toHaveLength(1);
+
+    source.dispatchEvent(new Event("dragend", { bubbles: true }));
+    await region.updateComplete;
+    expect(dropZones()).toHaveLength(0);
+  });
+
+  it("removes the empty-side target when Chat mutation becomes unavailable", async () => {
+    const region = await createRegion(false, { chat: true });
+    region.layout = openSlot({ columns: [] }, "chat", "right");
+    await region.updateComplete;
+    const source = regionRoot(region).querySelector<HTMLElement>(".sidebar-column__tab")!;
+    const dataTransfer = startPanelDrag(source);
+    await region.updateComplete;
+    const target = regionRoot(region).querySelector<HTMLElement>(
+      ".sidebar-empty-side-drop-zone--left",
+    );
+    expect(target).not.toBeNull();
+
+    region.panelMutationEnabled = { chat: false };
+    await region.updateComplete;
+    expect(regionRoot(region).querySelector(".sidebar-empty-side-drop-zone--left")).toBeNull();
+    const boundary = target!.querySelector<HTMLElement>(".sidebar-empty-side-drop-zone__boundary")!;
+    boundary.getBoundingClientRect = () => ({ left: 48, top: 0, width: 1, height: 100 }) as DOMRect;
+    dropPanel(target!, dataTransfer, 24);
+    expect(region.callbacks?.detachPanel).not.toHaveBeenCalled();
   });
 
   it("routes boundary drops through the detach callback", async () => {

@@ -6,7 +6,7 @@ import type { CatalogOpenTarget } from "../app/settings.ts";
 import { t } from "../i18n/index.ts";
 import type { CatalogProjectGrouping } from "../lib/sessions/catalog-project-grouping.ts";
 import { openCatalogSessionInTerminal } from "../lib/sessions/catalog-terminal.ts";
-import { writeSessionGroupDragData } from "../lib/sessions/drag.ts";
+import { writeSidebarSectionDragData } from "../lib/sessions/drag.ts";
 import type { SidebarSessionSection } from "../lib/sessions/grouping.ts";
 import { renderSessionCatalogGroups } from "./app-sidebar-session-catalogs.ts";
 import {
@@ -74,20 +74,18 @@ function renderSessionSection(params: {
   const collapsedAttentionDot =
     collapsed &&
     section.rows.some((row) => rowDemandsVisibility(row, RowVisibilityReason.Attention));
-  const acceptsSessions =
-    host.sessionsGrouping === "category" && (section.id === "ungrouped" || Boolean(group));
   const sectionClass = [
     "sidebar-recent-sessions__group",
     `sidebar-recent-sessions__group--zone-${zone}`,
     collapsed ? "sidebar-recent-sessions__group--collapsed" : "",
-    group && host.sessionOrganizer.draggingSessionGroup === group
+    host.sessionOrganizer.draggingSidebarSection === section.id
       ? "sidebar-recent-sessions__group--dragging"
       : "",
     host.sessionOrganizer.sessionDropTarget === section.id
       ? "sidebar-recent-sessions__group--session-drop"
       : "",
-    group && host.sessionOrganizer.sessionGroupDropTarget?.group === group
-      ? `sidebar-recent-sessions__group--group-drop-${host.sessionOrganizer.sessionGroupDropTarget.position}`
+    host.sessionOrganizer.sidebarSectionDropTarget?.sectionId === section.id
+      ? `sidebar-recent-sessions__group--section-drop-${host.sessionOrganizer.sidebarSectionDropTarget.position}`
       : "",
   ]
     .filter(Boolean)
@@ -96,35 +94,43 @@ function renderSessionSection(params: {
     <div
       class=${sectionClass}
       data-session-section=${section.id}
-      @dragover=${acceptsSessions || group
-        ? (event: DragEvent) => host.sectionDragOver(event, section.id, group)
-        : nothing}
-      @dragleave=${acceptsSessions || group
-        ? (event: DragEvent) => host.sectionDragLeave(event, section.id, group)
-        : nothing}
-      @drop=${acceptsSessions || group
-        ? (event: DragEvent) => host.sectionDrop(event, section.id, group)
-        : nothing}
+      @dragover=${(event: DragEvent) => host.sectionDragOver(event, section.id, group)}
+      @dragleave=${(event: DragEvent) => host.sectionDragLeave(event, section.id, group)}
+      @drop=${(event: DragEvent) => host.sectionDrop(event, section.id, group)}
     >
       ${html`
         <div
-          class="sidebar-recent-sessions__head ${group
-            ? "sidebar-recent-sessions__head--draggable"
-            : ""}"
-          draggable=${group ? "true" : "false"}
-          @dragstart=${group
-            ? (event: DragEvent) => {
-                if (event.dataTransfer) {
-                  writeSessionGroupDragData(event.dataTransfer, group);
-                  host.startSessionGroupDrag(group);
-                }
-              }
-            : nothing}
-          @dragend=${group
-            ? () => {
-                host.finishSessionGroupDrag();
-              }
-            : nothing}
+          class="sidebar-recent-sessions__head sidebar-recent-sessions__head--draggable"
+          draggable="true"
+          @mousedown=${(event: MouseEvent) => {
+            const header = event.currentTarget as HTMLElement;
+            header.toggleAttribute(
+              "data-section-drag-blocked",
+              Boolean((event.target as HTMLElement).closest("button")),
+            );
+          }}
+          @mouseup=${(event: MouseEvent) => {
+            (event.currentTarget as HTMLElement).removeAttribute("data-section-drag-blocked");
+          }}
+          @dragstart=${(event: DragEvent) => {
+            const header = event.currentTarget as HTMLElement;
+            const startedFromButton =
+              Boolean((event.target as HTMLElement).closest("button")) ||
+              header.hasAttribute("data-section-drag-blocked");
+            header.removeAttribute("data-section-drag-blocked");
+            if (startedFromButton) {
+              event.preventDefault();
+              return;
+            }
+            if (event.dataTransfer) {
+              writeSidebarSectionDragData(event.dataTransfer, section.id);
+              host.startSidebarSectionDrag(section.id);
+            }
+          }}
+          @dragend=${(event: DragEvent) => {
+            (event.currentTarget as HTMLElement).removeAttribute("data-section-drag-blocked");
+            host.finishSidebarSectionDrag();
+          }}
           @contextmenu=${group
             ? (event: MouseEvent) => {
                 event.preventDefault();
@@ -132,9 +138,7 @@ function renderSessionSection(params: {
               }
             : nothing}
         >
-          ${group
-            ? html`<span class="sidebar-session-group-drag-handle" aria-hidden="true"></span>`
-            : nothing}
+          <span class="sidebar-session-group-drag-handle" aria-hidden="true"></span>
           <button
             type="button"
             class="sidebar-session-group-toggle"
