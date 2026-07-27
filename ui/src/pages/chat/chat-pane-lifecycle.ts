@@ -4,7 +4,6 @@ import {
   WIDGET_PROMPT_EVENT,
   admitInitialTurnHandoff,
   admitInitialUserMessageHandoff,
-  areUiSessionKeysEquivalent,
   chatAttachmentFromDataUrl,
   createPageState,
   disposeQuestionPromptState,
@@ -21,6 +20,7 @@ import {
   resetChatViewState,
   resolveChatPaneObserverRunId,
   resolveSessionKey,
+  selectedChatSessionRow,
   toggleSessionWorkspace,
   type BrowserAnnotationDraft,
   type SessionObserverDigest,
@@ -253,6 +253,9 @@ export abstract class ChatPaneLifecycle extends ChatPaneReset {
     if (this.sessionKey) {
       const initialSessionKey = this.setPaneSessionKey(this.sessionKey);
       if (initialSessionKey && !parseCatalogSessionKey(initialSessionKey)) {
+        // First-turn handoffs are scoped to their Gateway client and must be
+        // claimed before attach starts outbox and transcript hydration.
+        pageState.client = this.context.gateway.snapshot.client ?? null;
         const snapshot = readChatSessionSnapshot(pageState.chatMessagesBySession, pageState, {
           sessionKey: initialSessionKey,
         });
@@ -261,6 +264,10 @@ export abstract class ChatPaneLifecycle extends ChatPaneReset {
           pageState.chatHistoryPagination = snapshot.pagination;
           pageState.currentSessionId = snapshot.sessionId;
           pageState.chatDisplayedLeafEntryId = snapshot.displayedLeafEntryId;
+        }
+        if (admitInitialTurnHandoff(pageState, initialSessionKey)) {
+          pageState.lastError = CHAT_COMPOSER_DRAFT_STORAGE_ERROR;
+          pageState.chatError = CHAT_COMPOSER_DRAFT_STORAGE_ERROR;
         }
         admitInitialUserMessageHandoff(pageState.initialUserMessage, pageState, initialSessionKey);
       }
@@ -410,9 +417,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneReset {
         }
       });
     }
-    const selectedSessionRow = this.state?.sessionsResult?.sessions.find((row) =>
-      areUiSessionKeysEquivalent(row.key, this.state?.sessionKey ?? ""),
-    );
+    const selectedSessionRow = this.state ? selectedChatSessionRow(this.state) : undefined;
     // Active runs count even without a digest: a hidden observer generates
     // none, and the rail module owns the restore control for turning it back on.
     const observerRunId = resolveChatPaneObserverRunId({
