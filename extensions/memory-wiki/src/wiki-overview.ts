@@ -1,11 +1,11 @@
-// Memory Wiki plugin module implements memory palace behavior.
+// Memory Wiki plugin module implements the memory wiki overview.
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { parseWikiMarkdown, type WikiPageKind } from "./markdown.js";
 import { readQueryableWikiPages } from "./query.js";
 
-const PALACE_KIND_ORDER: WikiPageKind[] = ["synthesis", "entity", "concept", "source", "report"];
-const PRIMARY_PALACE_KINDS = new Set<WikiPageKind>(["synthesis", "entity", "concept"]);
-const PALACE_KIND_LABELS: Record<WikiPageKind, string> = {
+const OVERVIEW_KIND_ORDER: WikiPageKind[] = ["synthesis", "entity", "concept", "source", "report"];
+const PRIMARY_OVERVIEW_KINDS = new Set<WikiPageKind>(["synthesis", "entity", "concept"]);
+const OVERVIEW_KIND_LABELS: Record<WikiPageKind, string> = {
   synthesis: "Syntheses",
   entity: "Entities",
   concept: "Concepts",
@@ -13,7 +13,7 @@ const PALACE_KIND_LABELS: Record<WikiPageKind, string> = {
   report: "Reports",
 };
 
-type MemoryWikiPalaceItem = {
+type MemoryWikiOverviewItem = {
   pagePath: string;
   title: string;
   kind: WikiPageKind;
@@ -29,7 +29,7 @@ type MemoryWikiPalaceItem = {
   snippet?: string;
 };
 
-type MemoryWikiPalaceCluster = {
+type MemoryWikiOverviewCluster = {
   key: WikiPageKind;
   label: string;
   itemCount: number;
@@ -37,22 +37,22 @@ type MemoryWikiPalaceCluster = {
   questionCount: number;
   contradictionCount: number;
   updatedAt?: string;
-  items: MemoryWikiPalaceItem[];
+  items: MemoryWikiOverviewItem[];
 };
 
-type MemoryWikiPalacePageCounts = Record<WikiPageKind, number>;
+type MemoryWikiOverviewPageCounts = Record<WikiPageKind, number>;
 
-type MemoryWikiPalaceStatus = {
+type MemoryWikiOverviewStatus = {
   totalItems: number;
   totalPages: number;
-  pageCounts: MemoryWikiPalacePageCounts;
+  pageCounts: MemoryWikiOverviewPageCounts;
   totalClaims: number;
   totalQuestions: number;
   totalContradictions: number;
-  clusters: MemoryWikiPalaceCluster[];
+  clusters: MemoryWikiOverviewCluster[];
 };
 
-function createEmptyPalacePageCounts(): MemoryWikiPalacePageCounts {
+function createEmptyOverviewPageCounts(): MemoryWikiOverviewPageCounts {
   return {
     synthesis: 0,
     entity: 0,
@@ -88,7 +88,7 @@ function extractSnippet(body: string): string | undefined {
   return undefined;
 }
 
-function comparePalaceItems(left: MemoryWikiPalaceItem, right: MemoryWikiPalaceItem): number {
+function compareOverviewItems(left: MemoryWikiOverviewItem, right: MemoryWikiOverviewItem): number {
   const leftKey = left.updatedAt ?? "";
   const rightKey = right.updatedAt ?? "";
   if (rightKey !== leftKey) {
@@ -100,14 +100,14 @@ function comparePalaceItems(left: MemoryWikiPalaceItem, right: MemoryWikiPalaceI
   return left.title.localeCompare(right.title);
 }
 
-export async function listMemoryWikiPalace(
+export async function listMemoryWikiOverview(
   config: ResolvedMemoryWikiConfig,
-): Promise<MemoryWikiPalaceStatus> {
+): Promise<MemoryWikiOverviewStatus> {
   const pages = await readQueryableWikiPages(config.vault.path);
-  const pageCounts = pages.reduce<MemoryWikiPalacePageCounts>((counts, page) => {
+  const pageCounts = pages.reduce<MemoryWikiOverviewPageCounts>((counts, page) => {
     counts[page.kind] += 1;
     return counts;
-  }, createEmptyPalacePageCounts());
+  }, createEmptyOverviewPageCounts());
   const totalClaims = pages.reduce((sum, page) => sum + page.claims.length, 0);
   const totalQuestions = pages.reduce((sum, page) => sum + page.questions.length, 0);
   const totalContradictions = pages.reduce((sum, page) => sum + page.contradictions.length, 0);
@@ -130,18 +130,18 @@ export async function listMemoryWikiPalace(
           contradictions: page.contradictions.slice(0, 3),
         },
         extractSnippet(parsed.body) ? { snippet: extractSnippet(parsed.body) } : {},
-      ) satisfies MemoryWikiPalaceItem;
+      ) satisfies MemoryWikiOverviewItem;
     })
     .filter(
       (item) =>
-        PRIMARY_PALACE_KINDS.has(item.kind) ||
+        PRIMARY_OVERVIEW_KINDS.has(item.kind) ||
         item.claimCount > 0 ||
         item.questionCount > 0 ||
         item.contradictionCount > 0,
     )
-    .toSorted(comparePalaceItems);
+    .toSorted(compareOverviewItems);
 
-  const clusters = PALACE_KIND_ORDER.map((kind) => {
+  const clusters = OVERVIEW_KIND_ORDER.map((kind) => {
     const clusterItems = items.filter((item) => item.kind === kind);
     if (clusterItems.length === 0) {
       return null;
@@ -149,7 +149,7 @@ export async function listMemoryWikiPalace(
     return Object.assign(
       {
         key: kind,
-        label: PALACE_KIND_LABELS[kind],
+        label: OVERVIEW_KIND_LABELS[kind],
         itemCount: clusterItems.length,
         claimCount: clusterItems.reduce((sum, item) => sum + item.claimCount, 0),
         questionCount: clusterItems.reduce((sum, item) => sum + item.questionCount, 0),
@@ -157,8 +157,8 @@ export async function listMemoryWikiPalace(
       },
       clusterItems[0]?.updatedAt ? { updatedAt: clusterItems[0].updatedAt } : {},
       { items: clusterItems },
-    ) satisfies MemoryWikiPalaceCluster;
-  }).filter((entry): entry is MemoryWikiPalaceCluster => entry !== null);
+    ) satisfies MemoryWikiOverviewCluster;
+  }).filter((entry): entry is MemoryWikiOverviewCluster => entry !== null);
 
   return {
     totalItems: items.length,

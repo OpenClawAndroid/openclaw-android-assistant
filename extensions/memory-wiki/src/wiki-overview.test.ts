@@ -1,17 +1,17 @@
-// Memory Wiki tests cover memory palace plugin behavior.
+// Memory Wiki tests cover the wiki overview plugin behavior.
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderWikiMarkdown } from "./markdown.js";
-import { listMemoryWikiPalace } from "./memory-palace.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
+import { listMemoryWikiOverview } from "./wiki-overview.js";
 
 const { createVault } = createMemoryWikiTestHarness();
 
-describe("listMemoryWikiPalace", () => {
+describe("listMemoryWikiOverview", () => {
   it("groups wiki pages by kind and surfaces claims, questions, and contradictions", async () => {
     const { rootDir, config } = await createVault({
-      prefix: "memory-wiki-palace-",
+      prefix: "memory-wiki-overview-",
       initialize: true,
     });
 
@@ -73,7 +73,7 @@ describe("listMemoryWikiPalace", () => {
       "utf8",
     );
 
-    const result = await listMemoryWikiPalace(config);
+    const result = await listMemoryWikiOverview(config);
 
     expect(result.totalItems).toBe(2);
     expect(result.totalPages).toBe(3);
