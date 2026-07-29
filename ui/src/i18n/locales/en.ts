@@ -2695,6 +2695,11 @@ export const en: TranslationMap = {
       description:
         "Keep a bounded tool directory visible and defer the rest behind search, so large MCP and plugin catalogs stop crowding the prompt.",
     },
+    loopDetection: {
+      title: "Tool-loop detection",
+      description:
+        "Enable rolling-history guards that warn or block repeated tool calls when an agent stops making progress.",
+    },
     localModelLean: {
       title: "Lean tools for local models",
       description:
@@ -5507,7 +5512,8 @@ export const en: TranslationMap = {
       summaryCronTz: "Cron schedule {expr} ({tz})",
       timezoneOptional: "Timezone",
       timezonePlaceholder: "America/Los_Angeles",
-      timezoneHelp: "Optional. Any valid IANA timezone.",
+      timezoneHelp:
+        "Optional. Leave blank to use the Gateway host timezone, or enter any valid IANA timezone.",
       runsIn: "Runs in",
       mainSession: "Main session",
       isolatedSession: "Isolated session",
