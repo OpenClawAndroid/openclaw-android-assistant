@@ -380,6 +380,8 @@ export const en: TranslationMap = {
       "Update installed but running version did not change — restart may have been blocked. Expected v{expectedVersion}, running v{actualVersion}.",
     handoffTimeout:
       "Update handoff started, but completion was not reported after reconnect. Run `openclaw update status` for the final result.",
+    outcomeUnknown:
+      "The update request may have been accepted, but the Gateway did not report a final result after reconnect. Run `openclaw update status` before retrying.",
     failureReasons: {
       dirty: "Commit or stash changes, then retry.",
       noUpstream: "Set an upstream branch, then retry.",
@@ -2032,6 +2034,7 @@ export const en: TranslationMap = {
       title: "Your AI is ready",
       detail: "{modelRef} · {latencyMs} ms",
       openChat: "Open Chat",
+      continueSetup: "Continue setup",
       configuredModel: "Configured model",
     },
     failure: {
@@ -2217,6 +2220,11 @@ export const en: TranslationMap = {
       channelDegraded: "{channel} is degraded — ask me what happened",
       channelFallback: "A channel",
       dismiss: "Dismiss this update",
+      channelSetupTitle: "Reach OpenClaw outside this app",
+      channelSetupBody:
+        "The web app already works. Add a channel only if you want to message OpenClaw from another service.",
+      channelSetupAction: "Set up a channel",
+      channelSetupDismiss: "Keep using the web app",
     },
   },
   mcpServers: {
@@ -3848,7 +3856,8 @@ export const en: TranslationMap = {
     emptyTitle: "No model providers configured",
     emptySubtitle: "Sign in to a provider or add an API key, then refresh.",
     status: {
-      ok: "Connected",
+      ok: "Signed in",
+      ready: "Ready",
       expiring: "Expiring",
       expired: "Expired",
       missing: "Not signed in",
@@ -3899,8 +3908,18 @@ export const en: TranslationMap = {
         timeout: "Timed out",
         format: "Invalid response",
         unknown: "Connection failed",
-        no_model: "No model available",
+        no_model: "No models available",
       },
+    },
+    readiness: {
+      title: "AI setup",
+      heading: "Connect your AI",
+      signedInNoModels:
+        "You're signed in, but this account exposes no usable models. Choose another provider or account to continue.",
+      notConfigured: "Choose a provider and verify the model OpenClaw will use.",
+      noModels: "No models available",
+      modelRequired: "Model required",
+      chooseProvider: "Choose another provider",
     },
     logout: {
       action: "Log out",

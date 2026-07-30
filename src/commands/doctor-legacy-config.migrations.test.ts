@@ -263,6 +263,56 @@ describe("normalizeCompatibilityConfigValues", () => {
     expect(res.changes.some((change) => change.includes("workspace"))).toBe(false);
   });
 
+  it("removes invalid heartbeat active-hours windows so saved config can load", () => {
+    const res = normalizeCompatibilityConfigValues(
+      legacyConfig({
+        agents: {
+          defaults: {
+            heartbeat: {
+              every: "30m",
+              activeHours: { start: "99:99", end: "17:00" },
+            },
+          },
+          list: [
+            {
+              id: "ops",
+              heartbeat: {
+                prompt: "Check alerts",
+                activeHours: { start: "09:00", end: "not-a-time" },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(res.config.agents?.defaults?.heartbeat).toEqual({ every: "30m" });
+    expect(res.config.agents?.list?.[0]?.heartbeat).toEqual({ prompt: "Check alerts" });
+    expect(res.changes).toContain(
+      "Removed invalid agents.defaults.heartbeat.activeHours; heartbeats will use unrestricted hours until it is reconfigured.",
+    );
+    expect(res.changes).toContain(
+      "Removed invalid agents.list[0].heartbeat.activeHours; heartbeats will use unrestricted hours until it is reconfigured.",
+    );
+    expect(validateConfigObject(res.config).ok).toBe(true);
+  });
+
+  it("preserves valid heartbeat active-hours windows", () => {
+    const config = legacyConfig({
+      agents: {
+        defaults: {
+          heartbeat: {
+            activeHours: { start: "09:00", end: "24:00", timezone: "user" },
+          },
+        },
+      },
+    });
+    const res = normalizeCompatibilityConfigValues(config);
+
+    expect(res.config).toEqual(config);
+    expect(res.changes.some((change) => change.includes("activeHours"))).toBe(false);
+  });
+
   it("removes bindings for missing configured agents", () => {
     const res = normalizeCompatibilityConfigValues({
       agents: {
