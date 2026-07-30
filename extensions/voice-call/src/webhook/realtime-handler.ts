@@ -273,12 +273,25 @@ type ForcedConsultState = {
 };
 
 type NativeConsultState = {
+  owner: ActiveRealtimeVoiceBridge;
   startedAt: number;
   promise: Promise<unknown>;
+  cancellation: Promise<void>;
+  cancelled: boolean;
+  cancel: () => void;
   partialUserTranscript?: string;
 };
 
+type NativeConsultOutcome = { kind: "completed"; result: unknown } | { kind: "cancelled" };
+
 type TelephonyCloseReason = "completed" | "error";
+
+async function waitForNativeConsult(state: NativeConsultState): Promise<NativeConsultOutcome> {
+  return await Promise.race([
+    state.promise.then((result) => ({ kind: "completed", result }) as const),
+    state.cancellation.then(() => ({ kind: "cancelled" }) as const),
+  ]);
+}
 
 function appendRecentTalkEventMetadata(
   call: CallRecord | null | undefined,
@@ -740,6 +753,8 @@ export class RealtimeCallHandler {
       typeof this.providerConfig.interruptResponseOnInputAudio === "boolean"
         ? this.providerConfig.interruptResponseOnInputAudio
         : undefined;
+    // Providers may close synchronously before createBridge returns; no consult can exist yet.
+    const nativeConsultOwner: { current?: ActiveRealtimeVoiceBridge } = {};
     const session = harness.createBridge({
       provider: this.realtimeProvider,
       cfg: this.coreConfig,
@@ -923,6 +938,9 @@ export class RealtimeCallHandler {
         this.activeBridgesByCallId.delete(callSid);
         this.activeTelephonyClosersByCallId.delete(callId);
         this.activeTelephonyClosersByCallId.delete(callSid);
+        if (nativeConsultOwner.current) {
+          this.cancelNativeConsult(callId, nativeConsultOwner.current);
+        }
         this.clearUserTranscriptState(callId);
         harness.finishOutputAudio(reason);
         harness.emit({
@@ -948,6 +966,7 @@ export class RealtimeCallHandler {
           });
       },
     });
+    nativeConsultOwner.current = session;
     providerHandlesInputAudioBargeIn =
       session.bridge.handlesInputAudioBargeIn ?? providerHandlesInputAudioBargeIn;
     const closeTelephony = (reason: TelephonyCloseReason) => {
@@ -992,6 +1011,7 @@ export class RealtimeCallHandler {
         this.activeBridgesByCallId.delete(callSid);
         this.activeTelephonyClosersByCallId.delete(callId);
         this.activeTelephonyClosersByCallId.delete(callSid);
+        this.cancelNativeConsult(callId, session);
         this.clearUserTranscriptState(callId);
         this.forcedConsultsByCallId.delete(callId);
         harness.close();
@@ -1052,6 +1072,16 @@ export class RealtimeCallHandler {
   private clearUserTranscriptState(callId: string): void {
     this.clearPartialUserTranscript(callId);
     this.clearRecentFinalUserTranscript(callId);
+  }
+
+  private cancelNativeConsult(callId: string, owner: ActiveRealtimeVoiceBridge): void {
+    const state = this.nativeConsultsInFlightByCallId.get(callId);
+    if (!state || state.owner !== owner) {
+      return;
+    }
+    state.cancelled = true;
+    this.nativeConsultsInFlightByCallId.delete(callId);
+    state.cancel();
   }
 
   private resolveUserTranscriptContext(callId: string): string | undefined {
@@ -1412,18 +1442,44 @@ export class RealtimeCallHandler {
           `[voice-call] realtime tool call sharing in-flight agent consult callId=${callId} ageMs=${Date.now() - existingNativeConsult.startedAt}`,
         );
         await submitWorkingResponse();
-        await submitFinalToolResult(await existingNativeConsult.promise);
+        const outcome = await waitForNativeConsult(existingNativeConsult);
+        if (outcome.kind === "cancelled") {
+          return;
+        }
+        await submitFinalToolResult(outcome.result);
         return;
       }
 
+      let cancel = () => {};
+      const cancellation = new Promise<void>((resolve) => {
+        cancel = resolve;
+      });
+      let completeConsult = (_result: unknown) => {};
+      const consult = new Promise<unknown>((resolve) => {
+        completeConsult = resolve;
+      });
       const state: NativeConsultState = {
+        owner: bridge,
         startedAt,
-        promise: Promise.resolve(),
+        promise: consult,
+        cancellation,
+        cancelled: false,
+        cancel,
       };
-      const workingSubmission = submitWorkingResponse();
-      state.promise = workingSubmission.then(async () => {
+      this.nativeConsultsInFlightByCallId.set(callId, state);
+      void (async () => {
         try {
-          await this.waitForConsultTranscriptSettle(callId, startedAt);
+          await submitWorkingResponse();
+          if (state.cancelled) {
+            return undefined;
+          }
+          await Promise.race([
+            this.waitForConsultTranscriptSettle(callId, startedAt),
+            state.cancellation,
+          ]);
+          if (state.cancelled) {
+            return undefined;
+          }
           const context = {
             partialUserTranscript: this.resolveUserTranscriptContext(callId),
           };
@@ -1440,10 +1496,13 @@ export class RealtimeCallHandler {
             error: formatErrorMessage(error),
           };
         }
-      });
-      this.nativeConsultsInFlightByCallId.set(callId, state);
+      })().then(completeConsult);
       try {
-        const result = await state.promise;
+        const outcome = await waitForNativeConsult(state);
+        if (outcome.kind === "cancelled") {
+          return;
+        }
+        const result = outcome.result;
         const status =
           result && typeof result === "object" && !Array.isArray(result) && "error" in result
             ? "error"
