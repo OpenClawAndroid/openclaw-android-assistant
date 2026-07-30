@@ -72,4 +72,29 @@ describe("detectChangedScope Windows routing", () => {
       });
     }
   });
+
+  it("routes exec script preflight changes and Windows-only coverage to Windows", () => {
+    for (const preflightPath of [
+      "src/agents/bash-tools.exec-script-preflight.ts",
+      "src/agents/bash-tools.exec-script-target.ts",
+      "src/agents/bash-tools.exec.script-preflight.test.ts",
+    ]) {
+      expect(detectChangedScope([preflightPath]), preflightPath).toMatchObject({
+        runNode: true,
+        runWindows: true,
+      });
+    }
+  });
+
+  it("routes exec allowlist matcher changes and Windows-only coverage to Windows", () => {
+    for (const allowlistPath of [
+      "src/infra/exec-allowlist-pattern.ts",
+      "src/infra/exec-allowlist-pattern.test.ts",
+    ]) {
+      expect(detectChangedScope([allowlistPath]), allowlistPath).toMatchObject({
+        runNode: true,
+        runWindows: true,
+      });
+    }
+  });
 });
