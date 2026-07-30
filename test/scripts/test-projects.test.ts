@@ -1319,6 +1319,18 @@ describe("scripts/test-projects changed-target routing", () => {
     });
   });
 
+  it("keeps npm release workflow edits on the preflight cache guard", () => {
+    expect(resolveChangedTestTargetPlan([".github/workflows/openclaw-npm-release.yml"])).toEqual({
+      mode: "targets",
+      targets: [
+        "test/openclaw-npm-postpublish-verify.test.ts",
+        "test/scripts/openclaw-npm-extended-stable-workflow.test.ts",
+        "test/scripts/package-acceptance-workflow.test.ts",
+        "test/scripts/ci-workflow-guards.test.ts",
+      ],
+    });
+  });
+
   it("keeps generated locale publisher and inventory edits on workflow guards", () => {
     for (const actionPath of [
       ".github/actions/create-generated-pr-tokens/action.yml",
@@ -3284,6 +3296,12 @@ describe("scripts/test-projects changed-target routing", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Usage: node scripts/test-projects.mjs");
     expect(result.stderr).not.toContain("[test] starting");
+  });
+
+  it("lets buffered failure diagnostics drain before the dispatcher exits", () => {
+    const source = fs.readFileSync("scripts/test-projects.mjs", "utf8");
+
+    expect(source).not.toContain("process.exit(");
   });
 
   it("allows explicit split Vitest config targets without treating them as unmatched tests", () => {
