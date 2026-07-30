@@ -4390,8 +4390,13 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
 
     expectTextToIncludeAll(scenario, [
       'command_timeout="${OPENCLAW_DOCKER_DOCTOR_SWITCH_COMMAND_TIMEOUT:-900s}"',
-      'openclaw_test_state_create "$account_home" empty\n  unset OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH',
-      "create_default_service_state",
+      "use_default_service_identity() {",
+      "local account_home",
+      'account_home="$(node -p \'require("node:os").userInfo().homedir\')"',
+      'export HOME="$account_home"',
+      'export USERPROFILE="$account_home"',
+      "unset OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH",
+      'openclaw_test_state_create "switch-${name}" empty\n  use_default_service_identity',
       'openclaw_e2e_maybe_timeout "$command_timeout" bash -c "$install_cmd"',
       'openclaw_e2e_maybe_timeout "$command_timeout" bash -c "$doctor_cmd"',
       'openclaw_e2e_maybe_timeout "$command_timeout" "$npm_bin" gateway install --wrapper "$wrapper" --force',
@@ -4401,7 +4406,27 @@ heartbeat_elapsed="\${BASH_REMATCH[1]}"
     expect(
       scenario.match(/unset OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH/gu),
     ).toHaveLength(1);
+    expect(scenario.match(/export USERPROFILE="\$account_home"/gu)).toHaveLength(1);
+    expect(scenario.match(/^  use_default_service_identity$/gmu)).toHaveLength(3);
     expect(scenario).not.toMatch(/^\s*if ! timeout "\$command_timeout"/mu);
+  });
+
+  it("uses the account home for upgrade survivor auto-auth state", () => {
+    const runner = readFileSync(UPGRADE_SURVIVOR_RUN_SCRIPT, "utf8");
+
+    expectTextToIncludeAll(runner, [
+      'if [ "$UPDATE_RESTART_MODE" = "auto-auth" ]; then',
+      'account_home="$(getent passwd "$(id -u)" | cut -d: -f6)"',
+      'if [ -z "$account_home" ]; then',
+      'export HOME="$account_home"',
+      'export USERPROFILE="$account_home"',
+      'export OPENCLAW_STATE_DIR="$account_home/.openclaw"',
+      'export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"',
+    ]);
+
+    expect(
+      runner.indexOf('export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"'),
+    ).toBeLessThan(runner.indexOf("node scripts/e2e/lib/upgrade-survivor/assertions.mjs seed"));
   });
 
   it("bounds doctor install switch command log diagnostics", () => {
