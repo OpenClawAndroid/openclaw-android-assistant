@@ -165,11 +165,13 @@ describe("listPersistedBundledPluginLocationBridges", () => {
   });
 
   it.each([
-    ["teams-meetings", "@openclaw/teams-meetings"],
-    ["zoom-meetings", "@openclaw/zoom-meetings"],
-  ])(
-    "externalizes the shipped bundled %s plugin while preserving default enablement",
-    async (pluginId, npmSpec) => {
+    ["duckduckgo", "@openclaw/duckduckgo-plugin", false],
+    ["synthetic", "@openclaw/synthetic-provider", true],
+    ["teams-meetings", "@openclaw/teams-meetings", true],
+    ["zoom-meetings", "@openclaw/zoom-meetings", true],
+  ] as const)(
+    "externalizes the shipped bundled %s plugin using official install metadata",
+    async (pluginId, npmSpec, enabledByDefault) => {
       readPersistedInstalledPluginIndexMock.mockResolvedValue(
         makeIndex({
           pluginId,
@@ -179,7 +181,7 @@ describe("listPersistedBundledPluginLocationBridges", () => {
           rootDir: `/app/dist/extensions/${pluginId}`,
           origin: "bundled",
           enabled: true,
-          enabledByDefault: true,
+          ...(enabledByDefault ? { enabledByDefault: true } : {}),
           startup: startupInfo,
           compat: [],
           packageInstall: {
@@ -196,7 +198,7 @@ describe("listPersistedBundledPluginLocationBridges", () => {
           preferredSource: "npm",
           npmSpec,
           clawhubSpec: `clawhub:${npmSpec}`,
-          enabledByDefault: true,
+          ...(enabledByDefault ? { enabledByDefault: true } : {}),
         },
       ]);
     },

@@ -359,6 +359,22 @@ describe("bundled plugin build entries", () => {
     }
   });
 
+  it("excludes the externalized Synthetic provider from bundled artifacts", () => {
+    const entries = listBundledPluginBuildEntries();
+    const artifacts = listBundledPluginPackArtifacts();
+
+    expectNoPrefixMatches(Object.keys(entries), "extensions/synthetic/");
+    expectNoPrefixMatches(artifacts, "dist/extensions/synthetic/");
+  });
+
+  it("excludes the externalized DuckDuckGo plugin from bundled artifacts", () => {
+    const artifacts = listBundledPluginPackArtifacts();
+
+    expect(artifacts).not.toContain("dist/extensions/duckduckgo/index.js");
+    expect(artifacts).not.toContain("dist/extensions/duckduckgo/openclaw.plugin.json");
+    expect(artifacts).not.toContain("dist/extensions/duckduckgo/package.json");
+  });
+
   it("keeps bundled channel secret contracts on packed top-level sidecars", () => {
     const artifacts = listBundledPluginPackArtifacts();
     const excludedPackageDirs = collectRootPackageExcludedExtensionDirs();

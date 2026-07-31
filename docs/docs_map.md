@@ -2800,7 +2800,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: Other subscription-style hosted options
   - H3: OpenCode
   - H3: Google Gemini (API key)
-  - H3: Google Vertex and Gemini CLI
+  - H3: Google Vertex and Gemini CLI runtime
   - H3: Z.AI (GLM)
   - H3: Vercel AI Gateway
   - H3: Other bundled provider plugins
