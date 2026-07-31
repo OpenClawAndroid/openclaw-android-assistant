@@ -16,6 +16,28 @@ const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
 const allowMissingChromium = process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM === "1";
 const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? describe : describe.skip;
 const artifactDir = process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR?.trim();
+const localPrepareOptions = [
+  {
+    id: "ollama",
+    brandId: "ollama",
+    label: "Ollama",
+    hint: "Connect to an Ollama server and select a cloud or local model",
+  },
+  {
+    id: "llama-cpp",
+    brandId: "llama-cpp",
+    label: "Local model (llama.cpp)",
+    hint: "Download and run a private GGUF model",
+  },
+  {
+    id: "lmstudio",
+    brandId: "lmstudio",
+    label: "LM Studio",
+    hint: "Connect to a running LM Studio server and use an already loaded model",
+    icon: "https://cdn.simpleicons.org/lmstudio",
+    website: "https://lmstudio.ai/download",
+  },
+];
 
 let browser: Browser;
 let server: ControlUiE2eServer;
@@ -246,6 +268,7 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
     const initialDetection = {
       candidates: [],
       manualProviders: [],
+      prepareOptions: localPrepareOptions,
       recommendedInstalls: [
         {
           id: "ollama",
@@ -263,6 +286,7 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
         "chat.metadata",
         "chat.startup",
         "openclaw.setup.detect",
+        "openclaw.setup.activate",
         "openclaw.setup.prepare.start",
         "wizard.next",
       ],
@@ -272,6 +296,12 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
           sessionId: "ollama-prepare-session",
           done: false,
           status: "running",
+        },
+        "openclaw.setup.activate": {
+          ok: true,
+          modelRef: "ollama/qwen3:0.6b",
+          latencyMs: 284,
+          lines: ["Model ready"],
         },
         "wizard.next": {
           sequence: [
@@ -402,8 +432,19 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
         recommendedInstalls: [],
       });
       await page.getByRole("button", { name: "Yes" }).click();
-      await page.getByText("qwen3:0.6b at http://127.0.0.1:11434").waitFor();
-      await expect.poll(() => page.locator('[data-prepare-choice="ollama"]').count()).toBe(0);
+      await page.getByRole("heading", { name: "Connection verified" }).waitFor();
+      await expect
+        .poll(() => page.locator(".model-setup-success").textContent())
+        .toContain("ollama/qwen3:0.6b");
+      await expect
+        .poll(() => page.locator(".model-setup-success").textContent())
+        .toContain("Verified in 284 ms");
+
+      const activate = await gateway.waitForRequest("openclaw.setup.activate");
+      expect(activate.params).toEqual({
+        kind: "provider-auto:ollama",
+        modelRef: "ollama/qwen3:0.6b",
+      });
 
       if (artifactDir) {
         await page.screenshot({
@@ -443,6 +484,7 @@ describeControlUiE2e("Control UI Model Setup mocked Gateway E2E", () => {
     const initialDetection = {
       candidates: [],
       manualProviders: [],
+      prepareOptions: localPrepareOptions,
       workspace: "/tmp/openclaw-e2e",
       setupComplete: false,
     };

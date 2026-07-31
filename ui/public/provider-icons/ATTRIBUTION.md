@@ -17,6 +17,16 @@ content otherwise match the cited upstream files.
 
 Provider names and marks remain the property of their respective owners.
 
+## LM Studio icon
+
+`ProviderIcon-lmstudio.svg` is a metadata-cleaned copy of the LM Studio mark
+distributed by Simple Icons:
+
+- Source:
+  https://simpleicons.org/?q=lmstudio
+- Upstream license:
+  https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md
+
 ## llama.cpp icon
 
 `ProviderIcon-llamacpp.svg` is a metadata-cleaned copy of
