@@ -417,6 +417,89 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(result.body.toString("utf8")).toBe("image");
   });
 
+  it("resumes managed media only for an exact If-Range HTTP-date", async () => {
+    const { attachmentId, sessionKey, originalPath } = await createFixture(stateDir);
+    const modified = new Date("2025-07-08T18:40:00.789Z");
+    await fs.utimes(originalPath, modified, modified);
+    const lastModified = (await fs.stat(originalPath)).mtime.toUTCString();
+    const pathName = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+    const request = { stateDir, pathName, authResponse: { authMethod: "token" } };
+
+    const initial = await requestManagedImage({ ...request, method: "HEAD" });
+    expect(initial.result.statusCode).toBe(200);
+    expect(initial.result.headers["last-modified"]).toBe(lastModified);
+    expect(initial.result.body).toHaveLength(0);
+
+    const partial = await requestManagedImage({
+      ...request,
+      headers: { range: "bytes=9-13", "if-range": lastModified },
+    });
+    expect(partial.result.statusCode).toBe(206);
+    expect(partial.result.headers["last-modified"]).toBe(lastModified);
+    expect(partial.result.body.toString("utf8")).toBe("image");
+
+    const future = await requestManagedImage({
+      ...request,
+      headers: {
+        range: "bytes=9-13",
+        "if-range": new Date(Date.parse(lastModified) + 1000).toUTCString(),
+      },
+    });
+    expect(future.result.statusCode).toBe(200);
+    expect(future.result.headers["last-modified"]).toBe(lastModified);
+    expect(future.result.body.toString("utf8")).toBe("original-image");
+  });
+
+  it("bounds future managed-media validators to the actual HTTP response date", async () => {
+    const nowMs = Math.floor(Date.now() / 1000) * 1000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    try {
+      const { attachmentId, sessionKey, originalPath } = await createFixture(stateDir);
+      const future = new Date(nowMs + 60_000);
+      await fs.utimes(originalPath, future, future);
+      const futureLastModified = (await fs.stat(originalPath)).mtime.toUTCString();
+      const expectedLastModified = new Date(nowMs).toUTCString();
+      const pathName = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+      const request = { stateDir, pathName, authResponse: { authMethod: "token" } };
+
+      const initial = await requestManagedImage({ ...request, method: "HEAD" });
+      expect(initial.result.statusCode).toBe(200);
+      expect(initial.result.headers["last-modified"]).toBe(expectedLastModified);
+      expect(Date.parse(initial.result.headers.date ?? "")).toBeGreaterThanOrEqual(
+        Date.parse(expectedLastModified),
+      );
+
+      const partial = await requestManagedImage({
+        ...request,
+        headers: { range: "bytes=0-4", "if-range": expectedLastModified },
+      });
+      expect(partial.result.statusCode).toBe(206);
+      expect(partial.result.headers["last-modified"]).toBe(expectedLastModified);
+
+      const stale = await requestManagedImage({
+        ...request,
+        headers: { range: "bytes=0-4", "if-range": futureLastModified },
+      });
+      expect(stale.result.statusCode).toBe(200);
+
+      const unchanged = await requestManagedImage({
+        ...request,
+        headers: { "if-none-match": String(initial.result.headers.etag) },
+      });
+      expect(unchanged.result.statusCode).toBe(304);
+      expect(unchanged.result.headers["last-modified"]).toBe(expectedLastModified);
+
+      const unsatisfiable = await requestManagedImage({
+        ...request,
+        headers: { range: "bytes=999-" },
+      });
+      expect(unsatisfiable.result.statusCode).toBe(416);
+      expect(unsatisfiable.result.headers["last-modified"]).toBe(expectedLastModified);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it.each(["GET", "HEAD"])(
     "revalidates managed media ETags before ranges for %s",
     async (method) => {
