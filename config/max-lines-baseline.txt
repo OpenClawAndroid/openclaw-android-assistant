@@ -105,7 +105,6 @@ extensions/feishu/src/channel.test.ts
 extensions/feishu/src/channel.ts
 extensions/feishu/src/doctor.ts
 extensions/feishu/src/docx.ts
-extensions/feishu/src/drive.test.ts
 extensions/feishu/src/drive.ts
 extensions/feishu/src/media.ts
 extensions/feishu/src/monitor.comment.ts
@@ -826,7 +825,6 @@ src/infra/update-managed-service-handoff.ts
 src/infra/update-runner.test.ts
 src/infra/update-startup.test.ts
 src/infra/update-startup.ts
-src/infra/windows-gateway-firewall-diagnostics.ts
 src/interactive/payload.ts
 src/llm/providers/stream-wrappers/openai.ts
 src/logging/diagnostic-stability-bundle.ts
