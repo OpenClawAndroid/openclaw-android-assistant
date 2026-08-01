@@ -482,6 +482,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private hasConnectedSession = false;
+  private continuityResetEmitted = false;
   private terminalError: Error | undefined;
   private closeNotified = false;
   private connectionOwner: GoogleLiveConnectionAttempt | undefined;
@@ -530,13 +531,6 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private async connectOwned(attempt: GoogleLiveConnectionAttempt): Promise<void> {
-    const canResumeSession =
-      this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
-    if (this.hasConnectedSession && !canResumeSession) {
-      // An unfinished recognition hypothesis cannot cross into a fresh server session.
-      // Dropping it avoids treating a transport break as a completed user utterance.
-      this.resetPendingTranscripts();
-    }
     this.intentionallyClosed = false;
     this.closeNotified = false;
     this.setupCompleteReceived = false;
@@ -852,7 +846,9 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       sessionResumptionUpdate?: { newHandle?: string; resumable?: boolean };
     };
     const update = raw.sessionResumptionUpdate;
-    if (update?.resumable && update.newHandle) {
+    if (update?.resumable === false) {
+      this.resumptionHandle = undefined;
+    } else if (update?.resumable && update.newHandle) {
       this.resumptionHandle = update.newHandle;
     }
     if (raw.goAway?.timeLeft) {
@@ -861,6 +857,14 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private handleSetupComplete(): void {
+    if (!this.setupCompleteReceived) {
+      // setupComplete proves Google selected a new server session. A later
+      // continuity loss therefore owns a new reset generation.
+      if (this.continuityResetEmitted) {
+        this.config.onEvent?.({ direction: "server", type: "session.created" });
+      }
+      this.continuityResetEmitted = false;
+    }
     this.setupCompleteReceived = true;
     this.maybeActivateSession();
   }
@@ -1045,6 +1049,18 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private scheduleReconnect(closeDetails: string): boolean {
     if (this.reconnectAttempts >= GOOGLE_REALTIME_RECONNECT_MAX_ATTEMPTS) {
       return false;
+    }
+    const canResumeSession =
+      this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
+    if (this.hasConnectedSession && !canResumeSession && !this.continuityResetEmitted) {
+      // A non-resumable close ends the provider generation immediately. Reset
+      // consumers before backoff so stale work cannot finish into the replacement.
+      this.continuityResetEmitted = true;
+      this.resetPendingTranscripts();
+      this.config.onEvent?.({
+        direction: "client",
+        type: "session.continuity.reset",
+      });
     }
     const attempt = ++this.reconnectAttempts;
     const delayMs = Math.min(
