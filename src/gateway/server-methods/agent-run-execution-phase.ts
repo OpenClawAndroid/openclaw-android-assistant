@@ -324,11 +324,6 @@ export function startAgentRunExecution(params: {
           params.client.internal.runtimePluginToolGrant?.pluginId
           ? params.client.internal.runtimePluginToolGrant
           : undefined;
-      const trustedInternalHandoff =
-        params.client?.internal?.delegatedToolPolicyHandoff === true &&
-        params.inputProvenance?.kind === "inter_session" &&
-        params.inputProvenance.sourceTool === "subagent_announce";
-
       const restartRecoveryChannelContext = resolveAgentRestartRecoveryChannelContext({
         canUseInternalRuntimeHandoff: params.canUseInternalRuntimeHandoff,
         expectedExistingSessionId: params.request.expectedExistingSessionId,
@@ -398,7 +393,7 @@ export function startAgentRunExecution(params: {
           bootstrapContextRunKind: params.effectiveBootstrapContextRunKind,
           toolsAllow: params.restoredCronContinuation?.toolsAllow,
           runtimePluginToolGrant,
-          trustedInternalHandoff,
+          trustedInternalHandoff: prepared.trustedInternalHandoff,
           toolsAllowIsDefault: params.restoredCronContinuation?.toolsAllowIsDefault,
           scheduledToolPolicy: params.restoredCronContinuation
             ? resolveScheduledToolPolicyContext({

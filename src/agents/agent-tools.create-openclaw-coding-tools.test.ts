@@ -808,7 +808,7 @@ describe("createOpenClawCodingTools", () => {
       sourceTool: "subagent_announce",
       sourceReplyDeliveryMode: "message_tool_only" as const,
       runtimeToolAllowlist: ["message", "read"],
-      expected: false,
+      expected: true,
     },
     {
       name: "automatic completion delivery",
@@ -818,21 +818,55 @@ describe("createOpenClawCodingTools", () => {
       runtimeToolAllowlist: ["message"],
       expected: false,
     },
-  ])("limits $name to the source only when its trusted grant is exact", (testCase) => {
-    vi.mocked(createOpenClawTools).mockClear();
-    createOpenClawCodingTools({
-      config: testConfig,
-      trustedInternalHandoff: testCase.trustedInternalHandoff,
-      inputProvenance: {
-        kind: "inter_session",
-        sourceSessionKey: "agent:main:subagent:child",
-        sourceTool: testCase.sourceTool,
-      },
-      sourceReplyDeliveryMode: testCase.sourceReplyDeliveryMode,
-      runtimeToolAllowlist: testCase.runtimeToolAllowlist,
-    });
+  ])("limits $name to the source only for verified completion delivery", async (testCase) => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-source-reply-only-"));
+    try {
+      const storeTemplate = path.join(tmpDir, "sessions-{agentId}.json");
+      const sessionKey = "agent:main:direct:requester";
+      const sessionId = "requester-session";
+      const childSessionKey = "agent:main:subagent:child";
+      await writeSessionStore(storeTemplate, "main", {
+        [childSessionKey]: {
+          sessionId: "child-session",
+          updatedAt: Date.now(),
+          spawnedBy: sessionKey,
+          spawnDepth: 1,
+          subagentRole: "leaf",
+          subagentControlScope: "none",
+          inheritedToolPolicyVersion: 1,
+        },
+      });
+      vi.mocked(createOpenClawTools).mockClear();
+      createOpenClawCodingTools({
+        config: { session: { store: storeTemplate } },
+        sessionKey,
+        sessionId,
+        modelProvider: "openai",
+        modelId: "gpt-5.4",
+        trustedInternalHandoff: testCase.trustedInternalHandoff
+          ? {
+              kind: "subagent-completion",
+              sourceSessionKey: childSessionKey,
+              sourceSessionId: "child-session",
+              targetSessionKey: sessionKey,
+              targetSessionId: sessionId,
+              provider: "openai",
+              model: "gpt-5.4",
+            }
+          : undefined,
+        inputProvenance: {
+          kind: "inter_session",
+          sourceSessionKey: childSessionKey,
+          sourceTool: testCase.sourceTool,
+        },
+        sourceReplyDeliveryMode: testCase.sourceReplyDeliveryMode,
+        runtimeToolAllowlist: testCase.runtimeToolAllowlist,
+      });
 
-    expect(latestCreateOpenClawToolsOptions().sourceReplyOnly).toBe(testCase.expected);
+      expect(latestCreateOpenClawToolsOptions().sourceReplyOnly).toBe(testCase.expected);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("passes configured filesystem policy to OpenClaw tool construction", () => {

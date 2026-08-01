@@ -78,6 +78,7 @@ import { resolveAvailableAgentHarnessPolicy } from "../harness/selection.js";
 import { resolveCliRuntimeExecutionProvider } from "../model-runtime-aliases.js";
 import { isCliProvider } from "../model-selection.js";
 import { resolveOpenAIRuntimeProvider } from "../openai-routing.js";
+import { hasVerifiedRequesterCompletionHandoff } from "../requester-tool-policy.js";
 import { resolveAgentRunSessionTarget, type AgentRunSessionTarget } from "../run-session-target.js";
 import { resolveAgentRunAbortLifecycleFields } from "../run-termination.js";
 import { buildAgentRuntimeAuthPlan } from "../runtime-plan/auth.js";
@@ -90,7 +91,10 @@ import {
   resolveSessionWriteLockTargetKey,
 } from "../session-write-lock.js";
 import { buildUsageWithNoCost } from "../stream-message-shared.js";
-import { isSubagentAnnounceCompletionHandoff } from "../subagent-announce-handoff.js";
+import {
+  isSubagentAnnounceCompletionHandoff,
+  isTrustedSubagentCompletionHandoffForRun,
+} from "../subagent-announce-handoff.js";
 import { isToolAllowedByPolicies } from "../tool-policy-match.js";
 import { readToolAllowlistIntersection } from "../tool-policy.js";
 import { DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS } from "../tool-result-limits.js";
@@ -578,17 +582,38 @@ export function runAgentAttempt(params: {
           ? { id: sessionAuthProfileId, source: sessionAuthProfileSource }
           : undefined;
   const isRawModelRun = params.opts.modelRun === true || params.opts.promptMode === "none";
-  // A completion handoff relays frozen child output; letting it act with the
-  // requester's tools would turn child text into a new privileged instruction.
+  // A completion handoff relays frozen child output, so only a verified private
+  // capability plus persisted requester lineage may restore its tool surface.
   const isSubagentAnnounceHandoff = isSubagentAnnounceCompletionHandoff({
     inputProvenance: params.opts.inputProvenance,
     internalEvents: params.opts.internalEvents,
   });
-  const completionRequestsMessageDelivery =
+  const exactSubagentAnnounceHandoff =
     isSubagentAnnounceHandoff &&
+    isTrustedSubagentCompletionHandoffForRun({
+      handoff: params.opts.trustedInternalHandoff,
+      inputProvenance: params.opts.inputProvenance,
+      internalEvents: params.opts.internalEvents,
+      sessionKey: params.sessionKey,
+      sessionId: params.sessionId,
+      provider: params.providerOverride,
+      model: params.modelOverride,
+    });
+  const trustedSubagentAnnounceHandoff =
+    exactSubagentAnnounceHandoff &&
+    hasVerifiedRequesterCompletionHandoff({
+      config: params.cfg,
+      sessionKey: params.sessionKey,
+      inputProvenance: params.opts.inputProvenance,
+      trustedInternalHandoff: params.opts.trustedInternalHandoff,
+      sessionId: params.sessionId,
+      modelProvider: params.providerOverride,
+      modelId: params.modelOverride,
+    });
+  const completionRequestsMessageDelivery =
+    trustedSubagentAnnounceHandoff &&
     !isRawModelRun &&
     params.opts.disableMessageTool !== true &&
-    params.opts.trustedInternalHandoff === true &&
     messageToolOwnsVisibleReply(params.opts);
   const completionSandboxStatus = completionRequestsMessageDelivery
     ? resolveSandboxRuntimeStatus({
@@ -601,6 +626,7 @@ export function runAgentAttempt(params: {
     ? resolveConversationCapabilityProfile({
         config: params.cfg,
         sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
         agentId: params.sessionAgentId,
         agentAccountId: params.runContext.accountId,
         messageProvider: params.opts.messageProvider ?? params.messageChannel,
@@ -625,6 +651,10 @@ export function runAgentAttempt(params: {
     ? resolveConversationToolPolicies({
         capabilityProfile: completionCapabilityProfile,
         additionalProfileAllow: ["message"],
+        // The source-bound delivery grant extends restrictive allowlists only;
+        // explicit denies still win at every policy layer.
+        additionalPolicyAllow: ["message"],
+        additionalInheritedAllow: ["message"],
       })
     : undefined;
   const completionRuntimeRestrictions = params.opts.toolsAllow
@@ -641,15 +671,6 @@ export function runAgentAttempt(params: {
         (allow) => allow.length > 0 && isToolAllowedByPolicies("message", [{ allow }]),
       ) ??
         false));
-  // An explicit cap is enforced even when tools are disabled; clear it so a
-  // denied completion can finish tool-free and its owner can relay frozen text.
-  const runtimeToolsAllow = isSubagentAnnounceHandoff
-    ? completionNeedsMessageDelivery
-      ? ["message"]
-      : undefined
-    : params.opts.toolsAllow;
-  const disableTools =
-    params.opts.modelRun === true || (isSubagentAnnounceHandoff && !completionNeedsMessageDelivery);
   const claudeCliFallbackPrelude =
     !isRawModelRun &&
     params.isFallbackRetry &&
@@ -710,6 +731,28 @@ export function runAgentAttempt(params: {
   const isCliExecutionProvider = sessionRuntimeOverride
     ? sessionCliRuntime !== undefined
     : isCliProvider(cliExecutionProvider, params.cfg);
+  const completionRetainsRequesterTools =
+    trustedSubagentAnnounceHandoff &&
+    !isRawModelRun &&
+    !isCliExecutionProvider &&
+    (!messageToolOwnsVisibleReply(params.opts) || completionNeedsMessageDelivery);
+  // Message-tool-only delivery constrains the visible reply, not the parent
+  // continuation's verified authority. Keep the inherited cap while requiring
+  // message to survive every applicable policy before enabling any tools.
+  // An explicit cap is enforced even when tools are disabled; clear it so a
+  // denied completion can finish tool-free and its owner can relay frozen text.
+  const runtimeToolsAllow = isSubagentAnnounceHandoff
+    ? completionRetainsRequesterTools
+      ? params.opts.toolsAllow
+      : completionNeedsMessageDelivery
+        ? ["message"]
+        : undefined
+    : params.opts.toolsAllow;
+  const disableTools =
+    params.opts.modelRun === true ||
+    (isSubagentAnnounceHandoff &&
+      !completionRetainsRequesterTools &&
+      !completionNeedsMessageDelivery);
   if (params.fallbackRuntimeState && params.fallbackRuntimeState.originRuntime === undefined) {
     params.fallbackRuntimeState.originRuntime =
       !isRawModelRun && isCliExecutionProvider ? "cli" : "embedded";
@@ -1173,7 +1216,9 @@ export function runAgentAttempt(params: {
     bootstrapContextRunKind: params.opts.bootstrapContextRunKind,
     toolsAllow: runtimeToolsAllow,
     runtimePluginToolGrant: params.opts.runtimePluginToolGrant,
-    trustedInternalHandoff: params.opts.trustedInternalHandoff,
+    trustedInternalHandoff: trustedSubagentAnnounceHandoff
+      ? params.opts.trustedInternalHandoff
+      : undefined,
     scheduledToolPolicy: params.opts.scheduledToolPolicy,
     internalEvents: params.opts.internalEvents,
     inputProvenance: params.opts.inputProvenance,
