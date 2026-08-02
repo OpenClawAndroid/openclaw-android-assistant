@@ -252,7 +252,6 @@ extensions/slack/src/monitor/provider.ts
 extensions/slack/src/monitor/replies.test.ts
 extensions/slack/src/monitor/slash.test.ts
 extensions/slack/src/monitor/slash.ts
-extensions/slack/src/outbound-payload.test.ts
 extensions/slack/src/send.blocks.test.ts
 extensions/slack/src/send.ts
 extensions/telegram/src/action-runtime.test.ts
@@ -703,7 +702,6 @@ src/gateway/server-close.ts
 src/gateway/server-cron.test.ts
 src/gateway/server-cron.ts
 src/gateway/server-http.ts
-src/gateway/server-methods.ts
 src/gateway/server-methods/agent.abort-integration.test-utils.ts
 src/gateway/server-methods/agent.base.test-utils.ts
 src/gateway/server-methods/agent.events-and-subagents.test-utils.ts
