@@ -58,6 +58,9 @@ const RECONNECT_STABLE_RESET_MS = 30_000;
 // matches realtime voice; ws rejects larger messages with close 1009 before
 // they reach onMessage, replacing its 100 MiB client default.
 const REALTIME_TRANSCRIPTION_WS_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
+// ws retains outbound frames until the provider socket drains. Match the
+// voice-call egress ceiling so a stalled provider cannot grow heap indefinitely.
+const REALTIME_TRANSCRIPTION_WS_MAX_BUFFERED_BYTES = 1024 * 1024;
 
 function defaultParseMessage(payload: Buffer): unknown {
   try {
@@ -239,6 +242,19 @@ class WebSocketRealtimeTranscriptionSession<Event> implements RealtimeTranscript
       };
       this.cancelConnecting = finishClosedConnect;
 
+      const handleBackpressure = () => {
+        const error = new Error(
+          `${this.options.providerId} realtime transcription send buffer exceeded ${REALTIME_TRANSCRIPTION_WS_MAX_BUFFERED_BYTES} bytes; closing stalled connection`,
+        );
+        if (!settled) {
+          failConnect(error);
+          return;
+        }
+        if (socket) {
+          this.closeForBackpressure(socket, error);
+        }
+      };
+
       const transport: RealtimeTranscriptionWebSocketTransport = {
         callbacks: this.options.callbacks,
         closeNow: () => {
@@ -262,8 +278,9 @@ class WebSocketRealtimeTranscriptionSession<Event> implements RealtimeTranscript
             finishConnect();
           }
         },
-        sendBinary: (payload) => this.send(payload, socket, generation),
-        sendJson: (payload) => this.send(JSON.stringify(payload), socket, generation),
+        sendBinary: (payload) => this.send(payload, socket, generation, handleBackpressure),
+        sendJson: (payload) =>
+          this.send(JSON.stringify(payload), socket, generation, handleBackpressure),
       };
 
       connectTimeout = setTimeout(() => {
@@ -480,6 +497,7 @@ class WebSocketRealtimeTranscriptionSession<Event> implements RealtimeTranscript
     payload: Buffer | string,
     socket: WebSocket | undefined,
     generation: number,
+    handleBackpressure: () => void,
   ): boolean {
     if (
       !socket ||
@@ -489,9 +507,30 @@ class WebSocketRealtimeTranscriptionSession<Event> implements RealtimeTranscript
     ) {
       return false;
     }
+    const payloadBytes =
+      typeof payload === "string" ? Buffer.byteLength(payload) : payload.byteLength;
+    if (socket.bufferedAmount + payloadBytes > REALTIME_TRANSCRIPTION_WS_MAX_BUFFERED_BYTES) {
+      handleBackpressure();
+      return false;
+    }
     this.captureFrame("outbound", payload);
     socket.send(payload);
     return true;
+  }
+
+  private closeForBackpressure(socket: WebSocket, error: Error): void {
+    if (socket !== this.ws) {
+      return;
+    }
+    const shouldReport = !this.closed;
+    this.closed = true;
+    this.cancelConnecting?.();
+    this.reconnectSupervisor.cancel();
+    this.clearQueuedAudio();
+    this.forceClose(socket);
+    if (shouldReport) {
+      this.emitError(error);
+    }
   }
 
   private forceClose(socket: WebSocket | null | undefined = this.ws): void {

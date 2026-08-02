@@ -506,6 +506,102 @@ describe("createRealtimeTranscriptionWebSocketSession", () => {
     expect(session.isConnected()).toBe(false);
   });
 
+  it("terminates once when binary audio reaches the active socket buffer cap", async () => {
+    const onError = vi.fn();
+    const server = await createRealtimeServer();
+    const session = createRealtimeTranscriptionWebSocketSession({
+      providerId: "test",
+      callbacks: { onError },
+      url: server.url,
+      readyOnOpen: true,
+      sendAudio: (audio, transport) => {
+        transport.sendBinary(audio);
+      },
+    });
+
+    await session.connect();
+    const ownedSocket = Reflect.get(session, "ws") as WebSocket;
+    const terminate = vi.spyOn(ownedSocket, "terminate");
+    Object.defineProperty(ownedSocket, "bufferedAmount", {
+      configurable: true,
+      get: () => 1024 * 1024,
+    });
+
+    session.sendAudio(Buffer.from([1]));
+    await vi.waitFor(() => expect(terminate).toHaveBeenCalledOnce());
+    expect(session.isConnected()).toBe(false);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(requireFirstMockArg(onError, "binary backpressure error").message).toMatch(
+      /send buffer exceeded/,
+    );
+
+    session.sendAudio(Buffer.from([2]));
+    expect(terminate).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies the active socket buffer cap to JSON provider frames", async () => {
+    let providerTransport: RealtimeTranscriptionWebSocketTransport | undefined;
+    const onError = vi.fn();
+    const server = await createRealtimeServer();
+    const session = createRealtimeTranscriptionWebSocketSession({
+      providerId: "test",
+      callbacks: { onError },
+      url: server.url,
+      readyOnOpen: true,
+      onOpen: (transport) => {
+        providerTransport = transport;
+      },
+      sendAudio: (audio, transport) => {
+        transport.sendBinary(audio);
+      },
+    });
+
+    await session.connect();
+    const ownedSocket = Reflect.get(session, "ws") as WebSocket;
+    const terminate = vi.spyOn(ownedSocket, "terminate");
+    Object.defineProperty(ownedSocket, "bufferedAmount", {
+      configurable: true,
+      get: () => 1024 * 1024,
+    });
+
+    expect(providerTransport?.sendJson({ type: "provider.control" })).toBe(false);
+    await vi.waitFor(() => expect(terminate).toHaveBeenCalledOnce());
+    expect(session.isConnected()).toBe(false);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(requireFirstMockArg(onError, "json backpressure error").message).toMatch(
+      /send buffer exceeded/,
+    );
+  });
+
+  it("rejects connect when provider handshake frames exceed the socket buffer cap", async () => {
+    const onError = vi.fn();
+    const server = await createRealtimeServer();
+    const session = createRealtimeTranscriptionWebSocketSession({
+      providerId: "test",
+      callbacks: { onError },
+      url: server.url,
+      onOpen: (transport) => {
+        const ownedSocket = Reflect.get(session, "ws") as WebSocket;
+        Object.defineProperty(ownedSocket, "bufferedAmount", {
+          configurable: true,
+          get: () => 1024 * 1024,
+        });
+        expect(transport.sendJson({ type: "session.update" })).toBe(false);
+      },
+      sendAudio: (audio, transport) => {
+        transport.sendBinary(audio);
+      },
+    });
+
+    await expect(session.connect()).rejects.toThrow(/send buffer exceeded/);
+    expect(session.isConnected()).toBe(false);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(requireFirstMockArg(onError, "handshake backpressure error").message).toMatch(
+      /send buffer exceeded/,
+    );
+  });
+
   it("lets providers mark ready after a JSON handshake", async () => {
     const frames: unknown[] = [];
     const framesReady = createSignal();
