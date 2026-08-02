@@ -34355,7 +34355,7 @@
     },
     {
       "kind": "ui-call",
-      "line": 108,
+      "line": 102,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "New Gateway Window…",
       "surface": "apple",
@@ -34363,7 +34363,7 @@
     },
     {
       "kind": "ui-call",
-      "line": 113,
+      "line": 107,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "New Thread",
       "surface": "apple",
@@ -34371,7 +34371,7 @@
     },
     {
       "kind": "ui-call",
-      "line": 119,
+      "line": 113,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "Settings...",
       "surface": "apple",
@@ -34379,7 +34379,7 @@
     },
     {
       "kind": "ui-call",
-      "line": 127,
+      "line": 121,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "Back",
       "surface": "apple",
@@ -34387,7 +34387,7 @@
     },
     {
       "kind": "ui-call",
-      "line": 132,
+      "line": 126,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "Forward",
       "surface": "apple",
@@ -34395,7 +34395,7 @@
     },
     {
       "kind": "ui-call",
-      "line": 139,
+      "line": 133,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "Command Palette…",
       "surface": "apple",
@@ -34403,7 +34403,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 157,
+      "line": 147,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "OpenClaw - Voice Wake live meter active",
       "surface": "apple",
@@ -34411,7 +34411,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 158,
+      "line": 148,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "OpenClaw",
       "surface": "apple",
@@ -34419,7 +34419,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 455,
+      "line": 405,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "Close Canvas",
       "surface": "apple",
@@ -34427,7 +34427,7 @@
     },
     {
       "kind": "conditional-branch",
-      "line": 455,
+      "line": 405,
       "path": "apps/macos/Sources/OpenClaw/MenuBar.swift",
       "source": "Open Canvas",
       "surface": "apple",
@@ -39691,7 +39691,7 @@
     },
     {
       "kind": "ui-named-argument",
-      "line": 201,
+      "line": 179,
       "path": "apps/macos/Sources/OpenClaw/WebChatManager.swift",
       "source": "Could Not Open Gateway Window",
       "surface": "apple",
@@ -39699,7 +39699,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 958,
+      "line": 934,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Talk mode uses the primary Gateway window",
       "surface": "apple",
@@ -39707,7 +39707,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 960,
+      "line": 936,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Talk mode off",
       "surface": "apple",
@@ -39715,7 +39715,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 962,
+      "line": 938,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Talk mode paused",
       "surface": "apple",
@@ -39723,7 +39723,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 965,
+      "line": 941,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Talk mode ready",
       "surface": "apple",
@@ -39731,7 +39731,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 966,
+      "line": 942,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Listening",
       "surface": "apple",
@@ -39739,7 +39739,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 967,
+      "line": 943,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Thinking",
       "surface": "apple",
@@ -39747,7 +39747,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 968,
+      "line": 944,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Speaking",
       "surface": "apple",
@@ -39755,7 +39755,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 972,
+      "line": 948,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "What would you like to work on?",
       "surface": "apple",
@@ -39763,7 +39763,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 976,
+      "line": 952,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Check OpenClaw status",
       "surface": "apple",
@@ -39771,7 +39771,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 977,
+      "line": 953,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Summarize the current OpenClaw status and tell me what needs attention.",
       "surface": "apple",
@@ -39779,7 +39779,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 980,
+      "line": 956,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "What can you do?",
       "surface": "apple",
@@ -39787,7 +39787,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 981,
+      "line": 957,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Show me what you can help with on this Mac right now.",
       "surface": "apple",
@@ -39795,7 +39795,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 984,
+      "line": 960,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Catch me up",
       "surface": "apple",
@@ -39803,7 +39803,7 @@
     },
     {
       "kind": "ui-localized-call",
-      "line": 985,
+      "line": 961,
       "path": "apps/macos/Sources/OpenClaw/WebChatSwiftUI.swift",
       "source": "Summarize what happened in my threads since yesterday.",
       "surface": "apple",
