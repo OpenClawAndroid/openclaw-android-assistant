@@ -159,7 +159,7 @@ function shouldApplyChatHistoryResult(
   return (
     ownsChatHistoryRequest(state, ownership) &&
     state.sessionKey === ownership.sessionKey &&
-    (!isUiSelectedGlobalSessionKey(ownership.sessionKey) ||
+    (!isUiSelectedGlobalSessionKey(state, ownership.sessionKey) ||
       resolveUiSelectedSessionAgentId(state) === ownership.agentId)
   );
 }
@@ -656,7 +656,7 @@ function chatScopedEventAgentScopeMatches(
   sessionKey: string,
   agentId?: string | null,
 ): boolean {
-  if (!isUiSelectedGlobalSessionKey(state.sessionKey) || !isUiGlobalSessionKey(sessionKey)) {
+  if (!isUiSelectedGlobalSessionKey(state, state.sessionKey) || !isUiGlobalSessionKey(sessionKey)) {
     return true;
   }
   const payloadAgentId =
@@ -677,7 +677,7 @@ export function chatScopedEventSessionMatches(
   }
   return (
     isUiGlobalSessionKey(sessionKey) &&
-    isUiSelectedGlobalSessionKey(state.sessionKey) &&
+    isUiSelectedGlobalSessionKey(state, state.sessionKey) &&
     chatScopedEventAgentScopeMatches(state, sessionKey, agentId)
   );
 }
@@ -1109,6 +1109,13 @@ type ClearChatHistoryState = ChatState &
 
 type ClearChatHistoryResult = "completed" | "failed" | "uncertain";
 
+type ClearChatViewOwner = {
+  client: ClearChatHistoryState["client"];
+  connectionEpoch: number;
+  sessionKey: string;
+  agentId?: string;
+};
+
 type RewindChatHistoryState = ChatState &
   Parameters<typeof scheduleChatScroll>[0] & {
     handleChatDraftChange: (next: string) => void;
@@ -1142,6 +1149,40 @@ function clearCachedChatMessagesForSession(
   clearChatMessagesFromCache(state.chatMessagesBySession, state, { sessionKey, agentId });
 }
 
+function ownsClearChatView(state: ClearChatHistoryState, owner: ClearChatViewOwner): boolean {
+  return (
+    state.client === owner.client &&
+    state.connectionEpoch === owner.connectionEpoch &&
+    visibleSessionMatches(state, owner.sessionKey, owner.agentId)
+  );
+}
+
+function clearPostResetBranchPrecondition(
+  state: ClearChatHistoryState,
+  target: {
+    client: NonNullable<ClearChatHistoryState["client"]>;
+    connectionEpoch: number;
+    sessionKey: string;
+    agentId?: string;
+  },
+  history: ChatHistoryResult | undefined,
+) {
+  if (
+    !history ||
+    !Object.hasOwn(history.sessionInfo ?? {}, "activeLeafEntryId") ||
+    history.sessionInfo?.activeLeafEntryId !== null ||
+    state.client !== target.client ||
+    state.connectionEpoch !== target.connectionEpoch ||
+    !state.connected ||
+    !visibleSessionMatches(state, target.sessionKey, target.agentId)
+  ) {
+    return;
+  }
+  // Reset can leave old branch metadata visible after the transcript becomes
+  // empty. The first post-reset send must establish the new branch itself.
+  delete state.chatDisplayedLeafEntryId;
+}
+
 export async function clearChatHistory(
   state: ClearChatHistoryState,
 ): Promise<ClearChatHistoryResult> {
@@ -1152,6 +1193,12 @@ export async function clearChatHistory(
   const connectionEpoch = state.connectionEpoch;
   const sessionKey = state.sessionKey;
   const agentParams = scopedAgentParamsForSession(state, sessionKey);
+  const originalViewOwner: ClearChatViewOwner = {
+    client,
+    connectionEpoch,
+    sessionKey,
+    agentId: agentParams.agentId,
+  };
   const runId = state.chatRunId;
   const hadActiveRun = hasAbortableChatSessionRun(state);
   try {
@@ -1171,6 +1218,12 @@ export async function clearChatHistory(
       state.connectionEpoch !== connectionEpoch ||
       !state.connected
     ) {
+      const feedbackOwner: ClearChatViewOwner = {
+        client: state.client,
+        connectionEpoch: state.connectionEpoch,
+        sessionKey,
+        agentId: agentParams.agentId,
+      };
       let historyRefreshed = false;
       if (
         state.client &&
@@ -1181,22 +1234,32 @@ export async function clearChatHistory(
         // ambiguous reset may already have destroyed. Clearing first also
         // prevents history loading from preserving a pre-reset optimistic tail.
         resetChatHistoryProjection(state, agentParams.agentId);
-        historyRefreshed = Boolean(await loadChatHistory(state));
+        const history = await loadChatHistory(state);
+        historyRefreshed = Boolean(history);
+        clearPostResetBranchPrecondition(
+          state,
+          { client, connectionEpoch, sessionKey, agentId: agentParams.agentId },
+          history,
+        );
       }
-      setChatError(
-        state,
-        historyRefreshed
-          ? "The clear request may have completed. Current history was refreshed; review it before resuming queued messages."
-          : "The clear request may have completed. Cached history was cleared, but current history could not be refreshed; reconnect and review it before resuming queued messages.",
-      );
-      scheduleChatScroll(state);
+      if (ownsClearChatView(state, feedbackOwner)) {
+        setChatError(
+          state,
+          historyRefreshed
+            ? "The clear request may have completed. Current history was refreshed; review it before resuming queued messages."
+            : "The clear request may have completed. Cached history was cleared, but current history could not be refreshed; reconnect and review it before resuming queued messages.",
+        );
+        scheduleChatScroll(state);
+      }
       // sessions.reset is not idempotent. Treat an uncertain completion as
       // consumed so a durable /clear row cannot erase newer history on retry.
       return "uncertain";
     }
   } catch (err) {
-    setChatError(state, String(err));
-    scheduleChatScroll(state);
+    if (ownsClearChatView(state, originalViewOwner)) {
+      setChatError(state, String(err));
+      scheduleChatScroll(state);
+    }
     return "failed";
   }
   if (!visibleSessionMatches(state, sessionKey, agentParams.agentId)) {
@@ -1215,8 +1278,15 @@ export async function clearChatHistory(
     clearToolStream: true,
     clearRunStatus: !hadActiveRun,
   });
-  await loadChatHistory(state);
-  scheduleChatScroll(state);
+  const history = await loadChatHistory(state);
+  clearPostResetBranchPrecondition(
+    state,
+    { client, connectionEpoch, sessionKey, agentId: agentParams.agentId },
+    history,
+  );
+  if (ownsClearChatView(state, originalViewOwner)) {
+    scheduleChatScroll(state);
+  }
   return "completed";
 }
 
@@ -1354,7 +1424,7 @@ export async function loadChatHistory(
     return undefined;
   }
   const sessionKey = state.sessionKey;
-  const requestAgentId = isUiSelectedGlobalSessionKey(sessionKey)
+  const requestAgentId = isUiSelectedGlobalSessionKey(state, sessionKey)
     ? resolveUiSelectedSessionAgentId(state)
     : undefined;
   const startupAdvertised = isGatewayMethodAdvertised(state, "chat.startup");
@@ -1411,7 +1481,7 @@ export async function loadOlderChatHistoryPage(
   }
   const client = state.client;
   const sessionKey = state.sessionKey;
-  const requestAgentId = isUiSelectedGlobalSessionKey(sessionKey)
+  const requestAgentId = isUiSelectedGlobalSessionKey(state, sessionKey)
     ? resolveUiSelectedSessionAgentId(state)
     : undefined;
   const ownership = beginChatHistoryRequest(

@@ -14,6 +14,7 @@ import type { ApplicationContext } from "../../app/context.ts";
 import { createInitialUserMessageHandoff } from "../../app/initial-user-message-handoff.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import { createTestChatPane, type TestChatPane } from "./chat-pane.test-support.ts";
+import { applySelectedChatAgent } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import {
   dismissConfirmedActionPopovers,
@@ -899,6 +900,91 @@ describe("chat pane connection lifecycle", () => {
     expect(state.chatLoading).toBe(true);
   });
 
+  it("cancels scroll work owned by the prior Gateway connection", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
+    const cancelCommit = vi.fn();
+    const initialScrollGeneration = state.chatScrollGeneration;
+    state.chatScrollCommitCleanup = cancelCommit;
+    state.chatIsProgrammaticScroll = true;
+
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "reconnecting",
+      hello: null,
+    });
+
+    expect(cancelCommit).toHaveBeenCalledOnce();
+    expect(state.chatScrollCommitCleanup).toBeNull();
+    expect(state.chatScrollGeneration).toBe(initialScrollGeneration + 1);
+    expect(state.chatIsProgrammaticScroll).toBe(false);
+  });
+
+  it("retires pending model selection state when the Gateway owner changes", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const retireModelOverride = vi.fn();
+    const sessions = { retireModelOverride } as unknown as SessionCapability;
+    const { pane, state } = createTestChatPane({ client, sessions });
+    state.sessionKey = "global";
+    state.chatModelSwitchPromises = {
+      global: new Promise<boolean>(() => {}),
+    };
+
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "reconnecting",
+      hello: null,
+    });
+
+    expect(state.chatModelSwitchPromises).toEqual({});
+    expect(retireModelOverride).toHaveBeenCalledWith("global");
+  });
+
+  it("releases sending state when the Gateway owner changes", () => {
+    const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+    const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
+    state.chatSending = true;
+    state.chatSendingScopeKey = "agent:main";
+
+    pane.applyGatewaySnapshot({
+      ...pane.context.gateway.snapshot,
+      client,
+      phase: "reconnecting",
+      hello: null,
+    });
+
+    expect(state.chatSending).toBe(false);
+    expect(state.chatSendingScopeKey).toBeNull();
+  });
+
+  it.each([
+    { sessionKey: "agent:work:main", mainKey: "main" },
+    { sessionKey: "agent:work:home", mainKey: "home" },
+  ])(
+    "retires pending global model selection state when the selected agent changes for $sessionKey",
+    ({ sessionKey, mainKey }) => {
+      const client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+      const retireModelOverride = vi.fn();
+      const sessions = { retireModelOverride } as unknown as SessionCapability;
+      const { state } = createTestChatPane({ client, sessions });
+      state.sessionKey = sessionKey;
+      state.agentsList = { defaultId: "main", mainKey, scope: "global", agents: [] };
+      state.assistantAgentId = "work";
+      state.chatModelSwitchPromises = {
+        global: new Promise<boolean>(() => {}),
+      };
+
+      applySelectedChatAgent(state, "main");
+
+      expect(state.chatModelSwitchPromises).toEqual({});
+      expect(state.assistantAgentId).toBe("main");
+      expect(retireModelOverride).toHaveBeenCalledWith(sessionKey);
+      expect(retireModelOverride).toHaveBeenCalledWith("global");
+    },
+  );
+
   it("refreshes the transcript before secondary hydration after a same-client reconnect", () => {
     const request = vi.fn(() => new Promise<never>(() => {}));
     const client = {
@@ -955,6 +1041,12 @@ describe("chat pane connection lifecycle", () => {
     pane.applyGatewaySnapshot({
       ...snapshot,
       phase: "connected",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.write"] },
+        features: { methods: ["chat.abort"] },
+      },
     });
 
     await vi.waitFor(() =>
