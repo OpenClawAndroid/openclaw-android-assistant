@@ -6,9 +6,9 @@ scenario:
   category: containers.image-release-and-validation
   coverage:
     primary:
+      - containers.docker-e2e-package-artifact-generation
       - cli.package-manager-installs
     secondary:
-      - containers.docker-e2e-package-artifact-generation
       - cli.cli-entrypoint
   objective: Build the real OpenClaw package artifact, install it globally with npm, pnpm, and Bun in clean containers, execute each manager-created PATH entrypoint, and record exact identities.
   successCriteria:
