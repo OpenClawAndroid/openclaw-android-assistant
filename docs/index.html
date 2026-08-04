@@ -730,28 +730,12 @@ bash scripts/build-server-bundle.sh && ./gradlew assembleDebug \
 <div class="section" id="release">
   <p class="section-label">Latest upstream release</p>
   <!-- RELEASE_START -->
-  <h2><em>openclaw 2026.7.1</em></h2>
-  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Jul 13, 2026</p>
+  <h2><em>openclaw 2026.7.1-2</em></h2>
+  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Aug 04, 2026</p>
   <div class="release-body" style="color:var(--text-dim);font-size:.92rem;line-height:1.75;max-width:800px">
-  <h3>Changes</h3>
+  <h3>Fixes</h3>
     <ul>
-    <li>**Channels and messaging:** expanded native capabilities, clearer progress and delivery behavior, stronger media handling, and broader controls across Telegram, Slack, Discord, Signal, WhatsApp, Apple Messages, Teams, Matrix, Feishu, and other channels</li>
-    <li>**Models and providers:** more models can be discovered, selected, authenticated, and used across cloud, managed, and local routes, with clearer reasoning controls and provider-specific setup</li>
-    <li>**Memory, sessions, and state:** session groups, titles, unread state, checkpoints, context handling, goals, and recovery paths are more consistent across web, mobile, CLI, and connected agents</li>
-    <li>**Tools and automation:** browser control, downloads, cron jobs, terminals, files, search, fetch, MCP, and background task workflows gain new capabilities and clearer controls</li>
-    <li>**Account, device, and data protection:** passwords and tokens stay out of more logs, sensitive controls remain limited to approved users, device pairing is clearer, and unsafe downloads, files, and network requests are blocked earlier</li>
-    <li>**Plugins and packaging:** bundled and external plugins gain improved installation, discovery, updates, compatibility, diagnostics, and distribution behavior</li>
-    <li>**CLI, setup, and administration:** onboarding, Doctor, updates, configuration, status, diagnostics, node management, backup, and deployment workflows are easier to inspect and recover</li>
-    </ul>
-    <h3>Fixes</h3>
-    <ul>
-    <li>**Chat delivery and replies:** messages, progress updates, quoted replies, media, and final results stay tied to the intended conversation more reliably across reconnects, restarts, retries, and channel-specific limits</li>
-    <li>**Control UI and native apps:** fixes cover session state, stale completions, responsive layouts, scrolling, focus, accessibility, localization, pairing, voice, offline chat, and mobile recovery</li>
-    <li>**Gateway and provider reliability:** startup, restart, migration, authentication, fallback, streaming, model discovery, and oversized-response failures now stop or recover more cleanly</li>
-    <li>**Sessions and memory:** transcript, compaction, checkpoint, cache, rotation, search, and persistence fixes reduce lost state, stale views, and cross-session confusion</li>
-    <li>**Browser, tools, and automation:** browser actions, downloads, fetches, searches, scheduled jobs, terminals, subprocesses, and MCP calls now handle cancellation, malformed input, timeouts, and broken streams more safely</li>
-    <li>**Setup, updates, and packaging:** installers, containers, plugin updates, runtime checks, temporary files, and platform-specific launch paths receive recovery and compatibility fixes</li>
-    <li>**Security and credentials:** additional hardening protects tokens, secrets, approval scopes, local paths, network destinations, attachments, archives, and untrusted provider or plugin responses</li>
+    <li>**npm plugin updates:** accept singleton-array metadata from newer npm clients so tracked official plugins can install and update to correction releases</li>
     </ul>
   </div>
   <!-- RELEASE_END -->
