@@ -53,6 +53,8 @@ type AgentRunRegistryState = {
 
 const AGENT_RUN_REGISTRY_STATE_KEY = Symbol.for("openclaw.agentRunRegistry.state");
 
+export class AgentRunAttributionCollisionError extends TypeError {}
+
 function getAgentRunRegistryState(): AgentRunRegistryState {
   return resolveGlobalSingleton<AgentRunRegistryState>(AGENT_RUN_REGISTRY_STATE_KEY, () => ({
     contexts: new Map<string, AgentRunContext>(),
@@ -79,6 +81,76 @@ function attachAgentExecutionAttribution(
     configurable: false,
     writable: false,
   });
+}
+
+/** Rejects a same-generation run id that is already bound to different private identity. */
+export function assertAgentRunAttributionCompatible(
+  existingAttribution: AgentExecutionAttribution | undefined,
+  attribution: AgentExecutionAttribution | undefined,
+): void {
+  if (existingAttribution && !attribution) {
+    throw new AgentRunAttributionCollisionError(
+      "Agent run ID is already bound to host-owned execution attribution.",
+    );
+  }
+  if (
+    existingAttribution &&
+    attribution &&
+    (existingAttribution.contextId !== attribution.contextId ||
+      existingAttribution.executionId !== attribution.executionId ||
+      existingAttribution.createdAt !== attribution.createdAt)
+  ) {
+    throw new AgentRunAttributionCollisionError(
+      "Agent run ID is already bound to different execution attribution.",
+    );
+  }
+}
+
+/**
+ * Atomically reserves current-generation attribution before admission audit capture.
+ * The first admission owns the immutable value; later conflicting callers fail closed.
+ */
+export function reserveAgentRunAttribution(
+  runId: string,
+  lifecycleGeneration: string,
+  attribution: AgentExecutionAttribution,
+): AgentExecutionAttribution {
+  if (attribution.runId !== runId) {
+    throw new TypeError("Agent run attribution runId does not match the reserved runId.");
+  }
+  if (attribution.lifecycleGeneration !== lifecycleGeneration) {
+    throw new TypeError(
+      "Agent run attribution lifecycleGeneration does not match the reserved generation.",
+    );
+  }
+  const state = getAgentRunRegistryState();
+  const existing = state.contexts.get(runId);
+  if (existing?.lifecycleGeneration === lifecycleGeneration) {
+    assertAgentRunAttributionCompatible(existing.attribution, attribution);
+    attachAgentExecutionAttribution(existing, attribution);
+    return existing.attribution ?? attribution;
+  }
+  // Stale callers fail the normal lifecycle guard without replacing a current run.
+  if (lifecycleGeneration !== state.lifecycleGeneration) {
+    return attribution;
+  }
+  state.owners.delete(runId);
+  state.contexts.set(
+    runId,
+    createAgentRunContext(
+      {
+        attribution,
+        sessionKey: attribution.sessionKey,
+        sessionId: attribution.sessionId,
+        agentId: attribution.agentId,
+      },
+      lifecycleGeneration,
+    ),
+  );
+  state.sequenceResetHandler?.(runId);
+  clearAgentRunUsage(runId);
+  bumpAgentRunIndexVersion();
+  return attribution;
 }
 
 function createAgentRunContext(
