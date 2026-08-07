@@ -4,14 +4,11 @@ import { context, metrics, propagation, ROOT_CONTEXT, trace } from "@opentelemet
 import { logs } from "@opentelemetry/api-logs";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import {
-  emitTrustedDiagnosticEventWithPrivateData,
-  resetDiagnosticEventsForTest,
-  waitForDiagnosticEventsDrained,
-} from "openclaw/plugin-sdk/diagnostic-runtime";
+import { resetDiagnosticEventsForTest } from "openclaw/plugin-sdk/diagnostic-runtime";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { startLocalOtlpReceiver } from "../../../test/e2e/qa-lab/runtime/otel-test-support.js";
 import {
+  emitRealSdkSignals,
   getReportedExporterHealth,
   startOtelService,
   stopStartedOtelServices,
@@ -107,20 +104,6 @@ afterEach(async () => {
   resetDiagnosticEventsForTest();
 });
 
-async function emitOpenClawSignals() {
-  trace.getTracer("openclaw-otel-disabled-test").startSpan("disabled-test").end();
-  metrics.getMeter("openclaw-otel-disabled-test").createCounter("disabled.test").add(1);
-  emitTrustedDiagnosticEventWithPrivateData(
-    {
-      type: "log.record",
-      level: "INFO",
-      message: "disabled route test",
-    },
-    {},
-  );
-  await waitForDiagnosticEventsDrained();
-}
-
 test("disables every OpenClaw route while preserving W3C propagation", async () => {
   const receiver = startLocalOtlpReceiver();
   const port = await receiver.listen();
@@ -139,7 +122,7 @@ test("disables every OpenClaw route while preserving W3C propagation", async () 
   });
 
   try {
-    await emitOpenClawSignals();
+    await emitRealSdkSignals();
     const incoming = {
       baggage: "tenant=example",
       traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
@@ -204,33 +187,40 @@ test("preserves externally owned context and propagation globals while disabled"
   });
 });
 
-test("does not remove context and propagation globals installed after startup", async () => {
-  process.env.OTEL_SDK_DISABLED = "true";
-  const { service, ctx } = await startOtelService();
-  const capturedContext = context.active();
-
-  context.disable();
-  propagation.disable();
-  const externalContextManager = new AsyncLocalStorageContextManager().enable();
-  expect(context.setGlobalContextManager(externalContextManager)).toBe(true);
-  expect(propagation.setGlobalPropagator(new W3CTraceContextPropagator())).toBe(true);
-  const incoming = {
-    traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-  };
-  const extracted = propagation.extract(ROOT_CONTEXT, incoming);
-
-  await context.with(capturedContext, () => service.stop?.(ctx));
-
-  expect(propagation.fields()).toEqual(["traceparent", "tracestate"]);
-  await context.with(extracted, async () => {
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
+test.each(["true", "false"] as const)(
+  "does not remove replacement context and propagation owners when disabled=$disabled",
+  async (disabled) => {
+    process.env.OTEL_SDK_DISABLED = disabled;
+    const { service, ctx } = await startOtelService({
+      traces: false,
+      metrics: false,
+      logs: false,
     });
-    expect(trace.getSpanContext(context.active())?.traceId).toBe(
-      "4bf92f3577b34da6a3ce929d0e0e4736",
-    );
-  });
-});
+    const capturedContext = context.active();
+
+    context.disable();
+    propagation.disable();
+    const externalContextManager = new AsyncLocalStorageContextManager().enable();
+    expect(context.setGlobalContextManager(externalContextManager)).toBe(true);
+    expect(propagation.setGlobalPropagator(new W3CTraceContextPropagator())).toBe(true);
+    const incoming = {
+      traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    };
+    const extracted = propagation.extract(ROOT_CONTEXT, incoming);
+
+    await context.with(capturedContext, () => service.stop?.(ctx));
+
+    expect(propagation.fields()).toEqual(["traceparent", "tracestate"]);
+    await context.with(extracted, async () => {
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      expect(trace.getSpanContext(context.active())?.traceId).toBe(
+        "4bf92f3577b34da6a3ce929d0e0e4736",
+      );
+    });
+  },
+);
 
 test.each([
   {
@@ -280,11 +270,11 @@ test.each([
   },
 );
 
-test("cleans disabled globals before starting the enabled NodeSDK", async () => {
+test("cleans disabled ownership before a fresh enabled private-provider generation", async () => {
   const receiver = startLocalOtlpReceiver();
   const port = await receiver.listen();
   process.env.OTEL_SDK_DISABLED = "true";
-  const { service, ctx } = await startOtelService({
+  const disabled = await startOtelService({
     endpoint: `http://127.0.0.1:${port}`,
     traces: true,
     metrics: true,
@@ -294,16 +284,25 @@ test("cleans disabled globals before starting the enabled NodeSDK", async () => 
 
   try {
     expect(propagation.fields()).toEqual(["traceparent", "tracestate", "baggage"]);
+    await disabled.service.stop?.(disabled.ctx);
     process.env.OTEL_SDK_DISABLED = "false";
-    await service.start(ctx);
-    await emitOpenClawSignals();
-    await service.stop?.(ctx);
+    const enabled = await startOtelService({
+      endpoint: `http://127.0.0.1:${port}`,
+      traces: true,
+      metrics: true,
+      logs: true,
+      logsExporter: "otlp",
+    });
+    expect(enabled.service).not.toBe(disabled.service);
+    expect(propagation.fields()).toEqual(["traceparent", "tracestate", "baggage"]);
+    await emitRealSdkSignals("enabled-generation");
+    await enabled.service.stop?.(enabled.ctx);
 
     expect(new Set(receiver.capturedRequests.map((request) => request.signal))).toEqual(
       new Set(["traces", "metrics", "logs"]),
     );
   } finally {
-    await service.stop?.(ctx);
+    await disabled.service.stop?.(disabled.ctx);
     await receiver.close();
   }
 }, 30_000);
