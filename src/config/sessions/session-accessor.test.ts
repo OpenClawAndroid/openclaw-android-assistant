@@ -72,6 +72,7 @@ import {
   readSqliteSessionEntryCount,
   readSqliteSessionEntryKeys,
 } from "./session-accessor.sqlite-entry-store.js";
+import { applySqliteSessionEntryCanonicalReplacements } from "./session-accessor.sqlite-replacement-projection.js";
 import {
   applySqliteSessionEntryLifecycleMutation,
   appendSqliteTranscriptEventSync,
@@ -2060,16 +2061,16 @@ describe("session accessor seam", () => {
       }),
     ).rejects.toThrow("outside the selected key set");
 
+    const runtimeAliasMarker = {
+      sessionKey: "agent:main:missing",
+      entry: { sessionId: "missing", status: "running" as const, updatedAt: 30 },
+      previousSessionKeys: [],
+    };
     const missingSelectionResult = await applySessionEntryReplacements({
       sessionKeys: ["agent:main:missing"],
       storePath,
       update: () => ({
-        replacements: [
-          {
-            sessionKey: "agent:main:missing",
-            entry: { sessionId: "missing", status: "running", updatedAt: 30 },
-          },
-        ],
+        replacements: [runtimeAliasMarker],
         result: "missing-row-no-op",
       }),
     });
@@ -2088,6 +2089,38 @@ describe("session accessor seam", () => {
         }),
       }),
     ).rejects.toThrow("outside the selected row set");
+  });
+
+  it("ignores runtime-only alias rekey fields on public exact replacements", async () => {
+    const canonicalKey = "agent:main:runtime-canonical";
+    const aliasKey = "agent:main:runtime-alias";
+    await upsertSessionEntry(
+      { sessionKey: canonicalKey, storePath },
+      { sessionId: "runtime-canonical", updatedAt: 1 },
+    );
+    await upsertSessionEntry(
+      { sessionKey: aliasKey, storePath },
+      { sessionId: "runtime-alias", updatedAt: 2 },
+    );
+    const runtimeAliasRekeyMarker = {
+      sessionKey: canonicalKey,
+      entry: { sessionId: "runtime-canonical", label: "Updated", updatedAt: 3 },
+      previousSessionKeys: [aliasKey],
+    };
+
+    await applySessionEntryReplacements({
+      sessionKeys: [canonicalKey, aliasKey],
+      storePath,
+      update: () => ({ replacements: [runtimeAliasRekeyMarker], result: undefined }),
+    });
+
+    expect(loadSessionEntry({ sessionKey: canonicalKey, storePath })).toMatchObject({
+      label: "Updated",
+      sessionId: "runtime-canonical",
+    });
+    expect(loadSessionEntry({ sessionKey: aliasKey, storePath })).toMatchObject({
+      sessionId: "runtime-alias",
+    });
   });
 
   it("projects ordered patches against one mutable store view", async () => {
@@ -2138,6 +2171,211 @@ describe("session accessor seam", () => {
     expect(loadSessionEntry({ sessionKey: keys[1]!, storePath })?.label).toBeUndefined();
     expect(loadSessionEntry({ sessionKey: keys[2]!, storePath })?.label).toBeUndefined();
     expect(loadSessionEntry({ sessionKey: keys[3]!, storePath })?.label).toBe("Blocked");
+  });
+
+  it("inserts and canonically rekeys through the bulk replacement owner", async () => {
+    const insertedKey = "agent:main:replacement-insert";
+    await applySqliteSessionEntryCanonicalReplacements({
+      sessionKeys: [insertedKey],
+      storePath,
+      update: () => ({
+        replacements: [
+          {
+            entry: { sessionId: "inserted", updatedAt: 1 },
+            previousSessionKeys: [],
+            sessionKey: insertedKey,
+          },
+        ],
+        result: undefined,
+      }),
+    });
+    expect(loadSessionEntry({ sessionKey: insertedKey, storePath })).toMatchObject({
+      sessionId: "inserted",
+    });
+
+    const canonicalKey = "agent:main:replacement-canonical";
+    const previousKey = "agent:main:replacement-previous";
+    await upsertSessionEntry(
+      { sessionKey: canonicalKey, storePath },
+      { sessionId: "canonical-older", updatedAt: 10 },
+    );
+    await upsertSessionEntry(
+      { sessionKey: previousKey, storePath },
+      { sessionId: "rekeyed", updatedAt: 20 },
+    );
+    const databasePath = resolveSqliteTargetFromSessionStorePath(storePath, {
+      agentId: "main",
+    }).path;
+    const database = openOpenClawAgentDatabase({ agentId: "main", path: databasePath });
+    database.db
+      .prepare(
+        "INSERT INTO session_members (session_key, identity_id, added_by, added_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(previousKey, "member-1", "test", 1);
+    const identityListener = vi.fn();
+    const unsubscribe = onSessionIdentityMutation(identityListener);
+    await applySqliteSessionEntryCanonicalReplacements({
+      sessionKeys: [canonicalKey, previousKey],
+      storePath,
+      update: (entries) => ({
+        replacements: [
+          {
+            entry: {
+              ...entries.find((entry) => entry.sessionKey === previousKey)!.entry,
+              label: "Moved",
+            },
+            previousSessionKeys: [previousKey],
+            sessionKey: canonicalKey,
+          },
+        ],
+        result: undefined,
+      }),
+    });
+    unsubscribe();
+    expect(loadSessionEntry({ sessionKey: previousKey, storePath })).toBeUndefined();
+    expect(loadSessionEntry({ sessionKey: canonicalKey, storePath })).toMatchObject({
+      label: "Moved",
+      sessionId: "rekeyed",
+    });
+    expect(
+      database.db
+        .prepare("SELECT session_key FROM session_windows WHERE session_id = ?")
+        .get("rekeyed"),
+    ).toEqual({ session_key: canonicalKey });
+    expect(
+      database.db
+        .prepare("SELECT session_key, identity_id FROM session_members WHERE identity_id = ?")
+        .get("member-1"),
+    ).toEqual({ session_key: canonicalKey, identity_id: "member-1" });
+    expect(identityListener.mock.calls.map(([event]) => event.kind)).toEqual(["move", "replace"]);
+  });
+
+  it("rejects internal canonical targets and alias sources without changing rows or events", async () => {
+    const visibleKey = "agent:main:replacement-visible";
+    const internalKey = "agent:main:internal-session-effects:replacement-guard";
+    await upsertSessionEntry(
+      { sessionKey: visibleKey, storePath },
+      { label: "Visible", sessionId: "replacement-visible", updatedAt: 10 },
+    );
+    await upsertSessionEntry(
+      { sessionKey: internalKey, storePath },
+      { label: "Internal", sessionId: "replacement-internal", updatedAt: 20 },
+    );
+    const snapshot = () =>
+      [visibleKey, internalKey].map((sessionKey) =>
+        loadExactSqliteSessionEntry({ sessionKey, storePath }),
+      );
+    const before = snapshot();
+    const identityListener = vi.fn();
+    const unsubscribe = onSessionIdentityMutation(identityListener);
+
+    try {
+      for (const replacement of [
+        {
+          entry: { sessionId: "fabricated-target", updatedAt: 30 },
+          previousSessionKeys: [],
+          sessionKey: internalKey,
+        },
+        {
+          entry: { sessionId: "fabricated-alias", updatedAt: 30 },
+          previousSessionKeys: [internalKey],
+          sessionKey: visibleKey,
+        },
+      ]) {
+        await expect(
+          applySqliteSessionEntryCanonicalReplacements({
+            sessionKeys: [visibleKey, internalKey],
+            storePath,
+            update: () => ({ replacements: [replacement], result: undefined }),
+          }),
+        ).rejects.toThrow("cannot target internal effects rows");
+        expect(snapshot()).toEqual(before);
+      }
+    } finally {
+      unsubscribe();
+    }
+    expect(identityListener).not.toHaveBeenCalled();
+  });
+
+  it("rolls back mixed exact replacements and canonical rekeys as one transaction", async () => {
+    const exactKey = "agent:main:replacement-rollback-exact";
+    const canonicalKey = "agent:main:replacement-rollback-canonical";
+    const previousKey = "agent:main:replacement-rollback-previous";
+    await upsertSessionEntry(
+      { sessionKey: exactKey, storePath },
+      { label: "Exact original", sessionId: "rollback-exact", updatedAt: 10 },
+    );
+    await upsertSessionEntry(
+      { sessionKey: canonicalKey, storePath },
+      { label: "Canonical original", sessionId: "rollback-canonical", updatedAt: 20 },
+    );
+    await upsertSessionEntry(
+      { sessionKey: previousKey, storePath },
+      { label: "Previous original", sessionId: "rollback-previous", updatedAt: 30 },
+    );
+    const before = new Map(
+      [exactKey, canonicalKey, previousKey].map((sessionKey) => [
+        sessionKey,
+        structuredClone(loadSessionEntry({ sessionKey, storePath })),
+      ]),
+    );
+    const databasePath = resolveSqliteTargetFromSessionStorePath(storePath, {
+      agentId: "main",
+    }).path;
+    const database = openOpenClawAgentDatabase({ agentId: "main", path: databasePath });
+    database.db.exec(`
+      CREATE TRIGGER fail_mixed_replacement_after_exact_write
+      BEFORE UPDATE OF entry_json ON session_nodes
+      WHEN NEW.session_key = '${canonicalKey}'
+        AND (
+          SELECT json_extract(entry_json, '$.label')
+          FROM session_nodes
+          WHERE session_key = '${exactKey}'
+        ) = 'Exact updated'
+      BEGIN
+        SELECT RAISE(ABORT, 'injected mixed replacement failure');
+      END;
+    `);
+    const identityListener = vi.fn();
+    const unsubscribe = onSessionIdentityMutation(identityListener);
+
+    try {
+      await expect(
+        applySqliteSessionEntryCanonicalReplacements({
+          sessionKeys: [exactKey, canonicalKey, previousKey],
+          storePath,
+          update: (entries) => ({
+            replacements: [
+              {
+                entry: {
+                  ...entries.find((entry) => entry.sessionKey === exactKey)!.entry,
+                  label: "Exact updated",
+                },
+                previousSessionKeys: [],
+                sessionKey: exactKey,
+              },
+              {
+                entry: {
+                  ...entries.find((entry) => entry.sessionKey === previousKey)!.entry,
+                  label: "Canonical updated",
+                },
+                previousSessionKeys: [previousKey],
+                sessionKey: canonicalKey,
+              },
+            ],
+            result: undefined,
+          }),
+        }),
+      ).rejects.toThrow("injected mixed replacement failure");
+    } finally {
+      unsubscribe();
+      database.db.exec("DROP TRIGGER fail_mixed_replacement_after_exact_write");
+    }
+
+    for (const sessionKey of [exactKey, canonicalKey, previousKey]) {
+      expect(loadSessionEntry({ sessionKey, storePath })).toEqual(before.get(sessionKey));
+    }
+    expect(identityListener).not.toHaveBeenCalled();
   });
 
   it("prepares entry replacements without holding a write transaction", async () => {

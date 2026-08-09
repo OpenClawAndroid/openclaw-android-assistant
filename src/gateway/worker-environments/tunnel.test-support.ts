@@ -15,7 +15,7 @@ import type {
   WorkerWorkspaceReconciliationJournal,
   WorkerWorkspaceReconciliationJournalAdapter,
 } from "./workspace-reconcile.js";
-import { stableWorkerPathComponent } from "./workspace-sync.js";
+import { stableWorkerPathComponent } from "./workspace-sync-helpers.js";
 
 export function waitForFast<T>(
   callback: () => T | Promise<T>,
@@ -368,12 +368,14 @@ export function startTestTunnel(
   environmentId: string,
   ownerEpoch: number,
   ssh: WorkerSshEndpoint = SSH,
+  sharedHost = false,
 ) {
   return manager.start({
     environmentId,
     ownerEpoch,
     bundleHash: BUNDLE_HASH,
     ssh,
+    sharedHost,
     gateway: { host: "127.0.0.1", port: 18789 },
     resolveIdentity,
   });
@@ -385,12 +387,19 @@ export async function startConnectedTunnel(
   ownerEpoch: number,
   options: {
     ssh?: WorkerSshEndpoint;
+    sharedHost?: boolean;
     manager?: Omit<TunnelManagerOptions, "runner">;
     beforeReady?: (start: TunnelTestFake["starts"][number]) => void;
   } = {},
 ) {
   const manager = createWorkerTunnelManager({ ...options.manager, runner: fake.runner });
-  const starting = startTestTunnel(manager, environmentId, ownerEpoch, options.ssh);
+  const starting = startTestTunnel(
+    manager,
+    environmentId,
+    ownerEpoch,
+    options.ssh,
+    options.sharedHost,
+  );
   await waitForStarts(fake.starts, 1);
   const start = fake.starts[0]!;
   options.beforeReady?.(start);

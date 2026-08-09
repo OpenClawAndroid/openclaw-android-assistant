@@ -19,6 +19,7 @@ export const WORKER_WORKSPACE_RSYNC_DESTINATION = "openclaw-rsync-destination";
 
 export type WorkerWorkspaceActionsOptions = {
   environmentId: string;
+  sharedHost?: boolean;
   ownerSignal: AbortSignal;
   isConnected: () => boolean;
   getPrepared: () => PreparedWorkerSsh | undefined;

@@ -19,7 +19,7 @@ import { buildAgentMainSessionKey } from "../../lib/sessions/session-key.ts";
 import { clearChatHistory } from "./chat-history.ts";
 import { resolveChatMessageAccess } from "./chat-message-access.ts";
 import { createChatModelSetupBanner, requiresChatModelSetup } from "./chat-model-setup.ts";
-import { ChatPaneHeader } from "./chat-pane-header.ts";
+import { ChatPaneBrowserAnnotationRender } from "./chat-pane-browser-annotation-render.ts";
 import {
   createChatPaneSessionActionCallbacks,
   readChatPaneMutationAccess,
@@ -74,7 +74,7 @@ import { resolveActiveRunOutputTokens, resolveChatProjectionRunId } from "./tool
 import { configureToolTitleFetcher } from "./tool-titles.ts";
 import { workspaceResultConflictFromPlacement } from "./workspace-conflict.ts";
 
-export class ChatPane extends ChatPaneHeader {
+export class ChatPane extends ChatPaneBrowserAnnotationRender {
   override render() {
     const state = this.state;
     if (!state) {
@@ -487,6 +487,7 @@ export class ChatPane extends ChatPaneHeader {
         state.chatAttachments = next;
         state.requestUpdate?.();
       },
+      onRemoveAttachment: this.removeBrowserAnnotation,
       onSend: () =>
         catalogKey
           ? void this.continueCatalogSession(catalogKey)

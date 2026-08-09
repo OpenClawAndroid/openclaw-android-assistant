@@ -70,6 +70,35 @@ describe("worker tunnel manager", () => {
     }
   });
 
+  it("passes shared-host isolation to initial and renewal quiescence commands", async () => {
+    const nonce = "b".repeat(32);
+    const fake = fakeRunner((argv) => {
+      const remoteCommand = argv.at(-1) ?? "";
+      if (remoteCommand.includes('process.stdout.write("quiesced "')) {
+        return success(`quiesced ${nonce}\n`);
+      }
+      if (remoteCommand.includes('process.stdout.write("renewed "')) {
+        return success(`renewed ${nonce}\n`);
+      }
+      return undefined;
+    });
+    const { handle } = await startConnectedTunnel(fake, "worker:shared-quiescence", 3, {
+      sharedHost: true,
+    });
+
+    const quiescence = await handle.quiesceWorkspace("/home/worker/workspace");
+    await quiescence.assertActive();
+    const quiescenceCommands = fake.runs.filter((entry) =>
+      entry.argv.at(-1)?.includes("workspace quiescence"),
+    );
+    expect(quiescenceCommands).toHaveLength(2);
+    expect(quiescenceCommands.every((entry) => entry.argv.at(-1)?.includes("shared-host"))).toBe(
+      true,
+    );
+    await quiescence.resume();
+    await handle.stop();
+  });
+
   it("reconnects with capped backoff after unexpected exits and failed attempts", async () => {
     const fake = fakeRunner();
     const delays: number[] = [];
