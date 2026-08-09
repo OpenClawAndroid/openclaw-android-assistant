@@ -2669,10 +2669,12 @@ describe("chat loading skeleton", () => {
     // The session provider matches a plan-usage group, so dollar estimates
     // yield to the subscription windows.
     expect(container.querySelector(".context-usage__stats--cost")).toBeNull();
-    expect(container.querySelector(".context-usage__model")?.textContent).toContain("openai");
+    expect(container.querySelector("[data-chat-usage-provider='true']")?.textContent).toContain(
+      "OpenAI",
+    );
     expect(container.querySelector(".agent-chat__composer-header")).toBeNull();
     const limitRow = container.querySelector(".context-usage__limit");
-    expect(limitRow?.textContent?.replace(/\s+/g, " ").trim()).toBe("Weekly · all models 72%");
+    expect(limitRow?.textContent?.replace(/\s+/g, " ").trim()).toBe("Weekly 72%");
     const usageLink = container.querySelector<HTMLAnchorElement>(
       ".context-usage__popover [data-chat-provider-usage='true']",
     );
@@ -3898,6 +3900,59 @@ describe("chat slash menu accessibility", () => {
     expect(listbox?.querySelector(`#${activeId}`)?.getAttribute("role")).toBe("option");
   });
 
+  it("keeps filtered command DOM and keyboard order aligned with relevance", () => {
+    replaceSlashCommands([
+      {
+        key: "pair",
+        name: "pair",
+        description: "Pair a device.",
+        tier: "power",
+        category: "tools",
+      },
+      {
+        key: "pair-device",
+        name: "pair-device",
+        description: "Pair a specific device.",
+        tier: "standard",
+        category: "session",
+      },
+      {
+        key: "openclaw",
+        name: "openclaw",
+        description: "Run the setup and repair helper.",
+        tier: "essential",
+        category: "tools",
+      },
+    ]);
+    const harness = createSlashRerenderHarness();
+    let container = harness.inputAndRender(harness.container, "/pair");
+
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>(".slash-menu [role='option']")).map(
+        (option) => option.querySelector(".slash-menu-name")?.textContent?.trim(),
+      ),
+    ).toEqual(["/pair", "/pair-device", "/openclaw"]);
+    expect(
+      Array.from(container.querySelectorAll(".slash-menu-group__label")).map((label) =>
+        label.textContent?.trim(),
+      ),
+    ).toEqual(["Tools", "Session", "Tools"]);
+
+    keydownComposer(container, "ArrowDown");
+    container = harness.renderCurrent();
+    const options = container.querySelectorAll<HTMLElement>(".slash-menu [role='option']");
+    const activeId = container
+      .querySelector<HTMLTextAreaElement>("textarea")
+      ?.getAttribute("aria-activedescendant");
+    expect(options[1]?.id).toBe(activeId);
+    expect(options[1]?.getAttribute("aria-selected")).toBe("true");
+
+    keydownComposer(container, "Enter");
+    container = harness.renderCurrent();
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("/pair-device ");
+    expect(container.querySelector(".slash-menu")).toBeNull();
+  });
+
   it("updates the active descendant and live announcement during command navigation", () => {
     const harness = createSlashRerenderHarness();
     let container = harness.inputAndRender(harness.container, "/");
@@ -4859,28 +4914,31 @@ describe("chat model controls", () => {
     expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main");
   });
 
-  it("disables runtime overrides with the exact mutation reason", () => {
+  it("keeps model enabled while write-only access disables effort controls", () => {
     const { state } = createOpenAiHeaderState();
     const onFastModeSelect = vi.fn(async () => true);
     const onModelSelect = vi.fn(async () => true);
     const onThinkingSelect = vi.fn(async () => true);
     const reason = "Operator admin access is required.";
     const container = renderModelControls(state, {
-      mutationDisabledReason: reason,
+      effortMutationDisabledReason: reason,
       onFastModeSelect,
       onModelSelect,
       onThinkingSelect,
     });
 
     const modelSelect = getChatModelSelect(container);
-    expect(modelSelect.getAttribute("aria-disabled")).toBe("true");
-    expect(modelSelect.getAttribute("title")).toBe(reason);
-    modelSelect.click();
+    expect(modelSelect.getAttribute("aria-disabled")).toBe("false");
+    expect(modelSelect.getAttribute("title")).not.toBe(reason);
+    const modelOption = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("[data-chat-model-option]"),
+    ).find((button) => button.getAttribute("aria-selected") === "false");
+    modelOption?.click();
     container.querySelector<HTMLButtonElement>("[data-chat-speed-toggle]")?.click();
     getThinkingSlider(container)?.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(onFastModeSelect).not.toHaveBeenCalled();
-    expect(onModelSelect).not.toHaveBeenCalled();
+    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main");
     expect(onThinkingSelect).not.toHaveBeenCalled();
   });
 

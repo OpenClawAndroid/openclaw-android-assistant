@@ -67,7 +67,6 @@ const hoisted = vi.hoisted(() => {
     async (_cfg?: unknown, _options?: unknown) => {},
   );
   const prewarmConfigDrivenReplyRuntime = vi.fn(async () => {});
-  const loadAgentRuntimePluginRegistryHandle = vi.fn();
   const prewarmContextWindowCacheAfterReady = vi.fn(async () => {});
   const scheduleGatewayHandlerPrewarm = vi.fn(() => ({ stop: vi.fn() }));
   const clearCurrentProviderAuthState = vi.fn();
@@ -108,7 +107,6 @@ const hoisted = vi.hoisted(() => {
     prepareModelRuntimeSnapshot,
     refreshPreparedModelRuntimeSnapshots,
     prewarmConfigDrivenReplyRuntime,
-    loadAgentRuntimePluginRegistryHandle,
     prewarmContextWindowCacheAfterReady,
     scheduleGatewayHandlerPrewarm,
     clearCurrentProviderAuthState,
@@ -218,11 +216,6 @@ vi.mock("../auto-reply/reply/get-reply-from-config.runtime.js", () => ({
   getReplyFromConfig: vi.fn(),
   prewarmConfigDrivenReplyRuntime: hoisted.prewarmConfigDrivenReplyRuntime,
 }));
-
-vi.mock("../agents/runtime-plugins.js", () => ({
-  loadAgentRuntimePluginRegistryHandle: hoisted.loadAgentRuntimePluginRegistryHandle,
-}));
-
 vi.mock("../agents/context.js", () => ({
   prewarmContextWindowCacheAfterReady: hoisted.prewarmContextWindowCacheAfterReady,
 }));
@@ -498,7 +491,6 @@ describe("startGatewayPostAttachRuntime", () => {
     hoisted.refreshPreparedModelRuntimeSnapshots.mockResolvedValue(undefined);
     hoisted.prewarmConfigDrivenReplyRuntime.mockReset();
     hoisted.prewarmConfigDrivenReplyRuntime.mockResolvedValue(undefined);
-    hoisted.loadAgentRuntimePluginRegistryHandle.mockReset();
     hoisted.prewarmContextWindowCacheAfterReady.mockReset();
     hoisted.prewarmContextWindowCacheAfterReady.mockResolvedValue(undefined);
     hoisted.scheduleGatewayHandlerPrewarm.mockClear();
@@ -1418,7 +1410,7 @@ describe("startGatewayPostAttachRuntime", () => {
       await vi.advanceTimersToNextTimerAsync();
       expect(postReadyRequestTurn).toHaveBeenCalledTimes(1);
       expect(onPostReadySidecars.mock.calls[0]?.[0]).toHaveLength(1);
-      expect(onGatewayLifetimeSidecars.mock.calls[0]?.[0]).toHaveLength(4);
+      expect(onGatewayLifetimeSidecars.mock.calls[0]?.[0]).toHaveLength(3);
       await vi.dynamicImportSettled();
       await waitForGatewayTestState(() => {
         expect(hoisted.setAuthProfileFailureHook).toHaveBeenCalledTimes(1);
@@ -1450,7 +1442,7 @@ describe("startGatewayPostAttachRuntime", () => {
       await waitForGatewayTestState(() => {
         expect(hoisted.setAuthProfileFailureHook).toHaveBeenCalledTimes(1);
       });
-      expect(onGatewayLifetimeSidecars.mock.calls[0]?.[0]).toHaveLength(4);
+      expect(onGatewayLifetimeSidecars.mock.calls[0]?.[0]).toHaveLength(3);
 
       await vi.advanceTimersByTimeAsync(10_000);
       expect(hoisted.warmCurrentProviderAuthStateOffMainThread).not.toHaveBeenCalled();
@@ -1466,57 +1458,6 @@ describe("startGatewayPostAttachRuntime", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("uses current config when agent runtime plugin prewarm runs", async () => {
-    const startupConfig = { marker: "startup" } as never;
-    const currentConfig = { marker: "current" } as never;
-    let releaseGatewayReady!: () => void;
-    const gatewayReady = new Promise<void>((resolve) => {
-      releaseGatewayReady = resolve;
-    });
-
-    await startGatewayPostAttachRuntime({
-      ...createPostAttachParams({
-        gatewayPluginConfigAtStart: startupConfig,
-      }),
-      waitForPostReadyWork: () => gatewayReady,
-      providerAuthPrewarm: {
-        enabled: false,
-        getConfig: () => currentConfig,
-      },
-    });
-
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    expect(hoisted.loadAgentRuntimePluginRegistryHandle).not.toHaveBeenCalled();
-
-    const admission = tryBeginGatewayRootWorkAdmission();
-    if (!admission) {
-      throw new Error("Expected request work admission");
-    }
-    releaseGatewayReady();
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 20);
-    });
-    expect(hoisted.loadAgentRuntimePluginRegistryHandle).not.toHaveBeenCalled();
-
-    admission.release();
-    await waitForGatewayTestState(() => {
-      expect(hoisted.loadAgentRuntimePluginRegistryHandle).toHaveBeenCalledWith({
-        config: currentConfig,
-        workspaceDir: "/tmp/openclaw-workspace",
-        allowGatewaySubagentBinding: true,
-      });
-    });
-    expect(hoisted.loadAgentRuntimePluginRegistryHandle).not.toHaveBeenCalledWith(
-      expect.objectContaining({ config: startupConfig }),
-    );
-  });
-
-  it("starts agent runtime plugin prewarm in the first post-ready turn", () => {
-    expect(testing.agentRuntimePluginPrewarmStartDelayMs).toBe(0);
   });
 
   it("defers context-window cache prewarm to a post-ready sidecar", async () => {
@@ -1611,7 +1552,7 @@ describe("startGatewayPostAttachRuntime", () => {
         | { stop: () => void }[]
         | undefined;
       expect(gmailSidecars).toHaveLength(2);
-      expect(lifetimeSidecars).toHaveLength(4);
+      expect(lifetimeSidecars).toHaveLength(3);
 
       for (const sidecar of gmailSidecars ?? []) {
         await stopTrackedSidecar(sidecar);
@@ -1673,7 +1614,7 @@ describe("startGatewayPostAttachRuntime", () => {
       | Array<{ stop: () => Promise<void> | void }>
       | undefined;
     expect(gmailSidecars).toHaveLength(2);
-    expect(lifetimeSidecars).toHaveLength(4);
+    expect(lifetimeSidecars).toHaveLength(3);
 
     await waitForGatewayTestState(() => {
       expect(hoisted.transcriptsAutoStartService.start).toHaveBeenCalledTimes(1);
@@ -2369,7 +2310,7 @@ describe("startGatewayPostAttachRuntime", () => {
       name: "sidecars.ready",
       metrics: [
         ["loadedPluginCount", 2],
-        ["postReadySidecarCount", 4],
+        ["postReadySidecarCount", 3],
       ],
     });
   });

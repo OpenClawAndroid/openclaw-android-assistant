@@ -26,12 +26,48 @@ const FORBIDDEN_SPECIFIER_RULES = new Map<string, { reason: string; kinds: Set<C
     },
   ],
   [
-    "openclaw/plugin-sdk/runtime-doctor",
+    "openclaw/plugin-sdk/doctor-repair-runtime",
     {
       reason:
-        "the heavy doctor barrel makes doctor enumeration cold-load the state-db/kysely graph; " +
-        "use openclaw/plugin-sdk/runtime-doctor-migrations, or defer heavy helpers behind a dynamic import",
+        "install-path, uninstall, and state-db schema repair cold-load the state-db/kysely graph; " +
+        "use openclaw/plugin-sdk/runtime-doctor-migrations, or defer the repair behind a dynamic import",
       kinds: new Set(["doctor-contract", "legacy-setup"]),
+    },
+  ],
+  [
+    "openclaw/plugin-sdk/ssrf-runtime",
+    {
+      reason:
+        "the SSRF runtime barrel cold-loads DNS, proxy state, and logging; " +
+        "legacy private-network config migration lives in openclaw/plugin-sdk/runtime-doctor-migrations",
+      kinds: new Set(["doctor-contract", "legacy-setup"]),
+    },
+  ],
+  [
+    "openclaw/plugin-sdk/provider-model-shared",
+    {
+      reason:
+        "the provider-model barrel cold-loads replay/endpoint/catalog helpers; " +
+        "use openclaw/plugin-sdk/model-ref-parse for provider/model reference parsing",
+      kinds: new Set(["doctor-contract"]),
+    },
+  ],
+  [
+    "openclaw/plugin-sdk/channel-secret-basic-runtime",
+    {
+      reason:
+        "the channel-secret barrel cold-loads secret-ref/account-routing modules; " +
+        "the canonical record guard is openclaw/plugin-sdk/string-coerce-runtime",
+      kinds: new Set(["doctor-contract"]),
+    },
+  ],
+  [
+    "openclaw/plugin-sdk/plugin-state-store-runtime",
+    {
+      reason:
+        "opening a keyed plugin-state store cold-loads the state-db/kysely graph; " +
+        "keep the store behind the migration context or a dynamic import inside async bodies",
+      kinds: new Set(["doctor-contract"]),
     },
   ],
   [
@@ -221,7 +257,13 @@ function collectClosureEntries(): ClosureEntry[] {
   for (const record of loadBundledPluginManifestRegistry({ env }).plugins) {
     const pluginRoot = path.resolve(record.rootDir);
     const doctorContractPath = resolvePluginDoctorContractArtifactPath(pluginRoot);
-    if (doctorContractPath) {
+    // A declaration listing no surface gates the artifact off every enumeration
+    // path, exactly as `resolvePluginDoctorContracts` does, so its closure cost
+    // is never paid. Absent declarations still load eagerly and are enforced.
+    const declaresAnyDoctorSurface =
+      !record.doctorContract ||
+      Object.values(record.doctorContract).some((value) => value ?? false);
+    if (doctorContractPath && declaresAnyDoctorSurface) {
       entries.push({
         pluginId: record.id,
         pluginRoot,
