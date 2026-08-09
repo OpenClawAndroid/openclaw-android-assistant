@@ -142,7 +142,8 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "text-runtime": 192,
   "agent-runtime": 2,
   "channel-secret-runtime": 23,
-  "agent-harness-runtime": 4,
+  // +4: session-write lease no-op compatibility stubs through the 2026.10 train.
+  "agent-harness-runtime": 8,
   "agent-config-primitives": 2,
   "command-auth": 78,
   discord: 47,
@@ -251,7 +252,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +3: session-catalog terminal-start provider request and Gateway params/result contracts.
       // +1: worker desktop endpoint contract for desktop-capable worker leases.
       // +1: native command spec merger through the native-command-registry facade.
-      4849,
+      // -2: remove unused WhatsApp-specific ack policy exports from channel-feedback.
+      4847,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -305,7 +307,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +4: focused agent scope functions for doctor migration enumeration.
       // +3: channel streaming config reader functions and session-agent scope resolver.
       // +1: native command spec merger through the native-command-registry facade.
-      2921,
+      // -1: remove the unused WhatsApp-specific ack policy helper.
+      2920,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
@@ -318,7 +321,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shared ingress error factory projected through channel-message.
       // +1: shared ingress retention defaults projected through channel-message.
       // +1: shipped channel setup state-migration declaration during its migration window.
-      1704,
+      // +4: session-write lease no-op compatibility stubs through the 2026.10 train.
+      1708,
       env,
     ),
     publicWildcardReexports: readPluginSdkSurfaceBudgetEnv(
