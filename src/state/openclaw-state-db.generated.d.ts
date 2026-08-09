@@ -1573,6 +1573,7 @@ export interface Worktrees {
   removed_at: number | null;
   repo_fingerprint: string;
   repo_root: string;
+  run_end_cleanup_json: string | null;
   snapshot_ref: string | null;
 }
 

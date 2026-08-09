@@ -167,7 +167,9 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +2: restore the documented session-catalog and tool-results plugin contracts.
       // +1: focused inbound-event delivery correlation for channel plugins.
       // +1: dependency-light agent scope helpers for doctor migration enumeration.
-      150,
+      // +1: dependency-light channel streaming config readers for doctor closures
+      //     (realtime-voice-activation is private-local and not counted here).
+      151,
       env,
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
@@ -228,7 +230,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: simple channel secret contract factory replacing repeated collectors.
       // +4: focused agent scope functions for doctor migration enumeration.
       // +1: shared transcript credential-safety prompt for plugin-owned agent harnesses.
-      4840,
+      // +3: channel streaming config reader re-exports and session-agent scope resolver.
+      4843,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -280,7 +283,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: shared channel interactive dispatcher with canonical binding authorization.
       // +1: simple channel secret contract factory replacing repeated collectors.
       // +4: focused agent scope functions for doctor migration enumeration.
-      2916,
+      // +3: channel streaming config reader functions and session-agent scope resolver.
+      2919,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
