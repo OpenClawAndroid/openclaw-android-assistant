@@ -290,7 +290,7 @@ openclaw-session-owner-chip {
   display: block;
   margin: 4px 0 2px;
   padding: 5px 10px;
-  font-family: var(--font-mono);
+  font-family: var(--mono);
   font-size: 12px;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -1018,7 +1018,7 @@ openclaw-session-owner-chip {
   align-items: center;
   padding: 0 12px;
   color: var(--text);
-  font-family: var(--font-mono);
+  font-family: var(--mono);
   font-size: 13px;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -3222,6 +3222,39 @@ td.data-table-key-col {
   color: var(--warn);
   font: 11px/1.2 var(--mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================
+   Secret Reveal Modal
+   =========================================== */
+
+.secret-reveal__value {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* The value is shown once, so it wraps in full instead of truncating, and a single
+   tap or click selects all of it for operators without a working clipboard button. */
+.secret-reveal__code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.secret-reveal__hint {
+  margin: 10px 0 0;
+  color: var(--warn);
+  font-size: 12px;
 }
 
 /* ===========================================
