@@ -4411,6 +4411,7 @@ export const en: TranslationMap = {
     },
   },
   chat: {
+    cloudWorkerFailed: "Cloud worker failed: {error}",
     sendErrors: {
       activeLeafChanged: "The session switched branches — review and resend.",
       steerRunNoLongerActive:
@@ -4987,26 +4988,6 @@ export const en: TranslationMap = {
       askBusy: "The companion is already answering a question.",
       askUnavailable: "The companion cannot answer right now.",
       asOf: "as of {time}",
-      health: {
-        "on-track": "On track",
-        grinding: "Working",
-        stuck: "Stuck",
-        "waiting-on-user": "Waiting on you",
-        "wrapping-up": "Wrapping up",
-        done: "Done",
-        failed: "Failed",
-      },
-    },
-    observer: {
-      title: "Session observer",
-      plan: "Plan",
-      progress: "{completed} of {total}",
-      boardCurrentStatus: "Current status",
-      boardTimeline: "Health timeline",
-      boardCurrentRun: "Current run",
-      boardPreviousRun: "Previous run",
-      boardUnknownRun: "Unidentified run",
-      boardSinceYouLeft: "Since you left",
       health: {
         "on-track": "On track",
         grinding: "Working",
