@@ -252,12 +252,13 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +3: channel streaming config reader re-exports and session-agent scope resolver.
       // +3: session-catalog terminal-start provider request and Gateway params/result contracts.
       // +1: worker desktop endpoint contract for desktop-capable worker leases.
+      // +1: closed worker desktop app metadata for provider-advertised launchers.
       // +1: native command spec merger through the native-command-registry facade.
       // +8: focused plugin command runtime factory, dispatch symbol, and six readonly contracts.
       // -2: remove unused WhatsApp-specific ack policy exports from channel-feedback.
       // -7: retire unused and duplicate inbound-dispatch compatibility exports.
       // +7: restore still-existing deprecated inbound-dispatch compatibility re-exports.
-      4856,
+      4857,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(

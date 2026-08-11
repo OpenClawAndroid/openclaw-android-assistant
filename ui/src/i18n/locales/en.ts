@@ -689,8 +689,8 @@ export const en: TranslationMap = {
     cloudRequiresWorktree: "Cloud workers require a managed worktree",
     cloudRequiresOpenClawRuntime:
       "Cloud workers require the OpenClaw runtime; {runtime} is selected.",
-    cloudSecureContextRequired:
-      "Cloud workers need a secure browser context so recovery can protect your task.",
+    cloudRecoveryUnavailable:
+      "Cloud workers are unavailable because this connection does not support task recovery. Reconnect or update the Gateway.",
     cloudStartFailed: "The session was created locally, but cloud startup failed: {error}",
     cloudSyncsFolder: "Syncs {folder} to the cloud worker",
     folder: "Folder",
@@ -1953,9 +1953,7 @@ export const en: TranslationMap = {
       "No desktop-capable worker environments exist. Enable one with desktop: true in a crabbox cloud-worker profile.",
     connect: "Connect",
     connecting: "Connecting to desktop…",
-    viewOnly: "View only",
     takeControl: "Take control",
-    controlling: "Controlling · view-only for others",
     disconnect: "Disconnect",
     reconnect: "Reconnect",
     controlTaken: "Another operator took control",
@@ -5353,6 +5351,14 @@ export const en: TranslationMap = {
       output: "Output",
       promptUnavailable: "Prompt unavailable.",
       outputPending: "No output yet.",
+      subagentActivity: {
+        label: "Subagent activity",
+        working: "Subagent working",
+        finished: "Subagent finished",
+        failed: "Subagent failed",
+        cancelled: "Subagent cancelled",
+        moreWorking: "+{count} more working",
+      },
     },
     sessionDiff: {
       title: "Changes",

@@ -312,7 +312,9 @@ export async function startGatewayCoreRuntime(input: {
             descriptor.name !== "environments.destroy")) &&
         (workerPlacementDispatchAvailable || descriptor.name !== "sessions.dispatch") &&
         (workerPlacementControlAvailable || descriptor.name !== "sessions.reclaim") &&
-        (workerDesktopObserveAvailable || descriptor.name !== "worker.desktop.observe"),
+        (workerDesktopObserveAvailable ||
+          (descriptor.name !== "worker.desktop.observe" &&
+            descriptor.name !== "worker.desktop.launch")),
     );
     return createGatewayMethodRegistry(
       [
