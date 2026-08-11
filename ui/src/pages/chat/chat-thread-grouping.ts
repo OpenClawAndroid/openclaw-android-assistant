@@ -347,10 +347,8 @@ function resolveToolResultCallId(item: ChatItem): string | undefined {
       }
     }
   }
-  if (resultIds.size > 1) {
-    return undefined;
-  }
-  return resultIds.values().next().value ?? resolveMessageToolUseId(message);
+  const resultId = resultIds.values().next().value;
+  return resultIds.size > 1 ? undefined : (resultId ?? resolveMessageToolUseId(message));
 }
 
 function refreshOpenCallIds(
@@ -363,24 +361,23 @@ function refreshOpenCallIds(
       openCallIndexes.delete(callId);
     }
   }
-  const item = coalesced[callIndex];
-  if (!item) {
-    return;
-  }
-  for (const callId of unresolvedToolCallIds(item)) {
+  for (const callId of unresolvedToolCallIds(coalesced[callIndex]!)) {
     openCallIndexes.set(callId, callIndex);
   }
 }
 
 export function coalesceToolActivityMessages(items: ChatItem[]): ChatItem[] {
   const coalesced: ChatItem[] = [];
+  // Defer backward-pair removal so all call-id indexes stay stable.
+  const suppressedIndexes = new Set<number>();
   // Parallel calls can outnumber any fixed lookback window, so each unresolved
   // call id owns its current transcript item until a non-tool boundary.
   const openCallIndexes = new Map<string, number>();
+  // Keep earlier result slots by call id so later calls can restore complete cards.
+  const openResultIndexes = new Map<string, number>();
   for (const item of items) {
     const resultItems = splitBundledToolResultItems(item);
     const unmatchedResultItems: ChatItem[] = [];
-    let mergedResult = false;
     for (const resultItem of resultItems) {
       const callId = resolveToolResultCallId(resultItem);
       const callIndex = callId ? openCallIndexes.get(callId) : undefined;
@@ -393,16 +390,41 @@ export function coalesceToolActivityMessages(items: ChatItem[]): ChatItem[] {
       }
       coalesced[callIndex] = merged;
       refreshOpenCallIds(openCallIndexes, coalesced, callIndex);
-      mergedResult = true;
     }
-    if (mergedResult) {
-      for (const unmatched of unmatchedResultItems) {
-        coalesced.push(unmatched);
+    const hasMergedResult = unmatchedResultItems.length < resultItems.length;
+    if (hasMergedResult || resultItems.length > 1) {
+      const orphanResults = hasMergedResult ? unmatchedResultItems : resultItems;
+      for (const orphanResult of orphanResults) {
+        const callId = resolveToolResultCallId(orphanResult);
+        if (callId) {
+          openResultIndexes.set(callId, openResultIndexes.get(callId) ?? coalesced.length);
+        }
+        coalesced.push(orphanResult);
       }
       continue;
     }
 
     const unresolvedCallIds = unresolvedToolCallIds(item);
+    let backwardMerged = item;
+    const matchedResultIndexes: number[] = [];
+    for (const callId of unresolvedCallIds) {
+      const resultIndex = openResultIndexes.get(callId);
+      const orphanResult = resultIndex === undefined ? undefined : coalesced[resultIndex];
+      const merged = orphanResult ? mergeToolCallResultPair(backwardMerged, orphanResult) : null;
+      if (merged && resultIndex !== undefined) {
+        backwardMerged = merged;
+        matchedResultIndexes.push(resultIndex);
+        openResultIndexes.delete(callId);
+      }
+    }
+    if (matchedResultIndexes.length > 0) {
+      const resultIndex = Math.min(...matchedResultIndexes);
+      coalesced[resultIndex] = backwardMerged;
+      matchedResultIndexes.forEach((index) => suppressedIndexes.add(index));
+      suppressedIndexes.delete(resultIndex);
+      refreshOpenCallIds(openCallIndexes, coalesced, resultIndex);
+      continue;
+    }
     if (unresolvedCallIds.size === 1) {
       const callId = unresolvedCallIds.values().next().value;
       const previousIndex = callId ? openCallIndexes.get(callId) : undefined;
@@ -424,12 +446,17 @@ export function coalesceToolActivityMessages(items: ChatItem[]): ChatItem[] {
     }
     if (isToolTimelineItem(item)) {
       // Orphan results keep the window open for later siblings.
+      const callId = resolveToolResultCallId(item);
+      if (callId) {
+        openResultIndexes.set(callId, openResultIndexes.get(callId) ?? coalesced.length - 1);
+      }
       continue;
     }
     // Any other content (user text, assistant reply, dividers) closes the run.
     openCallIndexes.clear();
+    openResultIndexes.clear();
   }
-  return coalesced;
+  return coalesced.filter((_, index) => !suppressedIndexes.has(index));
 }
 
 function assistantGroupHasReplyText(group: MessageGroup): boolean {

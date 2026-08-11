@@ -36,6 +36,11 @@ import { normalizeToolProgressDetail } from "./prompt-session-context.js";
 import { resolveReplyToMode } from "./reply-threading.js";
 import { resolveRoutedDeliveryThreadId } from "./routed-delivery-thread.js";
 import {
+  bindSourceReplyDeliveryRuntime,
+  createSourceReplyDeliveryRuntime,
+  type SourceReplyDeliveryRuntimeOptions,
+} from "./source-reply-delivery-runtime.js";
+import {
   buildChannelSourceTurnId,
   readChannelSourceTurnId,
   setChannelSourceTurnId,
@@ -82,6 +87,8 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     useFastReplyRuntime,
     fullAccessState,
     extraSystemPromptParts,
+    sourceConversationContextByMode,
+    sourceConversationContextPromptOffset,
     extraSystemPromptStatic,
     cliSessionBindingFacts,
     baseBodyTrimmedRaw,
@@ -446,7 +453,18 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
         : {}),
     },
   };
-
+  const sourceReplyDeliveryRuntimeOptions = opts as SourceReplyDeliveryRuntimeOptions | undefined;
+  if (sourceReplyDeliveryRuntimeOptions?.sourceReplyDeliveryModeOrigin) {
+    const sourceReplyDeliveryRuntime = createSourceReplyDeliveryRuntime({
+      origin: sourceReplyDeliveryRuntimeOptions.sourceReplyDeliveryModeOrigin,
+      initialMode: sourceReplyDeliveryMode ?? "automatic",
+      projections: [followupRun.run, ...(opts ? [opts] : [])],
+      promptComponentByMode: sourceConversationContextByMode,
+      promptComponentOffset: sourceConversationContextPromptOffset,
+      onModeResolved: sourceReplyDeliveryRuntimeOptions.onSourceReplyDeliveryModeResolved,
+    });
+    bindSourceReplyDeliveryRuntime(followupRun.run, sourceReplyDeliveryRuntime);
+  }
   const replyThreadingOverride =
     isBareSessionReset && sessionCtx.ReplyThreading?.implicitCurrentMessage !== "deny"
       ? { ...sessionCtx.ReplyThreading, implicitCurrentMessage: "deny" as const }
