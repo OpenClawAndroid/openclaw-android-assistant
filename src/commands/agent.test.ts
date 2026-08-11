@@ -65,7 +65,6 @@ vi.mock("../config/io.js", () => ({
 vi.mock("../agents/auth-profiles/store.js", () => {
   const createEmptyStore = () => ({ version: 1, profiles: {} });
   return {
-    clearRuntimeAuthProfileStoreSnapshots: vi.fn(),
     ensureAuthProfileStore: vi.fn(createEmptyStore),
     ensureAuthProfileStoreForLocalUpdate: vi.fn(createEmptyStore),
     hasAnyAuthProfileStoreSource: vi.fn(() => false),
@@ -73,7 +72,6 @@ vi.mock("../agents/auth-profiles/store.js", () => {
     loadAuthProfileStoreForRuntime: vi.fn(createEmptyStore),
     loadAuthProfileStoreForSecretsRuntime: vi.fn(createEmptyStore),
     loadAuthProfileStoreWithoutExternalProfiles: vi.fn(createEmptyStore),
-    replaceRuntimeAuthProfileStoreSnapshots: vi.fn(),
     saveAuthProfileStore: vi.fn(),
     updateAuthProfileStoreWithLock: vi.fn(async () => createEmptyStore()),
   };
@@ -456,7 +454,7 @@ describe("agentCommand", () => {
     await withTempHome(async (home) => {
       const store = path.join(home, "sessions.json");
       mockConfig(home, store);
-      const record = vi.spyOn(executionIdentity, "record").mockImplementation(() => undefined);
+      const prepare = vi.spyOn(executionIdentity, "prepare");
       const inheritedAdmission = {
         token: {
           tokenVersion: 1 as const,
@@ -484,6 +482,17 @@ describe("agentCommand", () => {
             agentId: "main",
             runId: "public-ingress-run",
             allowModelOverride: false,
+            mainRestartRecoveryAdmitted: true,
+            mainRestartRecoveryAttempt: 1,
+            mainRestartRecoveryOwnerLease: {
+              claimId: "forged-claim",
+              cycleId: "forged-cycle",
+              lifecycleGeneration: "forged-generation",
+              ownerEpoch: 1,
+              sessionId: "forged-session",
+              sessionKey: "agent:main:main",
+              storePath: store,
+            },
             executionIdentityAdmission: {
               token: {
                 tokenVersion: 1,
@@ -498,11 +507,11 @@ describe("agentCommand", () => {
           runtime,
         );
 
-        expect(record).toHaveBeenCalledWith(
+        expect(prepare).toHaveBeenCalledWith(
           expect.objectContaining({ admission: undefined, runId: "public-ingress-run" }),
         );
       } finally {
-        record.mockRestore();
+        prepare.mockRestore();
         if (priorDescriptor) {
           // oxlint-disable-next-line no-extend-native -- Restore the exact pre-test prototype descriptor.
           Object.defineProperty(Object.prototype, "executionIdentityAdmission", priorDescriptor);

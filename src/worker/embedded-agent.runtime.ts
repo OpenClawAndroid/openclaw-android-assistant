@@ -7,6 +7,7 @@ import type {
   WorkerInferenceModelRef,
   WorkerInferenceOptions,
 } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
+import type { OperationalRunInstanceRef } from "../agents/admitted-run-context.js";
 import { toToolDefinitions } from "../agents/agent-tool-definition-adapter.js";
 import { finalizeAgentTools } from "../agents/agent-tools.finalize.js";
 import { isApplyPatchAllowedForModel } from "../agents/apply-patch-model-policy.js";
@@ -21,11 +22,11 @@ import { createAgentSession } from "../agents/sessions/sdk.js";
 import { SessionManager } from "../agents/sessions/session-manager.js";
 import { SettingsManager } from "../agents/sessions/settings-manager.js";
 import { resolveToolLoopDetectionConfig } from "../agents/tool-loop-detection-config.js";
+import { wrapToolWithGatewayCallerIdentity } from "../agents/tools/gateway-caller-context.js";
 import { DEFAULT_AGENTS_FILENAME, loadWorkspaceBootstrapFiles } from "../agents/workspace.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { AssistantMessage, AssistantMessageEventStreamLike } from "../llm/types.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
-import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
 import { createWorkerBrowserToolRuntime } from "./browser-runtime.js";
 import { createWorkerLiveRuntime } from "./embedded-agent-live.runtime.js";
 import {
@@ -67,6 +68,9 @@ type WorkerEmbeddedLiveClient = {
 };
 
 type RunWorkerEmbeddedTurnParams = {
+  agentId: string;
+  operationalRunInstance: OperationalRunInstanceRef;
+  agentRuntimeIdentityToken: string;
   cwd: string;
   stateDir: string;
   sessionId: string;
@@ -92,6 +96,9 @@ export async function runWorkerEmbeddedTurn(params: RunWorkerEmbeddedTurnParams)
   const browserAuthorized = params.allowedToolNames.includes("browser");
   if (browserAuthorized !== (params.browser !== undefined)) {
     throw new Error("Worker Browser authority and launch descriptor must be provided together.");
+  }
+  if (params.operationalRunInstance.runId !== params.runId) {
+    throw new Error("worker operational run instance disagrees with the admitted turn");
   }
   const model = createNativeModelOwnedRuntimeModel({
     provider: params.modelRef.provider,
@@ -153,7 +160,7 @@ export async function runWorkerEmbeddedTurn(params: RunWorkerEmbeddedTurnParams)
       ask: "off",
       config: WORKER_TOOL_CONFIG,
       commandHighlighting: false,
-      agentId: DEFAULT_AGENT_ID,
+      agentId: params.agentId,
       allowBackground: true,
       scopeKey: params.sessionKey,
       sessionKey: params.sessionKey,
@@ -174,12 +181,12 @@ export async function runWorkerEmbeddedTurn(params: RunWorkerEmbeddedTurnParams)
     : undefined;
   const { session } = await (async () => {
     try {
-      const localTools = finalizeAgentTools({
+      const unboundLocalTools = finalizeAgentTools({
         tools: browserRuntime ? [...coreTools, browserRuntime.tool] : coreTools,
         modelProvider: params.modelRef.provider,
         modelId: params.modelRef.model,
         hookContext: {
-          agentId: DEFAULT_AGENT_ID,
+          agentId: params.agentId,
           config: WORKER_TOOL_CONFIG,
           cwd: params.cwd,
           workspaceDir: params.cwd,
@@ -189,11 +196,19 @@ export async function runWorkerEmbeddedTurn(params: RunWorkerEmbeddedTurnParams)
           requester: { senderIsOwner: true },
           loopDetection: resolveToolLoopDetectionConfig({
             cfg: WORKER_TOOL_CONFIG,
-            agentId: DEFAULT_AGENT_ID,
+            agentId: params.agentId,
           }),
         },
-        agentId: DEFAULT_AGENT_ID,
+        agentId: params.agentId,
       }).filter((tool) => localToolNameSet.has(tool.name));
+      const localTools = unboundLocalTools.map((tool) =>
+        wrapToolWithGatewayCallerIdentity(tool, {
+          agentId: params.agentId,
+          sessionKey: params.sessionKey,
+          operationalRunInstance: params.operationalRunInstance,
+          signedAgentRuntimeIdentityToken: params.agentRuntimeIdentityToken,
+        }),
+      );
       const discoveredToolNames = new Set(localTools.map((tool) => tool.name));
       for (const toolName of WORKER_REQUIRED_LOCAL_TOOL_NAMES) {
         if (!discoveredToolNames.has(toolName)) {

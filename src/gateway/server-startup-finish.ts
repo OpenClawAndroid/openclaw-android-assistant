@@ -81,6 +81,8 @@ export async function finishGatewayStartup(params: {
     pluginApprovalIosPushDelivery,
     pluginApprovalManager,
     systemAgentApprovalManager,
+    bindApprovalPublicationContext,
+    validateAgentRuntimeApprovalAuthority,
     approvalSessionEvents,
     startupTrace,
     loadGatewayModelCatalog,
@@ -264,6 +266,7 @@ export async function finishGatewayStartup(params: {
       ...(workerPlacementControlAvailable
         ? { workerPlacementDispatchService: workerPlacementControlAvailable }
         : {}),
+      validateAgentRuntimeApprovalAuthority,
       terminalSessions,
       agentRunSeq,
       chatAbortControllers,
@@ -299,6 +302,7 @@ export async function finishGatewayStartup(params: {
       broadcastVoiceWakeRoutingChanged,
     });
   });
+  bindApprovalPublicationContext(gatewayRequestContext);
   await attachInitialGatewayLifetimeSidecars({
     chatMetadataLifecycle,
     gatewayRequestContext,
@@ -315,15 +319,11 @@ export async function finishGatewayStartup(params: {
   gatewayInstanceRuntimeRef.current = gatewayInstanceRuntimeLocal;
   gatewayRequestContext.approvalEvents = gatewayInstanceRuntimeLocal.approvalEvents;
   gatewayRequestContext.recoveryRuntime = gatewayInstanceRuntimeLocal.recovery;
-  const fallbackGatewayContextCleanup: unknown = setFallbackGatewayContextResolver(
+  const clearFallbackContext: unknown = setFallbackGatewayContextResolver(
     () => gatewayRequestContext,
   );
   clearFallbackGatewayContextForServer.set(
-    typeof fallbackGatewayContextCleanup === "function"
-      ? () => {
-          fallbackGatewayContextCleanup();
-        }
-      : () => {},
+    typeof clearFallbackContext === "function" ? () => clearFallbackContext() : () => {},
   );
   const [{ attachGatewayWsHandlers }, { listPluginNodeCapabilities }] = await startupTrace.measure(
     "gateway.ws-imports",

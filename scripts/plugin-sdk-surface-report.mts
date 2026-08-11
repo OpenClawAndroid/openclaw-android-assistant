@@ -114,7 +114,10 @@ function readPluginSdkEntrypointBudgetEnv(
 }
 
 const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
-  core: 2,
+  // +1 each: legacy AgentHarness remains projected through the core and plugin-entry
+  // compatibility barrels while external harnesses migrate to AgentHarnessV2.
+  core: 3,
+  "plugin-entry": 1,
   routing: 1,
   health: 0,
   // +1: shipped channel setup state-migration declaration during its migration window.
@@ -143,7 +146,10 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "agent-runtime": 2,
   "channel-secret-runtime": 23,
   // +4: session-write lease no-op compatibility stubs through the 2026.10 train.
-  "agent-harness-runtime": 8,
+  // +4: legacy AgentHarness, attempt, embedded-run, and side-question contracts remain
+  // deprecated while external harnesses migrate to required-capability V2 contracts.
+  "agent-harness": 2,
+  "agent-harness-runtime": 12,
   "agent-config-primitives": 2,
   "command-auth": 78,
   discord: 47,
@@ -258,7 +264,10 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -2: remove unused WhatsApp-specific ack policy exports from channel-feedback.
       // -7: retire unused and duplicate inbound-dispatch compatibility exports.
       // +7: restore still-existing deprecated inbound-dispatch compatibility re-exports.
-      4857,
+      // +1: channel-account-bound native approval request selection.
+      // +6: required-capability V2 harness contracts through the focused and runtime barrels,
+      // including the side-question compatibility split.
+      4863,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -317,6 +326,7 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -10: collapse inbound-dispatch callable aliases and wrappers.
       // +7: restore still-existing deprecated inbound-dispatch callable re-exports.
       // -3: keep the generic plugin-command reply carrier opaque and non-callable.
+      // +1: channel-account-bound native approval request selection.
       2919,
       env,
     ),
@@ -332,7 +342,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shipped channel setup state-migration declaration during its migration window.
       // +4: session-write lease no-op compatibility stubs through the 2026.10 train.
       // +7: restore still-existing deprecated inbound-dispatch compatibility re-exports.
-      1715,
+      // +6: source-compatible harness contracts retained during the V2 migration window.
+      1716,
       env,
     ),
     publicWildcardReexports: readPluginSdkSurfaceBudgetEnv(
