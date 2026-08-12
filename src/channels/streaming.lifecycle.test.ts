@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildChannelProgressDraftLine,
   createChannelProgressDraftGate,
-  DEFAULT_PROGRESS_DRAFT_INITIAL_DELAY_MS,
-  DEFAULT_PROGRESS_DRAFT_LABELS,
   formatChannelProgressDraftLine,
   formatChannelProgressDraftLineForEntry,
   formatChannelProgressDraftText,
@@ -16,7 +14,6 @@ import {
   mergeChannelProgressDraftLine,
   resolveChannelPreviewStreamMode,
   resolveChannelProgressDraftMaxLineChars,
-  resolveChannelProgressDraftLabel,
   resolveChannelProgressDraftMaxLines,
   resolveChannelProgressDraftRender,
   resolveChannelStreamingBlockCoalesce,
@@ -30,7 +27,9 @@ import {
   resolveChannelStreamingPreviewToolProgress,
   resolveTranscriptBackedChannelFinalText,
   selectLongerFinalText,
-} from "./channel-streaming.js";
+} from "./streaming.js";
+
+const DEFAULT_PROGRESS_DRAFT_INITIAL_DELAY_MS = 1_500;
 
 describe("channel-streaming", () => {
   afterEach(() => {
@@ -216,22 +215,6 @@ describe("channel-streaming", () => {
     ).toBe(false);
   });
 
-  it("uses auto progress labels when no explicit label is configured", () => {
-    expect(DEFAULT_PROGRESS_DRAFT_LABELS).toEqual(["Working"]);
-    expect(resolveChannelProgressDraftLabel({ random: () => 0 })).toBe(
-      DEFAULT_PROGRESS_DRAFT_LABELS[0],
-    );
-    expect(resolveChannelProgressDraftLabel({ random: () => 0.99 })).toBe(
-      DEFAULT_PROGRESS_DRAFT_LABELS.at(-1),
-    );
-    expect(
-      resolveChannelProgressDraftLabel({
-        entry: { streaming: { progress: { label: " AUTO " } } },
-        random: () => 0,
-      }),
-    ).toBe(DEFAULT_PROGRESS_DRAFT_LABELS[0]);
-  });
-
   it("separates progress labels from detail lines with a blank line", () => {
     const entry = { streaming: { progress: { label: "Working" } } };
 
@@ -243,23 +226,22 @@ describe("channel-streaming", () => {
     ).toBe("Working\n\n🛠️ pgrep -fl Discord || true (agent)\n• Discord is installed.");
   });
 
-  it("supports explicit progress labels and custom label sets", () => {
+  it("renders automatic and configured progress labels through the public formatter", () => {
+    expect(formatChannelProgressDraftText({ lines: [], random: () => 0 })).toBe("Working");
     expect(
-      resolveChannelProgressDraftLabel({
-        entry: { streaming: { progress: { label: "Crunching" } } },
+      formatChannelProgressDraftText({
+        entry: { streaming: { progress: { label: " AUTO " } } },
+        lines: [],
+        random: () => 0,
       }),
-    ).toBe("Crunching");
+    ).toBe("Working");
     expect(
-      resolveChannelProgressDraftLabel({
+      formatChannelProgressDraftText({
         entry: { streaming: { progress: { labels: ["Pearling"] } } },
+        lines: [],
         random: () => 0.5,
       }),
     ).toBe("Pearling");
-    expect(
-      resolveChannelProgressDraftLabel({
-        entry: { streaming: { progress: { label: false } } },
-      }),
-    ).toBeUndefined();
   });
 
   it("formats bounded progress draft text", () => {
