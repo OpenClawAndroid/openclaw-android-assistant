@@ -1,6 +1,8 @@
 // Browser tests cover cdp.helpers plugin behavior.
+import type { LookupAddress, LookupAllOptions, LookupOneOptions, LookupOptions } from "node:dns";
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { LookupFn } from "../infra/net/ssrf.js";
 import {
   assertChromeMcpCdpTransportAllowed,
   resolveCdpReachabilityPolicy,
@@ -12,6 +14,25 @@ import { assertBrowserNavigationAllowed } from "./navigation-guard.js";
 const PROFILE_HTTP_REACHABILITY_TIMEOUT_MS = 300;
 const PROFILE_WS_REACHABILITY_MIN_TIMEOUT_MS = 200;
 const PROFILE_WS_REACHABILITY_MAX_TIMEOUT_MS = 2000;
+
+function createLookupFn(address: string): LookupFn {
+  const result: LookupAddress = { address, family: address.includes(":") ? 6 : 4 };
+  function lookup(_hostname: string, family: number): Promise<LookupAddress>;
+  function lookup(_hostname: string, options: LookupOneOptions): Promise<LookupAddress>;
+  function lookup(_hostname: string, options: LookupAllOptions): Promise<LookupAddress[]>;
+  function lookup(
+    _hostname: string,
+    options: LookupOptions,
+  ): Promise<LookupAddress | LookupAddress[]>;
+  function lookup(_hostname: string): Promise<LookupAddress>;
+  async function lookup(
+    _hostname: string,
+    options?: number | LookupOptions,
+  ): Promise<LookupAddress | LookupAddress[]> {
+    return typeof options === "object" && options.all ? [result] : result;
+  }
+  return lookup;
+}
 
 const fetchWithSsrFGuardMock = vi.hoisted(() => vi.fn());
 
@@ -167,7 +188,7 @@ describe("cdp helpers", () => {
     await expect(
       resolvePinnedHostnameWithPolicy("browser.example", {
         policy: scoped,
-        lookupFn: async () => [{ address: "10.0.0.8", family: 4 }],
+        lookupFn: createLookupFn("10.0.0.8"),
       }),
     ).rejects.toThrow(/private\/internal\/special-use ip address/i);
   });
@@ -188,7 +209,7 @@ describe("cdp helpers", () => {
     await expect(
       resolvePinnedHostnameWithPolicy("browser.example", {
         policy: scoped,
-        lookupFn: async () => [{ address: "10.0.0.8", family: 4 }],
+        lookupFn: createLookupFn("10.0.0.8"),
       }),
     ).resolves.toEqual(expect.objectContaining({ addresses: ["10.0.0.8"] }));
   });
