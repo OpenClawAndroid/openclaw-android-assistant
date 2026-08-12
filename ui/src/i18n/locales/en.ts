@@ -292,6 +292,9 @@ export const en: TranslationMap = {
       subtitle: "Link WhatsApp Web and monitor connection health.",
       phoneNumber: "Phone number",
       loggedOut: "Logged out.",
+      logoutConfirmTitle: "Log out of WhatsApp account {accountId}?",
+      logoutConfirmMessage:
+        "Logging out of account {accountId} stops its listener and deletes its saved credentials.",
       logoutNotCleared:
         "No stored WhatsApp session was cleared. It may already be absent, or its auth directory may require manual cleanup.",
     },
@@ -4581,6 +4584,7 @@ export const en: TranslationMap = {
       renameAria: "Rename session {title}",
       renameInputAria: "Session title",
       renameInputPlaceholder: "Session title",
+      openParent: "Open parent session {title}",
       panels: "Panels",
       layout: "Layout",
       workspaceAria: "Workspace actions for {workspace}",
@@ -5092,10 +5096,8 @@ export const en: TranslationMap = {
       search: "Search messages",
       searchPlaceholder: "Search messages...",
       closeSearch: "Close search",
-      unpin: "Unpin",
       loading: "Loading chat",
       noMatches: "No matching messages",
-      pinnedCount: "{count} pinned",
     },
     pairingQrExpired: {
       title: "Pairing QR expired",
