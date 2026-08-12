@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { clearLoadInstalledPluginIndexInstallRecordsCache } from "../plugins/installed-plugin-index-records.js";
 import { writePersistedInstalledPluginIndex } from "../plugins/installed-plugin-index-store.js";
 import { shouldSuppressMissingCodexPluginDiagnostics } from "./codex-plugin-diagnostics.js";
+import { resolveConfigWidePluginManifestRegistry } from "./io.plugin-metadata.js";
 import { validateConfigObjectWithPlugins as validateConfigObjectWithPluginsRaw } from "./validation.js";
 
 vi.unmock("../version.js");
@@ -604,6 +605,7 @@ describe("config plugin validation", () => {
     it("warns when a listed agent can fall back from gpt-5.6 to Spark", () => {
       const res = validateWithMissingCodexPlugin({
         agents: {
+          ownership: "explicit",
           defaults: {
             model: { primary: "openai/gpt-5.6", fallbacks: [] },
           },
@@ -639,6 +641,7 @@ describe("config plugin validation", () => {
       {
         name: "listed-agent subagent",
         agents: {
+          ownership: "explicit" as const,
           defaults: {
             model: { primary: "openai/gpt-5.6", fallbacks: [] },
             subagents: { model: "openai/gpt-5.6" },
@@ -899,6 +902,7 @@ describe("config plugin validation", () => {
           },
         },
         agents: {
+          ownership: "explicit",
           defaults: {
             model: { primary: "openai/gpt-5.6", fallbacks: [] },
             models: {
@@ -1892,6 +1896,48 @@ describe("config plugin validation", () => {
       expect(res.ok).toBe(true);
     } finally {
       await fs.rm(helperPath, { force: true });
+    }
+  });
+
+  it("discovers legacy-root workspace plugins before ownership materialization", async () => {
+    const workspaceDir = path.join(fixtureRoot, "legacy-root-workspace");
+    const pluginId = "legacy-root-channel";
+    const channelId = "legacy-root";
+    await writePluginFixture({
+      dir: path.join(workspaceDir, ".openclaw", "extensions", pluginId),
+      id: pluginId,
+      channels: [channelId],
+      schema: { type: "object" },
+    });
+    const env = suiteEnv();
+
+    const res = validateConfigObjectWithPlugins(
+      {
+        agents: {
+          defaults: { workspace: workspaceDir },
+          entries: { ops: { default: true }, research: {} },
+        },
+        channels: { [channelId]: {} },
+        plugins: { entries: { [pluginId]: { enabled: true } } },
+      },
+      {
+        env,
+        loadPluginMetadataSnapshot: (config) => ({
+          manifestRegistry: resolveConfigWidePluginManifestRegistry({
+            config,
+            env,
+            allowCurrent: false,
+          }),
+        }),
+      },
+    );
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.config.bindings).toContainEqual({
+        agentId: "ops",
+        match: { channel: channelId, accountId: "*" },
+      });
     }
   });
 
