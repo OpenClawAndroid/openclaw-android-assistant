@@ -251,24 +251,8 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
       return;
     }
     const client = state.client;
-    const connectionGeneration = this.connectionGeneration;
-    await this.sessionCompanionThreads.submit(
-      sessionKey,
-      question,
-      (key, value, onPrepared) => requestSessionCompanionAnswer(client, key, value, onPrepared),
-      () =>
-        this.state === state &&
-        state.connected &&
-        state.client === client &&
-        state.sessionKey === sessionKey &&
-        this.connectionGeneration === connectionGeneration,
-      async (key) => {
-        const current = this.state;
-        if (!current?.connected || !current.client) {
-          throw new Error("Session companion connection is unavailable.");
-        }
-        return await requestSessionCompanionState(current.client, key);
-      },
+    await this.sessionCompanionThreads.submit(sessionKey, question, (key, value) =>
+      requestSessionCompanionAnswer(client, key, value),
     );
   };
 
