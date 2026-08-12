@@ -24,7 +24,7 @@ import { WebSocket, type ClientOptions, type CertMeta } from "ws";
 import {
   isSensitiveUrlQueryParamName,
   normalizeFingerprint,
-  normalizeLowercaseStringOrEmpty,
+  normalizeGatewayErrorText,
   parseGatewayIpAddress,
   parseHostForAddressChecks,
 } from "./client-address-utils.js";
@@ -948,7 +948,7 @@ export class GatewayClient {
     return (
       expectedProtocol === MIN_NODE_PROTOCOL_VERSION &&
       (detailCode === ConnectErrorDetailCodes.PROTOCOL_MISMATCH ||
-        normalizeLowercaseStringOrEmpty(error.message).includes("protocol mismatch"))
+        normalizeGatewayErrorText(error.message).includes("protocol mismatch"))
     );
   }
 
@@ -966,7 +966,7 @@ export class GatewayClient {
     return (
       expectedProtocol === PROTOCOL_VERSION &&
       (detailCode === ConnectErrorDetailCodes.PROTOCOL_MISMATCH ||
-        normalizeLowercaseStringOrEmpty(error.message).includes("protocol mismatch"))
+        normalizeGatewayErrorText(error.message).includes("protocol mismatch"))
     );
   }
 
@@ -1228,7 +1228,7 @@ export class GatewayClient {
   private clearStaleDeviceTokenForClose(code: number, reason: string): void {
     if (
       code !== 1008 ||
-      !normalizeLowercaseStringOrEmpty(reason).includes("device token mismatch") ||
+      !normalizeGatewayErrorText(reason).includes("device token mismatch") ||
       this.opts.token ||
       this.opts.password ||
       !this.opts.deviceIdentity
@@ -1283,7 +1283,7 @@ export class GatewayClient {
     if (params.error.gatewayCode !== "INVALID_REQUEST") {
       return false;
     }
-    const message = normalizeLowercaseStringOrEmpty(params.error.message);
+    const message = normalizeGatewayErrorText(params.error.message);
     return message.includes("invalid connect params") && message.includes("approvalruntimetoken");
   }
 
@@ -1300,7 +1300,7 @@ export class GatewayClient {
     if (params.error.gatewayCode !== "INVALID_REQUEST") {
       return false;
     }
-    const message = normalizeLowercaseStringOrEmpty(params.error.message);
+    const message = normalizeGatewayErrorText(params.error.message);
     return (
       message.includes("invalid connect params") && message.includes("agentruntimeidentitytoken")
     );
