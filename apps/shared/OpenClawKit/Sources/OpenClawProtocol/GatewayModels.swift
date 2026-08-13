@@ -1934,6 +1934,10 @@ public struct EnvironmentSummary: Codable, Sendable {
     public let status: EnvironmentStatus
     public let platform: String?
     public let sessionhost: Bool?
+    public let lastconnectedatms: Int?
+    public let lastdisconnectedatms: Int?
+    public let lastseenatms: Int?
+    public let lastseenreason: String?
     public let trust: String?
     public let capabilities: [String]?
     public let desktop: Bool?
@@ -1946,6 +1950,10 @@ public struct EnvironmentSummary: Codable, Sendable {
         status: EnvironmentStatus,
         platform: String? = nil,
         sessionhost: Bool? = nil,
+        lastconnectedatms: Int? = nil,
+        lastdisconnectedatms: Int? = nil,
+        lastseenatms: Int? = nil,
+        lastseenreason: String? = nil,
         trust: String? = nil,
         capabilities: [String]? = nil,
         desktop: Bool? = nil,
@@ -1957,6 +1965,10 @@ public struct EnvironmentSummary: Codable, Sendable {
         self.status = status
         self.platform = platform
         self.sessionhost = sessionhost
+        self.lastconnectedatms = lastconnectedatms
+        self.lastdisconnectedatms = lastdisconnectedatms
+        self.lastseenatms = lastseenatms
+        self.lastseenreason = lastseenreason
         self.trust = trust
         self.capabilities = capabilities
         self.desktop = desktop
@@ -1970,6 +1982,10 @@ public struct EnvironmentSummary: Codable, Sendable {
         case status
         case platform
         case sessionhost = "sessionHost"
+        case lastconnectedatms = "lastConnectedAtMs"
+        case lastdisconnectedatms = "lastDisconnectedAtMs"
+        case lastseenatms = "lastSeenAtMs"
+        case lastseenreason = "lastSeenReason"
         case trust
         case capabilities
         case desktop
@@ -2002,6 +2018,10 @@ public struct EnvironmentsCreateResult: Codable, Sendable {
     public let status: EnvironmentStatus
     public let platform: String?
     public let sessionhost: Bool?
+    public let lastconnectedatms: Int?
+    public let lastdisconnectedatms: Int?
+    public let lastseenatms: Int?
+    public let lastseenreason: String?
     public let trust: String?
     public let capabilities: [String]?
     public let desktop: Bool?
@@ -2014,6 +2034,10 @@ public struct EnvironmentsCreateResult: Codable, Sendable {
         status: EnvironmentStatus,
         platform: String? = nil,
         sessionhost: Bool? = nil,
+        lastconnectedatms: Int? = nil,
+        lastdisconnectedatms: Int? = nil,
+        lastseenatms: Int? = nil,
+        lastseenreason: String? = nil,
         trust: String? = nil,
         capabilities: [String]? = nil,
         desktop: Bool? = nil,
@@ -2025,6 +2049,10 @@ public struct EnvironmentsCreateResult: Codable, Sendable {
         self.status = status
         self.platform = platform
         self.sessionhost = sessionhost
+        self.lastconnectedatms = lastconnectedatms
+        self.lastdisconnectedatms = lastdisconnectedatms
+        self.lastseenatms = lastseenatms
+        self.lastseenreason = lastseenreason
         self.trust = trust
         self.capabilities = capabilities
         self.desktop = desktop
@@ -2038,6 +2066,10 @@ public struct EnvironmentsCreateResult: Codable, Sendable {
         case status
         case platform
         case sessionhost = "sessionHost"
+        case lastconnectedatms = "lastConnectedAtMs"
+        case lastdisconnectedatms = "lastDisconnectedAtMs"
+        case lastseenatms = "lastSeenAtMs"
+        case lastseenreason = "lastSeenReason"
         case trust
         case capabilities
         case desktop
@@ -2070,6 +2102,10 @@ public struct EnvironmentsDestroyResult: Codable, Sendable {
     public let status: EnvironmentStatus
     public let platform: String?
     public let sessionhost: Bool?
+    public let lastconnectedatms: Int?
+    public let lastdisconnectedatms: Int?
+    public let lastseenatms: Int?
+    public let lastseenreason: String?
     public let trust: String?
     public let capabilities: [String]?
     public let desktop: Bool?
@@ -2082,6 +2118,10 @@ public struct EnvironmentsDestroyResult: Codable, Sendable {
         status: EnvironmentStatus,
         platform: String? = nil,
         sessionhost: Bool? = nil,
+        lastconnectedatms: Int? = nil,
+        lastdisconnectedatms: Int? = nil,
+        lastseenatms: Int? = nil,
+        lastseenreason: String? = nil,
         trust: String? = nil,
         capabilities: [String]? = nil,
         desktop: Bool? = nil,
@@ -2093,6 +2133,10 @@ public struct EnvironmentsDestroyResult: Codable, Sendable {
         self.status = status
         self.platform = platform
         self.sessionhost = sessionhost
+        self.lastconnectedatms = lastconnectedatms
+        self.lastdisconnectedatms = lastdisconnectedatms
+        self.lastseenatms = lastseenatms
+        self.lastseenreason = lastseenreason
         self.trust = trust
         self.capabilities = capabilities
         self.desktop = desktop
@@ -2106,6 +2150,10 @@ public struct EnvironmentsDestroyResult: Codable, Sendable {
         case status
         case platform
         case sessionhost = "sessionHost"
+        case lastconnectedatms = "lastConnectedAtMs"
+        case lastdisconnectedatms = "lastDisconnectedAtMs"
+        case lastseenatms = "lastSeenAtMs"
+        case lastseenreason = "lastSeenReason"
         case trust
         case capabilities
         case desktop
@@ -2154,6 +2202,10 @@ public struct EnvironmentsStatusResult: Codable, Sendable {
     public let status: EnvironmentStatus
     public let platform: String?
     public let sessionhost: Bool?
+    public let lastconnectedatms: Int?
+    public let lastdisconnectedatms: Int?
+    public let lastseenatms: Int?
+    public let lastseenreason: String?
     public let trust: String?
     public let capabilities: [String]?
     public let desktop: Bool?
@@ -2166,6 +2218,10 @@ public struct EnvironmentsStatusResult: Codable, Sendable {
         status: EnvironmentStatus,
         platform: String? = nil,
         sessionhost: Bool? = nil,
+        lastconnectedatms: Int? = nil,
+        lastdisconnectedatms: Int? = nil,
+        lastseenatms: Int? = nil,
+        lastseenreason: String? = nil,
         trust: String? = nil,
         capabilities: [String]? = nil,
         desktop: Bool? = nil,
@@ -2177,6 +2233,10 @@ public struct EnvironmentsStatusResult: Codable, Sendable {
         self.status = status
         self.platform = platform
         self.sessionhost = sessionhost
+        self.lastconnectedatms = lastconnectedatms
+        self.lastdisconnectedatms = lastdisconnectedatms
+        self.lastseenatms = lastseenatms
+        self.lastseenreason = lastseenreason
         self.trust = trust
         self.capabilities = capabilities
         self.desktop = desktop
@@ -2190,6 +2250,10 @@ public struct EnvironmentsStatusResult: Codable, Sendable {
         case status
         case platform
         case sessionhost = "sessionHost"
+        case lastconnectedatms = "lastConnectedAtMs"
+        case lastdisconnectedatms = "lastDisconnectedAtMs"
+        case lastseenatms = "lastSeenAtMs"
+        case lastseenreason = "lastSeenReason"
         case trust
         case capabilities
         case desktop

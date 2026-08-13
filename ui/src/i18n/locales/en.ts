@@ -719,6 +719,9 @@ export const en: TranslationMap = {
     folder: "Folder",
     folderPlaceholder: "Agent workspace",
     yourDevices: "Your devices",
+    neverConnected: "Never connected",
+    offlineFor: "Offline for {duration}",
+    lastSeen: "Last seen {time}",
     capabilityCamera: "Camera",
     capabilityLocation: "Location",
     capabilityTalk: "Talk",
@@ -2268,6 +2271,8 @@ export const en: TranslationMap = {
       auth: "Review the provider credential or sign-in, then retry.",
       rateLimit: "Wait for the provider limit to reset, then retry.",
       billing: "Restore provider billing or quota, then retry.",
+      timeout:
+        "The model did not finish the setup test in time. Warm it or choose a faster model, then retry.",
       unavailable: "Make sure the provider service is running and reachable, then retry.",
       format: "Check that the endpoint exposes a compatible chat model, then retry.",
       unknown: "Review the connection details, then retry.",
@@ -4083,6 +4088,7 @@ export const en: TranslationMap = {
         format: "Invalid response",
         unknown: "Connection failed",
         no_model: "No models available",
+        partial: "Connected with warnings",
       },
     },
     readiness: {
