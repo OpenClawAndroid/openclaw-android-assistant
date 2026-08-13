@@ -16,7 +16,6 @@ import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import "../../styles/chat.css";
 import "../../styles/new-session.css";
-import { clearChatModelSearchOnEscape } from "../chat/components/chat-model-picker.ts";
 import { renderWelcomeState } from "../chat/components/chat-welcome.ts";
 import * as catalog from "./catalog-target.ts";
 import type { SubmissionOutcomeReason } from "./cloud-recovery-state.ts";
@@ -104,7 +103,6 @@ class NewSessionPage extends OpenClawLightDomElement {
       this.gateway,
       () => ({
         context: this.context,
-        projectId: this.place?.projectId ?? "",
         nodes: this.place?.nodes ?? [],
         folder: this.place?.folder ?? "",
         execNode: this.place?.execNode ?? "",
@@ -114,8 +112,6 @@ class NewSessionPage extends OpenClawLightDomElement {
         requestUpdate: () => this.requestUpdate(),
         onProjectMissing: () => this.place.clearProjectSelection(),
         onSelectProject: (projectId) => this.place.selectProjectId(projectId),
-        onApplyFolder: (folder, execNode, gatewayApproved) =>
-          this.place.applyFolder(folder, execNode, gatewayApproved),
         onApprovedListing: (listing) => this.place.recordGatewayApprovedListing(listing),
         querySelector: (selector) => this.querySelector(selector),
         activeElement: () => this.ownerDocument.activeElement,
@@ -214,8 +210,7 @@ class NewSessionPage extends OpenClawLightDomElement {
     }
     if (event.type === "keydown") {
       const keyEvent = event as KeyboardEvent;
-      clearChatModelSearchOnEscape(keyEvent);
-      if (keyEvent.defaultPrevented || keyEvent.key !== "Escape") {
+      if (keyEvent.key !== "Escape") {
         return;
       }
       const picker =
@@ -389,7 +384,8 @@ class NewSessionPage extends OpenClawLightDomElement {
     const projectState = resolveProjectChip({
       folder: this.place.folder,
       workspace: this.place.workspacePath(),
-      projectId: this.place.projectId,
+      projectId: this.browser.projectId,
+      selectedRemoteProject: this.browser.remoteProject,
       projects,
       recents,
       projectQuery: this.browser.projectQuery,
@@ -412,7 +408,7 @@ class NewSessionPage extends OpenClawLightDomElement {
       onPopoverHide: () => this.browser.onPopoverHide(kind),
       onPopoverAfterHide: () => this.browser.onPopoverAfterHide(kind),
     });
-    const submitting = this.submission.submitting || this.browser.projectCloneBusy;
+    const submitting = this.submission.submitting;
     const pendingCloud = Boolean(this.submission.pendingCloud.sessionKey);
     return html`${renderWhereChip({
       state: whereState,
@@ -448,12 +444,11 @@ class NewSessionPage extends OpenClawLightDomElement {
         "operator.write",
       ),
       remoteProjects: this.browser.projectSearchResult?.projects ?? [],
+      selectedRemoteProject: this.browser.remoteProject,
       projectSearchCredentialMissing: this.browser.projectSearchResult?.credential === "missing",
       projectSearchLoading: this.browser.projectSearchLoading,
       projectSearchError: this.browser.projectSearchError,
-      projectCloneBusy: this.browser.projectCloneBusy,
-      projectCloneError: this.browser.projectCloneError,
-      projectId: this.place.projectId,
+      projectId: this.browser.projectId,
       execNodes,
       gatewayLabel,
       execNode: this.place.execNode,
@@ -470,7 +465,7 @@ class NewSessionPage extends OpenClawLightDomElement {
       registeringProject: this.browser.browserRegistering,
       onSelectProject: (projectId) => this.place.selectProjectId(projectId),
       onProjectQueryInput: (query) => this.browser.changeProjectQuery(query),
-      onCloneProject: (gitUrl) => void this.browser.addRemoteProject(gitUrl),
+      onSelectRemoteProject: (project) => this.place.selectRemoteProject(project),
       onApplyFolder: (folder, execNode) =>
         this.place.applyFolder(
           folder,
