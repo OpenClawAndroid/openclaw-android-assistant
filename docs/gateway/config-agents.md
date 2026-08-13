@@ -618,7 +618,7 @@ Delegated consults with a requesting agent keep that requester as their owner. W
 - `keepRecentTokens`: agent cut-point budget for keeping the most recent transcript tail verbatim. Default: `20000`.
 - `recentTurnsPreserve`: number of most recent user/assistant turns kept verbatim outside safeguard summarization. Default: `3`.
 - `identifierPolicy`: `strict` (default) or `off`. `strict` prepends built-in opaque identifier retention guidance during compaction summarization.
-- `qualityGuard`: retry-on-malformed-output checks for safeguard summaries. Enabled by default in safeguard mode; set `enabled: false` to skip the audit.
+- `qualityGuard`: bounded validation for built-in safeguard summaries. Enabled by default in safeguard mode. After final budgeting, required headings must remain in the retained generated body, while pending asks and exact identifiers must remain in the exact artifact to be stored. When no attempt passes, OpenClaw preserves the original history and returns a compaction failure instead of storing known-invalid context. Set `enabled: false` to skip the audit. Configured compaction-provider output keeps its existing provider-owned validation behavior.
 - `midTurnPrecheck`: optional tool-loop pressure check. When `enabled: true`, OpenClaw checks context pressure after tool results are appended and before the next model call. If the context no longer fits, it aborts the current attempt before submitting the prompt and reuses the existing precheck recovery path to truncate tool results or compact and retry. Works with both `default` and `safeguard` compaction modes. Default: disabled.
 - `postIndexSync`: post-compaction session-memory reindex mode. Default: `"async"`. Use `"await"` for strongest freshness, `"async"` for lower compaction latency, or `"off"` only when session-memory sync is handled elsewhere.
 - `postCompactionSections`: optional AGENTS.md H2/H3 section names to re-inject after compaction. Leave unset or use `[]` to disable.
@@ -1253,7 +1253,7 @@ See [Multi-Agent Sandbox & Tools](/tools/multi-agent-sandbox-tools) for preceden
   - Legacy `rotateBytes` is rejected by the current schema; `openclaw doctor --fix` removes it from older configs.
   - `resetArchiveRetention`: age-based retention for reset/deleted transcript archives. By default, archives remain until disk-budget eviction; set a duration to opt into wall-clock deletion, or `false` to disable it explicitly.
   - `maxDiskBytes`: optional sessions-directory disk budget. In `warn` mode it logs warnings; in `enforce` mode it removes oldest artifacts/sessions first. Set `false`, `0`, or `"0"` to disable the budget entirely.
-  - `highWaterBytes`: optional target after budget cleanup. Defaults to `80%` of `maxDiskBytes`.
+  - `highWaterBytes`: optional target after budget cleanup. Defaults to `80%` of `maxDiskBytes`. A value that resolves to zero falls back to the default; negative values are invalid. Disable the budget with `maxDiskBytes`, not with a zero high-water mark.
 - **`threadBindings`**: global defaults for thread-bound session features.
   - `enabled`: master switch for supported channel thread bindings
   - `idleHours`: default inactivity auto-unfocus in hours (`0` disables; providers can override)
