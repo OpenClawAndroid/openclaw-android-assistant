@@ -46,7 +46,7 @@ function requireDeviceId(profile: WorkerProfile): string {
 }
 
 function isSessionCapableNode(node: NodeWorkerSupervisorNodeProof): boolean {
-  return node.commands.includes("system.run");
+  return node.workerRuns !== undefined;
 }
 
 function hasPairedNodeRole(device: PairedDevice | null): device is PairedDevice {
@@ -106,6 +106,10 @@ export function createDeviceWorkerRuntime(options: DeviceWorkerRuntimeOptions) {
     provider,
     isAvailable,
     launchNodeWorker: launchAdapter.launch,
+    // Provisioning reads the node-advertised local-install build through the
+    // runtime so node lookups keep one owner; absent means not connected or
+    // not session-capable, and the caller fails provisioning closed.
+    resolveWorkerBuild: async (deviceId: string) => (await findConnectedNode(deviceId))?.workerRuns,
     bindNodeTransport: (transport: NodeWorkerSupervisorTransport) => {
       nodeTransport = transport;
     },
