@@ -3634,12 +3634,6 @@ td.data-table-key-col {
   white-space: nowrap;
 }
 
-.btn--ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted);
-}
-
 .btn--ghost:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);

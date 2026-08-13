@@ -1472,9 +1472,6 @@ openclaw-chat-video-player {
   max-width: 100%;
   border-radius: 999px;
   font-size: 12px;
-}
-
-.chat-assistant-attachment-badge {
   padding: 3px 8px;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
@@ -4281,6 +4278,7 @@ button.chat-reply-preview--message:disabled {
 .chat-controls__agent {
   min-width: 0;
   max-width: none;
+  grid-area: agent;
 }
 
 .chat-controls__session-row {
@@ -4302,10 +4300,6 @@ button.chat-reply-preview--message:disabled {
 .chat-controls__session-picker {
   grid-area: session;
   position: relative;
-}
-
-.chat-controls__agent {
-  grid-area: agent;
 }
 
 .chat-controls__model {
@@ -5173,8 +5167,12 @@ button.chat-reply-preview--message:disabled {
 .chat-controls__thinking {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
 }
 
 /* Controls separator: the visible divider is the background; any glyph content
@@ -5220,17 +5218,6 @@ button.chat-reply-preview--message:disabled {
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.chat-controls__thinking {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
 }
 
 /* Light theme thinking indicator override */
