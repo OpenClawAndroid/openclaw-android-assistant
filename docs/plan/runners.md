@@ -181,12 +181,16 @@ stated honestly (revision 1 undersold this):
   runner identity = host + workdir + repo).
 - **Persistent-machine lifecycle.** `destroy` = logical lease release.
   Provider `inspect` is tri-state against pairing + presence: _present_,
-  _dormant_ (paired but offline, within a dormancy ceiling — must NOT be
-  driven to `orphaned` by the reconcile sweep), _gone_ (unpaired or ceiling
+  _dormant_ (paired but offline, within the config-free 14-day dormancy
+  ceiling — must NOT be driven to `orphaned` by the reconcile sweep), _gone_
+  (unpaired or ceiling
   elapsed → normal orphan/reap path). A device-environment reaper keyed on
   unpair/dormancy — not on provider teardown proof — cleans rows,
-  credentials, and staged refs. Device-side GC of per-session workspace dirs
-  and superseded bundles is a milestone exit gate, not an open question:
+  credentials, and staged refs. Unreferenced terminal environment rows retain
+  seven days of operator diagnostics, then prune in bounded post-reconcile
+  batches; any surviving placement keeps its environment provenance.
+  Device-side GC of per-session workspace dirs and superseded bundles is a
+  milestone exit gate, not an open question:
   persistent machines otherwise leak the user's own disk.
 - **Placement `runner-offline`.** Pre-dispatch device loss waits up to 10
   seconds, then returns an operator-visible coordination error without failing
@@ -204,7 +208,9 @@ stated honestly (revision 1 undersold this):
   the node withdraws `workerRuns` from its live inventory while retaining the
   supervisor dialect, restores it after a durable terminal commit, and gives a
   third launch up to 10 seconds to acquire capacity before failing visibly.
-  Public inventory does not expose machine counters.
+  Public inventory does not expose machine counters. Terminal node launch
+  receipts retain a 24-hour replay window and prune in bounded batches;
+  `pending` and `running` capacity reservations never age out.
 - **Multi-gateway safety.** The worker install/workspace root on a node is
   namespaced by gateway identity so two gateways pairing one machine cannot
   corrupt each other's state.
