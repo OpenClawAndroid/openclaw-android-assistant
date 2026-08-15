@@ -2722,22 +2722,32 @@ NODE
       historicalCompatibility: false,
       runnerBackend: "hybrid",
     });
+    const hybridDispatch = runCiManifestFixture({
+      bundledPlanner: true,
+      eventName: "workflow_dispatch",
+      historicalCompatibility: false,
+      runnerBackend: "hybrid",
+    });
 
     expect(blacksmith.status, blacksmith.output).toBe(0);
     expect(github.status, github.output).toBe(0);
     expect(hybrid.status, hybrid.output).toBe(0);
-    expect(
-      JSON.parse(
-        expectDefined(blacksmith.outputs.checks_windows_matrix, "Blacksmith Windows matrix"),
-      ).include,
-    ).toEqual([
+    expect(hybridDispatch.status, hybridDispatch.output).toBe(0);
+    // Blacksmith's Windows class admits ~2 concurrent jobs, so any profile that
+    // can land there uses the single lane; only guaranteed-hosted profiles split.
+    const expectedBlacksmithWindowsMatrix = [
       {
         check_name: "checks-windows-node-test",
         runtime: "node",
         task: "test",
         runner: "blacksmith-8vcpu-windows-2025",
       },
-    ]);
+    ];
+    expect(
+      JSON.parse(
+        expectDefined(blacksmith.outputs.checks_windows_matrix, "Blacksmith Windows matrix"),
+      ).include,
+    ).toEqual(expectedBlacksmithWindowsMatrix);
     const expectedHostedWindowsMatrix = [
       { check_name: "checks-windows-node-test-1", runtime: "node", task: "test-1" },
       { check_name: "checks-windows-node-test-2", runtime: "node", task: "test-2" },
@@ -2750,6 +2760,14 @@ NODE
     expect(
       JSON.parse(expectDefined(hybrid.outputs.checks_windows_matrix, "hybrid Windows matrix"))
         .include,
+    ).toEqual(expectedBlacksmithWindowsMatrix);
+    expect(
+      JSON.parse(
+        expectDefined(
+          hybridDispatch.outputs.checks_windows_matrix,
+          "hybrid dispatch Windows matrix",
+        ),
+      ).include,
     ).toEqual(expectedHostedWindowsMatrix);
     expect(runStep.run).toContain("test-1)\n    pnpm test:windows:ci:1");
     expect(runStep.run).toContain("test-2)\n    pnpm test:windows:ci:2");
