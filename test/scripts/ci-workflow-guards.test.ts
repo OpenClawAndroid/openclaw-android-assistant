@@ -3046,6 +3046,7 @@ NODE
       "ios-build": "blacksmith-12vcpu-macos-26",
       "check-test-types-hosted-core-shard": "blacksmith-8vcpu-ubuntu-2404",
       "checks-ui": "blacksmith-8vcpu-ubuntu-2404",
+      "checks-windows": "blacksmith-8vcpu-windows-2025",
     } as const;
     const configurableJobs = Object.entries(jobs)
       .filter(([, job]) => String(job["runs-on"]).startsWith("${{"))
@@ -6302,7 +6303,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(uiE2e.env).toEqual({ OPENCLAW_UI_E2E_SKIP_REAL_GATEWAY: "1" });
     expect(uiE2e.strategy["fail-fast"]).toBe(false);
     expect(uiE2e.strategy["max-parallel"]).toBe(
-      "${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 10 || 4 }}",
+      "${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 12 || 4 }}",
     );
     expect(uiE2e.strategy.matrix).toBe("${{ fromJson(needs.preflight.outputs.ui_e2e_matrix) }}");
     const expectedUiE2eMatrix = (shardCount: number) => ({
@@ -6318,8 +6319,8 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     });
     for (const [runnerBackend, shardCount] of [
       ["blacksmith", 4],
-      ["github", 10],
-      ["hybrid", 10],
+      ["github", 12],
+      ["hybrid", 12],
     ] as const) {
       const manifest = runCiManifestFixture({
         bundledPlanner: true,
@@ -6691,32 +6692,35 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(parityStep.run).not.toContain("pnpm apple:i18n:check");
   });
 
-  it("keeps the hosted plugin-list memory allowance scoped to GitHub-hosted runners", () => {
+  it("verifies built runtime artifacts with hosted-serial and Blacksmith-parallel modes", () => {
     const workflow = readCiWorkflow();
-    const startupMemoryStep = workflow.jobs["build-artifacts"].steps.find(
-      (step: WorkflowStep) => step.name === "Check CLI startup memory",
+    const verifierStep = workflow.jobs["build-artifacts"].steps.find(
+      (step: WorkflowStep) => step.name === "Verify built runtime artifacts",
     );
 
-    expect(startupMemoryStep.env.OPENCLAW_STARTUP_MEMORY_PLUGINS_LIST_MB).toBe(
+    // The hosted RSS allowance and the serial fallback keep the startup-memory
+    // measurement unperturbed on 4-core hosted runners.
+    expect(verifierStep.env.OPENCLAW_STARTUP_MEMORY_PLUGINS_LIST_MB).toBe(
       "${{ runner.environment == 'github-hosted' && '425' || '400' }}",
     );
-  });
-
-  it("runs the Doctor plugin-index persistence proof against the built CLI", () => {
-    const workflow = readCiWorkflow();
-    const proofStep = workflow.jobs["build-artifacts"].steps.find(
-      (step: WorkflowStep) => step.name === "Verify built Doctor plugin index persistence",
+    expect(verifierStep.env.PARALLEL_BUILT_VERIFIERS).toBe(
+      "${{ runner.environment != 'github-hosted' && 'true' || 'false' }}",
     );
-
-    expect(proofStep.env.OPENCLAW_E2E_USE_PREBUILT_DIST).toBe("1");
-    expect(proofStep.run).toContain(
+    expect(verifierStep.run).toContain(
       "test/scripts/doctor-config-preflight-plugin-index.built-cli.e2e.test.ts",
     );
-    expect(proofStep.run).toContain(
-      "env OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS=660000 node scripts/run-vitest.mjs run",
+    expect(verifierStep.run).toContain(
+      "env OPENCLAW_E2E_USE_PREBUILT_DIST=1 OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS=660000 node scripts/run-vitest.mjs run",
     );
-    expect(proofStep.run).toContain("--config test/vitest/vitest.e2e.config.ts");
-    expect(proofStep.run).toContain("Selected target predates");
+    expect(verifierStep.run).toContain("--config test/vitest/vitest.e2e.config.ts");
+    expect(verifierStep.run).toContain("Selected target predates");
+    expect(verifierStep.run).toContain("pnpm test:build:singleton");
+    // The parallel branch must complete any startup asset rebuild before
+    // forking so concurrent verifiers never read dist mid-write.
+    expect(verifierStep.run).toContain("scripts/ensure-cli-startup-build.mts");
+    expect(verifierStep.run).toContain("scripts/check-cli-startup-memory.mjs");
+    expect(verifierStep.run).toContain("pnpm test:startup:memory");
+    expect(verifierStep.run).toContain(".artifacts/startup-memory/summary.md");
   });
 
   it("runs the scoped SQLite lifecycle proof against the exact built artifact", () => {
