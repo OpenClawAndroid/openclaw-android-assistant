@@ -331,7 +331,7 @@ function patchSessionRow(
   host.sessionsResult = {
     ...current,
     sessions: current.sessions.map((row) =>
-      row.key === sessionKey ? Object.assign({}, row, patch) : row,
+      areUiSessionKeysEquivalent(row.key, sessionKey) ? Object.assign({}, row, patch) : row,
     ),
   };
 }
@@ -344,7 +344,9 @@ export function switchChatFastMode(
   if (!host.client || !host.connected) {
     return Promise.resolve(false);
   }
-  const activeRow = host.sessionsResult?.sessions?.find((row) => row.key === targetSessionKey);
+  const activeRow = host.sessionsResult?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, targetSessionKey),
+  );
   const previousFastMode = activeRow?.fastMode;
   const previousEffectiveFastMode = activeRow?.effectiveFastMode;
   const next: FastMode | undefined =
@@ -478,7 +480,9 @@ export function switchChatThinkingLevel(
   if (!host.client || !host.connected) {
     return Promise.resolve(false);
   }
-  const activeRow = host.sessionsResult?.sessions?.find((row) => row.key === targetSessionKey);
+  const activeRow = host.sessionsResult?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, targetSessionKey),
+  );
   const previousThinkingLevel = activeRow?.thinkingLevel;
   const normalizedNext =
     (normalizeThinkLevel(nextThinkingLevel) ?? nextThinkingLevel.trim()) || undefined;
