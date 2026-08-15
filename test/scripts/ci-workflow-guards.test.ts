@@ -4623,7 +4623,7 @@ server.listen(0, "127.0.0.1", () => writeFileSync(readyPath, String(server.addre
     expect(matrixRows).toContainEqual({
       check_name: "report-plugin-sdk-api-diff",
       group: "plugin-sdk-api-diff",
-      runner: "blacksmith-4vcpu-ubuntu-2404",
+      runner: "blacksmith-8vcpu-ubuntu-2404",
     });
 
     expect(workflow.jobs.preflight.outputs.diff_head_revision).toBe(
@@ -6286,7 +6286,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(uiE2e.env).toEqual({ OPENCLAW_UI_E2E_SKIP_REAL_GATEWAY: "1" });
     expect(uiE2e.strategy["fail-fast"]).toBe(false);
     expect(uiE2e.strategy["max-parallel"]).toBe(
-      "${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 8 || 4 }}",
+      "${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 10 || 4 }}",
     );
     expect(uiE2e.strategy.matrix).toBe("${{ fromJson(needs.preflight.outputs.ui_e2e_matrix) }}");
     const expectedUiE2eMatrix = (shardCount: number) => ({
@@ -6302,8 +6302,8 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     });
     for (const [runnerBackend, shardCount] of [
       ["blacksmith", 4],
-      ["github", 8],
-      ["hybrid", 8],
+      ["github", 10],
+      ["hybrid", 10],
     ] as const) {
       const manifest = runCiManifestFixture({
         bundledPlanner: true,

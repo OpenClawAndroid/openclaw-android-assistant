@@ -26,6 +26,7 @@ import type { WorkerSessionPlacementStore } from "./worker-environments/placemen
 import type { WorkerPlacementDispatchContract } from "./worker-environments/service-contract.js";
 import type { WorkerEnvironmentService } from "./worker-environments/service.js";
 import type { WorkerTunnelManager } from "./worker-environments/tunnel.js";
+import { listRetainedWorkerBundleHashes } from "./worker-environments/worker-bundle-retention.js";
 
 type WorkerEnvironmentStore = ReturnType<
   typeof import("./worker-environments/store.js").createWorkerEnvironmentStore
@@ -137,6 +138,12 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
   // A crashed gateway can leak local turn claims; drop them before workers re-admit turns.
   params.startup.placementStore.clearLocalTurnClaimsAfterRestart();
   const placementGate = createWorkerSessionPlacementGate(params.startup.placementStore);
+  const workerEnvironmentLog = params.log.child("worker-environments");
+  const listRetainedBundleHashes = () =>
+    listRetainedWorkerBundleHashes({
+      environments: params.startup.store.list(),
+      placements: params.startup.placementStore.list(),
+    });
   let workerBundleProducer: WorkerBundleProducer | undefined;
   let workerNpmArtifact: Promise<WorkerNpmArtifact> | undefined;
   const prepareInstallation = async (install: "bundle" | "npm") => {
@@ -144,10 +151,15 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
       loadWorkerEnvironmentRuntimeModule(),
       import("../../packages/gateway-protocol/src/schema/worker-admission.js"),
     ]);
-    workerBundleProducer ??= workerRuntime.createWorkerBundleProducer({
+    const producer = (workerBundleProducer ??= workerRuntime.createWorkerBundleProducer({
       protocolFeatures: WORKER_PROTOCOL_FEATURES,
-    });
-    const bundle = await workerBundleProducer.prepare();
+      cacheOwnership: "exclusive",
+      onCacheCleanupError: (error) => {
+        workerEnvironmentLog.warn(`Worker bundle cache cleanup failed: ${String(error)}`);
+      },
+    }));
+    const bundle = await producer.prepare();
+    await producer.prune(listRetainedBundleHashes());
     if (install === "bundle") {
       return bundle;
     }
@@ -200,7 +212,6 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
   let dispatchChild: WorkerPlacementDispatchContract["dispatch"] = async () => {
     throw new Error("Worker session dispatch is unavailable");
   };
-  const workerEnvironmentLog = params.log.child("worker-environments");
   const workerEnvironmentServiceBase = createWorkerEnvironmentService({
     store: params.startup.store,
     getConfig: getRuntimeConfig,
