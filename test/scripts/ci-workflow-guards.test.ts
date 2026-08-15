@@ -3030,6 +3030,7 @@ NODE
       "qa-smoke-ci-profile": "ubuntu-24.04",
       "skills-python": "ubuntu-24.04",
       "sqlite-session-lifecycle": "ubuntu-24.04",
+      "check-test-types-hosted-core-shard": "ubuntu-24.04",
       "checks-windows": "windows-2025",
     } as const;
     const expectedHybridFirstAttemptRunners = {
@@ -3043,6 +3044,7 @@ NODE
       "macos-node": "blacksmith-6vcpu-macos-15",
       "macos-swift": "blacksmith-12vcpu-macos-26",
       "ios-build": "blacksmith-12vcpu-macos-26",
+      "check-test-types-hosted-core-shard": "blacksmith-8vcpu-ubuntu-2404",
     } as const;
     const configurableJobs = Object.entries(jobs)
       .filter(([, job]) => String(job["runs-on"]).startsWith("${{"))
@@ -3112,12 +3114,33 @@ NODE
         runner: "blacksmith-16vcpu-ubuntu-2404",
       },
       {
+        jobName: "check-shard",
+        matrix: { runner: "blacksmith-32vcpu-ubuntu-2404", task: "dependencies" },
+        runner: "blacksmith-32vcpu-ubuntu-2404",
+      },
+      {
         jobName: "check-additional-shard",
         matrix: {
           group: "extension-package-boundary",
           runner: "blacksmith-32vcpu-ubuntu-2404",
         },
         runner: "blacksmith-32vcpu-ubuntu-2404",
+      },
+      {
+        jobName: "check-additional-shard",
+        matrix: {
+          group: "runtime-topology-architecture",
+          runner: "blacksmith-8vcpu-ubuntu-2404",
+        },
+        runner: "blacksmith-8vcpu-ubuntu-2404",
+      },
+      {
+        jobName: "check-additional-shard",
+        matrix: {
+          group: "plugin-sdk-api-diff",
+          runner: "blacksmith-4vcpu-ubuntu-2404",
+        },
+        runner: "blacksmith-4vcpu-ubuntu-2404",
       },
       {
         jobName: "checks-node-core-test-nondist-shard",

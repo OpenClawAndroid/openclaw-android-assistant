@@ -1,10 +1,10 @@
 import {
   buildGatewayConnectAuth,
   buildDeviceAuthPayload,
+  ConnectErrorDetailCodes,
   GATEWAY_CLIENT_CAPS,
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
-  ConnectErrorDetailCodes,
   formatConnectErrorMessage,
   GatewayProtocolClient,
   GatewayProtocolRequestError,
@@ -19,16 +19,14 @@ import {
   type ErrorShape,
   type EventFrame,
   type HelloOk,
-  shouldPauseGatewayReconnect,
   resolveGatewayConnectScopes,
-  readConnectErrorDetailCode,
   selectGatewayConnectAuth,
   shouldRetryGatewayWithDeviceToken,
   isRetryableGatewayStartupUnavailableError,
-  resolveGatewayStartupRetryAfterMs,
-  resolveSafeTimeoutDelayMs,
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
+  resolveGatewayStartupRetryAfterMs,
+  resolveSafeTimeoutDelayMs,
 } from "@openclaw/gateway-client/browser";
 export type { EventFrame as GatewayEventFrame } from "@openclaw/gateway-client/browser";
 import type {
@@ -54,6 +52,14 @@ import {
 } from "../lib/nodes/index.ts";
 import { generateUUID } from "../lib/uuid.ts";
 import { createBrowserGatewaySocket } from "./gateway-browser-socket.ts";
+import {
+  enrichProtocolMismatchDetails,
+  isLegacyGatewayBuildIdSchemaError,
+  isNonRecoverableConnectError,
+  resolveGatewayErrorDetailCode,
+} from "./gateway-connect-errors.ts";
+
+export { resolveGatewayErrorDetailCode };
 
 export class GatewayRequestError extends GatewayProtocolRequestError {
   constructor(error: ErrorShape) {
@@ -65,41 +71,6 @@ export class GatewayRequestError extends GatewayProtocolRequestError {
     });
     this.name = "GatewayRequestError";
   }
-}
-
-function enrichProtocolMismatchDetails(message: string | undefined, details: unknown): unknown {
-  if (readConnectErrorDetailCode(details) === ConnectErrorDetailCodes.PROTOCOL_MISMATCH) {
-    return details;
-  }
-  if (!message?.toLowerCase().includes("protocol mismatch")) {
-    return details;
-  }
-  return {
-    code: ConnectErrorDetailCodes.PROTOCOL_MISMATCH,
-    clientMinProtocol: MIN_CLIENT_PROTOCOL_VERSION,
-    clientMaxProtocol: PROTOCOL_VERSION,
-    ...(details && typeof details === "object" && !Array.isArray(details) ? details : {}),
-  };
-}
-
-export function resolveGatewayErrorDetailCode(
-  error: { details?: unknown } | null | undefined,
-): string | null {
-  return readConnectErrorDetailCode(error?.details);
-}
-
-/**
- * Connect failures that cannot recover while client and server state stay unchanged.
- * AUTH_TOKEN_MISMATCH stays out: the close handler owns its bounded cached-token retry.
- */
-function isNonRecoverableConnectError(error: { details?: unknown } | undefined): boolean {
-  if (!error) {
-    return false;
-  }
-  return shouldPauseGatewayReconnect({
-    details: error.details,
-    protocolMismatchIsTerminal: true,
-  });
 }
 
 function isLoopbackIPv4Host(host: string): boolean {
@@ -314,6 +285,10 @@ export class GatewayBrowserClient {
   private tickWatchTimer: ReturnType<typeof setInterval> | null = null;
   private pendingDeviceTokenRetry = false;
   private deviceTokenRetryBudgetUsed = false;
+  // Older shipped Gateways used a closed client schema. Downgrade once per
+  // browser client; a document reload creates a fresh exact-identity attempt.
+  private clientBuildIdCompatibilityDisabled = false;
+  private clientBuildIdRetryBudgetUsed = false;
   // Close/stop advances this generation before another socket can make stale hello work look active.
   private recovery = { value: "", resolved: false, generation: 0 };
   private scopeUpgradeBinding: ScopeUpgradeBinding | null = null;
@@ -404,6 +379,8 @@ export class GatewayBrowserClient {
     this.scopeUpgradeBinding = null;
     this.pendingDeviceTokenRetry = false;
     this.deviceTokenRetryBudgetUsed = false;
+    this.clientBuildIdCompatibilityDisabled = false;
+    this.clientBuildIdRetryBudgetUsed = false;
   }
 
   get connected() {
@@ -446,7 +423,7 @@ export class GatewayBrowserClient {
     const client: ConnectParams["client"] = {
       id: this.opts.clientName ?? GATEWAY_CLIENT_NAMES.CONTROL_UI,
       version: this.opts.clientVersion ?? "control-ui",
-      buildId: this.opts.clientBuildId,
+      buildId: this.clientBuildIdCompatibilityDisabled ? undefined : this.opts.clientBuildId,
       platform: this.opts.platform ?? navigator.platform ?? "web",
       mode: this.opts.mode ?? GATEWAY_CLIENT_MODES.WEBCHAT,
       instanceId: this.opts.instanceId,
@@ -609,6 +586,15 @@ export class GatewayBrowserClient {
   private handleConnectFailure(err: GatewayProtocolRequestError, plan: ConnectPlan) {
     const connectErrorCode =
       err instanceof GatewayRequestError ? resolveGatewayErrorDetailCode(err) : null;
+    if (
+      !this.clientBuildIdRetryBudgetUsed &&
+      isLegacyGatewayBuildIdSchemaError(err, plan.params.client.buildId)
+    ) {
+      this.clientBuildIdCompatibilityDisabled = true;
+      this.clientBuildIdRetryBudgetUsed = true;
+      this.client.resetReconnectBackoff(250);
+      return { closeCode: CONNECT_FAILED_CLOSE_CODE, closeReason: "connect retry" };
+    }
     if (
       shouldRetryGatewayWithDeviceToken({
         retryBudgetUsed: this.deviceTokenRetryBudgetUsed,

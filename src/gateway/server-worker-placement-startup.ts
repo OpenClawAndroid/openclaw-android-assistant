@@ -11,7 +11,9 @@ import {
 } from "../sessions/session-lifecycle-admission.js";
 import { onSessionIdentityMutation } from "../sessions/session-lifecycle-events.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
+import type { NodeWorkerSupervisorTransport } from "./node-registry-private.js";
 import { resolveWorkerPlacementSessionEvidence } from "./server-worker-placement-session-evidence.js";
+import { createNodeWorkspaceRetainCoordinator } from "./worker-environments/node-workspace-retain-coordinator.js";
 import { createWorkerPlacementDiskSpaceMonitor } from "./worker-environments/placement-disk-space.js";
 import { coordinateWorkerPlacementDispatch } from "./worker-environments/placement-dispatch-coordinator.js";
 import { createWorkerPlacementDispatchService } from "./worker-environments/placement-dispatch.js";
@@ -35,8 +37,8 @@ const loadWorkerPlacementSessionRuntimeModule = createLazyRuntimeModule(async ()
     import("./session-utils.js"),
   ]);
   return {
-    isWorkerPlacementSessionRuntimeSupported:
-      placementSessionRuntime.isWorkerPlacementSessionRuntimeSupported,
+    resolveWorkerPlacementExecutionMode:
+      placementSessionRuntime.resolveWorkerPlacementExecutionMode,
     managedWorktrees,
     resolveWorkerPlacementSessionRuntime:
       placementSessionRuntime.resolveWorkerPlacementSessionRuntime,
@@ -114,6 +116,7 @@ type WorkerPlacementSidecar = { stop: () => Promise<void> };
 export type GatewayWorkerPlacementRuntimeParams = {
   placements: WorkerSessionPlacementStore;
   environments: WorkerEnvironmentService;
+  gatewayNamespace: string;
   admitNewPlacements: boolean;
   revokeSessionAuthority: (request: { sessionId: string; sessionKeys: readonly string[] }) => void;
   warn: (message: string) => void;
@@ -182,10 +185,10 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
       placements: params.placements,
       environments: params.environments,
       ...workspaceConflictHandlers,
-      runLocalBarrier: async ({ sessionId, sessionKey, agentId, startDispatch }) => {
+      runLocalBarrier: async ({ sessionId, sessionKey, agentId, executionMode, startDispatch }) => {
         const sessionRuntime = await loadWorkerPlacementSessionRuntimeModule();
         const {
-          isWorkerPlacementSessionRuntimeSupported,
+          resolveWorkerPlacementExecutionMode,
           resolveGatewaySessionStoreTargetWithStore,
           resolveWorkerPlacementSessionRuntime,
         } = sessionRuntime;
@@ -231,7 +234,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
               agentId: currentTarget.agentId,
               sessionKey: currentTarget.canonicalKey,
             });
-            if (!isWorkerPlacementSessionRuntimeSupported(currentRuntime)) {
+            if (resolveWorkerPlacementExecutionMode(currentRuntime) !== executionMode) {
               throw new WorkerDispatchTargetChangedError(
                 `Session ${sessionKey} runtime changed to ${currentRuntime} before cloud worker dispatch. Retry.`,
               );
@@ -270,10 +273,10 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
         }
         return placement;
       },
-      runActivationBarrier: async ({ sessionId, sessionKey, agentId, activate }) => {
+      runActivationBarrier: async ({ sessionId, sessionKey, agentId, executionMode, activate }) => {
         const sessionRuntime = await loadWorkerPlacementSessionRuntimeModule();
         const {
-          isWorkerPlacementSessionRuntimeSupported,
+          resolveWorkerPlacementExecutionMode,
           resolveGatewaySessionStoreTargetWithStore,
           resolveWorkerPlacementSessionRuntime,
         } = sessionRuntime;
@@ -318,7 +321,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
               agentId: currentTarget.agentId,
               sessionKey: currentTarget.canonicalKey,
             });
-            if (!isWorkerPlacementSessionRuntimeSupported(currentRuntime)) {
+            if (resolveWorkerPlacementExecutionMode(currentRuntime) !== executionMode) {
               throw new WorkerDispatchTargetChangedError(
                 `Session ${sessionKey} runtime changed to ${currentRuntime} before cloud worker activation. Retry.`,
               );
@@ -405,6 +408,12 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
     environments: params.environments,
     forceDestroyEnvironment: dispatchService.forceDestroyEnvironment,
     resolveSessionEvidence: resolveWorkerPlacementSessionEvidence,
+    warn: params.warn,
+  });
+  const nodeWorkspaceRetention = createNodeWorkspaceRetainCoordinator({
+    gatewayNamespace: params.gatewayNamespace,
+    placements: params.placements,
+    environments: params.environments,
     warn: params.warn,
   });
   const admissionProvider = createWorkerSessionTurnPlacementProvider({
@@ -499,6 +508,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
         (async () => {
           await sessionRetirement.reconcile();
           await dispatchService.reconcileActive();
+          void nodeWorkspaceRetention.schedule();
         })(),
         "Worker placement reconcile sweep failed",
       );
@@ -546,6 +556,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
               (operation): operation is Promise<void> => operation !== undefined,
             ),
           );
+          await nodeWorkspaceRetention.stop();
           await params.environments.stop();
         })();
         return stopPromise;
@@ -585,6 +596,11 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
         await sidecar.stop();
         return null;
       }
+      void nodeWorkspaceRetention.start();
+      if (hooks.isClosePreludeStarted()) {
+        await sidecar.stop();
+        return null;
+      }
       params.environments.start();
       if (hooks.isClosePreludeStarted()) {
         await sidecar.stop();
@@ -608,6 +624,9 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
     diskSpace,
     placements: params.placements,
     resolveNodeWorkspaceBinding,
+    bindNodeWorkerSupervisorTransport: (transport: NodeWorkerSupervisorTransport) =>
+      nodeWorkspaceRetention.bindTransport(transport),
+    scheduleNodeWorkspaceRetention: (nodeId?: string) => nodeWorkspaceRetention.schedule(nodeId),
     startRuntime,
   };
 }
