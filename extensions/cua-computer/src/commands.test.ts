@@ -66,12 +66,16 @@ describe("cua-computer provider", () => {
         "browser_download",
         "browser_pointer",
         "escalate_scope",
+        "get_recording_state",
+        "start_recording",
+        "stop_recording",
+        "replay_trajectory",
         "invoke_menu",
       ],
       targets: ["screen", "window", "element", "browser"],
       deliveryModes: ["background", "foreground"],
       observations: ["image", "accessibility", "browser"],
-      features: { recording: false, agentCursor: false, multiDisplay: false },
+      features: { recording: true, agentCursor: false, multiDisplay: false },
     });
   });
 
@@ -82,6 +86,14 @@ describe("cua-computer provider", () => {
     expect(actions).not.toContain("left_mouse_down");
     expect(actions).not.toContain("left_mouse_up");
     expect(actions).toContain("get_window_state");
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        "get_recording_state",
+        "start_recording",
+        "stop_recording",
+        "replay_trajectory",
+      ]),
+    );
   });
 
   it("advertises the macOS mapping only with a valid atomic app-provided endpoint", () => {
@@ -97,7 +109,7 @@ describe("cua-computer provider", () => {
     expect(provider.capabilities().actions).toContain("get_window_state");
     expect(provider.capabilities().actions).not.toContain("left_mouse_down");
     expect(provider.capabilities().features).toEqual({
-      recording: false,
+      recording: true,
       agentCursor: false,
       multiDisplay: false,
     });
@@ -140,7 +152,7 @@ describe("cua-computer provider", () => {
       imageProcessor: {
         encode: vi.fn(async () => ({ data: Buffer.from("png"), width: 100, height: 50 })),
       },
-    }).openExecution({});
+    }).openExecution({ executionId: "123e4567-e89b-42d3-a456-426614174000" });
     const screen = JSON.parse(await computer.snapshot('{"format":"png","maxWidth":100}')) as {
       displayFrameId: string;
       width: number;
@@ -307,7 +319,9 @@ describe("cua-computer provider", () => {
     });
     expect(createDriver).not.toHaveBeenCalled();
 
-    const computer = await provider.openExecution({});
+    const computer = await provider.openExecution({
+      executionId: "123e4567-e89b-42d3-a456-426614174000",
+    });
     await computer.snapshot('{"format":"png","maxWidth":100}');
     expect(createDriver).toHaveBeenCalledOnce();
 
@@ -552,7 +566,7 @@ describe("cua-computer provider", () => {
   });
 
   it("maps remaining discovery, window lifecycle, and semantic actions", async () => {
-    const { session, callTool } = driver();
+    const { session, callTool, callDesktopTool } = driver();
     callTool.mockImplementation(async (name) => {
       if (name === "list_windows") {
         return cuaToolResult(CUA_DRIVER_CONTRACT_FIXTURES.listWindows);
@@ -566,9 +580,6 @@ describe("cua-computer provider", () => {
           windows: CUA_DRIVER_CONTRACT_FIXTURES.listWindows.windows,
         });
       }
-      if (name === "get_cursor_position") {
-        return cuaToolResult({ x: 11, y: 12, source: "x11" });
-      }
       return cuaToolResult(
         {},
         {
@@ -577,6 +588,11 @@ describe("cua-computer provider", () => {
         },
       );
     });
+    callDesktopTool.mockImplementation(async (name) =>
+      name === "get_cursor_position"
+        ? cuaToolResult({ x: 11, y: 12, source: "x11" })
+        : cuaToolResult({}),
+    );
     const computer = await execution(session);
     const tree = JSON.parse(await computer.act('{"action":"get_accessibility_tree"}')) as {
       details: { windows: unknown[]; processes: unknown[] };
@@ -584,6 +600,7 @@ describe("cua-computer provider", () => {
     expect(tree.details.windows).toHaveLength(1);
     expect(tree.details.processes).toHaveLength(1);
     await expect(computer.act('{"action":"get_cursor_position"}')).resolves.toContain('"x":11');
+    expect(callDesktopTool).toHaveBeenCalledWith("get_cursor_position", {}, undefined);
 
     const listed = JSON.parse(await computer.act('{"action":"list_windows"}')) as {
       details: { windows: Array<{ windowRef: string }> };
