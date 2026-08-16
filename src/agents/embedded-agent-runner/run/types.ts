@@ -70,7 +70,7 @@ type EmbeddedRunAttemptToolTerminalObservation = {
   outcome: "success" | "failure";
   failure?: Omit<
     ToolErrorSummary,
-    "toolName" | "meta" | "mutatingAction" | "actionFingerprint" | "fileTarget"
+    "toolName" | "meta" | "mutatingAction" | "ownerKey" | "actionFingerprint" | "fileTarget"
   >;
   /** Protocol-owned mutation facts for native tools that do not use OpenClaw definitions. */
   nativeMutation?: {
@@ -78,6 +78,10 @@ type EmbeddedRunAttemptToolTerminalObservation = {
     replaySafe: boolean;
     actionFingerprint?: string;
     fileTarget?: ToolErrorSummary["fileTarget"];
+  };
+  /** Concrete plugin owner; the terminal observer derives mutation facts from executed args. */
+  ownerMutation?: {
+    ownerKey: string;
   };
 };
 

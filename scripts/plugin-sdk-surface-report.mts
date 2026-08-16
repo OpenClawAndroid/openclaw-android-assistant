@@ -285,7 +285,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -1: remove the orphan diagnostic traceparent propagation export.
       // -17: retire the messaging-targets subpath, embedded Pi aliases, and shipped
       // channel setup compatibility helpers.
-      4312,
+      // +1: concrete plugin side-effect owner resolution for agent harness runtimes.
+      4313,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -359,7 +360,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       //     Slack progress-draft render) so installed plugins survive upgrade (#124041 class).
       // -1: remove the orphan diagnostic traceparent propagation export.
       // -12: retire the callable messaging-targets, embedded Pi, and channel setup helpers.
-      2564,
+      // +1: concrete plugin side-effect owner resolution for agent harness runtimes.
+      2565,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
