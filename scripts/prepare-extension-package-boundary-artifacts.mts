@@ -558,8 +558,12 @@ export function isArtifactSetFresh(params: ArtifactFreshParams) {
     return false;
   }
   // Repair the mtime fast path so later invocations in this checkout skip
-  // without re-reading every input byte.
-  const now = new Date(Math.max(Date.now(), Math.ceil(newestInputMtimeMs)));
+  // without re-reading every input byte. The extra millisecond is required,
+  // not cosmetic: landing exactly on the newest input leaves no headroom for
+  // sub-millisecond write rounding or lagging metadata on CI filesystems, and
+  // an output that lands at or below its input silently keeps every later
+  // invocation on the expensive full-hash path this repair exists to avoid.
+  const now = new Date(Math.max(Date.now(), Math.ceil(newestInputMtimeMs)) + 1);
   for (const relativePath of params.outputPaths) {
     const outputPath = resolve(rootDir, relativePath);
     if (fs.existsSync(outputPath)) {
