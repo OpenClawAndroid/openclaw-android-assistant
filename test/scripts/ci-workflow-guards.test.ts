@@ -4389,6 +4389,7 @@ server.listen(0, "127.0.0.1", () => writeFileSync(readyPath, String(server.addre
     );
     expect(hostedLintCache.uses).toBe("actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae");
     expect(hostedLintCache.with).toEqual(boundaryCache.with);
+    expect(boundaryCache.with.key).toContain("src/agents/embedded-agent-runner/run/types.ts");
     // Single semantic writer: protected pushes commit explicitly (not
     // on-change/if-missing, whose allocated-byte heuristic can strand a stale
     // marker); PR clones and the lint consumer stay read-only.
@@ -4415,6 +4416,7 @@ server.listen(0, "127.0.0.1", () => writeFileSync(readyPath, String(server.addre
     expect(lintRestoreStep.env.BOUNDARY_CONFIG_HASH).toBe(configHash);
     for (const gate of [restoreStep, lintRestoreStep, seedStep]) {
       expect(gate.run).toContain('echo "$BOUNDARY_CONFIG_HASH"');
+      expect(gate.run).toContain("HEAD:src/agents/embedded-agent-runner/run/types.ts");
       expect(gate.if).toContain("vars.OPENCLAW_CI_RUNNER_BACKEND != 'github'");
     }
     // Seeding is writer-only work: PR mounts never commit, so seeding there
@@ -8045,7 +8047,14 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     const requireEvidenceStep = publishJob.steps.find(
       (step: WorkflowStep) => step.name === "Require one QA evidence file",
     );
-    expect(requireEvidenceStep.run).toContain("Expected exactly one qa-evidence.json file");
+    expect(requireEvidenceStep.run).toContain(
+      "Expected exactly one aggregate QA evidence manifest",
+    );
+    expect(requireEvidenceStep.run).toContain("qa-profile-evidence-manifest.json");
+    expect(requireEvidenceStep.run).toContain(
+      'evidence_path="$(dirname "${manifest_paths[0]}")/qa-evidence.json"',
+    );
+    expect(requireEvidenceStep.run).toContain('[[ ! -f "$evidence_path" || -L "$evidence_path" ]]');
 
     const validateManifestStep = publishJob.steps.find(
       (step: WorkflowStep) => step.name === "Validate QA evidence manifest",
@@ -8113,11 +8122,25 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     });
     expect(generatedPrUploadStep.with.path.trim().split("\n")).toEqual(MATURITY_GENERATED_PR_PATHS);
 
+    const prepareRenderEvidenceStep = publishJob.steps.find(
+      (step: WorkflowStep) => step.name === "Prepare aggregate QA evidence for rendering",
+    );
+    expect(prepareRenderEvidenceStep.env.QA_EVIDENCE_PATH).toBe(
+      "${{ steps.evidence.outputs.qa_evidence_path }}",
+    );
+    expect(prepareRenderEvidenceStep.run).toContain(
+      'render_evidence_dir=".artifacts/maturity-render-evidence"',
+    );
+    expect(prepareRenderEvidenceStep.run).toContain(
+      'install -m 0644 "$QA_EVIDENCE_PATH" "$render_evidence_dir/qa-evidence.json"',
+    );
     for (const stepName of ["Render artifact docs", "Render committed docs preview"]) {
       const renderStep = publishJob.steps.find((step: WorkflowStep) => step.name === stepName);
       expect(renderStep.env.ALLOW_FAILURES).toBe("${{ inputs.allow_failures }}");
       expect(renderStep.run).toContain('[[ "$ALLOW_FAILURES" == "true" ]]');
       expect(renderStep.run).toContain("allow_failures_args+=(--allow-failures)");
+      expect(renderStep.run).toContain("--evidence-dir .artifacts/maturity-render-evidence");
+      expect(renderStep.run).not.toContain("--evidence-dir .artifacts/maturity-evidence");
       expect(renderStep.run).toContain('"${allow_failures_args[@]}"');
     }
     const renderArtifactStep = publishJob.steps.find(

@@ -810,7 +810,6 @@ extensions/memory-core/src/short-term-promotion-utils.ts	4
 extensions/memory-core/src/short-term-promotion.ts	1
 extensions/memory-core/src/standing-intents-tool.ts	5
 extensions/memory-core/src/standing-intents.ts	2
-extensions/memory-core/src/time.ts	1
 extensions/memory-core/src/tools.ts	4
 extensions/memory-lancedb/config.ts	4
 extensions/memory-lancedb/doctor-contract-api.ts	1
@@ -1454,7 +1453,7 @@ extensions/workboard/src/store-core.ts	5
 extensions/workboard/src/store-normalizers.ts	33
 extensions/workboard/src/store-workflow.ts	2
 extensions/workboard/src/store.ts	5
-extensions/workboard/src/tools.ts	25
+extensions/workboard/src/tools.ts	11
 extensions/workboard/src/workspace-access.ts	1
 extensions/xai/code-execution.ts	2
 extensions/xai/image-generation-provider.ts	1
@@ -2282,7 +2281,6 @@ src/auto-reply/reply/queue/drain.ts	2
 src/auto-reply/reply/queue/enqueue.ts	1
 src/auto-reply/reply/queue/settings.ts	1
 src/auto-reply/reply/reply-config-runtime-mode.ts	2
-src/auto-reply/reply/reply-directives.ts	1
 src/auto-reply/reply/reply-operation-run-state.ts	1
 src/auto-reply/reply/reply-payload-sending-hook.ts	1
 src/auto-reply/reply/reply-run-registry.registry.ts	1
@@ -4216,7 +4214,7 @@ ui/src/pages/chat/components/chat-audio-player.ts	1
 ui/src/pages/chat/components/chat-composer-plus-menu.ts	1
 ui/src/pages/chat/components/chat-composer-slash-menu.ts	1
 ui/src/pages/chat/components/chat-composer-view.ts	1
-ui/src/pages/chat/components/chat-composer.ts	8
+ui/src/pages/chat/components/chat-composer.ts	5
 ui/src/pages/chat/components/chat-effort-picker.ts	6
 ui/src/pages/chat/components/chat-header-session-menu.ts	3
 ui/src/pages/chat/components/chat-message-attachment-availability.ts	1

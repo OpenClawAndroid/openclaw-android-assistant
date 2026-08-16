@@ -1764,14 +1764,11 @@ export const en: TranslationMap = {
     details: "Details",
     labels: {
       host: "Host",
-      agent: "Agent",
       session: "Session",
       cwd: "CWD",
       resolved: "Resolved",
       security: "Security",
       ask: "Ask",
-      severity: "Severity",
-      plugin: "Plugin",
     },
   },
   approvalPage: {
@@ -3750,6 +3747,7 @@ export const en: TranslationMap = {
     queuedCount: "{count} queued",
     reconnecting: "Reconnecting…",
     retryNow: "Retry now",
+    actionsUnavailable: "Actions are unavailable while the Gateway reconnects.",
     scopeUpgrade: {
       limited: "This browser has limited access.",
       guidance:
@@ -5082,6 +5080,7 @@ export const en: TranslationMap = {
       queue: "Queue",
       queueMessage: "Queue message",
       stop: "Stop",
+      stopWithShortcut: "Stop (Esc)",
       stopGenerating: "Stop generating",
       send: "Send",
       sendMessage: "Send message",
@@ -5355,6 +5354,7 @@ export const en: TranslationMap = {
     },
     composer: {
       placeholder: "Message {name}",
+      emptyHint: "Write a message to send.",
       placeholderWithAttachments: "Add a message or paste more images...",
       offlineHint: "Offline — messages will be queued and sent when the connection returns.",
       offlineQueuedHint: "Offline — {count} queued; messages send when the connection returns.",
@@ -5496,6 +5496,7 @@ export const en: TranslationMap = {
       selectedCameraUnavailable:
         "The selected camera is unavailable. Choose another camera or System default.",
       startVoiceInput: "Start voice input",
+      voiceGestureHint: "Tap to talk · Hold to dictate",
       stillListening: "Still listening",
       stopVoiceInput: "Stop voice input",
       systemDefaultMicrophone: "System default",
