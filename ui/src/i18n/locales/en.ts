@@ -589,6 +589,10 @@ export const en: TranslationMap = {
       versionDrift: "version drift",
       versionDriftTitle:
         "Device {nodeVersion}; Gateway {gatewayVersion}. Update the older component to align the fleet.",
+      workerVersion: "Worker {version}",
+      workerMissing: "worker missing",
+      workerMissingTitle:
+        "The Gateway-managed worker bundle is missing. Start a new session on this device to reinstall it.",
       manualWake: "manual wake required",
       manualWakeTitle:
         "The Gateway cannot wake an offline Windows device. Start the machine or restore its network connection.",
@@ -1501,7 +1505,6 @@ export const en: TranslationMap = {
       title: "Security",
       gatewayAuth: "Gateway auth",
       execPolicy: "Exec policy",
-      deviceAuth: "Device auth",
       browserEnabled: "Browser enabled",
       toolProfile: "Tool profile",
     },
@@ -4516,15 +4519,6 @@ export const en: TranslationMap = {
   },
   login: {
     subtitle: "Gateway Dashboard",
-    deviceAuthMigration: {
-      banner: "This browser still needs one-time device approval after the update.",
-      action: "Secure this browser",
-      secureContextRequired:
-        "This legacy browser remains available temporarily. Reopen it over HTTPS or localhost to secure it with device identity.",
-      pendingUnavailable: "The browser pairing request is not available yet. Retry in a moment.",
-      loadFailed: "Could not load this browser's pairing request: {error}",
-      approvalFailed: "Could not secure this browser: {error}",
-    },
     passwordPlaceholder: "optional",
     showToken: "Show token",
     hideToken: "Hide token",
