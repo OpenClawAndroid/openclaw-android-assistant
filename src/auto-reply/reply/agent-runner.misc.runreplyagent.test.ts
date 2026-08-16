@@ -10,6 +10,7 @@ import {
   isEmbeddedAgentRunActive,
 } from "../../agents/embedded-agent-runner/runs.js";
 import { testing as embeddedRunTesting } from "../../agents/embedded-agent-runner/runs.test-support.js";
+import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
 import { clearRuntimeConfigSnapshot } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
@@ -31,10 +32,14 @@ import {
 } from "../../plugins/memory-state.test-fixtures.js";
 import { GatewayDrainingError } from "../../process/command-queue.js";
 import { getReplyPayloadMetadata, type ReplyPayload } from "../reply-payload.js";
-import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.shared.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
-import type { FollowupRun, QueueSettings } from "./queue.js";
+import {
+  createTestQueueSettings,
+  createTestQueuedFollowupRun,
+  createTestTemplateContext,
+} from "./agent-runner.test-fixtures.js";
+import type { FollowupRun } from "./queue.js";
 import { enqueueFollowupRun, scheduleFollowupDrain } from "./queue.js";
 import { createReplyOperation, replyRunRegistry } from "./reply-run-registry.js";
 import { testing as replyRunRegistryTesting } from "./reply-run-registry.test-support.js";
@@ -375,14 +380,14 @@ describe("runReplyAgent auto-compaction token update", () => {
     workspaceDir?: string;
   }) {
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "whatsapp",
       OriginatingTo: "+15550001111",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -405,7 +410,7 @@ describe("runReplyAgent auto-compaction token update", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
     return { typing, sessionCtx, resolvedQueue, followupRun };
   }
 
@@ -1114,14 +1119,14 @@ describe("runReplyAgent block streaming", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "discord",
       OriginatingTo: "channel:C1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1157,7 +1162,7 @@ describe("runReplyAgent block streaming", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "text_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -1219,14 +1224,14 @@ describe("runReplyAgent block streaming", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "discord",
       OriginatingTo: "channel:C1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1262,7 +1267,7 @@ describe("runReplyAgent block streaming", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "text_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const resultPromise = runReplyAgent({
       commandBody: "hello",
@@ -1342,14 +1347,14 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1376,7 +1381,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -1430,14 +1435,14 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1464,7 +1469,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -1517,14 +1522,14 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1551,7 +1556,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -1679,15 +1684,15 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
       CommandBody: "/trace raw show me everything",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1715,7 +1720,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -1849,15 +1854,15 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
       CommandBody: "show me the answer",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1885,7 +1890,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -1955,15 +1960,15 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
       CommandBody: "/trace raw",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -1990,7 +1995,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -2052,15 +2057,15 @@ describe("runReplyAgent Active Memory inline debug", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat:1",
       AccountId: "primary",
       MessageSid: "msg",
       CommandBody: "/trace raw",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2088,7 +2093,7 @@ describe("runReplyAgent Active Memory inline debug", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -2122,14 +2127,14 @@ describe("runReplyAgent Active Memory inline debug", () => {
 describe("runReplyAgent claude-cli routing", () => {
   function createRun() {
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "webchat",
       OriginatingTo: "session:1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2154,7 +2159,7 @@ describe("runReplyAgent claude-cli routing", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     return runReplyAgent({
       commandBody: "hello",
@@ -2230,7 +2235,7 @@ describe("runReplyAgent claude-cli routing", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "webchat",
       OriginatingTo: "session:1",
       AccountId: "primary",
@@ -2239,14 +2244,14 @@ describe("runReplyAgent claude-cli routing", () => {
       RawBody: "secret hitl prompt",
       BodyForAgent: "secret hitl prompt",
       Body: "secret hitl prompt",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
     const sessionEntry = {
       sessionId: "session",
       updatedAt: Date.now(),
       traceLevel: "raw",
     } as SessionEntry;
-    const followupRun = {
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "secret hitl prompt",
       summaryLine: "secret hitl prompt",
       enqueuedAt: Date.now(),
@@ -2273,7 +2278,7 @@ describe("runReplyAgent claude-cli routing", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "secret hitl prompt",
@@ -2318,18 +2323,18 @@ describe("runReplyAgent claude-cli routing", () => {
     });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "webchat",
       OriginatingTo: "session:1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
     const sessionEntry = {
       sessionId: "session",
       updatedAt: Date.now(),
     } as SessionEntry;
-    const followupRun = {
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2362,7 +2367,7 @@ describe("runReplyAgent claude-cli routing", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -2401,14 +2406,14 @@ describe("runReplyAgent messaging tool dedupe", () => {
   ) {
     const typing = createMockTypingController();
     const sessionKey = opts.sessionKey ?? "main";
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: messageProvider,
       OriginatingTo: "channel:C1",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2433,7 +2438,7 @@ describe("runReplyAgent messaging tool dedupe", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     return runReplyAgent({
       commandBody: "hello",
@@ -2533,15 +2538,15 @@ describe("runReplyAgent messaging tool dedupe", () => {
 describe("runReplyAgent reminder commitment guard", () => {
   function createRun(params?: { sessionKey?: string; omitSessionKey?: boolean }) {
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       OriginatingTo: "chat",
       AccountId: "primary",
       MessageSid: "msg",
       Surface: "telegram",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2566,7 +2571,7 @@ describe("runReplyAgent reminder commitment guard", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     return runReplyAgent({
       commandBody: "hello",
@@ -2759,15 +2764,15 @@ describe("runReplyAgent fallback reasoning tags", () => {
 
   function createRun(params?: { sessionEntry?: SessionEntry; sessionKey?: string }) {
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "whatsapp",
       OriginatingTo: "+15550001111",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
     const sessionKey = params?.sessionKey ?? "main";
-    const followupRun = {
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2793,7 +2798,7 @@ describe("runReplyAgent fallback reasoning tags", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     return runReplyAgent({
       commandBody: "hello",
@@ -2893,13 +2898,13 @@ describe("runReplyAgent response usage footer", () => {
     model?: string;
   }) {
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "whatsapp",
       OriginatingTo: "+15550001111",
       AccountId: "primary",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
 
     const sessionEntry: SessionEntry = {
       sessionId: "session",
@@ -2907,7 +2912,7 @@ describe("runReplyAgent response usage footer", () => {
       responseUsage: params.responseUsage,
     };
 
-    const followupRun = {
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -2934,7 +2939,7 @@ describe("runReplyAgent response usage footer", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     return runReplyAgent({
       commandBody: "hello",
@@ -3147,12 +3152,12 @@ describe("runReplyAgent transient HTTP retry", () => {
       });
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -3177,7 +3182,7 @@ describe("runReplyAgent transient HTTP retry", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const runPromise = runReplyAgent({
       commandBody: "hello",
@@ -3222,12 +3227,12 @@ describe("runReplyAgent billing error classification", () => {
     );
 
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -3252,7 +3257,7 @@ describe("runReplyAgent billing error classification", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     const result = await runReplyAgent({
       commandBody: "hello",
@@ -3282,12 +3287,12 @@ describe("runReplyAgent billing error classification", () => {
 describe("runReplyAgent mid-turn rate-limit fallback", () => {
   function createRun() {
     const typing = createMockTypingController();
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "telegram",
       MessageSid: "msg",
-    } as unknown as TemplateContext;
-    const resolvedQueue = { mode: "interrupt" } as unknown as QueueSettings;
-    const followupRun = {
+    });
+    const resolvedQueue = createTestQueueSettings({ mode: "interrupt" });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: "hello",
       enqueuedAt: Date.now(),
@@ -3312,7 +3317,7 @@ describe("runReplyAgent mid-turn rate-limit fallback", () => {
         timeoutMs: 1_000,
         blockReplyBreak: "message_end",
       },
-    } as unknown as FollowupRun;
+    });
 
     return runReplyAgent({
       commandBody: "hello",
@@ -3394,7 +3399,7 @@ describe("runReplyAgent private message_tool_only final warning (#85714)", () =>
     successfulCronAdds?: number;
     resolvedVerboseLevel?: VerboseLevel;
     isNewSession?: boolean;
-    inboundEventKind?: string;
+    inboundEventKind?: InboundEventKind;
     transcriptPrompt?: string;
     summaryLine?: string;
     strandedReplyRetry?: boolean;
@@ -3447,7 +3452,7 @@ describe("runReplyAgent private message_tool_only final warning (#85714)", () =>
         : { successfulCronAdds: params.successfulCronAdds }),
     });
 
-    const sessionCtx = {
+    const sessionCtx = createTestTemplateContext({
       Provider: "whatsapp",
       OriginatingChannel: "whatsapp",
       OriginatingTo: "+15550001111",
@@ -3455,8 +3460,8 @@ describe("runReplyAgent private message_tool_only final warning (#85714)", () =>
       MessageSid: "msg",
       ChatType: "direct",
       ...(params.inboundEventKind ? { InboundEventKind: params.inboundEventKind } : {}),
-    } as unknown as TemplateContext;
-    const followupRun = {
+    });
+    const followupRun = createTestQueuedFollowupRun({
       prompt: "hello",
       summaryLine: params.summaryLine ?? "hello",
       ...(params.strandedReplyRetry ? { strandedReplyRetry: true } : {}),
@@ -3488,7 +3493,7 @@ describe("runReplyAgent private message_tool_only final warning (#85714)", () =>
         blockReplyBreak: "message_end",
         sourceReplyDeliveryMode: "message_tool_only",
       },
-    } as unknown as FollowupRun;
+    });
 
     // Seeding the SQLite session entry above resolves the runtime config
     // (getRuntimeConfig) and pins an empty `{}` snapshot; leaving it in place
@@ -3508,7 +3513,7 @@ describe("runReplyAgent private message_tool_only final warning (#85714)", () =>
         commandBody: "hello",
         followupRun,
         queueKey: sessionKey,
-        resolvedQueue: { mode: "interrupt" } as unknown as QueueSettings,
+        resolvedQueue: createTestQueueSettings({ mode: "interrupt" }),
         shouldSteer: false,
         shouldFollowup: false,
         isActive: false,

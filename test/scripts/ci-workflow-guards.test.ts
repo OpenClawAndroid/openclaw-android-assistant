@@ -2724,11 +2724,11 @@ NODE
     expect(workflow.jobs["checks-fast-channel-contracts-shard"].strategy["max-parallel"]).toBe(12);
     expect(workflow.jobs["check-shard"].strategy["max-parallel"]).toBe(12);
     expect(workflow.jobs["check-additional-shard"].strategy["max-parallel"]).toBe(12);
-    expect(workflow.jobs["checks-windows"].strategy["max-parallel"]).toBe(3);
+    expect(workflow.jobs["checks-windows"].strategy["max-parallel"]).toBe(2);
     expect(workflow.jobs.android.strategy["max-parallel"]).toBe(2);
   });
 
-  it("splits Windows tests only for the GitHub-hosted backend", () => {
+  it("splits Windows tests two ways on every runner backend", () => {
     const workflow = readCiWorkflow();
     const runStep = workflow.jobs["checks-windows"].steps.find(
       (step: WorkflowStep) => step.name === "Run ${{ matrix.task }} (${{ matrix.runtime }})",
@@ -2762,45 +2762,28 @@ NODE
     expect(github.status, github.output).toBe(0);
     expect(hybrid.status, hybrid.output).toBe(0);
     expect(hybridDispatch.status, hybridDispatch.output).toBe(0);
-    // Blacksmith's Windows class admits ~2 concurrent jobs, so any profile that
-    // can land there uses the single lane; only guaranteed-hosted profiles split.
-    const expectedBlacksmithWindowsMatrix = [
-      {
-        check_name: "checks-windows-node-test",
-        runtime: "node",
-        task: "test",
-        runner: "blacksmith-8vcpu-windows-2025",
-      },
-    ];
-    expect(
-      JSON.parse(
-        expectDefined(blacksmith.outputs.checks_windows_matrix, "Blacksmith Windows matrix"),
-      ).include,
-    ).toEqual(expectedBlacksmithWindowsMatrix);
-    const expectedHostedWindowsMatrix = [
+    // Blacksmith's Windows class admits exactly 2 concurrent jobs (run
+    // 31865243804), so every backend uses the same 2-part split: a 3rd part
+    // queues behind a finished one and a single lane serializes the whole body.
+    const expectedWindowsMatrix = [
       { check_name: "checks-windows-node-test-1", runtime: "node", task: "test-1" },
       { check_name: "checks-windows-node-test-2", runtime: "node", task: "test-2" },
-      { check_name: "checks-windows-node-test-3", runtime: "node", task: "test-3" },
     ];
-    expect(
-      JSON.parse(expectDefined(github.outputs.checks_windows_matrix, "GitHub Windows matrix"))
-        .include,
-    ).toEqual(expectedHostedWindowsMatrix);
-    expect(
-      JSON.parse(expectDefined(hybrid.outputs.checks_windows_matrix, "hybrid Windows matrix"))
-        .include,
-    ).toEqual(expectedBlacksmithWindowsMatrix);
-    expect(
-      JSON.parse(
-        expectDefined(
-          hybridDispatch.outputs.checks_windows_matrix,
-          "hybrid dispatch Windows matrix",
-        ),
-      ).include,
-    ).toEqual(expectedHostedWindowsMatrix);
+    for (const [label, manifest] of [
+      ["Blacksmith", blacksmith],
+      ["GitHub", github],
+      ["hybrid", hybrid],
+      ["hybrid dispatch", hybridDispatch],
+    ] as const) {
+      expect(
+        JSON.parse(expectDefined(manifest.outputs.checks_windows_matrix, `${label} Windows matrix`))
+          .include,
+        label,
+      ).toEqual(expectedWindowsMatrix);
+    }
     expect(runStep.run).toContain("test-1)\n    pnpm test:windows:ci:1");
     expect(runStep.run).toContain("test-2)\n    pnpm test:windows:ci:2");
-    expect(runStep.run).toContain("test-3)\n    pnpm test:windows:ci:3");
+    expect(runStep.run).not.toContain("pnpm test:windows:ci:3");
   });
 
   it("installs the Android SDK platform used by Gradle", () => {
@@ -4336,7 +4319,8 @@ server.listen(0, "127.0.0.1", () => writeFileSync(readyPath, String(server.addre
       group: "sqlite-session-schema-baseline",
       runner: "blacksmith-4vcpu-ubuntu-2404",
     });
-    expect(workflow.jobs["checks-windows"]["runs-on"]).toContain("matrix.runner");
+    // The Windows matrix carries no per-row runner: both parts share one class.
+    expect(workflow.jobs["checks-windows"]["runs-on"]).not.toContain("matrix.runner");
     expect(source).toContain("blacksmith-8vcpu-windows-2025");
   });
 
