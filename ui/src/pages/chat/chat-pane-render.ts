@@ -343,6 +343,7 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
             }
           : undefined,
       toolMessages: catalogKey ? [] : state.chatToolMessages,
+      guardianNotices: catalogKey ? [] : state.guardianNotices,
       streamSegments: catalogKey ? [] : state.chatStreamSegments,
       stream: catalogKey ? null : state.chatStream,
       streamStartedAt: catalogKey ? null : state.chatStreamStartedAt,
@@ -437,6 +438,8 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
             agentDefaultModel,
             modelAccess: mutationAccess.model,
             effortAccess: mutationAccess.effort,
+            permissionAccess: mutationAccess.permission,
+            canSelectFull: hasOperatorAdminAccess(gatewaySnapshot.hello?.auth ?? null),
             onModelSetup: () => this.context.navigate("model-setup"),
           }),
       backgroundTasks: catalogKey ? undefined : backgroundTasks,

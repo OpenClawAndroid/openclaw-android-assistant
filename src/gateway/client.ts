@@ -31,6 +31,7 @@ import { normalizeFingerprint } from "../infra/tls/fingerprint.js";
 import { logDebug, logError } from "../logger.js";
 import { redactToolPayloadText } from "../logging/redact.js";
 import { registerSecretValueForRedaction } from "../logging/secret-redaction-registry.js";
+import type { DeviceAuthEntry } from "../shared/device-auth.js";
 import { VERSION } from "../version.js";
 
 export {
@@ -48,6 +49,8 @@ export type GatewayClientOptions = BaseGatewayClientOptions & {
   deviceAuthScope?: string;
   /** Prevent this client lifecycle from creating or mutating shared state. */
   sharedStateMode?: "read-only";
+  /** Auth already resolved and validated by the one-shot call owner. */
+  preparedDeviceAuth?: DeviceAuthEntry;
 };
 
 function createOpenClawGatewayClientHostDeps(
@@ -55,8 +58,14 @@ function createOpenClawGatewayClientHostDeps(
   deviceAuthScope?: string,
   suppressOriginDeviceAuth = false,
   sharedStateMode?: "read-only",
+  preparedDeviceAuth?: DeviceAuthEntry,
 ): GatewayClientHostDeps {
   const readOnly = sharedStateMode === "read-only";
+  // Prepared auth is immutable request input. Any later durable mutation must
+  // still match this token so a stale request cannot undo a concurrent rotation.
+  const rotationFence = preparedDeviceAuth
+    ? { expectedToken: preparedDeviceAuth.token }
+    : undefined;
   const deviceAuthDeps: Pick<
     GatewayClientHostDeps,
     "loadDeviceAuthToken" | "storeDeviceAuthToken" | "clearDeviceAuthToken"
@@ -70,10 +79,20 @@ function createOpenClawGatewayClientHostDeps(
               : loadOriginDeviceToken({ ...params, gatewayScope: deviceAuthScope }),
         storeDeviceAuthToken: readOnly
           ? () => {}
-          : (params) => storeOriginDeviceToken({ ...params, gatewayScope: deviceAuthScope }),
+          : (params) =>
+              storeOriginDeviceToken({
+                ...params,
+                gatewayScope: deviceAuthScope,
+                ...rotationFence,
+              }),
         clearDeviceAuthToken: readOnly
           ? () => {}
-          : (params) => clearOriginDeviceToken({ ...params, gatewayScope: deviceAuthScope }),
+          : (params) =>
+              clearOriginDeviceToken({
+                ...params,
+                gatewayScope: deviceAuthScope,
+                ...rotationFence,
+              }),
       }
     : readOnly
       ? {
@@ -81,14 +100,21 @@ function createOpenClawGatewayClientHostDeps(
           storeDeviceAuthToken: () => {},
           clearDeviceAuthToken: () => {},
         }
-      : { loadDeviceAuthToken, storeDeviceAuthToken, clearDeviceAuthToken };
+      : {
+          loadDeviceAuthToken,
+          storeDeviceAuthToken: (params) => storeDeviceAuthToken({ ...params, ...rotationFence }),
+          clearDeviceAuthToken: (params) => clearDeviceAuthToken({ ...params, ...rotationFence }),
+        };
+  const preparedDeviceAuthDeps = preparedDeviceAuth
+    ? { ...deviceAuthDeps, loadDeviceAuthToken: () => preparedDeviceAuth }
+    : deviceAuthDeps;
   return {
     // This wrapper is the only place the package reaches into OpenClaw runtime
     // state. Keep device identity, token storage, proxy, and redaction here.
     loadOrCreateDeviceIdentity,
     signDevicePayload,
     publicKeyRawBase64UrlFromPem,
-    ...deviceAuthDeps,
+    ...preparedDeviceAuthDeps,
     beforeConnect: ensureInheritedManagedProxyRoutingActive,
     registerGatewayLoopbackBypass: registerManagedProxyGatewayLoopbackBypass,
     normalizeTlsFingerprint: (fingerprint) => normalizeFingerprint(fingerprint ?? ""),
@@ -101,7 +127,7 @@ function createOpenClawGatewayClientHostDeps(
           // Read-only is an authoritative lifecycle policy: caller overrides
           // must not restore identity creation or token writes behind it.
           loadOrCreateDeviceIdentity: () => loadDeviceIdentityIfPresent() ?? undefined,
-          ...deviceAuthDeps,
+          ...preparedDeviceAuthDeps,
         }
       : {}),
   };
@@ -111,7 +137,7 @@ export class GatewayClient {
   #client: BaseGatewayClient;
 
   constructor(opts: GatewayClientOptions) {
-    const { deviceAuthScope, sharedStateMode, ...baseOptions } = opts;
+    const { deviceAuthScope, preparedDeviceAuth, sharedStateMode, ...baseOptions } = opts;
     const suppressOriginDeviceAuth = Boolean(
       deviceAuthScope && (baseOptions.token?.trim() || baseOptions.password?.trim()),
     );
@@ -127,6 +153,7 @@ export class GatewayClient {
         deviceAuthScope,
         suppressOriginDeviceAuth,
         sharedStateMode,
+        preparedDeviceAuth,
       ),
     });
   }
