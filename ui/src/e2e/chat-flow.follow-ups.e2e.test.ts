@@ -83,6 +83,15 @@ suite.define(() => {
       await startButton.waitFor({ state: "visible", timeout: 10_000 });
       const moreActions = page.getByRole("button", { name: "More ways to start this task" });
       expect(await moreActions.count()).toBe(1);
+      const [startBox, moreActionsBox] = await Promise.all([
+        startButton.boundingBox(),
+        moreActions.boundingBox(),
+      ]);
+      expect(startBox).not.toBeNull();
+      expect(moreActionsBox).not.toBeNull();
+      expect(
+        (moreActionsBox?.x ?? 0) - ((startBox?.x ?? 0) + (startBox?.width ?? 0)),
+      ).toBeGreaterThanOrEqual(4);
       await moreActions.click();
       await page
         .getByText("Copy prompt", { exact: true })
