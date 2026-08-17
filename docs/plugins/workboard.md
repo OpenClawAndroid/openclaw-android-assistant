@@ -111,6 +111,11 @@ sidebar. The previously shipped `/workboard?board=<boardId>` form remains a
 compatibility alias and redirects to that page while preserving other query
 parameters. Choosing **All boards** returns to `/workboard`.
 
+A board can store an `automationJobId` reference to the automation job that
+owns its AI-categorization prompt, model, schedule, and run history. The board
+page shows an **Automation** link when that reference is present. Deleting the
+board does not delete or otherwise mutate the operator-owned automation job.
+
 Cards are stored in the plugin's own Gateway state and move with the rest of
 that Gateway's OpenClaw state (see [Storage](#storage)).
 
@@ -358,13 +363,16 @@ the template id is stored as card metadata.
 
 ### Session-board widgets
 
-Workboard ships two native widgets for session dashboards (see
+Workboard ships three native widgets for session dashboards (see
 [Dashboards](/web/dashboards)). The agent pins them with its `dashboard` tool
 using `content: { kind: "plugin", pluginKind, props }`, and they render as
 first-party UI with live data — no sandbox frame or capability grant:
 
 - `workboard:card` with `props: { cardId }` shows one card with its status
   control, priority, and assigned agent.
+- `workboard:board` with optional `props: { boardId }` shows the full Kanban
+  board with draggable cards and status controls. Without `boardId` it shows
+  every board; with `boardId` it shows only that board.
 - `workboard:mini` with optional `props: { boardId, limit }` shows per-status
   counts plus the top ready/running cards, and links to the full board page.
   Without `boardId` it aggregates every board; with `boardId` it scopes to that
