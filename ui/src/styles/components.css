@@ -2400,6 +2400,10 @@ openclaw-chat-session-rail {
   transition: border-color var(--duration-fast) ease;
 }
 
+.list-item-clickable {
+  text-decoration: none;
+}
+
 .list-item-clickable:hover {
   border-color: var(--border-strong);
 }
@@ -5683,9 +5687,7 @@ td.data-table-key-col {
 }
 
 /* Attribute badges (attached automation, approval, cloud placement):
-   muted metadata that sits after the title inside the row link, outside the
-   trail/action overlap cell, so touch devices (which hide the trail) and
-   hovered rows keep them. */
+   muted metadata grouped in the row's second-line endcap. */
 .session-row-badges {
   display: inline-flex;
   align-items: center;
