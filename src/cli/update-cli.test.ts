@@ -530,13 +530,18 @@ type UpdateCliScenario = {
 };
 
 describe("update-cli", () => {
-  const fixtureRoot = "/tmp/openclaw-update-tests";
+  // Per-run unique root: concurrent runs on one machine (CI shards, sibling checkouts) must
+  // never share fixture paths — some cases write real files and rm them in cleanup. Realpath'd
+  // because macOS os.tmpdir() is a /var -> /private/var symlink.
+  const fixtureRoot = fsSync.realpathSync(
+    fsSync.mkdtempSync(path.join(os.tmpdir(), "openclaw-update-tests-")),
+  );
   let fixtureCount = 0;
   const tempDirsToCleanup = new Set<string>();
 
   const createCaseDir = (prefix: string) => {
     const dir = path.join(fixtureRoot, `${prefix}-${fixtureCount++}`);
-    // Tests only need a stable path; the directory does not have to exist because all I/O is mocked.
+    // Callers that only need a stable path skip creating it; real-I/O callers mkdir themselves.
     return dir;
   };
 
@@ -1487,8 +1492,9 @@ describe("update-cli", () => {
     setStdoutTty(false);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     serviceEnvSnapshot.restore();
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
   });
 
   afterEach(async () => {
@@ -1668,7 +1674,8 @@ describe("update-cli", () => {
         candidate === path.join(root, "package.json") ||
         entrypoints.includes(candidate),
     );
-    const managedState = "/tmp/openclaw-update-tests/managed-profile";
+    const managedState = path.join(fixtureRoot, "managed-profile");
+    const personalState = path.join(fixtureRoot, "personal-profile");
     const managedConfig = {
       ...baseConfig,
       update: { channel: "beta" as const },
@@ -1723,8 +1730,8 @@ describe("update-cli", () => {
     await withEnvAsync(
       {
         OPENCLAW_PROFILE: "personal",
-        OPENCLAW_STATE_DIR: "/tmp/openclaw-update-tests/personal-profile",
-        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-update-tests/personal-profile/openclaw.json",
+        OPENCLAW_STATE_DIR: personalState,
+        OPENCLAW_CONFIG_PATH: path.join(personalState, "openclaw.json"),
         OPENCLAW_GATEWAY_PORT: "19111",
       },
       async () => {
@@ -1746,6 +1753,7 @@ describe("update-cli", () => {
   });
 
   it("keeps foreign-service updates in the caller profile", async () => {
+    const personalState = path.join(fixtureRoot, "personal-profile");
     const { root, entrypoints } = setupUpdatedRootRefresh();
     const foreignRoot = await createTrackedTempDir("openclaw-update-foreign-profile-");
     const foreignEntrypoint = path.join(foreignRoot, "dist", "index.js");
@@ -1768,7 +1776,7 @@ describe("update-cli", () => {
       programArguments: ["node", foreignEntrypoint, "gateway", "run"],
       environment: {
         OPENCLAW_PROFILE: "foreign",
-        OPENCLAW_STATE_DIR: "/tmp/openclaw-update-tests/foreign-profile",
+        OPENCLAW_STATE_DIR: path.join(fixtureRoot, "foreign-profile"),
         OPENCLAW_GATEWAY_PORT: "19333",
       },
     });
@@ -1782,7 +1790,7 @@ describe("update-cli", () => {
     await withEnvAsync(
       {
         OPENCLAW_PROFILE: "personal",
-        OPENCLAW_STATE_DIR: "/tmp/openclaw-update-tests/personal-profile",
+        OPENCLAW_STATE_DIR: personalState,
         OPENCLAW_GATEWAY_PORT: "19111",
       },
       async () => {
@@ -1794,7 +1802,7 @@ describe("update-cli", () => {
     expect(serviceEnabled).not.toHaveBeenCalled();
     expect(spawnCall()?.[2]?.env).toMatchObject({
       OPENCLAW_PROFILE: "personal",
-      OPENCLAW_STATE_DIR: "/tmp/openclaw-update-tests/personal-profile",
+      OPENCLAW_STATE_DIR: personalState,
       OPENCLAW_GATEWAY_PORT: "19111",
     });
   });
@@ -1810,7 +1818,7 @@ describe("update-cli", () => {
         after: { sha: "new-managed-sha", version: "2026.4.27" },
       }),
     );
-    const managedState = "/tmp/openclaw-update-tests/fallback-managed";
+    const managedState = path.join(fixtureRoot, "fallback-managed");
     serviceReadCommand.mockResolvedValue({
       programArguments: ["node", path.join(process.cwd(), "dist", "index.js"), "gateway", "run"],
       environment: {
@@ -1835,7 +1843,7 @@ describe("update-cli", () => {
     await withEnvAsync(
       {
         OPENCLAW_PROFILE: "personal",
-        OPENCLAW_STATE_DIR: "/tmp/openclaw-update-tests/fallback-personal",
+        OPENCLAW_STATE_DIR: path.join(fixtureRoot, "fallback-personal"),
         OPENCLAW_GATEWAY_PORT: "19111",
       },
       async () => {
@@ -1868,7 +1876,7 @@ describe("update-cli", () => {
         candidate === path.join(process.cwd(), "package.json") ||
         candidate === path.join(process.cwd(), "openclaw.mjs"),
     );
-    const managedState = "/tmp/openclaw-update-tests/restart-doctor-managed";
+    const managedState = path.join(fixtureRoot, "restart-doctor-managed");
     serviceReadCommand.mockResolvedValue({
       programArguments: ["node", path.join(process.cwd(), "dist", "index.js"), "gateway", "run"],
       environment: {
@@ -1890,7 +1898,7 @@ describe("update-cli", () => {
     await withEnvAsync(
       {
         OPENCLAW_PROFILE: "personal",
-        OPENCLAW_STATE_DIR: "/tmp/openclaw-update-tests/restart-doctor-personal",
+        OPENCLAW_STATE_DIR: path.join(fixtureRoot, "restart-doctor-personal"),
         OPENCLAW_GATEWAY_PORT: "19111",
       },
       async () => {
