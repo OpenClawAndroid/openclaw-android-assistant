@@ -130,6 +130,11 @@ vi.mock("../state/openclaw-database-preflight.js", () => ({
   preflightOpenClawDatabaseSchemas: databasePreflightMocks.preflightOpenClawDatabaseSchemas,
 }));
 
+vi.mock("../state/openclaw-state-ownership.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../state/openclaw-state-ownership.js")>()),
+  assertOpenClawStateWriteAllowedAtPath: vi.fn(async () => undefined),
+}));
+
 vi.mock("../infra/openclaw-root.js", () => ({
   resolveOpenClawPackageRoot: vi.fn(),
   resolveOpenClawPackageRootSync: vi.fn(() => process.cwd()),
@@ -512,7 +517,7 @@ const {
   updateWizardCommand,
 } = await import("./update-cli.js");
 const updateCliShared = await import("./update-cli/shared.js");
-const { ensureGitCheckout, resolveGitInstallDir } = updateCliShared;
+const { resolveGitInstallDir } = updateCliShared;
 const { spawnSync } = await import("node:child_process");
 const { readRestartSentinel } = await import("../infra/restart-sentinel.js");
 
@@ -1509,11 +1514,12 @@ describe("update-cli", () => {
     tempDirsToCleanup.clear();
   });
 
-  it("reads the initial update config without plugin schema validation", async () => {
+  it("reads the initial update config without schema validation or observation", async () => {
     await updateCommand({ yes: true, restart: false });
 
     expect(vi.mocked(readConfigFileSnapshot).mock.calls[0]?.[0]).toEqual({
       skipPluginValidation: true,
+      observe: false,
     });
   });
 
@@ -5376,6 +5382,57 @@ describe("update-cli", () => {
     expect(updateCall?.beforeGitMutation).toEqual(expect.any(Function));
   });
 
+  it.runIf(process.platform !== "win32")(
+    "continues package-to-Git updates from the published checkout after its alias is retargeted",
+    async () => {
+      const root = await createTrackedTempDir("openclaw-update-git-alias-");
+      const nodeModules = path.join(root, "package", "node_modules");
+      const packageRoot = path.join(nodeModules, "openclaw");
+      const targetRoot = path.join(root, "checkout-target");
+      const replacementRoot = path.join(root, "checkout-replacement");
+      const checkoutAlias = path.join(root, "checkout-alias");
+      await Promise.all([fs.mkdir(targetRoot), fs.mkdir(replacementRoot)]);
+      await fs.symlink(targetRoot, checkoutAlias, "dir");
+      mockPackageInstallStatus(packageRoot);
+      mockFileBackedPathExists();
+      mockNoopPostUpdatePluginConvergence();
+      vi.mocked(runGatewayUpdate).mockImplementationOnce(async (options) => {
+        expect(options?.cwd).toBe(targetRoot);
+        return makeOkUpdateResult({ mode: "git", root: targetRoot });
+      });
+      vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
+        if (argv[1] === "--version") {
+          return commandResult({ stdout: "12.0.0\n" });
+        }
+        if (argv[0] === "npm" && argv[1] === "root" && argv[2] === "-g") {
+          return commandResult({ stdout: `${nodeModules}\n` });
+        }
+        if (argv[0] === "git" && argv[1] === "clone") {
+          const stagingDir = requireValue(argv.at(-1), "Git clone staging directory");
+          await fs.mkdir(path.join(stagingDir, ".git"), { recursive: true });
+          await fs.writeFile(
+            path.join(stagingDir, "package.json"),
+            JSON.stringify({ name: "openclaw", version: "2026.8.17" }),
+            "utf8",
+          );
+          await fs.unlink(checkoutAlias);
+          await fs.symlink(replacementRoot, checkoutAlias, "dir");
+        }
+        return commandResult();
+      });
+
+      await withEnvAsync({ OPENCLAW_GIT_DIR: checkoutAlias }, async () => {
+        await updateCommand({ channel: "dev", yes: true, restart: false });
+      });
+
+      const installCall = packageInstallCommandCall();
+      expect(installCall?.[0]).toContain(targetRoot);
+      expect(installCall?.[0]).not.toContain(checkoutAlias);
+      expect(installCall?.[1].cwd).toBe(targetRoot);
+      await expect(fs.readdir(replacementRoot)).resolves.toEqual([]);
+    },
+  );
+
   it("does not stop or restart a managed gateway owned by another git checkout", async () => {
     const otherRoot = await createTrackedTempDir("openclaw-update-other-service-root-");
     const otherEntrypoint = path.join(otherRoot, "dist", "index.js");
@@ -7856,7 +7913,8 @@ describe("update-cli", () => {
   });
 
   it("updateWizardCommand offers dev checkout and forwards selections", async () => {
-    const tempDir = createCaseDir("openclaw-update-wizard");
+    const root = await createTrackedTempDir("openclaw-update-wizard-");
+    const tempDir = path.join(root, "openclaw");
     await withEnvAsync({ OPENCLAW_GIT_DIR: tempDir }, async () => {
       setTty(true);
 
@@ -7882,6 +7940,7 @@ describe("update-cli", () => {
 
       await updateWizardCommand({});
 
+      expect(readConfigFileSnapshot).toHaveBeenCalledWith({ observe: false });
       const call = vi.mocked(runGatewayUpdate).mock.calls[0]?.[0];
       expect(call?.channel).toBe("dev");
     });
@@ -7999,30 +8058,6 @@ describe("update-cli", () => {
     } finally {
       homedirSpy.mockRestore();
     }
-  });
-
-  it("creates the parent directory before cloning the default dev checkout", async () => {
-    const root = await createTrackedTempDir("openclaw-update-home-");
-    const home = path.join(root, "custom-openclaw-home");
-    const checkoutDir = path.join(home, "openclaw");
-
-    await withEnvAsync({ OPENCLAW_GIT_DIR: undefined, OPENCLAW_HOME: home }, async () => {
-      const dir = resolveGitInstallDir();
-      expect(dir).toBe(checkoutDir);
-      await ensureGitCheckout({ dir, timeoutMs: 1_000, env: process.env });
-    });
-
-    expect((await fs.stat(home)).isDirectory()).toBe(true);
-    const cloneCall = vi
-      .mocked(runCommandWithTimeout)
-      .mock.calls.find((call) => call[0][0] === "git" && call[0][1] === "clone");
-    expect(cloneCall?.[0]).toEqual([
-      "git",
-      "clone",
-      "--filter=blob:none",
-      "https://github.com/openclaw/openclaw.git",
-      checkoutDir,
-    ]);
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
