@@ -3,6 +3,7 @@ import type { CertMeta, WebSocket } from "ws";
 import {
   parseWorkerConnectionEndpoint,
   resolveWorkerConnectionTarget,
+  type WorkerConnectionEndpoint,
 } from "./worker-connection-endpoint.js";
 
 describe("worker connection endpoint", () => {
@@ -29,6 +30,7 @@ describe("worker connection endpoint", () => {
     expect(endpoint).toBeDefined();
 
     const target = resolveWorkerConnectionTarget(endpoint!);
+    expect(target.options.headers).toBeUndefined();
     const checkServerIdentity = (hostname: string, cert: CertMeta) =>
       target.options.checkServerIdentity?.(hostname, cert);
     expect(target.options.rejectUnauthorized).toBe(false);
@@ -49,6 +51,22 @@ describe("worker connection endpoint", () => {
     expect(target.validateSocket(socket)).toBeNull();
   });
 
+  it("carries the closed Cloudflare Access credential pair to the worker upgrade", () => {
+    const clientId = ["cf", "worker", "id"].join("-");
+    const clientSecret = ["cf", "worker", "secret"].join("-");
+    const endpoint = parseWorkerConnectionEndpoint({
+      kind: "websocket",
+      url: "wss://gateway.example/__openclaw__/worker",
+      cloudflareAccess: { clientId, clientSecret },
+    });
+
+    expect(endpoint).toBeDefined();
+    expect(resolveWorkerConnectionTarget(endpoint!).options.headers).toEqual({
+      "CF-Access-Client-Id": clientId,
+      "CF-Access-Client-Secret": clientSecret,
+    });
+  });
+
   it("rejects public plaintext while retaining the private-network break-glass", () => {
     const endpoint = {
       kind: "websocket" as const,
@@ -58,5 +76,21 @@ describe("worker connection endpoint", () => {
     expect(() =>
       resolveWorkerConnectionTarget(endpoint, { OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: "1" }),
     ).not.toThrow();
+  });
+
+  it("rejects Access credentials on plaintext worker endpoints", () => {
+    const endpoint = {
+      kind: "websocket" as const,
+      url: "ws://127.0.0.1/__openclaw__/worker",
+      cloudflareAccess: {
+        clientId: "cf-worker-plaintext-id",
+        clientSecret: "cf-worker-plaintext-secret",
+      },
+    };
+
+    expect(parseWorkerConnectionEndpoint(endpoint)).toBeUndefined();
+    expect(() => resolveWorkerConnectionTarget(endpoint as WorkerConnectionEndpoint)).toThrow(
+      "Cloudflare Access credentials require a wss:// worker endpoint",
+    );
   });
 });

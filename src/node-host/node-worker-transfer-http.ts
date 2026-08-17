@@ -2,10 +2,15 @@ import { once } from "node:events";
 import http, { type ClientRequest, type IncomingMessage } from "node:http";
 import https from "node:https";
 import type { TLSSocket } from "node:tls";
+import {
+  buildCloudflareAccessHeaders,
+  type CloudflareAccessCredentials,
+} from "../../packages/gateway-client/src/cloudflare-access.js";
 import { normalizeFingerprint } from "../infra/tls/fingerprint.js";
 
 type NodeWorkerTransferHttpErrorReason =
   | "invalid-gateway-transport"
+  | "cloudflare-access-requires-tls"
   | "invalid-tls-fingerprint"
   | "tls-fingerprint-mismatch";
 
@@ -124,6 +129,7 @@ export type NodeWorkerTransferHttpRequest = {
   routePath: string;
   method: "GET" | "POST";
   token: string;
+  cloudflareAccess?: CloudflareAccessCredentials;
   headers?: Record<string, string>;
   signal?: AbortSignal;
   writeBody?: (request: ClientRequest) => Promise<void>;
@@ -133,10 +139,20 @@ export async function openNodeWorkerTransferHttpRequest(
   params: NodeWorkerTransferHttpRequest,
 ): Promise<IncomingMessage> {
   const url = transferUrl(params.gatewayUrl, params.routePath);
+  if (params.cloudflareAccess && url.protocol !== "https:") {
+    throw new NodeWorkerTransferHttpError(
+      "cloudflare-access-requires-tls",
+      "Cloudflare Access credentials require HTTPS worker transfer",
+    );
+  }
   const transport = url.protocol === "https:" ? https : http;
   const request = transport.request(url, {
     method: params.method,
-    headers: { authorization: `Bearer ${params.token}`, ...params.headers },
+    headers: {
+      ...params.headers,
+      authorization: `Bearer ${params.token}`,
+      ...(params.cloudflareAccess ? buildCloudflareAccessHeaders(params.cloudflareAccess) : {}),
+    },
     signal: params.signal,
     ...(url.protocol === "https:" && params.tlsFingerprint
       ? { rejectUnauthorized: false, session: Buffer.alloc(0) }

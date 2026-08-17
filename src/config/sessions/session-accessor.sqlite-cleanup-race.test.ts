@@ -12,6 +12,8 @@ import {
   loadSessionEntry,
   loadTranscriptEvents,
   replaceSessionEntry,
+  replaceSessionEntrySync,
+  replaceTranscriptEventsSync,
 } from "./session-accessor.js";
 import { planSessionLifecycleArtifactCleanup } from "./session-accessor.sqlite-lifecycle-state.js";
 import { replaceTranscriptEvents } from "./session-accessor.sqlite-transcript-write.js";
@@ -528,6 +530,93 @@ describe("SQLite lifecycle cleanup races", () => {
     await expect(deletion).resolves.toMatchObject({ deleted: true });
     await expect(writer).resolves.toMatchObject({ label: "progressed" });
     expect(progressedDuringMaterialization).toBe(true);
+  });
+
+  it("reports a transcript guard mismatch after publishing earlier history", async () => {
+    const sessionKey = "agent:main:historical-guard-race";
+    const sessionIds = ["historical-guard-first", "historical-guard-second", "guard-current"];
+    const events = sessionIds.map((sessionId) => ({
+      type: "session" as const,
+      id: sessionId,
+      content: `${sessionId} transcript`,
+    }));
+    for (const [index, sessionId] of sessionIds.entries()) {
+      await replaceSessionEntry({ sessionKey, storePath }, { sessionId, updatedAt: index + 1 });
+      await replaceTranscriptEvents({ sessionKey, sessionId, storePath }, [events[index]!]);
+    }
+    const currentEntry = loadSessionEntry({ sessionKey, storePath });
+    if (!currentEntry) {
+      throw new Error("expected current guarded entry");
+    }
+    let materializations = 0;
+    archiveMaterializationHook.afterMaterialize = () => {
+      materializations += 1;
+      if (materializations === 2) {
+        replaceTranscriptEventsSync({ sessionKey, sessionId: sessionIds[2]!, storePath }, [
+          { ...events[2]!, content: "concurrent transcript" },
+        ]);
+      }
+    };
+
+    const result = await deleteSessionEntryLifecycle({
+      archiveTranscript: true,
+      expectedEntry: currentEntry,
+      expectedTranscript: {
+        eventJson: [JSON.stringify(events[2])],
+        sessionId: sessionIds[2]!,
+      },
+      storePath,
+      target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
+    });
+
+    expect(result).toMatchObject({ deleted: false, expectedEntryMismatch: true });
+    expect(result.archivedTranscripts).toHaveLength(1);
+    expect(materializations).toBe(2);
+    expect(loadSessionEntry({ sessionKey, storePath })).toEqual(currentEntry);
+    const archivedSessionId = result.archivedTranscripts[0]?.sessionId;
+    expect(sessionIds.slice(0, 2)).toContain(archivedSessionId);
+    for (const [index, historicalSessionId] of sessionIds.slice(0, 2).entries()) {
+      await expect(
+        loadTranscriptEvents({ sessionKey, sessionId: historicalSessionId, storePath }),
+      ).resolves.toEqual(historicalSessionId === archivedSessionId ? [] : [events[index]!]);
+    }
+    await expect(
+      loadTranscriptEvents({ sessionKey, sessionId: sessionIds[2]!, storePath }),
+    ).resolves.toEqual([{ ...events[2]!, content: "concurrent transcript" }]);
+  });
+
+  it("reports an entry replacement during final transcript materialization", async () => {
+    const sessionKey = "agent:main:entry-materialization-race";
+    const sessionId = "entry-materialization-run";
+    const events = [{ type: "session" as const, id: sessionId, content: "original transcript" }];
+    await replaceSessionEntry({ sessionKey, storePath }, { sessionId, updatedAt: 1 });
+    await replaceTranscriptEvents({ sessionKey, sessionId, storePath }, events);
+    const currentEntry = loadSessionEntry({ sessionKey, storePath });
+    if (!currentEntry) {
+      throw new Error("expected current guarded entry");
+    }
+    const replacementEntry = { ...currentEntry, label: "concurrent replacement" };
+    archiveMaterializationHook.afterMaterialize = () => {
+      replaceSessionEntrySync({ sessionKey, storePath }, replacementEntry);
+    };
+
+    const result = await deleteSessionEntryLifecycle({
+      archiveTranscript: true,
+      expectedEntry: currentEntry,
+      expectedTranscript: { eventJson: [JSON.stringify(events[0])], sessionId },
+      storePath,
+      target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
+    });
+
+    expect(result).toEqual({
+      archivedTranscripts: [],
+      deleted: false,
+      expectedEntryMismatch: true,
+    });
+    expect(loadSessionEntry({ sessionKey, storePath })).toEqual(replacementEntry);
+    await expect(loadTranscriptEvents({ sessionKey, sessionId, storePath })).resolves.toEqual(
+      events,
+    );
   });
 
   it("releases the store writer while lifecycle cleanup archives a transcript", async () => {
