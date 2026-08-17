@@ -25,7 +25,7 @@ const sessionSecondRowProofDir = path.join(
 );
 
 suite.define(() => {
-  it("replaces an intermediate running subtitle with the durable final reply", async () => {
+  it("replaces an intermediate running subtitle with the unread final digest", async () => {
     if (captureUiProofEnabled) {
       await mkdir(terminalMetadataProofDir, { recursive: true });
     }
@@ -72,7 +72,7 @@ suite.define(() => {
         observerDigest: {
           agentId: "main",
           runId,
-          headline: "Implementing the repair",
+          headline: "Repair landed cleanly",
           health: "done",
           updatedAt: Date.now() + 1,
           revision: 2,
@@ -112,7 +112,8 @@ suite.define(() => {
       await expect
         .poll(async () => (await gateway.getRequests("sessions.list")).length)
         .toBeGreaterThan(listCount);
-      await row.getByText("The repaired sidebar now shows the final reply.").waitFor();
+      await row.getByText("Repair landed cleanly").waitFor();
+      expect(await row.textContent()).not.toContain("[[");
       if (captureUiProofEnabled) {
         await page.screenshot({
           fullPage: true,
@@ -242,10 +243,20 @@ suite.define(() => {
             kind: "direct",
             label: "Terminal tab bar redesign proposal",
             updatedAt: 2,
-            lastMessagePreview: "Implemented and committed as 094ab2",
+            activeRunIds: ["run-busy-session"],
+            hasActiveRun: true,
+            observerDigest: {
+              agentId: "main",
+              runId: "run-busy-session",
+              headline:
+                "The isolated clone is ready, but direct Git fetch and every remaining operation continue in the background",
+              health: "on-track",
+              updatedAt: 2,
+              revision: 1,
+            },
             incognito: true,
             hasAutomation: true,
-            status: "done",
+            status: "running",
             unread: true,
           },
           {
@@ -287,9 +298,20 @@ suite.define(() => {
           };
         };
         return {
+          atoms: Array.from(
+            row.querySelectorAll(
+              ".sidebar-recent-session__details-endcap :is(svg, .session-run-spinner, .session-unread-dot)",
+            ),
+            (element) => {
+              const box = element.getBoundingClientRect();
+              return { bottom: box.bottom, left: box.left, right: box.right, top: box.top };
+            },
+          ),
           badges: rect(".session-row-badges"),
           busyHeight: row.getBoundingClientRect().height,
+          endcap: rect(".sidebar-recent-session__details-endcap"),
           name: rect(".sidebar-recent-session__name"),
+          spinner: rect(".session-run-spinner"),
           state: rect(".session-row-state"),
           subtitle: rect(".sidebar-recent-session__subtitle"),
         };
@@ -307,6 +329,17 @@ suite.define(() => {
         (layout.subtitle.top + layout.subtitle.bottom) / 2,
         1,
       );
+      expect(layout.state.left).toBeGreaterThanOrEqual(layout.endcap.left);
+      expect(layout.state.right).toBeLessThanOrEqual(layout.endcap.right);
+      expect(layout.spinner.left).toBeGreaterThanOrEqual(layout.endcap.left);
+      expect(layout.spinner.right).toBeLessThanOrEqual(layout.endcap.right);
+      expect(layout.atoms.length).toBeGreaterThanOrEqual(4);
+      for (const atom of layout.atoms) {
+        expect(atom.left).toBeGreaterThanOrEqual(layout.endcap.left);
+        expect(atom.right).toBeLessThanOrEqual(layout.endcap.right);
+        expect(atom.top).toBeGreaterThanOrEqual(layout.endcap.top);
+        expect(atom.bottom).toBeLessThanOrEqual(layout.endcap.bottom);
+      }
 
       await busyRow.hover();
       await expect

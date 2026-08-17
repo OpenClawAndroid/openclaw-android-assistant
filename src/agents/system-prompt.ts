@@ -504,6 +504,9 @@ function buildAssistantOutputDirectivesSection(params: {
       "",
     ];
   }
+  // TRANSITIONAL(marker-retirement): bracket-directive teaching survives only for
+  // automatic-mode replies. Delete this branch (leaving the message-tool variant
+  // above) when the visibleReplies default flips to "message_tool".
   return [
     "## Assistant Output Directives",
     "- Media attachment: own line `MEDIA:<path-or-url>` per item; path is not prose.",
