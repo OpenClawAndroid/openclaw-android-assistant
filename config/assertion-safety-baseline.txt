@@ -1806,7 +1806,6 @@ src/agents/embedded-agent-helpers/images.ts	8
 src/agents/embedded-agent-helpers/openai.ts	21
 src/agents/embedded-agent-helpers/turns.ts	23
 src/agents/embedded-agent-live-edit-diff.ts	3
-src/agents/embedded-agent-message-tool-source-reply.ts	15
 src/agents/embedded-agent-messaging-extraction.ts	1
 src/agents/embedded-agent-messaging.ts	1
 src/agents/embedded-agent-runner/cache-ttl.ts	2
@@ -2902,7 +2901,7 @@ src/gateway/agent-turn/internal-facade.ts	4
 src/gateway/board-host-tools.ts	1
 src/gateway/board-view-ticket.ts	1
 src/gateway/boot.ts	1
-src/gateway/call.ts	7
+src/gateway/call.ts	6
 src/gateway/channel-health-monitor.ts	6
 src/gateway/channel-thaw-restart.ts	1
 src/gateway/chat-attachments.ts	4
