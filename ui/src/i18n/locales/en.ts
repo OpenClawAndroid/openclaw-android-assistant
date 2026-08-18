@@ -661,6 +661,7 @@ export const en: TranslationMap = {
       versionDriftTitle:
         "Device {nodeVersion}; Gateway {gatewayVersion}. Update the older component to align the fleet.",
       workerVersion: "Worker {version}",
+      workerSlots: "Worker slots {available}/{total}",
       workerMissing: "worker missing",
       workerMissingTitle:
         "The Gateway-managed worker bundle is missing. Start a new session on this device to reinstall it.",
@@ -3416,6 +3417,17 @@ export const en: TranslationMap = {
       displayNameDescription: "Shown to other people using this gateway.",
       linkedEmails: "Linked emails",
       linkedEmailsDescription: "Email addresses connected to this profile.",
+      github: "GitHub",
+      githubDescription:
+        "Linking opts you into public GitHub co-author credit when you participate in agent sessions that create commits.",
+      githubUsername: "GitHub username",
+      githubPlaceholder: "octocat",
+      githubLink: "Link GitHub",
+      githubLinking: "Linking…",
+      githubChange: "Change",
+      githubDisconnect: "Disconnect",
+      githubPrivacy: "Commit credit uses GitHub's public noreply address, never a private email.",
+      githubOwnership: "Link only an account you control.",
       avatarErrors: {
         invalid: "That image could not be processed.",
         sourceTooLarge: "Choose an image that is 10 MB or smaller.",
