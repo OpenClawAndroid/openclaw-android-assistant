@@ -151,16 +151,19 @@ function setRetainedFileDraft(content: FileSidebarContent, draft: RetainedFileDr
   retainedFileDrafts.set(key, draft);
 }
 
-type ChatDetailContent =
+export type SidebarContent =
   | MarkdownSidebarContent
   | CanvasSidebarContent
   | ImageSidebarContent
   | FileSidebarContent
-  | SessionDiffSidebarContent;
+  | SessionDiffSidebarContent
+  | { kind: "task"; taskId: string };
 
-export type SidebarContent = ChatDetailContent | { kind: "task"; taskId: string };
+type ChatDetailPanelContent = Exclude<SidebarContent, { kind: "task" }>;
 
-function hasFullMessageRequest(content: ChatDetailContent): content is ChatDetailContent & {
+function hasFullMessageRequest(
+  content: ChatDetailPanelContent,
+): content is ChatDetailPanelContent & {
   fullMessageRequest: SidebarFullMessageRequest;
 } {
   return Boolean(
@@ -196,8 +199,8 @@ function toPlainTextCodeFence(value: string, language = ""): string {
 }
 
 function buildRawSidebarContent(
-  content: ChatDetailContent | null | undefined,
-): ChatDetailContent | null {
+  content: ChatDetailPanelContent | null | undefined,
+): ChatDetailPanelContent | null {
   if (!content) {
     return null;
   }
@@ -505,7 +508,7 @@ function renderFileSidebarContent(
 }
 
 function resolveSidebarCanvasSandbox(
-  content: ChatDetailContent,
+  content: ChatDetailPanelContent,
   embedSandboxMode: EmbedSandboxMode,
 ): string {
   return content.kind === "canvas"
@@ -514,7 +517,7 @@ function resolveSidebarCanvasSandbox(
 }
 
 type MarkdownSidebarProps = {
-  content: ChatDetailContent | null;
+  content: ChatDetailPanelContent | null;
   error: string | null;
   fileView?: FileViewControls;
   onClose: () => void;
@@ -704,7 +707,7 @@ function renderMarkdownSidebar(props: MarkdownSidebarProps) {
 }
 
 class ChatDetailPanel extends OpenClawLightDomElement {
-  @property({ attribute: false }) content: ChatDetailContent | null = null;
+  @property({ attribute: false }) content: ChatDetailPanelContent | null = null;
   @property({ attribute: false }) loadFullMessage?: SidebarFullMessageLoader | null = null;
   @property() basePath = "";
   @property() canvasPluginSurfaceUrl: string | null = null;
@@ -719,7 +722,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) onRevealInWorkspace?: ((path: string) => void) | null = null;
   @property({ attribute: false }) onOpenImage?: ((item: ImageLightboxItem) => void) | null = null;
 
-  @state() private visibleContent: ChatDetailContent | null = null;
+  @state() private visibleContent: ChatDetailPanelContent | null = null;
   @state() private error: string | null = null;
   @state() private fileSearchOpen = false;
   @state() private fileSearchQuery = "";
@@ -1249,7 +1252,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
       });
   };
 
-  private async upgradeToFullMessage(content: ChatDetailContent, version: number) {
+  private async upgradeToFullMessage(content: ChatDetailPanelContent, version: number) {
     if (!hasFullMessageRequest(content) || !this.loadFullMessage) {
       return;
     }
