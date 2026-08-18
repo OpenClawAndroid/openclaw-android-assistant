@@ -1389,7 +1389,7 @@ extensions/voice-call/src/media-stream.ts	1
 extensions/voice-call/src/providers/mock.ts	7
 extensions/voice-call/src/providers/shared/guarded-json-api.ts	2
 extensions/voice-call/src/providers/shared/response-body.ts	1
-extensions/voice-call/src/providers/twilio.ts	3
+extensions/voice-call/src/providers/twilio.ts	2
 extensions/voice-call/src/providers/twilio/api.ts	3
 extensions/voice-call/src/realtime-agent-context.ts	1
 extensions/voice-call/src/response-generator.ts	3
@@ -3319,7 +3319,7 @@ src/infra/retry-policy.ts	3
 src/infra/retryable-network-errors.ts	1
 src/infra/session-cost-usage-aggregation.ts	5
 src/infra/session-cost-usage-cache-runtime.ts	1
-src/infra/session-cost-usage-cache.sqlite.ts	2
+src/infra/session-cost-usage-cache.sqlite.ts	1
 src/infra/session-cost-usage-collection.ts	4
 src/infra/session-cost-usage-pricing.ts	6
 src/infra/session-cost-usage-reporting.ts	9
