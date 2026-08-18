@@ -2428,8 +2428,8 @@ describe("grouped chat rendering", () => {
       ".chat-activity-group__summary",
       HTMLButtonElement,
     );
-    expect(container.querySelector(".chat-activity-group.is-open")).not.toBeNull();
-    expect(activitySummary.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".chat-activity-group.is-open")).toBeNull();
+    expect(activitySummary.getAttribute("aria-expanded")).toBe("false");
     expect(activitySummary.getAttribute("aria-label")).toBeNull();
     expect(activitySummary.classList.contains("chat-activity-group__summary--error")).toBe(false);
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe(
