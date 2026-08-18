@@ -219,7 +219,7 @@ extensions/codex/src/app-server/remote-workspace-media.ts	6
 extensions/codex/src/app-server/request.ts	2
 extensions/codex/src/app-server/run-attempt-context.ts	2
 extensions/codex/src/app-server/run-attempt-prompt.ts	2
-extensions/codex/src/app-server/run-attempt-resources.ts	14
+extensions/codex/src/app-server/run-attempt-resources.ts	13
 extensions/codex/src/app-server/run-attempt-runtime.ts	1
 extensions/codex/src/app-server/run-attempt-server-requests.ts	2
 extensions/codex/src/app-server/run-attempt-tool-setup.ts	1
@@ -3046,7 +3046,6 @@ src/gateway/server-methods/sessions-abort.ts	3
 src/gateway/server-methods/sessions-archive-lifecycle.ts	3
 src/gateway/server-methods/sessions-compact.ts	1
 src/gateway/server-methods/sessions-create.ts	1
-src/gateway/server-methods/sessions-dispatch.ts	1
 src/gateway/server-methods/sessions-messaging.ts	11
 src/gateway/server-methods/sessions-patch-engine.ts	1
 src/gateway/server-methods/sessions-read.ts	2
