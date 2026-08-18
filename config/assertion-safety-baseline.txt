@@ -1382,7 +1382,6 @@ extensions/vllm/stream.ts	1
 extensions/voice-call/doctor-contract-api.ts	1
 extensions/voice-call/index.ts	2
 extensions/voice-call/setup-api.ts	1
-extensions/voice-call/src/cli.ts	2
 extensions/voice-call/src/config.ts	2
 extensions/voice-call/src/manager.ts	2
 extensions/voice-call/src/manager/outbound.ts	3
@@ -1397,7 +1396,7 @@ extensions/voice-call/src/realtime-agent-context.ts	1
 extensions/voice-call/src/response-generator.ts	3
 extensions/voice-call/src/runtime.ts	3
 extensions/voice-call/src/tts-provider-voice.ts	1
-extensions/voice-call/src/webhook.ts	12
+extensions/voice-call/src/webhook.ts	11
 extensions/voice-call/src/webhook/realtime-handler.ts	3
 extensions/voice-call/src/webhook/stream-frame-adapter.ts	2
 extensions/volcengine/tts.ts	2
@@ -3083,8 +3082,7 @@ src/gateway/server-reload-utils.ts	1
 src/gateway/server-resident-registry.ts	1
 src/gateway/server-restart-sentinel-agent-delivery.ts	3
 src/gateway/server-runtime-handles.ts	11
-src/gateway/server-runtime-state-prepare.ts	3
-src/gateway/server-runtime-state.ts	1
+src/gateway/server-runtime-state-prepare.ts	2
 src/gateway/server-session-events.ts	4
 src/gateway/server-startup-bootstrap.ts	1
 src/gateway/server-startup-config-helpers.ts	1
@@ -3990,7 +3988,7 @@ src/worker/worker-process.ts	2
 src/worker/worker-session-tools.ts	4
 src/worker/workspace-rsync-receiver.ts	1
 ui/src/api/gateway.ts	1
-ui/src/app-navigation.ts	3
+ui/src/app-navigation.ts	2
 ui/src/app-route-paths.ts	1
 ui/src/app-routes.ts	1
 ui/src/app/app-host-route-state.ts	1
@@ -4016,7 +4014,7 @@ ui/src/app/overlays.ts	1
 ui/src/app/question-prompt.ts	2
 ui/src/app/server-prefs-state.ts	14
 ui/src/app/server-prefs.ts	17
-ui/src/app/settings.ts	10
+ui/src/app/settings.ts	9
 ui/src/app/stale-chunk-reload.ts	1
 ui/src/app/startup-settings.ts	1
 ui/src/app/theme.ts	4
@@ -4089,7 +4087,7 @@ ui/src/components/session-data-controller.ts	2
 ui/src/components/session-data-scroll-controller.ts	1
 ui/src/components/session-group-defaults-dialog.ts	1
 ui/src/components/session-menu.ts	1
-ui/src/components/session-organizer-controller.ts	9
+ui/src/components/session-organizer-controller.ts	5
 ui/src/components/settings-sidebar.ts	3
 ui/src/components/settings-ui.ts	7
 ui/src/components/sidebar-agent-card.ts	1
