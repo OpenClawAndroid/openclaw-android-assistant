@@ -218,6 +218,9 @@ export type CronState = {
   // always wins over it when deriving the visible panel.
   cronCreateOpen: boolean;
   cronFieldErrors: CronFieldErrors;
+  // Exact definition the editor was opened or refreshed against; cronJobs is
+  // only the current filtered/paged table cache.
+  cronEditingJob: CronJob | null;
   cronEditingJobId: string | null;
   cronEditingConfigRevision: string | null;
   cronRunsJobId: string | null;
@@ -273,6 +276,7 @@ export function createInitialCronState(
     cronForm: { ...DEFAULT_CRON_FORM },
     cronCreateOpen: false,
     cronFieldErrors: {},
+    cronEditingJob: null,
     cronEditingJobId: null,
     cronEditingConfigRevision: null,
     cronRunsJobId: null,
@@ -699,12 +703,8 @@ export async function loadCronJobsPage(
     state.cronJobsTotal = page.total;
     state.cronJobsHasMore = page.hasMore;
     state.cronJobsNextOffset = page.nextOffset;
-    if (
-      state.cronEditingJobId &&
-      !state.cronJobs.some((job) => job.id === state.cronEditingJobId)
-    ) {
-      clearCronEditState(state);
-    }
+    // A filtered/paged list is not deletion authority. Only an explicit remove
+    // may clear an editor opened from an exact job definition.
   } catch (err) {
     state.cronError = formatUiError(err);
   } finally {
@@ -781,6 +781,7 @@ function resolveCronJobScheduleKind(job: CronJob): string | null {
 }
 
 function clearCronEditState(state: CronState) {
+  state.cronEditingJob = null;
   state.cronEditingJobId = null;
   state.cronEditingConfigRevision = null;
 }
@@ -1129,17 +1130,15 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
       return;
     }
 
-    const editingJob = state.cronEditingJobId
-      ? state.cronJobs.find((job) => job.id === state.cronEditingJobId)
-      : undefined;
-    const expectedConfigRevision = state.cronEditingJobId
+    const editingJob = state.cronEditingJob;
+    const expectedConfigRevision = editingJob
       ? requireCronConfigRevision(state.cronEditingConfigRevision)
       : undefined;
     const editingPayload = editingJob ? getCronJobPayload(editingJob) : null;
     // Preserve a process-backed schedule while the form still points at it; if the
     // user selects an editable schedule kind, the update must apply it.
     const preserveSchedule = Boolean(
-      state.cronEditingJobId &&
+      editingJob &&
       (((editingJob?.schedule.kind === "on-exit" || editingJob?.schedule.kind === "stream") &&
         form.scheduleKind === editingJob.schedule.kind) ||
         (editingJob?.schedule.kind === "at" &&
@@ -1148,14 +1147,10 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
     );
     const schedule = preserveSchedule ? undefined : buildCronSchedule(form);
     const preserveLockedPayload = Boolean(
-      state.cronEditingJobId && form.payloadLocked && isReadOnlyCronPayload(editingPayload),
+      editingJob && form.payloadLocked && isReadOnlyCronPayload(editingPayload),
     );
     const payload = preserveLockedPayload ? undefined : buildCronPayload(form);
-    if (
-      payload?.kind === "agentTurn" &&
-      state.cronEditingJobId &&
-      editingPayload?.kind === "agentTurn"
-    ) {
+    if (payload?.kind === "agentTurn" && editingJob && editingPayload?.kind === "agentTurn") {
       // When editing, a blanked field that previously held a stored override must
       // send an explicit clear; an omitted key means "leave unchanged" on merge.
       // The form only shows stored overrides (not inherited defaults), so a blank
@@ -1238,8 +1233,8 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
     if (!job.name) {
       throw new Error(t("cron.errors.nameRequiredShort"));
     }
-    if (state.cronEditingJobId) {
-      const editedJobId = state.cronEditingJobId;
+    if (editingJob) {
+      const editedJobId = editingJob.id;
       try {
         const updatedJob = await client.request<CronJob>("cron.update", {
           id: editedJobId,
@@ -1247,6 +1242,7 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
           patch: job,
         });
         replaceLocalCronJob(state, updatedJob);
+        startCronEdit(state, updatedJob);
       } catch (error) {
         if (!isCronJobChangedError(error)) {
           throw error;
@@ -1254,7 +1250,6 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
         await reloadCronJobsSnapshot(state);
         try {
           const latestJob = await client.request<CronJob>("cron.get", { id: editedJobId });
-          replaceLocalCronJob(state, latestJob);
           startCronEdit(state, latestJob);
           state.cronError =
             "This automation changed on the Gateway. The latest definition is loaded; review it before retrying.";
@@ -1264,7 +1259,6 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
         }
         return;
       }
-      clearCronEditState(state);
       result = { saved: true, jobId: editedJobId };
     } else {
       const response = await client.request("cron.add", job);
@@ -1299,8 +1293,11 @@ export async function toggleCronJob(
       patch: { enabled },
     });
     replaceLocalCronJob(state, updatedJob);
-    if (state.cronEditingJobId === updatedJob.id) {
-      state.cronEditingConfigRevision = requireCronConfigRevision(updatedJob.configRevision);
+    if (state.cronEditingJob?.id === updatedJob.id) {
+      setCronEditState(state, updatedJob, {
+        ...state.cronForm,
+        enabled: updatedJob.enabled,
+      });
     }
     updated = true;
     await reloadCronJobsSnapshot(state);
@@ -1354,7 +1351,7 @@ export async function removeCronJob(state: CronState, job: CronJob) {
     if (state.cronJobs.length !== previousLength) {
       state.cronJobsTotal = Math.max(0, state.cronJobsTotal - 1);
     }
-    if (state.cronEditingJobId === job.id) {
+    if (state.cronEditingJob?.id === job.id) {
       clearCronEditState(state);
     }
     if (state.cronRunsJobId === job.id) {
@@ -1524,13 +1521,17 @@ export function updateCronRunsFilter(
   state.cronRunsSortDir = patch.cronRunsSortDir ?? state.cronRunsSortDir;
 }
 
-export function startCronEdit(state: CronState, job: CronJob) {
-  const form = jobToForm(job, state.cronForm);
+function setCronEditState(state: CronState, job: CronJob, form: CronFormState) {
+  state.cronEditingJob = job;
   state.cronEditingJobId = job.id;
   state.cronEditingConfigRevision = job.configRevision ?? null;
   state.cronRunsJobId = job.id;
   state.cronForm = form;
   state.cronFieldErrors = validateCronForm(form);
+}
+
+export function startCronEdit(state: CronState, job: CronJob) {
+  setCronEditState(state, job, jobToForm(job, state.cronForm));
 }
 
 function buildCloneName(name: string, existingNames: Set<string>) {
