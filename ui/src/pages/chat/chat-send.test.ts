@@ -91,6 +91,19 @@ function cacheChatMessages(
   });
 }
 
+function cacheEmptyChatSnapshot(host: ChatHost, sessionKey: string): void {
+  cacheChatSessionSnapshot(
+    requireChatMessageCache(host),
+    host,
+    { sessionKey },
+    {
+      messages: [],
+      pagination: { hasMore: false, completeSnapshot: true },
+      sessionId: "cached-session",
+    },
+  );
+}
+
 function createQueuedLocalCommand(
   id: string,
   text: string,
@@ -4997,6 +5010,7 @@ describe("handleSendChat", () => {
         requestUpdate: vi.fn(),
       });
     }
+    cacheEmptyChatSnapshot(inactive, item.sessionKey);
     expect(admitQueuedMessageForSession(visible, item.sessionKey, item)).toBe(true);
     const event = {
       event: "chat",
@@ -5094,6 +5108,7 @@ describe("handleSendChat", () => {
         requestUpdate: vi.fn(),
       });
     }
+    cacheEmptyChatSnapshot(inactive, item.sessionKey);
     expect(admitQueuedMessageForSession(visible, item.sessionKey, item)).toBe(true);
     const event = {
       event: "chat",
