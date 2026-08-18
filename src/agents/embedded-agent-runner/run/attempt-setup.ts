@@ -513,16 +513,20 @@ export function prepareEmbeddedAttemptSkills(params: {
     skillsAnchorWorkspace: params.attempt.bootstrapWorkspaceDir ?? params.effectiveWorkspace,
     skillsSnapshot: params.attempt.skillsSnapshot,
   });
-  const { shouldLoadSkillEntries, skillEntries, loadSkillEntries } = resolveEmbeddedRunSkillEntries(
-    {
+  const { shouldLoadSkillEntries, skillEntries, loadSkillEntries, preserveEntryOrder } =
+    resolveEmbeddedRunSkillEntries({
       workspaceDir: skillsWorkspaceDir,
       config: params.attempt.config,
       agentId: params.sessionAgentId,
       eligibility: skillsEligibility,
       skillsSnapshot,
+      // Sandbox fallbacks stay inside their sandbox skill workspace;
+      // host execution skills are not mounted there.
+      ...(params.sandbox?.enabled === true
+        ? {}
+        : { executionSkillsDir: path.join(params.effectiveWorkspace, "skills") }),
       workspaceOnly,
-    },
-  );
+    });
   const restoreSkillEnv = skillsSnapshot
     ? applySkillEnvOverridesFromSnapshot({
         snapshot: skillsSnapshot,
@@ -555,6 +559,7 @@ export function prepareEmbeddedAttemptSkills(params: {
       workspaceDir: skillsPromptWorkspaceDir,
       agentId: params.sessionAgentId,
       eligibility: skillsEligibility,
+      preserveEntryOrder,
     });
     const sandbox = params.sandbox;
     const sandboxSkillReader: CodeModeSkillReader | undefined = sandbox?.enabled
