@@ -355,7 +355,8 @@ export function renderApplicationShell(host: ShellViewHost) {
   const uiSettings = loadSettings();
   // The new-session draft shares the chat layout: full-height pane that owns
   // its scrolling and pins the composer dock to the bottom.
-  const chatLikeRoute = isSessionRouteId(activeRoute) || activeRoute === "new-session";
+  const sessionRoute = isSessionRouteId(activeRoute);
+  const chatLikeRoute = sessionRoute || activeRoute === "new-session";
   const custodianRoute = activeRoute === "custodian";
   if (!settingsTakeover) {
     Object.assign(host.navigationSidebar, {
@@ -506,9 +507,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         : nothing}
       <openclaw-app-topbar
         .basePath=${context.basePath}
-        .searchDisabled=${false}
         .navDrawerOpen=${navDrawerOpen}
-        .onboarding=${onboarding}
         .onOpenPalette=${() => host.openPalette()}
         .onToggleDrawer=${(trigger: HTMLElement) => host.toggleNavigationSurface(trigger)}
       ></openclaw-app-topbar>
@@ -643,12 +642,12 @@ export function renderApplicationShell(host: ShellViewHost) {
         .client=${gatewayConnected ? gatewaySnapshot.client : null}
         .available=${terminalAvailable}
         .agentId=${selectedAgentId}
+        .sessionKey=${sessionRoute ? host.activeSessionKey : null}
         .suppressed=${settingsTakeover}
-        .sessionBottomOnly=${isSessionRouteId(activeRoute)}
         .themeMode=${resolveTerminalThemeMode()}
         .basePath=${context.basePath}
       ></openclaw-terminal-panel>
-      ${isSessionRouteId(activeRoute)
+      ${sessionRoute
         ? nothing
         : html`
             <openclaw-browser-panel
