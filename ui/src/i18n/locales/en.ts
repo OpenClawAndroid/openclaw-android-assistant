@@ -3500,6 +3500,8 @@ export const en: TranslationMap = {
       loadingPrevious: "Loading the previous revision\u2026",
       previousUnavailable: "The previous revision is unavailable, so this is the full body.",
       tooLarge: "This comparison is too large to show here. Switch to Full body to read it.",
+      truncated:
+        "This comparison is truncated. Changes and statistics may be incomplete. Switch to Full body to review the complete revision.",
     },
     applied: {
       history: "History",
@@ -3776,7 +3778,9 @@ export const en: TranslationMap = {
       toolCapability: "Tool: {capability}",
       granted: "Granted",
       allow: "Allow",
+      allowFailed: "Could not allow widget access. Try again.",
       reject: "Reject",
+      rejectFailed: "Could not reject widget access. Try again.",
       rejected: "Access rejected",
       rejectedDetail: "This widget stays inactive until it is removed or replaced.",
       appLoading: "Restoring app…",
