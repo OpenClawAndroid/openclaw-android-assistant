@@ -40,6 +40,10 @@ export const en: TranslationMap = {
     copied: "Copied!",
     copyFailed: "Copy failed",
     copyCode: "Copy code",
+    copyTable: "Copy table",
+    expandTable: "Expand table",
+    expandedTable: "Expanded table",
+    closeTable: "Close expanded table",
     resizeSplitView: "Resize split view",
     delete: "Delete",
     remove: "Remove",
@@ -5099,6 +5103,7 @@ export const en: TranslationMap = {
       truncated: "… truncated ({total} chars, showing first {shown}).",
     },
     codeBlock: {
+      languageFallback: "Code",
       jsonLines: "JSON · {count} lines",
       jsonBadge: "JSON",
       jsonArrayItem: "Array ({count} item)",
