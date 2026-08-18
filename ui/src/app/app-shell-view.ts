@@ -27,6 +27,7 @@ import type { ApplicationContext, ApplicationNavigationOptions } from "./context
 import { resolveControlUiAuthToken } from "./control-ui-auth.ts";
 import { readScopeUpgradeAvailability } from "./device-scope-upgrade.ts";
 import {
+  DEBUG_OVERLAY_ELEMENT,
   ensureOptionalElementForHost,
   isOptionalElementDefined,
   type OptionalCustomElement,
@@ -87,7 +88,6 @@ export interface ShellViewHost {
   readonly runtime: ApplicationRuntime | undefined;
   readonly activeSessionKey: string;
   readonly commandPaletteElement: OptionalCustomElement;
-  readonly debugOverlayElement: OptionalCustomElement;
   readonly custodianMinimizeRequestId: number;
   readonly desktopNavigationExpanded: boolean;
   readonly execApprovalElement: OptionalCustomElement;
@@ -398,6 +398,7 @@ export function renderApplicationShell(host: ShellViewHost) {
       refreshRequired: navigationSurfaceHidden ? false : overlaySnapshot.controlUiRefreshRequired,
       onRefresh: () => host.refreshControlUi(),
       onHoldUpdate: () => context.overlays.holdUpdate(),
+      onReviewUpdate: () => host.navigate("updates"),
       onOpenApprovals: () => host.openApprovals(),
       onRetryConnect: () => context.gateway.connect(),
       onOpenNewSession: openNewSession,
@@ -434,6 +435,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         refreshRequired: navigationSurfaceHidden ? false : overlaySnapshot.controlUiRefreshRequired,
         onRefresh: () => host.refreshControlUi(),
         onHoldUpdate: () => context.overlays.holdUpdate(),
+        onReviewUpdate: () => host.navigate("updates"),
         searchQuery: host.settingsSearchQuery,
         searchBlockMatches: settingsSearchBlocks,
         onExit: () => host.exitSettings(),
@@ -471,7 +473,7 @@ export function renderApplicationShell(host: ShellViewHost) {
           .onSlashCommand=${(command: string) => host.handleCommandPaletteSlashCommand(command)}
         ></openclaw-command-palette>`
       : nothing}
-    ${isOptionalElementDefined(host.debugOverlayElement)
+    ${isOptionalElementDefined(DEBUG_OVERLAY_ELEMENT)
       ? html`<openclaw-debug-overlay></openclaw-debug-overlay>`
       : nothing}
     <div
@@ -621,6 +623,7 @@ export function renderApplicationShell(host: ShellViewHost) {
           refreshRequired: overlaySnapshot.controlUiRefreshRequired,
           onRefresh: () => host.refreshControlUi(),
           onHoldUpdate: () => context.overlays.holdUpdate(),
+          onReviewUpdate: () => host.navigate("updates"),
         })}
         ${pageActionsBlocked && gatewaySnapshot.phase !== "reload-required"
           ? html`<div class="connection-action-block" role="status" aria-live="polite">
