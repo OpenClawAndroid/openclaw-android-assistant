@@ -8,11 +8,7 @@ import {
 } from "./client.js";
 import { resetSharedCodexAppServerClientForTests } from "./shared-client.js";
 import { createClientHarness } from "./test-support.js";
-import {
-  CODEX_APP_SERVER_VERSION,
-  MAX_SUPPORTED_CODEX_APP_SERVER_VERSION,
-  MIN_SUPPORTED_CODEX_APP_SERVER_VERSION,
-} from "./version.js";
+import { CODEX_APP_SERVER_VERSION, MIN_SUPPORTED_CODEX_APP_SERVER_VERSION } from "./version.js";
 
 const CODEX_DYNAMIC_TOOL_SERVER_REQUEST_TIMEOUT_MS = 660_000;
 
@@ -350,6 +346,10 @@ describe("CodexAppServerClient", () => {
         },
         capabilities: {
           experimentalApi: true,
+          extensions: {
+            "openai/standard-form-input": {},
+            "openai/form": {},
+          },
         },
       },
     });
@@ -365,7 +365,7 @@ describe("CodexAppServerClient", () => {
     });
 
     await expect(initializing).rejects.toThrow(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required, but detected 0.146.9`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required, but detected 0.146.9`,
     );
     expect(harness.writes).toHaveLength(1);
   });
@@ -378,7 +378,7 @@ describe("CodexAppServerClient", () => {
     });
 
     await expect(initializing).rejects.toThrow(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required, but detected 0.146.0`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required, but detected 0.146.0`,
     );
     expect(harness.writes).toHaveLength(1);
   });
@@ -391,7 +391,7 @@ describe("CodexAppServerClient", () => {
     });
 
     await expect(initializing).rejects.toThrow(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required, but detected 0.147.0-alpha.2`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required, but detected 0.147.0-alpha.2`,
     );
     expect(harness.writes).toHaveLength(1);
   });
@@ -418,7 +418,7 @@ describe("CodexAppServerClient", () => {
     });
 
     await expect(initializing).rejects.toThrow(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required`,
     );
     expect(harness.writes).toHaveLength(1);
   });
@@ -431,13 +431,13 @@ describe("CodexAppServerClient", () => {
     });
 
     await expect(initializing).rejects.toThrow(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required`,
     );
     expect(harness.writes).toHaveLength(1);
   });
 
-  it.each(["0.148.0-alpha.9", MAX_SUPPORTED_CODEX_APP_SERVER_VERSION])(
-    "accepts tested Codex Desktop prerelease %s for normal startup validation",
+  it.each(["0.148.0-alpha.9", "0.148.0-alpha.15", "0.148.0-alpha.23", "0.148.0", "1.0.0"])(
+    "accepts a newer app-server version %s for normal startup validation",
     async (newerVersion) => {
       const warn = vi.spyOn(embeddedAgentLog, "warn").mockImplementation(() => undefined);
       const { harness, initializing, outbound } = startInitialize();
@@ -459,22 +459,6 @@ describe("CodexAppServerClient", () => {
     },
   );
 
-  it.each(["0.148.0-alpha.16", "0.148.0", "1.0.0"])(
-    "blocks unverified future app-server version %s during initialize",
-    async (version) => {
-      const { harness, initializing, outbound } = startInitialize();
-      harness.send({
-        id: outbound.id,
-        result: { userAgent: `openclaw/${version} (macOS; test)` },
-      });
-
-      await expect(initializing).rejects.toThrow(
-        `through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required`,
-      );
-      expect(harness.writes).toHaveLength(1);
-    },
-  );
-
   it.each(["0.147.00", "0.148.0-alpha..9", "0.148.0-alpha.09"])(
     "blocks malformed app-server version %s during initialize",
     async (version) => {
@@ -485,7 +469,7 @@ describe("CodexAppServerClient", () => {
       });
 
       await expect(initializing).rejects.toThrow(
-        `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required`,
+        `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required`,
       );
       expect(harness.writes).toHaveLength(1);
     },
@@ -496,7 +480,7 @@ describe("CodexAppServerClient", () => {
     harness.send({ id: outbound.id, result: {} });
 
     await expect(initializing).rejects.toThrow(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required`,
     );
     expect(harness.writes).toHaveLength(1);
   });
@@ -810,6 +794,34 @@ describe("CodexAppServerClient", () => {
     expect(JSON.parse(harness.writes[0] ?? "{}")).toEqual({
       id: "input-1",
       result: { answers: {} },
+    });
+  });
+
+  it("returns an explicit bounded decline for unhandled MCP elicitations", async () => {
+    const harness = createClientHarness();
+    clients.push(harness.client);
+
+    harness.send({
+      id: "elicitation-1",
+      method: "mcpServer/elicitation/request",
+      params: {
+        threadId: "thread-1",
+        turnId: null,
+        serverName: "forms",
+        mode: "form",
+        message: "Enter a value",
+        requestedSchema: { type: "object", properties: {} },
+      },
+    });
+    await vi.waitFor(() => expect(harness.writes.length).toBe(1));
+
+    expect(JSON.parse(harness.writes[0] ?? "{}")).toEqual({
+      id: "elicitation-1",
+      result: {
+        action: "decline",
+        content: null,
+        _meta: { message: "OpenClaw has no interactive handler for this elicitation." },
+      },
     });
   });
 });

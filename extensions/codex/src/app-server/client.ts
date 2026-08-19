@@ -10,6 +10,7 @@ import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runti
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { parse as parseSemver } from "semver";
 import { resolveCodexAppServerRuntimeOptions, type CodexAppServerStartOptions } from "./config.js";
+import { createCodexElicitationResponse } from "./elicitation-response.js";
 import {
   type CodexAppServerRequestMethod,
   type CodexAppServerRequestParams,
@@ -31,11 +32,7 @@ import {
   closeCodexAppServerTransportAndWait,
   type CodexAppServerTransport,
 } from "./transport.js";
-import {
-  CODEX_APP_SERVER_VERSION,
-  MAX_SUPPORTED_CODEX_APP_SERVER_VERSION,
-  MIN_SUPPORTED_CODEX_APP_SERVER_VERSION,
-} from "./version.js";
+import { CODEX_APP_SERVER_VERSION, MIN_SUPPORTED_CODEX_APP_SERVER_VERSION } from "./version.js";
 
 const CODEX_APP_SERVER_PARSE_LOG_MAX = 500;
 const CODEX_APP_SERVER_PARSE_BUFFER_MAX = 8 * 1024 * 1024;
@@ -296,6 +293,10 @@ export class CodexAppServerClient {
       },
       capabilities: {
         experimentalApi: true,
+        extensions: {
+          "openai/standard-form-input": {},
+          "openai/form": {},
+        },
       },
     } satisfies CodexInitializeParams);
     this.serverVersion = assertSupportedCodexAppServerVersion(response);
@@ -963,9 +964,9 @@ function defaultServerRequestResponse(
     };
   }
   if (request.method === "mcpServer/elicitation/request") {
-    return {
-      action: "decline",
-    };
+    return createCodexElicitationResponse("decline", null, {
+      message: "OpenClaw has no interactive handler for this elicitation.",
+    });
   }
   return {};
 }
@@ -1004,7 +1005,7 @@ class CodexAppServerVersionError extends Error {
       ? `detected ${detectedVersion}`
       : "OpenClaw could not determine the running Codex version";
     super(
-      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required, but ${detected}. Update the configured Codex app-server binary, or remove custom command overrides to use the managed binary.`,
+      `Codex app-server ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} or newer is required, but ${detected}. Update the configured Codex app-server binary, or remove custom command overrides to use the managed binary.`,
     );
     this.name = "CodexAppServerVersionError";
     this.detectedVersion = detectedVersion;
@@ -1017,11 +1018,7 @@ function assertSupportedCodexAppServerVersion(response: CodexInitializeResponse)
     throw new CodexAppServerVersionError(detectedVersion);
   }
   const detected = parseSemver(detectedVersion);
-  if (
-    !detected ||
-    detected.compare(MIN_SUPPORTED_CODEX_APP_SERVER_VERSION) < 0 ||
-    detected.compare(MAX_SUPPORTED_CODEX_APP_SERVER_VERSION) > 0
-  ) {
+  if (!detected || detected.compare(MIN_SUPPORTED_CODEX_APP_SERVER_VERSION) < 0) {
     throw new CodexAppServerVersionError(detectedVersion);
   }
   if (detected.compare(CODEX_APP_SERVER_VERSION) > 0) {
