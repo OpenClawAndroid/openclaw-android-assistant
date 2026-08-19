@@ -22,9 +22,10 @@ working.
 - The agent runtime must be the native Codex harness.
 - `plugins.entries.codex.enabled` is `true`.
 - `plugins.entries.codex.config.codexPlugins.enabled` is `true`.
-- Codex app-server reports exactly stable `0.147.0`. The official plugin ships
-  `@openai/codex` `0.147.0`; custom, remote, and macOS desktop-owned binaries
-  must use the same exact version.
+- Codex app-server reports a version from `0.147.0` through
+  `0.148.0-alpha.15`. The official plugin still ships `@openai/codex`
+  `0.147.0`; accepted external versions remain subject to normal startup and
+  capability validation.
 - The target Codex app-server can see the expected marketplace, plugin, and
   app inventory.
 - Migration supports only `openai-curated` plugins that it observed as

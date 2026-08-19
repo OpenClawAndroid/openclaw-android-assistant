@@ -8,6 +8,7 @@ import { embeddedAgentLog, OPENCLAW_VERSION } from "openclaw/plugin-sdk/agent-ha
 import { coerceErrorMessage, toStringifiedError } from "openclaw/plugin-sdk/error-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
+import { parse as parseSemver } from "semver";
 import { resolveCodexAppServerRuntimeOptions, type CodexAppServerStartOptions } from "./config.js";
 import {
   type CodexAppServerRequestMethod,
@@ -30,7 +31,11 @@ import {
   closeCodexAppServerTransportAndWait,
   type CodexAppServerTransport,
 } from "./transport.js";
-import { CODEX_APP_SERVER_VERSION } from "./version.js";
+import {
+  CODEX_APP_SERVER_VERSION,
+  MAX_SUPPORTED_CODEX_APP_SERVER_VERSION,
+  MIN_SUPPORTED_CODEX_APP_SERVER_VERSION,
+} from "./version.js";
 
 const CODEX_APP_SERVER_PARSE_LOG_MAX = 500;
 const CODEX_APP_SERVER_PARSE_BUFFER_MAX = 8 * 1024 * 1024;
@@ -999,7 +1004,7 @@ class CodexAppServerVersionError extends Error {
       ? `detected ${detectedVersion}`
       : "OpenClaw could not determine the running Codex version";
     super(
-      `Codex app-server ${CODEX_APP_SERVER_VERSION} is required, but ${detected}. Update the configured Codex app-server binary, or remove custom command overrides to use the managed binary.`,
+      `A Codex app-server from ${MIN_SUPPORTED_CODEX_APP_SERVER_VERSION} through ${MAX_SUPPORTED_CODEX_APP_SERVER_VERSION} is required, but ${detected}. Update the configured Codex app-server binary, or remove custom command overrides to use the managed binary.`,
     );
     this.name = "CodexAppServerVersionError";
     this.detectedVersion = detectedVersion;
@@ -1008,8 +1013,25 @@ class CodexAppServerVersionError extends Error {
 
 function assertSupportedCodexAppServerVersion(response: CodexInitializeResponse): string {
   const detectedVersion = readCodexVersionFromUserAgent(response.userAgent);
-  if (detectedVersion !== CODEX_APP_SERVER_VERSION) {
+  if (!detectedVersion) {
     throw new CodexAppServerVersionError(detectedVersion);
+  }
+  const detected = parseSemver(detectedVersion);
+  if (
+    !detected ||
+    detected.compare(MIN_SUPPORTED_CODEX_APP_SERVER_VERSION) < 0 ||
+    detected.compare(MAX_SUPPORTED_CODEX_APP_SERVER_VERSION) > 0
+  ) {
+    throw new CodexAppServerVersionError(detectedVersion);
+  }
+  if (detected.compare(CODEX_APP_SERVER_VERSION) > 0) {
+    embeddedAgentLog.warn(
+      "codex app-server is newer than OpenClaw's managed runtime; continuing with normal startup validation",
+      {
+        detectedVersion,
+        validatedVersion: CODEX_APP_SERVER_VERSION,
+      },
+    );
   }
   return detectedVersion;
 }
