@@ -489,6 +489,7 @@ describe("sessions_spawn tool", () => {
     expect(schema.properties?.lightContext?.description).toContain("unavailable with visible=true");
     expect(schema.properties?.attachments?.description).toContain("unavailable with visible=true");
     expect(schema.properties?.attachAs?.description).toContain("unavailable with visible=true");
+    expect(schema.properties?.category?.description).toContain("leave it ungrouped");
     expect(schema.properties?.mode?.enum).toEqual(["run"]);
     expect(schema.properties?.mode?.anyOf).toBeUndefined();
     expect(schema.properties?.worktree).toBeDefined();
@@ -527,6 +528,7 @@ describe("sessions_spawn tool", () => {
       const result = await tool.execute("visible", {
         task: "inspect issue",
         label: "Issue review",
+        category: "P1 issues from beta feedback",
         model: "anthropic/claude-sonnet-4-6",
         cwd: dir,
         context: "fork",
@@ -546,6 +548,7 @@ describe("sessions_spawn tool", () => {
       expect(callGateway).toHaveBeenCalledWith("sessions.create", {
         agentId: "main",
         label: "Issue review",
+        category: "P1 issues from beta feedback",
         model: "anthropic/claude-sonnet-4-6",
         task: "inspect issue",
         parentSessionKey: "agent:main:main",
@@ -575,6 +578,35 @@ describe("sessions_spawn tool", () => {
       expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
     });
   });
+
+  it.each([{ category: undefined }, { category: "" }])(
+    "keeps a visible session ungrouped when category is $category",
+    async ({ category }) => {
+      const callGateway = vi.fn(async () => ({
+        key: "agent:main:dashboard:child",
+        runStarted: true,
+        runId: "run-visible",
+      }));
+      const tool = createSessionsSpawnTool({
+        agentSessionKey: "agent:main:main",
+        config: { agents: { list: [{ id: "main" }] } },
+        callGateway: callGateway as never,
+        registerRun: vi.fn(),
+        countActiveRuns: () => 0,
+      });
+
+      await tool.execute("visible-ungrouped", {
+        task: "inspect issue",
+        visible: true,
+        ...(category !== undefined ? { category } : {}),
+      });
+
+      expect(callGateway).toHaveBeenCalledWith(
+        "sessions.create",
+        expect.not.objectContaining({ category: expect.anything() }),
+      );
+    },
+  );
 
   it("explains an out-of-workspace visible cwd denial without suggesting a CLI fallback", async () => {
     await withTestDir({ prefix: "openclaw-visible-spawn-external-cwd-" }, async (workspace) => {
@@ -723,6 +755,15 @@ describe("sessions_spawn tool", () => {
     await expect(
       tool.execute("hidden-worktree", { task: "inspect", worktree: true }),
     ).rejects.toThrow("Parameters require visible=true: worktree");
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["Projects", ""])("rejects category %j without visible mode", async (category) => {
+    const tool = createSessionsSpawnTool({ agentSessionKey: "agent:main:main" });
+
+    await expect(tool.execute("hidden-category", { task: "inspect", category })).rejects.toThrow(
+      "Parameters require visible=true: category",
+    );
     expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
   });
 

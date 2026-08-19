@@ -49,6 +49,7 @@ import {
   openSessionWorkspaceFile,
   revealSessionWorkspaceFile,
 } from "./components/chat-session-workspace.ts";
+import { createLinkFaviconFetcher } from "./link-favicon-loader.ts";
 import { activeQueuedMessageEdit } from "./queued-message-edit.ts";
 import { hasAbortableSessionRun } from "./run-lifecycle.ts";
 import { scheduleChatScroll } from "./scroll.ts";
@@ -147,8 +148,9 @@ export class ChatPane extends ChatPaneLayoutRender {
       agentModel: agentDefaultModel,
     });
     const selectedSessionArchived = this.isCurrentSessionArchived(state);
-    const cloudStartup = this.context.cloudStartup.get(state.sessionKey);
-    const cloudStartupPending = cloudStartup !== null && cloudStartup.phase !== "failed";
+    const placementStartup = this.context.placementStartup.get(state.sessionKey);
+    const placementStartupPending =
+      placementStartup !== null && placementStartup.phase !== "failed";
     const sessionParticipationBlocked = this.sessionParticipationTracker.resolve({
       catalog: catalogKey !== null,
       listLoading: state.sessionsLoading,
@@ -172,7 +174,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       ? `${t("modelSetup.failure.auth")}. ${t("modelSetup.failureGuidance.auth")}`
       : sessionParticipationBlocked && !suggestionViewer
         ? t("chat.sessionSharing.readOnlyNotice")
-        : cloudStartupPending
+        : placementStartupPending
           ? t("newSession.starting")
           : null;
     const typingEnabled =
@@ -223,6 +225,13 @@ export class ChatPane extends ChatPaneLayoutRender {
     const historyHasMore = catalogKey
       ? Boolean(this.catalogCursor)
       : state.chatHistoryPagination.hasMore;
+    const fetchLinkFavicon = state.automaticallyFetchFavicons
+      ? createLinkFaviconFetcher({
+          auth: { hello: state.hello, settings: state.settings, password: state.password },
+          basePath: state.basePath,
+          gatewayUrl: state.client?.gatewayUrl ?? state.settings.gatewayUrl,
+        })
+      : undefined;
     const sessionActionCallbacks = createChatPaneSessionActionCallbacks({
       getSnapshot: () => this.context.gateway.snapshot,
       hasLocalRun: () => Boolean(state.chatRunId),
@@ -261,13 +270,13 @@ export class ChatPane extends ChatPaneLayoutRender {
       persistCommentary: state.settings.chatPersistCommentary !== false,
       loading: catalogKey ? this.catalogLoading : state.chatLoading,
       sending:
-        cloudStartupPending ||
+        placementStartupPending ||
         state.chatSending ||
         this.recoveringSession ||
         this.sessionSuggestionAddOperation !== undefined,
-      cloudStartup,
-      onRetryCloudStartup: cloudStartup?.retryable
-        ? () => this.context.cloudStartup.retry(state.sessionKey)
+      placementStartup,
+      onRetrySessionPlacementStartup: placementStartup?.retryable
+        ? () => this.context.placementStartup.retry(state.sessionKey)
         : undefined,
       canAbort: sessionParticipationBlocked ? false : hasAbortableSessionRun(state),
       runStatus: state.chatRunStatus,
@@ -330,7 +339,7 @@ export class ChatPane extends ChatPaneLayoutRender {
           !selectedSessionArchived &&
           !restartRecoveryTombstoned &&
           (!sessionParticipationBlocked || suggestionViewer) &&
-          !cloudStartupPending,
+          !placementStartupPending,
       disabledReason: catalogDisabledReason ?? disabledReason,
       disabledBanner: this.sessionDisabledBanner({
         catalogDisabledReason,
@@ -525,6 +534,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       localMediaPreviewRoots: state.localMediaPreviewRoots,
       embedSandboxMode: state.embedSandboxMode,
       allowExternalEmbedUrls: state.allowExternalEmbedUrls,
+      fetchLinkFavicon,
       chatMessageMaxWidth: state.settings.chatMessageMaxWidth,
       assistantAttachmentAuthToken: resolveAssistantAttachmentAuthToken(state as never),
       resolveArtifactDownload: (params) => resolveChatArtifactDownload(state, params),

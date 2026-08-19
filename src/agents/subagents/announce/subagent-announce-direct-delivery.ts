@@ -68,12 +68,14 @@ import {
 } from "./subagent-announce-origin.js";
 import { resolveRequesterStoreKey } from "./subagent-requester-store-key.js";
 
+// No resolveGatewayContext: this dispatch is bound to the Gateway instance,
+// which supplies its own context. The instance runtime forwards a fixed option
+// allowlist, so a caller-supplied resolver here would be silently ignored.
 async function runAnnounceAgentCall(params: {
   agentParams: Record<string, unknown>;
   delegatedToolPolicyHandoff?: SubagentCompletionToolHandoffRegistration;
   expectFinal?: boolean;
   timeoutMs?: number;
-  resolveGatewayContext?: import("../../../gateway/server-methods/types.js").GatewayContextResolver;
 }): Promise<unknown> {
   return await dispatchSubagentAnnounceAgent(params.agentParams, {
     expectFinal: params.expectFinal,
@@ -82,7 +84,6 @@ async function runAnnounceAgentCall(params: {
     ),
     delegatedToolPolicyHandoff: params.delegatedToolPolicyHandoff,
     timeoutMs: params.timeoutMs,
-    resolveGatewayContext: params.resolveGatewayContext,
   });
 }
 
@@ -107,7 +108,6 @@ export async function sendSubagentAnnounceDirectly(params: {
   requesterIsSubagent: boolean;
   onDeliveryResult?: (delivery: SubagentAnnounceDeliveryResult) => void;
   signal?: AbortSignal;
-  resolveGatewayContext?: import("../../../gateway/server-methods/types.js").GatewayContextResolver;
 }): Promise<SubagentAnnounceDeliveryResult> {
   if (params.signal?.aborted) {
     return {
@@ -372,7 +372,6 @@ export async function sendSubagentAnnounceDirectly(params: {
                 : undefined,
             expectFinal: true,
             timeoutMs: announceTimeoutMs,
-            resolveGatewayContext: params.resolveGatewayContext,
           });
         },
       });

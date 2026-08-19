@@ -21,10 +21,6 @@ export type GatewayInstanceAgentDispatchOptions = {
   syntheticScopes?: string[];
 };
 
-export type GatewayLifecycleAgentDispatchOptions = GatewayInstanceAgentDispatchOptions & {
-  timeoutMs?: number;
-};
-
 export type GatewayApprovalEventPublisher = {
   publishRequested: (kind: ChannelApprovalKind, request: unknown) => number;
   publishResolved: (kind: ChannelApprovalKind, resolved: unknown) => void;
