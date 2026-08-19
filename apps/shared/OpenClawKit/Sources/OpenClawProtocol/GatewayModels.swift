@@ -1257,21 +1257,25 @@ public struct ProgressCardPutParams: Codable, Sendable {
     public let sessionkey: String
     public let markdown: String?
     public let plan: [ProgressCardStep]?
+    public let expectedrevision: Int?
 
     public init(
         sessionkey: String,
         markdown: String? = nil,
-        plan: [ProgressCardStep]? = nil)
+        plan: [ProgressCardStep]? = nil,
+        expectedrevision: Int? = nil)
     {
         self.sessionkey = sessionkey
         self.markdown = markdown
         self.plan = plan
+        self.expectedrevision = expectedrevision
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case markdown
         case plan
+        case expectedrevision = "expectedRevision"
     }
 }
 

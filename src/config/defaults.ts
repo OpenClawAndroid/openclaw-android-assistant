@@ -206,7 +206,7 @@ function buildManifestCatalogModelLookup(
         }
       }
     }
-    return index.get(keyFor(providerId, modelId));
+    return structuredClone(index.get(keyFor(providerId, modelId)));
   };
 }
 

@@ -1,5 +1,8 @@
 import { html, nothing } from "lit";
-import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
+import type {
+  ProgressCard,
+  SessionObserverDigest,
+} from "../../../../packages/gateway-protocol/src/index.js";
 import type { GatewaySessionRow } from "../../api/types.ts";
 import { isDesktopPanelAvailable } from "../../app/app-shell-chrome.ts";
 import { ChatPaneBrowserAnnotationRender } from "./chat-pane-browser-annotation-render.ts";
@@ -36,6 +39,7 @@ type ChatPaneLayoutRenderParams = {
   board: ResolvedBoardView;
   sidebarLayout: SidebarLayout;
   progressCardInRail: boolean;
+  onDismissProgressCard?: (card: ProgressCard) => void;
   sessionWorkspace: SessionWorkspaceProps;
   backgroundTasks: BackgroundTasksProps;
   chatProps: ChatProps;
@@ -58,6 +62,7 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       board,
       sidebarLayout,
       progressCardInRail,
+      onDismissProgressCard,
       sessionWorkspace,
       backgroundTasks,
       chatProps,
@@ -118,6 +123,7 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       lastReadAt: selectedSession?.lastReadAt,
       pullRequests: this.sessionPullRequests,
       progressCard: progressCardInRail ? this.progressCard.card : null,
+      onDismissProgressCard,
       companion: companionThread,
       onCompanionSubmit: (question) => void this.submitSessionCompanionQuestion(question),
       onCompanionDraftChange: (draft) =>

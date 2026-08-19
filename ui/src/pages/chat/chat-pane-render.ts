@@ -18,6 +18,7 @@ import {
 } from "../../lib/observer-digest.ts";
 import { hasSessionPresenceViewers } from "../../lib/presence-users.ts";
 import { buildAgentMainSessionKey } from "../../lib/sessions/session-key.ts";
+import { showToast } from "../../lib/toast.ts";
 import { clearChatHistory } from "./chat-history.ts";
 import { resolveChatMessageAccess } from "./chat-message-access.ts";
 import { requiresChatModelSetup } from "./chat-model-setup.ts";
@@ -158,6 +159,18 @@ export class ChatPane extends ChatPaneLayoutRender {
       session: selectedSession,
     });
     const gatewaySnapshot = this.context.gateway.snapshot;
+    const canDismissProgressCard =
+      state.connected &&
+      !sessionParticipationBlocked &&
+      hasOperatorWriteAccess(gatewaySnapshot.hello?.auth ?? null) &&
+      isGatewayMethodAdvertised(gatewaySnapshot, "progressCard.put") === true;
+    const onDismissProgressCard = canDismissProgressCard
+      ? (card: NonNullable<ChatProps["progressCard"]>) => {
+          void this.progressCard
+            .dismiss(card)
+            .catch(() => showToast({ message: t("sessionProgressCard.dismissFailed") }));
+        }
+      : undefined;
     const restartRecoveryTombstoned = selectedSession?.restartRecoveryStatus === "tombstoned";
     const multiIdentity = this.hasMultipleIdentities();
     const suggestionViewer =
@@ -285,6 +298,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       compactionStatus: state.compactionStatus,
       fallbackStatus: state.fallbackStatus,
       progressCard: progressCardInRail ? null : this.progressCard.card,
+      onDismissProgressCard,
       gatewayQuestionPrompts: catalogKey || sessionParticipationBlocked ? [] : this.questionPrompts,
       onGatewayQuestionChange: () => {
         this.questionPrompts = [...this.questionPrompts];
@@ -547,6 +561,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       board,
       sidebarLayout,
       progressCardInRail,
+      onDismissProgressCard,
       sessionWorkspace,
       backgroundTasks,
       chatProps: props,

@@ -201,9 +201,49 @@ suite.define(() => {
         code: "UNAVAILABLE",
         message: "send outcome unknown",
       });
-      await pollLocatorText(page.locator(".chat-cloud-startup-error")).toContain(
-        "send outcome unknown",
+      const startupError = await page.evaluate(
+        (key) =>
+          new Promise<string>((resolve, reject) => {
+            const app = document.querySelector("openclaw-app") as HTMLElement & {
+              runtime?: {
+                context: {
+                  placementStartup: {
+                    get: (sessionKey: string) => { error?: string; phase: string } | null;
+                    subscribe: (listener: () => void) => () => void;
+                  };
+                };
+              };
+            };
+            const placementStartup = app.runtime?.context.placementStartup;
+            if (!placementStartup) {
+              reject(new Error("session placement startup unavailable"));
+              return;
+            }
+            let settled = false;
+            const subscription: { stop?: () => void } = {};
+            const resolveFailed = () => {
+              const status = placementStartup.get(key);
+              if (settled || status?.phase !== "failed") {
+                return;
+              }
+              settled = true;
+              subscription.stop?.();
+              resolve(status.error ?? "");
+            };
+            subscription.stop = placementStartup.subscribe(resolveFailed);
+            if (settled) {
+              subscription.stop();
+            } else {
+              resolveFailed();
+            }
+          }),
+        sessionKey,
       );
+      expect(startupError).toContain("send outcome unknown");
+      await waitForCommittedChatRoute(page);
+      const startupErrorAlert = page.locator(".chat-cloud-startup-error");
+      await startupErrorAlert.waitFor({ state: "visible" });
+      expect(await startupErrorAlert.textContent()).toContain("send outcome unknown");
       await gateway.setMethodResponse("sessions.send", {
         runId: "run-reload-recovery",
         status: "started",

@@ -179,9 +179,15 @@
   text-transform: uppercase;
 }
 
+.session-progress-card__heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .session-progress-card__summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 7px;
   min-width: 0;
@@ -234,6 +240,13 @@
   font-family: var(--mono);
   font-size: var(--control-ui-text-xs);
   font-variant-numeric: tabular-nums;
+}
+
+.session-progress-card__dismiss {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
 }
 
 .session-progress-card--composer .session-progress-card__body {

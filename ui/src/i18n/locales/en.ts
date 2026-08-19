@@ -189,6 +189,8 @@ export const en: TranslationMap = {
     ariaLabel: "Session progress",
     title: "Progress",
     noteLabel: "Progress note",
+    dismiss: "Dismiss progress card",
+    dismissFailed: "Could not dismiss the progress card. Try again.",
     widgetLabel: "Session progress",
     widgetLoading: "Loading session progress…",
     widgetEmpty: "No progress card yet",
@@ -1777,6 +1779,10 @@ export const en: TranslationMap = {
       status: "Status",
       unsubscribe: "Unsubscribe",
       sendTest: "Send test",
+      sendingTest: "Sending test…",
+      testOutcome: "Test notification",
+      testQueued: "Test notification queued",
+      testFailed: "Test notification failed",
       subscribing: "Subscribing...",
       enable: "Enable notifications",
       openSystemSettings: "Open System Settings",
@@ -4083,6 +4089,10 @@ export const en: TranslationMap = {
     reconnecting: "Reconnecting…",
     retryNow: "Retry now",
     actionsUnavailable: "Actions are unavailable while the Gateway reconnects.",
+    sessionOperationCompletedPreviousConnection:
+      "The session operation completed on the previous connection. Check the current session list before continuing.",
+    sessionOperationCompletedPreviousConnectionWithRefreshError:
+      "The session operation completed on the previous connection, but refreshing the current session list failed: {error}",
     scopeUpgrade: {
       limited: "This browser has limited access.",
       guidance:
@@ -5938,6 +5948,16 @@ export const en: TranslationMap = {
       noOutputFailed: "No output — tool failed.",
       noOutputSucceeded: "No output — tool completed successfully.",
       noResult: "No result available.",
+      review: {
+        reviewing: "{reviewer} reviewing",
+        approved: "{reviewer} approved",
+        denied: "{reviewer} denied",
+        timedOut: "{reviewer} timed out",
+        aborted: "{reviewer} stopped",
+        risk: "{level} risk",
+        authorization: "{level} authorization",
+        noRationale: "No rationale was provided.",
+      },
       verbs: {
         read: "Read",
         edit: "Edit",
