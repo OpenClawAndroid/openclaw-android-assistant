@@ -868,7 +868,7 @@ extensions/msteams/src/monitor-handler.ts	5
 extensions/msteams/src/monitor-handler/inbound-content.ts	1
 extensions/msteams/src/monitor-handler/inbound-dispatch.ts	1
 extensions/msteams/src/monitor-handler/inbound-facts.ts	1
-extensions/msteams/src/monitor.ts	9
+extensions/msteams/src/monitor.ts	8
 extensions/msteams/src/msteams-ingress.ts	1
 extensions/msteams/src/outbound.ts	1
 extensions/msteams/src/polls.ts	1
@@ -4279,7 +4279,7 @@ ui/src/pages/plugin/route.ts	1
 ui/src/pages/plugins/view.ts	2
 ui/src/pages/portals/portal-reachability.ts	1
 ui/src/pages/profile/identity-section.ts	2
-ui/src/pages/secrets/view.ts	6
+ui/src/pages/secrets/view.ts	5
 ui/src/pages/sessions/view.ts	13
 ui/src/pages/skill-workshop/header-controls.ts	1
 ui/src/pages/skill-workshop/route.ts	1

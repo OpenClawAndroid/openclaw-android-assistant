@@ -531,10 +531,12 @@ function deliverGeneratedMedia(
   overrides: Partial<GeneratedMediaDeliveryEntry> &
     Pick<GeneratedMediaDeliveryEntry, "id" | "messageId">,
   stateDir?: string,
+  resolveGatewayContext?: () => undefined,
 ) {
   return deliverQueuedSessionDelivery({
     deps: {} as never,
     ...(stateDir === undefined ? {} : { stateDir }),
+    ...(resolveGatewayContext ? { resolveGatewayContext } : {}),
     entry: {
       kind: "agentTurn",
       sessionKey: "agent:main:main",
@@ -1072,6 +1074,7 @@ describe("scheduleRestartSentinelWake", () => {
   });
 
   it("replays generated-media provenance through the owning session agent", async () => {
+    const resolveGatewayContext = () => undefined;
     await deliverGeneratedMedia(
       {
         id: "session-delivery-media",
@@ -1093,6 +1096,7 @@ describe("scheduleRestartSentinelWake", () => {
         idempotencyKey: "image:task-1:agent-loop",
       },
       "/tmp/custom-session-delivery-state",
+      resolveGatewayContext,
     );
 
     expect(mocks.dispatchGatewayMethodInProcess).toHaveBeenCalledWith(
@@ -1121,6 +1125,7 @@ describe("scheduleRestartSentinelWake", () => {
         expectFinal: true,
         forceSyntheticClient: true,
         internalDeliveryMediaUrls: ["/tmp/proof.png"],
+        resolveGatewayContext,
         onAccepted: expect.any(Function),
       },
     );

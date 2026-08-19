@@ -3578,7 +3578,9 @@ export const en: TranslationMap = {
         "Tell the agent what should change. The proposal stays pending and the workshop will create a revised version.",
       placeholder:
         "Example: Make this use Gmail labels instead of unread search, and add a safer dry-run step.",
-      preparing: "Preparing revision handoff",
+      preparing: "Waiting for chat admission",
+      notAdmitted:
+        "Revision request was not admitted. Your instructions are still available; review the error and retry. {error}",
       send: "Send revision",
     },
     queue: {
@@ -6119,6 +6121,8 @@ export const en: TranslationMap = {
   },
   secretsStore: {
     name: "Name",
+    access: "Access",
+    accessMode: "Access mode",
     value: "Value",
     allowedHosts: "Allowed hosts",
     allowedHostsPlaceholder: "api.example.com",
@@ -6131,17 +6135,26 @@ export const en: TranslationMap = {
     add: "Add",
     edit: "Edit",
     bulk: "Bulk Add",
-    secret: "Secret",
-    hint: "Secret values are hidden after saving. Env var values stay visible here.",
+    protectedSecret: "Protected secret",
+    protectedSecretHint:
+      "Hidden after save and inert unless referenced by a SecretRef or used through enabled destination-bound Gateway egress. It is never directly readable.",
+    agentReadable: "Agent-readable environment",
+    agentReadableHint:
+      "High risk: visible to admins and plaintext to Gateway-hosted agent commands. The agent can print, transmit, or persist it. Applies from the next run.",
+    hint: "Choose protected, write-only secrets or intentionally agent-readable Gateway environment values.",
     required: "Enter a value.",
-    detect: "Auto-detect secrets",
-    detected: "{count} secrets detected",
-    detectedOne: "{count} secret detected",
+    detect: "Protect credential-like names automatically",
+    detected: "{count} protected secrets detected",
+    detectedOne: "{count} protected secret detected",
     unavail: "Gateway/admin required.",
     badName: "Use SERVICE_API_KEY.",
     tooLarge: "Max 64 KiB.",
-    saved: "Saved {name}.",
-    savedMany: "Saved {count} entries.",
+    savedProtected:
+      "Saved {name} as Protected secret. Add a SecretRef or enable destination-bound Gateway egress to use it.",
+    savedReadable:
+      "Saved {name} as Agent-readable environment. It is available to Gateway-hosted agent commands from the next run.",
+    savedMany:
+      "Saved {count} entries ({protected} protected, {readable} agent-readable). Protected secrets need a SecretRef or enabled destination-bound Gateway egress; agent-readable environment values reach Gateway-hosted agent commands from the next run.",
     warnings: "{count} runtime warnings.",
     partial: "{saved}/{total}: {error}",
     confirmDelete: "Delete {name}?",
