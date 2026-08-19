@@ -9,6 +9,7 @@ import {
   getActiveSecretsRuntimeEnvState,
 } from "../secrets/runtime-state.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
+import type { NodeDesktopStreamBroker } from "./desktop/node-stream-broker.js";
 import type { DesktopSessionRegistry } from "./desktop/session-registry.js";
 import type { GitHubPublicationCoordinator } from "./github-publication.js";
 import type { NodeWorkerSupervisorTransport } from "./node-registry-private.js";
@@ -56,6 +57,7 @@ export type GatewayWorkerEnvironmentRuntime = {
   bindWorkerSessionDispatch?: (dispatch: WorkerPlacementDispatchContract["dispatch"]) => void;
   bindGitHubPublication?: (coordinator: GitHubPublicationCoordinator) => void;
   bindDeviceNodeControl?: (transport: NodeWorkerSupervisorTransport) => void;
+  bindWorkerNodeDesktopControl?: (transport: NodeWorkerSupervisorTransport) => void;
   bindNodeWorkspaceBindingResolver?: (resolver: NodeWorkerWorkspaceBindingResolver) => void;
   handleNodeWorkerBundleTransferRequest?: NodeWorkerBundleTransferHttpCallback;
   handleNodeWorkspaceTransferRequest?: NodeWorkspaceTransferHttpCallback;
@@ -107,6 +109,7 @@ export async function loadGatewayWorkerEnvironmentStartupState(): Promise<Gatewa
 export async function createGatewayWorkerEnvironmentRuntime(params: {
   getPluginRegistry: () => Pick<PluginRegistry, "workerProviders">;
   desktopSessionRegistry: DesktopSessionRegistry;
+  nodeDesktopStreamBroker?: NodeDesktopStreamBroker;
   startup: GatewayWorkerEnvironmentStartupState;
   log: WorkerEnvironmentLogger;
 }): Promise<GatewayWorkerEnvironmentRuntime> {
@@ -124,6 +127,7 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
     { createNodeWorkspaceTransferService },
     { createNodeWorkspaceTransferHttpCallback },
     { createWorkerSessionToolExecutor },
+    { createWorkerNodeDesktopCarrier },
     { resolveWorkerProvider },
   ] = await Promise.all([
     import("./worker-environments/service.js"),
@@ -138,6 +142,7 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
     import("./worker-environments/node-workspace-transfer-service.js"),
     import("./worker-environments/node-workspace-transfer-http.js"),
     import("./worker-environments/worker-session-tool-executor.js"),
+    import("./worker-environments/node-desktop-carrier.js"),
     import("../plugins/worker-provider-registry.js"),
   ]);
   // The Gateway state-directory lock proves that executors from the previous
@@ -205,6 +210,13 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
   const workerTunnelManager = createWorkerTunnelManager({
     desktopSessionRegistry: params.desktopSessionRegistry,
   });
+  const workerNodeDesktopStreamBroker = params.nodeDesktopStreamBroker;
+  const workerNodeDesktopCarrier = workerNodeDesktopStreamBroker
+    ? createWorkerNodeDesktopCarrier({
+        store: params.startup.store,
+        desktopRegistry: params.desktopSessionRegistry,
+      })
+    : undefined;
   const nodeWorkerBundleTransfer = createNodeWorkerBundleTransferService();
   const nodeWorkspaceTransfer = createNodeWorkspaceTransferService({
     getOwner: (environmentId) => params.startup.store.getTransferOwner(environmentId),
@@ -262,6 +274,7 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
     retireNodeEnrollment: nodeEnrollment.retire,
     tunnelManager: workerTunnelManager,
     nodeTunnelManager: nodeWorkerTunnelManager,
+    nodeDesktopCarrier: workerNodeDesktopCarrier,
     stopNodeWorkerBundleTransfers: () => nodeWorkerBundleTransfer.closeAll(),
     applyTranscriptCommit: createWorkerTranscriptCommitter({
       getConfig: getRuntimeConfig,
@@ -346,6 +359,14 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
       requestForClaim: (request) => githubPublication.requestForClaim(request),
     },
   });
+  const bindWorkerNodeDesktopControl =
+    workerNodeDesktopCarrier && workerNodeDesktopStreamBroker
+      ? (transport: NodeWorkerSupervisorTransport) =>
+          workerNodeDesktopCarrier.bindRuntime({
+            transport,
+            streamBroker: workerNodeDesktopStreamBroker,
+          })
+      : undefined;
   return {
     workerEnvironmentService,
     workerLiveEvents,
@@ -358,6 +379,7 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
       githubPublication = coordinator;
     },
     bindDeviceNodeControl: deviceRuntime.bindNodeTransport,
+    ...(bindWorkerNodeDesktopControl ? { bindWorkerNodeDesktopControl } : {}),
     bindNodeWorkspaceBindingResolver: (resolver) =>
       nodeWorkerTunnelManager.bindWorkspaceBindingResolver(resolver),
     handleNodeWorkerBundleTransferRequest:

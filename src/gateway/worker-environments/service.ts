@@ -25,6 +25,7 @@ import {
 import type { WorkerInferenceStore } from "./inference-store.js";
 import { createWorkerInferenceManager, type WorkerInferenceExecutor } from "./inference.js";
 import type { WorkerLiveEventReceiver } from "./live-events.js";
+import type { WorkerNodeDesktopCarrier } from "./node-desktop-carrier.js";
 import type { NodeWorkerTunnelManager } from "./node-worker-tunnel.js";
 import type { WorkerSessionPlacementGate } from "./placement-worker-gate.js";
 import { createWorkerProviderLifecycle } from "./provider-lifecycle.js";
@@ -65,6 +66,7 @@ const serviceError = (code: WorkerEnvironmentServiceErrorCode, message: string) 
 type WorkerEnvironmentServiceOptions = WorkerProviderLifecycleInputOptions & {
   tunnelManager?: WorkerTunnelManager;
   nodeTunnelManager?: NodeWorkerTunnelManager;
+  nodeDesktopCarrier?: WorkerNodeDesktopCarrier;
   stopNodeWorkerBundleTransfers?: () => void;
   reconcileIntervalMs?: number;
   bootstrapCallTimeoutMs?: number;
@@ -117,12 +119,13 @@ export function createWorkerEnvironmentService(options: WorkerEnvironmentService
   const activeOperations = new Set<Promise<unknown>>();
   const now = options.now ?? Date.now;
   const tunnelLifecycle =
-    options.tunnelManager || options.nodeTunnelManager
+    options.tunnelManager || options.nodeTunnelManager || options.nodeDesktopCarrier
       ? {
           stop: async (environmentId: string, ownerEpoch?: number) => {
             await Promise.all([
               options.tunnelManager?.stop(environmentId, ownerEpoch),
               options.nodeTunnelManager?.stop(environmentId, ownerEpoch),
+              options.nodeDesktopCarrier?.stop(environmentId, ownerEpoch),
             ]);
           },
         }
@@ -283,6 +286,7 @@ export function createWorkerEnvironmentService(options: WorkerEnvironmentService
     prepareCurrentBundle: async () => await options.prepareInstallation("bundle"),
     tunnelManager: options.tunnelManager,
     nodeTunnelManager: options.nodeTunnelManager,
+    nodeDesktopCarrier: options.nodeDesktopCarrier,
     now,
     identityResolverFor: providerLifecycle.identityResolverFor,
     inState,
