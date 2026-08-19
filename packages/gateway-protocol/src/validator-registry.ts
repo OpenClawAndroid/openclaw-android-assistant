@@ -108,14 +108,6 @@ export const validateUsersSetDisplayNameParams = compile(S.UsersSetDisplayNamePa
 export const validateUsersSetDisplayNameResult = compile(S.UsersSetDisplayNameResultSchema);
 export const validateUsersSetAvatarParams = compile(S.UsersSetAvatarParamsSchema);
 export const validateUsersSetAvatarResult = compile(S.UsersSetAvatarResultSchema);
-export const validateUsersSetGitHubIdentityParams = compile(S.UsersSetGitHubIdentityParamsSchema);
-export const validateUsersSetGitHubIdentityResult = compile(S.UsersSetGitHubIdentityResultSchema);
-export const validateUsersClearGitHubIdentityParams = compile(
-  S.UsersClearGitHubIdentityParamsSchema,
-);
-export const validateUsersClearGitHubIdentityResult = compile(
-  S.UsersClearGitHubIdentityResultSchema,
-);
 export const validateAgentIdentityParams = compile(S.AgentIdentityParamsSchema);
 export const validateAgentWaitParams = compile(S.AgentWaitParamsSchema);
 export const validateWakeParams = compile(S.WakeParamsSchema);
@@ -380,6 +372,7 @@ export const validateSkillsProposalReviseParams = compile(S.SkillsProposalRevise
 export const validateSkillsProposalRequestRevisionParams = compile(
   S.SkillsProposalRequestRevisionParamsSchema,
 );
+export const validateSkillsProposalDecisionParams = compile(S.SkillsProposalDecisionParamsSchema);
 export const validateSkillsProposalActionParams = compile(S.SkillsProposalActionParamsSchema);
 export const validateSkillsProposalEvaluateParams = compile(S.SkillsProposalEvaluateParamsSchema);
 export const validateSkillsProposalEventsListParams = compile(
