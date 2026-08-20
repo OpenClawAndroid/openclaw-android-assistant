@@ -261,6 +261,37 @@ describe("model auth attention", () => {
     expect(authItems("writer")[0]?.signature).toBe("agent:writer\nopenai");
   });
 
+  it("keeps a missing canonical route visible beside CLI OAuth", () => {
+    const items = buildSidebarAttentionItems({
+      cronJobs: [],
+      modelAuthStatus: {
+        ts: 1,
+        providers: [
+          {
+            provider: "anthropic",
+            displayName: "Claude",
+            status: "missing",
+            profiles: [],
+          },
+          {
+            provider: "claude-cli",
+            displayName: "Claude",
+            status: "expiring",
+            profiles: [{ profileId: "anthropic:claude-cli", type: "oauth", status: "expiring" }],
+          },
+        ],
+      },
+      modelAuthAgentId: "main",
+      approvalQueue: [],
+      updateAvailable: null,
+      updateSchedule: null,
+      updateStatusBanner: null,
+      now: 0,
+    });
+
+    expect(items.some((item) => item.kind === "modelAuthExpired")).toBe(true);
+  });
+
   it("presents expired providers to the custodian with raw status", () => {
     const action = authItems("main")[0]?.action;
     expect(action).toMatchObject({ kind: "askCustodian" });
