@@ -9,7 +9,7 @@ import { resolveLegacyInheritedAuthAgentId } from "../agents/legacy-inherited-au
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { retainLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
-import type { SessionEntry } from "../config/sessions.js";
+import type { InternalSessionEntry, SessionEntry } from "../config/sessions.js";
 import {
   appendTranscriptMessageSync,
   listSessionChildEntriesReadOnly,
@@ -31,7 +31,11 @@ import { buildGatewaySessionEventFields } from "./session-event-payload.js";
 import { resolveSessionStoreAgentId, resolveSessionStoreKey } from "./session-store-key.js";
 import { deriveSessionTitle } from "./session-utils-core.js";
 import { listSessionsFromStore, listSessionsFromStoreAsync } from "./session-utils-list.js";
-import { getSessionDefaults, resolveGatewayModelSupportsImages } from "./session-utils-model.js";
+import {
+  getSessionDefaults,
+  projectSessionPatchResult,
+  resolveGatewayModelSupportsImages,
+} from "./session-utils-model.js";
 import {
   buildSessionListRowContext,
   buildSingleRowStoreChildSessionsByKey,
@@ -1128,16 +1132,15 @@ describe("gateway session utils", () => {
     );
   });
 
-  test("preserves persisted Ultra while projecting picker levels without a catalog", () => {
+  test("preserves recorded harness thinking selections and clamps unproven state", () => {
     providerArtifactMocks.resolveBundledProviderPolicySurface.mockReturnValue({
-      resolveThinkingProfile: ({ modelId, agentRuntime }) => ({
+      resolveThinkingProfile: ({ compat }) => ({
         levels: [
           { id: "off" },
           { id: "high" },
           { id: "xhigh" },
           { id: "max" },
-          ...(modelId.startsWith("gpt-5.6") &&
-          (agentRuntime === "openclaw" || !modelId.startsWith("gpt-5.6-luna"))
+          ...(compat?.supportedReasoningEfforts?.includes("ultra")
             ? [{ id: "ultra" as const }]
             : []),
         ],
@@ -1146,14 +1149,21 @@ describe("gateway session utils", () => {
     const cfg = {
       agents: {
         defaults: {
-          model: { primary: "openai/gpt-5.6-luna" },
+          model: { primary: "openai/gpt-5.6-sol" },
           models: {
-            "openai/gpt-5.6-luna": { agentRuntime: { id: "codex" } },
+            "openai/gpt-5.6-sol": { agentRuntime: { id: "codex" } },
           },
         },
       },
     } as OpenClawConfig;
-    const defaults = getSessionDefaults(cfg);
+    const modelCatalog = [
+      {
+        provider: "openai",
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol (API route)",
+        compat: { supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+      },
+    ];
     const row = (entry: SessionEntry) =>
       buildGatewaySessionRow({
         cfg,
@@ -1161,43 +1171,84 @@ describe("gateway session utils", () => {
         store: {},
         key: "agent:main:main",
         entry,
+        modelCatalog,
       });
 
-    const codex = row({ sessionId: "codex", thinkingLevel: "ultra" } as SessionEntry);
-    const openClawOverride = row({
-      sessionId: "openclaw",
+    const recorded = row({
+      sessionId: "recorded",
       thinkingLevel: "ultra",
-      agentRuntimeOverride: "openclaw",
-    } as SessionEntry);
-    const legacyObservedOpenClaw = row({
-      sessionId: "legacy-observed-openclaw",
+      thinkingLevelSelection: {
+        provider: "openai",
+        model: "gpt-5.6-sol",
+        agentRuntime: "codex",
+        level: "ultra",
+      },
+    } as InternalSessionEntry);
+    const unproven = row({ sessionId: "unproven", thinkingLevel: "ultra" } as SessionEntry);
+    const staleRuntime = row({
+      sessionId: "stale-runtime",
       thinkingLevel: "ultra",
-      agentHarnessId: "openclaw",
-    } as SessionEntry);
-    const lockedCodex = row({
-      sessionId: "locked-codex",
-      thinkingLevel: "ultra",
-      agentHarnessId: "codex",
-      agentRuntimeOverride: "openclaw",
-      modelSelectionLocked: true,
-    } as SessionEntry);
+      thinkingLevelSelection: {
+        provider: "openai",
+        model: "gpt-5.6-sol",
+        agentRuntime: "openclaw",
+        level: "ultra",
+      },
+    } as InternalSessionEntry);
 
-    expect(defaults.agentRuntime?.id).toBe("codex");
-    expect(codex.thinkingLevel).toBe("ultra");
-    expect(codex.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
-    expect(openClawOverride.thinkingLevel).toBe("ultra");
-    expect(openClawOverride.agentRuntime?.id).toBe("openclaw");
-    expect(legacyObservedOpenClaw.thinkingLevel).toBe("ultra");
-    expect(legacyObservedOpenClaw.agentRuntime?.id).toBe("codex");
-    expect(legacyObservedOpenClaw.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
-    expect(lockedCodex.thinkingLevel).toBe("ultra");
-    expect(lockedCodex.agentRuntime).toEqual({
-      id: "codex",
-      cloudPlacementSupported: false,
-      devicePlacementSupported: false,
-      source: "session",
+    expect(recorded.thinkingLevel).toBe("ultra");
+    expect(recorded.thinkingLevels?.map((level) => level.id)).toContain("ultra");
+    expect(unproven.thinkingLevel).toBe("max");
+    expect(staleRuntime.thinkingLevel).toBe("max");
+  });
+
+  test("strips nested thinking provenance from Gateway patch results", async () => {
+    const entry: InternalSessionEntry = {
+      sessionId: "private-fallback",
+      updatedAt: 1,
+      modelFallback: {
+        prevModel: "gpt-5.6-sol",
+        prevProvider: "openai",
+        prevThinkingLevelSelection: {
+          provider: "openai",
+          model: "gpt-5.6-sol",
+          agentRuntime: "codex",
+          level: "ultra",
+        },
+        source: "agent-patch",
+        ts: 1,
+      },
+    };
+    const result = await projectSessionPatchResult({
+      canonicalKey: "agent:main:main",
+      cfg: {
+        agents: { defaults: { model: { primary: "openai/gpt-5.6-sol" } } },
+      } as OpenClawConfig,
+      entry,
+      modelCatalogByAgent: new Map([
+        [
+          "main",
+          Promise.resolve([
+            {
+              provider: "openai",
+              id: "gpt-5.6-sol",
+              name: "GPT 5.6 Sol",
+              reasoning: true,
+            },
+          ]),
+        ],
+      ]),
+      storePath: "/tmp/openclaw-sessions.json",
+      targetAgentId: "main",
     });
-    expect(lockedCodex.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
+
+    expect(result.entry.modelFallback).toEqual({
+      prevModel: "gpt-5.6-sol",
+      prevProvider: "openai",
+      source: "agent-patch",
+      ts: 1,
+    });
+    expect(JSON.stringify(result.entry)).not.toContain("prevThinkingLevelSelection");
   });
 
   test("reports observed locked runtime from agentHarnessId instead of configured intent", () => {

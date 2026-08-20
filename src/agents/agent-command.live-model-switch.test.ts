@@ -113,7 +113,7 @@ const state = vi.hoisted(() => ({
   isThinkingLevelSupportedMock: vi.fn((_args: unknown) => true),
   resolveSupportedThinkingLevelMock: vi.fn(({ level }: { level?: string }) => level),
   resolveThinkingDefaultMock: vi.fn((_args: unknown) => "low"),
-  loadManifestModelCatalogMock: vi.fn(() => []),
+  loadManifestModelCatalogMock: vi.fn((): ModelCatalogSnapshot["entries"] => []),
   manifestMetadataSnapshot: { plugins: [] },
   resolvePluginMetadataSnapshotMock: vi.fn(),
   listSkillCommandsForWorkspaceMock: vi.fn((_params: unknown) => []),
@@ -2509,6 +2509,12 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       return entry?.thinkingLevel === "medium";
     })?.[0] as { entry?: Record<string, unknown> } | undefined;
     expect(touchWrite?.entry?.lastInteractionAt).toBeDefined();
+    expectRecordFields(touchWrite?.entry?.thinkingLevelSelection, {
+      provider: "anthropic",
+      model: "claude",
+      agentRuntime: "openclaw",
+      level: "medium",
+    });
     expect(state.updateSessionStoreAfterAgentRunMock).toHaveBeenCalledTimes(1);
   });
 
@@ -2707,6 +2713,84 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     );
     expect(state.loadPreparedModelCatalogSnapshotMock).not.toHaveBeenCalled();
     expect(state.loadFullModelCatalogMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps later provider capability metadata after hydrating a Codex primary", async () => {
+    state.runtimeConfigMock = {
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.6-sol" },
+          models: {
+            "openai/gpt-5.6-sol": { agentRuntime: { id: "codex" } },
+            "gmn/gpt-5.4": { agentRuntime: { id: "openclaw" } },
+          },
+        },
+      },
+    };
+    state.loadManifestModelCatalogMock.mockReturnValue([
+      {
+        provider: "openai",
+        id: "gpt-5.6-sol",
+        name: "GPT 5.6 Sol",
+        reasoning: true,
+        compat: { supportedReasoningEfforts: ["max"] },
+      },
+      {
+        provider: "gmn",
+        id: "gpt-5.4",
+        name: "GPT 5.4 via GMN",
+        reasoning: true,
+        compat: { supportedReasoningEfforts: ["low", "medium", "high", "xhigh"] },
+      },
+    ]);
+    state.loadProviderScopedThinkingCatalogMock.mockImplementation(async (params: unknown) => {
+      const { provider } = params as { provider?: string };
+      if (provider !== "openai") {
+        throw new Error(`unexpected scoped thinking hydration for ${provider}`);
+      }
+      return [
+        {
+          provider: "openai",
+          id: "gpt-5.6-sol",
+          name: "GPT 5.6 Sol",
+          reasoning: true,
+          compat: { supportedReasoningEfforts: ["max", "ultra"] },
+        },
+      ];
+    });
+    state.resolveThinkingDefaultMock.mockImplementation((args: unknown) => {
+      const { provider, catalog } = args as {
+        provider?: string;
+        catalog?: Array<{ provider: string; id: string }>;
+      };
+      if (provider === "gmn") {
+        expect(catalog).toContainEqual(expect.objectContaining({ provider: "gmn", id: "gpt-5.4" }));
+        return "xhigh";
+      }
+      return "ultra";
+    });
+    state.runWithModelFallbackMock.mockImplementation(async (params: FallbackRunnerParams) => {
+      await params.run(params.provider, params.model);
+      const result = await params.run("gmn", "gpt-5.4");
+      return { result, provider: "gmn", model: "gpt-5.4", attempts: [] };
+    });
+    state.runAgentAttemptMock.mockImplementation(
+      async (params: { providerOverride: string; modelOverride: string }) =>
+        makeSuccessResult(params.providerOverride, params.modelOverride),
+    );
+
+    await runBasicAgentCommand();
+
+    expectRecordFields(mockCallArg(state.runAgentAttemptMock, 0), {
+      modelOverride: "gpt-5.6-sol",
+      resolvedThinkLevel: "ultra",
+    });
+    expectRecordFields(mockCallArg(state.runAgentAttemptMock, 1), {
+      providerOverride: "gmn",
+      modelOverride: "gpt-5.4",
+      resolvedThinkLevel: "xhigh",
+    });
+    expect(state.loadProviderScopedThinkingCatalogMock).toHaveBeenCalledTimes(1);
   });
 
   it("persists and clears current run delivery context for restart recovery", async () => {
@@ -3720,6 +3804,75 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       },
     );
     expect(lifecycleFinishingCalls).toHaveLength(1);
+  });
+
+  it("forwards harness-augmented GPT-5.6 thinking capability to the attempt", async () => {
+    const modelId = "gpt-5.6-sol";
+    const modelKey = `openai/${modelId}`;
+    const providerReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
+    const harnessReasoningEfforts = [...providerReasoningEfforts, "ultra"];
+    state.runtimeConfigMock = {
+      agents: {
+        defaults: {
+          model: { primary: modelKey },
+          models: { [modelKey]: { agentRuntime: { id: "codex" } } },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            api: "openai-responses",
+            baseUrl: "https://api.openai.com/v1",
+            models: [],
+          },
+        },
+      },
+    };
+    state.loadManifestModelCatalogMock.mockReturnValue([
+      {
+        provider: "openai",
+        id: modelId,
+        name: modelId,
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        compat: {
+          thinkingFormat: "openai",
+          supportedReasoningEfforts: providerReasoningEfforts,
+        },
+      },
+    ]);
+    state.loadProviderScopedThinkingCatalogMock.mockResolvedValue([
+      {
+        provider: "openai",
+        id: modelId,
+        name: modelId,
+        api: "openai-chatgpt-responses",
+        baseUrl: "https://chatgpt.com/backend-api/codex",
+        reasoning: true,
+        compat: {
+          thinkingFormat: "openai",
+          supportedReasoningEfforts: harnessReasoningEfforts,
+        },
+      },
+    ]);
+    setupSuccessfulAttempt("openai", modelId);
+
+    await agentCommand({ message: "hello", to: "+1234567890", thinking: "ultra" });
+
+    expectRecordFields(mockCallArg(state.runAgentAttemptMock), {
+      modelOverride: modelId,
+      resolvedThinkLevel: "ultra",
+      modelThinkingCapability: {
+        provider: "openai",
+        modelId,
+        agentRuntime: "codex",
+        compat: {
+          thinkingFormat: "openai",
+          supportedReasoningEfforts: harnessReasoningEfforts,
+        },
+      },
+    });
   });
 
   it.each([
