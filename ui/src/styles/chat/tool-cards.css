@@ -870,11 +870,17 @@
   margin-top: 8px;
 }
 
+.chat-tool-card__widget-host {
+  width: 100%;
+}
+
 .chat-tool-card__preview {
   position: relative;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: var(--radius-md);
-  background: var(--card);
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -885,7 +891,7 @@
 
 /* MCP Apps are responsive documents, so give them the assistant column instead
    of letting the content-sized reply bubble collapse their iframe to ~300px. */
-.chat-group.assistant .chat-bubble:has(> .chat-tool-card__preview[data-content-kind="mcp-app"]) {
+.chat-group.assistant .chat-bubble:has(> .chat-tool-card__widget-host) {
   align-self: stretch;
   width: 100%;
 }
@@ -911,12 +917,19 @@
 }
 
 .chat-tool-card__widget-actions::part(menu) {
-  min-width: 176px;
+  min-width: 164px;
+  max-width: 208px;
   padding: var(--menu-padding);
   border: 1px solid var(--overlay-border);
   border-radius: var(--menu-radius);
   background: var(--bg-elevated);
   box-shadow: var(--overlay-shadow);
+}
+
+.chat-tool-card__widget-actions .session-menu__item {
+  min-height: 32px;
+  padding-inline: 7px;
+  font-size: calc(13px * var(--control-ui-text-scale));
 }
 
 .chat-tool-card__widget-actions-trigger,
@@ -990,6 +1003,22 @@
      flashing white in dark mode. Documents from the pre-token wrapper assumed
      white; accepted tradeoff — they are transient (32-doc LRU) and age out. */
   background: var(--card);
+}
+
+.chat-tool-card__widget-raw {
+  width: 100%;
+}
+
+.chat-tool-card__widget-raw > .chat-tool-card__raw {
+  margin-top: 8px;
+}
+
+.chat-tool-card__widget-raw .chat-tool-card__raw-toggle {
+  display: none;
+}
+
+.chat-tool-card__widget-raw .chat-tool-card__raw-body {
+  margin-top: 0;
 }
 
 .chat-tool-card__raw-toggle {

@@ -385,9 +385,13 @@ function createAssistantCanvasBlock(params: {
   url?: string;
   preferredHeight?: number;
   presentationTarget?: "assistant_message" | "tool_card";
+  mcpApp?: { viewId: string };
 }) {
   const viewId = `cv_inline_${params.suffix}`;
-  const preview = createCanvasPreview({ ...params, viewId });
+  const preview = {
+    ...createCanvasPreview({ ...params, viewId }),
+    ...(params.mcpApp ? { mcpApp: params.mcpApp } : {}),
+  };
   return {
     type: "canvas",
     preview,
@@ -5497,6 +5501,30 @@ describe("grouped chat rendering", () => {
     expect(
       container.querySelector(".chat-group.tool .chat-tool-msg-summary__names")?.textContent,
     ).toBe("canvas_render");
+  });
+
+  it("keeps MCP App raw details reachable from its widget menu", () => {
+    const container = document.createElement("div");
+    const canvas = createAssistantCanvasBlock({
+      suffix: "mcp-raw",
+      mcpApp: { viewId: "view-mcp-raw" },
+    });
+    renderAssistantMessage(container, createAssistantMessage([canvas]), {
+      sessionKey: "agent:main:main",
+    });
+
+    const dropdown = expectElement(container, "wa-dropdown", HTMLElement);
+    expect(dropdown.querySelectorAll("wa-dropdown-item")).toHaveLength(1);
+    dropdown.dispatchEvent(
+      new CustomEvent("wa-select", {
+        detail: { item: { value: "raw-details" } },
+      }),
+    );
+    expect(
+      container
+        .querySelector(".chat-tool-card__widget-raw .chat-tool-card__raw-toggle")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 
   it("opens generic tool details instead of a canvas preview from tool rows", () => {
