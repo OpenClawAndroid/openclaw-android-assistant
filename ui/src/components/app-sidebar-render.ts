@@ -21,6 +21,7 @@ import {
   presenceViewerLabel,
   projectOnlinePresenceViewers,
 } from "../lib/presence-users.ts";
+import { isSessionRunActive } from "../lib/session-run-state.ts";
 import {
   resolveSessionPreferredFace,
   sessionNavigationTarget,
@@ -178,7 +179,7 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
     isSessionRouteId(host.activeRouteId) &&
     areUiSessionKeysEquivalent(host.getRouteSessionKey(), mainKey);
   const hasComposerDraft = host.hasSessionDraft(mainKey);
-  const running = mainRow?.hasActiveRun === true;
+  const running = mainRow ? isSessionRunActive(mainRow) : false;
   const unread = mainRow?.unread === true && !active;
   // Home keeps its page/attention glyph leading and shares trailing activity with session rows.
   const homeGlyph = renderSessionGlyph({
