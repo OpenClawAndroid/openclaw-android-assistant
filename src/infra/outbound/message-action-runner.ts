@@ -386,20 +386,22 @@ export async function runMessageAction(input: MessageActionInput): Promise<Messa
     structuredAttachments: structuredAttachmentMode,
   });
 
-  const mediaAccess = resolveAgentScopedOutboundMediaAccess({
-    cfg,
-    agentId: resolvedAgentId,
-    mediaSources: collectActionMediaSourceHints(params, extraActionMediaSourceParamKeys, {
-      structuredAttachments: structuredAttachmentMode,
-    }),
-    sessionKey: input.sessionKey,
-    messageProvider: input.sessionKey ? undefined : channel,
-    accountId: input.sessionKey ? (input.requesterAccountId ?? accountId) : accountId,
-    requesterSenderId: input.requesterSenderId,
-    requesterSenderName: input.requesterSenderName,
-    requesterSenderUsername: input.requesterSenderUsername,
-    requesterSenderE164: input.requesterSenderE164,
-  });
+  const mediaAccess =
+    input.mediaAccess ??
+    resolveAgentScopedOutboundMediaAccess({
+      cfg,
+      agentId: resolvedAgentId,
+      mediaSources: collectActionMediaSourceHints(params, extraActionMediaSourceParamKeys, {
+        structuredAttachments: structuredAttachmentMode,
+      }),
+      sessionKey: input.sessionKey,
+      messageProvider: input.sessionKey ? undefined : channel,
+      accountId: input.sessionKey ? (input.requesterAccountId ?? accountId) : accountId,
+      requesterSenderId: input.requesterSenderId,
+      requesterSenderName: input.requesterSenderName,
+      requesterSenderUsername: input.requesterSenderUsername,
+      requesterSenderE164: input.requesterSenderE164,
+    });
   const mediaPolicy = resolveAttachmentMediaPolicy({
     sandboxRoot: input.sandboxRoot,
     mediaAccess,

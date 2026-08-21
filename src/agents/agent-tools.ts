@@ -700,6 +700,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       : resolveOpenClawPluginToolsForOptions({
           options: {
             agentSessionKey: options?.sessionKey,
+            runId: options?.runId,
             agentChannel: resolveGatewayMessageChannel(
               options?.messageChannel ?? options?.messageProvider,
             ),
@@ -707,6 +708,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             agentTo: options?.messageTo,
             agentThreadId: options?.messageThreadId,
             nativeChannelId: options?.nativeChannelId,
+            messageActionTurnCapability: options?.messageActionTurnCapability,
             agentDir: options?.agentDir,
             preparedModelRuntime: options?.preparedModelRuntime,
             workspaceDir: workspaceRoot,

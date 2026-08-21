@@ -63,15 +63,22 @@ Use `$OPENCLAW_TELEGRAM_MANTIS_LANE_CMD` with `--lane baseline|candidate`:
 - `requests` (redacted provider requests; zero is a valid recorded fact)
 - `press --message-id ID --button INDEX`
 - `delete --message-id ID` (only user messages sent in this session)
+- `desktop --actions-file <public-json> [--timeout-seconds N]` (run an
+  agent-authored click/key/type/sleep action sequence in the recorded desktop)
 - `view --message-id ID` (scroll Desktop to the exact Telegram server message)
 - `screenshot` (returns a public inspection PNG)
 - `finish [--focus-message-id ID]` (focus the named message or the latest sent message, stop, capture, publish facts)
 - `block --reason TEXT [--missing-primitive NAME]` (clean stop-report)
 - `abort` (cleanup after scenario failure)
 
-`start` returns the exact command/budget list. No generic exec/eval or raw
-Telegram API exists. If the comparison cannot prove the PR's visible behavior,
-use `block` and say why.
+`start` returns the exact command/budget list. When the listed primitives cannot
+exercise the behavior, extend the harness: write a focused JSON action sequence
+under `MANTIS_OUTPUT_DIR` and run it with `desktop`. Actions use Telegram-window
+coordinates: `{"command":"click","x":N,"y":N,"button":1}`,
+`{"command":"key","keys":["ctrl+a"]}`, `{"command":"type","text":"..."}`,
+or `{"command":"sleep","milliseconds":N}`. Inspect a screenshot, adjust the
+sequence, and continue the proof. Use `block` only when the ephemeral desktop
+itself cannot exercise the behavior.
 Raw response events must form a complete provider response; deltas alone do not
 produce a final answer. Copy the terminal item and completed-response structure
 from `responseEvents` in `scripts/e2e/mock-openai-server.mjs`, and use
