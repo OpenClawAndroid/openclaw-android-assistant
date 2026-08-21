@@ -29,6 +29,7 @@ function preparePluginLoadContext(
   env: NodeJS.ProcessEnv,
   registry: PluginRegistry | undefined,
   metadataSnapshot: PluginMetadataSnapshot,
+  preferBuiltPluginArtifacts: boolean,
 ): PluginRuntimeLoadContext & { metadataSnapshot: PluginMetadataSnapshot } {
   const { config } = input;
   const workspaceDir = metadataSnapshot.workspaceDir ?? input.workspaceDir;
@@ -44,6 +45,7 @@ function preparePluginLoadContext(
       workspaceDir,
       metadataSnapshot: preparedMetadataSnapshot,
       manifestRegistry: metadataSnapshot.manifestRegistry,
+      preferBuiltPluginArtifacts,
     }),
     metadataSnapshot,
     installRecords: extractPluginInstallRecordsFromInstalledPluginIndex(metadataSnapshot.index),
@@ -61,9 +63,10 @@ export function prepareOwnedPluginLoadContext(
   env: NodeJS.ProcessEnv,
   registry: PluginRegistry | undefined,
   preparedMetadataSnapshot?: PluginMetadataSnapshot,
+  preferBuiltPluginArtifacts = false,
 ): PluginMetadataSnapshot {
   const metadataSnapshot = preparedMetadataSnapshot ?? resolveColdMetadataSnapshot(input, env);
-  preparePluginLoadContext(input, env, registry, metadataSnapshot);
+  preparePluginLoadContext(input, env, registry, metadataSnapshot, preferBuiltPluginArtifacts);
   return metadataSnapshot;
 }
 

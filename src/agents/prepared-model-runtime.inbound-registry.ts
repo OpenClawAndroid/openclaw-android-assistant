@@ -51,6 +51,7 @@ export function createPreparedInboundRegistryLoader(): PreparedInboundRegistryLo
       ...(input.workspaceDir ? { workspaceDir: input.workspaceDir } : {}),
       ...(input.allowGatewaySubagentBinding ? { allowGatewaySubagentBinding: true } : {}),
       metadataSnapshot,
+      preferBuiltPluginArtifacts: true,
     });
     registries.set(key, registry);
     return registry;
@@ -62,6 +63,7 @@ export function prepareWorkspacePluginRegistries(
   input: PreparedModelRuntimeInput,
   metadataSnapshot: PluginMetadataSnapshot,
   loadInboundRegistry?: PreparedInboundRegistryLoader,
+  preferBuiltPluginArtifacts = false,
 ): {
   runtimePluginRegistry?: PluginRegistry;
   inboundPluginRegistry?: PluginRegistry;
@@ -83,6 +85,7 @@ export function prepareWorkspacePluginRegistries(
           ...(input.workspaceDir ? { workspaceDir: input.workspaceDir } : {}),
           ...(input.allowGatewaySubagentBinding ? { allowGatewaySubagentBinding: true } : {}),
           metadataSnapshot,
+          ...(preferBuiltPluginArtifacts ? { preferBuiltPluginArtifacts: true } : {}),
           selections: input.runtimePluginSelections,
         })
       : inboundPluginRegistry;

@@ -42,12 +42,13 @@ describe("prepared model runtime plugin metadata ownership", () => {
     try {
       for (const input of inputs) {
         const registry = createEmptyPluginRegistry();
-        expect(prepareOwnedPluginLoadContext(input, process.env, registry, gatewaySnapshot)).toBe(
-          gatewaySnapshot,
-        );
-        expect(getPreparedPluginRuntimeLoadContext(registry)?.metadataSnapshot).toBe(
-          gatewaySnapshot,
-        );
+        expect(
+          prepareOwnedPluginLoadContext(input, process.env, registry, gatewaySnapshot, true),
+        ).toBe(gatewaySnapshot);
+        expect(getPreparedPluginRuntimeLoadContext(registry)).toMatchObject({
+          metadataSnapshot: gatewaySnapshot,
+          preferBuiltPluginArtifacts: true,
+        });
         expect(
           withPreparedPluginGenerationScope({ input, pluginGeneration }, (snapshot) => snapshot),
         ).toBe(gatewaySnapshot);
@@ -71,6 +72,7 @@ describe("prepared model runtime plugin metadata ownership", () => {
     const resolveMetadata = vi
       .spyOn(pluginMetadata, "loadPluginMetadataSnapshot")
       .mockReturnValue(directSnapshot);
+    const registry = createEmptyPluginRegistry();
 
     try {
       expect(
@@ -81,9 +83,13 @@ describe("prepared model runtime plugin metadata ownership", () => {
             workspaceDir,
           },
           process.env,
-          undefined,
+          registry,
         ),
       ).toBe(directSnapshot);
+      expect(getPreparedPluginRuntimeLoadContext(registry)).toMatchObject({
+        metadataSnapshot: directSnapshot,
+        preferBuiltPluginArtifacts: false,
+      });
       expect(resolveMetadata).toHaveBeenCalledWith({
         config,
         env: process.env,
