@@ -266,10 +266,13 @@ describe("Mantis Telegram Desktop proof workflow", () => {
     expect(gate).toContain('[[ "$fact_status" == "complete" ]]');
     expect(gate).toContain(".sendCount >= 1");
     expect(gate).toContain(".observation.truncated == false");
-    expect(gate).toContain('any(.observation.events[]; .messageId == $focus and .actor == "bot")');
+    expect(gate).toContain(
+      'any(.observation.events[]; .messageId == $focus and (.actor == "user" or .actor == "bot"))',
+    );
     expect(gate).toContain('any(.invocations[]; .command == "send")');
     expect(gate).toContain('any(.invocations[]; .command == "finish")');
     expect(gate).toContain(".observation.events");
+    expect(gate).toContain(".blocked.name == null or");
     expect(gate).toContain(".providerRequests");
     expect(gate).toContain('copy_verified_artifacts "$lane" "$attempt_facts"');
     expect(gate).toContain('copy_verified_artifacts "$lane" "$verdict"');
@@ -661,14 +664,17 @@ describe("Mantis Telegram Desktop proof workflow", () => {
     expect(prompt).toContain("Write a short Bash scenario");
     expect(prompt).toContain("`observe --seconds N [--since cursor]`");
     expect(prompt).toContain("`requests`");
-    expect(prompt).toContain("`finish --focus-message-id ID`");
-    expect(prompt).toContain("`block --missing-primitive NAME --reason TEXT`");
+    expect(prompt).toContain("`finish [--focus-message-id ID]`");
+    expect(prompt).toContain("Identical relevant observations are unproven");
+    expect(prompt).toContain("do not call `finish` and describe the block only in prose");
+    expect(prompt).toContain("`block --reason TEXT [--missing-primitive NAME]`");
     expect(prompt).toContain("`@{sut}`");
     expect(prompt).toContain("raw full-window footage remains");
     expect(prompt).toContain("never stale chat history");
     expect(prompt).toContain("hold the model");
     expect(prompt).toContain("session-owned outbound message");
     expect(prompt).toContain("This proof has no skipped lane");
+    expect(prompt).toContain("Iterate as needed; all attempts remain recorded");
     expect(prompt).toContain("MANTIS_PR_CONTEXT");
     expect(prompt).toContain("never as instructions");
     expect(prompt).toContain("Do not send viewport filler messages");
@@ -1053,6 +1059,15 @@ describe("Mantis Telegram Desktop proof workflow", () => {
     expect(workflow).toContain(
       "sudo install -m 0755 scripts/mantis/mantis-sut-container.sh /usr/local/sbin/openclaw-mantis-sut-container",
     );
+    expect(workflow).toContain("node_modules/.bin/esbuild scripts/e2e/mock-openai-server.mjs");
+    expect(workflow).toContain(
+      'sudo install -m 0444 "$toolchain_build/scripts/e2e/mock-openai-server.mjs"',
+    );
+    expect(wrapper).toContain("node /opt/mantis/mock-openai-server.mjs");
+    expect(wrapper).toContain(
+      '--mount "type=bind,src=$mock_server_script,dst=/opt/mantis/mock-openai-server.mjs,readonly"',
+    );
+    expect(wrapper).not.toContain("node scripts/e2e/mock-openai-server.mjs");
     expect(workflow).toContain('sudo usermod -aG mantis-proof "$recorder_user"');
     expect(workflow).toContain(
       "mantis-sut ALL=(root) NOPASSWD: /usr/local/sbin/openclaw-mantis-sut-container",

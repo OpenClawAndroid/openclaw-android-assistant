@@ -722,6 +722,7 @@
   color: var(--accent-2);
   font-size: var(--control-ui-text-xs);
   font-weight: 600;
+  vertical-align: middle;
 }
 
 .cron-trigger-summary svg {
