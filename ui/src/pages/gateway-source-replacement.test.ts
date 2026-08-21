@@ -214,7 +214,7 @@ describe("gateway source replacement across reconnect with a reused client", () 
       },
       result,
       costSummary: null,
-      providerUsageSummary: null,
+      providerUsage: null,
       loadedAtMs: Date.now(),
       error: null,
     } satisfies UsageRouteData;
@@ -258,7 +258,7 @@ describe("gateway source replacement across reconnect with a reused client", () 
       },
       result: staleResult,
       costSummary: null,
-      providerUsageSummary: null,
+      providerUsage: null,
       loadedAtMs: Date.now(),
       error: null,
     };
@@ -297,7 +297,7 @@ describe("gateway source replacement across reconnect with a reused client", () 
       },
       result,
       costSummary: null,
-      providerUsageSummary: null,
+      providerUsage: null,
       loadedAtMs: Date.now(),
       error: null,
     };
@@ -347,7 +347,7 @@ describe("gateway source replacement across reconnect with a reused client", () 
       },
       result: { sessions: [{ key: "cached" }] } as unknown as UsageRouteData["result"],
       costSummary: null,
-      providerUsageSummary: null,
+      providerUsage: null,
       loadedAtMs: Date.now(),
       error: null,
     };
@@ -404,7 +404,7 @@ describe("gateway source replacement across reconnect with a reused client", () 
       },
       result,
       costSummary: null,
-      providerUsageSummary: null,
+      providerUsage: null,
       loadedAtMs: Date.now(),
       error: null,
     };
@@ -686,19 +686,19 @@ describe("gateway source replacement across reconnect with a reused client", () 
     const client = {} as GatewayBrowserClient;
     const page = createPage("openclaw-usage-page", contextWithClient(client)) as TestPage & {
       usageResult: unknown;
-      providerUsageSummary: unknown;
+      providerUsage: unknown;
       usageSelectedSessions: string[];
     };
     document.body.append(page);
     await page.updateComplete;
     page.usageResult = { sessions: [{ key: "old" }] };
-    page.providerUsageSummary = { providers: [{ provider: "old" }] };
+    page.providerUsage = { ok: true, value: { providers: [{ provider: "old" }] } };
     page.usageSelectedSessions = ["old"];
 
     await replaceContext(page, client);
 
     expect(page.usageResult).toBeNull();
-    expect(page.providerUsageSummary).toBeNull();
+    expect(page.providerUsage).toBeNull();
     expect(page.usageSelectedSessions).toEqual([]);
   });
 

@@ -620,6 +620,7 @@ describe("startGatewayPostAttachRuntime", () => {
       delayMs: 0,
       getConfig: expect.any(Function),
       shouldContinue: expect.any(Function),
+      startupCheckedStorePaths: expect.any(Set),
       waitForStart: undefined,
       gatewayRuntime: expect.any(Object),
     });
