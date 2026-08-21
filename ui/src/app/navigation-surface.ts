@@ -17,6 +17,7 @@ export function navigationSurfaceIsHidden(params: {
 export function renderFloatingUpdateCard(params: {
   navigationSurfaceHidden: boolean;
   onboarding: boolean;
+  compact?: boolean;
   updateAvailable: ApplicationContext["overlays"]["snapshot"]["updateAvailable"];
   updateSchedule?: ApplicationContext["overlays"]["snapshot"]["updateSchedule"];
   heldUpdateCampaignId?: string | null;
@@ -35,10 +36,10 @@ export function renderFloatingUpdateCard(params: {
 }) {
   // A stale client must always have a visible refresh action, including during
   // onboarding, even though update-available actions stay hidden there.
-  const showAttention = params.navigationSurfaceHidden && !params.onboarding;
-  const showUpdateCard = params.onboarding
-    ? params.refreshRequired
-    : params.navigationSurfaceHidden;
+  const showAttention = params.navigationSurfaceHidden && !params.onboarding && !params.compact;
+  const showUpdateCard =
+    !params.compact &&
+    (params.onboarding ? params.refreshRequired : params.navigationSurfaceHidden);
   if (!showAttention && !showUpdateCard) {
     return nothing;
   }
