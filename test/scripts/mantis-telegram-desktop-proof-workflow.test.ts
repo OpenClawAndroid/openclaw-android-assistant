@@ -8,6 +8,8 @@ const MANTIS_SUT_SCRIPT = "scripts/e2e/telegram-mantis-sut.ts";
 const MANTIS_LANE_SCRIPT = "scripts/e2e/telegram-mantis-lane.ts";
 const DESKTOP_CRABBOX_SCRIPT = "scripts/e2e/telegram-desktop-crabbox.ts";
 const SUT_CONTAINER_WRAPPER = "scripts/mantis/mantis-sut-container.sh";
+const STOP_LEASE_KEEPALIVE_SCRIPT = "scripts/mantis/stop-lease-keepalive.sh";
+const RUN_WITH_LEASE_FENCE_SCRIPT = "scripts/mantis/run-with-lease-fence.sh";
 const CREDENTIAL_SCRIPT = "scripts/e2e/telegram-user-credential.ts";
 const USER_DRIVER = "scripts/e2e/telegram-user-driver.py";
 const QA_LAB_RUNTIME_API = "extensions/qa-lab/runtime-api.ts";
@@ -152,6 +154,77 @@ describe("Mantis Telegram Desktop proof workflow", () => {
     expect(leaseRun.indexOf('echo "lease_file=$credential_dir/lease.json"')).toBeLessThan(
       leaseRun.indexOf("until node --import tsx"),
     );
+  });
+
+  it("keeps the shared Telegram lease alive through proof cleanup", () => {
+    const acquire = workflowStep("Install TDLib and restore Telegram QA user").run ?? "";
+    const abandoned = workflowStep("Clean up abandoned Mantis sessions").run ?? "";
+    const release = workflowStep("Release Telegram QA user lease").run ?? "";
+    const credentialScript = readFileSync(CREDENTIAL_SCRIPT, "utf8");
+    const stopKeepaliveScript = readFileSync(STOP_LEASE_KEEPALIVE_SCRIPT, "utf8");
+
+    expect(credentialScript).toContain('command === "heartbeat"');
+    expect(credentialScript).toContain('command === "heartbeat-loop"');
+    expect(credentialScript).toContain('action: "heartbeat"');
+    expect(credentialScript).toContain('error.code === "LEASE_NOT_OWNER"');
+    expect(credentialScript).toContain('error.code === "LEASE_EXPIRED"');
+    expect(acquire.indexOf("telegram-user-credential.ts lease-restore")).toBeLessThan(
+      acquire.indexOf("telegram-user-credential.ts heartbeat-loop"),
+    );
+    expect(acquire).toContain("/usr/bin/setsid /usr/local/lib/mantis-toolchain/node --import tsx");
+    expect(acquire).toContain('--interval-ms 30000 </dev/null >"$keepalive_log" 2>&1 &');
+    expect(acquire).toContain('echo "lease_keepalive_pid_file=$keepalive_pid_file"');
+    expect(acquire).toContain('echo "lease_lost_marker=$lease_lost_marker"');
+
+    for (const cleanup of [abandoned, release]) {
+      expect(cleanup).toContain(STOP_LEASE_KEEPALIVE_SCRIPT);
+      expect(cleanup).toContain("steps.telegram_credential.outputs.lease_keepalive_pid_file");
+      expect(cleanup).toContain("steps.telegram_credential.outputs.lease_file");
+      expect(cleanup).toContain('"$GITHUB_WORKSPACE"');
+      expect(cleanup).not.toContain("stop_lease_keepalive() {");
+    }
+    expect(stopKeepaliveScript).toContain('[[ "$keepalive_pid" =~ ^[1-9][0-9]*$ ]]');
+    expect(stopKeepaliveScript).toContain('[[ "$keepalive_uid" == "$(id -u)" ]]');
+    expect(stopKeepaliveScript).toContain('[[ "$keepalive_pgid" == "$keepalive_pid" ]]');
+    expect(stopKeepaliveScript).toContain(
+      '[[ "$keepalive_exe" == /usr/local/lib/mantis-toolchain/node ]]',
+    );
+    expect(stopKeepaliveScript).toContain('[[ "$keepalive_cwd" == "$expected_cwd" ]]');
+    expect(stopKeepaliveScript).toContain(
+      'grep -Fxq "scripts/e2e/telegram-user-credential.ts" <<<"$keepalive_args"',
+    );
+    expect(stopKeepaliveScript).toContain('grep -Fxq "heartbeat-loop" <<<"$keepalive_args"');
+    expect(stopKeepaliveScript).toContain('grep -Fxq "$lease_file" <<<"$keepalive_args"');
+    expect(stopKeepaliveScript).toContain('kill -TERM "$keepalive_pid"');
+    expect(stopKeepaliveScript).toContain('kill -KILL "$keepalive_pid"');
+    expect(release.indexOf(STOP_LEASE_KEEPALIVE_SCRIPT)).toBeLessThan(
+      release.indexOf('if [[ -z "$lease_file" ]]'),
+    );
+    expect(release.indexOf('if [[ -z "$lease_file" ]]')).toBeLessThan(
+      release.indexOf('sudo test -f "$lease_lost_marker"'),
+    );
+    expect(release.indexOf('sudo test -f "$lease_lost_marker"')).toBeLessThan(
+      release.indexOf('telegram-user-credential.ts" release'),
+    );
+    expect(release).toContain("lease lost mid-run; nothing to release");
+    expect(release).toContain("steps.telegram_credential.outputs.lease_lost_marker");
+    expect(release).not.toMatch(/telegram-user-credential\.ts[^\n]*release[^\n]*\|\| true/u);
+  });
+
+  it("fences the active agent proof when the Telegram lease is lost", () => {
+    const agent = workflowStep("Run Codex Mantis Telegram agent");
+    const setup = workflowStep("Prepare Codex action runtime");
+    const fenceScript = readFileSync(RUN_WITH_LEASE_FENCE_SCRIPT, "utf8");
+    const run = agent.run ?? "";
+
+    expect(setup.uses).toContain("openai/codex-action@");
+    expect(run).toContain('scripts/mantis/run-with-lease-fence.sh "$lease_lost_marker" --');
+    expect(run).toContain("steps.telegram_credential.outputs.lease_lost_marker");
+    expect(run).toContain('sudo -u codex -- "$codex_bin" "${codex_args[@]}"');
+    expect(fenceScript.indexOf('kill -TERM -- "-$command_pid"')).toBeLessThan(
+      fenceScript.indexOf('kill -KILL -- "-$command_pid"'),
+    );
+    expect(fenceScript).toContain("exit 97");
   });
 
   it("reports an honest blocked proof without failing the workflow", () => {
@@ -709,6 +782,36 @@ describe("Mantis Telegram Desktop proof workflow", () => {
     expect(prompt).not.toContain("OPENCLAW_TELEGRAM_USER_PROOF_CMD");
   });
 
+  it("stages agent-authored fixture plugins inside either isolated SUT lane", () => {
+    const agent = workflowStep("Run Codex Mantis Telegram agent");
+    const prepare = workflowStep("Prepare Codex user").run ?? "";
+    const laneScript = readFileSync(MANTIS_LANE_SCRIPT, "utf8");
+    const sutScript = readFileSync(MANTIS_SUT_SCRIPT, "utf8");
+    const wrapper = readFileSync(SUT_CONTAINER_WRAPPER, "utf8");
+    const prompt = readFileSync(PROMPT, "utf8");
+
+    expect(agent.env).toHaveProperty("MANTIS_FIXTURE_PLUGINS_DIR");
+    const fixturePluginsDir = agent.env?.MANTIS_FIXTURE_PLUGINS_DIR ?? "";
+    expect(fixturePluginsDir).toContain("/tmp/openclaw-mantis-proof-sessions-");
+    expect(fixturePluginsDir).toContain("/fixture-plugins");
+    expect(prepare).toContain('fixture_plugins_root="$session_root/fixture-plugins"');
+    expect(prepare).toContain("for lane in baseline candidate");
+    expect(prepare).toContain('"$fixture_plugins_root/$lane"');
+    expect(laneScript).toContain(
+      'fixturePluginsDir: path.join(roots.sessionRoot, "fixture-plugins", lane)',
+    );
+    expect(sutScript).toContain('path.join(tempRoot, "fixture-plugins")');
+    expect(sutScript).toContain("fs.cpSync(params.fixturePluginsDir");
+    expect(sutScript).toContain("load: { paths: [fixturePluginsRoot] }");
+    expect(wrapper).toContain('/bin/cp -a --no-dereference "$quarantine/." "$safe_runtime/"');
+    expect(wrapper).not.toContain("type=bind,src=$fixture_plugins");
+    expect(wrapper).not.toContain("cp -al");
+    expect(prompt).toContain("MANTIS_FIXTURE_PLUGINS_DIR");
+    expect(prompt).toContain("before `start`");
+    expect(prompt).toMatch(/same fixture\s+package in both lane directories/u);
+    expect(prompt).toContain("configPatch.plugins.allow");
+  });
+
   it("incrementally refreshes stale baseline builds while preparing both proof lanes in parallel", () => {
     const workflow = parse(readFileSync(WORKFLOW, "utf8")) as Workflow;
     const steps = workflow.jobs?.run_telegram_desktop_proof?.steps ?? [];
@@ -844,10 +947,12 @@ describe("Mantis Telegram Desktop proof workflow", () => {
 
   it("runs the Mantis Codex agent in fast high-effort mode", () => {
     const agent = workflowStep("Run Codex Mantis Telegram agent");
+    const setup = workflowStep("Prepare Codex action runtime");
+    const run = agent.run ?? "";
 
-    expect(agent.uses).toContain("openai/codex-action@");
-    expect(agent.with?.effort).toBe("high");
-    expect(agent.with?.["codex-args"]).toBe('["-c","service_tier=\\"fast\\""]');
+    expect(setup.uses).toContain("openai/codex-action@");
+    expect(run).toContain("--config 'model_reasoning_effort=\"high\"'");
+    expect(run).toContain("-c 'service_tier=\"fast\"'");
   });
 
   it("derives refs from the PR instead of parsing comment prose", () => {
