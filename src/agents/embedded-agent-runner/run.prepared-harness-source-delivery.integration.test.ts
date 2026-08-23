@@ -578,6 +578,70 @@ describe("prepared harness source delivery", () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
+  it("starts an isolated probe outside its caller's admitted generation", async () => {
+    const { runEmbeddedAgent } = await loadRunOverflowCompactionHarness();
+    const config = {};
+    const workspaceDir = "/tmp/isolated-probe-workspace";
+    const baseLease = await mockedAcquireAgentRunPreparedModelRuntime({
+      agentId: "openclaw",
+      agentDir: "/tmp/isolated-probe-agent",
+      workspaceDir,
+    });
+    const admittedGeneration: PreparedModelRuntimePluginGeneration = {
+      configuredCatalogEntries: [],
+      inlineProviderModels: [],
+      pluginMetadataSnapshot: {
+        ...baseLease.snapshot.metadataSnapshot,
+        policyHash: "admitted",
+        workspaceDir,
+      },
+      pluginRegistry: createEmptyPluginRegistry(),
+    };
+    const isolatedMetadataSnapshot = {
+      ...baseLease.snapshot.metadataSnapshot,
+      policyHash: "isolated",
+      workspaceDir,
+    };
+    const release = vi.fn();
+    mockedAcquireAgentRunPreparedModelRuntime.mockClear();
+    mockedAcquireAgentRunPreparedModelRuntime.mockResolvedValueOnce({
+      ...baseLease,
+      snapshot: {
+        ...baseLease.snapshot,
+        config,
+        workspaceDir,
+        metadataSnapshot: isolatedMetadataSnapshot,
+      },
+      release,
+    });
+    mockedBuildEmbeddedRunPayloads.mockReturnValue([{ text: "ok" }]);
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce(makeAttemptResult({ assistantTexts: ["ok"] }));
+    useOpenAIPlatformAuthFixture();
+
+    const isolatedProbeParams: RunEmbeddedAgentInternalParams = {
+      ...overflowBaseRunParams,
+      agentId: "openclaw",
+      agentDir: "/tmp/isolated-probe-agent",
+      config,
+      provider: "openai",
+      model: "gpt-5.4",
+      preparedModelRuntimeMode: "isolated-read-only",
+      runId: "isolated-probe-generation",
+      sessionKey: undefined,
+      workspaceDir,
+    };
+    const result = await withPreparedModelRuntimePluginGenerationScope(
+      admittedGeneration,
+      async () => await runEmbeddedAgent(isolatedProbeParams),
+    );
+
+    expect(mockedAcquireAgentRunPreparedModelRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({ config, loadRuntimePlugins: true, workspaceDir }),
+    );
+    expect(result.payloads).toEqual([{ text: "ok" }]);
+    expect(release).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["agentHarnessId", { agentHarnessId: "codex" }],
     ["agentHarnessRuntimeOverride", { agentHarnessRuntimeOverride: "codex" }],
