@@ -5666,6 +5666,7 @@ export const en: TranslationMap = {
       forkUnavailable: "Fork is unavailable while the agent is working",
       showLess: "Show less",
       showMore: "Show more",
+      tooLargeToDisplay: "This message is too large to display here.",
       unknownDate: "Unknown date",
       toolSender: "Tool",
       fullContentLoadExhausted: "Could not load the full message.",
