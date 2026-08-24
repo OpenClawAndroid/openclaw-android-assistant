@@ -140,9 +140,9 @@ function finalizeUpdatedJob(params: {
 
   const previousScript = job.payload.kind === "script" ? job.payload.script : undefined;
   const nextScript = nextJob.payload.kind === "script" ? nextJob.payload.script : undefined;
-  if (job.trigger?.script !== nextJob.trigger?.script || previousScript !== nextScript) {
-    // Trigger and payload scripts share one durable state slot; only its exact
-    // executable owner may inherit it, while explicit replacement values win.
+  if (!isDeepStrictEqual(job.trigger, nextJob.trigger) || previousScript !== nextScript) {
+    // Trigger and payload scripts share one durable state slot. Exact persisted
+    // definitions own it, matching in-flight ownership; explicit replacements win.
     for (const field of [
       "triggerState",
       "triggerEvalCount",
