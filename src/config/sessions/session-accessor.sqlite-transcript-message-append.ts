@@ -49,12 +49,14 @@ export function appendTranscriptMessageInTransaction<TMessage>(
   const readAnchor = (params: {
     message: unknown;
     messageId: string;
+    projectionCurrent?: boolean;
   }): TranscriptMessageAppendResult<TMessage>["anchor"] =>
     readActiveTranscriptEntryAnchorInTransaction({
       database,
       resolved,
       entryId: params.messageId,
       message: params.message,
+      projectionCurrent: params.projectionCurrent,
     });
   const existingAppendResult = (found: { message: unknown; messageId: string }) => {
     const anchor = readAnchor(found);
@@ -97,7 +99,9 @@ export function appendTranscriptMessageInTransaction<TMessage>(
   const messageId = options.eventId ?? randomUUID();
   const now = options.now ?? Date.now();
   const finalMessage = serializeForStorage(prepared);
-  ensureTranscriptHeader(database, resolved, options.cwd);
+  ensureTranscriptHeader(database, resolved, options.cwd, {
+    maintainDisplayProjection: options.maintainDisplayProjection === true ? true : undefined,
+  });
   const parentId = resolveTranscriptMessageAppendParent(database, resolved.sessionId, options);
   const event = {
     type: "message",
@@ -106,10 +110,15 @@ export function appendTranscriptMessageInTransaction<TMessage>(
     timestamp: resolveTimestampMsToIsoString(now),
     message: finalMessage,
   };
+  let projectionNeedsRebuild = false;
   const appended = appendTranscriptEventInTransaction(database, resolved, event, {
     dedupeByMessageIdempotency:
       options.idempotencyLookup !== "caller-checked" &&
       options.idempotencyLookup !== "scan-assistant",
+    maintainDisplayProjection: options.maintainDisplayProjection === true ? true : undefined,
+    onProjectionReconcileNeeded: () => {
+      projectionNeedsRebuild = true;
+    },
   });
   if (!appended && idempotencyKey && options.idempotencyLookup !== "caller-checked") {
     const existing = readTranscriptMessageByScopedIdempotencyKey(
@@ -143,7 +152,11 @@ export function appendTranscriptMessageInTransaction<TMessage>(
   if (!appended) {
     throw new Error(`SQLite transcript append did not insert message ${messageId}.`);
   }
-  const anchor = readAnchor({ message: finalMessage, messageId });
+  const anchor = readAnchor({
+    message: finalMessage,
+    messageId,
+    projectionCurrent: !projectionNeedsRebuild,
+  });
   return {
     appended: true,
     ...(anchor ? { anchor } : {}),

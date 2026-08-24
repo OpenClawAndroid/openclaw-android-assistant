@@ -7,6 +7,10 @@ import { parseSqliteSessionEntryRecord } from "../config/sessions/session-entry-
 import { normalizeAccountId } from "../routing/account-id.js";
 import { buildConversationRef, normalizeConversationPeerId } from "../routing/conversation-ref.js";
 import { deriveSessionChatTypeFromKey } from "../sessions/session-chat-type-shared.js";
+import {
+  dropRetiredTranscriptProjectionBindingSchema,
+  hasRetiredTranscriptProjectionBindingSchema,
+} from "./openclaw-agent-transcript-projection-source-schema.js";
 
 type MigratedConversationEntry = Record<string, unknown>;
 
@@ -272,6 +276,7 @@ export function readSqliteTableColumns(db: DatabaseSync, tableName: string): Set
 
 /** Installs same-version session projections on first updated-binary open. */
 export function ensureSessionAdditiveColumns(db: DatabaseSync): void {
+  dropRetiredTranscriptProjectionBindingSchema(db);
   const columns = readSqliteTableColumns(db, "session_nodes");
   if (columns && !columns.has("project_id")) {
     db.exec("ALTER TABLE session_nodes ADD COLUMN project_id TEXT;");
@@ -298,9 +303,18 @@ export function ensureSessionAdditiveColumns(db: DatabaseSync): void {
   }
 }
 
-export function hasPendingSessionConversationRouteContextColumn(db: DatabaseSync): boolean {
+function hasPendingSessionConversationRouteContextColumn(db: DatabaseSync): boolean {
   const columns = readSqliteTableColumns(db, "session_conversations");
   return Boolean(columns && !columns.has("route_context_json"));
+}
+
+export function hasPendingSessionAdditiveSchemaMigration(db: DatabaseSync): boolean {
+  const sessionNodeColumns = readSqliteTableColumns(db, "session_nodes");
+  return Boolean(
+    hasRetiredTranscriptProjectionBindingSchema(db) ||
+    hasPendingSessionConversationRouteContextColumn(db) ||
+    (sessionNodeColumns && !sessionNodeColumns.has("project_id")),
+  );
 }
 
 /** Adds the v11 exact delivery target before the conversation backfill writes canonical rows. */

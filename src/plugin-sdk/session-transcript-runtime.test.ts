@@ -220,7 +220,12 @@ describe("session transcript runtime SDK", () => {
     });
     await expect(
       readSessionTranscriptRawDelta({ ...missingScope, maxBytes: 10, maxEvents: 1 }),
-    ).resolves.toEqual({ kind: "missing" });
+    ).resolves.toMatchObject({
+      kind: "page",
+      events: [],
+      hasMore: false,
+      serializedBytes: 0,
+    });
 
     const scope = {
       ...missingScope,

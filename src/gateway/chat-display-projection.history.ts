@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { expectDefined } from "@openclaw/normalization-core";
 import { asFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { asOptionalRecord as readRecord } from "@openclaw/normalization-core/record-coerce";
@@ -8,10 +7,16 @@ import { isHeartbeatOkResponse, isHeartbeatUserMessage } from "../auto-reply/hea
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
 import {
   INTER_SESSION_PROMPT_PREFIX_BASE,
+  isSessionsSendInterSessionUserMessage,
   normalizeInputProvenance,
   stripInterSessionPromptPrefixForDisplay,
 } from "../sessions/input-provenance.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
+import {
+  isTtsSupplement,
+  readTtsMarker,
+  ttsMarkerMatches,
+} from "../sessions/transcript-display-classification.js";
 import { isOpenClawDeliveryMirrorAssistantMessage } from "../shared/transcript-only-openclaw-assistant.js";
 import { extractChatHistoryBlockText } from "./chat-display-projection.canvas.js";
 import {
@@ -21,87 +26,8 @@ import {
   hasTranscriptMediaFacts,
   isEmptyTextOnlyContent,
   isProjectedSessionsSendForwardedMessage,
-  isSessionsSendInterSessionUserMessage,
   type RoleContentMessage,
 } from "./chat-display-projection.helpers.js";
-
-function digestTtsSupplementText(text: string): string {
-  return createHash("sha256").update(text.trim()).digest("hex");
-}
-
-function readTtsSupplementMarker(
-  message: Record<string, unknown>,
-): { textSha256?: string; spokenText?: string } | undefined {
-  const marker = message.openclawTtsSupplement;
-  if (!marker || typeof marker !== "object" || Array.isArray(marker)) {
-    return undefined;
-  }
-  const entry = marker as { textSha256?: unknown; spokenText?: unknown };
-  const textSha256 =
-    typeof entry.textSha256 === "string" && entry.textSha256.trim()
-      ? entry.textSha256.trim()
-      : undefined;
-  const spokenText =
-    typeof entry.spokenText === "string" && entry.spokenText.trim()
-      ? entry.spokenText.trim()
-      : undefined;
-  return textSha256 || spokenText ? { textSha256, spokenText } : undefined;
-}
-
-function isAssistantTtsSupplementMessage(message: Record<string, unknown>): boolean {
-  if (asRoleContentMessage(message)?.role !== "assistant") {
-    return false;
-  }
-  if (!readTtsSupplementMarker(message)) {
-    return false;
-  }
-  const content = message.content;
-  if (!Array.isArray(content)) {
-    return false;
-  }
-  let hasSupplementBlock = false;
-  for (const block of content) {
-    if (!block || typeof block !== "object") {
-      continue;
-    }
-    const type = (block as { type?: unknown }).type;
-    if (type !== "text") {
-      hasSupplementBlock = true;
-      continue;
-    }
-    const text =
-      typeof (block as { text?: unknown }).text === "string"
-        ? (block as { text: string }).text.trim()
-        : "";
-    if (text && text !== "Audio reply") {
-      return false;
-    }
-  }
-  return hasSupplementBlock;
-}
-
-function ttsSupplementMatchesAssistant(
-  marker: { textSha256?: string; spokenText?: string },
-  message: Record<string, unknown>,
-): boolean {
-  if (asRoleContentMessage(message)?.role !== "assistant") {
-    return false;
-  }
-  if (isProjectedSessionsSendForwardedMessage(message)) {
-    return false;
-  }
-  if (readTtsSupplementMarker(message)) {
-    return false;
-  }
-  const text = extractProjectedText(message.content ?? message.text).trim();
-  if (!text) {
-    return false;
-  }
-  if (marker.textSha256 && digestTtsSupplementText(text) === marker.textSha256) {
-    return true;
-  }
-  return Boolean(marker.spokenText && text === marker.spokenText);
-}
 
 function mergeTtsSupplementContent(
   target: Record<string, unknown>,
@@ -132,18 +58,18 @@ function mergeTtsSupplementContent(
 export function mergeTtsSupplementMessages(
   messages: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
-  if (!messages.some(isAssistantTtsSupplementMessage)) {
+  if (!messages.some(isTtsSupplement)) {
     return messages;
   }
   const merged: Array<Record<string, unknown>> = [];
   let changed = false;
   for (const message of messages) {
-    const marker = readTtsSupplementMarker(message);
-    if (marker && isAssistantTtsSupplementMessage(message)) {
+    const marker = readTtsMarker(message);
+    if (marker && isTtsSupplement(message)) {
       let targetIndex = -1;
       for (let i = merged.length - 1; i >= 0; i--) {
         const candidate = merged[i];
-        if (candidate && ttsSupplementMatchesAssistant(marker, candidate)) {
+        if (candidate && ttsMarkerMatches(marker, candidate)) {
           targetIndex = i;
           break;
         }

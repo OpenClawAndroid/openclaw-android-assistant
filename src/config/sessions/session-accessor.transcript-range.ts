@@ -11,6 +11,7 @@ import {
   resolveSqliteTranscriptScope,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
+import { readCurrentSessionTranscriptActiveSourceInTransaction } from "./session-transcript-source-generation.js";
 import type { TranscriptEntryAnchor, TranscriptTurnBoundary } from "./transcript-entry-anchor.js";
 
 export type ClosedTranscriptTurnReadResult =
@@ -126,28 +127,7 @@ export function readClosedTranscriptTurn(params: {
       if (!binding) {
         return { kind: "session-rebound" } as const;
       }
-      const frontier = executeSqliteQueryTakeFirstSync(
-        database.db,
-        db
-          .selectFrom("transcript_events")
-          .select("seq")
-          .where("session_id", "=", target.sessionId)
-          .orderBy("seq", "desc")
-          .limit(1),
-      )?.seq;
-      const projection = executeSqliteQueryTakeFirstSync(
-        database.db,
-        db
-          .selectFrom("session_transcript_index_state")
-          .select(["indexed_seq", "needs_rebuild"])
-          .where("session_id", "=", target.sessionId),
-      );
-      if (
-        frontier === undefined ||
-        !projection ||
-        projection.needs_rebuild !== 0 ||
-        projection.indexed_seq !== frontier
-      ) {
+      if (!readCurrentSessionTranscriptActiveSourceInTransaction(database.db, target.sessionId)) {
         return { kind: "projection-unavailable" } as const;
       }
       const readAnchor = (anchor: TranscriptEntryAnchor) =>

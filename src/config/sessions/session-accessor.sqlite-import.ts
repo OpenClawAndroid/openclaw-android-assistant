@@ -21,12 +21,16 @@ import {
 } from "./session-accessor.sqlite-scope.js";
 import {
   advanceTranscriptMutationAtInTransaction,
-  ensureTranscriptGenerationInTransaction,
   ensureTranscriptSessionRoot,
   touchTranscriptMutationInTransaction,
 } from "./session-accessor.sqlite-transcript-state.js";
 import { appendTranscriptEventInTransaction } from "./session-accessor.sqlite-transcript-store.js";
+import { invalidateExistingSessionTranscriptDisplayInTransaction } from "./session-transcript-display.js";
 import { reconcileSessionTranscriptIndexInTransaction } from "./session-transcript-index.js";
+import {
+  startSessionTranscriptDisplayReconcile,
+  startSessionTranscriptIndexReconcile,
+} from "./session-transcript-reconcile.js";
 import type { SessionEntry } from "./types.js";
 
 /** Internal doctor/migration import target for one legacy session row. */
@@ -48,6 +52,7 @@ type SqliteSessionImportRowsParams = {
 
 /** Summary of rows written by an internal doctor/migration import. */
 type SqliteSessionImportRowsResult = {
+  displayProjectionInvalidated: boolean;
   sessionId: string;
   sessionKey: string;
   skippedExisting?: true;
@@ -82,6 +87,7 @@ function importSqliteSessionRowsInTransaction(
   prepared: ReturnType<typeof prepareSqliteSessionImport>,
 ): SqliteSessionImportRowsResult {
   const { params, resolved } = prepared;
+  let displayProjectionInvalidated = false;
   let transcriptEvents = 0;
   // Doctor may have staged another legacy alias in this database already. Inspect only this
   // exact import target; runtime-wide canonical validation runs after the import phase.
@@ -90,6 +96,7 @@ function importSqliteSessionRowsInTransaction(
   })?.entry;
   if (params.skipIfExists === true && currentEntry) {
     return {
+      displayProjectionInvalidated,
       sessionId: params.entry.sessionId,
       sessionKey: resolved.sessionKey,
       skippedExisting: true,
@@ -139,7 +146,6 @@ function importSqliteSessionRowsInTransaction(
       ensureTranscriptSessionRoot(database, transcriptScope, exactTranscriptRows[0]!.createdAt, {
         allowStoredAlias: true,
       });
-      ensureTranscriptGenerationInTransaction(database, params.entry.sessionId);
       for (const [seq, row] of exactTranscriptRows.entries()) {
         executeSqliteQuerySync(
           database.db,
@@ -153,6 +159,10 @@ function importSqliteSessionRowsInTransaction(
       }
       transcriptEvents = exactTranscriptRows.length;
       reconcileSessionTranscriptIndexInTransaction(database.db, params.entry.sessionId);
+      displayProjectionInvalidated = invalidateExistingSessionTranscriptDisplayInTransaction(
+        database.db,
+        params.entry.sessionId,
+      );
       publishSessionEntryCacheInvalidation(database);
     }
   } else if (prepared.transcriptEvents) {
@@ -172,6 +182,7 @@ function importSqliteSessionRowsInTransaction(
       if (
         appendTranscriptEventInTransaction(database, transcriptScope, event, {
           allowStoredAlias: true,
+          maintainDisplayProjection: false,
           scheduleProjectionReconcile: false,
           touchMutation: false,
         })
@@ -181,6 +192,12 @@ function importSqliteSessionRowsInTransaction(
       }
     }
     reconcileSessionTranscriptIndexInTransaction(database.db, params.entry.sessionId);
+    if (transcriptEvents > 0) {
+      displayProjectionInvalidated = invalidateExistingSessionTranscriptDisplayInTransaction(
+        database.db,
+        params.entry.sessionId,
+      );
+    }
     publishSessionEntryCacheInvalidation(database);
   }
   if (params.transcriptMtimeMs !== undefined) {
@@ -193,6 +210,7 @@ function importSqliteSessionRowsInTransaction(
     touchTranscriptMutationInTransaction(database, params.entry.sessionId);
   }
   return {
+    displayProjectionInvalidated,
     sessionId: params.entry.sessionId,
     sessionKey: resolved.sessionKey,
     transcriptEvents,
@@ -211,12 +229,25 @@ export async function importSqliteSessionRowsBatch(
   if (prepared.some((row) => row.resolved.path !== resolved.path)) {
     throw new Error("SQLite session import batch spans multiple stores");
   }
-  return await runExclusiveSqliteSessionWrite(resolved, async () =>
+  const results = await runExclusiveSqliteSessionWrite(resolved, async () =>
     runOpenClawAgentWriteTransaction(
       (database) => prepared.map((row) => importSqliteSessionRowsInTransaction(database, row)),
       toDatabaseOptions(resolved),
     ),
   );
+  for (const result of results) {
+    if (result.transcriptEvents === 0) {
+      continue;
+    }
+    const startReconcile = result.displayProjectionInvalidated
+      ? startSessionTranscriptDisplayReconcile
+      : startSessionTranscriptIndexReconcile;
+    startReconcile({
+      ...toDatabaseOptions(resolved),
+      preferredSessionId: result.sessionId,
+    });
+  }
+  return results;
 }
 
 /** Imports one legacy session entry and its transcript rows for doctor migration. */

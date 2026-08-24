@@ -4,7 +4,10 @@ import {
   closeOpenClawAgentDatabaseByPath,
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
-import { listSessionsNeedingTranscriptIndexReconcile } from "./session-transcript-index.js";
+import {
+  listSessionsNeedingTranscriptIndexReconcile,
+  listSessionsNeedingTranscriptProjectionReconcile,
+} from "./session-transcript-index.js";
 import {
   prepareSessionTranscriptProjection,
   type PreparedSessionTranscriptProjection,
@@ -13,11 +16,13 @@ import {
 } from "./session-transcript-projection-rebuild.js";
 
 const ACTIVE_ROWS_PER_CHUNK = 512;
+const DISPLAY_ROWS_PER_CHUNK = 512;
 const FTS_ROWS_PER_CHUNK = 128;
 const FTS_TEXT_BYTES_PER_CHUNK = 256 * 1024;
 
 export type SessionTranscriptReconcileWorkerInput = {
   agentId: string;
+  includeDisplayProjection: boolean;
   path: string;
   preferredSessionId?: string;
 };
@@ -39,6 +44,11 @@ export type SessionTranscriptReconcileWorkerMessage =
       rows: PreparedSessionTranscriptProjection["activeRows"];
       sessionId: string;
     }
+  | {
+      type: "display-chunk";
+      rows: PreparedSessionTranscriptProjection["displayRows"];
+      sessionId: string;
+    }
   | { type: "done" }
   | { type: "failed"; error: string }
   | { type: "fts-chunk"; chunk: EncodedTranscriptFtsChunk; sessionId: string }
@@ -52,7 +62,11 @@ function parseWorkerInput(value: unknown): SessionTranscriptReconcileWorkerInput
     return undefined;
   }
   const input = value as Record<string, unknown>;
-  if (typeof input.agentId !== "string" || typeof input.path !== "string") {
+  if (
+    typeof input.agentId !== "string" ||
+    typeof input.includeDisplayProjection !== "boolean" ||
+    typeof input.path !== "string"
+  ) {
     return undefined;
   }
   if (input.preferredSessionId !== undefined && typeof input.preferredSessionId !== "string") {
@@ -60,6 +74,7 @@ function parseWorkerInput(value: unknown): SessionTranscriptReconcileWorkerInput
   }
   return {
     agentId: input.agentId,
+    includeDisplayProjection: input.includeDisplayProjection,
     path: input.path,
     ...(typeof input.preferredSessionId === "string"
       ? { preferredSessionId: input.preferredSessionId }
@@ -139,31 +154,48 @@ function takeFtsChunkEnd(rows: readonly TranscriptIndexEntry[], start: number): 
 }
 
 async function streamPreparedProjection(plan: PreparedSessionTranscriptProjection): Promise<void> {
-  const { activeRows, ftsRows, ...metadata } = plan;
+  const { activeRows, displayRows, ftsRows, ...metadata } = plan;
   if (!(await postAndWait({ type: "plan-start", plan: metadata }))) {
     return;
   }
-  for (let offset = 0; offset < activeRows.length; offset += ACTIVE_ROWS_PER_CHUNK) {
-    if (
-      !(await postAndWait({
-        type: "active-chunk",
-        rows: activeRows.slice(offset, offset + ACTIVE_ROWS_PER_CHUNK),
-        sessionId: plan.sessionId,
-      }))
-    ) {
-      return;
+  if (plan.activeNeedsRebuild) {
+    for (let offset = 0; offset < activeRows.length; offset += ACTIVE_ROWS_PER_CHUNK) {
+      if (
+        !(await postAndWait({
+          type: "active-chunk",
+          rows: activeRows.slice(offset, offset + ACTIVE_ROWS_PER_CHUNK),
+          sessionId: plan.sessionId,
+        }))
+      ) {
+        return;
+      }
     }
   }
-  for (let offset = 0; offset < ftsRows.length;) {
-    const end = takeFtsChunkEnd(ftsRows, offset);
-    const chunk = encodeFtsChunk(ftsRows.slice(offset, end));
-    const accepted = await postAndWait({ type: "fts-chunk", chunk, sessionId: plan.sessionId }, [
-      chunk.textBytes.buffer,
-    ]);
-    if (!accepted) {
-      return;
+  if (plan.displayNeedsRebuild) {
+    for (let offset = 0; offset < displayRows.length; offset += DISPLAY_ROWS_PER_CHUNK) {
+      if (
+        !(await postAndWait({
+          type: "display-chunk",
+          rows: displayRows.slice(offset, offset + DISPLAY_ROWS_PER_CHUNK),
+          sessionId: plan.sessionId,
+        }))
+      ) {
+        return;
+      }
     }
-    offset = end;
+  }
+  if (plan.activeNeedsRebuild) {
+    for (let offset = 0; offset < ftsRows.length;) {
+      const end = takeFtsChunkEnd(ftsRows, offset);
+      const chunk = encodeFtsChunk(ftsRows.slice(offset, end));
+      const accepted = await postAndWait({ type: "fts-chunk", chunk, sessionId: plan.sessionId }, [
+        chunk.textBytes.buffer,
+      ]);
+      if (!accepted) {
+        return;
+      }
+      offset = end;
+    }
   }
   await postAndWait({ type: "plan-finish", sessionId: plan.sessionId });
 }
@@ -175,11 +207,15 @@ async function run(): Promise<void> {
       path: reconcileInput.path,
     });
     const sessionIds = orderSessionIds(
-      listSessionsNeedingTranscriptIndexReconcile(database.db),
+      reconcileInput.includeDisplayProjection
+        ? listSessionsNeedingTranscriptProjectionReconcile(database.db)
+        : listSessionsNeedingTranscriptIndexReconcile(database.db),
       reconcileInput.preferredSessionId,
     );
     for (const sessionId of sessionIds) {
-      const plan = prepareSessionTranscriptProjection(database.db, sessionId);
+      const plan = prepareSessionTranscriptProjection(database.db, sessionId, {
+        includeDisplayProjection: reconcileInput.includeDisplayProjection,
+      });
       if (plan) {
         await streamPreparedProjection(plan);
       }

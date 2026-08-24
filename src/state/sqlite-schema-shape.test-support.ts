@@ -75,10 +75,10 @@ type IndexXInfoRow = {
 };
 
 /** Execute schema SQL in memory and return its comparable shape. */
-export function createSqliteSchemaShapeFromSql(schemaUrl: URL): SqliteSchemaShape {
+export function createSqliteSchemaShapeFromSql(schema: URL | string): SqliteSchemaShape {
   const db = new DatabaseSync(":memory:");
   try {
-    db.exec(readFileSync(schemaUrl, "utf8"));
+    db.exec(typeof schema === "string" ? schema : readFileSync(schema, "utf8"));
     return collectSqliteSchemaShape(db);
   } finally {
     db.close();
