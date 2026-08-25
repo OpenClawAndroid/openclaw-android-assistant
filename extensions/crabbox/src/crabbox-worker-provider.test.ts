@@ -20,6 +20,7 @@ import { createCrabboxWorkerProvider, resolveOpenClawRoot } from "./crabbox-work
 import {
   CRABBOX_LIFECYCLE_TIMEOUT_MS,
   CRABBOX_MACHINE_CATALOG_TIMEOUT_MS,
+  resolveCrabboxProvisionBaseTimeoutMs,
 } from "./crabbox-worker-timeouts.js";
 
 const OPERATION_ID = `provision:v2:${"0".repeat(64)}`;
@@ -174,7 +175,7 @@ describe("Crabbox worker provider", () => {
         ]),
       });
     });
-    expect(provider.supportedExecutionModes).toEqual(["worker-turn"]);
+    expect(provider.supportedExecutionModes).toEqual(["worker-turn", "remote-exec"]);
     expect(await provider.listMachineOptions?.(PROFILE)).toEqual([
       { id: "tiny", label: "Tiny", cpu: 8, memoryGb: 16 },
       { id: "small", label: "Small", cpu: 16, memoryGb: 32 },
@@ -367,9 +368,15 @@ describe("Crabbox worker provider", () => {
     expect(() => createCrabboxWorkerProvider({ wallpaperPath })).toThrow(message);
   });
 
-  it("returns the environment-bound node after enrollment", async () => {
+  it.each([
+    { name: "the direct-environment default", executionMode: undefined },
+    { name: "an OpenClaw worker turn", executionMode: "worker-turn" },
+    { name: "a Codex remote-exec turn", executionMode: "remote-exec" },
+  ] as const)("returns the same enrolled node transport for $name", async ({ executionMode }) => {
+    const calls: Array<{ argv: string[]; options: Parameters<CrabboxCommandRunner>[1] }> = [];
     let warmed = false;
-    const provider = providerWithRunner(async (argv) => {
+    const provider = providerWithRunner(async (argv, options) => {
+      calls.push({ argv, options });
       if (argv[1] === "warmup") {
         warmed = true;
         return commandResult({ stdout: `leased ${LEASE_ID} slug=test\n` });
@@ -386,11 +393,69 @@ describe("Crabbox worker provider", () => {
         : commandResult({ code: 4, stderr: `lease/server not found: ${argv.at(-2)}` });
     });
 
-    await expect(provider.provision(PROFILE, OPERATION_ID)).resolves.toEqual({
+    const provision =
+      executionMode === undefined
+        ? provider.provision(PROFILE, OPERATION_ID)
+        : provider.provision(PROFILE, OPERATION_ID, { executionMode });
+    await expect(provision).resolves.toEqual({
       leaseId: LEASE_ID,
       node: { deviceId: "device-1" },
       sharedHost: false,
     });
+
+    const enrollmentCall = calls.find(
+      (call) => call.argv[1] === "run" && String(call.options.input).includes("--ephemeral"),
+    );
+    expect(enrollmentCall).toBeDefined();
+    const setup = String(enrollmentCall?.options.input);
+    const setupCodeCleared = "unset CRABBOX_WORKER_SETUP_CODE";
+    expect(setup).toContain(setupCodeCleared);
+    expect(setup.indexOf(setupCodeCleared)).toBeGreaterThan(setup.indexOf('>"$setup_code_file"'));
+    expect(setup.indexOf(setupCodeCleared)).toBeLessThan(setup.indexOf("setsid -f sh -c"));
+    if (executionMode === "remote-exec") {
+      expect(setup).toContain("plugins inspect codex --json");
+      expect(setup).toContain('require("node:child_process").spawnSync');
+      expect(setup).toContain('[launcher,"--version"]');
+      expect(setup).toContain("codex-cli ${runtime.version}");
+      expect(setup).not.toContain("$state_dir/extensions/codex");
+      expect(setup).toContain('OPENCLAW_STATE_DIR="$state_dir" openclaw plugins enable codex');
+      expect(setup).toContain(
+        'OPENCLAW_STATE_DIR="$state_dir" npx --yes --package "$package_spec" -- openclaw plugins enable codex',
+      );
+      expect(setup.indexOf("plugins inspect codex --json")).toBeGreaterThan(
+        setup.indexOf(setupCodeCleared),
+      );
+      expect(setup.indexOf("plugins enable codex")).toBeLessThan(
+        setup.lastIndexOf("setsid -f sh -c"),
+      );
+    } else {
+      expect(setup).not.toContain("plugins inspect codex");
+    }
+    expect(setup).not.toContain("plugins install");
+    expect(setup).not.toContain("npm:@openclaw/codex");
+    expect(setup).toContain("connect --target-file");
+    expect(setup).toContain("--ephemeral");
+    expect(setup).not.toContain("secret-setup-value");
+    const commandArguments = calls.flatMap((call) => call.argv);
+    for (const forbiddenArgument of ["remote-exec", "worker-turn", "ssh", "scp", "rsync"]) {
+      expect(commandArguments).not.toContain(forbiddenArgument);
+    }
+  });
+
+  it("rejects an unsupported execution mode before invoking Crabbox", async () => {
+    const calls: string[][] = [];
+    const provider = providerWithRunner(async (argv) => {
+      calls.push(argv);
+      return commandResult();
+    });
+
+    await expect(
+      provider.provision(PROFILE, OPERATION_ID, { executionMode: "unsupported" as never }),
+    ).rejects.toMatchObject({
+      name: "WorkerProviderError",
+      message: "Crabbox execution mode is unsupported",
+    });
+    expect(calls).toEqual([]);
   });
 
   it("resumes a bound node without replaying the consumed setup code", async () => {
@@ -1271,6 +1336,29 @@ describe("Crabbox worker provider", () => {
     expect(calls.map((argv) => argv[1])).toEqual(["config"]);
   });
 
+  const provisionTimeoutCases = [
+    { name: "normal without setup", profile: { ...PROFILE }, minutes: 67 },
+    {
+      name: "normal with setup",
+      profile: { ...PROFILE, setup: "install-node" },
+      minutes: 82,
+    },
+    { name: "desktop without setup", profile: { ...PROFILE, desktop: true }, minutes: 132 },
+    {
+      name: "desktop with setup",
+      profile: { ...PROFILE, desktop: true, setup: "install-node" },
+      minutes: 147,
+    },
+  ] satisfies Array<{ name: string; profile: WorkerProfile; minutes: number }>;
+  it.each(provisionTimeoutCases)(
+    "includes warmup, lifecycle, setup, and node enrollment for $name",
+    ({ profile, minutes }) => {
+      const provider = providerWithRunner(async () => commandResult());
+
+      expect(provider.resolveProvisionTimeoutMs?.(profile)).toBe(minutes * 60_000);
+    },
+  );
+
   it.each([
     {
       name: "direct AWS",
@@ -1349,7 +1437,7 @@ describe("Crabbox worker provider", () => {
     });
     expect(calls.find((call) => call.argv[1] === "warmup")).toEqual(
       expect.objectContaining({
-        options: expect.objectContaining({ timeoutMs: 50 * 60_000 }),
+        options: expect.objectContaining({ timeoutMs: 100 * 60_000 }),
       }),
     );
     expect(calls.find((call) => call.argv[1] === "warmup")?.argv.slice(-4)).toEqual([
@@ -1364,7 +1452,7 @@ describe("Crabbox worker provider", () => {
         provider: providerId,
         desktop: true,
       }),
-    ).toBe(72 * 60_000);
+    ).toBe(132 * 60_000);
     expect(setupOrder).toEqual(["desktop", "enrollment"]);
   });
 
@@ -1632,7 +1720,7 @@ describe("Crabbox worker provider", () => {
       "--keep=true",
     ]);
     expect(calls[0]?.options).toEqual({
-      timeoutMs: 240_000,
+      timeoutMs: 50 * 60_000,
       maxOutputBytes: 65_536,
       killProcessTree: true,
     });
@@ -1948,7 +2036,7 @@ describe("Crabbox worker provider", () => {
       pathEnv: "",
       isExecutable: (candidate) => candidate === SIBLING_BINARY,
       sleep: async () => {
-        nowMs += 290_001;
+        nowMs += resolveCrabboxProvisionBaseTimeoutMs({}) + 1;
       },
       wallpaperPath: WORKER_WALLPAPER_PATH,
     });

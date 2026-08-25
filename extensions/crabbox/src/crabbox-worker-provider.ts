@@ -1,4 +1,4 @@
-import { redactSensitiveText, redactToolPayloadText } from "openclaw/plugin-sdk/logging-core";
+import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
 import {
   WorkerProviderError,
   type WorkerLease,
@@ -8,7 +8,7 @@ import {
 } from "openclaw/plugin-sdk/plugin-entry";
 import { runCommandWithTimeout, type SpawnResult } from "openclaw/plugin-sdk/process-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { truncateUtf16Safe, truncateUtf8Prefix } from "openclaw/plugin-sdk/text-utility-runtime";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import {
   crabboxCommandError,
   permanentCrabboxCommandError,
@@ -27,6 +27,7 @@ import {
 import { createCrabboxHeartbeatManager } from "./crabbox-worker-heartbeat.js";
 import { parseInspectJson, type ParsedInspect } from "./crabbox-worker-inspect.js";
 import { createCrabboxMachineOptionsResolver } from "./crabbox-worker-machine-options.js";
+import { collectCrabboxNodeEnrollmentEvidence } from "./crabbox-worker-node-enrollment-diagnostics.js";
 import {
   createCrabboxNodeEnrollmentSetup,
   type CrabboxWorkerNodeEnrollment,
@@ -56,8 +57,6 @@ export { resolveOpenClawRoot } from "./crabbox-worker-profile.js";
 
 const READY_POLL_INTERVAL_MS = 2_000;
 const MAX_ERROR_DETAIL_CHARS = 512;
-const NODE_ENROLLMENT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
-const MAX_NODE_ENROLLMENT_EVIDENCE_BYTES = 2_048;
 // Only states that prove the resource is gone or stopped map to `destroyed`. Crabbox also
 // treats `deleting` and `failed` as unable to become ready, but those can retain resources
 // that still need an explicit stop during teardown.
@@ -334,46 +333,6 @@ async function runProvisionSetupAndWaitReady(
   return await waitForProvisionReady({ ...params, refresh: true });
 }
 
-async function collectNodeEnrollmentEvidence(
-  params: LeaseCommandContext & { runCommand: CrabboxCommandRunner; signal?: AbortSignal },
-): Promise<string> {
-  let label = "box evidence";
-  let detail: string;
-  try {
-    const result = await runCrabboxCommand({
-      action: "enrollment diagnostics",
-      args: crabboxLeaseRunArgs(params),
-      binary: params.binary,
-      input: [
-        `state_dir="$HOME/.openclaw/cloud-workers/${params.id}"`,
-        'printf "package-spec="',
-        'if [ -s "$state_dir/package-spec" ]; then head -c 256 "$state_dir/package-spec"; else printf absent; fi',
-        'printf " node-pid="',
-        'if [ -s "$state_dir/node.pid" ] && kill -0 "$(head -c 32 "$state_dir/node.pid")" 2>/dev/null; then printf alive; else printf dead-or-absent; fi',
-        'printf " node.log tail: "',
-        'if [ -r "$state_dir/node.log" ]; then tail -c 2000 "$state_dir/node.log"; else printf absent; fi',
-      ].join("\n"),
-      runCommand: params.runCommand,
-      ...(params.signal ? { signal: params.signal } : {}),
-      // The enrollment deadline has already elapsed; diagnostics need their own bounded budget.
-      timeoutMs: NODE_ENROLLMENT_DIAGNOSTIC_TIMEOUT_MS,
-    });
-    if (result.termination !== "exit" || result.code !== 0) {
-      throw crabboxCommandError("enrollment diagnostics", result);
-    }
-    detail = result.stdout.trim();
-    if (!detail) {
-      throw new Error("diagnostic command returned no output");
-    }
-  } catch (error) {
-    label = "box evidence unavailable";
-    detail = error instanceof Error ? error.message : "diagnostic command failed";
-  }
-  const prefix = `${label}: `;
-  const safeDetail = redactToolPayloadText(detail).replace(/\s+/gu, " ").trim();
-  return `${prefix}${truncateUtf8Prefix(safeDetail, MAX_NODE_ENROLLMENT_EVIDENCE_BYTES - prefix.length)}`;
-}
-
 async function stopProvisionId(params: {
   binary: string;
   id: string;
@@ -526,7 +485,7 @@ export function createCrabboxWorkerProvider(
     id: CRABBOX_WORKER_PROVIDER_ID,
     dispose: () => heartbeats.dispose(),
     listMachineOptions,
-    supportedExecutionModes: ["worker-turn"],
+    supportedExecutionModes: ["worker-turn", "remote-exec"],
     provisionBeforeInstallation: true,
     requiresNodeEnrollment: true,
     resolveProvisionTimeoutMs(profile) {
@@ -537,6 +496,14 @@ export function createCrabboxWorkerProvider(
       operationId: string,
       options: Parameters<WorkerProvider["provision"]>[2],
     ): Promise<WorkerLease> {
+      const executionMode: unknown = options?.executionMode;
+      if (
+        executionMode !== undefined &&
+        executionMode !== "worker-turn" &&
+        executionMode !== "remote-exec"
+      ) {
+        throw new WorkerProviderError("Crabbox execution mode is unsupported");
+      }
       const configured = parseCrabboxProfile(profile);
       const requestedClass = nonEmptyString(options?.machineClass);
       if (options?.machineClass !== undefined && (!requestedClass || requestedClass.length > 128)) {
@@ -665,7 +632,11 @@ export function createCrabboxWorkerProvider(
         }
         return await failProvisionAfterCleanup({ ...inspectedParams, id: leaseId }, error);
       }
-      const nodeEnrollmentSetup = createCrabboxNodeEnrollmentSetup({ enrollment, leaseId });
+      const nodeEnrollmentSetup = createCrabboxNodeEnrollmentSetup({
+        enrollment,
+        executionMode,
+        leaseId,
+      });
       inspectedParams.inspect = await runProvisionSetupAndWaitReady({
         ...inspectedParams,
         setup: nodeEnrollmentSetup.command,
@@ -685,8 +656,9 @@ export function createCrabboxWorkerProvider(
         }
         const leaseContext = { ...inspectedParams, id: leaseId };
         // Read node evidence before cleanup destroys its only copy on the leased machine.
-        const evidence = await collectNodeEnrollmentEvidence({
+        const evidence = await collectCrabboxNodeEnrollmentEvidence({
           ...leaseContext,
+          args: crabboxLeaseRunArgs(leaseContext),
           ...(enrollment.signal ? { signal: enrollment.signal } : {}),
         });
         enrollment.signal?.throwIfAborted();
