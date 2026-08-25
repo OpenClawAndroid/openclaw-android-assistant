@@ -294,6 +294,20 @@ describe("detectChangedScope Windows routing", () => {
     }
   });
 
+  it("routes workspace quiescence owners and native coverage to Windows", () => {
+    for (const quiescencePath of [
+      "src/gateway/worker-environments/workspace-quiescence.ts",
+      "src/gateway/worker-environments/workspace-quiescence-scripts.ts",
+      "src/gateway/worker-environments/workspace-quiescence.test.ts",
+      "src/gateway/worker-environments/workspace-quiescence.windows.test.ts",
+    ]) {
+      expect(detectChangedScope([quiescencePath]), quiescencePath).toMatchObject({
+        runNode: true,
+        runWindows: true,
+      });
+    }
+  });
+
   it("routes SecretRef path-security changes and focused owner coverage to Windows", () => {
     for (const secretRefPath of [
       "src/commands/doctor-gateway-auth-token.ts",
