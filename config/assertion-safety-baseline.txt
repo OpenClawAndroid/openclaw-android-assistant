@@ -4263,6 +4263,6 @@ ui/src/pages/workboard/view-card-actions.ts	2
 ui/src/pages/workboard/view-card-details.ts	1
 ui/src/pages/workboard/view-card-modal.ts	1
 ui/src/pages/workboard/view-card.ts	1
-ui/src/pages/workboard/view.ts	2
+ui/src/pages/workboard/view.ts	1
 ui/src/pages/workboard/workboard-select.ts	1
 ui/src/pages/worktrees/worktrees-page.ts	3
