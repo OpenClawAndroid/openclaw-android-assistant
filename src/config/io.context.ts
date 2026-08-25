@@ -139,6 +139,9 @@ export function createConfigIoContext(options: ConfigIoFactoryOptions = {}): Con
           env: params.env,
           allowCurrent: params.allowCurrentPluginMetadata,
           pluginIdScope: resolvePluginIdScope(config),
+          onSnapshotResolved: (resolved) => {
+            snapshot = resolved;
+          },
         });
         return { manifestRegistry };
       },

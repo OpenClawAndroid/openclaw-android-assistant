@@ -4,6 +4,24 @@ import { describe, expect, it } from "vitest";
 const { detectChangedScope } = await import("../../scripts/ci-changed-scope.mjs");
 
 describe("detectChangedScope Windows routing", () => {
+  it("routes worker bundle producers, archives, installers, and regression coverage to Windows", () => {
+    for (const bundlePath of [
+      "src/shared/worker-bundle-archive.ts",
+      "src/shared/worker-bundle-archive.test.ts",
+      "src/shared/worker-bundle-hash.ts",
+      "src/gateway/worker-environments/bundle.ts",
+      "src/gateway/worker-environments/bundle.test.ts",
+      "src/gateway/worker-environments/bundle-staging.ts",
+      "src/node-host/node-worker-bundle-installer.ts",
+      "src/node-host/node-worker-bundle-installer.test.ts",
+    ]) {
+      expect(detectChangedScope([bundlePath]), bundlePath).toMatchObject({
+        runNode: true,
+        runWindows: true,
+      });
+    }
+  });
+
   it("routes SQLite transcript archive changes to Windows", () => {
     for (const archivePath of [
       "src/config/sessions/session-accessor.sqlite-archive.ts",

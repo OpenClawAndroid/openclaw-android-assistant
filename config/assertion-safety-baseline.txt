@@ -2028,7 +2028,7 @@ src/agents/sessions/extensions/types.ts	1
 src/agents/sessions/keybindings.ts	2
 src/agents/sessions/model-registry.ts	13
 src/agents/sessions/model-resolver.ts	1
-src/agents/sessions/package-manager.ts	8
+src/agents/sessions/package-manager.ts	3
 src/agents/sessions/resolve-config-value.ts	1
 src/agents/sessions/sdk.ts	3
 src/agents/sessions/session-manager-branching.ts	1
@@ -3095,7 +3095,7 @@ src/gateway/session-transcript-title-reader.ts	1
 src/gateway/session-utils-core.ts	1
 src/gateway/session-utils-row.ts	1
 src/gateway/session-utils-search.ts	1
-src/gateway/session-utils.fs.ts	16
+src/gateway/session-utils.fs.ts	10
 src/gateway/sessions-history-http.ts	1
 src/gateway/stale-install.ts	1
 src/gateway/system-ca-warmup.ts	1
