@@ -117,12 +117,6 @@ type ClaudeCliEffortArgAction =
   | { mode: "omit" }
   | { mode: "set"; effort: ClaudeCliEffort };
 
-/** Explicit thinking opt-out for Claude CLI routes unsupported by Claude Code. */
-export const CLAUDE_CLI_OFF_THINKING_PROFILE = {
-  levels: [{ id: "off" }],
-  defaultLevel: "off",
-} as const;
-
 /** Return whether a provider id refers to the Claude CLI backend. */
 export function isClaudeCliProvider(providerId: string): boolean {
   return normalizeOptionalLowercaseString(providerId) === CLAUDE_CLI_BACKEND_ID;
