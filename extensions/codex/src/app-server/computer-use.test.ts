@@ -3,15 +3,36 @@ import path from "node:path";
 // Codex tests cover computer use plugin behavior.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveCodexAppServerRuntimeOptions } from "./config.js";
+import { resolveCodexAppServerRuntimeOptions, resolveCodexComputerUseConfig } from "./config.js";
 import { acquireCodexNativeConfigFence } from "./native-config-fence.js";
 import { resolveCodexNativeConfigFenceKey } from "./shared-client.js";
 import { createClientHarness, useAutoCleanupTempDirTracker } from "./test-support.js";
 
 const requestCodexAppServerJsonMock = vi.hoisted(() => vi.fn());
 const sharedClientMocks = vi.hoisted(() => ({
+  assertCodexAppServerClientStartSelectionCurrent: vi.fn(),
   getLeasedSharedCodexAppServerClient: vi.fn(),
+  readCodexAppServerClientDesktopGeneration: vi.fn(),
+  readCodexAppServerClientProcessIdentity: vi.fn(),
   releaseLeasedSharedCodexAppServerClient: vi.fn(),
+  waitForCodexAppServerClientDesktopGenerationDrain: vi.fn(),
+}));
+const managedProvisioningMocks = vi.hoisted(() => ({
+  ensureCodexComputerUseSharedPluginCache: vi.fn(async () => ({
+    status: "independent" as const,
+    changed: false,
+    message: "independent",
+    removedStaleVersions: [],
+    warnings: [],
+  })),
+  ensureCodexManagedBundledMarketplace: vi.fn(),
+  ensureCodexComputerUseServiceApp: vi.fn(),
+  resolveCodexManagedBundledMarketplaceSource: vi.fn(
+    async (params: { candidates?: readonly unknown[] }) => params.candidates?.[0],
+  ),
+  resolveCodexComputerUseServiceAppSourcePath: vi.fn(
+    async (params: { sourceAppCandidates?: readonly string[] }) => params.sourceAppCandidates?.[0],
+  ),
 }));
 
 vi.mock("./request.js", () => ({
@@ -23,10 +44,40 @@ vi.mock("./shared-client.js", async (importOriginal) => ({
   ...sharedClientMocks,
 }));
 
+vi.mock("./computer-use-marketplace.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./computer-use-marketplace.js")>()),
+  ensureCodexManagedBundledMarketplace:
+    managedProvisioningMocks.ensureCodexManagedBundledMarketplace,
+  resolveCodexManagedBundledMarketplaceSource:
+    managedProvisioningMocks.resolveCodexManagedBundledMarketplaceSource,
+}));
+
+vi.mock("./computer-use-service.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./computer-use-service.js")>()),
+  ensureCodexComputerUseServiceApp: managedProvisioningMocks.ensureCodexComputerUseServiceApp,
+  resolveCodexComputerUseServiceAppSourcePath:
+    managedProvisioningMocks.resolveCodexComputerUseServiceAppSourcePath,
+}));
+
+vi.mock("./computer-use-cache.js", () => ({
+  ensureCodexComputerUseSharedPluginCache:
+    managedProvisioningMocks.ensureCodexComputerUseSharedPluginCache,
+}));
+
+vi.mock("./desktop-app-paths.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./desktop-app-paths.js")>();
+  return {
+    ...actual,
+    resolveMacOSDesktopCodexAppPathCandidates: (platform?: NodeJS.Platform) =>
+      actual.resolveMacOSDesktopCodexAppPathCandidates(platform ?? "darwin"),
+  };
+});
+
 import {
   ensureCodexComputerUse,
   installCodexComputerUse,
   readCodexComputerUseStatus,
+  runCodexComputerUseLiveTest,
   type CodexComputerUseStatus,
 } from "./computer-use.js";
 
@@ -79,8 +130,34 @@ describe("Codex Computer Use setup", () => {
   afterEach(() => {
     vi.useRealTimers();
     requestCodexAppServerJsonMock.mockReset();
+    sharedClientMocks.assertCodexAppServerClientStartSelectionCurrent.mockReset();
     sharedClientMocks.getLeasedSharedCodexAppServerClient.mockReset();
+    sharedClientMocks.readCodexAppServerClientDesktopGeneration.mockReset();
+    sharedClientMocks.readCodexAppServerClientProcessIdentity.mockReset();
     sharedClientMocks.releaseLeasedSharedCodexAppServerClient.mockReset();
+    sharedClientMocks.waitForCodexAppServerClientDesktopGenerationDrain.mockReset();
+    sharedClientMocks.waitForCodexAppServerClientDesktopGenerationDrain.mockResolvedValue(
+      undefined,
+    );
+    managedProvisioningMocks.ensureCodexManagedBundledMarketplace.mockReset();
+    managedProvisioningMocks.ensureCodexComputerUseServiceApp.mockReset();
+    managedProvisioningMocks.ensureCodexComputerUseSharedPluginCache.mockReset();
+    managedProvisioningMocks.ensureCodexComputerUseSharedPluginCache.mockResolvedValue({
+      status: "independent",
+      changed: false,
+      message: "independent",
+      removedStaleVersions: [],
+      warnings: [],
+    });
+    managedProvisioningMocks.resolveCodexManagedBundledMarketplaceSource.mockReset();
+    managedProvisioningMocks.resolveCodexManagedBundledMarketplaceSource.mockImplementation(
+      async (params: { candidates?: readonly unknown[] }) => params.candidates?.[0],
+    );
+    managedProvisioningMocks.resolveCodexComputerUseServiceAppSourcePath.mockReset();
+    managedProvisioningMocks.resolveCodexComputerUseServiceAppSourcePath.mockImplementation(
+      async (params: { sourceAppCandidates?: readonly string[] }) =>
+        params.sourceAppCandidates?.[0],
+    );
   });
 
   it("stays disabled until configured", async () => {
@@ -127,6 +204,7 @@ describe("Codex Computer Use setup", () => {
     const client = {
       request,
       closeAndRunAfterExit: vi.fn(),
+      getRuntimeIdentity: vi.fn(() => undefined),
     };
     sharedClientMocks.getLeasedSharedCodexAppServerClient.mockResolvedValueOnce(client);
     const install = installCodexComputerUse({ pluginConfig: {}, agentDir });
@@ -480,6 +558,39 @@ describe("Codex Computer Use setup", () => {
     expect(status.warnings).toContain(
       "Could not reload Computer Use MCP servers: MCP runtime reload failed",
     );
+  });
+
+  it("propagates a desktop selection change without retrying the stale client", async () => {
+    const selectionChanged = Object.assign(new Error("desktop selection changed"), {
+      code: "CODEX_APP_SERVER_START_SELECTION_CHANGED",
+    });
+    const request = vi.fn(async (method: string) => {
+      if (method === "thread/start") {
+        return { thread: { id: "probe-thread" } };
+      }
+      if (method === "mcpServer/tool/call") {
+        throw selectionChanged;
+      }
+      if (method === "thread/unsubscribe" || method === "thread/archive") {
+        return undefined;
+      }
+      throw new Error(`unexpected request: ${method}`);
+    }) as CodexComputerUseRequest;
+
+    await expect(
+      runCodexComputerUseLiveTest({
+        request,
+        config: resolveCodexComputerUseConfig({
+          pluginConfig: { computerUse: { enabled: true, autoRepair: true } },
+        }),
+      }),
+    ).rejects.toBe(selectionChanged);
+    expect(requestCalls(request).map(([method]) => method)).toEqual([
+      "thread/start",
+      "mcpServer/tool/call",
+      "thread/unsubscribe",
+      "thread/archive",
+    ]);
   });
 
   it("fails fast when the named MCP server exposes no tools", async () => {
@@ -998,6 +1109,210 @@ describe("Codex Computer Use setup", () => {
       marketplacePath: `${bundledMarketplacePath}/.agents/plugins/marketplace.json`,
       pluginName: "computer-use",
     });
+  });
+
+  it.each([
+    {
+      label: "config-selected default marketplace",
+      commandSource: "config" as const,
+      selector: {},
+      provisionsWrapper: true,
+    },
+    {
+      label: "env-selected default marketplace",
+      commandSource: "env" as const,
+      selector: {},
+      provisionsWrapper: true,
+    },
+    {
+      label: "configured marketplace source",
+      commandSource: "config" as const,
+      selector: { marketplaceSource: "github:example/desktop-tools" },
+      provisionsWrapper: false,
+    },
+    {
+      label: "configured marketplace path",
+      commandSource: "config" as const,
+      selector: {
+        marketplacePath: "/marketplaces/desktop-tools/.agents/plugins/marketplace.json",
+      },
+      provisionsWrapper: false,
+    },
+    {
+      label: "configured marketplace name",
+      commandSource: "config" as const,
+      selector: { marketplaceName: "desktop-tools" },
+      provisionsWrapper: false,
+    },
+  ])(
+    "provisions the managed service for a $label explicit desktop install",
+    async ({ commandSource, selector, provisionsWrapper }) => {
+      const root = tempDirs.make("openclaw-codex-explicit-install-");
+      const agentDir = path.join(root, "agent");
+      const codexHome = path.join(agentDir, "codex-home");
+      const managedMarketplacePath = path.join(
+        codexHome,
+        ".tmp",
+        "bundled-marketplaces",
+        "openai-bundled",
+      );
+      fs.mkdirSync(managedMarketplacePath, { recursive: true });
+      const harness = createClientHarness();
+      vi.spyOn(harness.client, "getRuntimeIdentity").mockReturnValue({
+        serverVersion: "0.148.0",
+        codexHome,
+      });
+      sharedClientMocks.readCodexAppServerClientProcessIdentity.mockReturnValue({
+        clientId: "client-explicit-install",
+        command: "/Applications/ChatGPT.app/Contents/Resources/codex",
+        commandSource,
+        argsFingerprint: "args",
+      });
+      const desktopGeneration = { epoch: 1, fingerprint: "desktop-current" };
+      sharedClientMocks.readCodexAppServerClientDesktopGeneration.mockReturnValue(
+        desktopGeneration,
+      );
+      managedProvisioningMocks.ensureCodexManagedBundledMarketplace.mockResolvedValue(
+        managedMarketplacePath,
+      );
+      managedProvisioningMocks.ensureCodexComputerUseServiceApp.mockResolvedValue({
+        status: "already_current",
+        changed: false,
+      });
+      let drainedBeforeFence = false;
+      sharedClientMocks.waitForCodexAppServerClientDesktopGenerationDrain.mockImplementationOnce(
+        async () => {
+          const release = await acquireCodexNativeConfigFence(
+            `codex-home:${path.resolve(codexHome)}`,
+            { timeoutMs: 50 },
+          );
+          drainedBeforeFence = true;
+          release();
+        },
+      );
+      const request = provisionsWrapper
+        ? createBundledMarketplaceComputerUseRequest(managedMarketplacePath)
+        : createComputerUseRequest({ installed: false });
+
+      const status = await installCodexComputerUse({
+        agentDir,
+        client: harness.client,
+        request,
+        pluginConfig: { computerUse: { enabled: true, autoInstall: false, ...selector } },
+      });
+
+      expect(status.ready).toBe(true);
+      expect(drainedBeforeFence).toBe(true);
+      if (provisionsWrapper) {
+        expect(managedProvisioningMocks.ensureCodexManagedBundledMarketplace).toHaveBeenCalledWith(
+          expect.objectContaining({
+            codexHome,
+            ownershipRoot: agentDir,
+            appServerCommand: "/Applications/ChatGPT.app/Contents/Resources/codex",
+          }),
+        );
+      } else {
+        expect(
+          managedProvisioningMocks.ensureCodexManagedBundledMarketplace,
+        ).not.toHaveBeenCalled();
+      }
+      expect(managedProvisioningMocks.ensureCodexComputerUseServiceApp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          codexHome,
+          ownershipRoot: agentDir,
+          appServerCommand: "/Applications/ChatGPT.app/Contents/Resources/codex",
+        }),
+      );
+      expect(sharedClientMocks.assertCodexAppServerClientStartSelectionCurrent).toHaveBeenCalled();
+      expect(
+        sharedClientMocks.waitForCodexAppServerClientDesktopGenerationDrain,
+      ).toHaveBeenCalledWith({ client: harness.client, timeoutMs: expect.any(Number) });
+      expect(
+        sharedClientMocks.waitForCodexAppServerClientDesktopGenerationDrain.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        (provisionsWrapper
+          ? managedProvisioningMocks.ensureCodexManagedBundledMarketplace.mock
+              .invocationCallOrder[0]
+          : managedProvisioningMocks.ensureCodexComputerUseServiceApp.mock
+              .invocationCallOrder[0]) ?? Number.POSITIVE_INFINITY,
+      );
+      expect(sharedClientMocks.readCodexAppServerClientDesktopGeneration).toHaveReturnedWith(
+        desktopGeneration,
+      );
+      expect(managedProvisioningMocks.ensureCodexComputerUseSharedPluginCache).toHaveBeenCalledWith(
+        expect.objectContaining({ forceRefresh: true }),
+      );
+    },
+  );
+
+  it("rejects explicit managed provisioning from a desktop client without a generation", async () => {
+    const root = tempDirs.make("openclaw-codex-explicit-install-unbound-");
+    const agentDir = path.join(root, "agent");
+    const codexHome = path.join(agentDir, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const harness = createClientHarness();
+    vi.spyOn(harness.client, "getRuntimeIdentity").mockReturnValue({
+      serverVersion: "0.148.0",
+      codexHome,
+    });
+    sharedClientMocks.readCodexAppServerClientProcessIdentity.mockReturnValue({
+      clientId: "client-explicit-install-unbound",
+      command: "/Applications/ChatGPT.app/Contents/Resources/codex",
+      commandSource: "config",
+      argsFingerprint: "args",
+    });
+
+    await expect(
+      installCodexComputerUse({
+        agentDir,
+        client: harness.client,
+        request: vi.fn(),
+        pluginConfig: { computerUse: { enabled: true, autoInstall: false } },
+      }),
+    ).rejects.toThrow("requires a desktop-generation-bound client");
+    expect(
+      sharedClientMocks.waitForCodexAppServerClientDesktopGenerationDrain,
+    ).not.toHaveBeenCalled();
+    expect(managedProvisioningMocks.ensureCodexManagedBundledMarketplace).not.toHaveBeenCalled();
+  });
+
+  it("rejects explicit provisioning from a stale desktop client", async () => {
+    const root = tempDirs.make("openclaw-codex-explicit-install-stale-");
+    const agentDir = path.join(root, "agent");
+    const codexHome = path.join(agentDir, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const harness = createClientHarness();
+    vi.spyOn(harness.client, "getRuntimeIdentity").mockReturnValue({
+      serverVersion: "0.148.0",
+      codexHome,
+    });
+    sharedClientMocks.readCodexAppServerClientProcessIdentity.mockReturnValue({
+      clientId: "client-explicit-install-stale",
+      command: "/Applications/ChatGPT.app/Contents/Resources/codex",
+      commandSource: "resolved-managed",
+      argsFingerprint: "args",
+    });
+    sharedClientMocks.readCodexAppServerClientDesktopGeneration.mockReturnValue({
+      epoch: 1,
+      fingerprint: "desktop-x",
+    });
+    sharedClientMocks.assertCodexAppServerClientStartSelectionCurrent.mockImplementation(() => {
+      throw Object.assign(new Error("desktop selection changed"), {
+        code: "CODEX_APP_SERVER_START_SELECTION_CHANGED",
+      });
+    });
+
+    await expect(
+      installCodexComputerUse({
+        agentDir,
+        client: harness.client,
+        request: vi.fn(),
+        pluginConfig: { computerUse: { enabled: true, autoInstall: false } },
+      }),
+    ).rejects.toThrow("desktop selection changed");
+    expect(managedProvisioningMocks.ensureCodexManagedBundledMarketplace).not.toHaveBeenCalled();
+    expect(managedProvisioningMocks.ensureCodexComputerUseServiceApp).not.toHaveBeenCalled();
   });
 
   it("allows auto-install from a configured local marketplace path", async () => {

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
     applyAuthProfile: vi.fn(async () => undefined),
     authProfileId: vi.fn((params?: { authProfileId?: string }) => params?.authProfileId),
     fallbackApiKeyCacheKey: vi.fn(() => undefined),
+    reconcileComputerUseArtifacts: vi.fn(async () => undefined),
     startOptions: vi.fn(async ({ startOptions }) => startOptions),
   };
   const managedBinary = {
@@ -23,12 +24,14 @@ const mocks = vi.hoisted(() => {
 vi.mock("./auth-bridge.js", () => ({
   applyCodexAppServerAuthProfile: mocks.authBridge.applyAuthProfile,
   bridgeCodexAppServerStartOptions: mocks.authBridge.startOptions,
+  reconcileCodexComputerUseStartArtifacts: mocks.authBridge.reconcileComputerUseArtifacts,
   resolveCodexAppServerFallbackApiKeyCacheKey: mocks.authBridge.fallbackApiKeyCacheKey,
   resolveCodexAppServerAuthProfileIdForAgent: mocks.authBridge.authProfileId,
   resolveCodexAppServerHomeDir: (agentDir: string) => `${agentDir}/codex-home`,
 }));
 
-vi.mock("./managed-binary.js", () => ({
+vi.mock("./managed-binary.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./managed-binary.js")>()),
   resolveManagedCodexAppServerStartOptions: mocks.managedBinary.startOptions,
   resolveManagedCodexNativeCommand: mocks.managedBinary.nativeCommand,
 }));
