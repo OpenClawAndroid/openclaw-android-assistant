@@ -453,7 +453,7 @@ extensions/duckduckgo/src/config.ts	1
 extensions/duckduckgo/src/ddg-search-provider.ts	1
 extensions/elevenlabs/config-compat.ts	2
 extensions/elevenlabs/speech-provider.ts	3
-extensions/exa/src/exa-web-search-provider.runtime.ts	11
+extensions/exa/src/exa-web-search-provider.runtime.ts	9
 extensions/fal/image-generation-provider.ts	1
 extensions/fal/music-generation-provider.ts	2
 extensions/fal/video-generation-provider.ts	3
@@ -4035,7 +4035,6 @@ ui/src/components/sensitive-input.ts	2
 ui/src/components/session-data-controller.ts	2
 ui/src/components/session-data-scroll-controller.ts	1
 ui/src/components/session-group-defaults-dialog.ts	1
-ui/src/components/session-menu.ts	1
 ui/src/components/session-organizer-controller.ts	5
 ui/src/components/settings-sidebar.ts	3
 ui/src/components/settings-ui.ts	7
@@ -4141,7 +4140,7 @@ ui/src/pages/chat/components/chat-composer-slash-menu.ts	1
 ui/src/pages/chat/components/chat-composer-view.ts	1
 ui/src/pages/chat/components/chat-composer.ts	5
 ui/src/pages/chat/components/chat-effort-picker.ts	6
-ui/src/pages/chat/components/chat-header-session-menu.ts	2
+ui/src/pages/chat/components/chat-header-session-menu.ts	1
 ui/src/pages/chat/components/chat-message-attachment-availability.ts	1
 ui/src/pages/chat/components/chat-message-bubble.ts	2
 ui/src/pages/chat/components/chat-message-confirmation.ts	2
