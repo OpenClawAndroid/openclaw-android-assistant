@@ -1,4 +1,6 @@
+import { authenticate } from "mailauth";
 import { simpleParser } from "mailparser";
+import type { IdentifierAuthentication } from "openclaw/plugin-sdk/channel-ingress-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { resolveImapConfig } from "./config.js";
 import { createImapAuthResult } from "./imap-test-support.js";
@@ -75,25 +77,84 @@ describe("IMAP sender admission", () => {
   it.each(["neutral", "temperror", "none"] as const)(
     "never dispatches on DMARC %s at the default verified threshold",
     async (result) => {
-      const mail = await message(["From: trusted@example.com", "To: reader@example.com"]);
-      const authenticator = vi.fn(async () => createImapAuthResult(result));
+      const mail = await message([
+        "From: trusted@example.com",
+        "To: reader+wrong-token@example.com",
+      ]);
+      const authentication =
+        result === "neutral"
+          ? createImapAuthResult(result)
+          : await authenticate(mail.raw, {
+              disableArc: true,
+              disableBimi: true,
+              resolver: async () => {
+                if (result === "temperror") {
+                  throw new Error("fixture DNS timeout");
+                }
+                return [];
+              },
+            });
+      expect(authentication.dmarc).toMatchObject({ status: { result } });
+      if (result !== "neutral") {
+        expect(authentication.dmarc).not.toHaveProperty("alignment");
+      }
+      const configured = account({
+        addressTokens: [{ token: "expected-token", senders: ["trusted@example.com"] }],
+      });
       await expect(
-        evaluateImapSender({ ...mail, account: account(), authenticator }),
-      ).resolves.toMatchObject({ accepted: false });
+        evaluateImapSender({
+          ...mail,
+          account: configured,
+          authenticator: async () => authentication,
+        }),
+      ).resolves.toMatchObject({
+        accepted: false,
+        strength: "unverified",
+        reason: result === "temperror" ? "authentication-temperror" : `dmarc-${result}`,
+        transient: result === "temperror",
+      });
     },
   );
 
-  it("does not verify a passing DKIM signature that left message body bytes unsigned", async () => {
-    const result = createImapAuthResult("pass");
-    if (result.dmarc) {
-      result.dmarc.alignment.dkim.underSized = 32;
-    }
-    const mail = await message(["From: trusted@example.com", "To: reader@example.com"]);
-    const authenticator = vi.fn(async () => result);
-    await expect(
-      evaluateImapSender({ ...mail, account: account(), authenticator }),
-    ).resolves.toMatchObject({ accepted: false, reason: "dkim-unsigned-body" });
-  });
+  it.each(["pass", "fail"] as const)(
+    "rejects unsigned body bytes even with DMARC %s",
+    async (dmarc) => {
+      const result = createImapAuthResult(dmarc);
+      if (result.dmarc) {
+        result.dmarc.alignment.dkim.underSized = 32;
+      }
+      const mail = await message(["From: trusted@example.com", "To: reader@example.com"]);
+      const authenticator = vi.fn(async () => result);
+      await expect(
+        evaluateImapSender({ ...mail, account: account(), authenticator }),
+      ).resolves.toMatchObject({ accepted: false, reason: "dkim-unsigned-body" });
+    },
+  );
+
+  it.each([
+    ["mutable", true],
+    ["unverified", true],
+    ["asserted", false],
+    ["verified", false],
+  ] satisfies [IdentifierAuthentication, boolean][])(
+    "admits verified mail and applies the %s floor to unproven mail",
+    async (min, acceptsUnproven) => {
+      const mail = await message(["From: trusted@example.com"]);
+      const configured = account({ senderAuth: { min } });
+      for (const result of ["pass", "none", "temperror"] as const) {
+        await expect(
+          evaluateImapSender({
+            ...mail,
+            account: configured,
+            authenticator: async () => createImapAuthResult(result),
+          }),
+        ).resolves.toMatchObject({
+          accepted: result === "pass" || acceptsUnproven,
+          strength: result === "pass" ? "verified" : "unverified",
+        });
+      }
+    },
+  );
 
   it("accepts only configured Authentication-Results authorities", async () => {
     const configured = account({
@@ -110,7 +171,11 @@ describe("IMAP sender admission", () => {
     ]);
     await expect(
       evaluateImapSender({ ...untrusted, account: configured, authenticator }),
-    ).resolves.toMatchObject({ accepted: false, reason: "unverified-authentication" });
+    ).resolves.toMatchObject({
+      accepted: false,
+      strength: "unverified",
+      reason: "unverified-authentication",
+    });
     const trusted = await message([
       "From: trusted@example.com",
       "Authentication-Results: mx.example.com; dmarc=pass header.from=example.com",
@@ -177,5 +242,23 @@ describe("IMAP sender admission", () => {
     const prompt = renderImapPrompt(parsed.mail, { includeBody: true, maxBytes: 256 });
     expect(Buffer.byteLength(prompt)).toBeLessThanOrEqual(256);
     expect(prompt).toContain("[truncated:");
+  });
+
+  it("keeps authenticator exceptions retryable without claiming a mutable identifier", async () => {
+    const mail = await message(["From: trusted@example.com"]);
+    await expect(
+      evaluateImapSender({
+        ...mail,
+        account: account({ senderAuth: { min: "unverified" } }),
+        authenticator: async () => {
+          throw new Error("DNS timeout");
+        },
+      }),
+    ).resolves.toMatchObject({
+      accepted: false,
+      strength: "unverified",
+      reason: "authentication-temperror",
+      transient: true,
+    });
   });
 });

@@ -39,7 +39,10 @@ import {
   openOpenClawAgentDatabase,
   resolveIncognitoOpenClawAgentSqlitePath,
 } from "../state/openclaw-agent-db.js";
-import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseForTest,
+  openOpenClawStateDatabase,
+} from "../state/openclaw-state-db.js";
 import { ensureProfileForEmail, setUserProfileRole } from "../state/user-profiles.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
@@ -76,6 +79,7 @@ import {
   seedSessionTranscript,
   threadBindingMocks,
 } from "./test/server-sessions.test-helpers.js";
+import { createWorkerSessionPlacementStore } from "./worker-environments/placement-store.js";
 
 type EnsureSessionDiffBaseline =
   (typeof import("../sessions/session-diff-baseline.js"))["ensureSessionDiffBaseline"];
@@ -3457,6 +3461,126 @@ test("sessions.create commits no session after delegated authority closes", asyn
   ).toBeUndefined();
 });
 
+test("sessions.create commits no child after its bound Gateway is replaced", async () => {
+  const { storePath } = await createSessionStoreDir();
+  const sessionKey = "agent:main:dashboard:gateway-replacement-race";
+  const admitted = {};
+  const replacement = {};
+  let current = admitted;
+  let guardCalls = 0;
+  const firstGuard = createDeferredCore();
+  const writerEntered = createDeferredCore();
+  const releaseWriter = createDeferredCore();
+  const resolvedStore = resolveSqliteStoreScope(storePath, { agentId: "main" });
+  const heldWriter = runExclusiveSqliteSessionWrite(resolvedStore, async () => {
+    writerEntered.resolve();
+    await releaseWriter.promise;
+  });
+  await writerEntered.promise;
+  const creating = directSessionReq(
+    "sessions.create",
+    { agentId: "main", key: sessionKey },
+    {
+      sessionMutationAuthorization: {
+        assertCurrent: () => {
+          if (current !== admitted) {
+            throw new Error("current gateway instance binding was replaced");
+          }
+          guardCalls += 1;
+          if (guardCalls === 1) {
+            firstGuard.resolve();
+          }
+        },
+        assertTargetCurrent: vi.fn(),
+      },
+    },
+  );
+
+  await firstGuard.promise;
+  current = replacement;
+  releaseWriter.resolve();
+  await heldWriter;
+
+  await expect(creating).rejects.toThrow("current gateway instance binding was replaced");
+  expect(loadSessionEntry({ agentId: "main", sessionKey, storePath })).toBeUndefined();
+});
+
+test("sessions.create commits no child after its worker turn closes", async () => {
+  const { storePath } = await createSessionStoreDir();
+  const sessionKey = "agent:main:dashboard:worker-turn-race";
+  const placements = createWorkerSessionPlacementStore({
+    database: openOpenClawStateDatabase(),
+  });
+  let placement = placements.startDispatch({
+    agentId: "main",
+    sessionId: "worker-source-session",
+    sessionKey: "agent:main:dashboard:worker-source",
+  });
+  for (const [from, to, patch] of [
+    ["requested", "provisioning", { environmentId: "worker-environment" }],
+    ["provisioning", "syncing", { workerBundleHash: "a".repeat(64) }],
+    [
+      "syncing",
+      "starting",
+      { remoteWorkspaceDir: "/workspace/source", workspaceBaseManifestRef: "manifest-source" },
+    ],
+    ["starting", "active", { activeOwnerEpoch: 7 }],
+  ] as const) {
+    placement = placements.transition({
+      sessionId: placement.sessionId,
+      from,
+      to,
+      expectedGeneration: placement.generation,
+      patch,
+    });
+  }
+  const turnClaim = placements.claimTurn({
+    agentId: placement.agentId,
+    sessionId: placement.sessionId,
+    sessionKey: placement.sessionKey,
+    claimId: "worker-claim",
+    runId: "worker-run",
+    owner: { kind: "worker", environmentId: "worker-environment", ownerEpoch: 7 },
+  });
+  let guardCalls = 0;
+  const firstGuard = createDeferredCore();
+  const writerEntered = createDeferredCore();
+  const releaseWriter = createDeferredCore();
+  const heldWriter = runExclusiveSqliteSessionWrite(
+    resolveSqliteStoreScope(storePath, { agentId: "main" }),
+    async () => {
+      writerEntered.resolve();
+      await releaseWriter.promise;
+    },
+  );
+  await writerEntered.promise;
+  const creating = directSessionReq(
+    "sessions.create",
+    { agentId: "main", key: sessionKey },
+    {
+      sessionMutationAuthorization: {
+        assertCurrent: () => {
+          if (!placements.validateTurnClaim(turnClaim)) {
+            throw new Error("worker turn authority changed");
+          }
+          if (++guardCalls === 1) {
+            firstGuard.resolve();
+          }
+        },
+        assertTargetCurrent: vi.fn(),
+      },
+    },
+  );
+
+  await firstGuard.promise;
+  placements.releaseTurn(turnClaim);
+  releaseWriter.resolve();
+  await heldWriter;
+
+  await expect(creating).rejects.toThrow("worker turn authority changed");
+  expect(loadSessionEntry({ agentId: "main", sessionKey, storePath })).toBeUndefined();
+});
+
 test("sessions.create starts no initial turn when authority closes after session commit", async () => {
   await createSessionStoreDir();
   const sessionKey = "agent:main:dashboard:authority-post-commit";
@@ -4368,29 +4492,40 @@ test("sessions.create stamps trusted operator provenance and records created", a
   });
   expect(synthetic.payload?.entry?.createdActor).toBeUndefined();
 
-  const hinted = await directSessionReq<{
-    entry?: { createdVia?: string; createdActor?: unknown };
-  }>(
-    "sessions.create",
-    { agentId: "main" },
-    {
-      client: {
-        connect: { scopes: ["operator.write"] },
-        internal: {
-          syntheticClient: true,
-          sessionCreation: {
-            via: "spawn",
-            actor: { type: "agent", id: "main" },
-            requesterSessionKey: "agent:main:main",
+  for (const { actor, sandbox } of [
+    { actor: { type: "agent", id: "main" }, sandbox: undefined },
+    { actor: { type: "human", id: "profile-delegated-creator" }, sandbox: "required" },
+  ] as const) {
+    // The required parent's creation policy survives removal of gateway.roles.
+    const hinted = await directSessionReq<{
+      key?: string;
+      entry?: { createdVia?: string; createdActor?: unknown; sandbox?: "required" };
+    }>(
+      "sessions.create",
+      { agentId: "main" },
+      {
+        client: {
+          connect: { scopes: ["operator.write"] },
+          internal: {
+            syntheticClient: true,
+            sessionCreation: {
+              via: "spawn",
+              actor,
+              sandbox,
+              requesterSessionKey: "agent:main:main",
+            },
           },
-        },
-      } as never,
-    },
-  );
-  expect(hinted.payload?.entry).toMatchObject({
-    createdVia: "spawn",
-    createdActor: { type: "agent", id: "main" },
-  });
+        } as never,
+      },
+    );
+    expect(hinted.ok, JSON.stringify(hinted.error)).toBe(true);
+    expect(hinted.payload?.entry).toMatchObject({ createdVia: "spawn", createdActor: actor });
+    expect(hinted.payload?.entry?.sandbox).toBe(sandbox);
+    const hintedKey = requireNonEmptyString(hinted.payload?.key, "delegated session key");
+    const stored = loadSessionEntry({ sessionKey: hintedKey, storePath });
+    expect(stored).toMatchObject({ createdVia: "spawn", createdActor: actor });
+    expect(stored?.sandbox).toBe(sandbox);
+  }
 });
 
 test("sessions.create reset-in-place preserves the node creation stamp", async () => {

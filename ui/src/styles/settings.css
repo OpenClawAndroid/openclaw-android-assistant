@@ -159,28 +159,31 @@
 
 .settings-section__help-button {
   display: inline-grid;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
-  border-radius: 50%;
+  border: 0;
   background: transparent;
   color: var(--muted);
-  font: 600 var(--control-ui-text-xs) / 1 var(--font-body);
   cursor: var(--cursor-action);
 }
 
 .settings-section__help-button > span {
-  /* SF's ascent+descent exceed 1em, so a centered line box parks the glyph
-     below the circle's midline; trim to cap bounds for true centering. */
   display: block;
-  text-box: trim-both cap alphabetic;
+  width: 100%;
+  height: 100%;
+}
+
+.settings-section__help-button svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.75;
 }
 
 .settings-section__help-button:hover,
 .settings-section__help-button:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   color: var(--accent);
 }
 

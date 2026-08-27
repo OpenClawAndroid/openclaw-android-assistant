@@ -283,13 +283,26 @@ html.openclaw-native-web-chrome .shell-chrome-controls {
 }
 
 .shell--settings:not(.shell--mobile-nav) {
+  --settings-content-block-start-padding: 44px;
+  --settings-content-inline-padding: clamp(28px, 5vw, 72px);
   grid-template-columns: var(--shell-settings-nav-width) minmax(0, 1fr);
   grid-template-rows: 0 1fr;
   --shell-nav-width: var(--shell-settings-nav-width);
 }
 
 .shell--settings:not(.shell--mobile-nav) .content {
-  padding: 44px clamp(28px, 5vw, 72px) 72px;
+  padding: var(--settings-content-block-start-padding) var(--settings-content-inline-padding) 72px;
+}
+
+.shell--settings.shell--mobile-nav {
+  --settings-content-block-start-padding: 4px;
+  --settings-content-inline-padding: 4px;
+}
+
+.shell--settings .connection-action-block {
+  margin-inline: calc(0px - var(--settings-content-inline-padding));
+  border-inline: 0;
+  border-radius: 0;
 }
 
 .shell--settings:not(.shell--mobile-nav) .content--custodian {
@@ -1878,7 +1891,7 @@ openclaw-settings-save-indicator:empty {
 }
 
 .sidebar-child-session-toggle--running {
-  color: var(--run);
+  color: var(--accent);
 }
 
 .sidebar-child-session-toggle--failed {
@@ -1906,22 +1919,6 @@ openclaw-settings-save-indicator:empty {
 
 .sidebar-recent-session__link:hover {
   text-decoration: none;
-}
-
-.sidebar-board-glyph {
-  display: inline-flex;
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--accent) 76%, var(--muted));
-}
-
-.sidebar-board-glyph svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7px;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .viewer-facepile {
@@ -2181,7 +2178,15 @@ openclaw-settings-save-indicator:empty {
   overflow: hidden;
 }
 
+.sidebar-online__row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-md);
+}
+
 .sidebar-online__person {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2222,25 +2227,61 @@ openclaw-settings-save-indicator:empty {
   white-space: nowrap;
 }
 
-.sidebar-online__person-action {
+.sidebar-online__details {
   display: inline-flex;
-  margin-left: auto;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--muted);
   opacity: 0;
   transition: opacity var(--duration-fast) ease;
 }
 
-.sidebar-online__person:hover .sidebar-online__person-action,
-.sidebar-online__person:focus-visible .sidebar-online__person-action {
+.sidebar-online__row:hover .sidebar-online__details,
+.sidebar-online__row:focus-within .sidebar-online__details,
+.sidebar-online__details[aria-expanded="true"] {
   opacity: 1;
 }
 
-.sidebar-online__person-action svg {
+.sidebar-online__details:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar-online__details:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sidebar-online__details svg {
+  display: block;
   width: 13px;
   height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6px;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .sidebar-online__details {
+    width: 44px;
+    height: 44px;
+    opacity: 1;
+  }
+
+  .sidebar-online__person {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-online__person,
+  .sidebar-online__details {
+    transition: none;
+  }
 }
 
 .sidebar-zone-entry {
@@ -4009,13 +4050,42 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
   margin-top: 20px;
 }
 
+.shell--settings .content:has(> .connection-action-block) {
+  padding-top: 0;
+}
+
+.shell--settings .content:has(> .connection-action-block) > openclaw-router-outlet {
+  display: block;
+  margin-top: 0;
+  padding-top: var(--settings-content-block-start-padding);
+}
+
 .connection-action-block {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 12%, transparent);
   border-radius: var(--radius-md);
-  background: var(--secondary);
-  color: var(--muted);
-  font-size: 13px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--secondary));
+  color: color-mix(in srgb, var(--warn) 72%, var(--text));
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.35;
+}
+
+.connection-action-block__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.connection-action-block__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.connection-action-block__text {
+  min-width: 0;
 }
 
 .content--chat {
