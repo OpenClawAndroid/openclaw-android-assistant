@@ -23,6 +23,7 @@ import {
 import { resolveEffectiveAgentSkillFilter } from "../skills/discovery/agent-filter.js";
 import {
   AgentSelectionRequiredError,
+  hasAgentRosterProperty,
   listAgentIds,
   resolveMutableAgentEntry,
   resolveAgentConfig,
@@ -420,18 +421,24 @@ export function setAgentEffectiveModelPrimary(
   cfg: OpenClawConfig,
   agentId: string,
   primary: string,
-  options: { forceAgent?: boolean } = {},
+  options: { target?: AgentModelPrimaryWriteTarget; forceAgent?: boolean } = {},
 ): AgentModelPrimaryWriteTarget {
   const id = normalizeAgentId(agentId);
-  // forceAgent pins the write to the agent entry even without an explicit
-  // model, so a per-agent override never rewrites the shared default route.
-  if (options.forceAgent || resolveAgentExplicitModelPrimary(cfg, id)) {
+  const target = options.target ?? (options.forceAgent ? "agent" : undefined);
+  // An explicit agent target pins the write even without an existing model,
+  // so a per-agent override never rewrites the shared default route.
+  if (target !== "defaults" && (target === "agent" || resolveAgentExplicitModelPrimary(cfg, id))) {
     const entry = resolveMutableAgentEntry(cfg, id);
     if (entry) {
       entry.model = updateAgentModelPrimary(entry.model, primary);
       return "agent";
     }
-    if (options.forceAgent) {
+    if (target === "agent") {
+      if (!hasAgentRosterProperty(cfg) && listAgentIds(cfg).includes(id)) {
+        cfg.agents ??= {};
+        cfg.agents.entries = { [id]: { model: updateAgentModelPrimary(undefined, primary) } };
+        return "agent";
+      }
       throw new Error(`Could not resolve configured agent "${id}".`);
     }
   }
