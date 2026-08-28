@@ -796,10 +796,21 @@ export async function gatherDaemonStatus(
       notLoadedText: service.notLoadedText,
       targetRole: serviceTargetsProbe ? "target" : "diagnostic-only",
       command,
-      runtime,
+      runtime: runtime?.inspectionFailure
+        ? {
+            ...runtime,
+            detail: `${runtime.detail}; retry with openclaw gateway status --deep`,
+          }
+        : runtime,
       configAudit,
       ...(command
-        ? { gatewayHeap: inspectGatewayHeapLimit(command.environment?.NODE_OPTIONS) }
+        ? {
+            gatewayHeap: inspectGatewayHeapLimit(
+              command.environment?.NODE_OPTIONS,
+              {},
+              command.programArguments,
+            ),
+          }
         : {}),
       ...(restartHandoff ? { restartHandoff } : {}),
       ...(staleUpdateLaunchdJobs.length > 0 ? { staleUpdateLaunchdJobs } : {}),
