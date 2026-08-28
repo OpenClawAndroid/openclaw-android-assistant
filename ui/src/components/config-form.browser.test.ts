@@ -313,9 +313,11 @@ describe("config form renderer", () => {
       container,
     );
 
-    const headings = Array.from(container.querySelectorAll(".settings-section__heading")).map(
-      (node) => node.textContent?.trim(),
-    );
+    const headings = Array.from(
+      container.querySelectorAll(
+        ".settings-section > .settings-section__header .settings-section__heading",
+      ),
+    ).map((node) => node.textContent?.trim());
     expect(headings).toEqual(["Auth"]);
     // The subsection object emits its fields directly; no nested details block
     // repeats the subsection title inside the group.
@@ -865,6 +867,8 @@ describe("config form renderer", () => {
       container.querySelector<HTMLAnchorElement>(".settings-section__help-popover a"),
       "section guide link",
     );
+    expect(link.textContent?.trim()).toBe("Learn more");
+    expect(link.classList.contains("learn-more-link")).toBe(true);
     const popover = expectElement(link.closest("wa-popover"), "section help popover");
     expect(button.getAttribute("aria-controls")).toBe(popover.id);
     expect(link.getAttribute("href")).toBe("https://docs.openclaw.ai/gateway/configuration");
