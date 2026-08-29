@@ -1,4 +1,4 @@
-import type { ReactiveController, ReactiveControllerHost } from "lit";
+import { render, type ReactiveController, type ReactiveControllerHost } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
@@ -25,6 +25,7 @@ import {
 } from "./chat-state-refresh.ts";
 import { resolveChatAvatarUrl, selectedChatSessionRow } from "./chat-state-route.ts";
 import { buildChatItems } from "./chat-thread-build.ts";
+import { renderAssistantAttachments } from "./components/chat-message-attachments.ts";
 import { getChatSessionProjection, reduceChatSessionProjection } from "./history-merge.ts";
 import { scheduleControlUiAfterPaint } from "./performance.ts";
 import { applySessionMessagePayload } from "./session-message-apply.ts";
@@ -843,6 +844,54 @@ describe("canonical session message recovery", () => {
     },
   );
 
+  it("recovers once when history completed the run before its message-less terminal arrives", async () => {
+    const runId = "run-completed-by-history-before-terminal";
+    const prompt = {
+      role: "user",
+      content: [{ type: "text", text: "Finish after the tool call" }],
+      __openclaw: { id: "prompt-1", idempotencyKey: `${runId}:user`, seq: 1 },
+    };
+    const persistedReply = {
+      role: "assistant",
+      content: [{ type: "text", text: "The durable final arrived after the snapshot." }],
+      stopReason: "stop",
+      __openclaw: { id: "reply-1", runId, seq: 2 },
+    };
+    const request = vi.fn().mockResolvedValue({
+      messages: [prompt, persistedReply],
+      sessionId: "selected-session",
+      sessionInfo: {
+        key: "agent:main:main",
+        kind: "direct",
+        updatedAt: 2,
+        hasActiveRun: false,
+        activeRunIds: [],
+        status: "done",
+      },
+    });
+    const { state } = createSessionEventState({
+      chatMessages: [prompt],
+      chatHistoryPagination: { hasMore: false },
+      chatRunId: runId,
+      client: { request } as unknown as GatewayBrowserClient,
+    });
+    reduceChatSessionProjection(state, { type: "runTerminal", runId, status: "completed" });
+
+    const terminalEvent = {
+      type: "event",
+      event: "chat",
+      payload: { sessionKey: state.sessionKey, runId, state: "final" },
+    } satisfies Parameters<typeof handlePageGatewayEvent>[1];
+    handlePageGatewayEvent(state, terminalEvent);
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(state.chatMessages).toContainEqual(persistedReply));
+
+    request.mockClear();
+    handlePageGatewayEvent(state, terminalEvent);
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("stops terminal recovery after a media-only reply becomes durable", async () => {
     vi.useFakeTimers();
     try {
@@ -888,6 +937,60 @@ describe("canonical session message recovery", () => {
       await vi.advanceTimersByTimeAsync(5_000);
       expect(request).toHaveBeenCalledTimes(1);
       expect(state.chatMessages).toContainEqual(persistedReply);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds terminal recovery when no durable reply appears", async () => {
+    vi.useFakeTimers();
+    try {
+      const runId = "run-without-durable-reply";
+      const prompt = {
+        role: "user",
+        content: [{ type: "text", text: "Finish without persisting a reply" }],
+        __openclaw: { id: "prompt-1", idempotencyKey: `${runId}:user`, seq: 1 },
+      };
+      const request = vi.fn().mockResolvedValue({
+        messages: [prompt],
+        sessionId: "selected-session",
+        sessionInfo: {
+          key: "agent:main:main",
+          kind: "direct",
+          updatedAt: 2,
+          hasActiveRun: false,
+          activeRunIds: [],
+          status: "done",
+        },
+      });
+      const { state } = createSessionEventState({
+        chatMessages: [prompt],
+        chatHistoryPagination: { hasMore: false },
+        chatRunId: runId,
+        client: { request } as unknown as GatewayBrowserClient,
+      });
+
+      handlePageGatewayEvent(state, {
+        type: "event",
+        event: "chat",
+        payload: { sessionKey: state.sessionKey, runId, state: "final" },
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(request).toHaveBeenCalledTimes(5);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(request).toHaveBeenCalledTimes(5);
+      expect(renderedTranscript(state)).toEqual([
+        { role: "user", text: "Finish without persisting a reply" },
+      ]);
+
+      handlePageGatewayEvent(state, {
+        type: "event",
+        event: "chat",
+        payload: { sessionKey: state.sessionKey, runId, state: "final" },
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(request).toHaveBeenCalledTimes(5);
     } finally {
       vi.useRealTimers();
     }
@@ -1121,6 +1224,7 @@ describe("canonical session message recovery", () => {
       const persistedReply = {
         role: "assistant",
         content: [{ type: "text", text: "The current reply is now durable." }],
+        stopReason: "stop",
         __openclaw: { id: "current-reply", runId, seq: 3 },
       };
       const sessionInfo = {
@@ -3109,6 +3213,53 @@ describe("session pull request refresh", () => {
 });
 
 describe("image lightbox lifecycle", () => {
+  it("accepts only matching base64 video at the page boundary", () => {
+    const context = {
+      agents: { state: { agentsList: null }, ensureList: vi.fn(async () => null) },
+      agentSelection: { state: { selectedId: "main" } },
+      basePath: "",
+      config: {
+        current: {
+          allowExternalEmbedUrls: false,
+          assistantIdentity: { name: "Assistant" },
+          embedSandboxMode: "scripts",
+          localMediaPreviewRoots: [],
+        },
+      },
+      initialUserMessage: createInitialUserMessageHandoff(),
+      sessions: {},
+    } as unknown as ApplicationContext;
+    const state = createPageState(
+      context,
+      { invalidate: vi.fn(), afterCommit: () => () => {} },
+      { querySelector: () => null },
+    );
+
+    const source = "data:video/mp4;base64,AAAA";
+    const container = document.body.appendChild(document.createElement("div"));
+    render(
+      renderAssistantAttachments(
+        [
+          {
+            type: "attachment",
+            attachment: { kind: "video", label: "Clip", mimeType: "video/mp4", url: source },
+          },
+        ],
+        { onOpenImage: state.handleOpenImage },
+      ),
+      container,
+    );
+    const player = container.querySelector("openclaw-chat-video-player") as HTMLElement & {
+      onExpand: (src: string) => void;
+    };
+    player.onExpand(source);
+    expect(state.imageLightbox?.src).toBe("data:video/mp4;base64,AAAA");
+
+    state.handleOpenImage({ kind: "video", src: "data:audio/mp3;base64,AAAA", title: "Audio" });
+    expect(state.imageLightbox).toBeNull();
+    container.remove();
+  });
+
   it("invalidates immediately when beginning a deferred image open", () => {
     const invalidate = vi.fn();
     const context = {
