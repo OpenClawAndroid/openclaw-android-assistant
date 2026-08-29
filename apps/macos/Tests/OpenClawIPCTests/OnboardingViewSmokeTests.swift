@@ -286,6 +286,66 @@ struct OnboardingViewSmokeTests {
             installed: false))
     }
 
+    @Test func `installed CLI stays complete when gateway startup fails`() {
+        let states = OnboardingView.cliInstallStepStates(
+            executableReady: true,
+            gatewayReady: false,
+            statusKnown: true,
+            installing: false,
+            phase: .idle)
+
+        #expect(states.install == .done)
+        #expect(states.service == .failed)
+    }
+
+    @Test func `running gateway resolving target selection completes both setup steps`() {
+        let states = OnboardingView.cliInstallStepStates(
+            executableReady: false,
+            gatewayReady: true,
+            statusKnown: true,
+            installing: false,
+            phase: .idle)
+
+        #expect(states.install == .done)
+        #expect(states.service == .done)
+    }
+
+    @Test func `failed CLI install does not report a service failure`() {
+        let states = OnboardingView.cliInstallStepStates(
+            executableReady: false,
+            gatewayReady: false,
+            statusKnown: true,
+            installing: false,
+            phase: .idle)
+
+        #expect(states.install == .failed)
+        #expect(states.service == .pending)
+    }
+
+    @Test func `target selection keeps both CLI setup steps pending`() {
+        let states = OnboardingView.cliInstallStepStates(
+            executableReady: false,
+            gatewayReady: false,
+            statusKnown: true,
+            installing: true,
+            phase: .choosingTarget)
+
+        #expect(states.install == .pending)
+        #expect(states.service == .pending)
+    }
+
+    @Test func `gateway startup runs only the service step`() {
+        let states = OnboardingView.cliInstallStepStates(
+            executableReady: true,
+            gatewayReady: false,
+            statusKnown: true,
+            installing: true,
+            phase: .startingService)
+
+        #expect(states.install == .done)
+        #expect(states.service == .running)
+    }
+
     @Test func `running local gateway resolves only its pending CLI install prompt`() {
         for status in [GatewayProcessManager.Status.running(details: nil), .attachedExisting(details: "pid 4242")] {
             #expect(OnboardingView.shouldResolveInstallPromptForRunningGateway(
