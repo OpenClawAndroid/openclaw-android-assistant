@@ -47,7 +47,7 @@ import {
 import {
   assertSupportedTurn,
   assistantText,
-  buildWorkerAgentMeta,
+  buildWorkerTurnResult,
   emitProviderReplayRejected,
   fitLaunchDescriptorWithRuntimeIdentity,
   parseRuntimeResult,
@@ -55,6 +55,7 @@ import {
   prepareWorkerTurnImages,
   windowInitialMessages,
 } from "./worker-turn-payload.js";
+import { createWorkerTurnRunOwner, type ActiveWorkerTurn } from "./worker-turn-run-owner.js";
 import { resolveWorkerTurnTranscriptTarget } from "./worker-turn-transcript-target.js";
 import type { WorkerWorkspaceOperationCoordinator } from "./workspace-operation-coordinator.js";
 import {
@@ -65,12 +66,6 @@ import {
 } from "./workspace-result-finalize.js";
 
 type ReclaimedWorkerPlacement = Extract<WorkerSessionPlacementRecord, { state: "reclaimed" }>;
-type ActiveWorkerTurn = {
-  claim: WorkerSessionTurnClaim;
-  sessionKey: string;
-  signal?: AbortSignal;
-  recoverTerminal?: () => string | undefined;
-};
 
 type WorkerTurnLauncherOptions = {
   environments: WorkerTurnEnvironmentService;
@@ -404,23 +399,16 @@ async function executeWorkerTurn(
   if (workerTurnFailed) {
     throw new WorkerTurnExecutionError(terminal.message.errorMessage ?? "Cloud worker turn failed");
   }
-  const replyText = workspaceConflict
-    ? text
-      ? `${text}\n\n${workspaceConflict.summary}`
-      : workspaceConflict.summary
-    : text;
-  return {
-    ...(replyText ? { payloads: [{ text: replyText }] } : {}),
-    meta: {
-      durationMs: Date.now() - startedAt,
-      agentMeta: {
-        sessionId: placement.sessionId,
-        sessionFile: turn.sessionFile,
-        ...buildWorkerAgentMeta({ messages: workerMessages, modelRef }),
-      },
-      stopReason: terminal.message.stopReason,
-    },
-  };
+  return buildWorkerTurnResult({
+    messages: workerMessages,
+    modelRef,
+    terminal: terminal.message,
+    durationMs: Date.now() - startedAt,
+    sessionId: placement.sessionId,
+    sessionFile: turn.sessionFile,
+    text,
+    workspaceConflictSummary: workspaceConflict?.summary,
+  });
 }
 
 export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLauncherOptions) {
@@ -508,7 +496,8 @@ export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLaun
     async executeLocalTurn<T>(claim: LocalTurnPlacementClaim, runLocal: () => Promise<T>) {
       return await executeLocalTurn({ claim, placements: options.placements, runLocal });
     },
-    async executeTurn(claim, turn, runLocal, onAdmitted) {
+    async executeTurn(claim, inputTurn, runLocal, onAdmitted) {
+      let turn = inputTurn;
       const current = options.placements.get(claim.sessionId);
       if (!current && turn.modelRun === true && !claim.sessionKey?.trim()) {
         return await runLocal();
@@ -585,15 +574,21 @@ export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLaun
         placement = admitted.placement;
         turnClaim = admitted.turnClaim;
       }
-      const activeWorkerTurn: ActiveWorkerTurn | undefined = !remoteExec
-        ? { claim: turnClaim, sessionKey: placement.sessionKey, signal: turn.abortSignal }
-        : undefined;
-      if (activeWorkerTurn) {
-        activeWorkerTurns.set(turnClaim.sessionId, activeWorkerTurn);
-      }
+      let activeWorkerTurn: ActiveWorkerTurn | undefined;
       let handedOff = false;
       let terminalAtMs: number | undefined;
       try {
+        if (!remoteExec) {
+          activeWorkerTurn = createWorkerTurnRunOwner({
+            placements: options.placements,
+            claim: turnClaim,
+            sessionKey: placement.sessionKey,
+            turn,
+          });
+          activeWorkerTurn.signal.throwIfAborted();
+          turn = { ...turn, abortSignal: activeWorkerTurn.signal };
+          activeWorkerTurns.set(turnClaim.sessionId, activeWorkerTurn);
+        }
         // Release queue protection only after the placement claim is durable.
         onAdmitted?.();
         const executionParams = {
@@ -695,18 +690,19 @@ export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLaun
           }
         }
         if (handedOff) {
+          const terminalOwner = activeWorkerTurn;
           await failHandedOffTurn({
             environments: options.environments,
             placements: options.placements,
             placement,
             turnClaim,
             error,
-            ...(activeWorkerTurn && terminalAtMs !== undefined
+            ...(terminalOwner && terminalAtMs !== undefined
               ? {
                   terminal: {
                     observedAtMs: terminalAtMs,
                     registerRecovery: (recover: () => string | undefined) => {
-                      activeWorkerTurn.recoverTerminal = recover;
+                      terminalOwner.recoverTerminal = recover;
                     },
                   },
                 }
@@ -717,6 +713,7 @@ export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLaun
         }
         throw error;
       } finally {
+        activeWorkerTurn?.dispose();
         if (activeWorkerTurn && activeWorkerTurns.get(turnClaim.sessionId) === activeWorkerTurn) {
           activeWorkerTurns.delete(turnClaim.sessionId);
         }

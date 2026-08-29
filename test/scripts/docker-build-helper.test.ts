@@ -977,7 +977,7 @@ print_log_tail "$LOG_PATH"
 
     expect(buildIndex).toBeGreaterThanOrEqual(0);
     expect(unsetIndex).toBeGreaterThan(buildIndex);
-    expect(script).toContain("host/testbox mode flags that can change packaged behavior");
+    expect(unsetIndex).toBeLessThan(script.indexOf("docker_e2e_run_with_harness"));
   });
 
   it("wraps centralized Docker builds with the timeout helper", () => {
@@ -3959,6 +3959,7 @@ exit "$lane_exit"
         join(workDir, "candidate.tgz"),
         "--yes",
         "--json",
+        ...(published ? ["--no-restart"] : []),
       ]);
       expect(calls[1].options).toBe(calls[0].options);
       expect(calls[0].options).toContain("--no-warnings --import=");
@@ -4052,6 +4053,7 @@ UPDATE_ERR="$ARTIFACT_ROOT/update.err"
 COMMAND_TIMEOUT=900s
 ROOT_MANAGED_VPS=0
 UPDATE_RESTART_MODE=auto-auth
+update_repair_required=1
 baseline_spec=openclaw@2026.4.15
 candidate_version=2026.8.1
 CANDIDATE_KIND=tarball
@@ -4302,9 +4304,9 @@ ${storage === "wal" ? 'process.kill(process.pid, "SIGKILL");' : ""}`,
     }
   });
 
-  it.each([UPGRADE_SURVIVOR_UPDATE_RESTART_AUTH_PATH])(
-    "retains a failed service child and only sanitized diagnostics from %s",
-    async (scriptPath) => {
+  it.each([false, true])(
+    "retains a failed service child and only sanitized diagnostics (candidate redactor: %s)",
+    async (candidateRedactorPresent) => {
       const workDir = tempDirs.make("openclaw-survivor-diagnostics-");
       const artifacts = join(workDir, "artifacts");
       const state = join(workDir, "home", ".openclaw");
@@ -4337,7 +4339,9 @@ ${storage === "wal" ? 'process.kill(process.pid, "SIGKILL");' : ""}`,
       const supervisorPath = join(workDir, "supervisor.mjs");
       writeFileSync(
         supervisorPath,
-        extractUpgradeSurvivorSupervisor(readFileSync(scriptPath, "utf8")),
+        extractUpgradeSurvivorSupervisor(
+          readFileSync(UPGRADE_SURVIVOR_UPDATE_RESTART_AUTH_PATH, "utf8"),
+        ),
       );
       const supervisor = spawn(process.execPath, [supervisorPath], {
         env: {
@@ -4353,7 +4357,9 @@ ${storage === "wal" ? 'process.kill(process.pid, "SIGKILL");' : ""}`,
       const shimPath = join(workDir, "systemctl");
       writeFileSync(
         shimPath,
-        extractUpgradeSurvivorSystemctlShim(readFileSync(scriptPath, "utf8")),
+        extractUpgradeSurvivorSystemctlShim(
+          readFileSync(UPGRADE_SURVIVOR_UPDATE_RESTART_AUTH_PATH, "utf8"),
+        ),
       );
       const shown = spawnSync("bash", [shimPath, ...SURVIVOR_SERVICE_SHOW_ARGS], {
         encoding: "utf8",
@@ -4373,7 +4379,7 @@ ${storage === "wal" ? 'process.kill(process.pid, "SIGKILL");' : ""}`,
         npm_config_prefix: join(artifacts, "npm-prefix"),
       };
       // One candidate is absent; the other has a redactor that must never execute.
-      if (scriptPath === UPGRADE_SURVIVOR_UPDATE_RESTART_AUTH_PATH) {
+      if (candidateRedactorPresent) {
         const candidate = join(artifacts, "npm-prefix", "lib", "node_modules", "openclaw");
         mkdirSync(join(candidate, "dist", "plugin-sdk"), { recursive: true });
         writeFileSync(join(candidate, "package.json"), '{"type":"module"}');
@@ -5157,7 +5163,6 @@ grep -Fxq preserved "$TMPDIR/caller-fd"
 
   it("wires the Codex npm plugin live assertion boundary into Docker", () => {
     const runner = readFileSync(CODEX_NPM_PLUGIN_LIVE_DOCKER_E2E_PATH, "utf8");
-    const assertions = readFileSync("scripts/e2e/lib/codex-npm-plugin-live/assertions.mjs", "utf8");
     expectTextToIncludeAll(runner, [
       "docker_e2e_print_log /tmp/openclaw-codex-plugin-pack.log",
       "scripts/e2e/lib/plugins/npm-registry-server.mjs",
@@ -5169,6 +5174,7 @@ grep -Fxq preserved "$TMPDIR/caller-fd"
       "assert-agent-error",
       "assert-followthrough",
       "followthrough-turn.mjs",
+      "if openclaw_e2e_run_command node scripts/e2e/lib/codex-npm-plugin-live/followthrough-turn.mjs",
       "docker_e2e_read_positive_int_env OPENCLAW_CODEX_NPM_PLUGIN_AGENT_TIMEOUT_SECONDS 420",
       'docker_e2e_read_positive_int_env OPENCLAW_CODEX_NPM_PLUGIN_AGENT_TIMEOUT_SECONDS "$AGENT_TURN_TIMEOUT_SECONDS"',
       '-e "OPENCLAW_CODEX_NPM_PLUGIN_AGENT_TIMEOUT_SECONDS=$AGENT_TURN_TIMEOUT_SECONDS"',
@@ -5188,11 +5194,6 @@ grep -Fxq preserved "$TMPDIR/caller-fd"
       "final=true and send exactly",
     ]);
     expect(runner).not.toContain("--timeout 420");
-    expectTextToIncludeAll(assertions, [
-      'Requested agent harness "codex" is not registered',
-      "Unknown model: codex/",
-      'Agent harness runtime "codex" is not present in the prepared registry.',
-    ]);
   });
 
   it("prints the OpenAI chat-tools gateway log when startup exits early", () => {
@@ -5239,6 +5240,18 @@ grep -Fxq preserved "$TMPDIR/caller-fd"
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("unexpected subsystem output");
+    const phases = result.stdout
+      .split("\n")
+      .filter((line) => line.startsWith('{"phase":"followthrough:'))
+      .map((line) => JSON.parse(line).phase);
+    expect(phases).toEqual([
+      "followthrough:import-start",
+      "followthrough:import-complete",
+      "followthrough:turn-start",
+      "followthrough:turn-and-cleanup-complete",
+      "followthrough:result-written",
+      "followthrough:before-exit",
+    ]);
     expect(JSON.parse(readFileSync(outputPath, "utf8"))).toEqual({
       captured: expect.objectContaining({
         sessionId: "followthrough-session",

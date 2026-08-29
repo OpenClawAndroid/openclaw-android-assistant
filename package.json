@@ -3,8 +3,8 @@
   "version": "2026.8.1",
   "openclaw": {
     "schemaVersions": {
-      "state": 13,
-      "agent": 18
+      "state": 14,
+      "agent": 19
     }
   },
   "description": "Multi-channel AI gateway with extensible messaging integrations",
@@ -1538,9 +1538,9 @@
     "build:ci-artifacts": "node --import ./scripts/tsx.mjs scripts/build-all.mts ciArtifacts",
     "build:docker": "pnpm plugins:assets:build && node --import ./scripts/tsx.mjs scripts/tsdown-build.mts && node --import ./scripts/tsx.mjs scripts/check-cli-bootstrap-imports.mts && node scripts/runtime-postbuild.mjs && node --import ./scripts/tsx.mjs scripts/build-stamp.mts && node --import ./scripts/tsx.mjs scripts/runtime-postbuild-stamp.mts && pnpm plugins:assets:copy && node --import ./scripts/tsx.mjs scripts/write-build-info.ts && node --import ./scripts/tsx.mjs scripts/write-cli-startup-metadata.ts",
     "build:package": "node --import ./scripts/tsx.mjs scripts/build-all.mts package",
-    "build:plugin-sdk:dts": "node scripts/run-tsgo.mjs -p tsconfig.plugin-sdk.dts.json --declaration true",
-    "build:plugin-sdk:strict-smoke": "node --import ./scripts/tsx.mjs scripts/tsdown-build.mts && node scripts/runtime-postbuild.mjs && node --import ./scripts/tsx.mjs scripts/run-with-env.mts OPENCLAW_PLUGIN_SDK_CANONICAL_DTS=1 -- node --import ./scripts/tsx.mjs scripts/write-plugin-sdk-entry-dts.ts && node --import ./scripts/tsx.mjs scripts/check-plugin-sdk-exports.mts",
-    "build:strict-smoke": "pnpm plugins:assets:build && node --import ./scripts/tsx.mjs scripts/tsdown-build.mts && node --import ./scripts/tsx.mjs scripts/check-cli-bootstrap-imports.mts && node scripts/runtime-postbuild.mjs && node --import ./scripts/tsx.mjs scripts/build-stamp.mts && node --import ./scripts/tsx.mjs scripts/runtime-postbuild-stamp.mts && node --import ./scripts/tsx.mjs scripts/run-with-env.mts OPENCLAW_PLUGIN_SDK_CANONICAL_DTS=1 -- node --import ./scripts/tsx.mjs scripts/write-plugin-sdk-entry-dts.ts && node --import ./scripts/tsx.mjs scripts/check-plugin-sdk-exports.mts",
+    "build:plugin-sdk:dts": "node --import ./scripts/tsx.mjs scripts/write-plugin-sdk-entry-dts.ts",
+    "build:plugin-sdk:strict-smoke": "node --import ./scripts/tsx.mjs scripts/tsdown-build.mts && node scripts/runtime-postbuild.mjs && node --import ./scripts/tsx.mjs scripts/check-plugin-sdk-exports.mts",
+    "build:strict-smoke": "pnpm plugins:assets:build && node --import ./scripts/tsx.mjs scripts/tsdown-build.mts && node --import ./scripts/tsx.mjs scripts/check-cli-bootstrap-imports.mts && node scripts/runtime-postbuild.mjs && node --import ./scripts/tsx.mjs scripts/build-stamp.mts && node --import ./scripts/tsx.mjs scripts/runtime-postbuild-stamp.mts && node --import ./scripts/tsx.mjs scripts/check-plugin-sdk-exports.mts",
     "canvas:a2ui:bundle": "node --import ./scripts/tsx.mjs scripts/bundle-a2ui.mts",
     "channels:catalog:check": "node scripts/write-official-channel-catalog.mjs --check",
     "channels:catalog:gen": "node scripts/write-official-channel-catalog.mjs --write",
@@ -1944,7 +1944,7 @@
     "test:live:media:music": "node --import ./scripts/tsx.mjs test/e2e/qa-lab/media/hosted-media-provider-live.ts music",
     "test:live:media:video": "node --import ./scripts/tsx.mjs test/e2e/qa-lab/media/hosted-media-provider-live.ts video",
     "test:live:models-profiles": "node --import ./scripts/tsx.mjs scripts/test-live.mts -- src/agents/models.profiles.live.test.ts",
-    "test:macos:ci": "node --import ./scripts/tsx.mjs scripts/test-projects.mts test/scripts/ci-platform-checkout.test.ts src/daemon/launchd.test.ts src/daemon/runtime-paths.test.ts src/daemon/runtime-binary.test.ts src/gateway/worker-environments/workspace-rsync-path.test.ts src/infra/brew.test.ts src/infra/stable-node-path.test.ts src/process/supervisor/adapters/child.service-lifecycle.test.ts test/scripts/vitest-process-group.test.ts test/scripts/package-mac-app.test.ts test/scripts/package-mac-dist.test.ts test/scripts/create-dmg.test.ts test/scripts/codesign-mac-app.test.ts test/scripts/notarize-mac-artifact.test.ts test/scripts/mac-elevation-host.test.ts",
+    "test:macos:ci": "node --import ./scripts/tsx.mjs scripts/test-projects.mts test/scripts/ci-platform-checkout.test.ts test/scripts/macos-native-test-launch.test.ts src/daemon/launchd.test.ts src/daemon/runtime-paths.test.ts src/daemon/runtime-binary.test.ts src/gateway/worker-environments/workspace-rsync-path.test.ts src/infra/brew.test.ts src/infra/stable-node-path.test.ts src/process/supervisor/adapters/child.service-lifecycle.test.ts test/scripts/vitest-process-group.test.ts test/scripts/package-mac-app.test.ts test/scripts/package-mac-dist.test.ts test/scripts/create-dmg.test.ts test/scripts/codesign-mac-app.test.ts test/scripts/notarize-mac-artifact.test.ts test/scripts/mac-elevation-host.test.ts",
     "test:max": "node --import ./scripts/tsx.mjs scripts/test-projects-max.mts",
     "test:parallels:linux": "bash scripts/e2e/parallels-linux-smoke.sh",
     "test:parallels:macos": "bash scripts/e2e/parallels-macos-smoke.sh",

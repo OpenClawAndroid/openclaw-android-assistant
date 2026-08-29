@@ -5320,8 +5320,14 @@ server.listen(0, "127.0.0.1", () => {
     expect(hostedLintCache.with).toEqual(boundaryCache.with);
     const fingerprintReference = "${{ steps.extension-boundary-inputs.outputs.fingerprint }}";
     expect(boundaryCache.with.key).toBe(
-      "${{ runner.os }}-extension-package-boundary-v2-${{ steps.extension-boundary-inputs.outputs.fingerprint }}",
+      "${{ runner.os }}-extension-package-boundary-v4-${{ steps.extension-boundary-inputs.outputs.fingerprint }}",
     );
+    expect(boundaryCache.with.path.trim().split("\n")).toEqual([
+      "packages/plugin-sdk/dist",
+      ".artifacts/extension-package-boundary/plugins",
+      ".artifacts/extension-package-boundary/*.json",
+      ".artifacts/extension-package-boundary/compile",
+    ]);
     const fingerprintSteps = [additionalJob, checkShardJob].map((job) =>
       expectDefined(
         job.steps.find(
@@ -5332,9 +5338,7 @@ server.listen(0, "127.0.0.1", () => {
     );
     for (const step of fingerprintSteps) {
       expect(step.id).toBe("extension-boundary-inputs");
-      expect(step.run).toContain(
-        "scripts/prepare-extension-package-boundary-artifacts.mts --print-input-fingerprint",
-      );
+      expect(step.run).toContain('fingerprint="$(git rev-parse HEAD)"');
       expect(step.run).toContain('echo "enabled=false" >> "$GITHUB_OUTPUT"');
     }
     expect(fingerprintSteps[0]?.run).toBe(fingerprintSteps[1]?.run);
@@ -5346,8 +5350,8 @@ server.listen(0, "127.0.0.1", () => {
     );
     expect(lintMount.with.commit).toBe("false");
 
-    // Every cache and sticky-disk consumer uses the script-owned fingerprint;
-    // no workflow-local source list can drift from declaration freshness.
+    // Transport keys use the same commit; native owner records independently
+    // validate source content and output integrity after restoration.
     const restoreStep = additionalJob.steps.find(
       (step: WorkflowStep) => step.name === "Restore extension boundary artifacts from sticky disk",
     );
@@ -5368,6 +5372,12 @@ server.listen(0, "127.0.0.1", () => {
     // would burn wall clock on a discarded clone.
     expect(seedStep.if).toContain("github.event_name != 'pull_request'");
     expect(seedStep.if).toContain("steps.boundary-sticky-restore.outputs.restored == 'false'");
+    expect(seedStep.run).toContain(
+      "rsync -aR --exclude='*.lock*' .artifacts/extension-package-boundary",
+    );
+    for (const step of [restoreStep, lintRestoreStep]) {
+      expect(step.run).toContain("for payload in packages .artifacts;");
+    }
   });
 
   it("keeps the Gradle sticky disk on O(1) per-task protected keys", () => {
@@ -6659,10 +6669,14 @@ exit 1
       const callsPath = path.join(root, "swift-calls");
       const outputPath = path.join(root, "github-output");
       mkdirSync(binDir, { recursive: true });
+      symlinkSync(path.resolve("scripts"), path.join(root, "scripts"), "dir");
       writeFileSync(
         path.join(binDir, "swift"),
         `#!/usr/bin/env bash
 set -euo pipefail
+SWIFT_CALLS=${JSON.stringify(callsPath)}
+GITHUB_OUTPUT=${JSON.stringify(outputPath)}
+BUILD_EXIT_CODE=${buildExitCode}
 printf '%s\\n' "$*" >> "$SWIFT_CALLS"
 if [[ "\${1:-}" == "build" ]]; then
   [[ ! -s "$GITHUB_OUTPUT" ]] || exit 24
@@ -6674,14 +6688,32 @@ test_count="$(grep -c '^test ' "$SWIFT_CALLS")"
         "utf8",
       );
       chmodSync(path.join(binDir, "swift"), 0o755);
+      // This fixture executes the real launcher: never fall through to host Security.
+      writeFileSync(
+        path.join(binDir, "security"),
+        `#!${process.execPath}
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+assert.notEqual(process.env.HOME, ${JSON.stringify(root)});
+assert.equal(path.dirname(args.at(-1)), path.join(process.env.HOME, 'Library/Keychains'));
+if (args[0] === 'create-keychain') fs.writeFileSync(args.at(-1), 'inert keychain');
+if (args[0] === 'delete-keychain') fs.unlinkSync(args.at(-1));
+`,
+        { mode: 0o755 },
+      );
       const result = runWorkflowShellScript(testStep.run, {
         cwd: root,
         env: {
           ...process.env,
-          BUILD_EXIT_CODE: String(buildExitCode),
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          RUNNER_OS: "macOS",
+          RUNNER_TEMP: root,
+          HOME: root,
           GITHUB_OUTPUT: outputPath,
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
-          SWIFT_CALLS: callsPath,
           SWIFT_TEST_EXECUTION: execution,
         },
       });
@@ -6693,7 +6725,7 @@ test_count="$(grep -c '^test ' "$SWIFT_CALLS")"
           ? [
               `test --package-path apps/macos --build-system native --enable-code-coverage --skip-build --${
                 execution === "parallel" ? "parallel" : "no-parallel"
-              }`,
+              } --skip AppStateIsolationTests`,
             ]
           : []),
       ]);
@@ -8967,9 +8999,14 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     const buildRuntimeStep = nodeTestJob.steps.find(
       (step: WorkflowStep) => step.name === "Build Node test runtime",
     );
+    const installRipgrepStep = nodeTestJob.steps.find(
+      (step: WorkflowStep) => step.name === "Install ripgrep for native grep tests",
+    );
 
     expect(JSON.stringify(preflightJob.steps)).toContain("timeout_minutes: shard.timeoutMinutes");
     expect(manifestStep.run).toContain("pretest_build_mode: shard.pretestBuildMode");
+    expect(manifestStep.run).toContain("requires_ripgrep:");
+    expect(manifestStep.run).toContain("src/agents/sessions/tools/index.test.ts");
     expect(manifestStep.run).toContain(
       'shard.groups?.some((group) => group.shard_name.startsWith("core-tooling"))',
     );
@@ -8991,7 +9028,14 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       },
       run: "pnpm build:ci-artifacts",
     });
+    expect(installRipgrepStep).toMatchObject({
+      if: "matrix.requires_ripgrep == true && runner.os == 'Linux'",
+      run: expect.stringContaining("apt-get install -y --no-install-recommends ripgrep"),
+    });
     expect(nodeTestJob.steps.indexOf(buildRuntimeStep)).toBeLessThan(
+      nodeTestJob.steps.indexOf(runStep),
+    );
+    expect(nodeTestJob.steps.indexOf(installRipgrepStep)).toBeLessThan(
       nodeTestJob.steps.indexOf(runStep),
     );
     const trustedRunnerStep = nodeTestJob.steps.find(
