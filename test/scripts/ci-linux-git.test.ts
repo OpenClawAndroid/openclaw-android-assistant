@@ -1,33 +1,21 @@
-import { fork } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
-import { parse } from "yaml";
-import { waitForChildClose } from "../helpers/process-wait.js";
+import {
+  accelerateCiCheckoutFetchClock,
+  expectCiCheckoutCleanup,
+  readCiCheckoutStep,
+  withCiCheckoutFixture,
+} from "./ci-checkout.test-support.js";
 
-type Step = { name?: string; run?: string; env?: Record<string, string | number> };
-type ProcessRecord = { pid: number; role: string; attempt: number };
-type Command = { tool: string; cwd: string; args: string[] };
-type Report = {
-  code: number | null;
-  cancelledDuringCleanup: boolean;
-  error?: string;
-  boundaries: { name: string; alive: ProcessRecord[]; sentinelAlive: boolean }[];
-  readyAttempts: number[];
-  cleanupRemaining: ProcessRecord[];
-  commands: Command[];
-  output: string;
-};
 type FetchResult = number | "hang" | "cleanup-failure";
 
 const candidate = "a".repeat(40);
@@ -35,7 +23,6 @@ const harness = "b".repeat(40);
 const base = "c".repeat(40);
 const moved = "d".repeat(40);
 const merge = "e".repeat(40);
-const fixture = fileURLToPath(new URL("./fixtures/ci-platform-checkout.mjs", import.meta.url));
 const linuxIt = it.skipIf(process.platform !== "linux");
 const defaults: Record<string, string> = {
   CHECKOUT_REPO: "fixture/checkout",
@@ -67,18 +54,10 @@ const defaults: Record<string, string> = {
   RATCHET_PR_HEAD_SHA: candidate,
 };
 
-function workflowStep(job: string, name: string): Step & { run: string } {
-  const workflow = parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
-    jobs: Record<string, { steps: Step[] }>;
-  };
-  const step = workflow.jobs[job]?.steps.find((entry) => entry.name === name);
-  if (!step?.run) {
-    throw new Error(`Missing executable workflow step ${job}/${name}`);
-  }
-  return { ...step, run: step.run };
-}
-
-function stepEnvironment(step: Step, supplied: Record<string, string>) {
+function stepEnvironment(
+  step: ReturnType<typeof readCiCheckoutStep>,
+  supplied: Record<string, string>,
+) {
   const resolved = { ...defaults, ...supplied };
   for (const [key, value] of Object.entries(step.env ?? {})) {
     if (String(value).startsWith("${{")) {
@@ -96,16 +75,18 @@ function accelerate(run: string, timeoutReadyFile?: string) {
   // For cancellation, advance this copy's timeout only after full tree readiness
   // and retain the real TERM grace so the signal reaches drain, not startup.
   const timeoutCheck = "if deadline is not None and time.monotonic() >= deadline:";
-  const readyCheck = timeoutReadyFile
-    ? `if deadline is not None and os.path.isfile(${JSON.stringify(timeoutReadyFile)}):`
-    : timeoutCheck;
+  const accelerated = timeoutReadyFile
+    ? run.replace(
+        timeoutCheck,
+        `if deadline is not None and os.path.isfile(${JSON.stringify(timeoutReadyFile)}):`,
+      )
+    : accelerateCiCheckoutFetchClock(run);
   const killAt = timeoutReadyFile
     ? "kill_at = deadline - cleanup_seconds / 2"
     : "kill_at = time.monotonic()";
   return (
-    run
+    accelerated
       .replace(/fetch_timeout_seconds = [^\n]+/u, "fetch_timeout_seconds = 2")
-      .replace(timeoutCheck, readyCheck)
       .replace("kill_at = deadline - cleanup_seconds / 2", killAt)
       .replace(/retry_at = time\.monotonic\(\) \+ [^\n]+/u, "retry_at = time.monotonic() + 0.05")
       .replaceAll("--git 120", "--git 2")
@@ -128,7 +109,7 @@ async function runStep(options: {
   revisions?: Record<string, string>;
   poisonPython?: boolean;
 }) {
-  const step = workflowStep(options.job, options.step ?? "Checkout");
+  const step = readCiCheckoutStep(options.job, options.step ?? "Checkout");
   const env = stepEnvironment(step, options.env ?? {});
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ci linux git ")));
   const workspace = path.join(root, "workspace");
@@ -171,37 +152,18 @@ async function runStep(options: {
   const readyFile = options.cancelDuringCleanup ? path.join(root, "ready-1.json") : undefined;
   let run = accelerate(step.run, readyFile);
   if (options.prepare) {
-    const prepare = workflowStep("security-fast", "Prepare Git owner");
+    const prepare = readCiCheckoutStep("security-fast", "Prepare Git owner");
     const prepareEnv = stepEnvironment(prepare, {});
     writeFileSync(path.join(root, "prepare.sh"), accelerate(prepare.run, readyFile));
     // Run the actual prepare body in its own shell: its exec must not replace the caller.
     run = `CHECKOUT_KIND=${prepareEnv.CHECKOUT_KIND} bash --noprofile --norc -eo pipefail "$TMPDIR/prepare.sh"\n${run}`;
   }
   writeFileSync(path.join(root, "checkout.sh"), run);
-  const supervisor = fork(fixture, ["supervise", root, "linux:configured"], {
-    detached: true,
-    execArgv: [],
-    stdio: ["ignore", "ignore", "pipe", "ipc"],
-  });
-  let stderr = "";
-  supervisor.stderr?.on("data", (data) => (stderr += String(data)));
-  const closed = waitForChildClose(supervisor, 50_000);
-  try {
-    const result = await closed;
-    const report = JSON.parse(readFileSync(path.join(root, "report.json"), "utf8")) as Report;
+  return withCiCheckoutFixture(root, "linux:configured", (report, result, stderr) => {
     console.log(`${options.job}/${options.step ?? "Checkout"}: ${JSON.stringify(report)}`);
     expect(result, stderr).toEqual({ code: 0, signal: null });
     expect(report.error, stderr).toBeUndefined();
-    expect(report.cleanupRemaining, "fixture cleanup left owned processes").toEqual([]);
-    expect(report.boundaries.at(-1)?.name).toBe("exit");
-    expect(
-      report.boundaries.every((entry) => entry.sentinelAlive),
-      "unrelated process killed",
-    ).toBe(true);
-    expect(
-      report.boundaries.filter((entry) => entry.alive.length > 0),
-      "Git descendants survived BEFORE deletion, reuse, consumption, or exit",
-    ).toEqual([]);
+    expectCiCheckoutCleanup(report);
     expect(readFileSync(protectedFile, "utf8")).toBe("not checkout-owned\n");
     expect(
       existsSync(path.join(root, "python-injected")),
@@ -219,13 +181,7 @@ async function runStep(options: {
         ({ tool, args }) => tool === "git" && args[0] === "checkout",
       ),
     };
-  } finally {
-    if (supervisor.connected) {
-      supervisor.disconnect();
-    }
-    await closed;
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 }
 
 const resetProfiles = [
@@ -379,11 +335,11 @@ linuxIt.each(
 );
 
 linuxIt(
-  "preflight refetches a moved exact SHA before fetching its parent metadata",
+  "preflight pins a moved exact SHA and retries only its parent metadata",
   async () => {
     const report = await runStep({
       job: "preflight",
-      fetchResults: [0, 0, 0],
+      fetchResults: [0, 0, 23, 0],
       env: { GITHUB_EVENT_NAME: "workflow_dispatch" },
       poisonPython: true,
     });
@@ -392,10 +348,11 @@ linuxIt(
       "+refs/heads/main:refs/remotes/origin/checkout",
       `+${candidate}:refs/remotes/origin/checkout`,
       candidate,
+      candidate,
     ]);
-    expect(report.fetches[2]?.args).toEqual(
-      expect.arrayContaining(["--depth=2", "--filter=blob:none"]),
-    );
+    for (const fetch of report.fetches.slice(2)) {
+      expect(fetch.args).toEqual(expect.arrayContaining(["--depth=2", "--filter=blob:none"]));
+    }
     expect(report.checkouts.map(({ args }) => args)).toEqual([
       ["checkout", "--detach", "refs/remotes/origin/checkout"],
     ]);
@@ -417,26 +374,6 @@ linuxIt(
       `+${candidate}:refs/remotes/origin/checkout`,
     ]);
     expect(report.checkouts).toEqual([]);
-  },
-  55_000,
-);
-
-linuxIt(
-  "preflight retries parent metadata without refetching the selected tree",
-  async () => {
-    const report = await runStep({ job: "preflight", fetchResults: [0, 23, 0] });
-    expect(report.code).toBe(0);
-    expect(report.fetches.map(({ args }) => args.at(-1))).toEqual([
-      `+${candidate}:refs/remotes/origin/checkout`,
-      candidate,
-      candidate,
-    ]);
-    for (const fetch of report.fetches.slice(1)) {
-      expect(fetch.args).toEqual(expect.arrayContaining(["--depth=2", "--filter=blob:none"]));
-    }
-    expect(report.checkouts.map(({ args }) => args)).toEqual([
-      ["checkout", "--detach", "refs/remotes/origin/checkout"],
-    ]);
   },
   55_000,
 );

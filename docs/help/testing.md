@@ -609,7 +609,7 @@ Native dependency policy:
     - `pnpm test --watch` still uses the native root `vitest.config.ts` project graph, because a multi-shard watch loop is not practical.
     - `pnpm test`, `pnpm test:watch`, and `pnpm test:perf:imports` route explicit file/directory targets through scoped lanes first, so `pnpm test extensions/discord/src/monitor/message-handler.preflight.test.ts` avoids paying the full root project startup tax.
     - `pnpm test:changed` expands changed git paths into cheap scoped lanes by default: direct test edits, sibling `*.test.ts` files, explicit source mappings, and local import-graph dependents. Config/setup/package edits do not broad-run tests unless you explicitly use `OPENCLAW_TEST_CHANGED_BROAD=1 pnpm test:changed`.
-    - `pnpm check:changed` is the normal smart local check gate for narrow work. It classifies the diff into core, core tests, extensions, extension tests, apps, docs, release metadata, live Docker tooling, and tooling, then runs the matching typecheck, lint, and guard commands. It does not run Vitest tests; call `pnpm test:changed` or explicit `pnpm test <target>` for test proof. Release metadata-only version bumps run targeted version/config/root-dependency checks, with a guard that rejects package changes outside the top-level version field.
+    - `pnpm check:changed` is the normal smart local check gate for narrow work. It classifies the diff into core, core tests, extensions, extension tests, apps, docs, release metadata, live Docker tooling, and tooling, then runs the matching typecheck, lint, and guard commands. Selected paths also schedule targeted Vitest owner tests via `pnpm test:serial`; use `pnpm test:changed` or explicit `pnpm test <target>` for additional test proof matching the touched contract. Release metadata-only version bumps run targeted version/config/root-dependency checks, with a guard that rejects package changes outside the top-level version field.
     - Live Docker ACP harness edits run focused checks: shell syntax for the live Docker auth scripts and a live Docker scheduler dry-run. `package.json` changes are included only when the diff is limited to `scripts["test:docker:live-*"]`; dependency, export, version, and other package-surface edits still use the broader guards.
     - Import-light unit tests from agents, commands, plugins, auto-reply helpers, `plugin-sdk`, and similar pure utility areas route through the `unit-fast` lane, which skips `test/setup-openclaw-runtime.ts`; stateful/runtime-heavy files stay on the existing lanes.
     - Selected `plugin-sdk` and `commands` helper source files also map changed-mode runs to explicit sibling tests in those light lanes, so helper edits avoid rerunning the full heavy suite for that directory.
@@ -668,8 +668,10 @@ Native dependency policy:
   <Accordion title="Fast local iteration">
 
     - `pnpm changed:lanes` shows which architectural lanes a diff triggers.
-    - The pre-commit hook is formatting-only. It restages formatted files
-      and does not run lint, typecheck, or tests.
+    - The pre-commit hook formats and restages files. When private rules are
+      configured, it also scans staged content before and after formatting.
+      See [Local commit hook setup](https://github.com/openclaw/openclaw/blob/main/CONTRIBUTING.md#local-commit-hook).
+      It does not run lint, typecheck, or tests.
     - Run `pnpm check:changed` explicitly before handoff or push when you
       need the smart local check gate.
     - `pnpm test:changed` routes through cheap scoped lanes by default. Use
@@ -791,12 +793,13 @@ Native dependency policy:
   - Opt-in only; not part of the default `pnpm test:e2e` run
   - Requires a local `openshell` CLI plus a working Docker daemon
   - Requires an active local OpenShell gateway and its config source
-  - Uses isolated `HOME` / `XDG_CONFIG_HOME`, then destroys the test sandbox
+  - Uses isolated `HOME` / `XDG_CONFIG_HOME`, then waits for durable sandbox absence before deleting the test workspace
+  - Reports cleanup failures, including failed inventory queries; it does not retry database errors
 - Useful overrides:
   - `OPENCLAW_E2E_OPENSHELL=1` to enable the test when running the broader e2e suite manually
   - `OPENCLAW_E2E_OPENSHELL_COMMAND=/path/to/openshell` to point at a non-default CLI binary or wrapper script
   - `OPENCLAW_E2E_OPENSHELL_CONFIG_HOME=/path/to/config` to expose the registered gateway config to the isolated test
-  - `OPENCLAW_E2E_OPENSHELL_HOST_IP=172.18.0.1` to override the sandbox-visible `host.openshell.internal` address used by the network policy fixture; Docker Desktop may resolve this differently from the bridge gateway
+  - `OPENCLAW_E2E_OPENSHELL_HOST_IP=172.18.0.1` to replace the host policy fixture's default ranges with one explicit Docker gateway address and its existing `/32` suffix
 
 ### Live (real providers + real models)
 
@@ -993,14 +996,14 @@ Run full Mintlify anchor validation when you need in-page heading checks too: `p
 
 These are "real pipeline" regressions without real providers:
 
-- Gateway tool calling (mock OpenAI, real gateway + agent loop): `src/gateway/gateway.test.ts` (case: "runs a mock OpenAI tool call end-to-end via gateway agent loop")
+- Gateway agent admission (real Gateway with a mock OpenAI provider): `src/gateway/gateway.test.ts` (case: "accepts a gateway agent request over ws and returns a run id"; checks acceptance, a run ID, and an abort response).
 - Gateway wizard (WS `wizard.start`/`wizard.next`, writes config + auth enforced): `src/gateway/gateway.test.ts` (case: "runs wizard over ws and writes auth token config")
 
 ## Agent reliability evals (skills)
 
 We already have a few CI-safe tests that behave like "agent reliability evals":
 
-- Mock tool-calling through the real gateway + agent loop (`src/gateway/gateway.test.ts`).
+- Agent admission, run-ID responses, and abort requests through the real Gateway with a mock OpenAI provider (`src/gateway/gateway.test.ts`).
 - End-to-end wizard flows that validate session wiring and config effects (`src/gateway/gateway.test.ts`).
 
 What's still missing for skills (see [Skills](/tools/skills)):

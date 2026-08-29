@@ -996,6 +996,12 @@ export async function runSessionCompactionIfNeeded(params: {
       cwd: params.followupRun.run.cwd,
       agentDir: params.followupRun.run.agentDir,
       config: params.cfg,
+      // Group session keys do not encode account identity, so without this the
+      // preflight path resolves the root history limit after prompt preparation
+      // already used the account limit.
+      agentAccountId: params.followupRun.run.agentAccountId,
+      conversationRoutePeerId: params.followupRun.run.conversationRoutePeerId,
+      chatType: params.followupRun.run.chatType,
       skillsSnapshot: entry.skillsSnapshot ?? params.followupRun.run.skillsSnapshot,
       provider: params.followupRun.run.provider,
       model: params.followupRun.run.model,

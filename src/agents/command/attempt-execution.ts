@@ -124,7 +124,7 @@ import type { AgentCommandOpts } from "./types.js";
 
 export {
   createAcpVisibleTextAccumulator,
-  sessionFileHasContent,
+  sessionTranscriptHasContent,
 } from "./attempt-execution.helpers.js";
 
 const log = createSubsystemLogger("agents/agent-command");
@@ -1297,6 +1297,7 @@ export function runAgentAttempt(params: {
     swarmOutputSchema: params.opts.swarmOutputSchema,
     forceRestartSafeTools: params.opts.forceRestartSafeTools,
     forceCodeModeTools: params.opts.forceCodeModeTools,
+    codeModeOverride: params.opts.codeModeOverride,
     streamParams: params.opts.streamParams,
     agentDir: params.agentDir,
     allowGatewaySubagentBinding: params.opts.allowGatewaySubagentBinding,

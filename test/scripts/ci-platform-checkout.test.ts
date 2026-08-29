@@ -1,41 +1,16 @@
-import { fork, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { expectDefined } from "@openclaw/normalization-core";
 import { expect, it } from "vitest";
-import { parse } from "yaml";
-import { waitForChildClose } from "../helpers/process-wait.js";
-
-type ProcessRecord = { pid: number; role: string; attempt: number };
-type Boundary = { name: string; alive: ProcessRecord[]; sentinelAlive: boolean };
-type Report = {
-  code: number | null;
-  error?: string;
-  boundaries: Boundary[];
-  readyAttempts: number[];
-  cleanupRemaining: ProcessRecord[];
-  ownedProcesses: ProcessRecord[];
-  commands: { cwd: string; args: string[] }[];
-  output: string;
-};
-
-const fixture = fileURLToPath(new URL("./fixtures/ci-platform-checkout.mjs", import.meta.url));
-
-function readCheckoutRun(linux: boolean): string {
-  const workflow = parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
-    jobs: Record<string, { steps: { name?: string; run?: string }[] }>;
-  };
-  const run = workflow.jobs[linux ? "checks-fast-core" : "checks-windows"]?.steps.find(
-    (step) => step.name === "Checkout",
-  )?.run;
-  expect(run).toBeTypeOf("string");
-  if (!run) {
-    throw new Error("Missing shared platform checkout shell");
-  }
-  return run;
-}
+import {
+  accelerateCiCheckoutFetchClock,
+  ciCheckoutFixture,
+  expectCiCheckoutCleanup,
+  readCiCheckoutStep,
+  withCiCheckoutFixture,
+} from "./ci-checkout.test-support.js";
 
 // Execute both workflow policies against the same owned tree fixture. A leader's
 // exit must not authorize workspace deletion, Git reuse, or final success.
@@ -80,7 +55,7 @@ it.each([
   "preserves checkout ownership and fixture isolation (Linux=$linux, $scenario)",
   async ({ scenario, attempts, code, checkout, linux, deletions }) => {
     const setupFailure = scenario.startsWith("non-executable-");
-    const run = readCheckoutRun(linux);
+    const run = readCiCheckoutStep(linux ? "checks-fast-core" : "checks-windows").run;
 
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ci platform checkout ")));
     const workspace = path.join(root, "workspace");
@@ -105,22 +80,8 @@ it.each([
     }
     // Only a ready, deliberately stalled tree advances the fetch clock. Real
     // process startup and teardown retain their independent wall-clock watchdogs.
-    const accelerated = run
+    const accelerated = accelerateCiCheckoutFetchClock(run)
       .replace(/fetch_timeout_seconds = [^\n]+/u, "fetch_timeout_seconds = 2")
-      .replace(
-        "def run_git(",
-        `def fetch_clock():
-    return 2 * sum(name.startswith("fetch-tick-") and name.endswith(".json")
-                   for name in os.listdir(os.environ["TMPDIR"]))
-
-
-def run_git(`,
-      )
-      .replace("deadline = time.monotonic() + timeout", "deadline = fetch_clock() + timeout")
-      .replace(
-        "deadline is not None and time.monotonic() >= deadline",
-        "deadline is not None and fetch_clock() >= deadline",
-      )
       .replace("kill_at = deadline - cleanup_seconds / 2", "kill_at = time.monotonic()")
       .replace(/retry_at = time\.monotonic\(\) \+ [^\n]+/u, "retry_at = time.monotonic() + 0.05");
     expect(accelerated).not.toBe(run);
@@ -130,21 +91,12 @@ def run_git(`,
       setupFailure ? "printf 'unexpected workflow invocation\\n' >&2\nexit 99\n" : accelerated,
     );
 
-    const supervisor = fork(fixture, ["supervise", root, `${linux ? "linux:" : ""}${scenario}`], {
-      detached: true,
-      execArgv: [],
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
-    });
-    let stderr = "";
-    supervisor.stderr?.on("data", (data) => (stderr += String(data)));
-    const closed = waitForChildClose(supervisor, 50_000);
-    try {
-      const result = await closed;
-      const report = JSON.parse(readFileSync(path.join(root, "report.json"), "utf8")) as Report;
+    const policyScenario = `${linux ? "linux:" : ""}${scenario}`;
+    await withCiCheckoutFixture(root, policyScenario, (report, result, stderr) => {
       // Emit evidence before assertions; it remains available even for this deliberately red test.
       console.log(`${scenario}: ${JSON.stringify(report)}`);
-      expect(report.cleanupRemaining, "fixture cleanup left owned processes").toEqual([]);
       if (setupFailure) {
+        expect(report.cleanupRemaining, "fixture cleanup left owned processes").toEqual([]);
         expect(report.error, report.output).toContain(
           "Fixture setup: mock command resolution failed",
         );
@@ -158,13 +110,7 @@ def run_git(`,
       }
       expect(result, stderr).toEqual({ code: 0, signal: null });
       expect(report.error, stderr).toBeUndefined();
-      const leaks = report.boundaries
-        .filter((entry) => entry.alive.length > 0)
-        .map(({ name, alive }) => ({ boundary: name, survivors: alive }));
-      expect(
-        leaks,
-        "Git descendants must be dead BEFORE workspace deletion, reuse or exit",
-      ).toEqual([]);
+      expectCiCheckoutCleanup(report);
       expect(report.code).toBe(code);
       expect(report.readyAttempts).toEqual(Array.from({ length: attempts }, (_, i) => i + 1));
       expect(report.boundaries.filter((entry) => entry.name.startsWith("fetch:"))).toHaveLength(
@@ -172,7 +118,6 @@ def run_git(`,
       );
       expect(report.boundaries.some((entry) => entry.name === "checkout")).toBe(checkout);
       expect(report.boundaries.filter((entry) => entry.name === "delete")).toHaveLength(deletions);
-      expect(report.boundaries.at(-1)?.name).toBe("exit");
       expect(report.output.includes("refusing reuse or retry")).toBe(
         scenario === "cleanup-failure",
       );
@@ -236,18 +181,7 @@ def run_git(`,
           "b".repeat(40),
         ]);
       }
-      expect(
-        report.boundaries.every((entry) => entry.sentinelAlive),
-        "unrelated sentinel killed",
-      ).toBe(true);
-    } finally {
-      // IPC loss also triggers cleanup if Vitest is canceled or its worker is killed.
-      if (supervisor.connected) {
-        supervisor.disconnect();
-      }
-      await closed;
-      rmSync(root, { recursive: true, force: true });
-    }
+    });
   },
   55_000,
 );
@@ -290,7 +224,7 @@ with tempfile.TemporaryDirectory(prefix="checkout-pid-reuse-") as directory:
 print("fixture lifetime contract passed")
 `,
       process.execPath,
-      fixture,
+      ciCheckoutFixture,
     ],
     { encoding: "utf8", timeout: 15_000, killSignal: "SIGKILL" },
   );
@@ -302,7 +236,7 @@ it.skipIf(process.platform === "win32")(
   "recognizes terminated POSIX groups without accepting live signal denials",
   () => {
     const owner = expectDefined(
-      readCheckoutRun(false).split("<<'PYTHON'\n")[1]?.split("\nPYTHON")[0],
+      readCiCheckoutStep("checks-windows").run.split("<<'PYTHON'\n")[1]?.split("\nPYTHON")[0],
       "checkout Python owner",
     );
     const result = spawnSync(
@@ -369,7 +303,7 @@ with subprocess.Popen([sys.executable, "-I", "-S", "-c",
 print("group contract passed")
 `,
         process.execPath,
-        fixture,
+        ciCheckoutFixture,
       ],
       { input: owner, encoding: "utf8", timeout: 15_000, killSignal: "SIGKILL" },
     );

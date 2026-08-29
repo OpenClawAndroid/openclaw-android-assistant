@@ -95,6 +95,110 @@ describe("canonical session message recovery", () => {
     });
   }
 
+  it("reconciles live approval events for the selected session", () => {
+    const { state } = createSessionEventState();
+    const approval = {
+      id: "plugin:approval-live",
+      status: "pending" as const,
+      presentation: {
+        kind: "plugin" as const,
+        title: "Run Codex execution on node",
+        description: "Allows node account access",
+        severity: "critical" as const,
+        pluginId: "codex",
+        agentId: "main",
+        allowedDecisions: ["allow-once", "deny"] as const,
+      },
+      urlPath: "/approve/plugin%3Aapproval-live",
+      createdAtMs: 1_000,
+      expiresAtMs: 10_000,
+    };
+
+    handlePageGatewayEvent(state, {
+      type: "event",
+      event: "session.approval",
+      payload: {
+        sessionKey: "agent:main:main",
+        sourceSessionKey: "agent:main:cloud-child",
+        phase: "pending",
+        updatedAtMs: 1_000,
+        approval,
+      },
+      seq: 1,
+    });
+
+    expect(state.chatSessionApprovalQueue).toEqual([
+      expect.objectContaining({
+        id: approval.id,
+        sourceSessionKey: "agent:main:cloud-child",
+      }),
+    ]);
+
+    handlePageGatewayEvent(state, {
+      type: "event",
+      event: "session.approval",
+      payload: {
+        sessionKey: "agent:main:main",
+        sourceSessionKey: "agent:main:cloud-child",
+        phase: "terminal",
+        updatedAtMs: 2_000,
+        approval: {
+          ...approval,
+          status: "denied",
+          decision: "deny",
+          reason: "user",
+          resolvedAtMs: 2_000,
+        },
+      },
+      seq: 2,
+    });
+
+    expect(state.chatSessionApprovalQueue).toEqual([]);
+
+    state.sessionKey = "global";
+    state.assistantAgentId = "research";
+    handlePageGatewayEvent(state, {
+      type: "event",
+      event: "session.approval",
+      payload: {
+        sessionKey: "agent:research:global",
+        phase: "pending",
+        updatedAtMs: 3_000,
+        approval,
+      },
+      seq: 3,
+    });
+    expect(state.chatSessionApprovalQueue).toEqual([
+      expect.objectContaining({
+        id: approval.id,
+        request: expect.objectContaining({ sessionKey: "global" }),
+      }),
+    ]);
+
+    for (const [sessionKey, expectedCount] of [
+      ["agent:main:global", 1],
+      ["agent:research:global", 0],
+    ] as const) {
+      handlePageGatewayEvent(state, {
+        type: "event",
+        event: "session.approval",
+        payload: {
+          sessionKey,
+          phase: "terminal",
+          updatedAtMs: 4_000,
+          approval: {
+            ...approval,
+            status: "denied",
+            decision: "deny",
+            reason: "user",
+            resolvedAtMs: 4_000,
+          },
+        },
+      });
+      expect(state.chatSessionApprovalQueue).toHaveLength(expectedCount);
+    }
+  });
+
   it("rejects envelope-only sequence for an incomplete imported user identity", () => {
     const { state } = createSessionEventState({ connected: false });
 

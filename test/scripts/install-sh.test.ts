@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isSupportedOpenClawNodeVersion } from "../../node-version.mjs";
 import { NODE_RELEASE_VERSION_CASES } from "../helpers/node-version-cases.js";
+import { createInstallGitCommitFixtureScript } from "./install-git-fixtures.js";
 import {
   writeNpmBeforePolicyFixture,
   writeNpmFreshnessConflictFixture,
@@ -265,6 +266,46 @@ describe("install.sh", () => {
         expect(existsSync(marker)).toBe(false);
       } finally {
         rmSync(tmp, { force: true, recursive: true });
+      }
+    },
+  );
+
+  it.each(["dnf", "yum"])(
+    "pins Node.js installation to the configured NodeSource %s repository",
+    (packageManager) => {
+      for (const rootMode of ["root", "sudo"]) {
+        const result = runInstallShell(`
+          set -euo pipefail
+          source "${SCRIPT_PATH}"
+          OS=linux
+          PACKAGE_MANAGER=${JSON.stringify(packageManager)}
+          ROOT_MODE=${JSON.stringify(rootMode)}
+          require_sudo() { :; }
+          install_build_tools_linux() { return 0; }
+          is_root() { [[ "$ROOT_MODE" == "root" ]]; }
+          is_arch_linux() { return 1; }
+          is_alpine_linux() { return 1; }
+          command() {
+            if [[ "\${1:-}" == "-v" ]]; then
+              case "\${2:-}" in
+                pacman|apk|apt-get) return 1 ;;
+                dnf|yum) [[ "$PACKAGE_MANAGER" == "$2" ]]; return ;;
+              esac
+            fi
+            builtin command "$@"
+          }
+          download_validated_script() { :; }
+          ui_info() { :; }
+          run_required_step() { printf 'step:%s|%s\\n' "$1" "\${*:2}"; }
+          finish_linux_node_install() { :; }
+          install_node
+        `);
+
+        const sudoPrefix = rootMode === "sudo" ? "sudo " : "";
+        expect(result.status, result.stderr || result.stdout).toBe(0);
+        expect(result.stdout).toContain(
+          `step:Installing Node.js|${sudoPrefix}${packageManager} install -y -q --disablerepo=* --enablerepo=nodesource-nodejs nodejs`,
+        );
       }
     },
   );
@@ -3713,6 +3754,16 @@ EOF
     expect(script).not.toContain('git -C "$repo_dir" pull --rebase --no-tags || true');
   });
 
+  it.each(["bundle", "remote"] as const)("pins a full commit from a %s", (source) => {
+    const result = runInstallShell(createInstallGitCommitFixtureScript(source), {
+      OPENCLAW_INSTALLER_SCRIPT: SCRIPT_PATH,
+    });
+
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain("kind=immutable");
+    expect(result.stdout).toContain("rejected=HEAD~1");
+  });
+
   it("prefers a release tag over a same-named branch", () => {
     const result = runInstallShell(`
       set -euo pipefail
@@ -4018,59 +4069,71 @@ HOOK
     expect(result.stdout).toContain(`result=${expected}`);
   });
 
-  it("uses repo pnpm 12 via Corepack when global pnpm 11 is already present", () => {
-    const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-pnpm-version-"));
-    const bin = join(tmp, "bin");
-    const outer = join(tmp, "outer");
-    const repo = join(tmp, "repo");
-    mkdirSync(bin, { recursive: true });
-    mkdirSync(outer, { recursive: true });
-    mkdirSync(repo, { recursive: true });
-    writeFileSync(join(outer, "package.json"), '{\n  "packageManager": "yarn@4.5.0"\n}\n');
-    writeFileSync(
-      join(repo, "package.json"),
-      '{\n  "packageManager": "pnpm@12.0.0+sha512.test"\n}\n',
-    );
-    writeFileSync(
-      join(bin, "pnpm"),
-      ["#!/bin/bash", '[[ "${1:-}" == "--version" ]] && echo "11.8.0"', ""].join("\n"),
-    );
-    writeFileSync(
-      join(bin, "corepack"),
-      [
-        "#!/bin/bash",
-        'if [[ "${1:-}" == "prepare" ]]; then exit 0; fi',
-        'if [[ "${1:-}" == "pnpm" && "${2:-}" == "--version" ]]; then',
-        '  if grep -q "pnpm@12.0.0" package.json 2>/dev/null; then echo "12.0.0"; else exit 1; fi',
-        "  exit 0",
-        "fi",
-        "exit 1",
-        "",
-      ].join("\n"),
-    );
-    chmodSync(join(bin, "pnpm"), 0o755);
-    chmodSync(join(bin, "corepack"), 0o755);
-
-    try {
-      const result = runInstallShell(
-        [
-          `cd ${JSON.stringify(process.cwd())}`,
-          `source ${JSON.stringify(SCRIPT_PATH)}`,
-          `cd ${JSON.stringify(outer)}`,
-          `ensure_pnpm ${JSON.stringify(repo)}`,
-          'printf "cmd=%s\\n" "${PNPM_CMD[*]}"',
-          `printf "run=%s\\n" "$(run_pnpm -C ${JSON.stringify(repo)} --version)"`,
-        ].join("\n"),
-        { PATH: `${bin}:${process.env.PATH ?? ""}` },
+  it.each(["standalone", "shim"] as const)(
+    "uses repo pnpm 12 when global pnpm is a %s",
+    (launcher) => {
+      const tmp = mkdtempSync(join(tmpdir(), "openclaw-install-pnpm-version-"));
+      const bin = join(tmp, "bin");
+      const outer = join(tmp, "outer");
+      const repo = join(tmp, "repo");
+      mkdirSync(bin, { recursive: true });
+      mkdirSync(outer, { recursive: true });
+      mkdirSync(repo, { recursive: true });
+      writeFileSync(
+        join(outer, "package.json"),
+        JSON.stringify({ packageManager: launcher === "shim" ? "pnpm@11.8.0" : "yarn@4.5.0" }),
       );
+      writeFileSync(
+        join(repo, "package.json"),
+        '{\n  "packageManager": "pnpm@12.0.0+sha512.test"\n}\n',
+      );
+      writeFileSync(
+        join(bin, "pnpm"),
+        [
+          "#!/bin/bash",
+          launcher === "shim"
+            ? 'if grep -q "pnpm@12.0.0" package.json 2>/dev/null; then echo "12.0.0"; else echo "11.8.0"; fi'
+            : '[[ "${1:-}" == "--version" ]] && echo "11.8.0"',
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        join(bin, "corepack"),
+        [
+          "#!/bin/bash",
+          'if [[ "${1:-}" == "prepare" ]]; then exit 0; fi',
+          'if [[ "${1:-}" == "pnpm" && "${2:-}" == "--version" ]]; then',
+          '  if grep -q "pnpm@12.0.0" package.json 2>/dev/null; then echo "12.0.0"; else exit 1; fi',
+          "  exit 0",
+          "fi",
+          "exit 1",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(join(bin, "pnpm"), 0o755);
+      chmodSync(join(bin, "corepack"), 0o755);
 
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain("cmd=corepack pnpm");
-      expect(result.stdout).toContain("run=12.0.0");
-    } finally {
-      rmSync(tmp, { force: true, recursive: true });
-    }
-  });
+      try {
+        const result = runInstallShell(
+          [
+            `cd ${JSON.stringify(process.cwd())}`,
+            `source ${JSON.stringify(SCRIPT_PATH)}`,
+            `cd ${JSON.stringify(outer)}`,
+            `ensure_pnpm ${JSON.stringify(repo)}`,
+            'printf "cmd=%s\\n" "${PNPM_CMD[*]}"',
+            `printf "run=%s\\n" "$(run_pnpm -C ${JSON.stringify(repo)} --version)"`,
+          ].join("\n"),
+          { PATH: `${bin}:${process.env.PATH ?? ""}` },
+        );
+
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain(launcher === "shim" ? "cmd=pnpm" : "cmd=corepack pnpm");
+        expect(result.stdout).toContain("run=12.0.0");
+      } finally {
+        rmSync(tmp, { force: true, recursive: true });
+      }
+    },
+  );
 
   it("does not treat /dev/tty permissions as a controlling terminal", () => {
     const result = runInstallShell(`

@@ -128,6 +128,10 @@ function createApprovalRuntime(params: {
       const timeoutMs = resolvePluginApprovalTimeoutMs(input.timeoutMs);
       const turnSource = resolveNodeInvokeTurnSourceFields(params.turnSource);
       const callerIdentity = params.client?.internal?.agentRuntimeIdentity;
+      const invocationSessionKey =
+        params.client?.internal?.pluginRuntimeOwnerId === params.pluginId
+          ? params.client.internal.nodeInvokeApprovalSessionKey
+          : undefined;
       if (
         callerIdentity &&
         params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) !== true
@@ -162,7 +166,11 @@ function createApprovalRuntime(params: {
         toolName: sanitizeOptionalMeta(input.toolName),
         toolCallId: normalizeOptionalString(input.toolCallId) ?? null,
         agentId: callerIdentity?.agentId ?? sanitizeOptionalMeta(input.agentId),
-        sessionKey: callerIdentity?.sessionKey ?? normalizeOptionalString(input.sessionKey) ?? null,
+        sessionKey:
+          callerIdentity?.sessionKey ??
+          invocationSessionKey ??
+          normalizeOptionalString(input.sessionKey) ??
+          null,
         runId: callerIdentity?.operationalRunInstance.runId ?? null,
         turnSourceChannel: turnSource.turnSourceChannel,
         turnSourceTo: turnSource.turnSourceTo,

@@ -78,6 +78,12 @@ export const sessionCompactImpl = vi.fn(async () => ({
   tokensBefore: 120,
   details: { ok: true },
 }));
+export const getHistoryLimitFromSessionKeyMock = vi.fn<
+  typeof import("./history.js").getHistoryLimitFromSessionKey
+>(() => undefined);
+export const limitHistoryTurnsMock = vi.fn<typeof import("./history.js").limitHistoryTurns>(
+  (messages) => messages.slice(0, 2),
+);
 export const sessionManualCompactionMock = vi.fn();
 export const sessionAutomaticCompactionMock = vi.fn();
 export const attemptServerEndpointCompactionMock: Mock<(_params?: unknown) => Promise<unknown>> =
@@ -212,7 +218,8 @@ function createMockToolDefinitions(tools: unknown[] = []) {
 export const createOpenClawCodingToolsMock = vi.fn<typeof createOpenClawCodingTools>(() => []);
 export const buildEmbeddedExtensionFactoriesMock = vi.fn(() => []);
 export const resolveEffectiveCompactionModeMock = vi.fn(() => "default");
-export const guardSessionManagerMock = vi.fn(() => ({
+export const guardSessionManagerMock = vi.fn((sessionManager: Record<string, unknown>) => ({
+  ...sessionManager,
   flushPendingToolResults: vi.fn(),
 }));
 export const applyAgentCompactionSettingsFromConfigMock = vi.fn();
@@ -654,9 +661,10 @@ export function resetCompactHooksHarnessMocks(workspaceDir: string): void {
   createOpenClawCodingToolsMock.mockReset();
   createOpenClawCodingToolsMock.mockReturnValue([]);
   guardSessionManagerMock.mockReset();
-  guardSessionManagerMock.mockReturnValue({
+  guardSessionManagerMock.mockImplementation((sessionManager) => ({
+    ...sessionManager,
     flushPendingToolResults: vi.fn(),
-  });
+  }));
   applyAgentCompactionSettingsFromConfigMock.mockReset();
   createPreparedEmbeddedAgentSettingsManagerMock.mockReset();
   createPreparedEmbeddedAgentSettingsManagerMock.mockReturnValue({
@@ -991,8 +999,8 @@ export async function loadCompactHooksHarness(): Promise<{
   }));
 
   vi.doMock("./history.js", () => ({
-    getHistoryLimitFromSessionKey: vi.fn(() => undefined),
-    limitHistoryTurns: vi.fn((msgs: unknown[]) => msgs.slice(0, 2)),
+    getHistoryLimitFromSessionKey: getHistoryLimitFromSessionKeyMock,
+    limitHistoryTurns: limitHistoryTurnsMock,
   }));
 
   vi.doMock("../../skills/runtime/env-overrides.js", () => ({
@@ -1084,16 +1092,15 @@ export async function loadCompactHooksHarness(): Promise<{
     };
   });
 
-  vi.doMock("../embedded-agent-helpers.js", () => ({
-    ensureSessionHeader: vi.fn(async () => {}),
-    pickFallbackThinkingLevel: vi.fn((params: { message?: string; attempted?: Set<string> }) =>
-      params.message?.includes("Reasoning is mandatory") && !params.attempted?.has("minimal")
-        ? "minimal"
-        : undefined,
-    ),
-    validateAnthropicTurns: vi.fn((m: unknown[]) => m),
-    validateGeminiTurns: vi.fn((m: unknown[]) => m),
-  }));
+  vi.doMock("../embedded-agent-helpers.js", async () => {
+    const { pickFallbackThinkingLevel } = await import("../embedded-agent-helpers/thinking.js");
+    return {
+      ensureSessionHeader: vi.fn(async () => {}),
+      pickFallbackThinkingLevel,
+      validateAnthropicTurns: vi.fn((m: unknown[]) => m),
+      validateGeminiTurns: vi.fn((m: unknown[]) => m),
+    };
+  });
 
   vi.doMock("../agent-project-settings.js", () => ({
     createPreparedEmbeddedAgentSettingsManager: createPreparedEmbeddedAgentSettingsManagerMock,

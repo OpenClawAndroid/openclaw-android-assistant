@@ -1,5 +1,7 @@
 import { once } from "node:events";
+import { runInNewContext } from "node:vm";
 // Qa Lab tests cover server plugin behavior.
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -6921,8 +6923,31 @@ Update and merge these partial structured summaries.`,
       expect(execArgs).toMatchObject({ language: "javascript", restartSafe: true });
       expect(execArgs.code).toContain("qa_restart_wait");
       expect(execArgs.code).toContain('catalog.search("qa_restart_wait")');
-      expect(execArgs.code).toContain("await target({})");
       expect(execArgs.code).toContain(`CHECKPOINT-${checkpoint}`);
+
+      const started = createDeferred<void>();
+      const released = createDeferred<void>();
+      let yielded = false;
+      const target = Object.assign(
+        () => {
+          started.resolve();
+          return released.promise;
+        },
+        { toolName: "qa_restart_wait" },
+      );
+      const execution = runInNewContext(`(async () => { ${String(execArgs.code)} })()`, {
+        catalog: { search: async () => [target] },
+        yield_control: () => {
+          yielded = true;
+        },
+      }) as Promise<unknown>;
+      try {
+        await started.promise;
+        expect(yielded).toBe(true);
+      } finally {
+        released.resolve();
+        await expect(execution).resolves.toBe(`CHECKPOINT-${checkpoint}`);
+      }
 
       const runId = `restart-checkpoint-${checkpoint}`;
       input.push(
@@ -8157,7 +8182,7 @@ Update and merge these partial structured summaries.`,
     expect(outputText(laterHeartbeatPayload)).toBe("HEARTBEAT_OK");
   });
 
-  it("scripts one failure-honest Code Mode terminal-tool continuation (#118274)", async () => {
+  it("reports a failed Code Mode read honestly through ordinary continuation", async () => {
     const server = await startMockServer();
     const prompt =
       "Failed tool terminal recovery QA check: read the missing file, then respond with exact marker: `QA-FAILED-TOOL-FINALIZED-OK`.";
@@ -8201,49 +8226,28 @@ Update and merge these partial structured summaries.`,
       String(plannedRequest.plannedToolCallId),
       JSON.stringify({ status: "failed", error: "ENOENT: qa-failed-terminal-missing-file.txt" }),
     );
-    const dishonestFinalization = await expectNonStreamingResponsesJson<{
-      output?: Array<{ content?: Array<{ text?: string }> }>;
-    }>(server, {
-      model: "gpt-5.6-luna",
-      input: [
-        makeUserInput(prompt),
-        makeUserInput(QA_SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION),
-        failedToolOutput,
-      ],
-    });
-    expect(outputText(dishonestFinalization)).toBe("FAILED-TOOL-HONESTY-INSTRUCTION-MISSING");
-
     const recovered = await expectNonStreamingResponsesJson<{
       output?: Array<{ content?: Array<{ text?: string }> }>;
     }>(server, {
       model: "gpt-5.6-luna",
-      input: [
-        makeUserInput(prompt),
-        makeUserInput(
-          `${QA_SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION} If a tool failed, say so; never claim completion or success.`,
-        ),
-        failedToolOutput,
-      ],
+      tools: codeModeTools,
+      input: [makeUserInput(prompt), failedToolOutput],
     });
     expect(outputText(recovered)).toBe(
       "The requested file could not be read: ENOENT. QA-FAILED-TOOL-FINALIZED-OK",
     );
 
-    const reconciled = await expectNonStreamingResponsesJson<{
+    const succeeded = await expectNonStreamingResponsesJson<{
       output?: Array<{ content?: Array<{ text?: string }> }>;
     }>(server, {
       model: "gpt-5.6-luna",
+      tools: codeModeTools,
       input: [
         makeUserInput(prompt),
-        makeUserInput(
-          "The previous Code Mode mutation may have partially applied. Do not repeat or finish any mutation. Use only the available read-only inspection tools to determine the authoritative current state, then report exactly what applied, what did not, what remains unknown, and what work is still required.",
-        ),
-        failedToolOutput,
+        makeToolOutputWithCallId(String(plannedRequest.plannedToolCallId), "file contents"),
       ],
     });
-    expect(outputText(reconciled)).toBe(
-      "The requested file could not be read: ENOENT. QA-FAILED-TOOL-FINALIZED-OK",
-    );
+    expect(outputText(succeeded)).toBe("BUG-TOOL-DID-NOT-FAIL");
   });
 });
 

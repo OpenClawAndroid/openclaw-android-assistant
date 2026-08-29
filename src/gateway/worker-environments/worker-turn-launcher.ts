@@ -5,7 +5,6 @@ import type { SandboxContext } from "../../agents/sandbox/types.js";
 import type {
   LocalTurnPlacementClaim,
   SessionPlacementAdmissionProvider,
-  SessionPlacementTurnParams,
 } from "../../agents/session-placement-admission.js";
 import { convertToLlm } from "../../agents/sessions/messages.js";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
@@ -38,6 +37,7 @@ import {
   resolvePlacementIdentity,
   waitForTurnOperation,
 } from "./worker-turn-admission.js";
+import { prepareWorkerTurnAttachments } from "./worker-turn-attachments.js";
 import {
   failHandedOffTurn,
   WorkerTurnExecutionError,
@@ -52,6 +52,7 @@ import {
   fitLaunchDescriptorWithRuntimeIdentity,
   parseRuntimeResult,
   prepareWorkerAgentRuntimeIdentity,
+  prepareWorkerTurnImages,
   windowInitialMessages,
 } from "./worker-turn-payload.js";
 import { resolveWorkerTurnTranscriptTarget } from "./worker-turn-transcript-target.js";
@@ -82,20 +83,12 @@ type WorkerTurnLauncherOptions = {
   publishAcceptedWorkspace?: (claim: WorkerSessionTurnClaim) => Promise<void>;
 };
 
-async function executeWorkerTurn(params: {
-  environments: WorkerTurnEnvironmentService;
-  onHandoff: () => void;
-  onTerminal: () => void;
-  placement: ActiveWorkerPlacement;
-  placements: WorkerSessionPlacementStore;
-  reconcileActivePlacement: (environmentId: string) => Promise<void>;
-  workspaceOperations: WorkerWorkspaceOperationCoordinator;
-  turn: SessionPlacementTurnParams;
-  turnClaim: WorkerSessionTurnClaim;
-  localWorkspaceDir: string;
-  prepareAcceptedWorkspacePublication?: (claim: WorkerSessionTurnClaim) => Promise<void>;
-  publishAcceptedWorkspace?: (claim: WorkerSessionTurnClaim) => Promise<void>;
-}) {
+async function executeWorkerTurn(
+  params: Omit<Parameters<typeof executeRemoteExecTurn>[0], "environments" | "runLocal"> & {
+    environments: WorkerTurnEnvironmentService;
+    onTerminal: () => void;
+  },
+) {
   const { placement, turn } = params;
   const modelRef = assertSupportedTurn(turn);
   const environment = params.environments.get(placement.environmentId);
@@ -183,6 +176,8 @@ async function executeWorkerTurn(params: {
     model: modelRef.model,
   });
 
+  const images = await prepareWorkerTurnImages(turn, placement.agentId, params.localWorkspaceDir);
+
   const credential = await params.environments.acquireTurnCredential(params.turnClaim);
   const tunnel = await waitForTurnOperation({
     operation: params.environments.startTunnel({
@@ -192,6 +187,17 @@ async function executeWorkerTurn(params: {
     ...(turn.abortSignal ? { signal: turn.abortSignal } : {}),
     timeoutMs: turn.timeoutMs,
   });
+  const attachmentNote = await prepareWorkerTurnAttachments({
+    turn,
+    tunnel,
+    remoteWorkspaceDir: placement.remoteWorkspaceDir,
+    assertCurrent: () => {
+      if (!params.placements.validateTurnClaim(params.turnClaim)) {
+        throw new Error("Cloud attachment transfer lost its turn claim");
+      }
+    },
+  });
+  const prompt = attachmentNote ? `${turn.prompt}\n\n${attachmentNote}` : turn.prompt;
   const portalAvailable =
     Boolean(environment.nodeDeviceId) &&
     environment.sshEndpoint === null &&
@@ -238,7 +244,8 @@ async function executeWorkerTurn(params: {
           agentRuntimeIdentityToken,
           runId: turn.runId,
           turnId: randomUUID(),
-          prompt: turn.prompt,
+          prompt,
+          ...(images.length > 0 ? { images } : {}),
           suppressPromptTranscript: true,
           workspaceDir: placement.remoteWorkspaceDir,
           ...(turn.permissionMode
@@ -599,7 +606,6 @@ export function createWorkerSessionTurnPlacementProvider(options: WorkerTurnLaun
           },
           placement,
           placements: options.placements,
-          reconcileActivePlacement: options.reconcileActivePlacement,
           localWorkspaceDir,
           ...(options.prepareAcceptedWorkspacePublication
             ? { prepareAcceptedWorkspacePublication: options.prepareAcceptedWorkspacePublication }

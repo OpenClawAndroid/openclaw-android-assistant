@@ -3445,7 +3445,7 @@ NODE
     );
     expect(source.match(/check_name: "android-build-play"/gu)).toHaveLength(1);
     expect(source).toContain('task: useCompatibleAndroidCi ? "build-play-compat" : "build-play"');
-    expect(androidJob.name).toBe("${{ matrix.check_name }}");
+    expect(androidJob.name).toBe("${{ matrix.check_name || 'android' }}");
     expect(androidJob["runs-on"]).toBe(
       "${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.run_attempt > 1) && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('[\"OWNER\",\"MEMBER\",\"COLLABORATOR\",\"CONTRIBUTOR\"]'), github.event.pull_request.author_association)) && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04') }}",
     );
@@ -4717,6 +4717,10 @@ server.listen(0, "127.0.0.1", () => {
     );
     expect(releaseChecks.jobs.validate_docker_lanes["timeout-minutes"]).toBe(
       "${{ matrix.group.timeout_minutes || 60 }}",
+    );
+    expect(releaseChecks.jobs.validate_docker_lanes.strategy["max-parallel"]).toBe(32);
+    expect(releaseChecks.jobs.validate_docker_lanes.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS).toBe(
+      "${{ matrix.group.published_upgrade_survivor_scenarios || inputs.published_upgrade_survivor_scenarios }}",
     );
   });
 
@@ -6630,7 +6634,8 @@ exit 1
       (step: WorkflowStep) => step.id === "swift-build-cache",
     );
     const nativeCachePrefix =
-      "${{ runner.os }}-swift-build-v4-native-tests-${{ steps.swift-toolchain.outputs.key }}-";
+      "${{ runner.os }}-swift-build-v5-graph-${{ steps.swift-toolchain.outputs.key }}-" +
+      "${{ hashFiles('apps/macos/Package*.swift', 'apps/macos/Package.resolved', 'apps/shared/**/Package*.swift', 'apps/shared/**/Package.resolved', 'apps/swabble/Package*.swift', 'apps/swabble/Package.resolved') }}-";
 
     expect(buildCache.with).toMatchObject({
       key: expect.stringContaining(nativeCachePrefix),
@@ -8376,7 +8381,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(bunSmoke.run).toContain("bun openclaw.mjs status --json --timeout 1");
   });
 
-  it("keeps source-only Control UI locale drift advisory", () => {
+  it("keeps automatic source-only Control UI locale drift advisory and manual CI strict", () => {
     const workflow = readCiWorkflow();
     const workflowSource = readFileSync(".github/workflows/ci.yml", "utf8");
     const buildArtifactSteps = workflow.jobs["build-artifacts"].steps;
@@ -8405,6 +8410,31 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(localeJob.env.COMPATIBILITY_TARGET).toBe(
       "${{ needs.preflight.outputs.compatibility_target }}",
     );
+    expect(workflow.jobs.preflight.outputs.strict_control_ui_i18n).toBe(
+      "${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.strict_control_ui_i18n }}",
+    );
+    expect(
+      evaluateWorkflowExpression(
+        "${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || 'false' }}",
+        {
+          eventName: "workflow_dispatch",
+          releaseGate: false,
+          repository: "openclaw/openclaw",
+          runAttempt: 1,
+        },
+      ),
+    ).toBe("true");
+    expect(
+      evaluateWorkflowExpression(
+        "${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || 'false' }}",
+        {
+          eventName: "workflow_dispatch",
+          releaseGate: true,
+          repository: "openclaw/openclaw",
+          runAttempt: 1,
+        },
+      ),
+    ).toBe("false");
     expect(sourceStep["continue-on-error"]).toBeUndefined();
     const compatibilityWithoutVerify = runControlUiI18nSourceFixture({
       compatibilityTarget: true,

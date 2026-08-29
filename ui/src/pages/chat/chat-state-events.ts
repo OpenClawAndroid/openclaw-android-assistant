@@ -60,6 +60,7 @@ import {
   reconcileChatRunFromSessionRow,
   reconcileChatRunAfterSessionStatePublication,
 } from "./run-lifecycle.ts";
+import { reconcileSessionApprovalEvent } from "./session-approval-projection.ts";
 import { applySessionMessagePayload } from "./session-message-apply.ts";
 import { isSidebarSlotVisible } from "./sidebar-layout.ts";
 import { rememberAuthoritativeTerminal } from "./terminal-message-identity.ts";
@@ -551,6 +552,23 @@ export function handlePageGatewayEvent(
   event: GatewayEventFrame,
   isPresented: ChatPanePresentation = () => true,
 ) {
+  if (event.event === "session.approval") {
+    const payload = asNullableRecord(event.payload);
+    if (!payload || typeof payload.sessionKey !== "string") {
+      return;
+    }
+    const queue = reconcileSessionApprovalEvent(
+      state.chatSessionApprovalQueue ?? [],
+      payload,
+      state.sessionKey,
+      resolveChatAgentId(state),
+    );
+    if (queue) {
+      state.chatSessionApprovalQueue = queue;
+      requestChatPageUpdate(state);
+    }
+    return;
+  }
   if (event.event === "chat") {
     const payload = event.payload as ChatEventPayload | undefined;
     const sessionMatches = Boolean(

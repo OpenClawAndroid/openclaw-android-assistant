@@ -14,6 +14,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -720,10 +721,15 @@ const describePosix = process.platform === "win32" ? describe.skip : describe;
 describePosix("scripts/pr per-PR operation lock", () => {
   it.each([
     ...(["healthy", "first", "second"] as const).flatMap((failure) =>
-      [false, true].map((existing) => ({ command: "review-init" as const, failure, existing })),
+      [false, true]
+        .filter((existing) => !existing || failure !== "second")
+        .map((existing) => ({ command: "review-init" as const, failure, existing })),
+    ),
+    ...(["review-init", "review-claim"] as const).flatMap((command) =>
+      [false, true].map((existing) => ({ command, failure: "auth" as const, existing })),
     ),
     ...(["review-validate-artifacts", "review-guard", "review-tests"] as const).flatMap((command) =>
-      (["healthy", "first", "second", "auth"] as const).map((failure) => ({
+      (["healthy", "first", "auth"] as const).map((failure) => ({
         command,
         failure,
         existing: true,
@@ -832,15 +838,16 @@ describePosix("scripts/pr per-PR operation lock", () => {
           writeFileSync(join(localDir, artifact), `prior ${artifact}\n`);
         }
       }
-      if (command !== "review-init") {
+      if (
+        command === "review-validate-artifacts" ||
+        command === "review-guard" ||
+        command === "review-tests"
+      ) {
         writeReviewArtifacts(worktreeDir, validReview(pullHead), { headSha: pullHead });
       }
-      const priorArtifacts =
-        command === "review-init"
-          ? []
-          : artifactNames.map(
-              (name) => [name, readFileSync(join(localDir, name), "utf8")] as const,
-            );
+      const priorArtifacts = existing
+        ? artifactNames.map((name) => [name, readFileSync(join(localDir, name), "utf8")] as const)
+        : [];
       const metadataPath = join(stateDir, "metadata.json");
       writeFileSync(
         metadataPath,
@@ -870,17 +877,24 @@ describePosix("scripts/pr per-PR operation lock", () => {
           files: [],
         }),
       );
+      const ghEventsPath = join(stateDir, "gh-events");
+      writeFileSync(ghEventsPath, "");
       const gh = writeFixtureFile(binDir, "gh", [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         'case "$*" in',
-        '  "auth token") exit 1 ;;',
+        '  "auth token") printf "token:1\\n" >> "$OPENCLAW_TEST_GH_EVENTS"; exit 1 ;;',
         '  "api graphql -f query=query { viewer { login } } --jq .data.viewer.login")',
-        '    [ "$OPENCLAW_TEST_AUTH_FAILURE" != 1 ] || exit 1',
+        '    if [ "$OPENCLAW_TEST_AUTH_FAILURE" = 1 ]; then',
+        '      printf "viewer:1\\n" >> "$OPENCLAW_TEST_GH_EVENTS"; exit 1',
+        "    fi",
+        '    printf "viewer:0\\n" >> "$OPENCLAW_TEST_GH_EVENTS"',
         '    printf "fixture-user\\n" ;;',
-        '  "pr view 42 --json headRefOid"|"pr view 42 --json number,title,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,statusCheckRollup,files")',
-        '    cat "$OPENCLAW_TEST_PR_METADATA" ;;',
-        '  *) echo "unexpected fixture gh request" >&2; exit 99 ;;',
+        '  "pr view 42 --json headRefOid")',
+        '    cat "$OPENCLAW_TEST_PR_METADATA"; printf "head:0\\n" >> "$OPENCLAW_TEST_GH_EVENTS" ;;',
+        '  "pr view 42 --json number,title,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,statusCheckRollup,files")',
+        '    cat "$OPENCLAW_TEST_PR_METADATA"; printf "metadata:0\\n" >> "$OPENCLAW_TEST_GH_EVENTS" ;;',
+        '  *) printf "unexpected:99\\n" >> "$OPENCLAW_TEST_GH_EVENTS"; echo "unexpected fixture gh request" >&2; exit 99 ;;',
         "esac",
       ]);
       chmodSync(gh, 0o755);
@@ -896,10 +910,12 @@ describePosix("scripts/pr per-PR operation lock", () => {
         "set -euo pipefail",
         'original=("$@")',
         'if [ "${1-}" = -C ]; then shift 2; fi',
+        'case "${1-}" in --git-dir=*) shift ;; esac',
         'if [ "${1-}" = fetch ]; then',
+        '  target="${3-}"; [[ " $* " != *" +refs/heads/main:refs/remotes/origin/main "* ]] || target=main',
         '  result=0; "$OPENCLAW_TEST_REAL_GIT" "${original[@]}" || result=$?',
-        '  printf "fetch:%s:%s\\n" "${3-}" "$result" >> "$OPENCLAW_TEST_EVENTS"',
-        '  if [ "${3-}" = main ] && [ "$result" -eq 0 ] && [ "$OPENCLAW_TEST_FAILURE" = second ] && [ ! -e "$OPENCLAW_TEST_FIRST_MAIN" ]; then',
+        '  printf "fetch:%s:%s\\n" "$target" "$result" >> "$OPENCLAW_TEST_EVENTS"',
+        '  if [ "$target" = main ] && [ "$result" -eq 0 ] && [ "$OPENCLAW_TEST_FAILURE" = second ] && [ ! -e "$OPENCLAW_TEST_FIRST_MAIN" ]; then',
         '    "$OPENCLAW_TEST_REAL_GIT" -C "$OPENCLAW_TEST_REPO" rev-parse refs/remotes/origin/main > "$OPENCLAW_TEST_FIRST_MAIN"',
         '    "$OPENCLAW_TEST_REAL_GIT" --git-dir="$OPENCLAW_TEST_ORIGIN" update-ref -d refs/heads/main',
         "  fi",
@@ -918,6 +934,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
         ...env,
         OPENCLAW_GH_BIN: gh,
         OPENCLAW_TEST_PR_METADATA: metadataPath,
+        OPENCLAW_TEST_GH_EVENTS: ghEventsPath,
         OPENCLAW_TEST_REAL_GIT: realGit,
         OPENCLAW_TEST_REPO: repoDir,
         OPENCLAW_TEST_ORIGIN: originDir,
@@ -951,6 +968,40 @@ describePosix("scripts/pr per-PR operation lock", () => {
         expect.soft(git("branch", "--show-current")).toBe("main");
         expect.soft(git("write-tree")).toBe(canonicalTree);
         expect.soft(git("diff", "--exit-code")).toBe("");
+        if (failure === "auth" && (command === "review-init" || command === "review-claim")) {
+          // The exact GH trace distinguishes the intended auth failure from an
+          // unexpected fixture command that the auth diagnostic would also hide.
+          const ghEvents = readFileSync(ghEventsPath, "utf8").trim().split("\n");
+          expect
+            .soft(ghEvents, output)
+            .toEqual(
+              command === "review-init"
+                ? ["metadata:0", "head:0", "token:1", "viewer:1"]
+                : ["token:1", "viewer:1"],
+            );
+          expect.soft(controller.exitCode, output).toBe(1);
+          expect.soft(output).toContain("GitHub CLI auth is not usable");
+          expect.soft(events.filter(Boolean), output).toEqual([]);
+          expect.soft(git("rev-parse", "refs/remotes/origin/main")).toBe(cachedMain);
+          expect.soft(git("rev-parse", "refs/heads/pr-42")).toBe(cachedMain);
+          expect.soft(existsSync(worktreeDir)).toBe(existing);
+          if (existing) {
+            expect.soft(git("-C", worktreeDir, "rev-parse", "HEAD")).toBe(pullHead);
+            expect.soft(git("-C", worktreeDir, "branch", "--show-current")).toBe("temp/pr-42");
+            expect.soft(git("-C", worktreeDir, "write-tree")).toBe(canonicalTree);
+            expect.soft(git("-C", worktreeDir, "diff", "--exit-code")).toBe("");
+            expect.soft(readdirSync(localDir).sort()).toEqual([...artifactNames].sort());
+            for (const [name, contents] of priorArtifacts) {
+              expect.soft(readFileSync(join(localDir, name), "utf8"), name).toBe(contents);
+            }
+          }
+          expect.soft(refExists(repoDir, lockRef, childEnv), output).toBe(false);
+          expect.soft(output).not.toContain("Retaining the operation lock");
+          expect.soft(output).not.toContain("scripts/pr lock-recover");
+          expect.soft(output).not.toContain("wrote=.local/pr-meta.json");
+          expect.soft(output).not.toContain("review claim succeeded");
+          return;
+        }
         if (command !== "review-init") {
           const fetches = events.filter((event) => event.startsWith("fetch:"));
           expect
@@ -968,9 +1019,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
           // Authentication fails before fetch can launch helpers or mutate Git.
           // Once fetching starts, later failure retains the native exact-owner lock.
           const retained =
-            failure === "first" ||
-            failure === "second" ||
-            (command === "review-tests" && failure === "healthy");
+            failure === "first" || (command === "review-tests" && failure === "healthy");
           expect.soft(refExists(repoDir, lockRef, childEnv), output).toBe(retained);
           if (retained && refExists(repoDir, lockRef, childEnv)) {
             expect(output).toContain(
@@ -987,20 +1036,15 @@ describePosix("scripts/pr per-PR operation lock", () => {
               expect.soft(fetches, output).toEqual([]);
               expect.soft(output).toContain("GitHub CLI auth is not usable");
             } else {
-              expect
-                .soft(fetches, output)
-                .toEqual(
-                  failure === "first" ? ["fetch:main:128"] : ["fetch:main:0", "fetch:main:128"],
-                );
-              expect.soft(output).toContain("couldn't find remote ref main");
+              expect.soft(fetches, output).toEqual(["fetch:main:128"]);
+              expect.soft(output).toContain("couldn't find remote ref refs/heads/main");
               const failedFetch = events.indexOf("fetch:main:128");
               expect.soft(events.slice(failedFetch + 1), output).toEqual([]);
             }
             return;
           }
-          // Exactly one initializer: a missed fault with four successful fetches
-          // is not accepted as the intentional two-fetch canonical path.
-          expect.soft(fetches, output).toEqual(["fetch:main:0", "fetch:main:0"]);
+          // Nested validation shares the same captured main snapshot.
+          expect.soft(fetches, output).toEqual(["fetch:main:0"]);
           expect.soft(git("rev-parse", "refs/remotes/origin/main")).toBe(remoteMain);
           expect.soft(output).toContain("review guard passed");
           if (command === "review-tests") {
@@ -1031,8 +1075,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
             "REVIEW_MODE=main",
           );
           expect(events.filter((event) => event.startsWith("fetch:"))).toEqual([
-            "fetch:main:0",
-            "fetch:main:0",
+            ...Array.from({ length: existing ? 1 : 2 }, () => "fetch:main:0"),
             "fetch:pull/42/head:pr-42:0",
           ]);
           expect(refExists(repoDir, lockRef, childEnv), output).toBe(false);
@@ -1042,7 +1085,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
         expect.soft(failedFetch, output).toBeGreaterThanOrEqual(0);
         expect.soft(events.slice(failedFetch + 1), output).toEqual([]);
         expect.soft(controller.exitCode, output).toBe(1);
-        expect.soft(output).toContain("couldn't find remote ref main");
+        expect.soft(output).toContain("couldn't find remote ref refs/heads/main");
         expect.soft(output).not.toContain("wrote=.local/pr-meta.json");
         expect.soft(git("rev-parse", "refs/heads/pr-42")).toBe(cachedMain);
         expect
@@ -1618,15 +1661,15 @@ describePosix("scripts/pr per-PR operation lock", () => {
       { invocation, failure: "auth", code: 1, fetches: 0, retained: false },
       { invocation, failure: "fetch-1", code: 130, fetches: 1, retained: true },
       { invocation, failure: "fetch-1", code: 73, fetches: 1, retained: true },
-      { invocation, failure: "fetch-2", code: 143, fetches: 2, retained: true },
-      { invocation, failure: "fetch-2", code: 128, fetches: 2, retained: true },
-      { invocation, failure: "none", code: 0, fetches: 2, retained: false },
+      { invocation, failure: "fetch-1", code: 143, fetches: 1, retained: true },
+      { invocation, failure: "fetch-1", code: 128, fetches: 1, retained: true },
+      { invocation, failure: "none", code: 0, fetches: 1, retained: false },
     ]),
     {
       invocation: "review_validate_artifacts",
       failure: "artifact",
       code: 1,
-      fetches: 2,
+      fetches: 1,
       retained: true,
     },
     { invocation: "enter_worktree", failure: "notification", code: 1, fetches: 0, retained: true },
@@ -1679,9 +1722,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
       expect.soft(result.status, `${result.stdout}\n${result.stderr}`).toBe(code === 0 ? 0 : 1);
       const commands = readFileSync(traceFile, "utf8").trim().split("\n");
       expect.soft(commands.filter((command) => command === "auth")).toHaveLength(1);
-      expect
-        .soft(commands.filter((command) => command.includes(" fetch origin main")))
-        .toHaveLength(fetches);
+      expect.soft(commands.filter((command) => command.includes(" fetch "))).toHaveLength(fetches);
       if (failure.startsWith("fetch-")) {
         const failedAt = commands.indexOf("failed-fetch");
         expect(failedAt).toBeGreaterThanOrEqual(0);
@@ -1748,7 +1789,11 @@ describePosix("scripts/pr per-PR operation lock", () => {
       git("add", "scripts", ".github");
       git("commit", "-qm", "test: native cleanup fixture");
       const preparedHead = git("rev-parse", "HEAD");
-      git("update-ref", "refs/remotes/origin/main", preparedHead);
+      const origin = tempDirs.make("openclaw-pr-cleanup-origin-");
+      git("init", "--bare", "-q", origin);
+      git("remote", "add", "origin", origin);
+      git("push", "-q", "origin", `${preparedHead}:refs/heads/main`);
+      git("fetch", "-q", "origin", "refs/heads/main:refs/remotes/origin/main");
       git("worktree", "add", "-q", "-b", "temp/pr-42", worktreeDir);
       if (wrapper === "linked") {
         // origin/main still names the linked wrapper; canonical code must not
@@ -1802,7 +1847,6 @@ describePosix("scripts/pr per-PR operation lock", () => {
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         'case "$*" in',
-        '  "fetch "*|"-C "*" fetch "*) exit 0 ;;',
         '  "worktree remove "*)',
         '    "$OPENCLAW_TEST_REAL_GIT" "$@"',
         '    printf "removed\\n" >> "$OPENCLAW_TEST_LIFECYCLE"',
@@ -1844,7 +1888,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
       expect(existsSync(lifecycle), output).toBe(true);
       const events = readFileSync(lifecycle, "utf8");
       expect(git("rev-parse", "HEAD")).toBe(canonicalHead);
-      expect(existsSync(worktreeDir)).toBe(failure === "merge");
+      expect(existsSync(worktreeDir), output).toBe(failure === "merge");
       if (failure === "merge") {
         expect(result.status, output).toBe(1);
         expect(output).toContain("fixture merge failed");

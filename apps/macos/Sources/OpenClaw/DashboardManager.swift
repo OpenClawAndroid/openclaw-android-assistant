@@ -7,6 +7,11 @@ import WebKit
 
 private let dashboardManagerLogger = Logger(subsystem: "ai.openclaw", category: "DashboardManager")
 
+enum DashboardRouteProbePurpose: Sendable {
+    case authentication
+    case presentation
+}
+
 @MainActor
 @Observable
 final class DashboardManager {
@@ -46,7 +51,7 @@ final class DashboardManager {
     @ObservationIgnored private var presentationGeneration: UInt64 = 0
     @ObservationIgnored private var switchGenerations: [ObjectIdentifier: UInt64] = [:]
     @ObservationIgnored private let authTokenProvider: @Sendable (GatewayConnection.Config) async -> String?
-    @ObservationIgnored private let routeProbe: @Sendable () async -> Void
+    @ObservationIgnored private let routeProbe: @Sendable (DashboardRouteProbePurpose) async -> Void
     @ObservationIgnored private let endpointStateProvider: @Sendable () async -> GatewayEndpointState
     @ObservationIgnored private let mainWindowAutosaveName: String
     @ObservationIgnored private let websiteDataStore: WKWebsiteDataStore
@@ -69,12 +74,18 @@ final class DashboardManager {
         authTokenProvider: @escaping @Sendable (GatewayConnection.Config) async -> String? = { config in
             await GatewayConnection.shared.controlUiAutoAuthToken(config: config)
         },
-        routeProbe: @escaping @Sendable () async -> Void = {
-            _ = try? await GatewayConnection.shared.request(
-                method: "health",
-                params: nil,
-                timeoutMs: 3000,
-                retryTransportFailures: false)
+        routeProbe: @escaping @Sendable (DashboardRouteProbePurpose) async -> Void = { purpose in
+            switch purpose {
+            case .authentication:
+                // Missing credentials must not start recovery or mark the channel degraded.
+                _ = try? await GatewayConnection.shared.request(
+                    method: "health",
+                    params: nil,
+                    timeoutMs: 3000,
+                    retryTransportFailures: false)
+            case .presentation:
+                _ = try? await ControlChannel.shared.health(timeout: 3)
+            }
         },
         endpointStateProvider: @escaping @Sendable () async -> GatewayEndpointState = {
             await GatewayEndpointStore.shared.currentState()
@@ -183,7 +194,7 @@ final class DashboardManager {
         var authToken = await self.authTokenProvider(config)
         guard self.endpointTransitionIsCurrent(generation, controller: controller) else { return }
         if authToken == nil, password?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty == nil {
-            await self.routeProbe()
+            await self.routeProbe(.authentication)
             guard self.endpointTransitionIsCurrent(generation, controller: controller) else { return }
             authToken = await self.authTokenProvider(config)
             guard self.endpointTransitionIsCurrent(generation, controller: controller) else { return }
@@ -331,7 +342,7 @@ final class DashboardManager {
         self.rememberPresentedEndpoint(endpoint)
         self.observeEndpointChanges()
         Task { await self.refreshGatewaySnapshots() }
-        Task { _ = try? await ControlChannel.shared.health(timeout: 3) }
+        Task { await self.routeProbe(.presentation) }
         return true
     }
 
@@ -417,7 +428,7 @@ final class DashboardManager {
         await self.refreshGatewaySnapshots()
 
         // Refresh the cached hello payload without blocking window creation.
-        Task { _ = try? await ControlChannel.shared.health(timeout: 3) }
+        Task { await self.routeProbe(.presentation) }
     }
 
     func show(atPath path: String, search: String? = nil) async {
@@ -803,7 +814,9 @@ final class DashboardManager {
         components.fragment = nil
         return components.url?.absoluteString ?? dashboardURL.absoluteString
     }
+}
 
+extension DashboardManager {
     private func primaryEndpoint(
         mode: AppState.ConnectionMode) async throws -> GatewayConnection.EndpointSnapshot
     {
@@ -1181,7 +1194,7 @@ extension DashboardManager {
     static func _testMake(
         websiteDataStore: WKWebsiteDataStore = .nonPersistent(),
         authTokenProvider: @escaping @Sendable (GatewayConnection.Config) async -> String? = { $0.token },
-        routeProbe: @escaping @Sendable () async -> Void = {},
+        routeProbe: @escaping @Sendable (DashboardRouteProbePurpose) async -> Void = { _ in },
         endpointStateProvider: @escaping @Sendable () async -> GatewayEndpointState = {
             .unavailable(mode: .unconfigured, reason: "not configured")
         },

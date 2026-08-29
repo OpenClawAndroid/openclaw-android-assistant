@@ -41,6 +41,12 @@ Configure a profile under `cloudWorkers.profiles` and the bundled Crabbox plugin
 
 See [Cloud Workers](/gateway/cloud-workers) for profiles, requirements, dispatching, moving sessions between destinations, and the security model.
 
+## Viewing the session desktop
+
+Open **Desktop** from a session to view its execution machine. Cloud sessions select their worker desktop; sessions on paired devices select that device. The pop-out window keeps the session in its link. Both viewers follow placement changes and disconnect from the previous machine when the session moves or stops. A stopped cloud session does not switch either viewer to the Gateway desktop.
+
+The machine must already support desktop viewing. For cloud workers, enable the [Cloud Worker Desktop lab and desktop profile setting](/gateway/cloud-workers#desktop-interactive). Opening Desktop starts in view-only mode and does not change the machine's permissions or the agent's tool policy. The global Desktop command in the command palette still opens the machine picker, including on chat pages.
+
 ## Automatic load balancing across devices
 
 You do not have to pick a device. Choosing **Auto** (least-busy device) in the Place picker — or dispatching with `autoDevice: true` — selects a paired session host automatically and retries up to three ranked hosts if provisioning fails before a machine is allocated. OpenClaw `worker-turn` placements rank hosts by most free worker slots, breaking ties by device ID; Codex `remote-exec` placements do not consume worker slots, so eligible hosts are ranked by device ID alone. When no host qualifies, the error says exactly why: no session hosts paired, all disconnected, or all at capacity.
@@ -57,6 +63,12 @@ Two profile settings turn cloud workers from always-on machines into compute tha
 With warm images enabled, repeat sessions for the same repository can also avoid a fresh clone. For clean workspaces eligible for the published-origin path, node-tunnel sync copies the machine's per-repository Git seed, fetches only the Git delta, and checks out the requested commit. Other workspaces keep the normal sync path.
 
 Suspension never interrupts work: sessions with an active turn, queued messages, or unreconciled results are skipped and re-checked on the next sweep. See the profile fields in [Cloud Workers](/gateway/cloud-workers#configuration) for costs, capture boundaries, and prerequisites.
+
+## Images and PDFs
+
+Attach images and PDFs through the normal chat composer, including on later turns in an existing cloud session. The Gateway prepares image input, including rendered pages from scanned PDFs, before sending it to an OpenClaw worker. Codex receives image input through its Gateway-side app-server.
+
+Original attachments are copied into the placed session's remote workspace before execution. The turn includes the remote paths so file tools can inspect the originals without using Gateway-local filenames. These managed input copies stay readable on the worker but are excluded from workspace synchronization; they do not become project edits. Attachment transfer does not replace the remote workspace or overwrite existing work. Model credentials remain on the Gateway.
 
 ## What stays with the Gateway
 
