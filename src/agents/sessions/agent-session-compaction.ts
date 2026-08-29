@@ -19,8 +19,10 @@ import { wrapUntrustedPromptDataBlock } from "../sanitize-for-prompt.js";
 import { AgentSessionInspection } from "./agent-session-inspection.js";
 import { unwrapCoreResult } from "./agent-session-utils.js";
 import { formatNoModelSelectedMessage } from "./auth-guidance.js";
+import { createCompactionRuntime } from "./compaction/runtime.js";
 import { preflightManualSessionCompaction } from "./manual-compaction-preflight.js";
 import { getLatestCompactionEntry, type CompactionEntry } from "./session-manager.js";
+import { recordSessionModelUsage } from "./session-model-usage.js";
 import type { SettingsManager } from "./settings-manager.js";
 
 type CompactionReason = "manual" | "threshold" | "overflow";
@@ -238,6 +240,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
           options.signal,
           this.thinkingLevel,
           this.agent.streamFn,
+          createCompactionRuntime((usage) => recordSessionModelUsage(this.sessionManager, usage)),
         );
       let result = await runCoreCompaction();
       // Automatic core compaction owns one retry for invalid summary output.

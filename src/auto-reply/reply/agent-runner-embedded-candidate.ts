@@ -58,7 +58,7 @@ export async function runEmbeddedFallbackCandidate(
     ...params.candidateFastMode,
     thinkLevel: params.candidateThinkLevel,
   };
-  const { embeddedContext, senderContext, runBaseParams } = buildEmbeddedRunExecutionParams({
+  const { embeddedContext, senderContext, runBaseParams } = await buildEmbeddedRunExecutionParams({
     run: candidateRun,
     replyRoute: turn.followupRun,
     sessionCtx: turn.sessionCtx,

@@ -189,6 +189,7 @@ describe("executeAgentTurn: CLI session routing", () => {
         id: "claude-sonnet-4-6",
         contextWindow: 400_000,
         contextTokens: 321_000,
+        input: ["text", "image"],
       },
     ];
 

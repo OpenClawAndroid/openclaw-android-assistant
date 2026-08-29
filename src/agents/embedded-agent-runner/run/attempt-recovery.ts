@@ -309,6 +309,7 @@ export async function recoverEmbeddedRunAttempt(input: {
     }),
     prepareCompactedTranscriptRetry: sessionPromptState.prepareCompactedTranscriptRetry,
     armPostCompactionGuard: input.armPostCompactionGuard,
+    usageAccumulator: input.usageAccumulator,
   };
   if (
     await recoverEmbeddedRunTimeout({

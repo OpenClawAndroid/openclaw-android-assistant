@@ -432,6 +432,7 @@ describe("worker turn launcher remote handoff", () => {
             signal: command.signal,
           }),
       ),
+      stageAttachments: vi.fn(async () => {}),
       launchTurn: vi.fn(async (request): Promise<SpawnResult> => {
         request.onDispatchReady?.();
         descriptor = completeWorkerLaunchDescriptor(structuredClone(request.plan), {
@@ -509,10 +510,16 @@ describe("worker turn launcher remote handoff", () => {
       async () => ({ meta: { durationMs: 1 } }),
     );
 
-    expect(descriptor?.assignment.prompt).toContain(
-      "Inspect this workspace\n\nCurrent attachment originals",
+    expect(descriptor?.assignment.prompt).toEqual([
+      { type: "text", text: expect.stringContaining("Inspect this workspace") },
+      image,
+      image,
+      image,
+    ]);
+    expect(JSON.stringify(descriptor?.assignment.prompt)).toContain(
+      "media/inbound/openclaw-staged-",
     );
-    expect(descriptor?.assignment.images).toEqual([image, image, image]);
+    expect(tunnel.stageAttachments).toHaveBeenCalledOnce();
     const verifiedRuntimeIdentity = await verifyAgentRuntimeIdentityToken(
       descriptor?.assignment.agentRuntimeIdentityToken,
     );

@@ -632,6 +632,8 @@ async function runSummarizationCompletion(params: {
   const response = params.streamFn
     ? await consumeAgentCoreStream(params.streamFn(params.model, context, options))
     : await resolveAgentCoreCompleteFn(params.runtime)(params.model, context, options);
+  // Usage belongs to the completed provider request even when its summary is invalid.
+  params.runtime?.internalUsageSink?.(response.usage);
   if (response.stopReason === "aborted") {
     return err(
       new CompactionError("aborted", response.errorMessage || `${params.errorLabel} aborted`),
@@ -893,7 +895,7 @@ export function prepareCompaction(
   });
 }
 
-const TURN_PREFIX_SUMMARIZATION_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+export const TURN_PREFIX_SUMMARIZATION_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
 
 Summarize the prefix to provide context for the retained suffix:
 

@@ -15,13 +15,17 @@ import {
 } from "../agent-hooks/compaction-safeguard-runtime.js";
 import compactionSafeguardExtension from "../agent-hooks/compaction-safeguard.js";
 import { subscribeEmbeddedAgentSession } from "../embedded-agent-subscribe.js";
-import { agentSessionSetContextReplacementHook } from "./agent-session-compaction.js";
+import {
+  agentSessionAutomaticCompaction,
+  agentSessionSetContextReplacementHook,
+} from "./agent-session-compaction.js";
 import {
   createAssistant,
   createAssistantResultStream,
   createAutoCompactionSettings,
   createOverflowAssistant,
   createTestSession,
+  mockInvalidThenTextSummary,
   registerAgentSessionLoopTestLifecycle,
   streamMocks,
   testModel,
@@ -173,6 +177,10 @@ describe("AgentSession compaction", () => {
             retry: { enabled: false },
           }),
         });
+        const subscription = subscribeEmbeddedAgentSession({
+          session,
+          runId: "run-safeguard-summary-usage",
+        });
         const entriesBefore = structuredClone(sessionManager.getEntries());
         const messagesBefore = structuredClone(session.messages);
         const compactionEnds = collectCompactionEnds(session);
@@ -205,6 +213,10 @@ describe("AgentSession compaction", () => {
           outcomes: compactionEnds.map((event) => event.outcome.status),
           appended,
         };
+        expect(subscription.getUsageTotals()?.total ?? 0).toBe(
+          streamMocks.streamSimple.mock.calls.length * 2,
+        );
+        subscription.unsubscribe();
         expect.soft(observation).toMatchObject({
           providerCalls: 1,
           callerAbortedAtProviderEntry: false,
@@ -383,6 +395,62 @@ describe("AgentSession compaction", () => {
     expect(subscription.getCompactionCount()).toBe(1);
     expect(subscription.getLastCompactionTokensAfter()).toEqual(expect.any(Number));
     expect(subscription.getLastCompactionTokensAfter()).toBeGreaterThan(0);
+    subscription.unsubscribe();
+  });
+
+  it("accounts every automatic compaction response before summary validation", async () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "old prompt", timestamp: 1 });
+    sessionManager.appendMessage({
+      ...createAssistant(testModel, [{ type: "text", text: "old answer" }]),
+      timestamp: 2,
+    });
+    sessionManager.appendMessage({ role: "user", content: "latest prompt", timestamp: 3 });
+    const requestCount = mockInvalidThenTextSummary("condensed history");
+    const { session } = await createTestSession({
+      sessionManager,
+      settingsManager: createAutoCompactionSettings(),
+    });
+    const subscription = subscribeEmbeddedAgentSession({
+      session,
+      runId: "run-automatic-summary-usage",
+    });
+
+    await session[agentSessionAutomaticCompaction]();
+
+    expect(requestCount()).toBe(2);
+    expect(subscription.getUsageTotals()).toMatchObject({ input: 2, output: 2, total: 4 });
+    subscription.unsubscribe();
+  });
+
+  it("accounts branch-summary responses through the same run owner", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: 1 });
+    const abandonedId = sessionManager.appendMessage({
+      role: "user",
+      content: "abandoned branch",
+      timestamp: 2,
+    });
+    sessionManager.branch(rootId);
+    const targetId = sessionManager.appendMessage({
+      ...createAssistant(testModel, [{ type: "text", text: "target branch" }]),
+      timestamp: 3,
+    });
+    sessionManager.branch(abandonedId);
+    streamMocks.streamSimple.mockImplementation((activeModel: Model) =>
+      createAssistantResultStream(
+        createAssistant(activeModel, [{ type: "text", text: "branch summary" }], "stop", 7),
+      ),
+    );
+    const { session } = await createTestSession({ sessionManager });
+    const subscription = subscribeEmbeddedAgentSession({
+      session,
+      runId: "run-branch-summary-usage",
+    });
+
+    await session.navigateTree(targetId, { summarize: true });
+
+    expect(subscription.getUsageTotals()).toMatchObject({ input: 7, output: 1, total: 8 });
     subscription.unsubscribe();
   });
 

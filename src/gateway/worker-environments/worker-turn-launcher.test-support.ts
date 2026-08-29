@@ -333,6 +333,7 @@ export function turn(runId = "run-worker-turn", executionIdentity = false) {
     runId,
     provider: "openai",
     model: "gpt-test",
+    modelHasVision: true,
     config,
   };
 }

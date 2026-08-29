@@ -3052,7 +3052,6 @@ src/gateway/worker-environments/inference-runtime.ts	2
 src/gateway/worker-environments/inference-store.ts	1
 src/gateway/worker-environments/live-event-projection.ts	1
 src/gateway/worker-environments/node-worker-workspace-fallback.ts	2
-src/gateway/worker-environments/node-workspace-transfer-service.ts	1
 src/gateway/worker-environments/placement-state.ts	3
 src/gateway/worker-environments/placement-store.ts	1
 src/gateway/worker-environments/provider-lifecycle.ts	1
@@ -4093,7 +4092,6 @@ ui/src/pages/chat/components/chat-swarm-progress.ts	2
 ui/src/pages/chat/components/chat-task-suggestions.ts	1
 ui/src/pages/chat/components/chat-thread-interactions.ts	7
 ui/src/pages/chat/components/chat-tool-cards.ts	2
-ui/src/pages/chat/components/chat-transcript-controller.ts	1
 ui/src/pages/chat/components/chat-voice-activity.ts	1
 ui/src/pages/chat/components/session-diff-menus.ts	1
 ui/src/pages/chat/components/session-diff-panel.ts	2

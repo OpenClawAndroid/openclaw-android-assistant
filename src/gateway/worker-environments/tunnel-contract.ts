@@ -123,6 +123,11 @@ export type WorkerWorkspaceTunnelHandle = {
   ownerEpoch: number;
   launchTurn?: never;
   runWorkspaceCommand(command: WorkerWorkspaceCommand): Promise<SpawnResult>;
+  stageAttachments?(request: {
+    localPath: string;
+    isAuthorized: () => boolean;
+    signal: AbortSignal;
+  }): Promise<void>;
   quiesceWorkspace(remoteWorkspaceDir: string): Promise<WorkerWorkspaceQuiescence>;
   syncWorkspace(request: WorkerWorkspaceSyncRequest): Promise<WorkerWorkspaceSyncResult>;
   reconcileWorkspace(
