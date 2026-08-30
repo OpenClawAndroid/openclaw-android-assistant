@@ -870,6 +870,13 @@ digits.
 
 ## Troubleshooting
 
+### Call placement fails to save its initial record
+
+Voice Call saves the initial record before reserving a concurrency slot or
+contacting the carrier. If that write fails, the placement reports the storage
+error without dialing. Restore access to the state directory, then retry; the
+failed placement does not consume `maxConcurrentCalls` capacity.
+
 ### Setup fails webhook exposure
 
 Run setup from the same environment that runs the Gateway:

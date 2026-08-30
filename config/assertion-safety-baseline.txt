@@ -541,7 +541,6 @@ extensions/google/onboard.ts	3
 extensions/google/provider-catalog.ts	2
 extensions/google/provider-registration.ts	2
 extensions/google/realtime-voice-provider.ts	6
-extensions/google/src/gemini-web-search-provider.runtime.ts	1
 extensions/google/transport-stream.ts	15
 extensions/google/vertex-adc.ts	6
 extensions/google/video-generation-provider.ts	13
@@ -1918,7 +1917,7 @@ src/agents/model-fallback-attempt.ts	1
 src/agents/model-fallback-runner.ts	2
 src/agents/model-provider-auth.ts	4
 src/agents/model-provider-auth.worker.ts	1
-src/agents/model-scan.ts	4
+src/agents/model-scan.ts	3
 src/agents/model-selection-shared.ts	1
 src/agents/model-tool-support.ts	1
 src/agents/models-config-state.ts	1
@@ -4094,7 +4093,7 @@ ui/src/pages/chat/realtime-talk-gateway-relay.ts	1
 ui/src/pages/chat/realtime-talk-google-live.ts	2
 ui/src/pages/chat/realtime-talk-shared.ts	7
 ui/src/pages/chat/realtime-talk-webrtc.ts	3
-ui/src/pages/chat/realtime-talk.ts	7
+ui/src/pages/chat/realtime-talk.ts	2
 ui/src/pages/chat/run-lifecycle.ts	1
 ui/src/pages/chat/scroll.ts	1
 ui/src/pages/chat/session-cache.ts	2
