@@ -71,7 +71,7 @@ describe("buildStatusMessageParts presentation", () => {
       queue: { mode: "steer", depth: 0 },
       modelAuth: "api-key",
       uptimeValue: "gateway 1h · system 2d",
-      channelFeatureLine: "Telegram rich messages: on · Bot API 10.2 sendRichMessage enabled",
+      channelFeatureLine: "Telegram rich messages: on · Bot API 10.3 sendRichMessage enabled",
     });
 
     expect(parts.text).toBe(
@@ -84,7 +84,7 @@ describe("buildStatusMessageParts presentation", () => {
         queue: { mode: "steer", depth: 0 },
         modelAuth: "api-key",
         uptimeValue: "gateway 1h · system 2d",
-        channelFeatureLine: "Telegram rich messages: on · Bot API 10.2 sendRichMessage enabled",
+        channelFeatureLine: "Telegram rich messages: on · Bot API 10.3 sendRichMessage enabled",
       }),
     );
     expect(parts.text).toContain("⏱️ Uptime: gateway 1h · system 2d");

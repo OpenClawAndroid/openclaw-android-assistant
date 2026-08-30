@@ -29,6 +29,15 @@ export type ChatAttachment = {
   browserAnnotation?: BrowserAnnotationAttachment;
 };
 
+// Shared payload contract: draft and outbox storage must not import each other's runtime.
+export type DurableComposerDraftAttachment = {
+  blob: Blob;
+  mimeType: string;
+  fileName?: string;
+  sizeBytes?: number;
+  browserAnnotation?: BrowserAnnotationAttachment;
+};
+
 export type ChatComposerDraftRetry = {
   expectedDraftRevision: number;
   draftRevision: number;
@@ -47,6 +56,7 @@ export type ChatGoalDraft = { sessionId?: string } & (
 export type ChatGoalAction = "pause" | "resume" | "clear";
 
 export type ChatComposerMemoryFallback = {
+  awaitingDefaults?: true;
   goalMode?: ChatGoalDraftMode;
   message: string;
   attachments: ChatAttachment[];
@@ -229,6 +239,7 @@ export type MessageGroup = {
   key: string;
   role: string;
   senderLabel?: string | null;
+  senderSession?: { sessionKey?: string; agentId?: string } | null;
   sender?: SenderIdentity;
   replyToSender?: SenderIdentity;
   messages: Array<{ message: unknown; key: string; duplicateCount?: number }>;
@@ -283,6 +294,7 @@ export type NormalizedMessage = {
   timestamp: number;
   id?: string;
   senderLabel?: string | null;
+  senderSession?: { sessionKey?: string; agentId?: string } | null;
   sender?: SenderIdentity;
   audioAsVoice?: boolean;
   replyPreview?: { text: string; senderLabel?: string | null };

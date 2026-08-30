@@ -206,6 +206,8 @@ Generated PR publication prepares the same pinned owner before minting tokens. O
 
 Maturity Scorecard prepares that immutable owner immediately before selected-ref checkout, preserving its runner-temporary environment handoff across checkout. Its trusted inline policy owns the full validation decision. Main, release-branch, and publication-base fetches and all local probes remain unbounded with one attempt. The sole 60-second operation is `ls-remote --exit-code --heads`: ordinary status 0 selects the branch, status 2 retains the default branch, and every other status fails with the lookup diagnostic after cleanup. A timeout is not absence; owner failure and cancellation never select a fallback or publish outputs. Main-ancestor, release-tag, and exact release-branch-head trust ordering, floating-main freeze, publication ancestry and excluded-path diff checks, and publication hash bytes remain unchanged.
 
+Linux App Release, macOS Release, and NPM Placeholder Bootstrap prepare the same pinned owner before their selected-source checkout. Linux keeps one `fetch --quiet origin main` with its 120-second deadline, then performs tag peeling and main ancestry locally without operation deadlines; ordinary ancestry nonzero retains the existing main-reachability rejection, while lifecycle failure or cancellation cannot publish `tag_sha`. macOS keeps its unbounded `rev-parse HEAD`, exact forced public-branch refspec, checkout-persisted read authentication, and one 120-second fetch before the metadata checker. NPM Placeholder keeps non-Git workflow/target identity rejection before checkout inspection, one 120-second forced main fetch, and two unbounded ancestry checks before publishing the immutable target SHA. None adds retries or backoff. The macOS metadata checker's separately owned ten-minute ancestry subprocess remains outside this explicit workflow-Git adoption.
+
 To use the standalone action from another workflow, pin `openclaw/openclaw/.github/actions/git-owner@<full-40-character-commit-SHA>` to a reviewed revision containing the action. Supply policy from the trusted workflow inline or from the same trusted action package, never from the selected candidate. Within `ci.yml`, the existing bundled-protocol and CI-routing matrix tasks smoke-test the action from the separately pinned `.ci-harness` checkout before Node setup, compare its output and copied bytes, and run owned `git --version` without network access. Other workflows' direct Git commands remain outside this ownership coverage until they adopt it.
 
 ## Scope and routing
@@ -217,7 +219,7 @@ Release screenshot routing is deliberately conservative because an app change ca
 Separate iOS and macOS Periphery workflows enforce a zero-findings dead-code policy. Each runs only when a non-draft pull request touches its native scan scope, or when manually dispatched.
 
 - **CI workflow edits** validate the Node CI graph, workflow linting, and the Windows lane (`ci.yml` executes it), but do not force iOS, Android, or macOS native builds by themselves; those platform lanes stay scoped to platform source changes.
-- **Git-owner changes** to its action, base-commit policy, projection generator, lifecycle tests and support, or named owner-adopting workflows such as Workflow Sanity, QA Profile Evidence, Mantis ref validation/installers/worktrees, and Docs Sync Publish Repo select the existing `macos-node` and Windows lanes. These run native checkout ownership proof without selecting Swift, iOS, or Android jobs; Mac app and shared-native changes retain their existing Mac lanes.
+- **Git-owner changes** to its action, base-commit policy, projection generator, lifecycle tests and support, or named owner-adopting workflows such as Workflow Sanity, QA Profile Evidence, Mantis ref validation/installers/worktrees, Docs Sync Publish Repo, OpenClaw Performance, and the Linux/macOS/npm-placeholder release admission jobs select the existing `macos-node` and Windows lanes. These run native checkout ownership proof without selecting Swift, iOS, or Android jobs; Mac app and shared-native changes retain their existing Mac lanes.
 - **macOS Swift runner budgets** are 20 minutes on Blacksmith and 30 minutes on every GitHub-hosted route, including first-attempt pull requests from untrusted contributors.
 - **Workflow Sanity** runs `actionlint`, `zizmor` over all workflow YAML files, the composite-action interpolation guard, and the conflict-marker guard. The PR-scoped `security-fast` job also runs `zizmor` over changed workflow files so workflow security findings fail early in the main CI graph.
 - **Docs on `main` pushes** are checked by the standalone `Docs` workflow with the same ClawHub docs mirror used by CI, so mixed code+docs pushes do not also queue the CI `check-docs` shard. Pull requests and manual CI still run `check-docs` from CI when docs changed.
@@ -539,6 +541,34 @@ The workflow installs OCM from a pinned release and Kova from `openclaw/Kova` at
 The mock-provider lane also runs OpenClaw-native source probes after the Kova pass: gateway boot timing and memory across default, skipped-channel, internal-hook, and fifty-plugin startup cases; bundled plugin import RSS, repeated mock-OpenAI `channel-chat-baseline` hello loops, CLI startup commands against the booted gateway, and the SQLite state smoke performance probe. When the previous published mock-provider source report is available for the tested ref, the source summary compares current RSS and heap values against that baseline and marks large RSS increases as `watch`. The source probe Markdown summary lives at `source/index.md` in the report bundle, with raw JSON beside it.
 
 Every lane uploads its complete GitHub artifact, including CPU, heap, trace, and compressed diagnostic bundles. A separate publisher job downloads and validates those artifacts, then mints a short-lived ClawSweeper GitHub App token scoped only to `openclaw/clawgrit-reports` contents and passes it only to the Git push step. It commits `report.json`, `report.md`, `index.md`, source-probe artifacts, and bundle metadata/checksums under `openclaw-performance/<tested-ref>/<run-id>-<attempt>/<lane>/`; the full diagnostic archive stays in the linked Actions artifact. The publisher rejects any report file over 50 MB before attempting a push. The current tested-ref pointer is `openclaw-performance/<tested-ref>/latest-<lane>.json`. Scheduled runs and `profile=release` dispatches fail if app-token creation or report publication fails. Manual non-release dispatches keep publication advisory and retain the GitHub artifacts when authentication or publishing fails. The previous source baseline is fetched anonymously from the public reports repository, so a successful baseline fetch does not prove publisher authentication.
+
+All explicit Performance workflow Git commands use the pinned Git lifecycle owner,
+prepared in `RUNNER_TEMP` before each job's selected checkout. Target resolution,
+Kova revision/install Git, source revision and baseline Git, and local publisher
+operations remain unbounded. Only the initial reports fetch, each push, and each
+reconciliation fetch have a 120-second deadline. The owner drains the entire Git
+process tree before reads, checkout reuse, artifact consumers, outputs, or retry;
+exclusive reports fetches reclaim only invocation-created locks after extinction.
+
+Report preparation and all fetches are anonymous. The App token is created only
+after a new report is prepared, removed from the environment immediately, and
+passed as a masked Basic header to push commands alone; it never enters the remote
+URL or repository config. A verified existing report succeeds before token creation.
+Only a successful empty `ls-tree` lookup means a baseline or report is absent;
+repository/read failures are terminal. Malformed baseline pointer JSON remains
+advisory, as does an ordinary baseline fetch failure after verified cleanup.
+
+Publication allows exactly five pushes. Every failed push, including the fifth,
+gets a 2/4/6/8/10-second backoff followed by one anonymous reconciliation fetch.
+A fetched remote report proves success even after the fifth ambiguous push; direct
+push success needs no fetch. Otherwise, attempts 1–4 replay the report commit on
+detached `FETCH_HEAD` with `cherry-pick -X theirs`, preserving concurrent unique
+reports while the current writer wins the latest pointer. There is no fifth-attempt
+replay. Ordinary fetch failures warn and retry on attempts 1–4. Only typed Git
+failure or timeout after verified cleanup permits recovery; owner setup, census,
+cleanup failure, and cancellation stop before fallback, retry, replay, or success.
+Full Release Validation continues to disable the publisher entirely and retains
+performance evidence only as workflow artifacts.
 
 ## Full Release Validation
 

@@ -2525,6 +2525,43 @@ describe("image tool implicit imageModel config", () => {
       expect((res.details as { rewrittenFrom?: string }).rewrittenFrom).toContain("photo.png");
     });
   });
+
+  it("resolves a producer-staged bare upload handle", async () => {
+    await withTempSandboxState(async ({ agentDir, sandboxRoot }) => {
+      const stagedPath = "media/inbound/openclaw-staged-proof/input-file_upload.png";
+      await fs.mkdir(path.dirname(path.join(sandboxRoot, stagedPath)), { recursive: true });
+      await fs.writeFile(
+        path.join(sandboxRoot, stagedPath),
+        Buffer.from(ONE_PIXEL_PNG_B64, "base64"),
+      );
+
+      const fetch = stubMinimaxOkFetch();
+      const sandbox = {
+        root: sandboxRoot,
+        bridge: createHostSandboxFsBridge(sandboxRoot),
+        stagedMediaPaths: new Map([["file_upload", stagedPath]]),
+      };
+      const tool = createRequiredImageTool({
+        config: createMinimaxImageConfig(),
+        agentDir,
+        sandbox,
+      });
+
+      const res = await tool.execute("t1", { path: "file_upload" });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(res.details).toMatchObject({ rewrittenFrom: "file_upload" });
+
+      await fs.writeFile(
+        path.join(sandboxRoot, "file_upload"),
+        Buffer.from(ONE_PIXEL_PNG_B64, "base64"),
+      );
+      const direct = await tool.execute("t2", { path: "file_upload" });
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(direct.details).not.toHaveProperty("rewrittenFrom");
+    });
+  });
 });
 
 describe("image tool data URL support", () => {

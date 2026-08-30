@@ -1,6 +1,8 @@
 // Sessions cleanup tests cover stale session cleanup and runtime output.
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { visibleWidth } from "../../packages/terminal-core/src/ansi.js";
+import { stripAnsi, visibleWidth } from "../../packages/terminal-core/src/ansi.js";
 import { GatewayTransportError } from "../gateway/transport-error.js";
 import type { RuntimeEnv } from "../runtime.js";
 
@@ -552,14 +554,45 @@ describe("sessionsCleanupCommand", () => {
     expectLogsToInclude(logs, "Session store: /resolved/openclaw-agent.sqlite");
     expectLogsToInclude(logs, "Planned session actions:");
     expectLogsToInclude(logs, "Would prune unreferenced artifacts: 2");
-    const tableHeaderLines = logs.filter((line) => line.includes("Action") && line.includes("Key"));
-    expect(tableHeaderLines.length).toBeGreaterThan(0);
-    const freshKeepLines = logs.filter((line) => line.includes("fresh") && line.includes("keep"));
-    expect(freshKeepLines.length).toBeGreaterThan(0);
-    const stalePruneLines = logs.filter(
-      (line) => line.includes("stale") && line.includes("prune-stale"),
+    const actionKeys = logs
+      .flatMap((entry) => stripAnsi(entry).split("\n"))
+      .map((line) =>
+        line
+          .split(/[|│]/u)
+          .slice(1, 3)
+          .map((cell) => cell.trim()),
+      );
+    expect(actionKeys).toContainEqual(["Action", "Key"]);
+    expect(actionKeys).toContainEqual(["keep", "fresh"]);
+    expect(actionKeys).toContainEqual(["prune-stale", "stale"]);
+  });
+
+  it("finishes a large distinct-label preview with the normal CLI process stack", () => {
+    // A worker's larger stack can hide the argument limit in label-width spreads.
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-test-module-mocks",
+        "--import",
+        fileURLToPath(new URL("../../scripts/tsx.mjs", import.meta.url)),
+        fileURLToPath(new URL("./sessions-cleanup.large-labels.test-support.ts", import.meta.url)),
+      ],
+      {
+        encoding: "utf8",
+        timeout: 30_000,
+        env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+      },
     );
-    expect(stalePruneLines.length).toBeGreaterThan(0);
+
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      serviceCalls: 1,
+      gridPrinted: true,
+      summaryPrinted: true,
+      labelRows: 150_000,
+      total: "Total: 150000 kept, 0 pruned",
+    });
   });
 
   it("renders a dry-run summary grouped by session label", async () => {
