@@ -105,18 +105,19 @@ describe("AgentSession compaction", () => {
       };
       const summary = recovers
         ? [
-            "## Decisions",
-            "The old prompt was answered.",
-            "## Open TODOs",
-            "None.",
-            "## Constraints/Rules",
-            "Preserve the session history.",
-            "## Pending user asks",
-            "None.",
-            "## Exact identifiers",
-            "None.",
-          ].join("\n")
+            "## Decisions\nThe old prompt was answered.",
+            "## Open TODOs\nNone.",
+            "## Constraints/Rules\nPreserve the session history.",
+            "## Pending user asks\nNone.",
+            "## Exact identifiers\nNone.",
+          ].join("\n\n")
         : "Core summary without required safeguard headings";
+      const recoveredSummary = [
+        "## Latest user request context",
+        JSON.stringify("old prompt"),
+        "",
+        summary,
+      ].join("\n");
       const sessionManager = SessionManager.inMemory();
       sessionManager.appendMessage({ role: "user", content: "old prompt", timestamp: 1 });
       sessionManager.appendMessage({
@@ -221,9 +222,11 @@ describe("AgentSession compaction", () => {
           providerCalls: 1,
           callerAbortedAtProviderEntry: false,
           callerAborted: cancelCaller,
-          result: recovers ? { status: "resolved", summary } : { status: "rejected" },
+          result: recovers
+            ? { status: "resolved", summary: recoveredSummary }
+            : { status: "rejected" },
           outcomes: [recovers ? "completed" : "aborted"],
-          appended: recovers ? [{ summary, fromHook: true }] : [],
+          appended: recovers ? [{ summary: recoveredSummary, fromHook: true }] : [],
         });
         // The guarded pipeline may chunk the history; do not pin its request count.
         if (!cancelCaller) {

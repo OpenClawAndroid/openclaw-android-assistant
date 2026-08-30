@@ -287,6 +287,7 @@ export class ChatPane extends ChatPaneLayoutRender {
           state,
           selectedSession,
           agentDefaultModel,
+          agentDefaultPermissionMode: selectedAgent?.defaultPermissionMode,
           modelAccess: mutationAccess.model,
           effortAccess: mutationAccess.effort,
           permissionAccess: mutationAccess.permission,
@@ -435,6 +436,7 @@ export class ChatPane extends ChatPaneLayoutRender {
             }
           : undefined,
       sessions: state.sessionsResult,
+      selectedSession,
       toolOverrides: selectedSession?.toolOverrides,
       capabilityMenu: catalogKey
         ? undefined

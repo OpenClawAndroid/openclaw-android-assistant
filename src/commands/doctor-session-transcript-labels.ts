@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 import { note } from "../../packages/terminal-core/src/note.js";
 import { INBOUND_CONTEXT_MARKER } from "../auto-reply/reply/inbound-context-marker.js";
 import type { TranscriptEvent } from "../config/sessions/session-accessor.js";
@@ -10,6 +11,7 @@ import { updateSqliteTranscriptEventJsonInTransaction } from "../config/sessions
 import { resolveAllAgentSessionStoreTargetsSync } from "../config/sessions/targets.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import {
   resolveOpenClawAgentSqlitePath,
   runOpenClawAgentWriteTransaction,
@@ -51,6 +53,12 @@ const LEGACY_LEADING_TIMESTAMP_PREFIX_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{
 // CHAT WINDOW: `${label} (untrusted, <order>, <relation>):` (338-360).
 
 function applyLegacyInboundLabelRewrites(text: string): string {
+  // Every legacy rule contains one of these spellings. Check decoded content so
+  // Unicode-escaped labels still reach their rewrite.
+  if (!text.includes("untrusted") && !text.includes("Untrusted")) {
+    return text;
+  }
+
   // Peel the timestamp envelope so the anchored (`^`) rules see the first header at column 0, exactly
   // as the runtime stripper does. Without this, "[Wed …] Conversation info (…):" stays unmarked and the
   // marker-only strippers expose its JSON. Reattached verbatim below.
@@ -203,15 +211,17 @@ export async function noteSessionTranscriptLabelHealth(params: {
     seenPaths.add(sqlitePath);
     const { agentId } = target;
 
+    let readDatabase: DatabaseSync | undefined;
     try {
+      readDatabase = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
       // Detect read-only, then repair each session in its own transaction as it is found, so a large
       // store never buffers every plan at once. Enumerate from transcript_events, not sessions: the
       // latter gained its columns post-ship and is not safe to assume on old databases.
-      const sessionIds = readOnlySqliteTranscriptSessionIds(sqlitePath);
+      const sessionIds = readOnlySqliteTranscriptSessionIds(readDatabase);
       for (const sessionId of sessionIds) {
         // Read transcript in read-only mode (detection phase).
         const readResult = readOnlySqliteTranscriptRepairSnapshot(
-          sqlitePath,
+          readDatabase,
           sessionId,
           normalizeLegacyInboundContextLabels,
         );
@@ -285,6 +295,8 @@ export async function noteSessionTranscriptLabelHealth(params: {
         `- Failed to inspect or rewrite labels for ${agentId} (${sqlitePath}): ${detail}`,
         NOTE_TITLE,
       );
+    } finally {
+      readDatabase?.close();
     }
   }
 
