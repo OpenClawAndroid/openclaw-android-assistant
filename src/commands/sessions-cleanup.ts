@@ -4,12 +4,14 @@
  * It can delegate cleanup to a live gateway or run local store maintenance,
  * with dry-run tables that explain every planned pruning action.
  */
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { visibleWidth } from "../../packages/terminal-core/src/ansi.js";
 import { sanitizeTerminalText } from "../../packages/terminal-core/src/safe-text.js";
 import { isRich, theme } from "../../packages/terminal-core/src/theme.js";
 import { getRuntimeConfig } from "../config/config.js";
 import {
   resolveSessionCleanupAction,
+  isSessionsCleanupPartialResult,
   runSessionsCleanup,
   serializeSessionCleanupResult,
   type SessionCleanupSummary,
@@ -274,6 +276,9 @@ async function maybeRunGatewayCleanup(
       // mutation; timeouts and established closes must not replay it locally.
       return { delegated: false };
     }
+    if (isRecord(error) && isSessionsCleanupPartialResult(error.details)) {
+      return { delegated: true, result: error.details };
+    }
     throw error;
   }
 }
@@ -284,8 +289,13 @@ export async function sessionsCleanupCommand(opts: SessionsCleanupOptions, runti
   if (gatewayCleanup.delegated) {
     // The Gateway owns this path. Preserve its syntax because resolving a remote
     // Windows path on a POSIX client (or vice versa) would fabricate a local path.
+    const partialError =
+      "partialError" in gatewayCleanup.result ? gatewayCleanup.result.partialError : undefined;
     if (opts.json) {
       writeRuntimeJson(runtime, gatewayCleanup.result);
+      if (partialError) {
+        process.exitCode = 1;
+      }
       return;
     }
     renderAppliedSummaries({
@@ -294,6 +304,10 @@ export async function sessionsCleanupCommand(opts: SessionsCleanupOptions, runti
       runtime,
       locallyOwned: false,
     });
+    if (partialError) {
+      runtime.error(`[error] ${partialError.message}`);
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -319,7 +333,7 @@ export async function sessionsCleanupCommand(opts: SessionsCleanupOptions, runti
     const { runLocalSessionsCleanup } = await import("./sessions-cleanup.runtime.js");
     cleanupResult = await runLocalSessionsCleanup(cleanupParams, runtime);
   }
-  const { mode, previewResults, appliedSummaries } = cleanupResult;
+  const { mode, previewResults, appliedSummaries, failure } = cleanupResult;
 
   if (opts.dryRun) {
     if (opts.json) {
@@ -356,10 +370,18 @@ export async function sessionsCleanupCommand(opts: SessionsCleanupOptions, runti
         mode,
         dryRun: false,
         summaries: appliedSummaries.map(toDisplayedCleanupSummary),
+        failure,
       }),
     );
+    if (failure) {
+      process.exitCode = 1;
+    }
     return;
   }
 
   renderAppliedSummaries({ summaries: appliedSummaries, runtime, locallyOwned: true });
+  if (failure) {
+    runtime.error(`[error] ${failure.message}`);
+    process.exitCode = 1;
+  }
 }

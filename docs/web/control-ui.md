@@ -381,11 +381,11 @@ select it to open the owning Approvals page.
     - Notifications: browser web-push status, subscribe/unsubscribe, and a test send.
     - Advanced: every config section without a curated home, plus the raw JSON5 editor (previously the General page's Advanced mode).
     - In **Advanced → Communication → Channels**, use **Channel settings** to show one messaging channel at a time, including custom channel plugins. **Other** groups shared channel defaults and model overrides. Switching groups does not change the saved configuration.
-    - Model Setup (`/settings/model-setup`) is a subpage of Model Providers, launched from its header.
+    - Model Setup (`/settings/model-setup`) is a subpage of Model Providers, launched from its header. Detection runs on the page without holding navigation open: **Back to app** remains available while checks finish, and returning to setup starts a fresh check. Activation waits for the Gateway to apply the verified configuration; if it cannot apply it in place, setup shows that a restart is required.
     - Agents: a settings page (**Settings → Agents**, `/settings/agents`) with an **Agent defaults** row for the shared template plus per-agent tabs (Overview, Files, Tools, Skills, Channels, Automations, Memory). The Overview tab edits the agent's identity — display name, emoji, and an avatar image that is downscaled and size-bounded in the browser before `agents.update`. Saving stores configured identity fields and mirrors them to the workspace `IDENTITY.md`; configured values take precedence over manual edits to the same file fields. The Tools tab connects a system or per-agent GitHub identity through a user-clicked device-authorization link, shows the one-time code and credential health, and keeps one-use PAT setup as an explicit fallback.
     - Profile: a settings page showing the default agent's identity with all-time usage stats — lifetime tokens, peak day, longest session, activity streaks, a year-long token heatmap, top tools, and channel highlights (`usage.cost`, `sessions.usage`).
     - MCP has a dedicated settings page with server rows (transport, enablement, OAuth/filter/parallel summaries), direct add/enable/disable/remove controls, common operator commands, and the scoped `mcp` config editor. The Plugins page remains the home for one-click connectors and discovery.
-    - Model Providers: a settings page listing every configured model provider with its brand icon, auth state (`models.authStatus`), model availability (`models.list`), live plan/quota/billing data where the provider reports it (`usage.status`), and local session spend for the last 30 days (`sessions.usage`). The initial page reuses the Gateway's prepared model catalog. **Refresh** explicitly discovers the live provider catalog, then re-reads credential state and provider usage; discovery failures stay visible without discarding the last successful model list.
+    - Model Providers: a settings page listing every configured model provider with its brand icon, auth state (`models.authStatus`), model availability (`models.list`), live plan/quota/billing data where the provider reports it (`usage.status`), and local session spend for the last 30 days (`sessions.usage`). The initial page reuses the Gateway's prepared model catalog. **Refresh** explicitly discovers the live provider catalog, then re-reads credential state and provider usage; discovery failures stay visible without discarding the last successful model list. If the Gateway is preparing model authentication, the page shows an unavailable-status warning rather than treating it as a lost connection or a sign-out. Use **Refresh** after setup finishes; auth-status diagnostics do not block chat bootstrap.
     - Connection: a settings page (under **Connections**) owning the dashboard's own gateway link — WebSocket URL, gateway token, password, and default session key — plus the latest handshake snapshot (status, uptime, tick interval, last channels refresh). The offline login gate handles the disconnected case; this page edits the connection while connected.
     - Apply and restart with validation (`config.apply`), then wake the last active session.
     - Writes include a base-hash guard to prevent clobbering concurrent edits.
@@ -663,6 +663,30 @@ current tab's gateway/session-scoped browser storage, shown as waiting for recon
 automatically when the Gateway returns. Live controls and slash commands remain unavailable while
 offline, except that **Stop** can queue an exact local run ID for replay. A session-only stop
 is not replayed because newer work may start in that session before the connection returns.
+
+Queued attachments use binary Blobs in the browser's IndexedDB; the outbox keeps only delivery
+metadata and payload references in session storage. Attachment bytes stay with the queued input
+when session aliases resolve or change; the queue metadata owns its destination. All attachments
+must be stored before the message is admitted, and all must be readable before sending. Failed admission leaves the draft
+unsent. Missing or unreadable queued payloads leave a visible row with recovery guidance; the
+browser never sends just the remaining attachments. Binary outbox storage requires browser
+storage access and Web Locks, available over HTTPS or localhost. Gateway attachment limits
+still apply.
+
+The outbox retains up to 25 MiB of attachments per message and 250 MiB across this browser origin,
+subject to the browser's own quota. Queued payloads have no age-based expiry. Delivery or discard
+releases them; closing a tab or interrupting a tab copy or cleanup can leave orphaned payloads
+within that bound. If capacity remains
+full after sending or discarding your queues, save any needed drafts before clearing this site's
+browser storage. That also clears browser-local drafts and sign-in state. Outbox queues belong to
+the browser tab; they are distinct from restart-recoverable composer drafts. Incognito sessions
+keep their existing tab-only inline outbox and its smaller browser storage limit; they never
+store queued attachment Blobs in IndexedDB.
+
+Duplicating a tab copies the same submission IDs. Once opened, the duplicate claims its own
+payload copies and marks those submissions **Delivery unconfirmed**. Check the conversation
+before retrying. A duplicate first opened after the source discarded or delivered a message may
+instead report missing attachments. Independent tabs do not share newly authored outbox messages.
 
 After connecting, chat waits for account-scoped recovery before accepting or sending ordinary
 messages. During this brief check, submitted text and attachments stay in the composer. Offline

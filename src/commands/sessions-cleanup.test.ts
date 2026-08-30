@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   resolveSessionCleanupAction: vi.fn(),
   runSessionsCleanup: vi.fn(),
   runLocalSessionsCleanup: vi.fn(),
-  serializeSessionCleanupResult: vi.fn(),
   callGateway: vi.fn(),
 }));
 
@@ -26,10 +25,10 @@ vi.mock("./session-store-targets.js", () => ({
   resolveSessionStoreTargetsOrExit: mocks.resolveSessionStoreTargetsOrExit,
 }));
 
-vi.mock("../config/sessions.js", () => ({
+vi.mock("../config/sessions.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../config/sessions.js")>()),
   resolveSessionCleanupAction: mocks.resolveSessionCleanupAction,
   runSessionsCleanup: mocks.runSessionsCleanup,
-  serializeSessionCleanupResult: mocks.serializeSessionCleanupResult,
 }));
 
 vi.mock("../gateway/call.js", async () => ({
@@ -41,15 +40,17 @@ vi.mock("../gateway/call.js", async () => ({
 
 import { sessionsCleanupCommand } from "./sessions-cleanup.js";
 
-function makeRuntime(): { runtime: RuntimeEnv; logs: string[] } {
+function makeRuntime(): { runtime: RuntimeEnv; logs: string[]; errors: string[] } {
   const logs: string[] = [];
+  const errors: string[] = [];
   return {
     runtime: {
       log: (msg: unknown) => logs.push(String(msg)),
-      error: () => {},
+      error: (msg: unknown) => errors.push(String(msg)),
       exit: () => {},
     },
     logs,
+    errors,
   };
 }
 
@@ -70,6 +71,7 @@ function gatewayTransportError(kind: "closed" | "timeout", code?: number): Gatew
 describe("sessionsCleanupCommand", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.exitCode = undefined;
     mocks.runLocalSessionsCleanup.mockImplementation((params) => mocks.runSessionsCleanup(params));
     mocks.loadConfig.mockReturnValue({ session: { store: "/cfg/sessions.json" } });
     mocks.resolveSessionStoreTargetsOrExit.mockReturnValue([
@@ -98,19 +100,6 @@ describe("sessionsCleanupCommand", () => {
           return "cap-overflow";
         }
         return "keep";
-      },
-    );
-    mocks.serializeSessionCleanupResult.mockImplementation(
-      (params: { mode: string; dryRun: boolean; summaries: Record<string, unknown>[] }) => {
-        if (params.summaries.length === 1) {
-          return params.summaries[0] ?? {};
-        }
-        return {
-          allAgents: true,
-          mode: params.mode,
-          dryRun: params.dryRun,
-          stores: params.summaries,
-        };
       },
     );
     mocks.runSessionsCleanup.mockResolvedValue({
@@ -285,6 +274,67 @@ describe("sessionsCleanupCommand", () => {
       applied: true,
       appliedCount: 1,
     });
+  });
+
+  it("renders rejected Gateway partial details and exits nonzero", async () => {
+    const details = {
+      allAgents: true,
+      mode: "enforce",
+      dryRun: false,
+      stores: [
+        {
+          agentId: "main",
+          storePath: "/gateway/main/openclaw-agent.sqlite",
+          mode: "enforce",
+          dryRun: false,
+          beforeCount: 1,
+          afterCount: 0,
+          missing: 1,
+          dmScopeRetired: 0,
+          modelRunPruned: 0,
+          pruned: 0,
+          capped: 0,
+          unreferencedArtifacts: {
+            scannedFiles: 0,
+            removedFiles: 0,
+            freedBytes: 0,
+            olderThanMs: 0,
+          },
+          diskBudget: null,
+          wouldMutate: true,
+          applied: true,
+          appliedCount: 0,
+        },
+      ],
+      partialError: {
+        failingAgentId: "work",
+        failingStorePath: "/gateway/work/openclaw-agent.sqlite",
+        message: "Session cleanup failed for agent 'work': injected failure",
+        lifecycleCommitted: false,
+      },
+    };
+    mocks.callGateway.mockRejectedValue(Object.assign(new Error("request failed"), { details }));
+
+    const { runtime, logs } = makeRuntime();
+    await sessionsCleanupCommand({ allAgents: true, enforce: true, json: true }, runtime);
+
+    expect(JSON.parse(logs[0] ?? "{}")).toEqual(details);
+    expect(process.exitCode).toBe(1);
+    expect(mocks.runLocalSessionsCleanup).not.toHaveBeenCalled();
+  });
+
+  it("does not render rejected Gateway details without a partial marker", async () => {
+    const error = Object.assign(new Error("request failed"), {
+      details: { allAgents: true, mode: "enforce", dryRun: false, stores: [] },
+    });
+    mocks.callGateway.mockRejectedValue(error);
+
+    const { runtime } = makeRuntime();
+    await expect(sessionsCleanupCommand({ allAgents: true, enforce: true }, runtime)).rejects.toBe(
+      error,
+    );
+
+    expect(process.exitCode).toBeUndefined();
   });
 
   it("preserves a Gateway-owned store path in human output", async () => {

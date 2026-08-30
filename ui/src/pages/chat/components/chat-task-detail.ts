@@ -4,7 +4,12 @@ import "../../../components/elapsed-time.ts";
 import { icons } from "../../../components/icons.ts";
 import { renderPanelLoadingSkeleton } from "../../../components/panel-loading-skeleton.ts";
 import { t } from "../../../i18n/index.ts";
-import { canonicalUiSessionKeyForPersistence } from "../../../lib/sessions/session-key.ts";
+import {
+  canonicalUiSessionKeyForPersistence,
+  isUiGlobalScopeConfigured,
+  normalizeAgentId,
+  uiSessionRowMatchesSelectedChat,
+} from "../../../lib/sessions/session-key.ts";
 import {
   isActiveTask,
   taskDetail,
@@ -13,7 +18,6 @@ import {
   taskTitle,
 } from "../../../lib/tasks/data.ts";
 import type { TaskSummary } from "../../../lib/tasks/task-summary.ts";
-import type { ChatProps } from "../chat-view.ts";
 import {
   backgroundTaskStatusLabel,
   newestTaskSnapshot,
@@ -27,11 +31,12 @@ import {
   resetTaskDetail,
   type TaskDetailHost,
 } from "./chat-task-detail-state.ts";
+import type { ChatThreadProps } from "./chat-thread-interactions.ts";
 import type { ChatTranscriptController } from "./chat-transcript-controller.ts";
 
 export function renderTaskDetailPanel(params: {
   backgroundTasks: BackgroundTasksProps;
-  chat: ChatProps;
+  chat: ChatThreadProps;
   host: TaskDetailHost;
   task: TaskSummary | undefined;
   transcript: ChatTranscriptController;
@@ -133,7 +138,7 @@ function renderTaskHeader(
 }
 
 function renderTaskTranscript(params: {
-  chat: ChatProps;
+  chat: ChatThreadProps;
   host: TaskDetailHost;
   sessionKey: string;
   task: TaskSummary;
@@ -156,10 +161,18 @@ function renderTaskTranscript(params: {
       ${t("chat.backgroundTasks.transcriptEmpty")}
     </div>`;
   }
+  const selectedSession = params.chat.sessions?.sessions.find(
+    (row) =>
+      (row.key !== "global" ||
+        (isUiGlobalScopeConfigured(params.host) &&
+          normalizeAgentId(params.host.sessionsResultAgentId ?? "") ===
+            normalizeAgentId(params.task.agentId))) &&
+      uiSessionRowMatchesSelectedChat(params.host, row.key, params.sessionKey),
+  );
   return html`<div class="sidebar-content chat-task-detail__content">
     <div class="chat-task-detail__transcript">
       ${renderReadOnlyTranscript({
-        chat: params.chat,
+        chat: { ...params.chat, selectedSession },
         messages: load.messages,
         paneId: `${params.chat.paneId}:task-sidebar`,
         sessionKey: params.sessionKey,

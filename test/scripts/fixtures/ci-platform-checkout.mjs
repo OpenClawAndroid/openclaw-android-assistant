@@ -33,6 +33,13 @@ function saveRef(cwd, ref, revision) {
 }
 
 function recordCommand(tool, cwd, commandArgs, configuration) {
+  if (
+    commandArgs[0] === "config" &&
+    commandArgs.includes("http.https://github.com/.extraheader") &&
+    commandArgs.at(-1).startsWith("AUTHORIZATION:")
+  ) {
+    commandArgs = [...commandArgs.slice(0, -1), "[redacted]"];
+  }
   fs.appendFileSync(
     commandsFile,
     `${JSON.stringify({ tool, cwd, args: commandArgs, configuration, envProbe: process.env.CI_OWNER_PROBE })}\n`,
@@ -221,6 +228,14 @@ async function command() {
   if (mode === "sentinel") {
     return;
   }
+  if (mode === "observe") {
+    boundary(args[0]);
+    process.exit(0);
+  }
+  if (mode === "date") {
+    fs.writeSync(1, "2026-08-28T22:30:00Z\n");
+    process.exit(0);
+  }
   if (mode === "find") {
     insideOwnedPath(args[0]);
     // Observe before the real deletion, while prior Git children can still write.
@@ -298,18 +313,24 @@ async function command() {
         throw new Error("Unexpected fixture Crabbox probe");
       }
     }
+    if (mode === "gh" && options.publisher) {
+      const result = spawnSync("bash", [options.publisher.gh, ...args], { stdio: "inherit" });
+      process.exit(result.status ?? 1);
+    }
     if (mode === "gh") {
       fs.writeSync(
         1,
-        options.lsRemoteResults
-          ? args.includes(".status")
-            ? "ahead\n"
-            : `${"c".repeat(40)}\n`
-          : JSON.stringify({
-              state: "open",
-              head: { sha: "a".repeat(40) },
-              base: { repo: { full_name: "fixture/checkout" } },
-            }),
+        options.docsAgent
+          ? JSON.stringify({ workflow_runs: options.workflowRuns ?? [] })
+          : options.lsRemoteResults
+            ? args.includes(".status")
+              ? "ahead\n"
+              : `${"c".repeat(40)}\n`
+            : JSON.stringify({
+                state: "open",
+                head: { sha: "a".repeat(40) },
+                base: { repo: { full_name: "fixture/checkout" } },
+              }),
       );
     }
     process.exit(0);
@@ -329,6 +350,14 @@ async function command() {
     }
   }
   recordCommand("git", cwd, args, configuration);
+  const fault = options.gitFault;
+  let commandResult = options.commandResults?.[args.join(" ")];
+  if (fault && new RegExp(fault.match).test(args.join(" "))) {
+    const countFile = path.join(root, "fault-count.json");
+    const count = fs.existsSync(countFile) ? JSON.parse(fs.readFileSync(countFile, "utf8")) + 1 : 1;
+    publish("fault-count.json", count);
+    if (count === (fault.occurrence ?? 1)) commandResult = fault;
+  }
   const operation = args.shift();
   if (operation === "init") {
     boundary("init");
@@ -363,6 +392,8 @@ async function command() {
       fs.symlinkSync(sharedCache, path.join(gitDir, "shared-cache"), "junction");
     }
   } else if (
+    options.publisher ||
+    commandResult ||
     ["fetch", "ls-remote", "clone"].includes(operation) ||
     (operation === "worktree" && args[0] === "add") ||
     (operation === "rebase" && args[0] === "-X") ||
@@ -371,9 +402,10 @@ async function command() {
   ) {
     // Keep the existing transport-result indexing; rebase/push/read faults have
     // independent results but share unique tree identities with those transports.
-    const counterName = ["rebase", "push", "rev-parse"].includes(operation)
-      ? `${operation}-attempt.json`
-      : "attempt.json";
+    const counterName =
+      commandResult || ["rebase", "push", "rev-parse"].includes(operation)
+        ? `${operation}-attempt.json`
+        : "attempt.json";
     const counter = path.join(root, counterName);
     const resultAttempt = fs.existsSync(counter)
       ? JSON.parse(fs.readFileSync(counter, "utf8")) + 1
@@ -431,7 +463,7 @@ async function command() {
         `Git fixture child exited before readiness (${child.exitCode ?? child.signalCode})`,
       );
     }
-    if (scenario.startsWith("cancel-")) {
+    if (scenario.startsWith("cancel-") || commandResult?.code === "cancel") {
       const owned = liveRecords();
       const alive = owned.filter((entry) => entry.attempt === attempt);
       if (
@@ -441,13 +473,25 @@ async function command() {
       ) {
         throw new Error("Cancellation tree is no longer alive");
       }
-      const owner = owned.find((entry) => entry.role === "shell");
-      // Both shells exec their replacements. Validate the current Python parent,
-      // never an orphan's new parent or the Git group, before sending cancellation.
-      if (!owner || owner.pid <= 1 || process.ppid !== owner.pid) {
+      const shell = owned.find((entry) => entry.role === "shell");
+      const owner =
+        options.docsAgent && process.ppid !== shell?.pid ? { pid: process.ppid } : shell;
+      const parent =
+        options.docsAgent && owner?.pid !== shell?.pid
+          ? spawnSync("/bin/ps", ["-o", "ppid=", "-p", String(owner?.pid)], { encoding: "utf8" })
+          : undefined;
+      // Gate policies retain a shell for the cadence block. Validate that direct
+      // owner placement too, never signaling an orphan's parent or the Git group.
+      if (
+        !owner ||
+        owner.pid <= 1 ||
+        process.ppid !== owner.pid ||
+        (parent && (parent.status !== 0 || Number(parent.stdout.trim()) !== shell?.pid))
+      ) {
         throw new Error("Cancellation owner is no longer the registered workflow parent");
       }
-      const signal = scenario.slice("cancel-".length);
+      const signal =
+        commandResult?.code === "cancel" ? "SIGTERM" : scenario.slice("cancel-".length);
       fs.writeSync(1, `cancellation: ${JSON.stringify({ signal, owner: owner.pid, alive })}\n`);
       process.kill(owner.pid, signal);
     }
@@ -471,7 +515,11 @@ async function command() {
                 : operation === "rev-parse"
                   ? [options.revParseResult]
                   : options.fetchResults;
-      const result = remoteResult?.code ?? operationResults?.[resultAttempt - 1] ?? 0;
+      const result =
+        commandResult?.code ?? remoteResult?.code ?? operationResults?.[resultAttempt - 1] ?? 0;
+      if (commandResult?.output !== undefined) {
+        fs.writeSync(1, commandResult.output);
+      }
       if (remoteResult) {
         fs.writeSync(1, remoteResult.output);
       }
@@ -479,11 +527,39 @@ async function command() {
         fs.writeFileSync(path.join(root, "bin/ps"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
         process.exit(0);
       }
+      if (result === "cancel") return;
       if (result === "hang") {
         stall(attempt);
         return;
       }
-      if (result === 0 && operation === "rev-parse") {
+      if (result === 0 && options.publisher) {
+        const result = spawnSync(
+          options.publisher.git,
+          ["-C", cwd, ...configuration.flatMap((value) => ["-c", value]), operation, ...args],
+          { stdio: "inherit" },
+        );
+        if (
+          result.status === 0 &&
+          operation === "fetch" &&
+          options.env.FAKE_RACE === "recreate" &&
+          fs.existsSync(`${options.env.FAKE_PR_STATE}.raced`)
+        ) {
+          const update = spawnSync(
+            options.publisher.git,
+            [
+              "--git-dir",
+              options.env.FAKE_ORIGIN,
+              "update-ref",
+              "refs/heads/automation/locale",
+              options.env.FAKE_INITIAL_MAIN,
+            ],
+            { stdio: "inherit" },
+          );
+          if (update.status !== 0) process.exit(update.status ?? 1);
+        }
+        process.exit(result.status ?? 1);
+      }
+      if (result === 0 && operation === "rev-parse" && commandResult?.output === undefined) {
         fs.writeSync(1, `${resolveRef(cwd, args[0])}\n`);
       }
       if (result === 0 && operation === "fetch") {
@@ -542,17 +618,24 @@ async function command() {
       fs.mkdirSync(path.dirname(gradlew), { recursive: true });
       fs.writeFileSync(gradlew, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     }
-  } else if (operation === "diff" && args.join(" ") === "--quiet -- docs .openclaw-sync") {
+  } else if (
+    operation === "diff" &&
+    (args.join(" ") === "--quiet -- docs .openclaw-sync" ||
+      (options.docsAgent && args.join(" ") === "--quiet") ||
+      options.maturity)
+  ) {
     boundary("diff");
-    process.exit(options.diffResult ?? 1);
+    process.exit(options.diffResult ?? (options.maturity ? 0 : 1));
   } else if (
     ["add", "commit"].includes(operation) ||
-    (operation === "config" && options.docsPublish) ||
+    (operation === "config" && (options.docsPublish || options.docsAgent)) ||
     (operation === "rebase" && args[0] === "--abort")
   ) {
     boundary(operation === "rebase" ? "rebase-abort" : operation);
     // An abort without an active rebase is an ordinary ignored Git failure.
     process.exit(operation === "rebase" ? 128 : 0);
+  } else if (options.docsAgent && ["ls-files", "diff"].includes(operation)) {
+    boundary(operation);
   } else if (operation === "cat-file" || (operation === "show" && options.objects)) {
     boundary(`${operation}:${args.at(-1)}`);
     const spec = args.at(-1);
@@ -629,10 +712,14 @@ async function supervise() {
   const extraTools = [
     ...(linux ? ["find"] : []),
     ...(options.docsPublish ? ["rm"] : []),
+    ...(options.docsAgent ? ["date"] : []),
     ...(options.consumers ? ["gh", "node", "pnpm", "go"] : []),
   ];
   for (const tool of extraTools) {
     writeConsumer(path.join(bin, tool), tool);
+  }
+  if (options.publisher) {
+    fs.copyFileSync(path.join(root, "publisher-bin/sleep"), path.join(bin, "sleep"));
   }
   if (scenario === "cleanup-failure") {
     // Fail the real POSIX inspection boundary, without a production injection hook.
@@ -736,6 +823,13 @@ async function supervise() {
         .filter(Boolean)
         .map(JSON.parse);
       report.output = fs.readFileSync(path.join(root, "workflow.log"), "utf8");
+      if (options.publisher) {
+        // Model Actions masking, including the mask-registration line itself.
+        const masks = [...report.output.matchAll(/^::add-mask::(.+)$/gm)].map((match) => match[1]);
+        for (const value of [...masks, options.env.CONTENTS_TOKEN, options.env.GH_TOKEN]) {
+          if (value) report.output = report.output.replaceAll(value, "[redacted]");
+        }
+      }
       publish("report.json", report);
       fs.closeSync(output);
       process.exit(report.error ? 1 : 0);
@@ -887,12 +981,24 @@ async function supervise() {
       return;
     }
     report.code = code;
+    if (options.docsAgent && fs.readFileSync(path.join(root, "github-output"), "utf8")) {
+      boundary("output");
+    }
     if (
       options.objects &&
       fs.existsSync(path.join(root, "github-env")) &&
       fs.readFileSync(path.join(root, "github-env"), "utf8").includes("PRE_COMMIT_CONFIG_PATH=")
     ) {
       boundary("config-publication");
+    }
+    for (const [name, file] of options.publisher || options.maturity
+      ? [
+          ["output", "github-output"],
+          ["summary", "github-summary"],
+        ]
+      : []) {
+      if (fs.existsSync(path.join(root, file)) && fs.readFileSync(path.join(root, file), "utf8"))
+        boundary(name);
     }
     boundary("exit");
     await stop();
