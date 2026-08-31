@@ -730,12 +730,74 @@ bash scripts/build-server-bundle.sh && ./gradlew assembleDebug \
 <div class="section" id="release">
   <p class="section-label">Latest upstream release</p>
   <!-- RELEASE_START -->
-  <h2><em>openclaw 2026.7.1-2</em></h2>
-  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Aug 04, 2026</p>
+  <h2><em>OpenClaw 2026.8.1</em></h2>
+  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Aug 31, 2026</p>
   <div class="release-body" style="color:var(--text-dim);font-size:.92rem;line-height:1.75;max-width:800px">
-  <h3>Fixes</h3>
+  <h3>Changes</h3>
     <ul>
-    <li>**npm plugin updates:** accept singleton-array metadata from newer npm clients so tracked official plugins can install and update to correction releases</li>
+    <li>**OpenProse migration (breaking):** remove the bundled OpenProse plugin and `/prose` command; run `openclaw doctor --fix` to clean stale configuration and follow the [upstream Agent Skill migration](https://docs.openclaw.ai/prose), keeping existing `.prose` source files. and @vincentkoc</li>
+    <li>**OpenAI route migration (breaking):** use `openclaw doctor --fix` to migrate shipped `codex/*` and `openai-codex/*` model refs, provider config, stored sessions, and automation routes to `openai/*`, retaining Codex runtime intent and flagging conflicts for operator repair</li>
+    <li>**Upcoming deprecations (2026-09-01):** external plugins should migrate ahead of the SDK removal gate: `plugin-sdk-config-runtime-subpath` moves to `api.pluginConfig` and the focused `openclaw/plugin-sdk/config-mutation`, `openclaw/plugin-sdk/runtime-config-snapshot`, or `openclaw/plugin-sdk/config-contracts` imports; `plugin-sdk-channel-reply-pipeline-subpath` and `plugin-sdk-channel-lifecycle-subpath` move to `openclaw/plugin-sdk/channel-outbound`; `plugin-sdk-channel-message-subpath` moves to `openclaw/plugin-sdk/channel-outbound` and `openclaw/plugin-sdk/channel-inbound`; `plugin-sdk-infra-runtime-subpath` moves to focused `openclaw/plugin-sdk/` imports such as `delivery-queue-runtime`, `diagnostic-runtime`, `error-runtime`, `exec-approvals-runtime`, `fetch-runtime`, and `ssrf-runtime`, according to the helper used. These are upcoming gates, not removals in this release; see the [SDK migration guide](https://docs.openclaw.ai/plugins/sdk-migration) for per-helper mappings and remaining compatibility limits</li>
+    <li>**Official provider packages:** install BytePlus, ComfyUI, Mistral, NovitaAI, OpenCode, Synthetic, Volcengine, Vydra, and Xiaomi as needed through onboarding. Recover missing configured packages with `openclaw update repair` or `openclaw doctor --fix`; complete requested capability review and restart the Gateway after explicit installation. OpenCode Go remains bundled. (#116866, #116888, #116919, #117007, #117035, #116720, #116854, #116813, #116861)</li>
+    <li>**Additional official packages:** install Cohere and Meta providers, DuckDuckGo search, Voyage embeddings, and iMessage messaging as separate official plugins when needed; configured missing owners use the same explicit update, doctor, or install recovery flow. (#116662, #116740, #116785, #117101)</li>
+    <li>**OpenAI long-context opt-in:** make expanded active-input context an explicit model configuration choice, keeping the runtime budget distinct from the model&#x27;s native capacity and preserving configured overrides</li>
+    <li>**Personal conversation recall:** with Active Memory enabled, retrieve bounded same-agent private conversation context by default on personal installs without configured DM isolation; explicit controls can disable recall, and groups and channels remain excluded</li>
+    <li>**Grounded dreaming:** enable model-backed background memory consolidation by default, promoting provenance-qualified material into long-term memory with a Dream Diary and an explicit disable control</li>
+    <li>**Automatic self-learning:** capture strong reusable lessons and automatically apply scanner-approved new or Workshop-owned skills by default, while leaving user-authored skill changes pending and preserving explicit off or propose settings</li>
+    <li>**Session reset default:** keep conversations across idle periods and day boundaries when no reset policy is configured; retain explicit daily or idle policies and manual `/new` or `/reset`</li>
+    <li>**CPU-scaled foreground concurrency:** size default top-level agent concurrency from available CPU parallelism, bounded between 8 and 16 simultaneous runs, while preserving explicit operator limits</li>
+    <li>**Explicit model allowlists:** separate aliases and per-model settings from explicit `modelPolicy.allow` restrictions, with per-agent policies and provider wildcards; doctor migrates valid legacy restrictions without silently opening access when migration is incomplete</li>
+    <li>**Remembered model selection and explicit scopes:** choose whether a model change affects this session, its agent, or the shared default; preserve existing surface behavior when no scope is set, including session-only Telegram callback picks and local TUI selection. (#115717, #127813) and @Peetiegonzalez</li>
+    <li>**Conversation-bound automations and loops:** default new agent-turn automations to their originating conversation when creation has session context. Owner-only `/loop` supports fixed-interval or self-paced checks; context-free CLI/API creation stays isolated</li>
+    <li>**Owner-directed ambient heartbeat:** send ambient heartbeat alerts to a resolvable owner DM by default and skip unroutable ambient polls; configure an owner or explicit target instead of relying on a previous group conversation</li>
+    <li>**Named agent setup:** choose the first agent name during interactive onboarding or with `--agent-name`, migrate legacy main-session history to its clear owner, and reuse `main` as an ordinary agent ID after required doctor repairs. (#123521, #123609, #123424, #123349)</li>
+    <li>**Clearer plugin trust:** review an external plugin&#x27;s capabilities, source, version, and exact artifact before install or enablement, while keeping the previous plugin unchanged if you decline an update</li>
+    <li>**Plugin install provenance warnings:** require `--force` for arbitrary executable plugin sources in CLI/chat installs. Trusted ClawHub, bundled, official-catalog, and tracked-update sources skip that provenance warning, but retain capability consent. Crestodian installs require trusted sources</li>
+    <li>**Session permission modes:** choose an explicit session permission mode and keep restricted filesystem access anchored to its recorded workspace or worktree, while newly created worktrees inherit configured policy unless a mode is selected. (#124909, #131547, #132989)</li>
+    <li>**Team operator roles:** assign verified users named roles that limit accessible agents, other people&#x27;s sessions, and operator scopes, and optionally require sandboxed execution for newly created sessions; these are collaboration controls, not hostile-tenant isolation. (#128548, #129926)</li>
+    <li>**Shared credential store:** manage team-scoped secret and environment entries in SQLite through the CLI and Settings; keep secret values write-only, bind protected egress to declared hosts, and distinguish readable environment values from secrets. (#121559, #121724, #126088)</li>
+    <li>**Optional 1Password broker:** resolve curated SecretRefs or read selected 1Password fields with service-account auth, per-secret approval, and value-free audit. Agent-tool reads expose the selected value to the model for that execution</li>
+    <li>**Usage statistics controls:** offer opt-in feature statistics with the daily version check. Inspect payloads with `openclaw telemetry show`; disable statistics or all automatic update requests. Feature statistics default off</li>
+    <li>**Incognito threads:** keep Control UI conversation transcripts and compaction state in Gateway memory until restart, with memory flush off. Provider processing, diagnostic logs, and explicit tool writes retain their own behavior</li>
+    <li>**Guided onboarding:** guide first-run setup through Custodian with structured option cards and native setup controls. (#109841, #110141, #114631)</li>
+    <li>**Local model setup:** offer model-download actions in web and macOS onboarding, prefer stronger available local models during detection, and provide lean mode for local runtimes. (#113476, #109250, #110596)</li>
+    <li>**Quick Chat and desktop setup:** add macOS dictation, paste-to-app and model controls, Linux agent switching and per-agent routing, and a more complete Linux onboarding flow. (#110994, #110285, #129815)</li>
+    <li>**Cloud setup:** select project-specific cloud worker defaults and see the active service, profile, machine resources, and worker-slot availability in placement controls. (#126238, #125696, #132405, #132394)</li>
+    <li>**Cloud worker bootstrap:** use the running Gateway’s verified runtime artifact for cloud nodes, aligning source builds and worker packages. Images need supported Node.js, npm, and registry access; reverse proxies must forward the authenticated bootstrap-artifact route</li>
+    <li>**External supervision:** set `OPENCLAW_SUPERVISOR_MODE=external` to let an external supervisor own Gateway restarts, service lifecycle, and updates without competing native service changes. (#109162, #119846, #121069) and @vincentkoc</li>
+    <li>**ClickClack setup and commands:** connect ClickClack with a one-use expiring setup code, verify the account immediately, and publish native command menus at Gateway startup when the token has `commands:write`. (#107907, #109398)</li>
+    <li>**Memory migration:** offer detected Claude Code, Codex, and Hermes memory imports during CLI, macOS, and Linux onboarding</li>
+    <li>**Plugin uninstall cleanup:** remove exact recorded install paths from `plugins.load.paths` for marketplace, npm, and other managed installs while preserving parent, child, prefix, and unrelated paths</li>
+    <li>**Recoverable backups:** schedule recorded database backups, keep versioned snapshots in an operator-owned Git repository, and restore a verified full archive into a fresh staging directory. (#122485, #122750)</li>
+    <li>**Shared Gateway profiles:** manage display names and avatars, see who is online, and retain session-creator attribution with person filters. (#111224, #111421, #111501, #112658)</li>
+    <li>**Cloud lifecycle:** suspend idle cloud workers after a configured interval and provision a replacement on the next message, preserving the session and reconciled workspace</li>
+    <li>**Development previews:** expose agent-run development servers through authenticated Portals, including supported node-backed cloud workers, without manually opening inbound worker ports. (#122536, #130105)</li>
+    <li>**Device hosting:** opt paired machines into session hosting with one-paste onboarding and enable native session hosting from the macOS app. (#122499, #131717)</li>
+    <li>**Daytona sandboxes:** add a Daytona backend plugin for isolated cloud execution. and @Patrick-Erichsen</li>
+    <li>**Task suggestions:** name the suggestion-card tool `suggest_task` so agents can propose follow-up work without implying that it has started, with doctor migration for persisted references to the old name</li>
+    <li>**Goals:** create and manage goals from the Control UI without entering slash commands</li>
+    <li>**Workboard:** link boards to owning automations, run attached automations when linked sessions finish, and show complete boards on session dashboards. (#125076, #125170, #125094)</li>
+    <li>**Agent interoperability:** add an opt-in A2A 1.0 channel plugin for authenticated text tasks, task polling, and messages to configured peer agents</li>
+    <li>**Email triggers:** start agent work from configured inbound IMAP mailboxes through a new plugin</li>
+    <li>**Approval surfaces:** show typed operation-scope summaries on channel cards, add native Teams approve/deny controls, and deliver opted-in PWA approval notifications. (#130116, #129997, #129348)</li>
+    <li>**Session organization:** carry session colors across web and native apps, group the web sidebar by project, and search sessions and connected catalogs from the command palette. (#132570, #131543, #128356)</li>
+    <li>**Safer startup repair:** apply safe doctor configuration migrations at Gateway startup before normal operation</li>
+    <li>**ClawHub review:** show available security-audit information before a plugin install. and @vincentkoc</li>
+    <li>**Debugging handoff:** add `openclaw triage` for sanitized agent-debugging handoffs</li>
+    <li>**Shared conversation terminals:** share a conversation terminal across browser viewers, and let the agent inspect or operate an operator-opened terminal within that exact session and its permission policy. (#109005, #129604)</li>
+    <li>**Terminal uploads:** drop files into a terminal with per-file upload progress, cancellation, and retry, then insert safely quoted paths without running a command. (#107364, #107789)</li>
+    <li>**Experimental Fleet:** provision and manage separate experimental OpenClaw cells on a local Docker or Podman host, with per-cell resources, logs, diagnostics, and backup/restore. (#104527, #104669, #104814, #104828)</li>
+    <li>**Experimental Swarm:** enable experimental Swarm in Labs to fan out bounded parallel subagents, await structured results, and follow their progress across web and native chat. (#110932, #111267, #111297, #111298, #113850)</li>
+    <li>**Interactive widgets:** present interactive widgets in chat, pin them to session dashboards, export rendered views as PNGs, and grant exact actions or network origins to pinned widgets. (#101840, #108889, #108983, #110960, #110987, #110992, #111030, #125803, #127315) and @hannesrudolph</li>
+    <li>**Editable prompt queues:** edit queued prompts in place and reorder pending messages without disturbing work already sent to a running session. (#121682, #121692, #124298) @jjjhenriksen, and @Patrick-Erichsen</li>
+    <li>**Structured questions:** answer structured agent questions through web and native cards, messaging buttons, or a plain-text reply, with free-text alternatives and an explicit Skip path. (#109922, #110372, #130262)</li>
+    <li>**Durable progress cards:** follow one durable progress card for a session across web, macOS, iOS, Android, and dashboard views, retaining the latest plan or status through reloads. (#125125, #125438, #125442, #125444)</li>
+    <li>**Presence-triggered conversations:** optionally wake an agent when an eligible Discord participant comes online or a previously active Slack participant returns, with scoped audiences, cooldowns, and configurable Slack guidance. (#107451, #108510, #123805, #123875) and @sjf</li>
+    <li>**Room introductions:** introduce the agent when it joins an allowed Matrix or LINE group, with per-account switches to turn introductions off</li>
+    <li>**Managed local inference:** set up managed llama.cpp chat and local embeddings, or connect an existing llama-server, using one model-provider namespace and read-only discovery. (#109444, #109585, #123701, #130883, #125781) @NovaUnboundAi, and @osolmaz</li>
+    </ul>
+    <h3>Fixes</h3>
+    <ul>
     </ul>
   </div>
   <!-- RELEASE_END -->
