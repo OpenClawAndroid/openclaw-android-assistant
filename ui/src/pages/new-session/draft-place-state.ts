@@ -391,6 +391,9 @@ export class DraftPlaceState {
   }
 
   clearProjectSelection() {
+    if (this.browser.projectId || this.browser.remoteProject) {
+      this.repositoryState.clearDetails(true);
+    }
     this.browser.clearProjectSelection();
     this.repositoryState.load();
     this.callbacks.requestUpdate();
@@ -521,6 +524,9 @@ export class DraftPlaceState {
     this.whereSelectedByUser = true;
     this.preferredWhereRestore = null;
     if ((deviceId || autoDevice) && !this.worktreeAvailable()) {
+      if (this.folderValue !== this.workspacePath() || this.browser.projectId) {
+        this.repositoryState.clearDetails(true);
+      }
       this.folderValue = this.workspacePath();
       this.folderSelectedByUser = false;
       this.browser.clearProjectSelection();
