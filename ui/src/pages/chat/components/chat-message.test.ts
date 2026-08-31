@@ -1812,7 +1812,7 @@ describe("grouped chat rendering", () => {
     render(renderTurnRecapRow({ runtimeMs: 30_000, outputTokens: 2_400 }), withTokens);
     expect(
       withTokens.querySelector(".chat-turn-recap")?.textContent?.replace(/\s+/g, " ").trim(),
-    ).toBe("Done in 30 seconds · 2.4k tokens");
+    ).toBe("Done in 30 seconds · 2,400 output tokens");
   });
 
   it("shows live output usage beside elapsed time", () => {
@@ -1827,9 +1827,9 @@ describe("grouped chat rendering", () => {
 
     expect(container.querySelector(".chat-working-indicator__elapsed")).not.toBeNull();
     expect(container.querySelector(".chat-working-indicator__tokens")?.textContent?.trim()).toBe(
-      "5.5k tokens",
+      "5,500 output tokens",
     );
-    // Streaming tokens replace the whimsical phrase: one liveness signal at a time.
+    // Known usage replaces the pre-usage working phrase.
     expect(container.querySelector("openclaw-working-phrase")).toBeNull();
   });
 
@@ -1845,11 +1845,13 @@ describe("grouped chat rendering", () => {
       container,
     );
 
-    expect(container.querySelector(".chat-working-indicator__status")?.textContent?.trim()).toBe(
+    expect(container.querySelector(".chat-working-indicator__status")?.textContent).toContain(
       "Waiting for approval…",
     );
     expect(container.querySelector(".chat-working-indicator__elapsed")).toBeNull();
-    expect(container.querySelector(".chat-working-indicator__tokens")).toBeNull();
+    expect(container.querySelector(".chat-working-indicator__tokens")?.textContent).toBe(
+      "5,500 output tokens",
+    );
   });
 
   it("keeps streamed assistant content in the guttered group without an avatar", () => {
@@ -6180,6 +6182,36 @@ describe("grouped chat rendering", () => {
       expect(container.querySelector(".chat-expand-btn")).toBeNull();
     },
   );
+
+  it("admits one full-message load for repeated source projections in a group", () => {
+    const container = document.createElement("div");
+    const previews = ["First projection", "Updated projection"];
+    let loading = false;
+    const onToggleAssistantMessageExpanded = vi.fn(() => {
+      loading = true;
+    });
+    renderAssistantMessages(
+      container,
+      previews.map((text) =>
+        createAssistantMessage(text, {
+          __openclaw: { id: "shared-source", truncated: true },
+        }),
+      ),
+      {
+        sessionKey: "global",
+        loadFullAssistantMessage: async () => null,
+        getAssistantMessageExpansion: () =>
+          loading ? { status: "loading", revision: 1 } : undefined,
+        onToggleAssistantMessageExpanded,
+      },
+    );
+
+    expect(onToggleAssistantMessageExpanded).toHaveBeenCalledTimes(1);
+    expect(onToggleAssistantMessageExpanded).toHaveBeenCalledWith("shared-source");
+    expect(
+      [...container.querySelectorAll(".chat-text")].map((element) => element.textContent),
+    ).toEqual(previews);
+  });
 
   it.each([
     { state: { status: "error" as const, revision: 2 }, retries: true, label: "bounded error" },
