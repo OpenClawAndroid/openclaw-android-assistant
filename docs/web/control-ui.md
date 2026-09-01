@@ -129,11 +129,12 @@ preparation and follow-ups during a run, remain visible with a waiting notice
 until their own turn starts. Inputs accepted through `sessions_send` or the
 Gateway `agent` method use the same display. They are stored separately from the active model transcript. If
 cancellation or a Gateway restart interrupts that wait,
-the input stays readable with its recorded disposition and is never resent
-automatically. Copy it into the composer to start a new attempt. **Earlier
-accepted inputs** pages through retained inputs; **Latest accepted inputs**
-returns to the newest page. Long accepted input uses the normal full-message
-reader without becoming a transcript reply, fork, or rewind target.
+the message stays readable with its recorded disposition and is never resent
+automatically. Copy it into the composer to start a new attempt. **Show earlier
+messages** pages through messages that are still waiting or were stopped before
+processing; **Show latest messages** returns to the newest page. A long message
+uses the normal full-message reader without becoming a transcript reply, fork,
+or rewind target.
 
 Browser drafts and unsent messages remain in the local queue. Once the Gateway
 accepts an ordinary browser message, it owns the approved input in durable
@@ -196,6 +197,12 @@ For Gateway setup, say `configure gateway` to choose the port, bind address, tok
 Say `import memory` to copy detected local memory into the existing default agent workspace. This flow does not change config or import credentials or skills, needs no Gateway restart, and distinguishes confirmed imports, nothing to import, provider failures, and failures where some files may already have been copied. Finish onboarding first if the default workspace does not exist. See [Import assistant memory](#import-assistant-memory) for the broader page that can target another agent or replace existing imports, and [`openclaw setup`](/cli/openclaw) for the operation and approval contract.
 
 Outside onboarding, this page can show at most one dismissible event chip per visit. It stays silent for routine Gateway traffic and reacts only to health snapshots that report a disabled configuration reloader, a configured channel disconnect/degradation, a failed channel probe, or unavailable channel credentials. A newer event replaces the pending chip only when it is more severe; dismissing or using the chip silences event prompts for that visit. Clicking the chip sends its diagnosis question as a real `openclaw.chat` message, so the transcript records the request and OpenClaw performs the diagnosis. Onboarding never shows these event chips.
+
+## Home dock
+
+Use the **Home** button in the sidebar footer to open the selected agent's main conversation alongside your current page. Home and Ask OpenClaw share the dock. When the same Home conversation is already open as the page, the dock stays hidden rather than showing it twice.
+
+Home can include a bounded, quoted work-context reference with your message. That reference belongs to the page's agent and session, not merely the Home conversation receiving it, and stays current when session titles or visible files change. It is reference data, not permission to access another conversation; you can remove it before sending.
 
 ## Manage plugins
 

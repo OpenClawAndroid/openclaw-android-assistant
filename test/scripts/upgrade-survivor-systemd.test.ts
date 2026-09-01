@@ -80,11 +80,22 @@ describe.skipIf(process.platform === "win32")("survivor manager fixture", () => 
       }),
     );
     const command = await readSystemdServiceExecStart(env, { requireEffective: true });
-    expect(await readSystemdServiceRuntime(env)).toMatchObject({
+    const stoppedRuntime = await readSystemdServiceRuntime(env);
+    expect(stoppedRuntime).toMatchObject({
       status: "stopped",
       state: "inactive",
       systemd: { unit: "openclaw-gateway.service" },
     });
+    expect(stoppedRuntime.missingUnit).not.toBe(true);
+    // Published 8.1 omits LoadState from its runtime query during baseline bootstrap.
+    const legacyRuntime = systemctl(
+      "show",
+      "openclaw-gateway.service",
+      "--property",
+      "Id,ActiveState,SubState,Result,NRestarts,StartLimitBurst,MainPID,ExecMainStatus,ExecMainCode,KillMode,TasksCurrent,MemoryCurrent",
+    );
+    expect(legacyRuntime.status, legacyRuntime.stderr).toBe(0);
+    expect(legacyRuntime.stdout).toContain("ActiveState=inactive");
     expect(command).toMatchObject({
       programArguments,
       workingDirectory: home,
@@ -210,11 +221,6 @@ raise SystemExit(code if code >= 0 else 128 - code)
       await waitForStarts(1);
       expect.soft(systemctl("is-active", "openclaw-gateway.service").status).toBe(0);
       const inspected = await readSystemdServiceExecStart(env, { requireEffective: true });
-      expect(await readSystemdServiceRuntime(env)).toMatchObject({
-        status: "running",
-        state: "active",
-        pid: Number(readFileSync(env.OPENCLAW_UPGRADE_SURVIVOR_SYSTEMCTL_SHIM_PID_FILE, "utf8")),
-      });
       expect(records()[0]).toEqual({
         pid: expect.any(Number),
         argv: inspected?.programArguments.slice(2),
@@ -226,6 +232,10 @@ raise SystemExit(code if code >= 0 else 128 - code)
         env.OPENCLAW_UPGRADE_SURVIVOR_SYSTEMCTL_SHIM_PID_FILE,
         "utf8",
       ).trim();
+      expect(await readSystemdServiceRuntime(env)).toMatchObject({
+        status: "running",
+        pid: Number(previousPid),
+      });
       const previousLines = readFileSync(env.OPENCLAW_UPGRADE_SURVIVOR_SYSTEMCTL_SHIM_LOG, "utf8")
         .trim()
         .split("\n").length;
@@ -242,9 +252,7 @@ raise SystemExit(code if code >= 0 else 128 - code)
       expect(records()[1]?.pid).not.toBe(records()[0]?.pid);
       expect(() => process.kill(records()[0]!.pid, 0)).toThrow();
     } finally {
-      const stopped = shell('source "$1"; stop_update_restart_probe_gateway 40s', [
-        resolve("scripts/lib/openclaw-e2e-instance.sh"),
-      ]);
+      const stopped = systemctl("stop", "openclaw-gateway.service");
       expect(stopped.status, stopped.stderr).toBe(0);
       for (const { pid } of records()) {
         try {
@@ -257,7 +265,9 @@ raise SystemExit(code if code >= 0 else 128 - code)
         }
       }
       expect(existsSync(env.OPENCLAW_UPGRADE_SURVIVOR_SYSTEMCTL_SHIM_PID_FILE)).toBe(false);
-      expect(await readSystemdServiceRuntime(env)).toMatchObject({ status: "stopped" });
+      const runtime = await readSystemdServiceRuntime(env);
+      expect(runtime).toMatchObject({ status: "stopped" });
+      expect(runtime.missingUnit).not.toBe(true);
     }
   });
 });

@@ -29,6 +29,7 @@ import {
   shouldRunNativeI18n,
   writeGitHubOutput,
 } from "../../scripts/ci-changed-scope.mjs";
+import { resolveShardPlans, runShardPlans } from "../../scripts/ci-run-node-test-shard.mts";
 import { visitModuleSpecifiers } from "../../scripts/lib/guard-inventory-utils.mjs";
 import { pnpmLockfileDocuments } from "../../scripts/lib/pnpm-lockfile-documents.mjs";
 import { NATIVE_I18N_LOCALES } from "../../scripts/native-i18n-locales.ts";
@@ -151,6 +152,8 @@ function evaluateWorkflowExpression(
         ? haystack.includes(needle)
         : String(haystack).includes(String(needle)),
     fromJSON: (value: string) => JSON.parse(value) as unknown,
+    format: (value: string, ...args: unknown[]) =>
+      value.replace(/\{(\d+)\}/gu, (_match, index: string) => String(args[Number(index)])),
     hashFiles: (file: string) => context.fileHashes?.[file] ?? "",
     startsWith: (value: unknown, prefix: unknown) => String(value).startsWith(String(prefix)),
     github: {
@@ -1900,6 +1903,18 @@ NODE
         `${jobName} retries must escape stalled Blacksmith macOS capacity`,
       ).toContain("github.run_attempt > 1");
     }
+  });
+
+  it("serializes both Swift package suites on hosted macOS retries", () => {
+    const macosSwift = readCiWorkflow().jobs["macos-swift"];
+
+    expect(macosSwift.env.OPENCLAWKIT_TEST_EXECUTION).toContain("github.run_attempt > 1");
+    const openClawKitTests = macosSwift.steps.find(
+      (candidate: WorkflowStep) => candidate.name === "OpenClawKit tests",
+    );
+    expect(openClawKitTests?.run).toContain('if [[ "$OPENCLAWKIT_TEST_EXECUTION" == "parallel" ]]');
+    expect(openClawKitTests?.run).toContain("--parallel");
+    expect(openClawKitTests?.run).toContain("--no-parallel");
   });
 
   it("keeps Testbox pull request validation off leased runner capacity", () => {
@@ -5304,6 +5319,10 @@ server.listen(0, "127.0.0.1", () => {
       (step: WorkflowStep) => step.name === "Warm transform and compile caches",
     );
     const warmerSteps = warmer.jobs.warm.steps as WorkflowStep[];
+    const buildStep = expectDefined(
+      warmerSteps.find((step) => step.name === "Warm build cache"),
+      "cache warm build",
+    );
     const warmAssertionStep = expectDefined(
       warmerSteps.find((step) => step.name === "Assert cache warming succeeded"),
       "final cache warming assertion",
@@ -5317,9 +5336,54 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmer.on.push.branches).toEqual(["main"]);
     expect(warmer.on.repository_dispatch.types).toEqual(["vitest-cache-warm"]);
     expect(warmer.jobs.warm.if).toContain("github.repository == 'openclaw/openclaw'");
-    expect(warmer.jobs.warm["runs-on"]).toBe(
-      "${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}",
-    );
+    expect(warmer.jobs.warm.strategy).toEqual({
+      "fail-fast": false,
+      matrix: { platform: ["linux", "macos"] },
+    });
+    expect(warmer.on).not.toHaveProperty("pull_request");
+    expect(warmer.on).not.toHaveProperty("pull_request_target");
+    for (const eventName of ["push", "workflow_dispatch"] as const) {
+      for (const runnerBackend of ["blacksmith", "hybrid", "github"] as const) {
+        for (const platform of warmer.jobs.warm.strategy.matrix.platform) {
+          const context = {
+            eventName,
+            matrix: { platform },
+            repository: "openclaw/openclaw",
+            runAttempt: 1,
+            runnerBackend,
+          };
+          const full = platform === "linux";
+          const expectedRunner = full
+            ? runnerBackend === "github"
+              ? "ubuntu-24.04"
+              : "blacksmith-8vcpu-ubuntu-2404"
+            : "macos-15";
+          expect(evaluateWorkflowExpression(warmer.jobs.warm["runs-on"], context)).toBe(
+            expectedRunner,
+          );
+          const setupInputs = Object.fromEntries(
+            Object.entries(warmerSetup.with).map(([key, value]) => [
+              key,
+              typeof value === "string" && value.startsWith("${{")
+                ? evaluateWorkflowExpression(value, context)
+                : value,
+            ]),
+          );
+          expect(setupInputs).toMatchObject({
+            "build-all-cache-scope": full ? "full" : "",
+            "cache-mode": "read-write",
+            "dependency-cache": String(full),
+            "install-bun": "false",
+            "node-compile-cache-scope": "test",
+            "node-compile-cache": String(full),
+            "vitest-fs-cache": String(full),
+          });
+          for (const step of [buildStep, seedStep, warmStep, warmAssertionStep]) {
+            expect(evaluateWorkflowExpression(step.if, context), step.name).toBe(full);
+          }
+        }
+      }
+    }
     expect(warmer.on).not.toHaveProperty("workflow_run");
     expect(checkoutStep.with).toBeUndefined();
     expect(warmerSource).toContain('cron: "17 8 * * *"');
@@ -5337,14 +5401,6 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmStep.env).toMatchObject({
       OPENCLAW_VITEST_FS_MODULE_CACHE_WRITER: "1",
       OPENCLAW_NODE_COMPILE_CACHE_WRITER: "1",
-    });
-    expect(warmerSetup.with).toMatchObject({
-      "build-all-cache-scope": "full",
-      "cache-mode": "read-write",
-      "dependency-cache": "true",
-      "node-compile-cache-scope": "test",
-      "node-compile-cache": "true",
-      "vitest-fs-cache": "true",
     });
     expect(warmerSetup["continue-on-error"]).not.toBe(true);
     for (const legacyInput of [
@@ -5377,9 +5433,8 @@ server.listen(0, "127.0.0.1", () => {
         saveStep.name === "Save Node toolchain cache" ||
         saveStep.name === "Save exact dependency cache"
       ) {
-        const buildStep = warmerSteps.find((step) => step.name === "Warm build cache");
         expect(warmerSteps.indexOf(saveStep), saveStep.name).toBeLessThan(
-          warmerSteps.indexOf(expectDefined(buildStep, "cache warm build")),
+          warmerSteps.indexOf(buildStep),
         );
         // A normal step condition retains Actions' implicit success() gate,
         // so failed setup cannot publish even if it produced cache outputs.
@@ -5404,15 +5459,33 @@ server.listen(0, "127.0.0.1", () => {
         warmerSteps.indexOf(warmAssertionStep),
       );
     }
-    expect(warmAssertionStep.if).toBe("${{ always() }}");
+    expect(warmAssertionStep.if).toBe("${{ always() && matrix.platform == 'linux' }}");
     expect(warmAssertionStep.run).toContain("steps.warm-caches.outcome");
     expect(warmAssertionStep.run).toContain("exit 1");
     expect(warmerSteps.at(-1)).toBe(warmAssertionStep);
     // No close-time cleanup workflow is needed; Actions cache LRU/TTL expires
     // old hosted-writer and warmer generations.
     expect(existsSync(".github/workflows/pr-cache-cleanup.yml")).toBe(false);
-    expect(seedStep.if).toBeUndefined();
-    expect(warmStep.if).toBeUndefined();
+    expect(seedStep.if).toBe("${{ matrix.platform == 'linux' }}");
+    expect(warmStep.if).toBe("${{ matrix.platform == 'linux' }}");
+    const distSave = expectDefined(
+      saveSteps.find((step) => step.name === "Save dist build cache"),
+      "Linux dist publication",
+    );
+    expect(distSave.if).toBe(
+      "${{ matrix.platform == 'linux' && steps.setup-node-env.outputs.cache-mode == 'read-write' }}",
+    );
+    const storeSave = expectDefined(
+      saveSteps.find((step) => step.name === "Save pnpm store cache"),
+      "platform pnpm store publication",
+    );
+    expect(storeSave.if).not.toContain("matrix.platform");
+    expect(storeSave.if).toContain("steps.setup-node-env.outputs.pnpm-store-cache-hit != 'true'");
+    expect(storeSave.if).not.toMatch(/\b(?:always|failure|cancelled)\(/u);
+    expect(storeSave.with).toEqual({
+      path: "${{ steps.setup-node-env.outputs.pnpm-store-cache-path }}",
+      key: "${{ steps.setup-node-env.outputs.pnpm-store-cache-key }}",
+    });
   });
 
   it("uses bundled Node shards and telemetry-backed runner sizes", () => {
@@ -7250,13 +7323,37 @@ exit 1
       (step: WorkflowStep) => step.id === "swift-build-cache",
     );
     const nativeCachePrefix =
-      "${{ runner.os }}-swift-build-v5-graph-${{ steps.swift-toolchain.outputs.key }}-" +
+      "${{ runner.os }}-swift-build-v6-${{ hashFiles('scripts/swift-build-cache-metadata.py') }}-graph-${{ steps.swift-toolchain.outputs.key }}-" +
       "${{ hashFiles('apps/macos/Package*.swift', 'apps/macos/Package.resolved', 'apps/shared/**/Package*.swift', 'apps/shared/**/Package.resolved', 'apps/swabble/Package*.swift', 'apps/swabble/Package.resolved') }}-";
 
     expect(buildCache.with).toMatchObject({
       key: expect.stringContaining(nativeCachePrefix),
       "restore-keys": `${nativeCachePrefix}\n`,
     });
+    const restoreMetadata = macosSwift.steps.find(
+      (step: WorkflowStep) => step.name === "Restore Swift build input timestamps",
+    );
+    const recordMetadata = macosSwift.steps.find(
+      (step: WorkflowStep) => step.name === "Record Swift build input timestamps",
+    );
+    const saveBuildCache = macosSwift.steps.find(
+      (step: WorkflowStep) => step.name === "Save Swift build directory cache",
+    );
+    expect(restoreMetadata.if).toBe(
+      "steps.validate-swift-build-cache.outputs.cache-valid == 'true' && env.HISTORICAL_TARGET != 'true'",
+    );
+    expect(restoreMetadata.run).toBe("python3 -I -S scripts/swift-build-cache-metadata.py restore");
+    expect(recordMetadata.run).toBe("python3 -I -S scripts/swift-build-cache-metadata.py record");
+    expect(recordMetadata.if).toBe(`${saveBuildCache.if} && env.HISTORICAL_TARGET != 'true'`);
+    expect(macosSwift.steps.indexOf(restoreMetadata)).toBeLessThan(
+      macosSwift.steps.indexOf(testStep),
+    );
+    expect(macosSwift.steps.indexOf(recordMetadata)).toBeGreaterThan(
+      macosSwift.steps.indexOf(testStep),
+    );
+    expect(macosSwift.steps.indexOf(recordMetadata) + 1).toBe(
+      macosSwift.steps.indexOf(saveBuildCache),
+    );
     expect(macosSwift.env).not.toHaveProperty("SWIFT_TEST_EXECUTION");
     expect(testStep.id).toBe("swift-test");
     expect(renderStep.if).toBe(
@@ -8863,6 +8960,126 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(uiTest.run).toContain("pnpm --dir ui test --testTimeout=30000 --isolate");
     expect(uiTest.run).not.toContain("--retry");
     expect(uiTest.run).toContain("pnpm --dir ui test");
+  });
+
+  it.each([
+    { label: "current", frozenTarget: false, compatibilityTarget: false, shards: [1, 2, 3] },
+    { label: "frozen current", frozenTarget: true, compatibilityTarget: false, shards: [1] },
+    { label: "frozen legacy", frozenTarget: true, compatibilityTarget: true, shards: [1] },
+  ])("executes the $label standalone UI envelope", async (scenario) => {
+    const workflow = readCiWorkflow();
+    const ui = workflow.jobs["checks-ui"];
+    const lint = ui.steps.find(
+      (step: WorkflowStep) => step.name === "Lint Control UI window.open usage",
+    );
+    const test = ui.steps.find((step: WorkflowStep) => step.name === "Test Control UI");
+    const context = {
+      eventName: scenario.frozenTarget ? "workflow_dispatch" : "pull_request",
+      frozenTarget: scenario.frozenTarget,
+      preflightOutputs: { compatibility_target: String(scenario.compatibilityTarget) },
+      repository: "openclaw/openclaw",
+      runAttempt: 1,
+      runnerBackend: "hybrid",
+    } as const;
+    // A workflow job without a matrix executes once.
+    const shards = ui.strategy
+      ? evaluateWorkflowExpression(ui.strategy.matrix.shard, context)
+      : [1];
+    expect(shards).toEqual(scenario.shards);
+    if (!scenario.frozenTarget) {
+      expect(ui.strategy).toMatchObject({ "fail-fast": false, "max-parallel": 3 });
+    }
+    expect(ui.needs).toEqual(["preflight"]);
+    expect(ui.if).toBe("needs.preflight.outputs.run_ui_tests == 'true'");
+    expect(ui.permissions).toEqual({ contents: "read" });
+    expect(ui["timeout-minutes"]).toBe(20);
+    expect(workflow.jobs["ci-gate"].needs).toContain("checks-ui");
+
+    const root = tempDirs.make("openclaw-ui-workflow-");
+    const bin = path.join(root, "bin");
+    const callsPath = path.join(root, "calls.txt");
+    const argsPath = path.join(root, "vitest-args.json");
+    mkdirSync(bin);
+    for (const command of ["node", "pnpm"]) {
+      writeExecutable(path.join(bin, command), [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        `printf '%s\\n' '${command} '"$*" >> "$UI_COMMAND_CALLS"`,
+        ...(command === "node"
+          ? ['printf "%s\\n" "$OPENCLAW_NODE_TEST_VITEST_ARGS_JSON" > "$UI_VITEST_ARGS"']
+          : []),
+      ]);
+    }
+    for (const shard of scenario.shards) {
+      const rowContext = { ...context, matrix: { shard } };
+      const resolveValue = (value: unknown): string =>
+        typeof value === "string" && value.startsWith("${{")
+          ? String(evaluateWorkflowExpression(value, rowContext))
+          : String(value);
+      expect(resolveValue(ui.name)).toBe(
+        scenario.frozenTarget ? "checks-ui" : `checks-ui (${shard}/3)`,
+      );
+      expect(evaluateWorkflowExpression(ui["runs-on"], rowContext)).toBe(
+        scenario.frozenTarget ? "ubuntu-24.04" : "blacksmith-8vcpu-ubuntu-2404",
+      );
+      const env = Object.fromEntries(
+        Object.entries({ ...ui.env, ...test.env }).map(([key, value]) => [
+          key,
+          resolveValue(value),
+        ]),
+      );
+      expect(env.OPENCLAW_NODE_TEST_PLAN_CONCURRENCY).toBe("1");
+      const flags = [
+        "--maxWorkers",
+        "3",
+        "--reporter=verbose",
+        "--reporter=github-actions",
+        "--reporter=./scripts/lib/vitest-resource-reporter.mts",
+        ...(scenario.frozenTarget ? [] : [`--shard=${shard}/3`]),
+      ];
+      const steps = [
+        ...(!lint.if || evaluateWorkflowExpression(lint.if, rowContext) ? [lint] : []),
+        test,
+      ];
+      for (const step of steps) {
+        const result = runWorkflowShellScript(step.run, {
+          cwd: root,
+          env: {
+            ...process.env,
+            ...env,
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            UI_COMMAND_CALLS: callsPath,
+            UI_VITEST_ARGS: argsPath,
+          },
+        });
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+      }
+      if (!scenario.compatibilityTarget) {
+        env.OPENCLAW_NODE_TEST_VITEST_ARGS_JSON = readFileSync(argsPath, "utf8");
+        expect(JSON.parse(env.OPENCLAW_NODE_TEST_VITEST_ARGS_JSON)).toEqual(flags);
+        const forwarded: string[][] = [];
+        expect(
+          await runShardPlans(resolveShardPlans(env), {
+            concurrency: Number(env.OPENCLAW_NODE_TEST_PLAN_CONCURRENCY),
+            env,
+            scratchDir: root,
+            runChild: async (args, childEnv) => {
+              forwarded.push(args);
+              expect(childEnv.OPENCLAW_TEST_PROJECTS_PARALLEL).toBe("1");
+              return 0;
+            },
+          }),
+        ).toBe(0);
+        expect(forwarded).toEqual([["ui/vitest.config.ts", "--", ...flags]]);
+      }
+    }
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n");
+    expect(calls.filter((call) => call === "pnpm lint:ui:no-raw-window-open")).toHaveLength(1);
+    expect(calls.filter((call) => call !== "pnpm lint:ui:no-raw-window-open")).toEqual(
+      scenario.compatibilityTarget
+        ? ["pnpm --dir ui test --testTimeout=30000 --isolate"]
+        : scenario.shards.map(() => "node --import tsx scripts/ci-run-node-test-shard.mts"),
+    );
   });
 
   it("gates current Control UI changes on ordinary and real-Gateway Chromium E2E", () => {

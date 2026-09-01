@@ -128,7 +128,6 @@ SYSTEMCTL_SHIM_LOG="$ARTIFACT_ROOT/systemctl-shim.log"
 SYSTEMCTL_SHIM_PID_FILE="$ARTIFACT_ROOT/systemctl-shim.pid"
 SYSTEMCTL_SHIM_DAEMON_LOG="$ARTIFACT_ROOT/systemctl-shim-gateway.log"
 CONFIG_COVERAGE_JSON="$ARTIFACT_ROOT/config-recipe.json"
-RESTART_AUTHORED_CONFIG="$RUNTIME_ROOT/restart-authored-openclaw.json"
 export OPENCLAW_UPGRADE_SURVIVOR_CONFIG_COVERAGE_JSON="$CONFIG_COVERAGE_JSON"
 rm -f "$SUMMARY_JSON" "$CONFIG_COVERAGE_JSON"
 : >"$PHASE_LOG"
@@ -483,22 +482,10 @@ configure_clawhub_fixture() {
   export OPENCLAW_CLAWHUB_URL="http://127.0.0.1:$(cat "$port_file")"
 }
 
-park_update_restart_authored_config() {
-  # Establish only the authenticated service target. The candidate update must
-  # receive the untouched migration specimen and own plugin consent/convergence.
-  node "${OPENCLAW_UPGRADE_SURVIVOR_CONFIG_PARKING_HELPER:-scripts/e2e/lib/upgrade-survivor/config-parking.mjs}" \
-    park-restart-probe "$OPENCLAW_CONFIG_PATH" "$RESTART_AUTHORED_CONFIG" 18789
-}
-
 assert_prepublish_fixture_idle() {
   [ -n "${OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_DIR:-}" ] || return 0
   node "${OPENCLAW_UPGRADE_SURVIVOR_CLAWHUB_FIXTURE_SERVER:-scripts/e2e/lib/clawhub-fixture-server.cjs}" \
     assert-no-requests "$OPENCLAW_CLAWHUB_URL"
-}
-
-restore_update_restart_authored_config() {
-  node "${OPENCLAW_UPGRADE_SURVIVOR_CONFIG_PARKING_HELPER:-scripts/e2e/lib/upgrade-survivor/config-parking.mjs}" \
-    restore "$OPENCLAW_CONFIG_PATH" "$RESTART_AUTHORED_CONFIG"
 }
 
 configure_plugin_registry() {
@@ -846,6 +833,10 @@ initialize_state() {
   export OPENCLAW_UPGRADE_SURVIVOR_BASELINE_VERSION="$baseline_version"
 }
 
+seed_state() {
+  node scripts/e2e/lib/upgrade-survivor/assertions.mjs seed
+}
+
 apply_baseline_config_recipe() {
   local tsx_import="${OPENCLAW_UPGRADE_SURVIVOR_TSX_IMPORT:-tsx}"
   local recipe_runner=(
@@ -898,17 +889,13 @@ prepare_update_restart_probe() {
   fi
   echo "Preparing configured-auth gateway for automatic update restart."
   install_update_restart_systemctl_shim
-  seed_update_restart_probe_device_auth
-  local probe_status=0
-  local doctor_log="${SYSTEMCTL_SHIM_DAEMON_LOG}.doctor"
-  park_update_restart_authored_config || probe_status=$?
-  if [ "$probe_status" -eq 0 ]; then
-    migrate_update_restart_probe_device_auth "$doctor_log" "$COMMAND_TIMEOUT" || {
-      probe_status=$?
-      echo "baseline probe device identity migration failed" >&2
-      openclaw_e2e_print_log "$doctor_log" >&2
-    }
-  fi
+  local probe_status=0 restore_status=0
+  local authored_config="$RUNTIME_ROOT/baseline-authored-openclaw.json"
+  local parking_helper="${OPENCLAW_UPGRADE_SURVIVOR_CONFIG_PARKING_HELPER:-scripts/e2e/lib/upgrade-survivor/config-parking.mjs}"
+  # Bootstrap only service auth; authored plugins must reach the actual updater unchanged.
+  # The canonical path stays installed in the unit, with reload off until update owns restart.
+  node "$parking_helper" \
+    park-restart-probe "$OPENCLAW_CONFIG_PATH" "$authored_config" 18789 || probe_status=$?
   if [ "$probe_status" -eq 0 ]; then
     write_update_restart_service_env || probe_status=$?
   fi
@@ -916,18 +903,22 @@ prepare_update_restart_probe() {
     run_update_restart_probe_gateway install 18789 "$COMMAND_TIMEOUT" legacy-ready-log-ok || probe_status=$?
   fi
   if [ "$probe_status" -eq 0 ]; then
+    local STATUS_JSON="$ARTIFACT_ROOT/baseline-status.json" STATUS_ERR="$ARTIFACT_ROOT/baseline-status.err"
+    check_gateway_status || probe_status=$?
+  fi
+  if [ "$probe_status" -eq 0 ]; then
     assert_prepublish_fixture_idle || probe_status=$?
   fi
-  # Restoring authored reload settings can restart the baseline immediately.
-  # Keep it offline through specimen seeding, migration, and explicit plugin consent.
+  # The installed baseline must be offline before restoring authored config or seeding state.
   stop_update_restart_probe_gateway "$COMMAND_TIMEOUT" || return "$?"
-  local restore_status=0
-  restore_update_restart_authored_config || restore_status=$?
-  if [ "$probe_status" -ne 0 ]; then
-    return "$probe_status"
+  if [ -e "$authored_config" ]; then
+    node "$parking_helper" restore "$OPENCLAW_CONFIG_PATH" "$authored_config" || restore_status=$?
   fi
   if [ "$restore_status" -ne 0 ]; then
     return "$restore_status"
+  fi
+  if [ "$probe_status" -ne 0 ]; then
+    return "$probe_status"
   fi
 }
 
@@ -1124,6 +1115,10 @@ repair_fixture_plugin_consent() {
     phase prepare-recovery-service run_update_restart_probe_gateway start 18789 "$COMMAND_TIMEOUT"
     local preparation_status=$?
     [ "$preparation_status" -eq 0 ] || return "$preparation_status"
+    local STATUS_JSON="$ARTIFACT_ROOT/prepared-status.json" STATUS_ERR="$ARTIFACT_ROOT/prepared-status.err"
+    phase prepared-gateway-auth check_gateway_status
+    local auth_status=$?
+    [ "$auth_status" -eq 0 ] || return "$auth_status"
     phase recovery-update-restart update_candidate 1
     local recovery_status=$?
     [ "$recovery_status" -eq 0 ] || return "$recovery_status"
@@ -1308,12 +1303,7 @@ phase configure-clawhub-fixture configure_clawhub_fixture
 phase prepare-update-restart-probe prepare_update_restart_probe
 # Start the published baseline before adding migration specimens: its startup
 # guards correctly reject them, and baseline Doctor would consume candidate proof.
-phase seed-migration-state node scripts/e2e/lib/upgrade-survivor/assertions.mjs seed
-if [ "$SCENARIO" = "cron-scheduled-authority" ]; then
-  # Baseline roster writes must precede ownerless migration specimens: the
-  # published CLI correctly refuses topology changes while those jobs exist.
-  phase seed-cron-state node scripts/e2e/lib/upgrade-survivor/assertions.mjs seed-cron
-fi
+phase seed-state seed_state
 phase install-baseline-plugin-dependencies install_baseline_plugin_dependencies
 phase seed-legacy-plugin-dependency-debris seed_legacy_plugin_dependency_debris
 phase assert-legacy-plugin-dependency-debris assert_legacy_plugin_dependency_debris_present

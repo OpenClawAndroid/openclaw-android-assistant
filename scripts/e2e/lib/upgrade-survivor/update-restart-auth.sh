@@ -506,6 +506,10 @@ stop_update_restart_probe_gateway() {
   if [ "$stop_status" -eq 0 ]; then
     assert_update_restart_probe_inactive >>"$stop_log" 2>&1 || stop_status=$?
   fi
+  if [ "$stop_status" -eq 0 ] && openclaw_e2e_probe_tcp 127.0.0.1 18789 400; then
+    echo "Baseline gateway listener is still open after service stop." >>"$stop_log"
+    stop_status=1
+  fi
   if [ "$stop_status" -ne 0 ]; then
     echo "gateway service shutdown could not be verified; preserving authored config snapshot" >&2
     openclaw_e2e_print_log "$stop_log" >&2

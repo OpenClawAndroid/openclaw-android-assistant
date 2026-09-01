@@ -19,17 +19,15 @@ function run(...args: string[]) {
 
 describe("upgrade survivor config parking", () => {
   it.each([
-    { registry: false, installStatus: 0, migrationStatus: 0, stopStatus: 0, activeStatus: 3 },
-    { registry: true, installStatus: 0, migrationStatus: 0, stopStatus: 0, activeStatus: 3 },
-    { registry: false, installStatus: 23, migrationStatus: 0, stopStatus: 0, activeStatus: 3 },
-    { registry: true, installStatus: 23, migrationStatus: 0, stopStatus: 0, activeStatus: 3 },
-    { registry: false, installStatus: 0, migrationStatus: 41, stopStatus: 0, activeStatus: 3 },
-    { registry: true, installStatus: 0, migrationStatus: 41, stopStatus: 0, activeStatus: 3 },
-    { registry: false, installStatus: 0, migrationStatus: 0, stopStatus: 29, activeStatus: 0 },
-    { registry: false, installStatus: 0, migrationStatus: 0, stopStatus: 0, activeStatus: 1 },
+    { registry: false, installStatus: 0, stopStatus: 0, activeStatus: 3 },
+    { registry: true, installStatus: 0, stopStatus: 0, activeStatus: 3 },
+    { registry: false, installStatus: 23, stopStatus: 0, activeStatus: 3 },
+    { registry: true, installStatus: 23, stopStatus: 0, activeStatus: 3 },
+    { registry: false, installStatus: 0, stopStatus: 29, activeStatus: 0 },
+    { registry: false, installStatus: 0, stopStatus: 0, activeStatus: 1 },
   ])(
-    "isolates published auth setup and restores the migration specimen (registry=$registry, install=$installStatus, migration=$migrationStatus, stop=$stopStatus, active=$activeStatus)",
-    ({ registry, installStatus, migrationStatus, stopStatus, activeStatus }) => {
+    "isolates published auth setup and restores the migration specimen (registry=$registry, install=$installStatus, stop=$stopStatus, active=$activeStatus)",
+    ({ registry, installStatus, stopStatus, activeStatus }) => {
       const root = tempDirs.make("openclaw-published-auth-parking-");
       const stateDir = path.join(root, "state");
       const configPath = path.join(stateDir, "openclaw.json");
@@ -85,12 +83,8 @@ process.exit(child.status ?? 1);
 trap - EXIT ERR INT TERM
 install_update_restart_systemctl_shim() { :; }
 
-seed_update_restart_probe_device_auth() { :; }
-migrate_update_restart_probe_device_auth() {
-  cp "$OPENCLAW_CONFIG_PATH" "$PROBE_CAPTURE"
-  printf 'synthetic migration diagnostic\n' >"$1"
-  return "$PROBE_MIGRATION_STATUS"
-}
+check_gateway_status() { :; }
+openclaw_e2e_probe_tcp() { [ -f "$PROBE_LIVE" ]; }
 assert_prepublish_fixture_idle() { :; }
 assert_baseline_state() { :; }
 run_update_restart_probe_gateway() {
@@ -122,15 +116,14 @@ exit "$probe_status"
           PROBE_STOP_STATUS: String(stopStatus),
           PROBE_ACTIVE_STATUS: String(activeStatus),
           PROBE_INSTALLED: path.join(root, "installed"),
-          PROBE_MIGRATION_STATUS: String(migrationStatus),
           PROBE_INSTALL_STATUS: String(installStatus),
         },
       });
       const stopped = stopStatus === 0 && activeStatus === 3;
       expect(result.status, result.stdout + result.stderr).toBe(
-        stopped ? migrationStatus || installStatus : stopStatus || activeStatus,
+        stopped ? installStatus : stopStatus || activeStatus,
       );
-      expect(existsSync(path.join(root, "installed"))).toBe(migrationStatus === 0);
+      expect(existsSync(path.join(root, "installed"))).toBe(true);
       expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual({
         plugins: { enabled: false },
         gateway: {
@@ -142,7 +135,7 @@ exit "$probe_status"
           reload: { mode: "off" },
         },
       });
-      const snapshot = path.join(root, "runtime", "restart-authored-openclaw.json");
+      const snapshot = path.join(root, "runtime", "baseline-authored-openclaw.json");
       const events = readFileSync(path.join(root, "events"), "utf8");
       if (stopped) {
         expect(events).toContain("--user stop openclaw-gateway.service\n");
@@ -215,6 +208,7 @@ openclaw_e2e_wait_gateway_ready() {
   printf 'readiness\\n' >>"$PROBE_EVENTS"
   return "$PROBE_READY_STATUS"
 }
+check_gateway_status() { printf 'authenticated\\n' >>"$PROBE_EVENTS"; }
 # Only the independent updater boundary is substituted; preparation and phases are real.
 update_candidate() { printf 'update\\n' >>"$PROBE_EVENTS"; }
 assert_survival() { printf 'assert-survival\\n' >>"$PROBE_EVENTS"; }
@@ -258,7 +252,13 @@ exit "$probe_status"
             ? ["--user start openclaw-gateway.service"]
             : readyStatus
               ? ["--user start openclaw-gateway.service", "readiness"]
-              : ["--user start openclaw-gateway.service", "readiness", "update", "assert-survival"],
+              : [
+                  "--user start openclaw-gateway.service",
+                  "readiness",
+                  "authenticated",
+                  "update",
+                  "assert-survival",
+                ],
       );
       if (activeStatus === 3) {
         expect(

@@ -51,18 +51,12 @@ it.each([
     }),
   );
   const startupModule = pathToFileURL(path.resolve("src/config/sessions/startup-migration.ts"));
-  const infraModule = (file: string) =>
-    JSON.stringify(pathToFileURL(path.resolve("src/infra", file)).href);
   writeFileSync(
     probePath,
     `import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { assertSessionStoreMigrationComplete } from ${JSON.stringify(startupModule.href)};
-import { loadDeviceIdentityIfPresent } from ${infraModule("device-identity.ts")};
-import { loadDeviceAuthToken } from ${infraModule("device-auth-store.ts")};
-import { detectLegacyDeviceIdentity, migrateLegacyDeviceIdentity } from ${infraModule("state-migrations.device-identity.ts")};
-import { detectLegacyDeviceAuth, migrateLegacyDeviceAuth } from ${infraModule("state-migrations.device-auth.ts")};
 const state = process.env.OPENCLAW_STATE_DIR;
 const volume = process.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIO === "sqlite-volume";
 const stores = volume
@@ -71,30 +65,11 @@ const stores = volume
 const checkStartup = () => assertSessionStoreMigrationComplete({
   cfg: {}, env: process.env, targets: stores.map(file => ({ storePath: path.join(state, file) })),
 });
-if (process.argv[2] === "doctor") {
-  assert.deepEqual(process.argv.slice(2), ["doctor", "--fix", "--non-interactive"]);
-  for (const name of ["OPENCLAW_UPDATE_IN_PROGRESS", "OPENCLAW_UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR", "OPENCLAW_UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE"]) {
-    assert.equal(process.env[name], "1");
+if (process.argv[2] === "startup") {
+  checkStartup();
+  for (const file of ["identity/device.json", "identity/device-auth.json", "devices/paired.json", "devices/pending.json"]) {
+    assert.equal(fs.existsSync(path.join(state, file)), false, "baseline must not receive synthetic identity state");
   }
-  checkStartup();
-  assert.equal(fs.existsSync(path.join(state, "cron/jobs.json")), false);
-  assert.equal(JSON.parse(fs.readFileSync(process.env.OPENCLAW_CONFIG_PATH, "utf8")).plugins.enabled, false);
-  const identity = JSON.parse(fs.readFileSync(path.join(state, "identity/device.json"), "utf8"));
-  const auth = JSON.parse(fs.readFileSync(path.join(state, "identity/device-auth.json"), "utf8"));
-  const migration = { stateDir: state, env: process.env, doctorOnlyStateMigrations: true };
-  const importedIdentity = await migrateLegacyDeviceIdentity({ ...migration, detected: detectLegacyDeviceIdentity(migration) });
-  const importedAuth = await migrateLegacyDeviceAuth({ ...migration, detected: detectLegacyDeviceAuth(migration) });
-  assert.equal(importedIdentity.warnings.length, 0, "identity migration failed");
-  assert.equal(importedAuth.warnings.length, 0, "auth migration failed");
-  const canonicalIdentity = loadDeviceIdentityIfPresent({ env: process.env });
-  assert.ok(canonicalIdentity?.deviceId === identity.deviceId, "device identity changed");
-  assert.ok(canonicalIdentity?.privateKeyPem === identity.privateKeyPem, "device key changed");
-  const canonicalAuth = loadDeviceAuthToken({ deviceId: identity.deviceId, role: "operator", env: process.env });
-  assert.ok(canonicalAuth?.token === auth.tokens.operator.token, "device token changed");
-  assert.deepEqual(canonicalAuth?.scopes, ["operator.read"]);
-} else if (process.argv[2] === "startup") {
-  checkStartup();
-  assert.ok(loadDeviceIdentityIfPresent({ env: process.env }), "missing canonical probe identity");
   fs.writeFileSync(process.env.PROBE_READY, "ready");
   fs.writeFileSync(process.env.PROBE_LIVE, "live");
 } else {
@@ -135,6 +110,8 @@ getent() { printf 'fixture:x:1000:1000:fixture:%s:/bin/bash\n' "$FIXTURE_HOME"; 
 install_update_restart_systemctl_shim() { :; }
 
 assert_baseline_state() { :; }
+check_gateway_status() { :; }
+openclaw_e2e_probe_tcp() { [ -f "$PROBE_LIVE" ]; }
 run_update_restart_probe_gateway() {
   node --import "$TSX_IMPORT" "$PROBE_SCRIPT" startup
 }

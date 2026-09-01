@@ -419,9 +419,13 @@ openclaw gateway call sessions.reclaim \
 
 Calling `sessions.reclaim` while a turn is active cancels running and pending work and records the active turn’s stopped outcome before workspace reconciliation and teardown. Inputs already waiting, or submitted while reclaim is in progress, do not restart the worker when reclaim completes. Send a new message after reclaim finishes to start new work.
 
+`sessions.reclaim` also cancels a dispatch that is still preparing or provisioning, including project snapshot and transfer work before enrollment. The UI exposes **Stop cloud worker…** once a requested or provisioning placement appears. Crabbox stops the active acquisition/setup command, readiness wait, or enrollment wait, then the Gateway completes authoritative lease cleanup before reporting success. The initial prompt remains **Not sent**; only an explicit retry sends it later. A provider that cannot interrupt an operation still retains its cleanup ownership until that operation settles. Cancellation never reports a caller timeout as proof of release.
+
 Cancellation does not wait for unrelated provider inspections. Final reconciliation and machine release still wait for earlier placement operations to finish. A later dispatch or move of the same session waits for reclaim, so it cannot replace the worker before Stop finishes.
 
 The result placement is `reclaimed` after an active worker is safely stopped. Reclaim also waits for an in-flight dispatch and retries pending teardown for a failed placement before returning `local`. No other placement states are successful reclaim results.
+
+Crabbox lease teardown has a separate five-minute command budget, plus time for CLI startup and process cleanup. Inspection keeps its shorter timeout. Failed node enrollment also reserves time for diagnostics before teardown; optional image capture has its own additional budget.
 
 If provider teardown fails or times out during stop or move, the request reports that failure even if recovery subsequently finishes cleanup. Check the current placement before retrying. A dedicated cloud worker can remain recorded as attached while destruction is uncertain, but its closed authority cannot resume remote workspace processes.
 

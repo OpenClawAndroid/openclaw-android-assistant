@@ -26,6 +26,7 @@ import {
   restoreBuildStepCacheOutputs,
   finalizeBuildStepCache,
 } from "../../scripts/lib/build-artifact-cache.mts";
+import { listBundledPluginBuildEntries } from "../../scripts/lib/bundled-plugin-build-entries.mjs";
 import { listPluginSdkDistArtifacts } from "../../scripts/lib/plugin-sdk-entries.mts";
 import {
   TSDOWN_NON_SDK_DTS_CONFIG_GROUPS,
@@ -1057,6 +1058,51 @@ describe("build-all timing output", () => {
 });
 
 describe("resolveBuildStepCacheState", () => {
+  it("lists large nested inventories without an argument-count limit", () => {
+    withBuildCacheFixture(({ rootDir }) => {
+      // Builds run on the main Node thread; Vitest workers have a different stack budget.
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "./scripts/tsx.mjs",
+          "--input-type=module",
+          "-e",
+          `
+            import assert from "node:assert/strict";
+            import fs from "node:fs";
+            import path from "node:path";
+            import { listCacheFiles } from "./scripts/lib/build-artifact-cache.mts";
+            const root = process.argv[1];
+            const directory = path.join(root, "src");
+            const [template] = fs.readdirSync(directory, { withFileTypes: true });
+            const entries = Array.from({ length: 200_000 }, (_, index) =>
+              new Proxy(template, {
+                get(target, key, receiver) {
+                  return key === "name" ? index + ".ts" : Reflect.get(target, key, receiver);
+                },
+              }),
+            );
+            const wideFs = new Proxy(fs, {
+              get(target, key, receiver) {
+                return key === "readdirSync"
+                  ? (file, options) => file === directory ? entries : fs.readdirSync(file, options)
+                  : Reflect.get(target, key, receiver);
+              },
+            });
+            assert.deepEqual(
+              listCacheFiles(root, [{ path: ".", extensions: [".ts"] }], wideFs),
+              entries.map((entry) => path.join(directory, entry.name)).toSorted(),
+            );
+          `,
+          rootDir,
+        ],
+        { encoding: "utf8", timeout: 10_000 },
+      );
+      expect(result.status, result.stderr).toBe(0);
+    });
+  });
+
   it("rejects a snapshot replaced after lookup without changing live outputs", () => {
     withBuildCacheFixture(({ rootDir, outputPath, step }) => {
       const state = resolveBuildStepCacheState(step, { rootDir });
@@ -1183,6 +1229,7 @@ describe("resolveBuildStepCacheState", () => {
       ["packages/ai/dist/index.d.ts", "export declare const ai = 1;"],
       ["packages/net-policy/dist/index.d.ts", "export declare const net = 1;"],
       ["dist/index.d.ts", "export declare const core = 1;"],
+      [".worktrees/pr-123/src/index.ts", "export const otherCheckout = 1;"],
     ] as const;
 
     try {
@@ -1197,6 +1244,13 @@ describe("resolveBuildStepCacheState", () => {
           rootDir,
         });
       }
+
+      const signature = resolveBuildStepCacheState(unified, { rootDir }).signature;
+      fs.writeFileSync(
+        path.join(rootDir, ".worktrees/pr-123/src/index.ts"),
+        "export const otherCheckout = 2;",
+      );
+      expect(resolveBuildStepCacheState(unified, { rootDir }).signature).toBe(signature);
 
       fs.writeFileSync(sourcePath, "export const core = 2;");
       expect(resolveBuildStepCacheState(ai, { rootDir }).fresh).toBe(true);
@@ -1227,6 +1281,52 @@ describe("resolveBuildStepCacheState", () => {
       fs.rmSync(rootDir, { force: true, recursive: true });
     }
   });
+
+  it.each<{ name: string; before: NodeJS.ProcessEnv; after: NodeJS.ProcessEnv }>([
+    { name: "bounded plugins", before: { OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS: "plain" }, after: {} },
+    { name: "optional plugins", before: { OPENCLAW_INCLUDE_OPTIONAL_BUNDLED: "0" }, after: {} },
+    {
+      name: "Docker plugins",
+      before: {},
+      after: { OPENCLAW_INTERNAL_DOCKER_BUILD_PLUGIN_IDS: "external" },
+    },
+  ])(
+    "invalidates declaration signatures when $name change the real entry graph",
+    ({ before, after }) => {
+      withBuildCacheFixture(({ rootDir }) => {
+        for (const id of ["plain", "acpx", "external"]) {
+          const directory = path.join(rootDir, "extensions", id);
+          fs.mkdirSync(directory, { recursive: true });
+          fs.writeFileSync(path.join(directory, "openclaw.plugin.json"), JSON.stringify({ id }));
+          fs.writeFileSync(path.join(directory, "index.ts"), "export {};\n");
+          fs.writeFileSync(
+            path.join(directory, "package.json"),
+            JSON.stringify({
+              name: `@openclaw/${id}`,
+              openclaw: { build: { bundledDist: id !== "external" } },
+            }),
+          );
+        }
+        expect(listBundledPluginBuildEntries({ cwd: rootDir, env: after })).not.toEqual(
+          listBundledPluginBuildEntries({ cwd: rootDir, env: before }),
+        );
+        const unified = getBuildAllStep("tsdown-unified");
+        const initial = resolveBuildStepCacheState(unified, { rootDir, env: before });
+        expect(resolveBuildStepCacheState(unified, { rootDir, env: after }).signature).not.toBe(
+          initial.signature,
+        );
+        expect(resolveBuildStepCacheState(unified, { rootDir, env: before }).signature).toBe(
+          initial.signature,
+        );
+        for (const label of ["tsdown-ai", "tsdown-packages"]) {
+          const step = getBuildAllStep(label);
+          expect(resolveBuildStepCacheState(step, { rootDir, env: after }).signature).toBe(
+            resolveBuildStepCacheState(step, { rootDir, env: before }).signature,
+          );
+        }
+      });
+    },
+  );
 
   it("marks cacheable steps fresh when the input signature matches", () => {
     withBuildCacheFixture(({ rootDir, step }) => {

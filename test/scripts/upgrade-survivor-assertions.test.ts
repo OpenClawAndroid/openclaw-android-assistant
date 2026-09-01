@@ -1174,7 +1174,7 @@ process.stdout.write(sessionDir + "\\n");
     },
   );
 
-  it("defers legacy cron specimens until the baseline is configured", () => {
+  it("requires every seeded legacy cron specimen before update", () => {
     const root = mkdtempSync(join(tmpdir(), "openclaw-upgrade-survivor-cron-"));
     try {
       const stateDir = join(root, "state");
@@ -1191,9 +1191,6 @@ process.stdout.write(sessionDir + "\\n");
       const seeded = run("seed");
       expect(seeded.status, seeded.stderr).toBe(0);
       const cronStore = join(stateDir, "cron", "jobs.json");
-      expect(() => readFileSync(cronStore)).toThrow(/ENOENT/);
-      const cronSeeded = run("seed-cron");
-      expect(cronSeeded.status, cronSeeded.stderr).toBe(0);
       const baseline = run("assert-state");
       expect(baseline.status, baseline.stderr).toBe(0);
       const store = JSON.parse(readFileSync(cronStore, "utf8"));
