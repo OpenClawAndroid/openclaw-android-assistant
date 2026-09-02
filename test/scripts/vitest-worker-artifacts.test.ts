@@ -255,7 +255,12 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
       import {syncBuiltinESMExports} from 'node:module';
       import {setTimeout as tick} from 'node:timers/promises';
       import {inspectManagedProcessGroup} from ${JSON.stringify(pathToFileURL(path.join(root, "scripts/lib/managed-child-process.mts")).href)};
+      import {createVitestResourceOwner} from ${JSON.stringify(pathToFileURL(path.join(root, "scripts/lib/vitest-resource-ownership.mts")).href)};
       const directory=${JSON.stringify(directory)}, mode=${JSON.stringify(mode)};
+      // Only the deliberately escaped writer has a fixture-owned namespace.
+      // Other compiler failures must still retain the outer runner's claims.
+      const resources=mode==='uncertain output'?createVitestResourceOwner(directory):undefined;
+      if(resources) Object.assign(process.env,{TMPDIR:directory,TMP:directory,TEMP:directory});
       const file=name=>path.join(directory,name);
       fs.writeFileSync(file('input'),'compiler input');
       const spawn=cp.spawn;
@@ -309,6 +314,7 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
             if(mode==='uncertain output') {
               assert.equal(fs.existsSync(generation),true);
               process.kill(leafPid,0);
+              assert.throws(()=>resources.assertReleased(),/Unreleased Vitest resource claim/);
               fs.writeFileSync(file('leaf-release'),'release');
               while(!fs.existsSync(file('leaf-read'))) await tick(5);
               assert.equal(fs.readFileSync(file('leaf-read'),'utf8'),'retained input');
@@ -322,6 +328,11 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         child.kill('SIGTERM');
         await completion.catch(()=>{});
         await owner.dispose().catch(()=>{});
+        assert.equal(inspectManagedProcessGroup(child,{errorPolicy:'indeterminate'}),'dead');
+        if(compiler) {
+          assert.equal(closed,true);
+          assert.equal(inspectManagedProcessGroup(compiler,{errorPolicy:'indeterminate'}),'dead');
+        }
         if(fs.existsSync(file('leaf-pid'))) {
           leafPid=Number(fs.readFileSync(file('leaf-pid'),'utf8'));
           try {process.kill(leafPid,'SIGKILL');} catch(error) {if(error.code!=='ESRCH') throw error;}
@@ -334,7 +345,15 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
       }
     `,
         );
-        const result = await node([driver]);
+        const command = node([driver]);
+        await workerArtifacts.fixtureLifetime.verifyCleanup(async () => {
+          const result = await command;
+          // Driver death must not turn its private pending claims into disposable inputs.
+          expect(result.stdout.split("\n")).toContain(
+            JSON.stringify({ mode, cleanup: "joined", generationRemoved: true }),
+          );
+        });
+        const result = await command;
         console.log(result.stdout);
         expect(result.code, result.stderr + result.stdout).toBe(0);
       }),
@@ -879,7 +898,7 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         const directory = workerArtifacts.fixtureDirectory();
         const { config } = workerProbe(directory, true);
         const owner = createVitestWorkerRun();
-        // Node26 parent-side child.disconnect() omits ChildProcess.close. Close the
+        // Node parent-side child.disconnect() can omit ChildProcess.close. Close the
         // fixture endpoint so the owner receives EOF and retains its real join contract.
         const disconnect = writeFixture(
           directory,
@@ -1173,6 +1192,14 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
           const target = path.join(fixture, path.relative(root, filename));
           fs.mkdirSync(path.dirname(target), { recursive: true });
           fs.copyFileSync(filename, target);
+          const dependencies = path.join(path.dirname(filename), "node_modules");
+          if (path.basename(filename) === "package.json" && fs.existsSync(dependencies)) {
+            fs.symlinkSync(
+              fs.realpathSync(dependencies),
+              path.join(path.dirname(target), "node_modules"),
+              process.platform === "win32" ? "junction" : "dir",
+            );
+          }
         }
         // This is a synthetic source checkout. Its dist is valid old code, not an
         // invalid sentinel that could fail even if stale-artifact fallback regressed.
@@ -1192,11 +1219,43 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         fs.rmSync(path.dirname(JSON.parse(stale.stdout).location), { recursive: true });
 
         const dependency = path.join(fixture, "src/infra/sqlite-runtime-version.ts");
+        const privatePackage = "packages/private-worker-fixture";
+        writeFixture(
+          fixture,
+          `${privatePackage}/package.json`,
+          JSON.stringify({
+            name: "@openclaw/private-worker-fixture",
+            private: true,
+            type: "module",
+            dependencies: { "worker-private-version": "1.0.0" },
+          }),
+        );
+        writeFixture(
+          fixture,
+          `${privatePackage}/src/index.ts`,
+          'export { fixtureMajor } from "worker-private-version";',
+        );
+        writeFixture(
+          fixture,
+          `${privatePackage}/node_modules/worker-private-version/package.json`,
+          JSON.stringify({
+            name: "worker-private-version",
+            version: "1.0.0",
+            type: "module",
+            main: "index.js",
+          }),
+        );
+        writeFixture(
+          fixture,
+          `${privatePackage}/node_modules/worker-private-version/index.js`,
+          "export const fixtureMajor = 99;",
+        );
         fs.writeFileSync(
           dependency,
-          fs
-            .readFileSync(dependency, "utf8")
-            .replace("major: 3, minor: 51", "major: 99, minor: 51"),
+          `import { fixtureMajor } from "../../${privatePackage}/src/index.js";\n` +
+            fs
+              .readFileSync(dependency, "utf8")
+              .replace("major: 3, minor: 51", "major: fixtureMajor, minor: 51"),
         );
         const compilerUrl = pathToFileURL(path.join(fixture, compilerModule)).href;
         const client = `
@@ -1241,14 +1300,14 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         });
         const changedSource = fs.readFileSync(dependency, "utf8");
         fs.appendFileSync(dependency, "\n// changed after preparation\n");
-        expect(() => verifyVitestWorkerArtifacts(directories[1]!)).toThrow(
+        await expect(verifyVitestWorkerArtifacts(directories[1]!)).rejects.toThrow(
           "Source changed during compiled subprocess invocation",
         );
         fs.writeFileSync(dependency, changedSource);
         const tuiDeclaration = path.join(fixture, "src/tui/tui-pty-runtime-test-support.ts");
         const originalDeclaration = fs.readFileSync(tuiDeclaration, "utf8");
         fs.appendFileSync(tuiDeclaration, "\n// declaration changed after preparation\n");
-        expect(() => verifyVitestWorkerArtifacts(directories[1]!)).toThrow(
+        await expect(verifyVitestWorkerArtifacts(directories[1]!)).rejects.toThrow(
           "Source changed during compiled subprocess invocation",
         );
         fs.writeFileSync(tuiDeclaration, originalDeclaration);
