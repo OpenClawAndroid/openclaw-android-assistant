@@ -122,11 +122,17 @@ const CORE_GATEWAY_HANDLER_MODULES = {
   "memory-search": () =>
     import("./server-methods/memory-search.js").then((module) => module.memorySearchHandlers),
   terminal: () => import("./server-methods/terminal.js").then((module) => module.terminalHandlers),
+  transcripts: () =>
+    import("./server-methods/transcripts.js").then((module) => module.transcriptsHandlers),
   "ui-command": () =>
     import("./server-methods/ui-command.js").then((module) => module.uiCommandHandlers),
   "models-auth-status": () =>
     import("./server-methods/models-auth-status.js").then(
       (module) => module.modelsAuthStatusHandlers,
+    ),
+  "models-auth-order": () =>
+    import("./server-methods/models-auth-order.js").then(
+      (module) => module.modelsAuthOrderHandlers,
     ),
   models: () => import("./server-methods/models.js").then((module) => module.modelsHandlers),
   "models-probe": () =>
