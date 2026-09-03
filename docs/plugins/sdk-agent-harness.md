@@ -533,6 +533,17 @@ choice/free-form answers back into the runtime's native response shape. The
 helper keeps channel/TUI presentation consistent while each harness keeps its
 own protocol parsing and pending-request lifecycle.
 
+OpenClaw's own blocking question tools — `ask_user`, and a `secrets` request —
+are a separate case. They register a Gateway question and then wait, and the
+prompt that lets a person answer it is published by whatever runs the tool. A
+harness whose tools go through the embedded tool lifecycle gets that publication
+from its tool-start handler. A harness that dispatches tools itself passes
+`questionPrompt` to `createOpenClawCodingTools` instead, on every path where it
+builds a tool surface — a side thread is its own such path: `send` is the run's
+`onToolResult`, and `messageChannel` is the conversation the prompt would appear
+in. Leave it out and the question is registered but never shown, so the turn
+waits out its whole timeout and then reports that nobody answered.
+
 For schema-backed forms and literal URL confirmation, use the
 `agentHarnessStructuredInput` runtime surface from the same subpath. It
 snapshots bounded own data without invoking accessors, compiles supported
@@ -777,6 +788,24 @@ The OpenClaw transcript remains the compatibility layer for:
 - transcript search and indexing
 - switching back to the built-in OpenClaw harness on a later turn
 - generic `/new`, `/reset`, and session deletion behavior
+
+For user-message mirrors, use
+`restorePreparedUserTurnOperationalMetaForRuntime({ runtimeMessage, preparedMessage })`
+from `openclaw/plugin-sdk/agent-harness-runtime`. Pass an independent, trusted
+snapshot of the host-prepared input as `preparedMessage`. Clone `content` and
+selected-mention metadata before hooks that can mutate them in place, and keep
+that snapshot unchanged.
+
+The helper restores operational metadata on user messages without replacing
+native or hook-rewritten content. Non-user runtime messages are returned unchanged.
+Human mentions survive only when the entire `content` value exactly matches the
+prepared snapshot; changed text must not inherit the old selections.
+
+Restored metadata neither authorizes actions nor proves a fresh transcript append.
+After the canonical append, pass its committed message, anchor, and actual
+`{ appended }` result to `userTurnTranscriptRecorder.markRuntimePersisted(...)`.
+Only `appended: true` can trigger an original-input commit notification; an
+idempotent history match must report `false`.
 
 Store native bindings in plugin state. Implement `reset(...)` for an in-place
 session reset and `withSessionDeletion(params, run)` for removal of a session
