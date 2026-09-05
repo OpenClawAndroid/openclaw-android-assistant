@@ -446,14 +446,14 @@ export async function finalizeCodexAttempt(
   if (state.shouldDelayNativeHookRelayUnregister) {
     try {
       // Only no-engine continuity prompts may calibrate their measured history.
-      // Include cached input tokens so a partial cost cannot loosen the continuity cap.
+      // Billing spans every model call; density needs only the latest full prompt.
       const continuityCalibration = context.promptState.noEngineContinuityProjectionApplied
         ? buildCodexContinuityCalibration({
             promptChars: prompt.turnState.codexTurnPromptText.length,
             inputTokens:
-              (result.attemptUsage?.input ?? 0) +
-              (result.attemptUsage?.cacheRead ?? 0) +
-              (result.attemptUsage?.cacheWrite ?? 0),
+              result.attemptUsage?.contextUsage?.state === "available"
+                ? (result.attemptUsage.contextUsage.promptTokens ?? 0)
+                : 0,
           })
         : undefined;
       await bindingStore.mutate(

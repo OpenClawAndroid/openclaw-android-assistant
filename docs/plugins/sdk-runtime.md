@@ -58,7 +58,20 @@ Retained channel monitors can bind `createRuntimeConfigReader(cfg)` from
 runtime updates when the supplied config belongs to the active runtime, and
 preserves an explicitly scoped config otherwise, including when no runtime has
 been published yet. Read once per turn and carry that snapshot through admission
-and replies.
+and replies. Process-wide controls such as diagnostics should read at the point
+of emission.
+
+`createChannelInboundDebouncer` keeps its returned numeric `debounceMs` and default
+queue timing as startup snapshots. For live timing, pass its existing
+`resolveDebounceMs(entry)` callback and resolve with the bound config reader.
+If pending-key or shutdown bookkeeping also depends on the delay, capture one
+value on the entry and use it for both bookkeeping and the callback.
+
+A channel's `reload.noopPrefixes` opts only that channel out of shared-policy
+refresh. Declare a prefix only after every retained consumer reads it live or
+does not consume it. Undeclared channels still refresh; one channel's declaration
+cannot suppress a sibling's reload. A narrower `reload.configPrefixes` entry can
+retain restart behavior under a broader no-op prefix.
 
 ## Reusable runtime utilities
 
@@ -1128,7 +1141,7 @@ snapshots; OpenClaw owns all persistence and lifecycle coordination.
     `openChannelIngressDrain(...)` opens the core channel-agnostic worker over that queue (or creates a queue when none is supplied). The drain owns stale-claim recovery, per-lane claim serialization, complete-at-adoption or complete-on-dispatch-return, retry/dead-letter disposition, optional pre-adoption supersede, and claim→adoption stall timeout. Wire claim ownership into reply generation with `turnAdoptionLifecycle` (via `bindIngressLifecycleToReplyOptions` from `plugin-sdk/channel-outbound`). Channel plugins keep accept-side enqueue, lane derivation, non-retryable classification, and any supersede authorization policy.
 
     <Warning>
-    `openBlobStore`, `openKeyedStore`, `openSyncKeyedStore`, `openChannelIngressQueue`, and `openChannelIngressDrain` are available only to bundled plugins and trusted official plugin installations in this release. The rejection names the plugin id and the origin it loaded from; a channel plugin loaded from `plugins.load.paths` or an unofficial install is untrusted, so its ingress monitor fails channel start instead of running without a durable queue.
+    `openBlobStore`, `openKeyedStore`, `openSyncKeyedStore`, `openChannelIngressQueue`, and `openChannelIngressDrain` are available only to bundled plugins and trusted official plugin installations in this release. Refusals include the recorded reason, registry database path, origin, and install source/spec; `plugins inspect` reports the same trust facts. A load path selecting the recorded official installation preserves trust; an untracked local copy does not. See [Trusted plugin state refused](/tools/plugin#trusted-plugin-state-refused) for doctor migrations and cause-specific remedies. An untrusted channel's ingress monitor fails channel start instead of running without a durable queue.
     </Warning>
 
   </Accordion>
@@ -1220,12 +1233,21 @@ already available to Gateway hooks: `list`, `add`, `update`, `remove`, and
 `removeStaleJobFamily`. Non-Gateway service hosts omit this getter.
 
 Use the service's `start()` and `stop()` methods to own recurring reconciliation.
-They run for plugin replacement as well as Gateway startup and shutdown;
+They run for service or plugin replacement as well as Gateway startup and shutdown;
 `gateway_start` and `gateway_stop` do not replay on plugin-only reload.
 Each returned scheduler handle belongs to one service lifetime and one scheduler
 instance. Calls, including queued writes, reject once service shutdown begins or
 that scheduler is replaced. Call `ctx.getCron()` again to obtain the replacement
 scheduler while the service remains active.
+
+A service can declare `reload: { configPrefixes: ["myConfig.service"] }` alongside
+its `id`, `start`, and `stop`. After a matching config change commits, the Gateway
+stops that service and calls `start(ctx)` again with the new `ctx.config`. Only
+loaded services declaring the matching prefix are replaced; overlapping owners
+all refresh. Existing equal or narrower restart or no-op policies still take precedence.
+Each start receives a new capability lease and health reporter. Stop must release
+resources before resolving; failed replacement cleanup or startup triggers
+Gateway recovery. A full plugin replacement subsumes these service restarts.
 
 Long-lived services registered with `api.registerService(...)` receive a process-local
 `ctx.gatewayEvents` facade when the process runs a Gateway broadcaster; in runtimes without one the

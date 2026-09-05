@@ -2059,6 +2059,29 @@ describe("ci workflow guards", () => {
     expect(releaseWorkflow.jobs.qa_live_buzz_release_checks.with.lock_scope).toBe("buzz");
   });
 
+  it("runs full-access restart proof as a failing nightly gate", () => {
+    const workflow = readWorkflow(".github/workflows/qa-live-transports-convex.yml");
+    const job = workflow.jobs.run_live_runtime_token_efficiency;
+    const step = job.steps.find((candidate: WorkflowStep) =>
+      candidate.run?.includes("--scenario gateway-restart-full-access-live"),
+    );
+
+    expect(workflow.on.schedule.length).toBeGreaterThan(0);
+    expect(job.if).toBe("github.event_name == 'schedule'");
+    expect(step).toBeDefined();
+    expect(step?.env?.OPENAI_API_KEY).toBe("${{ secrets.OPENAI_API_KEY }}");
+    expect(step?.["continue-on-error"]).toBeUndefined();
+    expect(step?.if).toBeUndefined();
+    expect(step?.run).toContain("--provider-mode live-frontier");
+    expect(step?.run).toContain("--model openai/gpt-5.6-luna");
+    expect(step?.run).toContain("--alt-model openai/gpt-5.6-luna");
+    expect(step?.run).toContain("--concurrency 1");
+    expect(step?.run).not.toContain("--allow-failures");
+    expect(step?.run).toContain(
+      '--output-dir "${{ steps.run_lane.outputs.output_dir }}/gateway-restart-full-access"',
+    );
+  });
+
   it("preserves module heredocs and cleans child temporary artifacts", () => {
     const parentTempDir = tmpdir();
     const run = runWorkflowShellScript(
@@ -10579,15 +10602,20 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     };
     for (const eventName of ["pull_request", "push"] as const) {
       const rows = coreLintRows({ eventName });
-      expect(rows).toEqual([1, 2, 3]);
+      expect(rows).toEqual([1, 2]);
       expect(
-        rows.flatMap((stripe) =>
+        rows.map((stripe) =>
           runLintOwner({ capability: true, eventName, lane: "core", profile: "hybrid", stripe }),
         ),
       ).toEqual(
-        [1, 2, 3, 4, 5].map(
-          (stripe) =>
-            `node --import tsx scripts/run-oxlint-shards.mts --only=core --split-core --core-stripe=${stripe}/5 --threads=1`,
+        [
+          [1, 2],
+          [3, 4, 5],
+        ].map((stripes) =>
+          stripes.map(
+            (stripe) =>
+              `node --import tsx scripts/run-oxlint-shards.mts --only=core --split-core --core-stripe=${stripe}/5 --threads=1`,
+          ),
         ),
       );
     }
@@ -10609,6 +10637,19 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       }),
     ).toEqual([
       "node --import tsx scripts/run-oxlint-shards.mts --only=core --split-core --core-stripe=1/5 --threads=1",
+    ]);
+    expect(
+      runLintOwner({
+        capability: true,
+        eventName: "pull_request",
+        failStripe: 4,
+        lane: "core",
+        profile: "hybrid",
+        stripe: 2,
+      }),
+    ).toEqual([
+      "node --import tsx scripts/run-oxlint-shards.mts --only=core --split-core --core-stripe=3/5 --threads=1",
+      "node --import tsx scripts/run-oxlint-shards.mts --only=core --split-core --core-stripe=4/5 --threads=1",
     ]);
 
     expect(runLintOwner({ capability: true, lane: "check", profile: "github" })).toEqual([
@@ -12264,6 +12305,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(privateServerFiles).toEqual(uiE2ePrivateServerTestFiles);
     expect(helperPrivateServerFiles.toSorted()).toEqual([
       "ui/src/e2e/chat-loading-performance.real-gateway.e2e.test.ts",
+      "ui/src/e2e/chat-project-media.real-gateway.e2e.test.ts",
       "ui/src/e2e/chat-widget-sandbox.real-gateway.e2e.test.ts",
       "ui/src/e2e/child-session-load-errors.e2e.test.ts",
       "ui/src/e2e/cron-duration-save.real-gateway.e2e.test.ts",

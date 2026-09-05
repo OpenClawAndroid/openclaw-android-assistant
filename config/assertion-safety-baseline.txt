@@ -161,7 +161,6 @@ extensions/codex/doctor-contract-api.ts	1
 extensions/codex/harness.ts	1
 extensions/codex/index.ts	27
 extensions/codex/src/app-server/approval-bridge.ts	1
-extensions/codex/src/app-server/attempt-client-cleanup.ts	1
 extensions/codex/src/app-server/attempt-context.ts	1
 extensions/codex/src/app-server/attempt-diagnostics.ts	3
 extensions/codex/src/app-server/attempt-notifications.ts	1
@@ -218,7 +217,7 @@ extensions/codex/src/app-server/sandbox-exec-server/processes.ts	1
 extensions/codex/src/app-server/sandbox-guard.ts	2
 extensions/codex/src/app-server/scheduled-app-authority.ts	5
 extensions/codex/src/app-server/session-binding.ts	2
-extensions/codex/src/app-server/shared-client.ts	4
+extensions/codex/src/app-server/shared-client.ts	3
 extensions/codex/src/app-server/side-question.ts	8
 extensions/codex/src/app-server/startup-binding.ts	2
 extensions/codex/src/app-server/thread-fingerprints.ts	1
@@ -623,7 +622,7 @@ extensions/logbook/src/analyze.ts	8
 extensions/logbook/src/config.ts	1
 extensions/logbook/src/node-host.ts	1
 extensions/logbook/src/service.ts	6
-extensions/logbook/src/store.ts	17
+extensions/logbook/src/store.ts	4
 extensions/matrix/src/actions.ts	3
 extensions/matrix/src/approval-auth.ts	1
 extensions/matrix/src/approval-handler.runtime.ts	8
@@ -735,13 +734,12 @@ extensions/memory-core/src/dreaming.ts	1
 extensions/memory-core/src/memory/embeddings.ts	2
 extensions/memory-core/src/memory/hybrid.ts	1
 extensions/memory-core/src/memory/manager-db.ts	5
-extensions/memory-core/src/memory/manager-embedding-cache.ts	1
 extensions/memory-core/src/memory/manager-embedding-errors.ts	2
 extensions/memory-core/src/memory/manager-embedding-ops.ts	2
 extensions/memory-core/src/memory/manager-keyword-retrieval.ts	1
-extensions/memory-core/src/memory/manager-search-orchestration.ts	2
+extensions/memory-core/src/memory/manager-search-orchestration.ts	1
 extensions/memory-core/src/memory/manager-search.ts	9
-extensions/memory-core/src/memory/manager-sync-base.ts	5
+extensions/memory-core/src/memory/manager-sync-base.ts	4
 extensions/memory-core/src/memory/manager-vector-rebuild-state.ts	1
 extensions/memory-core/src/memory/manager-watch-ops.ts	4
 extensions/memory-core/src/memory/manager.ts	2
@@ -1702,7 +1700,6 @@ src/agents/code-mode.worker.ts	7
 src/agents/codex-mcp-config.ts	1
 src/agents/command/attempt-execution.helpers.ts	7
 src/agents/command/attempt-execution.ts	3
-src/agents/command/delivery.ts	2
 src/agents/compaction-planning-projection.ts	6
 src/agents/compaction-planning-worker.ts	1
 src/agents/compaction-planning.ts	1
@@ -2083,7 +2080,7 @@ src/agents/utils/frontmatter.ts	2
 src/agents/utils/tools-manager.ts	2
 src/agents/workspace-legacy-state.ts	2
 src/agents/workspace-state-store.ts	1
-src/agents/workspace.ts	7
+src/agents/workspace.ts	8
 src/agents/worktrees/git.ts	2
 src/agents/worktrees/provisioned-files.ts	3
 src/agents/worktrees/registry.ts	11
@@ -2105,7 +2102,6 @@ src/auto-reply/reply/agent-runner-execution.ts	1
 src/auto-reply/reply/agent-runner-failure-reply.ts	1
 src/auto-reply/reply/agent-runner-fallback-candidate.ts	1
 src/auto-reply/reply/agent-runner-memory.ts	6
-src/auto-reply/reply/agent-runner-result-complete.ts	3
 src/auto-reply/reply/agent-runner-run.ts	1
 src/auto-reply/reply/agent-runner-session-reset.ts	1
 src/auto-reply/reply/agent-runner-trace.ts	1
@@ -2174,7 +2170,6 @@ src/auto-reply/reply/session-delivery.ts	1
 src/auto-reply/reply/session.ts	3
 src/auto-reply/reply/source-reply-delivery-runtime.ts	2
 src/auto-reply/reply/source-turn-id.ts	4
-src/auto-reply/reply/stage-sandbox-media.ts	1
 src/auto-reply/reply/strip-inbound-meta.ts	4
 src/auto-reply/reply/system-event-session-key.ts	1
 src/auto-reply/templating.ts	1
@@ -2266,14 +2261,14 @@ src/claws/doctor.ts	2
 src/claws/export.ts	8
 src/claws/lifecycle-delete-support.ts	7
 src/claws/mcp.ts	4
-src/claws/openclaw-profile.ts	2
+src/claws/openclaw-profile.ts	1
 src/claws/package-update.ts	1
 src/claws/packages.ts	1
 src/claws/project-build.ts	4
 src/claws/project.ts	4
 src/claws/provenance-runtime-read.ts	1
 src/claws/provenance.ts	6
-src/claws/reader.ts	8
+src/claws/reader.ts	7
 src/claws/schema.ts	3
 src/claws/update-capability-changes.ts	11
 src/claws/workspace.ts	2
@@ -2771,7 +2766,6 @@ src/gateway/chat-display-projection.helpers.ts	10
 src/gateway/chat-display-projection.history.ts	1
 src/gateway/chat-display-projection.sanitize.ts	15
 src/gateway/chat-sanitize.ts	3
-src/gateway/chat-tool-titles.ts	2
 src/gateway/cli-session-history.claude-activity.ts	1
 src/gateway/cli-session-history.claude.ts	15
 src/gateway/cli-session-history.merge.ts	6
@@ -2815,7 +2809,7 @@ src/gateway/portals/portal-service.ts	1
 src/gateway/probe.ts	2
 src/gateway/restart-trace.ts	3
 src/gateway/secret-input-paths.ts	1
-src/gateway/server-broadcast.ts	2
+src/gateway/server-broadcast.ts	1
 src/gateway/server-channels.ts	1
 src/gateway/server-chat-state.ts	1
 src/gateway/server-chat.ts	5
@@ -2831,7 +2825,7 @@ src/gateway/server-methods-list.ts	1
 src/gateway/server-methods.ts	3
 src/gateway/server-methods/agent-run-handler.ts	1
 src/gateway/server-methods/agent-session-patch.ts	1
-src/gateway/server-methods/agent-session-reset.ts	2
+src/gateway/server-methods/agent-session-reset.ts	1
 src/gateway/server-methods/agent-wait.ts	1
 src/gateway/server-methods/approval-publication.ts	4
 src/gateway/server-methods/approval-request-delivery.ts	1
@@ -2891,7 +2885,7 @@ src/gateway/server-methods/sessions-compact.ts	1
 src/gateway/server-methods/sessions-create.ts	1
 src/gateway/server-methods/sessions-messaging.ts	11
 src/gateway/server-methods/sessions-patch-engine.ts	1
-src/gateway/server-methods/sessions-read.ts	2
+src/gateway/server-methods/sessions-read.ts	1
 src/gateway/server-methods/sessions-sharing.ts	1
 src/gateway/server-methods/sessions-suggestions.ts	1
 src/gateway/server-methods/skills-workspace-handler.ts	1
@@ -2926,7 +2920,7 @@ src/gateway/server-startup-post-attach.ts	1
 src/gateway/server-worker-placement-startup.ts	2
 src/gateway/server.auth.control-ui.bootstrap-lifecycle.suite.ts	8
 src/gateway/server.auth.control-ui.device-token.suite.ts	2
-src/gateway/server.auth.control-ui.mobile-bootstrap.suite.ts	7
+src/gateway/server.auth.control-ui.mobile-bootstrap.suite.ts	6
 src/gateway/server.auth.control-ui.owner-bootstrap.suite.ts	5
 src/gateway/server.auth.control-ui.pairing.suite.ts	6
 src/gateway/server.auth.control-ui.trusted-proxy.suite.ts	5
@@ -2952,7 +2946,7 @@ src/gateway/session-sharing-target-input.ts	2
 src/gateway/session-sharing.ts	1
 src/gateway/session-transcript-derived-readers.ts	2
 src/gateway/session-transcript-files.fs.ts	2
-src/gateway/session-transcript-message.ts	4
+src/gateway/session-transcript-message.ts	3
 src/gateway/session-transcript-title-reader.ts	1
 src/gateway/session-utils-core.ts	1
 src/gateway/session-utils-row.ts	1
@@ -3026,9 +3020,8 @@ src/infra/channels-status-issues.ts	2
 src/infra/clawhub-client.ts	2
 src/infra/clawhub-install-trust.ts	2
 src/infra/control-ui-assets.ts	1
-src/infra/delivery-queue-sqlite-bound.ts	3
-src/infra/delivery-queue-sqlite-namespace.ts	3
-src/infra/delivery-queue-sqlite.ts	4
+src/infra/delivery-queue-sqlite-bound.ts	2
+src/infra/delivery-queue-sqlite.ts	2
 src/infra/delivery-queue-sqlite.types.ts	1
 src/infra/delivery-recovery.shared.ts	4
 src/infra/device-pairing-store.ts	6
@@ -3078,8 +3071,8 @@ src/infra/net/proxy-fetch.ts	3
 src/infra/net/proxy/proxy-validation.ts	1
 src/infra/net/runtime-fetch.ts	5
 src/infra/net/ssrf.ts	7
-src/infra/net/undici-dispatcher-options.ts	8
-src/infra/net/undici-global-dispatcher.ts	5
+src/infra/net/undici-dispatcher-options.ts	4
+src/infra/net/undici-global-dispatcher.ts	4
 src/infra/node-commands.ts	1
 src/infra/node-sqlite.ts	3
 src/infra/npm-managed-root.ts	8
@@ -3434,7 +3427,6 @@ src/plugins/loader-runtime-candidate.ts	1
 src/plugins/loader-runtime-load.ts	2
 src/plugins/loader-shared.ts	2
 src/plugins/managed-npm-retention.ts	4
-src/plugins/management-service.ts	4
 src/plugins/manifest-capability-normalizers.ts	3
 src/plugins/manifest-install-owner.ts	1
 src/plugins/manifest-registry.ts	2

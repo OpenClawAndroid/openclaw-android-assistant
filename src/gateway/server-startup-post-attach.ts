@@ -53,6 +53,7 @@ import {
   beginMacOSSystemCaWarmupOnce,
   type warmMacOSSystemCaOffMainThread,
 } from "./system-ca-warmup.js";
+import { startUpdateRunWatcher, wakeUpdateRunWatcher } from "./update-run-watcher.js";
 const ACP_BACKEND_READY_TIMEOUT_MS = 5_000;
 const ACP_BACKEND_READY_POLL_MS = 50;
 const PROVIDER_AUTH_PREWARM_START_DELAY_MS = 5_000;
@@ -737,6 +738,13 @@ export async function startGatewaySidecars(params: {
   if (shouldStartPluginServices) {
     const ownedPluginServices = createDeferredCore<PluginServicesHandle | null>();
     const pluginServicesOwner: PluginServicesHandle = {
+      reload: async (config, serviceIds) => {
+        const handle = await ownedPluginServices.promise;
+        if (pluginServicesStopRequested || !handle) {
+          throw new Error("Plugin services are stopping");
+        }
+        await handle.reload(config, serviceIds);
+      },
       stop: (options) => {
         pluginServicesStopRequested = true;
         // Share the service owner, never a caller's expired replacement deadline.
@@ -1029,6 +1037,7 @@ function createDeferredGatewayUpdateCheck(params: {
   activeWorkInspectors?: Partial<GatewayActiveWorkInspectors>;
 }): { start: () => void; stop: () => Promise<void> } {
   let stopped = false;
+  let runWatcher: ReturnType<typeof startUpdateRunWatcher> | undefined;
   let owner: ReturnType<typeof createGatewayUpdateCheck> | undefined;
   let ownerReady: Promise<void> | undefined;
   let initialization: Promise<unknown> | undefined;
@@ -1060,6 +1069,7 @@ function createDeferredGatewayUpdateCheck(params: {
 
   const stop = () => {
     stopped = true;
+    runWatcher?.stop();
     return (stopPromise ??= (async () => {
       // Fence immediately; a lazy factory that finishes later stops its own
       // owner below. Never join the post-ready barrier during failed startup.
@@ -1074,10 +1084,16 @@ function createDeferredGatewayUpdateCheck(params: {
     if (ownerReady || stopped) {
       return;
     }
+    runWatcher = startUpdateRunWatcher({
+      broadcast: (event, payload) =>
+        params.broadcastToConnIds(event, payload, params.getClientConnIds()),
+      log: params.log,
+    });
     ownerReady = (async () => {
       try {
         owner = await params.runtimeDeps.createGatewayUpdateCheck({
           getConfig: params.getConfig,
+          onUpdateRunCreated: wakeUpdateRunWatcher,
           log: params.log,
           isNixMode: params.isNixMode,
           ...(params.activeWorkInspectors
