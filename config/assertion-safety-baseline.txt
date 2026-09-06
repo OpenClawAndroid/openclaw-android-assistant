@@ -3,10 +3,9 @@
 # Format: repo-relative path, tab, positive count. Zero-count files are omitted.
 extensions/acpx/src/codex-auth-bridge.ts	7
 extensions/acpx/src/codex-trust-config.ts	1
-extensions/acpx/src/config.ts	1
 extensions/acpx/src/pi-session-catalog-runtime.ts	1
 extensions/acpx/src/process-lease.ts	3
-extensions/acpx/src/runtime.ts	13
+extensions/acpx/src/runtime.ts	10
 extensions/acpx/src/service.ts	2
 extensions/acpx/src/state.ts	1
 extensions/active-memory/config.ts	2
@@ -165,12 +164,11 @@ extensions/codex/src/app-server/attempt-context.ts	1
 extensions/codex/src/app-server/attempt-diagnostics.ts	3
 extensions/codex/src/app-server/attempt-notifications.ts	1
 extensions/codex/src/app-server/attempt-startup.ts	1
-extensions/codex/src/app-server/auth-bridge.ts	2
+extensions/codex/src/app-server/auth-bridge.ts	1
 extensions/codex/src/app-server/client-runtime.ts	1
 extensions/codex/src/app-server/client.ts	4
 extensions/codex/src/app-server/compact.ts	1
 extensions/codex/src/app-server/computer-use-cache.ts	1
-extensions/codex/src/app-server/config-reviewer.ts	2
 extensions/codex/src/app-server/config-utils.ts	1
 extensions/codex/src/app-server/context-engine-projection.ts	3
 extensions/codex/src/app-server/dynamic-tool-build.ts	1
@@ -195,7 +193,7 @@ extensions/codex/src/app-server/plugin-approval-roundtrip.ts	1
 extensions/codex/src/app-server/plugin-inventory.ts	6
 extensions/codex/src/app-server/plugin-metadata-cache.ts	5
 extensions/codex/src/app-server/plugin-thread-app-admission.ts	1
-extensions/codex/src/app-server/protocol-validators.ts	9
+extensions/codex/src/app-server/protocol-validators.ts	8
 extensions/codex/src/app-server/rate-limits.ts	1
 extensions/codex/src/app-server/reasoning-effort.ts	1
 extensions/codex/src/app-server/remote-workspace-media.ts	6
@@ -889,7 +887,7 @@ extensions/openai/native-web-search.ts	1
 extensions/openai/openai-chatgpt-device-code.ts	4
 extensions/openai/openai-chatgpt-oauth-preflight.runtime.ts	1
 extensions/openai/openai-chatgpt-oauth-token.runtime.ts	1
-extensions/openai/openai-chatgpt-provider.ts	7
+extensions/openai/openai-chatgpt-provider.ts	2
 extensions/openai/openai-provider.ts	5
 extensions/openai/provider-policy-api.ts	2
 extensions/openai/realtime-provider-shared.ts	2
@@ -2295,10 +2293,9 @@ src/cli/cron-cli/register.cron-simple.ts	2
 src/cli/cron-cli/shared.ts	8
 src/cli/daemon-cli/launchd-recovery.ts	1
 src/cli/daemon-cli/lifecycle.ts	1
-src/cli/daemon-cli/restart-health-probe.ts	9
+src/cli/daemon-cli/restart-health-probe.ts	7
 src/cli/daemon-cli/restart-health.ts	1
 src/cli/daemon-cli/start-repair.ts	1
-src/cli/daemon-cli/status.gather.ts	10
 src/cli/deps.ts	2
 src/cli/devices-cli.runtime.ts	10
 src/cli/directory-cli.ts	7
@@ -2330,7 +2327,6 @@ src/cli/pairing-cli.ts	1
 src/cli/parse-duration.ts	2
 src/cli/plugin-install-plan.ts	1
 src/cli/plugins-authoring-command.ts	8
-src/cli/plugins-cli.runtime.ts	2
 src/cli/plugins-command-helpers.ts	1
 src/cli/plugins-install-config.ts	2
 src/cli/plugins-uninstall-command.ts	4
@@ -2487,7 +2483,6 @@ src/commands/doctor/shared/legacy-web-tools-migrate.ts	1
 src/commands/doctor/shared/open-policy-allowfrom.ts	2
 src/commands/doctor/shared/plugin-runtime-symlinks.ts	4
 src/commands/doctor/shared/plugin-tool-allowlist-warnings.ts	2
-src/commands/doctor/shared/preview-warnings.ts	2
 src/commands/doctor/shared/pristine-startup-state.ts	3
 src/commands/doctor/shared/stale-agent-model-ref-repair.ts	3
 src/commands/doctor/shared/stale-auth-order-store.ts	3
@@ -2873,7 +2868,6 @@ src/gateway/server-methods/task-suggestions.ts	7
 src/gateway/server-methods/terminal-upload.ts	1
 src/gateway/server-methods/terminal.ts	6
 src/gateway/server-methods/tools-catalog.ts	2
-src/gateway/server-methods/update.ts	1
 src/gateway/server-methods/web.ts	1
 src/gateway/server-methods/wizard.ts	1
 src/gateway/server-methods/workspace-fs.ts	2
@@ -2959,7 +2953,6 @@ src/gateway/worker-environments/workspace-path-exclusions.ts	2
 src/gateway/worker-environments/workspace-result-staging.ts	2
 src/gateway/worker-workspace-conflict-transcript.ts	4
 src/gateway/ws-log.ts	3
-src/hooks/bundled/bootstrap-extra-files/handler.ts	1
 src/hooks/bundled/session-memory/handler.ts	9
 src/hooks/bundled/session-memory/transcript.ts	2
 src/hooks/frontmatter.ts	1
@@ -3370,9 +3363,8 @@ src/plugins/host-hook-runtime.ts	1
 src/plugins/host-hook-scheduled-turns.ts	7
 src/plugins/host-hook-state.ts	8
 src/plugins/host-hooks.ts	1
-src/plugins/install-managed-npm-state.ts	5
+src/plugins/install-managed-npm-state.ts	2
 src/plugins/install-npm-metadata.ts	1
-src/plugins/install-npm-pack.ts	2
 src/plugins/install-persistence.ts	1
 src/plugins/install-record-commit.ts	3
 src/plugins/install-security-scan.runtime.ts	1
@@ -3394,7 +3386,6 @@ src/plugins/loader-load-context.ts	4
 src/plugins/loader-module-runtime.ts	11
 src/plugins/loader-records.ts	1
 src/plugins/loader-runtime-candidate.ts	1
-src/plugins/loader-runtime-load.ts	2
 src/plugins/loader-shared.ts	2
 src/plugins/managed-npm-retention.ts	4
 src/plugins/manifest-capability-normalizers.ts	3
@@ -3426,9 +3417,7 @@ src/plugins/provider-auth-choice-helpers.ts	12
 src/plugins/provider-catalog-result.ts	8
 src/plugins/provider-discovery.runtime.ts	2
 src/plugins/provider-discovery.ts	2
-src/plugins/provider-hook-runtime.ts	3
 src/plugins/provider-model-compat.ts	7
-src/plugins/provider-model-helpers.ts	4
 src/plugins/provider-model-primary.ts	1
 src/plugins/provider-openai-chatgpt-oauth.ts	1
 src/plugins/provider-policy-surface.ts	1
@@ -3902,7 +3891,6 @@ ui/src/pages/chat/chat-page.ts	1
 ui/src/pages/chat/chat-pane-browser-annotation.ts	2
 ui/src/pages/chat/chat-pane-lifecycle.ts	4
 ui/src/pages/chat/chat-pane-render.ts	3
-ui/src/pages/chat/chat-progress.ts	2
 ui/src/pages/chat/chat-queue.ts	1
 ui/src/pages/chat/chat-send-ack.ts	2
 ui/src/pages/chat/chat-send-composer.ts	1
