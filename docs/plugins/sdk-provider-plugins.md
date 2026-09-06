@@ -300,6 +300,12 @@ catalog, API-key auth, and dynamic model resolution.
     separate from account discovery; do not retry a rejected account request
     anonymously or substitute seed rows inside a strict builder.
 
+    Custom catalog hooks may receive optional `mode` metadata from
+    `ctx.resolveProviderApiKey()`: `api_key`, `oauth`, or `token`. When present,
+    it describes that lookup's selected credential. Use it when choosing a vendor
+    authentication scheme; a separate `resolveProviderAuth()` call may select a
+    different profile. Omitted mode metadata does not change existing callback behavior.
+
     For a non-Bearer or nonstandard list endpoint, pass options instead of
     `true`:
 
@@ -657,6 +663,7 @@ catalog, API-key auth, and dynamic model resolution.
       - `openclaw/plugin-sdk/provider-model-shared` - `ProviderReplayFamily`, `buildProviderReplayFamilyHooks(...)`, and the raw replay builders (`buildOpenAICompatibleReplayPolicy`, `buildAnthropicReplayPolicyForModel`, `buildGoogleGeminiReplayPolicy`, `buildHybridAnthropicOrOpenAIReplayPolicy`). Also exports Gemini replay helpers (`sanitizeGoogleGeminiReplayHistory`, `resolveTaggedReasoningOutputMode`) and endpoint/model helpers (`resolveProviderEndpoint`, `normalizeProviderId`, `normalizeGooglePreviewModelId`).
       - `openclaw/plugin-sdk/provider-stream` - `ProviderStreamFamily`, `buildProviderStreamFamilyHooks(...)`, `composeProviderStreamWrappers(...)`, plus the shared OpenAI/Codex wrappers (`createOpenAIAttributionHeadersWrapper`, `createOpenAIFastModeWrapper`, `createOpenAIServiceTierWrapper`, `createOpenAIResponsesContextManagementWrapper`, `createCodexNativeWebSearchWrapper`), DeepSeek V4 OpenAI-compatible wrapper (`createDeepSeekV4OpenAICompatibleThinkingWrapper`), Anthropic Messages thinking prefill cleanup (`createAnthropicThinkingPrefillPayloadWrapper`), plain-text tool-call compat (`createPlainTextToolCallCompatWrapper`), and shared proxy/provider wrappers (`createOpenRouterWrapper`, `createToolStreamWrapper`, `createMinimaxFastModeWrapper`).
       - `openclaw/plugin-sdk/provider-stream-shared` - lightweight payload and event wrappers for hot provider paths, including `createOpenAICompatibleCompletionsThinkingOffWrapper`, `createPayloadPatchStreamWrapper`, `createPlainTextToolCallCompatWrapper`, `normalizeOpenAICompatibleReasoningPayload(...)`, and `setQwenChatTemplateThinking(...)`.
+      - `openclaw/plugin-sdk/provider-transport-runtime` - native Google wire helpers: `projectGoogleMessages(...)`, `convertGoogleTools(...)`, `requiresGoogleToolCallId(...)`, and `consumeGoogleGenerateContentStream(...)`. Prepare and normalize transcript routes before projection. Use `replay: "managed"` and stream `profile: "managed"` for managed SSE; the direct SDK uses `replay: "signed-parts"` and the default stream profile to preserve individual signed parts. Transport owners retain authentication, retries, HTTP cancellation, and trusted video admission; the reducer emits events and usage, and throws failures for the caller to finalize.
       - `openclaw/plugin-sdk/provider-tools` - `ProviderToolCompatFamily`, `buildProviderToolCompatFamilyHooks("deepseek" | "gemini" | "openai")`, and underlying provider schema helpers.
 
       For Gemini-family providers, keep the reasoning-output mode aligned with
