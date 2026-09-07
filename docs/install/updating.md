@@ -39,6 +39,20 @@ another full Doctor pass. The final report records downtime and verification
 results. See
 [Validation and activation](/cli/update#validation-and-activation) for the checks.
 
+Package updates also check npm availability for enabled configured plugins before
+stopping the serving Gateway or replacing the installed core. The check uses the
+same plugin version rules as post-update synchronization, including release-cohort
+tracking, beta selection, and extended-stable targets. A missing version or registry
+error refuses the update with `plugin-target-unavailable`; `--dry-run` reports the
+same refusal. Retry when the registry or mirror is ready, select an older available
+core with `openclaw update --tag <version>`, or disable the affected plugin before
+retrying. Extended-stable does not accept `--tag`; retry later or explicitly switch
+channels. Bundled and path-installed plugins do not require registry requests.
+When enabled npm plugins need admission, a package spec whose core version cannot
+be resolved before staging is also refused; select an exact registry version.
+This metadata check does not reserve downloads, so later download failures can
+still require recovery.
+
 Switch channels or target a specific version:
 
 ```bash
@@ -153,7 +167,9 @@ openclaw update cleanup --dry-run
 Use the same profile and state/config overrides as the update, and check the
 state directory printed in the report. The metadata-only preview can run while
 the Gateway is active. To apply, stop that Gateway yourself, wait for other
-SQLite maintenance to finish, then run `openclaw update cleanup`. Cleanup never
+SQLite maintenance to finish, and stop database readers such as session-listing
+watchers. Keep them stopped until `openclaw update cleanup` exits; read-only
+connections can change WAL/SHM sidecars and invalidate verification. Cleanup never
 stops or restarts the Gateway. Confirmation defaults to **No**; automation must
 explicitly pass `--yes`, including when using `--json`.
 

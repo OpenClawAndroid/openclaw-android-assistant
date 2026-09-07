@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import type { captureTargetDatabaseSchemaContext } from "./schema-preflight.js";
-import type { PackageInstallUpdateParams } from "./update-command-package.js";
 import type { PreManagedServiceStop } from "./update-command-service.js";
-import type { PackageUpdateExecutor } from "./update-package-executor.js";
 
 const mocks = vi.hoisted(() => ({
   captureManagedContext: vi.fn(),
@@ -21,13 +19,13 @@ const mocks = vi.hoisted(() => ({
   maybeRestartService: vi.fn(),
   maybeStopService: vi.fn(),
   prepareMutableUpdate: vi.fn<(env?: NodeJS.ProcessEnv) => Promise<void>>(),
+  pluginPreflight: vi.fn(),
   readGitRecovery: vi.fn(),
   runGitUpdate: vi.fn(),
   runPackageUpdate: vi.fn(),
   runtimeError: vi.fn(),
   revalidateSchemaContext:
     vi.fn<typeof import("./update-command-managed-context.js").revalidateUpdateDatabaseContext>(),
-  selectPackageExecutor: vi.fn(),
   serviceStopped: false,
   shouldBlockServiceUpdate: vi.fn(),
   verifyPackageRecovery: vi.fn(),
@@ -35,6 +33,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../infra/update-global.js", () => ({
   verifyPackageUpdateRecovery: mocks.verifyPackageRecovery,
+}));
+
+vi.mock("./update-command-plugin-preflight.js", () => ({
+  preflightConfiguredNpmPluginTargets: mocks.pluginPreflight,
 }));
 
 vi.mock("../../infra/update-runner-git-recovery.js", () => ({
@@ -84,11 +86,7 @@ vi.mock("./update-command-service.js", async () => {
   };
 });
 
-vi.mock("./update-package-executor.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./update-package-executor.js")>();
-  return { ...actual, selectPackageExecutor: mocks.selectPackageExecutor };
-});
-
+import { UpdatePreMutationError } from "./shared.js";
 import { executeMutableUpdate } from "./update-command-execution.js";
 
 const successfulUpdate: UpdateRunResult = {
@@ -100,26 +98,6 @@ const successfulUpdate: UpdateRunResult = {
   steps: [],
   durationMs: 1,
 };
-
-const activation: Parameters<PackageUpdateExecutor["activate"]>[0]["activation"] = {
-  managedServiceEnv: { OPENCLAW_PROFILE: "default" },
-};
-
-function packagePreparation(): Parameters<PackageUpdateExecutor["prepare"]>[0] {
-  return {
-    root: "/opt/openclaw",
-    installKind: "package",
-    tag: "1.0.1",
-    timeoutMs: 30_000,
-    startedAt: 1,
-    progress: {},
-    jsonMode: true,
-    invocationCwd: "/work",
-    validateCandidate: async () => [],
-    beforeActivate: async () => {},
-    onTransaction: () => {},
-  };
-}
 
 function executionParams(
   updateInstallKind: "git" | "package",
@@ -139,6 +117,7 @@ function executionParams(
     opts: { json: true },
     shouldRestart: true,
     packageInstallSpec: "openclaw@1.0.1",
+    packageTargetVersion: "1.0.1",
     managedServiceRootRedirect: null,
     invocationCwd: "/work",
     recoveryState: { triageTarget: { env: {} } },
@@ -192,30 +171,6 @@ function inspectOrStopService(phase: "inspect" | "prepare" = "prepare"): PreMana
   };
 }
 
-async function actualPackageExecutor(): Promise<PackageUpdateExecutor> {
-  const actual = await vi.importActual<typeof import("./update-package-executor.js")>(
-    "./update-package-executor.js",
-  );
-  return actual.selectPackageExecutor();
-}
-
-function observeExecutor(executor: PackageUpdateExecutor, events: string[]): PackageUpdateExecutor {
-  return {
-    async prepare(update) {
-      events.push("prepare");
-      return executor.prepare(update);
-    },
-    async activate(params) {
-      events.push("activate");
-      return executor.activate(params);
-    },
-    async discard(prepared, reason) {
-      events.push(`discard:${reason}`);
-      await executor.discard(prepared, reason);
-    },
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.serviceStopped = false;
@@ -231,6 +186,7 @@ beforeEach(() => {
   mocks.maybeRestartService.mockResolvedValue(undefined);
   mocks.maybeStopService.mockImplementation(async ({ phase }) => inspectOrStopService(phase));
   mocks.prepareMutableUpdate.mockResolvedValue(undefined);
+  mocks.pluginPreflight.mockResolvedValue(undefined);
   mocks.readGitRecovery.mockResolvedValue({ serviceRestartSafe: true });
   mocks.runGitUpdate.mockResolvedValue({ ...successfulUpdate, mode: "git" });
   mocks.runPackageUpdate.mockResolvedValue(successfulUpdate);
@@ -238,58 +194,79 @@ beforeEach(() => {
   mocks.verifyPackageRecovery.mockResolvedValue({ serviceRestartSafe: true });
 });
 
-describe("package update executor contract", () => {
-  it("seals a path-free preparation and consumes it exactly once", async () => {
-    const executor = await actualPackageExecutor();
-    const update = packagePreparation();
-    const prepared = await executor.prepare(update);
-    update.tag = "changed-after-prepare";
-
-    expect(Object.isFrozen(prepared)).toBe(true);
-    expect(Object.keys(prepared)).toEqual([]);
-    await expect(executor.activate({ prepared, activation })).resolves.toBe(successfulUpdate);
-    await expect(executor.activate({ prepared, activation })).rejects.toThrow(
-      "belongs to another executor or was already consumed",
+describe("mutable update execution", () => {
+  it.each([
+    "@openclaw/example@1.0.1: Package not found on npm",
+    "@openclaw/example@1.0.1: npm view failed: ECONNRESET",
+  ])("keeps the serving package unchanged when plugin admission fails: %s", async (detail) => {
+    mocks.pluginPreflight.mockRejectedValue(
+      new UpdatePreMutationError("plugin-target-unavailable", detail),
     );
-    expect(mocks.runPackageUpdate).toHaveBeenCalledOnce();
-    expect(mocks.runPackageUpdate).toHaveBeenCalledWith(
-      expect.objectContaining<Partial<PackageInstallUpdateParams>>({ tag: "1.0.1" }),
-    );
-  });
 
-  it("rejects a preparation issued by another executor", async () => {
-    const owner = await actualPackageExecutor();
-    const foreign = await actualPackageExecutor();
-    const prepared = await owner.prepare(packagePreparation());
+    const execution = await executeMutableUpdate(executionParams("package"));
 
-    await expect(foreign.activate({ prepared, activation })).rejects.toThrow(
-      "belongs to another executor",
-    );
-    await expect(owner.activate({ prepared, activation })).resolves.toBe(successfulUpdate);
-    expect(mocks.runPackageUpdate).toHaveBeenCalledOnce();
-  });
-
-  it("makes discard terminal for a prepared update", async () => {
-    const executor = await actualPackageExecutor();
-    const prepared = await executor.prepare(packagePreparation());
-
-    await executor.discard(prepared, "pre-activation-failed");
-
-    await expect(executor.activate({ prepared, activation })).rejects.toThrow("already consumed");
+    expect(execution).toMatchObject({
+      mutationStarted: false,
+      result: {
+        status: "error",
+        reason: "plugin-target-unavailable",
+        steps: [expect.objectContaining({ stderrTail: detail })],
+      },
+    });
+    expect(mocks.serviceStopped).toBe(false);
+    expect(mocks.prepareMutableUpdate).not.toHaveBeenCalled();
     expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
   });
-});
 
-describe("mutable update execution", () => {
-  it("admits both contexts before preparation and keeps the service online until activation", async () => {
+  it("waits for plugin availability before preparing a package update", async () => {
+    const available = createDeferred();
+    mocks.pluginPreflight.mockImplementation(() => available.promise);
+    const execution = executeMutableUpdate(executionParams("package"));
+    try {
+      await vi.waitFor(() => expect(mocks.pluginPreflight).toHaveBeenCalledOnce());
+      expect(mocks.serviceStopped).toBe(false);
+      expect(mocks.prepareMutableUpdate).not.toHaveBeenCalled();
+      expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
+    } finally {
+      available.resolve();
+    }
+    expect((await execution)?.result).toBe(successfulUpdate);
+    expect(mocks.runPackageUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("refuses configuration drift during plugin admission before mutable preparation", async () => {
+    let configChanged = false;
+    mocks.pluginPreflight.mockImplementation(async () => {
+      configChanged = true;
+    });
+    mocks.revalidateSchemaContext.mockImplementation(async (context) => {
+      if (configChanged) {
+        throw new UpdatePreMutationError("database-schema-preflight", "Configuration changed");
+      }
+      return context;
+    });
+
+    const execution = await executeMutableUpdate(executionParams("package"));
+
+    expect(execution?.result.reason).toBe("database-schema-preflight");
+    expect(mocks.prepareMutableUpdate).not.toHaveBeenCalled();
+    expect(mocks.serviceStopped).toBe(false);
+    expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
+  });
+
+  it("captures the package target before schema revalidation and binds the latest service environment", async () => {
     const events: string[] = [];
-    const executor = observeExecutor(await actualPackageExecutor(), events);
-    mocks.selectPackageExecutor.mockReturnValue(executor);
+    mocks.runPackageUpdate.mockImplementation(async () => {
+      events.push("install");
+      return successfulUpdate;
+    });
+    const serviceState = inspectOrStopService("inspect");
     mocks.maybeStopService.mockImplementation(async ({ phase }) => {
       if (phase === "prepare") {
         events.push("stop");
+        return inspectOrStopService(phase);
       }
-      return inspectOrStopService(phase);
+      return serviceState;
     });
     mocks.prepareMutableUpdate.mockImplementation(async (env) => {
       expect(env).toEqual({ OPENCLAW_PROFILE: "default" });
@@ -301,52 +278,51 @@ describe("mutable update execution", () => {
         "invoker",
         "default",
       ]);
-      events.push(events.includes("prepare") ? "schema-after-prepare" : "schema-before-prepare");
-      if (events.includes("prepare")) {
+      events.push(
+        events.includes("mutable-prepare") ? "schema-after-inspection" : "schema-before-inspection",
+      );
+      if (events.includes("mutable-prepare")) {
         await schemaGate.promise;
       }
       return { incompatible: [], indeterminate: [] };
     });
 
-    const pendingExecution = executeMutableUpdate(executionParams("package"));
+    const params = executionParams("package");
+    const pendingExecution = executeMutableUpdate(params);
     try {
-      await vi.waitFor(() => expect(events).toContain("schema-after-prepare"));
-      expect(events).toEqual([
-        "schema-before-prepare",
-        "mutable-prepare",
-        "prepare",
-        "schema-after-prepare",
-      ]);
+      await vi.waitFor(() => expect(events).toContain("schema-after-inspection"));
+      expect(events.indexOf("schema-before-inspection")).toBeLessThan(
+        events.indexOf("mutable-prepare"),
+      );
+      expect(events.at(-1)).toBe("schema-after-inspection");
       expect(mocks.serviceStopped).toBe(false);
       expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
+      params.packageInstallSpec = "openclaw@changed-during-schema-check";
+      serviceState.serviceEnv = { OPENCLAW_PROFILE: "revalidated" };
     } finally {
       schemaGate.resolve();
       await pendingExecution;
     }
     const execution = await pendingExecution;
 
-    expect(events.at(-1)).toBe("activate");
+    expect(events.at(-1)).toBe("install");
     expect(mocks.prepareMutableUpdate).toHaveBeenCalledOnce();
     expect(execution?.result).toBe(successfulUpdate);
     expect(mocks.runPackageUpdate).toHaveBeenCalledOnce();
     expect(mocks.runPackageUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         installSpec: "openclaw@1.0.1",
-        managedServiceEnv: { OPENCLAW_PROFILE: "default" },
+        managedServiceEnv: { OPENCLAW_PROFILE: "revalidated" },
       }),
     );
   });
 
   it.each(["before-prepare", "after-prepare"] as const)(
-    "preserves executor refusal at %s",
+    "refuses schema mismatch at %s without invoking the package updater",
     async (phase) => {
-      const events: string[] = [];
-      mocks.selectPackageExecutor.mockReturnValue(
-        observeExecutor(await actualPackageExecutor(), events),
-      );
       mocks.checkTargetSchemas.mockImplementation(async () => ({
         incompatible:
-          phase === "before-prepare" || events.includes("prepare")
+          phase === "before-prepare" || mocks.prepareMutableUpdate.mock.calls.length > 0
             ? [
                 {
                   kind: "agent",
@@ -361,9 +337,6 @@ describe("mutable update execution", () => {
 
       const execution = await executeMutableUpdate(executionParams("package"));
 
-      expect(events).toEqual(
-        phase === "before-prepare" ? [] : ["prepare", "discard:pre-activation-failed"],
-      );
       expect(mocks.serviceStopped).toBe(false);
       expect(mocks.prepareMutableUpdate).toHaveBeenCalledTimes(phase === "after-prepare" ? 1 : 0);
       expect(execution?.result.reason).toBe("database-schema-preflight");
@@ -373,7 +346,6 @@ describe("mutable update execution", () => {
 
   it("reports activation exceptions without retrying a fallback package updater", async () => {
     const failure = new Error("activation failed");
-    mocks.selectPackageExecutor.mockReturnValue(await actualPackageExecutor());
     mocks.runPackageUpdate.mockRejectedValue(failure);
 
     const execution = await executeMutableUpdate(executionParams("package"));
@@ -415,7 +387,6 @@ describe("mutable update execution", () => {
     expect(events).toEqual(["mutable-prepare", "git"]);
     expect(mocks.serviceStopped).toBe(false);
     expect(execution?.result.mode).toBe("git");
-    expect(mocks.selectPackageExecutor).not.toHaveBeenCalled();
     expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
   });
 });

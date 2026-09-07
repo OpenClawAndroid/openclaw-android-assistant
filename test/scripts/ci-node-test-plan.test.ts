@@ -13,6 +13,7 @@ import {
   createNodeTestShards,
   createVitestCacheWarmGroups,
   isExclusiveCompactShardName,
+  isPolicyTestOwnedPath,
   resolvePolicyTestTargets,
 } from "../../scripts/lib/ci-node-test-plan.mts";
 import * as testTimings from "../../scripts/lib/ci-test-timings.mts";
@@ -412,6 +413,16 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       "ui/src/styles/cursor-policy.node.test.ts",
     ]);
     expect(resolvePolicyTestTargets(["docs/web/control-ui.md"])).toEqual([]);
+  });
+
+  it("matches policy owners only for exact changed paths", () => {
+    const changedPath = "ui/src/styles/base.css";
+    expect(isPolicyTestOwnedPath(changedPath)).toBe(true);
+    expect(resolvePolicyTestTargets([changedPath])).not.toEqual([]);
+    for (const lookalike of [` ${changedPath}`, String.raw`ui\src\pages\chat\view.ts`]) {
+      expect(isPolicyTestOwnedPath(lookalike), lookalike).toBe(false);
+      expect(resolvePolicyTestTargets([lookalike]), lookalike).toEqual([]);
+    }
   });
 
   it("projects cache-warm groups from the owned node test plan", () => {
@@ -2099,7 +2110,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       compactMode: "pull-request" as const,
       runnerBackend: "github",
     };
-    const syntheticToolingFile = "test/scripts/resolve-fs-safe-native-contract.test.ts";
+    const inventoryGrowthFile = "test/scripts/resolve-fs-safe-native-contract.test.ts";
     const isHostedToolingGroup = (group: { shard_name: string }) =>
       /^core-tooling-\d+-hosted-\d+$/u.test(group.shard_name);
     const isNumberedToolingGroup = (group: { shard_name: string }) =>
@@ -2129,77 +2140,85 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
               ];
         })
         .toSorted((a, b) => a.groups.join("\0").localeCompare(b.groups.join("\0")));
-    const baseline = createNodeTestShardBundles(options);
+    const createPlanWithInventory = async (includeGrowthFile: boolean) => {
+      vi.resetModules();
+      vi.doMock("../../scripts/lib/list-test-files.mts", async (importOriginal) => {
+        const actual =
+          await importOriginal<typeof import("../../scripts/lib/list-test-files.mts")>();
+        return {
+          ...actual,
+          listTrackedTestFiles(rootDir: string, suffix?: string) {
+            const files = actual
+              .listTrackedTestFiles(rootDir, suffix)
+              .filter((file) => file !== inventoryGrowthFile);
+            return rootDir === "test" && includeGrowthFile
+              ? [...files, inventoryGrowthFile].toSorted()
+              : files;
+          },
+        };
+      });
+      try {
+        const { createNodeTestShardBundles: createPlan } =
+          await import("../../scripts/lib/ci-node-test-plan.mts");
+        return createPlan(options);
+      } finally {
+        vi.doUnmock("../../scripts/lib/list-test-files.mts");
+        vi.resetModules();
+      }
+    };
+    const baseline = await createPlanWithInventory(false);
     const baselineToolingFiles = baseline
       .flatMap((job) => job.groups)
       .filter(isNumberedToolingGroup)
       .flatMap((group) => group.includePatterns ?? []);
-    vi.resetModules();
-    vi.doMock("../../scripts/lib/list-test-files.mts", async (importOriginal) => {
-      const actual = await importOriginal<typeof import("../../scripts/lib/list-test-files.mts")>();
-      return {
-        ...actual,
-        listTrackedTestFiles(rootDir: string, suffix?: string) {
-          const files = actual.listTrackedTestFiles(rootDir, suffix);
-          return rootDir === "test" ? [...files, syntheticToolingFile].toSorted() : files;
-        },
-      };
-    });
-    try {
-      const { createNodeTestShardBundles: createPlanWithGrownInventory } =
-        await import("../../scripts/lib/ci-node-test-plan.mts");
-      const grown = createPlanWithGrownInventory(options);
-      const toolingGroups = grown.flatMap((job) => job.groups).filter(isNumberedToolingGroup);
-      const toolingFiles = toolingGroups.flatMap((group) => group.includePatterns ?? []);
-      const crossRunnerHostedJobs: CompactNodeTestShard[] = [];
+    const grown = await createPlanWithInventory(true);
+    const toolingGroups = grown.flatMap((job) => job.groups).filter(isNumberedToolingGroup);
+    const toolingFiles = toolingGroups.flatMap((group) => group.includePatterns ?? []);
+    const crossRunnerHostedJobs: CompactNodeTestShard[] = [];
 
-      expect(grown.length).toBeLessThanOrEqual(80);
-      expect(new Set(toolingFiles).size).toBe(toolingFiles.length);
-      expect(toolingFiles.toSorted()).toEqual(
-        [...baselineToolingFiles, syntheticToolingFile].toSorted(),
-      );
-      expect(nonToolingPlacement(grown)).toEqual(nonToolingPlacement(baseline));
+    expect(grown.length).toBeLessThanOrEqual(80);
+    expect(new Set(toolingFiles).size).toBe(toolingFiles.length);
+    expect(toolingFiles.toSorted()).toEqual(
+      [...baselineToolingFiles, inventoryGrowthFile].toSorted(),
+    );
+    expect(nonToolingPlacement(grown)).toEqual(nonToolingPlacement(baseline));
 
-      for (const job of grown) {
-        const hostedToolingGroups = job.groups.filter(isHostedToolingGroup);
-        if (hostedToolingGroups.length === 0) {
-          continue;
-        }
-        const families = hostedToolingGroups.map((group) =>
-          group.shard_name.replace(/-hosted-\d+$/u, ""),
-        );
-        expect(new Set(families).size).toBe(families.length);
-        expect(job.requiresDist).toBe(false);
-        expect(job.planConcurrency).toBe(1);
-        expect(job.groups.length).toBeLessThanOrEqual(10);
-        if (job.groups.length > 1) {
-          expect(job.predictedSeconds).toBeLessThanOrEqual(150);
-        }
-        expect(job.runner).toBe(job.groups[0]?.runner);
-        expect(
-          hostedToolingGroups.every(
-            (group) => (runnerRanks.get(job.runner) ?? -1) >= (runnerRanks.get(group.runner) ?? 0),
-          ),
-        ).toBe(true);
-        if (hostedToolingGroups.some((group) => group.runner !== job.runner)) {
-          crossRunnerHostedJobs.push(job);
-          expect(job.groups.every(isHostedToolingGroup)).toBe(true);
-          expect(job.pretestBuildMode).toBeUndefined();
-          expect(job.groups.every((group) => group.pretestBuildMode === undefined)).toBe(true);
-        }
+    for (const job of grown) {
+      const hostedToolingGroups = job.groups.filter(isHostedToolingGroup);
+      if (hostedToolingGroups.length === 0) {
+        continue;
       }
-      expect(crossRunnerHostedJobs).toHaveLength(1);
-      expect(crossRunnerHostedJobs[0]?.runner).toBe(DEFAULT_NODE_TEST_RUNNER);
-      expect(crossRunnerHostedJobs[0]?.groups.map((group) => group.shard_name)).toEqual([
-        "core-tooling-15-hosted-3",
-        "core-tooling-6-hosted-2",
-        "core-tooling-2-hosted-2",
-        "core-tooling-3-hosted-2",
-      ]);
-    } finally {
-      vi.doUnmock("../../scripts/lib/list-test-files.mts");
-      vi.resetModules();
+      const families = hostedToolingGroups.map((group) =>
+        group.shard_name.replace(/-hosted-\d+$/u, ""),
+      );
+      expect(new Set(families).size).toBe(families.length);
+      expect(job.requiresDist).toBe(false);
+      expect(job.planConcurrency).toBe(1);
+      expect(job.groups.length).toBeLessThanOrEqual(10);
+      if (job.groups.length > 1) {
+        expect(job.predictedSeconds).toBeLessThanOrEqual(150);
+      }
+      expect(job.runner).toBe(job.groups[0]?.runner);
+      expect(
+        hostedToolingGroups.every(
+          (group) => (runnerRanks.get(job.runner) ?? -1) >= (runnerRanks.get(group.runner) ?? 0),
+        ),
+      ).toBe(true);
+      if (hostedToolingGroups.some((group) => group.runner !== job.runner)) {
+        crossRunnerHostedJobs.push(job);
+        expect(job.groups.every(isHostedToolingGroup)).toBe(true);
+        expect(job.pretestBuildMode).toBeUndefined();
+        expect(job.groups.every((group) => group.pretestBuildMode === undefined)).toBe(true);
+      }
     }
+    expect(crossRunnerHostedJobs).toHaveLength(1);
+    expect(crossRunnerHostedJobs[0]?.runner).toBe(DEFAULT_NODE_TEST_RUNNER);
+    expect(crossRunnerHostedJobs[0]?.groups.map((group) => group.shard_name)).toEqual([
+      "core-tooling-15-hosted-3",
+      "core-tooling-6-hosted-2",
+      "core-tooling-2-hosted-2",
+      "core-tooling-3-hosted-2",
+    ]);
   });
 
   it("assigns Blacksmith runners to every core node shard", () => {
@@ -3005,7 +3024,9 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       includeReleaseOnlyPluginShards: false,
       changedPaths: [
         ...STORE_ALIAS_CHANGED_PATHS.toReversed(),
-        "./src/plugins/tools.optional.test.ts",
+        " src/plugins/tools.optional.test.ts",
+        String.raw`src\plugins\tools.optional.test.ts`,
+        "src/plugins/tools.optional.test.ts",
         PLUGIN_PRERELEASE_NPM_SPEC_TEST,
         "src/plugins/contracts/plugin-sdk-subpaths.test.ts",
         "src/plugins/loader.test.ts",
