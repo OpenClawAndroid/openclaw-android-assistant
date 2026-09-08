@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { setRuntimeConfigSnapshot } from "../config/config.js";
 import { readExecApprovalsSnapshot, saveExecApprovals } from "../infra/exec-approvals.js";
+import type { ExecAutoReviewer, ExecAutoReviewTranscript } from "../infra/exec-auto-review.js";
 import { handleInvoke } from "../node-host/invoke.js";
 import {
   captureActivePluginRegistrySnapshot,
@@ -20,9 +21,13 @@ import {
 import { executeNodeHostCommand } from "./bash-tools.exec-host-node.js";
 import type { ExecuteNodeHostCommandParams } from "./bash-tools.exec-host-node.types.js";
 import { resolvePreparedExecEnvironment } from "./bash-tools.exec-request-preparation.js";
+import { createExecTool } from "./bash-tools.exec-run.js";
 
 const rpc = vi.hoisted(() => vi.fn());
-vi.mock("./tools/gateway.js", () => ({ callGatewayTool: rpc }));
+vi.mock("./tools/gateway.js", () => ({
+  callGatewayTool: rpc,
+  readGatewayCallOptions: vi.fn(() => ({})),
+}));
 vi.mock("./tools/nodes-utils.js", () => ({
   listNodes: async () => [
     {
@@ -43,7 +48,9 @@ let resolveDecision: (result: { decision: string }) => void;
 let decisionEntered: Deferred;
 beforeEach(async ({ onTestFinished }) => {
   const previousRegistry = captureActivePluginRegistrySnapshot();
-  onTestFinished(() => rollbackStagedPluginRegistry(previousRegistry));
+  onTestFinished(() => {
+    rollbackStagedPluginRegistry(previousRegistry);
+  });
   // A real Gateway already loaded its ingress channel before executing a tool.
   // Keep this node-policy fixture from cold-loading the whole A2A plugin graph.
   stageActivePluginRegistry(
@@ -274,6 +281,45 @@ it.each([
     resolveDecision({ decision: "deny" });
     await drained;
   }
+});
+
+it("collects live conversation context only when the node exec tool reaches review", async () => {
+  let currentTranscript: ExecAutoReviewTranscript | undefined;
+  const reviewTranscript = vi.fn(() => currentTranscript);
+  const autoReviewer = vi.fn<ExecAutoReviewer>(async () => ({
+    decision: "deny",
+    risk: "low",
+    rationale: "The operator requested a different action.",
+  }));
+  const tool = createExecTool({
+    host: "node",
+    node: "node-1",
+    mode: "auto",
+    nodeCwd: request.workdir,
+    agentId: request.agentId,
+    sessionKey: request.sessionKey,
+    safeBins: [],
+    autoReviewer,
+    reviewTranscript,
+  });
+  expect(reviewTranscript).not.toHaveBeenCalled();
+  afterPrepare = async () => {
+    expect(reviewTranscript).not.toHaveBeenCalled();
+    currentTranscript = {
+      entries: [{ kind: "user", origin: "operator", text: "Inspect the node configuration." }],
+      omittedEntries: 0,
+      truncated: false,
+    };
+  };
+
+  const result = await tool.execute("node-live-review-context", { command: request.command });
+
+  expect(reviewTranscript).toHaveBeenCalledTimes(1);
+  expect(autoReviewer).toHaveBeenCalledWith(
+    expect.objectContaining({ host: "node", transcript: currentTranscript }),
+  );
+  expect(result.details).toMatchObject({ status: "failed", approvalReviewOutcome: "denied" });
+  expect(invokeCount).toBe(0);
 });
 
 it("denies caller allowlist/off misses before dispatch to a permissive node", async () => {

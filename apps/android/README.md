@@ -66,14 +66,19 @@ menu, it closes without choosing an action. Reopen it explicitly when space
 permits; it does not reopen automatically when the layout recovers. Dismissing
 the menu does not reset Chat's draft, editor, or reader state.
 
-Chat's Model picker, its Permissions page, and Thinking effort sheet initially
+Chat's Model picker, its Permissions page, Thinking effort, and Background tasks sheets initially
 use the largest safe region with usable sheet space, not the trigger's region.
 They keep that region while it remains usable. Valid geometry changes retain
 the same sheet and local state. An invalid opening closes without selecting an
 option and stays closed until explicitly reopened.
 
-Background-task and branch-switching sheets and other dialogs, sheets, and
-popup menus are not fold-adapted yet.
+Background tasks remains an agent-wide, read-only list and detail view. Safe
+layout changes retain the opening and its reading state. Switching Gateway,
+agent, or chat closes it; a same-owner disconnect leaves read errors visible
+with Refresh available.
+
+Branch-switching sheets and other dialogs, sheets, and popup menus are not
+fold-adapted yet.
 
 ## Wear OS companion
 
@@ -165,6 +170,13 @@ animations, captures the screenshots, then shuts down the emulator it started.
 Install the API 36 Google APIs and API 34 Wear OS system images in the local
 Android SDK. Use `--form-factor phone|wear` with `--avd` or `--device` to
 explicitly capture one form factor from another emulator.
+
+For local branch-switching proof, launch a debug build with the intent extras
+`openclaw.screenshotMode=true` and `openclaw.screenshotScene=branches`. This Chat
+scene has 12 local branch alternatives and no active run. Switching updates the
+selected branch and transcript only in fixture memory, never on a live Gateway.
+Start a fresh app process before choosing a scene; restarting only the Activity
+reuses the process runtime. Same-scene re-entry retains the selected branch.
 
 `pnpm android:release:archive` builds signed release artifacts into `apps/android/build/release-artifacts/` and writes `.sha256` checksum files:
 
