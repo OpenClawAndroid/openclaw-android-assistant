@@ -355,6 +355,12 @@ openclaw devices approve <requestId>
 
 More details: `docs/platforms/android.md`.
 
+If the gateway cannot be reached, the app keeps the connection error visible during automatic retries.
+For an address that may use Tailscale, **Set up Tailscale** opens the Android installation guide.
+Open Tailscale and connect to the gateway's tailnet. Check that the gateway computer is online and OpenClaw is running, then retry.
+This advice does not verify Tailscale's connection state or change certificate trust.
+If an earlier network request is still stopping, the app waits for it before starting another request.
+
 ## Permissions
 
 - Discovery:

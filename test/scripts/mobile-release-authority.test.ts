@@ -1749,6 +1749,573 @@ describe("mobile release authority", () => {
     expect(source).not.toContain("extraheader");
   });
 
+  it("keeps the Android emulator diagnostic manual, exact-SHA-bound, and secretless", () => {
+    const file = ".github/workflows/android-emulator-diagnostic.yml";
+    const source = fs.readFileSync(file, "utf8");
+    const workflow = parse(source) as {
+      jobs: {
+        "validate-target": {
+          permissions: Record<string, string>;
+          "runs-on": string;
+          steps: Array<{
+            env?: Record<string, string>;
+            name: string;
+            run?: string;
+            uses?: string;
+            with?: Record<string, unknown>;
+          }>;
+          "timeout-minutes": number;
+        };
+        diagnose: {
+          env: Record<string, string>;
+          needs: string;
+          permissions: Record<string, string>;
+          "runs-on": string;
+          steps: Array<{
+            env?: Record<string, string>;
+            if?: string;
+            name: string;
+            run?: string;
+            uses?: string;
+            with?: Record<string, unknown>;
+          }>;
+          "timeout-minutes": number;
+        };
+      };
+      name: string;
+      on: {
+        workflow_dispatch: {
+          inputs: {
+            target_sha: {
+              default?: unknown;
+              description: string;
+              required: boolean;
+              type: string;
+            };
+          };
+        };
+      };
+      permissions: Record<string, string>;
+      "run-name": string;
+    };
+    const validationJob = workflow.jobs["validate-target"];
+    const validationSteps = validationJob.steps;
+    const job = workflow.jobs.diagnose;
+    const steps = job.steps;
+    const validateIndex = validationSteps.findIndex((step) => step.name === "Validate target SHA");
+    const validationTrustedCheckoutIndex = validationSteps.findIndex(
+      (step) => step.name === "Checkout trusted Android tooling",
+    );
+    const checkoutIndex = validationSteps.findIndex(
+      (step) => step.name === "Checkout exact target",
+    );
+    const headIndex = validationSteps.findIndex(
+      (step) => step.name === "Verify exact target checkout",
+    );
+    const parityIndex = validationSteps.findIndex(
+      (step) => step.name === "Verify Android toolchain action parity",
+    );
+    const initializeIndex = steps.findIndex(
+      (step) => step.name === "Initialize Android emulator diagnostic",
+    );
+    const trustedCheckoutIndex = steps.findIndex(
+      (step) => step.name === "Checkout trusted Android tooling",
+    );
+    const setupIndex = steps.findIndex((step) => step.name === "Setup Android toolchain");
+    const diagnosticIndex = steps.findIndex(
+      (step) => step.name === "Run phone emulator diagnostic",
+    );
+    const artifactIndex = steps.findIndex(
+      (step) => step.name === "Upload Android emulator diagnostic",
+    );
+
+    expect(workflow.name).toBe("Android Emulator Diagnostic");
+    expect(workflow["run-name"]).toBe(
+      "Android emulator diagnostic instrumented (${{ inputs.target_sha }})",
+    );
+    expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+    expect(workflow.on.workflow_dispatch.inputs.target_sha).toEqual({
+      description: "Exact lowercase 40-character commit SHA to diagnose",
+      required: true,
+      type: "string",
+    });
+    expect(workflow.permissions).toEqual({ contents: "read" });
+    expect(Object.keys(workflow.jobs)).toEqual(["validate-target", "diagnose"]);
+    expect(validationJob.permissions).toEqual({ contents: "read" });
+    expect(validationJob["runs-on"]).toBe("ubuntu-24.04");
+    expect(validationJob["timeout-minutes"]).toBe(5);
+    expect(job.permissions).toEqual({ contents: "read" });
+    expect(job.needs).toBe("validate-target");
+    expect(job["runs-on"]).toBe("macos-26-intel");
+    expect(job["timeout-minutes"]).toBe(25);
+    expect(job.env).toEqual({
+      ANDROID_SCREENSHOT_EMULATOR_TIMEOUT_SECONDS: "180",
+      AVD_NAME: "OpenClaw_Screenshots_API36",
+      DEVICE_PROFILE: "pixel_2",
+      SYSTEM_IMAGE: "system-images;android-36;google_apis;x86_64",
+    });
+
+    expect(validateIndex).toBe(0);
+    expect(validationTrustedCheckoutIndex).toBe(validateIndex + 1);
+    expect(checkoutIndex).toBe(validationTrustedCheckoutIndex + 1);
+    expect(headIndex).toBe(checkoutIndex + 1);
+    expect(parityIndex).toBe(headIndex + 1);
+    expect(initializeIndex).toBe(0);
+    expect(trustedCheckoutIndex).toBe(initializeIndex + 1);
+    expect(setupIndex).toBe(trustedCheckoutIndex + 1);
+    expect(diagnosticIndex).toBe(setupIndex + 1);
+    expect(artifactIndex).toBe(diagnosticIndex + 1);
+    expect(validationSteps[validateIndex]?.env).toEqual({
+      TARGET_SHA: "${{ inputs.target_sha }}",
+    });
+    expect(validationSteps[validateIndex]?.run).toContain(
+      '[[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]',
+    );
+    expect(steps[initializeIndex]?.env).toEqual({
+      TARGET_SHA: "${{ inputs.target_sha }}",
+    });
+    expect(steps[initializeIndex]?.run).toContain(
+      'DIAGNOSTIC_DIR="$RUNNER_TEMP/android-emulator-diagnostic"',
+    );
+    expect(steps[initializeIndex]?.run).toContain(
+      'echo "DIAGNOSTIC_DIR=$DIAGNOSTIC_DIR" >>"$GITHUB_ENV"',
+    );
+    expect(steps[initializeIndex]?.run).toContain(
+      "printf 'host_cpu=%s\\n' \"$(sysctl -n machdep.cpu.brand_string)\"",
+    );
+    expect(steps[initializeIndex]?.run).toContain(
+      "printf 'host_logical_cpus=%s\\n' \"$(sysctl -n hw.logicalcpu)\"",
+    );
+    expect(steps[initializeIndex]?.run).toContain(
+      "printf 'host_memory_bytes=%s\\n' \"$(sysctl -n hw.memsize)\"",
+    );
+    expect(validationSteps[validationTrustedCheckoutIndex]).toMatchObject({
+      uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      with: {
+        ref: "${{ github.workflow_sha }}",
+        "fetch-depth": 1,
+        "persist-credentials": false,
+        "sparse-checkout": ".github/actions/setup-android-toolchain",
+        path: ".mobile-release-tooling",
+      },
+    });
+    expect(validationSteps[checkoutIndex]).toMatchObject({
+      uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      with: {
+        ref: "${{ inputs.target_sha }}",
+        "fetch-depth": 1,
+        "persist-credentials": false,
+        path: "candidate",
+      },
+    });
+    expect(validationSteps[headIndex]?.env).toEqual({
+      TARGET_SHA: "${{ inputs.target_sha }}",
+    });
+    expect(validationSteps[headIndex]?.run).toContain(
+      'test "$(git -C candidate rev-parse HEAD)" = "$TARGET_SHA"',
+    );
+    expect(steps[trustedCheckoutIndex]).toMatchObject({
+      uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      with: {
+        ref: "${{ github.workflow_sha }}",
+        "fetch-depth": 1,
+        "persist-credentials": false,
+        "sparse-checkout": ".github/actions/setup-android-toolchain",
+        path: ".mobile-release-tooling",
+      },
+    });
+    expect(steps[setupIndex]).toMatchObject({
+      uses: "./.mobile-release-tooling/.github/actions/setup-android-toolchain",
+      with: {
+        "cache-mode": "off",
+        "install-screenshot-emulators": "true",
+      },
+    });
+    expect(JSON.stringify(steps)).not.toContain("candidate/");
+
+    const parityScript = validationSteps[parityIndex]?.run ?? "";
+    expect(parityScript).toContain("git -C .mobile-release-tooling ls-tree");
+    expect(parityScript).toContain("git -C candidate ls-tree");
+    expect(parityScript).toContain("cat-file blob");
+    expect(parityScript).toContain("cmp -s");
+
+    const actionPath = ".github/actions/setup-android-toolchain/action.yml";
+    const trustedAction = "name: fixture\nruns:\n  using: composite\n  steps: []\n";
+    const runParityGate = (candidate: "matching" | "modified" | "symlink") => {
+      const root = tempRoots.make("openclaw-android-emulator-diagnostic-parity-");
+      const trusted = path.join(root, ".mobile-release-tooling");
+      const target = path.join(root, "candidate");
+      const runnerTemp = path.join(root, "runner-temp");
+      const sentinel = path.join(root, "setup-ran");
+      fs.mkdirSync(runnerTemp);
+      for (const repository of [trusted, target]) {
+        fs.mkdirSync(repository);
+        git(repository, "init", "-q");
+        git(repository, "config", "user.name", "OpenClaw Test");
+        git(repository, "config", "user.email", "test@openclaw.invalid");
+      }
+      writeFile(trusted, actionPath, trustedAction);
+      if (candidate === "symlink") {
+        const candidatePath = path.join(target, actionPath);
+        fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+        fs.symlinkSync(path.join(trusted, actionPath), candidatePath);
+      } else {
+        writeFile(
+          target,
+          actionPath,
+          candidate === "matching"
+            ? trustedAction
+            : trustedAction.replace("fixture", "substituted"),
+        );
+      }
+      commit(trusted, "trusted action");
+      commit(target, "candidate action");
+
+      const result = spawnSync(
+        "/bin/bash",
+        ["-c", `${parityScript}\nprintf 'setup\\n' >"$SETUP_SENTINEL"\n`],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            RUNNER_TEMP: runnerTemp,
+            SETUP_SENTINEL: sentinel,
+          },
+        },
+      );
+      return { result, sentinel };
+    };
+
+    const matching = runParityGate("matching");
+    expect(matching.result.status, matching.result.stderr).toBe(0);
+    expect(fs.readFileSync(matching.sentinel, "utf8")).toBe("setup\n");
+    for (const candidate of ["modified", "symlink"] as const) {
+      const rejected = runParityGate(candidate);
+      expect(rejected.result.status).not.toBe(0);
+      expect(fs.existsSync(rejected.sentinel)).toBe(false);
+    }
+
+    const diagnostic = steps[diagnosticIndex]?.run ?? "";
+    expect(diagnostic).toContain(
+      'printf \'no\\n\' | avdmanager create avd --force --name "$AVD_NAME" --package "$SYSTEM_IMAGE" --device "$DEVICE_PROFILE"',
+    );
+    expect(diagnostic).toContain(
+      'emulator_args=(-avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -verbose -show-kernel)',
+    );
+    expect(diagnostic).toContain("capture_accel_check() {");
+    expect(diagnostic).toContain("accel_check_timeout_seconds=10");
+    expect(diagnostic).toContain('emulator -accel-check >"$accel_raw" 2>&1 &');
+    expect(diagnostic).toContain(
+      'head -c 16384 "$accel_raw" >"$DIAGNOSTIC_DIR/emulator-accel-check.txt"',
+    );
+    expect(diagnostic).toContain(
+      'printf \'exit_status=%s\\n\' "$accel_status" >>"$DIAGNOSTIC_DIR/emulator-accel-check.txt"',
+    );
+    expect(diagnostic).toContain(
+      'printf \'timed_out=%s\\n\' "$accel_timed_out" >>"$DIAGNOSTIC_DIR/emulator-accel-check.txt"',
+    );
+    expect(diagnostic).toContain("sample_owned_qemu() {");
+    expect(diagnostic).toContain(
+      'printf \'\\n[%s] owned_emulator_pid=%s\\n\' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$emulator_pid"',
+    );
+    expect(diagnostic).toContain(
+      'ps -p "$emulator_pid" -o pid=,ppid=,%cpu=,rss=,stat=,etime=,command=',
+    );
+    expect(diagnostic).toContain('>>"$DIAGNOSTIC_DIR/owned-qemu-samples.log" 2>&1');
+    expect(diagnostic.match(/\bsample_owned_qemu\b/gu)).toHaveLength(5);
+
+    const accelFunctionStart = diagnostic.indexOf("capture_accel_check() {");
+    const accelFunctionEnd = diagnostic.indexOf("\n\nsample_owned_qemu()", accelFunctionStart);
+    expect(accelFunctionStart).toBeGreaterThanOrEqual(0);
+    expect(accelFunctionEnd).toBeGreaterThan(accelFunctionStart);
+    const accelFunction = diagnostic
+      .slice(accelFunctionStart, accelFunctionEnd)
+      .replace("accel_check_timeout_seconds=10", "accel_check_timeout_seconds=1");
+    const runAccelCheck = (emulatorSource: string) => {
+      const root = tempRoots.make("openclaw-android-emulator-accel-check-");
+      const bin = path.join(root, "bin");
+      const diagnosticDir = path.join(root, "diagnostic");
+      fs.mkdirSync(bin);
+      fs.mkdirSync(diagnosticDir);
+      fs.writeFileSync(path.join(bin, "emulator"), emulatorSource, { mode: 0o755 });
+      const result = spawnSync(
+        "/bin/bash",
+        ["-c", `set -euo pipefail\n${accelFunction}\ncapture_accel_check\n`],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            DIAGNOSTIC_DIR: diagnosticDir,
+            PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          },
+          timeout: 5_000,
+        },
+      );
+      return {
+        output: fs.readFileSync(path.join(diagnosticDir, "emulator-accel-check.txt"), "utf8"),
+        result,
+      };
+    };
+
+    const nonzeroAccel = runAccelCheck("#!/bin/bash\nprintf 'unavailable\\n'\nexit 7\n");
+    expect(nonzeroAccel.result.status, nonzeroAccel.result.stderr).toBe(0);
+    expect(nonzeroAccel.output).toContain("unavailable");
+    expect(nonzeroAccel.output).toContain("exit_status=7");
+    expect(nonzeroAccel.output).toContain("timed_out=false");
+
+    const timedOutAccel = runAccelCheck("#!/bin/bash\nexec sleep 30\n");
+    expect(timedOutAccel.result.status, timedOutAccel.result.stderr).toBe(0);
+    expect(timedOutAccel.output).toContain("exit_status=124");
+    expect(timedOutAccel.output).toContain("timed_out=true");
+
+    expect(diagnostic).toContain("observe_after_readiness_timeout() {");
+    expect(diagnostic).toContain("post_deadline_observation_seconds=300");
+    expect(diagnostic).toContain("fail_after_readiness_timeout() {");
+    const observationFunctionStart = diagnostic.indexOf("run_bounded_probe() {");
+    const observationFunctionEnd = diagnostic.indexOf(
+      "\n\nfail_after_readiness_timeout()",
+      observationFunctionStart,
+    );
+    const failureFunctionEnd = diagnostic.indexOf("\n\ncleanup()", observationFunctionEnd);
+    expect(observationFunctionStart).toBeGreaterThanOrEqual(0);
+    expect(observationFunctionEnd).toBeGreaterThan(observationFunctionStart);
+    expect(failureFunctionEnd).toBeGreaterThan(observationFunctionEnd);
+    const observationFunctions = diagnostic
+      .slice(observationFunctionStart, failureFunctionEnd)
+      .replace("probe_poll_seconds=1", "probe_poll_seconds=0.05")
+      .replace("post_deadline_observation_seconds=300", "post_deadline_observation_seconds=3")
+      .replace("post_deadline_poll_seconds=2", "post_deadline_poll_seconds=1");
+    const runPostDeadlineObservation = (adbSource: string, functions = observationFunctions) => {
+      const root = tempRoots.make("openclaw-android-emulator-post-deadline-");
+      const bin = path.join(root, "bin");
+      const diagnosticDir = path.join(root, "diagnostic");
+      fs.mkdirSync(bin);
+      fs.mkdirSync(diagnosticDir);
+      fs.writeFileSync(path.join(bin, "adb"), adbSource, { mode: 0o755 });
+      const result = spawnSync(
+        "/bin/bash",
+        [
+          "-c",
+          [
+            "set -euo pipefail",
+            "sample_owned_qemu() { :; }",
+            functions,
+            "readiness_failure_latched=0",
+            "emulator_pid=$$",
+            'export AVD_NAME="OpenClaw_Screenshots_API36"',
+            'fail_after_readiness_timeout "latched readiness failure" ""',
+          ].join("\n"),
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            DIAGNOSTIC_DIR: diagnosticDir,
+            PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          },
+          timeout: 5_000,
+        },
+      );
+      return {
+        observations: fs.readFileSync(
+          path.join(diagnosticDir, "post-deadline-observations.log"),
+          "utf8",
+        ),
+        result,
+      };
+    };
+
+    const lateReady = runPostDeadlineObservation(`#!/bin/bash
+set -euo pipefail
+if [[ "\${1:-}" == "devices" ]]; then
+  printf 'List of devices attached\\nemulator-5554\\tdevice product:sdk model:sdk\\n'
+elif [[ "\${1:-}" == "-s" && "\${3:-}" == "shell" ]]; then
+  printf '1\\n'
+elif [[ "\${1:-}" == "-s" && "\${3:-}" == "emu" ]]; then
+  printf '%s\\nOK\\n' "\${AVD_NAME:?}"
+fi
+`);
+    expect(lateReady.result.status).toBe(1);
+    expect(lateReady.result.stderr).toContain("::error::latched readiness failure");
+    expect(lateReady.observations).toContain("late_adb_online_at=");
+    expect(lateReady.observations).toContain("late_boot_completed_at=");
+    expect(lateReady.observations).toContain("observation_stop=late-boot-completed");
+
+    const unrelatedDevice = runPostDeadlineObservation(`#!/bin/bash
+set -euo pipefail
+if [[ "\${1:-}" == "devices" ]]; then
+  printf 'List of devices attached\\nemulator-5554\\tdevice product:sdk model:sdk\\n'
+elif [[ "\${1:-}" == "-s" && "\${3:-}" == "emu" ]]; then
+  printf 'Another_AVD\\nOK\\n'
+elif [[ "\${1:-}" == "-s" && "\${3:-}" == "shell" ]]; then
+  printf '1\\n'
+fi
+`);
+    expect(unrelatedDevice.result.status).toBe(1);
+    expect(unrelatedDevice.observations).toContain("observation_stop=unexpected-avd");
+    expect(unrelatedDevice.observations).not.toContain("late_adb_online_at=");
+    expect(unrelatedDevice.observations).not.toContain("late_boot_completed_at=");
+
+    const cappedObservationFunctions = observationFunctions.replace(
+      "post_deadline_observation_seconds=3",
+      "post_deadline_observation_seconds=1",
+    );
+    const capped = runPostDeadlineObservation(
+      `#!/bin/bash
+set -euo pipefail
+if [[ "\${1:-}" == "devices" ]]; then
+  printf 'List of devices attached\\n\\n'
+fi
+`,
+      cappedObservationFunctions,
+    );
+    expect(capped.result.status).toBe(1);
+    expect(capped.result.stderr).toContain("::error::latched readiness failure");
+    expect(capped.observations).toContain("observation_cap_seconds=1");
+    expect(capped.observations).toContain("observation_stop=observation-cap-reached");
+
+    const probeFunctionEnd = observationFunctions.indexOf("\n\nobserve_after_readiness_timeout()");
+    expect(probeFunctionEnd).toBeGreaterThan(0);
+    const probeFunction = observationFunctions.slice(0, probeFunctionEnd);
+    const completionRace = spawnSync(
+      "/bin/bash",
+      [
+        "-c",
+        [
+          "set -euo pipefail",
+          "kill() {",
+          '  if [[ "${1:-}" == "-0" ]]; then',
+          "    sleep 1",
+          "    return 1",
+          "  fi",
+          '  command kill "$@"',
+          "}",
+          probeFunction,
+          'run_bounded_probe "$PROBE_OUTPUT" "$((SECONDS + 1))" /usr/bin/true',
+          'printf "status=%s timed_out=%s\\n" "$probe_status" "$probe_timed_out"',
+        ].join("\n"),
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PROBE_OUTPUT: path.join(tempRoots.make("openclaw-android-probe-race-"), "probe.txt"),
+        },
+        timeout: 5_000,
+      },
+    );
+    expect(completionRace.status, completionRace.stderr).toBe(0);
+    expect(completionRace.stdout).toBe("status=124 timed_out=true\n");
+
+    const cleanupFunctionStart = diagnostic.indexOf("cleanup() {");
+    const cleanupFunctionEnd = diagnostic.indexOf("\ntrap cleanup EXIT", cleanupFunctionStart);
+    expect(cleanupFunctionStart).toBeGreaterThan(failureFunctionEnd);
+    expect(cleanupFunctionEnd).toBeGreaterThan(cleanupFunctionStart);
+    const cleanupFunction = diagnostic.slice(cleanupFunctionStart, cleanupFunctionEnd);
+    const hangingRoot = tempRoots.make("openclaw-android-emulator-hanging-adb-");
+    const hangingBin = path.join(hangingRoot, "bin");
+    const hangingDiagnosticDir = path.join(hangingRoot, "diagnostic");
+    const adbPidFile = path.join(hangingRoot, "adb.pid");
+    const emulatorPidFile = path.join(hangingRoot, "emulator.pid");
+    fs.mkdirSync(hangingBin);
+    fs.mkdirSync(hangingDiagnosticDir);
+    fs.writeFileSync(
+      path.join(hangingBin, "adb"),
+      '#!/bin/bash\nset -euo pipefail\nprintf \'%s\\n\' "$$" >"$ADB_PID_FILE"\nexec sleep 30\n',
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(
+      path.join(hangingBin, "avdmanager"),
+      "#!/bin/bash\nset -euo pipefail\nprintf 'cleanup\\n' >>\"$CLEANUP_TRACE\"\n",
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(path.join(hangingBin, "ps"), "#!/bin/bash\nexit 0\n", { mode: 0o755 });
+    const hangingObservationFunctions = observationFunctions.replace(
+      "post_deadline_observation_seconds=3",
+      "post_deadline_observation_seconds=2",
+    );
+    const hangingResult = spawnSync(
+      "/bin/bash",
+      [
+        "-c",
+        [
+          "set -euo pipefail",
+          "sample_owned_qemu() { :; }",
+          hangingObservationFunctions,
+          cleanupFunction,
+          "readiness_failure_latched=0",
+          "adb_started=1",
+          'export AVD_NAME="OpenClaw_Screenshots_API36"',
+          "sleep 30 &",
+          "emulator_pid=$!",
+          'printf "%s\\n" "$emulator_pid" >"$EMULATOR_PID_FILE"',
+          "trap cleanup EXIT",
+          'fail_after_readiness_timeout "latched readiness failure" ""',
+        ].join("\n"),
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ADB_PID_FILE: adbPidFile,
+          CLEANUP_TRACE: path.join(hangingRoot, "cleanup.trace"),
+          DIAGNOSTIC_DIR: hangingDiagnosticDir,
+          EMULATOR_PID_FILE: emulatorPidFile,
+          PATH: `${hangingBin}${path.delimiter}${process.env.PATH ?? ""}`,
+        },
+        timeout: 5_000,
+      },
+    );
+    expect(hangingResult.status, hangingResult.stderr).toBe(1);
+    const hangingObservations = fs.readFileSync(
+      path.join(hangingDiagnosticDir, "post-deadline-observations.log"),
+      "utf8",
+    );
+    expect(hangingObservations).toContain("adb_timed_out=true");
+    expect(hangingObservations).toContain("observation_stop=adb-devices-timeout");
+    expect(fs.readFileSync(path.join(hangingRoot, "cleanup.trace"), "utf8")).toBe("cleanup\n");
+    expect(fs.readFileSync(path.join(hangingDiagnosticDir, "cleanup.log"), "utf8")).toContain(
+      "adb_kill_server_skipped_after_latched_timeout=true",
+    );
+    for (const pidFile of [adbPidFile, emulatorPidFile]) {
+      const pid = Number.parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
+      expect(() => process.kill(pid, 0)).toThrow();
+    }
+    expect(diagnostic).toContain(
+      "device_deadline=$((SECONDS + ANDROID_SCREENSHOT_EMULATOR_TIMEOUT_SECONDS))",
+    );
+    expect(diagnostic).toContain(
+      "boot_deadline=$((SECONDS + ANDROID_SCREENSHOT_EMULATOR_TIMEOUT_SECONDS))",
+    );
+    expect(diagnostic).toContain('>"$DIAGNOSTIC_DIR/emulator.log" 2>&1 &');
+    expect(diagnostic).toContain("adb devices -l");
+    expect(diagnostic).toContain('>>"$DIAGNOSTIC_DIR/adb-observations.log" 2>&1');
+    expect(diagnostic).toContain('ps -p "$emulator_pid"');
+    expect(diagnostic).toContain('kill "$emulator_pid"');
+    expect(diagnostic).toContain("adb kill-server");
+    expect(diagnostic).toContain("trap cleanup EXIT");
+    expect(diagnostic).toMatch(
+      /fail_after_readiness_timeout \\\n\s+"Timed out waiting for exactly one Android emulator device" ""/u,
+    );
+    expect(diagnostic).toMatch(
+      /fail_after_readiness_timeout \\\n\s+"Timed out waiting for Android emulator boot completion" "\$serial"/u,
+    );
+    expect(steps[artifactIndex]).toMatchObject({
+      if: "always()",
+      uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      with: {
+        name: "android-emulator-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}",
+        path: "${{ runner.temp }}/android-emulator-diagnostic",
+        "retention-days": 7,
+      },
+    });
+    expect(source).not.toMatch(/\$\{\{\s*secrets\./u);
+    expect(source).not.toContain("environment:");
+    expect(source).not.toMatch(/\b(?:pnpm|gradle|fastlane)\b/iu);
+    expect(source).not.toMatch(/apps-signing|MATCH_PASSWORD|GOOGLE_PLAY|upload-and-record/iu);
+  });
+
   it("keeps upload and recovery credentials inside one protected platform boundary", () => {
     const workflows = [
       {
@@ -2240,5 +2807,46 @@ describe("mobile release authority", () => {
         value: project.options?.deploymentTarget?.iOS,
       },
     ]);
+  });
+
+  it("installs the pinned Watch Rust toolchain before iOS store access", () => {
+    const source = fs.readFileSync(".github/workflows/ios-beta-release.yml", "utf8");
+    const workflow = parse(source) as {
+      jobs: {
+        release: {
+          steps: Array<{
+            if?: string;
+            name: string;
+            run?: string;
+          }>;
+        };
+      };
+    };
+    const releaseSteps = workflow.jobs.release.steps;
+    const xcodeIndex = releaseSteps.findIndex((step) => step.name === "Select Xcode 26");
+    const rustIndex = releaseSteps.findIndex(
+      (step) => step.name === "Install Watch Rust toolchain",
+    );
+    const storeAccessIndex = releaseSteps.findIndex(
+      (step) => step.name === "Refresh trusted authority before store access",
+    );
+    const uploadIndex = releaseSteps.findIndex(
+      (step) => step.name === "Upload and distribute iOS beta",
+    );
+    const rustStep = releaseSteps[rustIndex];
+
+    expect(xcodeIndex).toBeGreaterThanOrEqual(0);
+    expect(rustIndex).toBeGreaterThan(xcodeIndex);
+    expect(storeAccessIndex).toBeGreaterThan(rustIndex);
+    expect(uploadIndex).toBeGreaterThan(storeAccessIndex);
+    expect(rustStep?.if).toBe("hashFiles('apps/shared/OpenClawWatchRTC/Cargo.toml') != ''");
+    expect(rustStep?.run).toContain(
+      `watch_toolchain="$(awk -F '"' '/^channel =/ { print $2; exit }' apps/shared/OpenClawWatchRTC/rust-toolchain.toml)"`,
+    );
+    expect(rustStep?.run).toContain('test -n "$watch_toolchain"');
+    expect(rustStep?.run).toContain(
+      'rustup toolchain install "$watch_toolchain" --profile minimal --component rust-src',
+    );
+    expect(rustStep?.run).toContain('echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"');
   });
 });

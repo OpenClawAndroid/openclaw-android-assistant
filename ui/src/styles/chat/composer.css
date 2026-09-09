@@ -2568,6 +2568,55 @@
   background: transparent;
 }
 
+.chat-attachment-file--video {
+  padding: 0 12px 0 0;
+  gap: 8px;
+}
+
+.chat-attachment-file__preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  padding: 4px;
+  color: var(--muted);
+}
+
+.chat-attachment-file__preview img {
+  border-radius: max(0px, calc(var(--chat-attachment-radius) - 5px));
+  outline: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.chat-attachment-file__preview > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.chat-attachment-video__play {
+  position: absolute;
+  inset-inline-end: 7px;
+  bottom: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--popover);
+  color: var(--text-strong);
+}
+
+.chat-attachment-video__play svg {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+  stroke: none;
+}
+
 .chat-attachment-file__icon {
   display: inline-flex;
   align-items: center;

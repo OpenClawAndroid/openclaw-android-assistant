@@ -961,7 +961,9 @@ describe("inline approval card", () => {
     const inlineSurface = requireElement(container, ".chat-inline-approval", "inline approval");
     const shell = requireElement(container, ".agent-chat__composer-shell", "composer shell");
     expect(card?.getAttribute("data-approval-id")).toBe("approval-inline");
-    expect(inlineSurface.previousElementSibling?.classList.contains("chat-thread")).toBe(true);
+    const scrollAnchor = inlineSurface.previousElementSibling;
+    expect(scrollAnchor?.classList.contains("chat-scroll-to-bottom-wrap")).toBe(true);
+    expect(scrollAnchor?.previousElementSibling?.classList.contains("chat-thread")).toBe(true);
     expect(inlineSurface.parentElement).toBe(shell.parentElement);
     expect(inlineSurface.compareDocumentPosition(shell)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     const countdown = expectDefined(
@@ -2496,11 +2498,25 @@ describe("chat scroll-to-bottom affordance", () => {
     expect(queue.compareDocumentPosition(composer)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("hides the scroll-to-bottom button when the transcript is already latest", () => {
-    const container = renderChatView({ showNewMessages: false });
+  it.each([false, true])(
+    "keeps the latest action inactive while hidden and reuses it on reentry (initially visible: %s)",
+    (showNewMessages) => {
+      const container = renderChatView({ showNewMessages });
+      const button = requireElement(container, ".chat-scroll-to-bottom", "scroll affordance");
 
-    expect(container.querySelector(".chat-scroll-to-bottom")).toBeNull();
-  });
+      renderChatInto(container, { showNewMessages: false });
+
+      expect(container.querySelector(".chat-scroll-to-bottom")).toBe(button);
+      expect(button.getAttribute("aria-hidden")).toBe("true");
+      expect(button.hasAttribute("inert")).toBe(true);
+
+      renderChatInto(container, { showNewMessages: true });
+
+      expect(container.querySelector(".chat-scroll-to-bottom")).toBe(button);
+      expect(button.getAttribute("aria-hidden")).toBe("false");
+      expect(button.hasAttribute("inert")).toBe(false);
+    },
+  );
 });
 
 describe("chat composer workbench", () => {
@@ -6780,9 +6796,10 @@ describe("chat attachment picker", () => {
     const preview = renderChatView({ attachments: nextAttachments });
     expect(preview.querySelectorAll(".chat-attachment-thumb--file")).toHaveLength(1);
     expect(preview.querySelector(".chat-attachment-file__name")?.textContent).toBe("clip.mp4");
-    expect(preview.querySelector(".chat-attachment-file__icon")?.getAttribute("data-family")).toBe(
-      "video",
-    );
+    expect(
+      preview.querySelector(".chat-attachment-file--video .chat-attachment-file__preview svg"),
+    ).not.toBeNull();
+    expect(preview.querySelector(".chat-attachment-file__preview img")).toBeNull();
     expect(preview.querySelector(".chat-attachment-file__type")?.textContent).toBe("MP4");
   });
 });

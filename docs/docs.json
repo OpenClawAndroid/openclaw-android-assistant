@@ -1709,6 +1709,16 @@
                     "pages": [
                       "plugins/meeting-plugins",
                       "plugins/google-meet",
+                      {
+                        "group": "Google Meet",
+                        "pages": [
+                          "plugins/google-meet/transports",
+                          "plugins/google-meet/oauth-and-artifacts",
+                          "plugins/google-meet/config",
+                          "plugins/google-meet/tool-and-modes",
+                          "plugins/google-meet/troubleshooting"
+                        ]
+                      },
                       "plugins/teams-meetings",
                       "plugins/voice-call",
                       "plugins/zoom-meetings"
@@ -2342,6 +2352,15 @@
                 "group": "Nodes and media",
                 "pages": [
                   "nodes/index",
+                  "nodes/pairing-and-status",
+                  "nodes/node-host",
+                  "nodes/node-exec",
+                  "nodes/mcp-and-skills",
+                  "nodes/session-hosting",
+                  "nodes/session-catalogs",
+                  "nodes/file-transfers",
+                  "nodes/command-policy",
+                  "nodes/device-commands",
                   "nodes/presence",
                   "nodes/troubleshooting",
                   {
@@ -2538,6 +2557,20 @@
                 "group": "Codex harness",
                 "pages": [
                   "plugins/codex-harness-reference",
+                  {
+                    "group": "Codex harness reference",
+                    "pages": [
+                      "plugins/codex-harness-reference/supervision",
+                      "plugins/codex-harness-reference/app-server-transport",
+                      "plugins/codex-harness-reference/approval-and-sandbox",
+                      "plugins/codex-harness-reference/auth",
+                      "plugins/codex-harness-reference/dynamic-tools",
+                      "plugins/codex-harness-reference/timeouts",
+                      "plugins/codex-harness-reference/model-discovery",
+                      "plugins/codex-harness-reference/restricted-turns",
+                      "plugins/codex-harness-reference/workspace-bootstrap-files"
+                    ]
+                  },
                   "plugins/codex-harness-runtime"
                 ]
               },
@@ -2606,6 +2639,19 @@
                 "pages": [
                   "plugins/architecture",
                   "plugins/architecture-internals",
+                  {
+                    "group": "Plugin architecture internals",
+                    "pages": [
+                      "plugins/architecture-internals/load-pipeline",
+                      "plugins/architecture-internals/provider-hooks",
+                      "plugins/architecture-internals/runtime-helpers",
+                      "plugins/architecture-internals/gateway-routes",
+                      "plugins/architecture-internals/channel-surfaces",
+                      "plugins/architecture-internals/packaging",
+                      "plugins/architecture-internals/context-engines",
+                      "plugins/architecture-internals/new-capability"
+                    ]
+                  },
                   "plugins/sdk-migration",
                   {
                     "group": "Plugin SDK migration",
@@ -2716,6 +2762,18 @@
                 "pages": [
                   "reference/RELEASING",
                   "reference/full-release-validation",
+                  {
+                    "group": "Full release validation",
+                    "pages": [
+                      "reference/full-release-validation/dispatch",
+                      "reference/full-release-validation/continuation",
+                      "reference/full-release-validation/extended-stable",
+                      "reference/full-release-validation/stages",
+                      "reference/full-release-validation/release-checks",
+                      "reference/full-release-validation/profiles",
+                      "reference/full-release-validation/evidence"
+                    ]
+                  },
                   "reference/release-performance-sweep"
                 ]
               },
