@@ -114,6 +114,7 @@ GIT_DIR="${OPENCLAW_GIT_DIR:-${OPENCLAW_EFFECTIVE_HOME}/openclaw}"
 GIT_UPDATE="${OPENCLAW_GIT_UPDATE:-1}"
 JSON=0
 RUN_ONBOARD=0
+NODE_ONLY=0
 SET_NPM_PREFIX=0
 PNPM_CMD=()
 GIT_REF_KIND=""
@@ -131,6 +132,7 @@ Usage: install-cli.sh [options]
   --version <ver>                     OpenClaw version (default: latest)
   --compatible-with <ver>             Refuse a CLI that cannot modify config written by <ver>
   --node-version <ver>                Node version (default: 24.19.0)
+  --node-only                         Install only a private Node runtime (no system package changes)
   --onboard                           Run "openclaw onboard" after install
   --no-onboard                        Skip onboarding (default)
   --set-npm-prefix                    Force npm prefix to ~/.npm-global if current prefix is not writable (Linux)
@@ -428,6 +430,10 @@ parse_args() {
         NODE_VERSION="$2"
         NODE_VERSION_REQUESTED=1
         shift 2
+        ;;
+      --node-only)
+        NODE_ONLY=1
+        shift
         ;;
       --install-method|--method)
         if [[ $# -lt 2 || "${2:-}" == --* ]]; then
@@ -1764,7 +1770,8 @@ refresh_gateway_service_if_loaded() {
   emit_json step name gateway-service status start
   log "Refreshing loaded gateway service..."
 
-  if ! refresh_output="$({ set +x; "$claw" gateway install --force; } 2>&1 | sed -n -e 's/.*SERVICE_DEFINITION_SEALED:.*/ask the privileged deployment owner to manually repair it/p' -e 's/.*SERVICE_DEFINITION_UNKNOWN:.*/inspect service-definition access and manually repair it/p')"; then
+  if ! refresh_output="$({ set +x; "$claw" gateway install --force; } 2>&1 | sed -n -e 's/^Replacing unsupported Gateway service Node .*; refreshing the install\.$/node-runtime-replaced/p' -e 's/^Replacing missing Gateway service Node .*; refreshing the install\.$/node-runtime-replaced/p' -e 's/.*SERVICE_DEFINITION_SEALED:.*/ask the privileged deployment owner to manually repair it/p' -e 's/.*SERVICE_DEFINITION_UNKNOWN:.*/inspect service-definition access and manually repair it/p')"; then
+    refresh_output="$(printf '%s\n' "$refresh_output" | sed '/^node-runtime-replaced$/d')"
     if [[ -n "$refresh_output" ]]; then
       emit_json step name gateway-service status warn reason definition-mutation-denied
       printf '%s\n' "Code installed; gateway service definition left unchanged; ${refresh_output}." >&2
@@ -1774,6 +1781,9 @@ refresh_gateway_service_if_loaded() {
     emit_json step name gateway-service status warn reason install-failed
     log "Warning: gateway service refresh failed; continuing."
     return 0
+  fi
+  if [[ "$refresh_output" == *node-runtime-replaced* ]]; then
+    printf '%s\n' "Gateway service Node runtime replaced." >&2
   fi
 
   # `gateway install --force` activates the replacement service. A second
@@ -1785,6 +1795,13 @@ refresh_gateway_service_if_loaded() {
 main() {
   parse_args "$@"
   PREFIX="$(resolve_installer_path "$PREFIX")"
+  if [[ "$NODE_ONLY" -eq 1 ]]; then
+    if is_musl_linux; then
+      fail "Private Node.js recovery is unavailable on musl Linux; update Node.js with your system package manager."
+    fi
+    install_node "$(os_detect)" "$(arch_detect)"
+    return
+  fi
   GIT_DIR="$(resolve_installer_path "$GIT_DIR")"
 
   if [[ "${OPENCLAW_NO_ONBOARD:-0}" == "1" ]]; then
