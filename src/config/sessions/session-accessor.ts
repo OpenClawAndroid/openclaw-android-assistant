@@ -329,3 +329,4 @@ export {
   appendSessionTranscriptReport,
   readLatestSessionTranscriptReport,
 } from "./session-accessor.sqlite-transcript-reports.js";
+export type { SessionEntryReadSource } from "./session-accessor.sqlite-exact-read.js";

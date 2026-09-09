@@ -2800,6 +2800,42 @@
     "target": "浏览器控制风险"
   },
   {
+    "source": "Browser setup",
+    "target": "浏览器设置"
+  },
+  {
+    "source": "Browser profiles",
+    "target": "浏览器配置文件"
+  },
+  {
+    "source": "Browser configuration",
+    "target": "浏览器配置"
+  },
+  {
+    "source": "Remote and hosted browsers",
+    "target": "远程与托管浏览器"
+  },
+  {
+    "source": "Browser security",
+    "target": "浏览器安全"
+  },
+  {
+    "source": "Multi-profile and existing-session attach",
+    "target": "多配置文件与现有会话接入"
+  },
+  {
+    "source": "Isolation and browser selection",
+    "target": "隔离与浏览器选择"
+  },
+  {
+    "source": "Browser troubleshooting",
+    "target": "浏览器故障排查"
+  },
+  {
+    "source": "Browser agent tools",
+    "target": "浏览器代理工具"
+  },
+  {
     "source": "Network exposure",
     "target": "网络暴露面"
   },
@@ -3162,5 +3198,433 @@
   {
     "source": "Codex workspace bootstrap files",
     "target": "Codex 工作区引导文件"
+  },
+  {
+    "source": "Gateway and service recovery",
+    "target": "Gateway 与服务恢复"
+  },
+  {
+    "source": "Lint and post-upgrade modes",
+    "target": "Lint 与升级后模式"
+  },
+  {
+    "source": "Structured health check contract",
+    "target": "结构化健康检查契约"
+  },
+  {
+    "source": "Legacy state migration",
+    "target": "旧版状态迁移"
+  },
+  {
+    "source": "SQLite maintenance and session migration",
+    "target": "SQLite 维护与会话迁移"
+  },
+  {
+    "source": "Other checks and repairs",
+    "target": "其他检查与修复"
+  },
+  {
+    "source": "Agent harness core ownership",
+    "target": "Agent harness 核心归属"
+  },
+  {
+    "source": "Register an agent harness",
+    "target": "注册 agent harness"
+  },
+  {
+    "source": "Agent harness selection policy",
+    "target": "Agent harness 选择策略"
+  },
+  {
+    "source": "Agent harness attempt runtime",
+    "target": "Agent harness 尝试运行时"
+  },
+  {
+    "source": "Agent harness user input and execution authority",
+    "target": "Agent harness 用户输入与执行权限"
+  },
+  {
+    "source": "Agent harness native inventories",
+    "target": "Agent harness 原生清单"
+  },
+  {
+    "source": "Agent harness runtime configuration",
+    "target": "Agent harness 运行时配置"
+  },
+  {
+    "source": "Agent harness sessions and results",
+    "target": "Agent harness 会话与结果"
+  },
+  {
+    "source": "Update status and run history",
+    "target": "更新状态与运行历史"
+  },
+  {
+    "source": "Update repair and recovery",
+    "target": "更新修复与恢复"
+  },
+  {
+    "source": "How an update runs",
+    "target": "更新的运行方式"
+  },
+  {
+    "source": "Configuration — shared channel policies",
+    "target": "配置 — 共享渠道策略"
+  },
+  {
+    "source": "Configuration — personal messaging channels",
+    "target": "配置 — 个人消息渠道"
+  },
+  {
+    "source": "Configuration — workplace chat channels",
+    "target": "配置 — 办公聊天渠道"
+  },
+  {
+    "source": "Configuration — community chat channels",
+    "target": "配置 — 社区聊天渠道"
+  },
+  {
+    "source": "Configuration — group mention gating and history",
+    "target": "配置 — 群组提及门控和历史记录"
+  },
+  {
+    "source": "Configuration — chat commands",
+    "target": "配置 — 聊天命令"
+  },
+  {
+    "source": "Ollama setup",
+    "target": "Ollama 设置"
+  },
+  {
+    "source": "Ollama model discovery",
+    "target": "Ollama 模型发现"
+  },
+  {
+    "source": "Ollama node-local inference",
+    "target": "Ollama 节点本地推理"
+  },
+  {
+    "source": "Ollama vision and image description",
+    "target": "Ollama 视觉与图像描述"
+  },
+  {
+    "source": "Ollama configuration",
+    "target": "Ollama 配置"
+  },
+  {
+    "source": "Ollama config recipes",
+    "target": "Ollama 配置示例"
+  },
+  {
+    "source": "Ollama advanced configuration",
+    "target": "Ollama 高级配置"
+  },
+  {
+    "source": "Ollama troubleshooting",
+    "target": "Ollama 故障排查"
+  },
+  {
+    "source": "ACP agents quickstart",
+    "target": "ACP 智能体快速上手"
+  },
+  {
+    "source": "ACP agents operator runbook",
+    "target": "ACP 智能体运维手册"
+  },
+  {
+    "source": "ACP agents bindings",
+    "target": "ACP 智能体绑定"
+  },
+  {
+    "source": "ACP agents sessions",
+    "target": "ACP 智能体会话"
+  },
+  {
+    "source": "ACP agents delivery model",
+    "target": "ACP 智能体投递模型"
+  },
+  {
+    "source": "ACP agents controls",
+    "target": "ACP 智能体控制"
+  },
+  {
+    "source": "ACP agents troubleshooting",
+    "target": "ACP 智能体故障排查"
+  },
+  {
+    "source": "Set up OpenTelemetry export",
+    "target": "设置 OpenTelemetry 导出"
+  },
+  {
+    "source": "OpenTelemetry configuration",
+    "target": "OpenTelemetry 配置"
+  },
+  {
+    "source": "Privacy and trace context",
+    "target": "隐私和追踪上下文"
+  },
+  {
+    "source": "Model calls and exported metrics",
+    "target": "模型调用和导出指标"
+  },
+  {
+    "source": "Exported spans and diagnostic events",
+    "target": "导出的 Span 和诊断事件"
+  },
+  {
+    "source": "Configuration — tool policy",
+    "target": "配置 — 工具策略"
+  },
+  {
+    "source": "Configuration — GitHub identity for agent tools",
+    "target": "配置 — 智能体工具的 GitHub 身份"
+  },
+  {
+    "source": "Configuration — built-in tool settings",
+    "target": "配置 — 内置工具设置"
+  },
+  {
+    "source": "Configuration — cross-agent, session, and subagent tools",
+    "target": "配置 — 跨智能体、会话和子智能体工具"
+  },
+  {
+    "source": "Configuration — custom providers and base URLs",
+    "target": "配置 — 自定义提供商和基础 URL"
+  },
+  {
+    "source": "Configuration — provider examples",
+    "target": "配置 — 提供商示例"
+  },
+  {
+    "source": "Author plugins",
+    "target": "编写插件"
+  },
+  {
+    "source": "Install plugins",
+    "target": "安装插件"
+  },
+  {
+    "source": "List installed plugins",
+    "target": "列出已安装插件"
+  },
+  {
+    "source": "Uninstall and update plugins",
+    "target": "卸载与更新插件"
+  },
+  {
+    "source": "Inspect and diagnose plugins",
+    "target": "检查与诊断插件"
+  },
+  {
+    "source": "Marketplace feeds",
+    "target": "市场订阅源"
+  },
+  {
+    "source": "Author a policy file",
+    "target": "编写策略文件"
+  },
+  {
+    "source": "Policy rule reference",
+    "target": "策略规则参考"
+  },
+  {
+    "source": "Scoped policy overlays",
+    "target": "作用域策略覆盖"
+  },
+  {
+    "source": "Run and configure policy checks",
+    "target": "运行与配置策略检查"
+  },
+  {
+    "source": "Run OpenClaw as an MCP server",
+    "target": "将 OpenClaw 作为 MCP 服务器运行"
+  },
+  {
+    "source": "Manage saved MCP servers",
+    "target": "管理已保存的 MCP 服务器"
+  },
+  {
+    "source": "JSON output shapes",
+    "target": "JSON 输出结构"
+  },
+  {
+    "source": "Transports and OAuth",
+    "target": "传输方式与 OAuth"
+  },
+  {
+    "source": "MCP in the Control UI",
+    "target": "Control UI 中的 MCP"
+  },
+  {
+    "source": "MCP Apps",
+    "target": "MCP Apps"
+  },
+  {
+    "source": "Accept and watch policy state",
+    "target": "接受并监视策略状态"
+  },
+  {
+    "source": "Policy findings, repair, and exit codes",
+    "target": "策略发现项、修复与退出码"
+  },
+  {
+    "source": "Telegram setup",
+    "target": "Telegram 设置"
+  },
+  {
+    "source": "Telegram access control",
+    "target": "Telegram 访问控制"
+  },
+  {
+    "source": "Telegram message behavior",
+    "target": "Telegram 消息行为"
+  },
+  {
+    "source": "Telegram threads and sessions",
+    "target": "Telegram 话题与会话"
+  },
+  {
+    "source": "Telegram rich messages and approvals",
+    "target": "Telegram 富文本消息与审批"
+  },
+  {
+    "source": "Telegram media and attachments",
+    "target": "Telegram 媒体与附件"
+  },
+  {
+    "source": "Telegram events and operations",
+    "target": "Telegram 事件与运维"
+  },
+  {
+    "source": "Telegram transports",
+    "target": "Telegram 传输方式"
+  },
+  {
+    "source": "Telegram Dashboard Mini App",
+    "target": "Telegram 仪表盘小程序"
+  },
+  {
+    "source": "Telegram troubleshooting",
+    "target": "Telegram 故障排查"
+  },
+  {
+    "source": "Microsoft Teams setup",
+    "target": "Microsoft Teams 设置"
+  },
+  {
+    "source": "Microsoft Teams access control",
+    "target": "Microsoft Teams 访问控制"
+  },
+  {
+    "source": "Microsoft Teams authentication",
+    "target": "Microsoft Teams 身份验证"
+  },
+  {
+    "source": "Microsoft Teams manifest and permissions",
+    "target": "Microsoft Teams 清单与权限"
+  },
+  {
+    "source": "Microsoft Teams configuration",
+    "target": "Microsoft Teams 配置"
+  },
+  {
+    "source": "Microsoft Teams message behavior",
+    "target": "Microsoft Teams 消息行为"
+  },
+  {
+    "source": "Microsoft Teams cards and actions",
+    "target": "Microsoft Teams 卡片与操作"
+  },
+  {
+    "source": "Microsoft Teams troubleshooting",
+    "target": "Microsoft Teams 故障排查"
+  },
+  {
+    "source": "Groups",
+    "target": "群组"
+  },
+  {
+    "source": "Security",
+    "target": "安全"
+  },
+  {
+    "source": "Run the Gateway",
+    "target": "运行 Gateway 网关"
+  },
+  {
+    "source": "Restart and supervision",
+    "target": "重启与进程监管"
+  },
+  {
+    "source": "Query a running Gateway",
+    "target": "查询运行中的 Gateway 网关"
+  },
+  {
+    "source": "Manage the Gateway service",
+    "target": "管理 Gateway 网关服务"
+  },
+  {
+    "source": "Discover gateways (Bonjour)",
+    "target": "发现 Gateway 网关（Bonjour）"
+  },
+  {
+    "source": "Sub-agent slash command",
+    "target": "子智能体斜杠命令"
+  },
+  {
+    "source": "Sub-agent tool reference",
+    "target": "子智能体工具参考"
+  },
+  {
+    "source": "Thread-bound sub-agent sessions",
+    "target": "线程绑定的子智能体会话"
+  },
+  {
+    "source": "Nested sub-agents and authentication",
+    "target": "嵌套子智能体与鉴权"
+  },
+  {
+    "source": "Sub-agent announce",
+    "target": "子智能体通报"
+  },
+  {
+    "source": "Sub-agent tool policy",
+    "target": "子智能体工具策略"
+  },
+  {
+    "source": "Sub-agent concurrency, recovery, and stopping",
+    "target": "子智能体并发、恢复与停止"
+  },
+  {
+    "source": "Swarm collectors",
+    "target": "Swarm 收集器"
+  },
+  {
+    "source": "The trust boundary",
+    "target": "信任边界"
+  },
+  {
+    "source": "Policy as code",
+    "target": "策略即代码"
+  },
+  {
+    "source": "Identity and roles",
+    "target": "身份与角色"
+  },
+  {
+    "source": "Secrets",
+    "target": "密钥"
+  },
+  {
+    "source": "Versioned state, guarded upgrades",
+    "target": "版本化状态与受保护的升级"
+  },
+  {
+    "source": "Provenance",
+    "target": "溯源"
+  },
+  {
+    "source": "OpenClaw and Hermes Agent",
+    "target": "OpenClaw 与 Hermes Agent"
   }
 ]
