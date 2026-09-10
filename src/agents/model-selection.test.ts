@@ -14,6 +14,7 @@ import {
   buildAllowedModelSet,
   buildConfiguredModelCatalog,
   inferUniqueProviderFromConfiguredModels,
+  resolveBareModelDefaultProvider,
   getModelRefStatus,
   parseModelRef,
   buildModelAliasIndex,
@@ -688,6 +689,12 @@ describe("model-selection", () => {
         expected: "anthropic",
       },
       {
+        name: "retains a unique case-insensitive configured match",
+        cfg: createProviderInferenceAllowlistConfig("custom/Model"),
+        model: "MODEL",
+        expected: "custom",
+      },
+      {
         name: "infers provider for slash-containing model id when allowlist match is unique",
         cfg: createProviderInferenceAllowlistConfig(
           "vercel-ai-gateway/anthropic/claude-sonnet-4-6",
@@ -751,23 +758,30 @@ describe("model-selection", () => {
       expect(inferUniqueProviderFromConfiguredModels({ cfg, model })).toBeUndefined();
     });
 
-    it("prefers a unique agent match over global and provider-config collisions", () => {
-      const cfg = {
-        agents: {
-          defaults: { models: { "openai/shared-model": {} } },
-          entries: {
-            worker: { models: { "anthropic/shared-model": {} } },
+    it.each(["shared-model", "SHARED-MODEL"])(
+      "prefers a unique agent match over global and provider-config collisions (%s)",
+      (agentModel) => {
+        const cfg = {
+          agents: {
+            defaults: { models: { "openai/shared-model": {} } },
+            entries: {
+              worker: { models: { [`anthropic/${agentModel}`]: {} } },
+            },
           },
-        },
-        models: {
-          providers: { minimax: { models: [{ id: "shared-model" }] } },
-        },
-      } as unknown as OpenClawConfig;
+          models: {
+            providers: { minimax: { models: [{ id: "shared-model" }] } },
+          },
+        } as unknown as OpenClawConfig;
 
-      expect(
-        inferUniqueProviderFromConfiguredModels({ cfg, agentId: "worker", model: "shared-model" }),
-      ).toBe("anthropic");
-    });
+        expect(
+          inferUniqueProviderFromConfiguredModels({
+            cfg,
+            agentId: "worker",
+            model: "shared-model",
+          }),
+        ).toBe("anthropic");
+      },
+    );
 
     it("keeps ambiguous agent matches unresolved without falling back globally", () => {
       const cfg = {
@@ -789,6 +803,48 @@ describe("model-selection", () => {
       ).toBeUndefined();
     });
   });
+
+  describe.each(["defaults", "agent", "configured catalog", "catalog"] as const)(
+    "bare provider inference from %s",
+    (scope) => {
+      it.each([false, true])(
+        "prefers exact case regardless of row order (reverse=%s)",
+        (reverse) => {
+          const rows = [
+            { provider: "first", id: "model", name: "model" },
+            { provider: "second", id: "MODEL", name: "MODEL" },
+            { provider: "third", id: "Model", name: "Model" },
+          ];
+          if (reverse) {
+            rows.reverse();
+          }
+          const models = Object.fromEntries(rows.map((row) => [`${row.provider}/${row.id}`, {}]));
+          const cfg: OpenClawConfig =
+            scope === "defaults"
+              ? { agents: { defaults: { models } } }
+              : scope === "agent"
+                ? { agents: { entries: { worker: { models } } } }
+                : scope === "configured catalog"
+                  ? createProviderInferenceCatalogConfig(
+                      Object.fromEntries(rows.map((row) => [row.provider, [row.id]])),
+                    )
+                  : {};
+          const resolve = (model: string) =>
+            resolveBareModelDefaultProvider({
+              cfg,
+              catalog: scope === "catalog" ? rows : [],
+              agentId: "worker",
+              model,
+              defaultProvider: "fallback",
+            });
+
+          expect(resolve(" Model ")).toBe("third");
+          expect(resolve("MODEL")).toBe("second");
+          expect(resolve("mOdEl")).toBe("fallback");
+        },
+      );
+    },
+  );
 
   describe("buildConfiguredModelCatalog", () => {
     it.each([

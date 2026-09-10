@@ -6,6 +6,7 @@ import { createDeferredCore } from "../shared/deferred.js";
 import * as pidAlive from "../shared/pid-alive.js";
 import { getFileLockProcessStartTime } from "../shared/pid-alive.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import { createRetainedUpdateRecovery } from "./update-retained-recovery.test-support.js";
 import { inspectUpdateRunAbandonment } from "./update-run-activity.js";
 import { readUpdateRunDriver, type UpdateRunDriver } from "./update-run-driver.js";
 import {
@@ -18,6 +19,7 @@ import {
   recordUpdateRunPhase,
   recordUpdateRunStep,
 } from "./update-run-ledger.js";
+import { loadUpdateRecovery } from "./update-run-recovery.js";
 import { ABANDONED_UPDATE_RUN_MS, UPDATE_RUN_HEARTBEAT_MS } from "./update-run-timeouts.js";
 import { runStep } from "./update-runner-command.js";
 import type { CommandRunner } from "./update-runner-types.js";
@@ -55,6 +57,38 @@ afterEach(() => {
 });
 
 describe("abandoned update runs", () => {
+  it.each(["automatic", "explicit", "supersede"] as const)(
+    "preserves a durable run and its descriptor during %s stale-run cleanup",
+    (mode) => {
+      const options = isolatedOptions();
+      const run = createUpdateRun(
+        { trigger: "cli", origin: mode === "supersede" ? {} : { driver: exitedDriver() } },
+        options,
+      );
+      const from = {
+        root: options.env.OPENCLAW_STATE_DIR,
+        nodePath: process.execPath,
+        version: "1.0.0",
+        buildId: null,
+      };
+      // This fixture owns every writer of its disposable database; the transaction is real.
+      const recovery = createRetainedUpdateRecovery(
+        { runId: run.runId, from, to: { ...from, version: "2.0.0" } },
+        options,
+      );
+      vi.advanceTimersByTime(ABANDONED_UPDATE_RUN_MS + 10);
+      if (mode === "supersede") {
+        createUpdateRun({ trigger: "cli", supersedeStaleIdentityless: true }, options);
+      } else {
+        expect(reconcileAbandonedUpdateRuns({ explicit: mode === "explicit" }, options)).toEqual(
+          [],
+        );
+      }
+      expect(getUpdateRun(run.runId, options)).toEqual(run);
+      expect(loadUpdateRecovery(run.runId, options)).toEqual(recovery);
+    },
+  );
+
   it("adopts without identity when process inspection is unavailable", () => {
     const options = isolatedOptions();
     const created = createUpdateRun({ trigger: "cli" }, options);

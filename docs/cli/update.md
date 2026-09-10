@@ -41,8 +41,12 @@ launcher scripts).
 
 Failed update and repair attempts enter [recovery triage](/cli/update#recover-a-failed-update)
 after service recovery and cleanup finish.
-A verified rollback does not start triage: the previous generation is running
-again, and the report keeps the failing check as the reason.
+A verified rollback does not automatically start triage: the previous generation
+is running again, and the report keeps the failing check as the reason.
+An interactive update offers the diagnose/report menu with **Exit** selected by
+default. Declining or cancelling preserves the failed update's nonzero exit
+status. JSON, non-interactive, `--yes`, and managed-service handoff invocations do
+not prompt after rollback.
 
 After a final interactive update failure, **Diagnose update failure** and
 **Report update failure** are separate choices. Reporting first shows the exact
@@ -171,6 +175,8 @@ freshness or dependencies. Those checks run when you apply the update; use
 - <a id="update-cleanup"></a>[`update cleanup`](/cli/update/repair-and-recovery#update-cleanup)
 - <a id="what-it-does"></a>[What it does](/cli/update/how-updates-run#what-it-does)
 - <a id="validation-and-activation"></a>[Validation and activation](/cli/update/how-updates-run#validation-and-activation)
+- <a id="durable-serving-recovery"></a>[Recovery limits](/cli/update/how-updates-run#durable-serving-recovery)
+- <a id="legacy-package-rollback"></a>[Compatibility-checked package rollback](/cli/update/how-updates-run#legacy-package-rollback)
 - <a id="restart-handoff"></a>[Restart handoff](/cli/update/how-updates-run#restart-handoff)
 - <a id="control-plane-response-shape"></a>[Control-plane response shape](/cli/update/how-updates-run#control-plane-response-shape)
 - <a id="git-checkout-flow"></a>[Git checkout flow](/cli/update/how-updates-run#git-checkout-flow)

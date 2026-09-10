@@ -1215,7 +1215,9 @@ describe("scripts/test-projects changed-target routing", () => {
         "test/scripts/clawhub-parent-authorization.test.ts",
         "test/scripts/clawhub-postpublish.test.ts",
         "test/scripts/frv.test.ts",
+        "test/scripts/openclaw-release-ready.test.ts",
         "test/scripts/plugin-npm-extended-stable-workflow.test.ts",
+        "test/scripts/release-beta-verifier.test.ts",
         "test/scripts/release-candidate-checklist.test.ts",
         "test/scripts/release-no-push-workflow.test.ts",
         "test/scripts/release-plan-producer.test.ts",
@@ -4239,6 +4241,17 @@ describe("scripts/test-projects full-suite sharding", () => {
     expect(orderFullSuiteSpecsForParallelRun([runtime, tooling])).toEqual([tooling, runtime]);
   });
 
+  it("prices expanded chunk files without enabling include-file filtering", () => {
+    const chunk = {
+      config: "test/vitest/vitest.tooling.config.ts",
+      includePatterns: null,
+      timingTargets: ["test/scripts/vitest-worker-artifacts.test.ts"],
+    };
+    const whole = { config: "test/vitest/vitest.runtime-config.config.ts", includePatterns: null };
+
+    expect(orderFullSuiteSpecsForParallelRun([whole, chunk])).toEqual([chunk, whole]);
+  });
+
   it("uses observed selection timings without substituting a whole-config sample", () => {
     const fastTooling = {
       config: "test/vitest/vitest.tooling.config.ts",
@@ -4548,6 +4561,10 @@ describe("scripts/test-projects full-suite sharding", () => {
         const toolingPlans = targetedPlans("test/vitest/vitest.tooling.config.ts");
         expect(toolingPlans.length).toBeGreaterThan(1);
         expect(toolingPlans.every((plan) => plan.forwardedArgs.length <= 2)).toBe(true);
+        for (const plan of plans.filter((entry) => entry.forwardedArgs.length > 0)) {
+          expect(plan.timingTargets).toEqual(plan.forwardedArgs);
+          expect(plan.includePatterns).toBeNull();
+        }
       },
     );
   });

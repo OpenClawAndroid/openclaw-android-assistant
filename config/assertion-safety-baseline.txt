@@ -687,12 +687,12 @@ extensions/matrix/src/matrix/send/chunking.ts	4
 extensions/matrix/src/matrix/send/client.ts	1
 extensions/matrix/src/matrix/send/formatting.ts	1
 extensions/matrix/src/matrix/thread-bindings.ts	2
-extensions/matrix/src/onboarding.ts	10
+extensions/matrix/src/onboarding.ts	7
 extensions/matrix/src/outbound.ts	1
 extensions/matrix/src/profile-update.ts	2
 extensions/matrix/src/setup-config.ts	6
 extensions/matrix/src/setup-contract.ts	1
-extensions/matrix/src/setup-core.ts	8
+extensions/matrix/src/setup-core.ts	5
 extensions/matrix/src/setup-dm-policy.ts	5
 extensions/matrix/src/test-runtime.ts	10
 extensions/matrix/src/tool-actions.ts	2
@@ -910,14 +910,12 @@ extensions/pixverse/video-generation-provider.ts	2
 extensions/policy/src/cli.ts	1
 extensions/policy/src/doctor/access-findings.ts	1
 extensions/policy/src/doctor/access-shapes.ts	2
-extensions/policy/src/doctor/agent-tool-shapes.ts	1
 extensions/policy/src/doctor/automatic-repairs.ts	7
 extensions/policy/src/doctor/data-auth-shapes.ts	1
 extensions/policy/src/doctor/evaluation.ts	4
 extensions/policy/src/doctor/exec-approval-findings.ts	1
 extensions/policy/src/doctor/policy-runtime.ts	2
 extensions/policy/src/doctor/routing-shapes.ts	2
-extensions/policy/src/doctor/sandbox-gateway-shapes.ts	1
 extensions/policy/src/doctor/strictness.ts	3
 extensions/policy/src/doctor/tool-findings.ts	2
 extensions/policy/src/policy-routing.ts	2
@@ -1015,7 +1013,7 @@ extensions/qa-lab/src/providers/mock-openai/mock-openai-directives.ts	4
 extensions/qa-lab/src/providers/mock-openai/mock-openai-events.ts	4
 extensions/qa-lab/src/providers/mock-openai/mock-openai-input.ts	6
 extensions/qa-lab/src/providers/mock-openai/mock-openai-responses-websocket.ts	2
-extensions/qa-lab/src/providers/mock-openai/server.ts	16
+extensions/qa-lab/src/providers/mock-openai/server.ts	15
 extensions/qa-lab/src/providers/shared/auth-store.ts	1
 extensions/qa-lab/src/qa-bus-protocol.ts	1
 extensions/qa-lab/src/qa-transport.ts	1
@@ -1063,7 +1061,7 @@ extensions/reef/src/cli.ts	6
 extensions/reef/src/doctor-durable-state.ts	2
 extensions/reef/src/legacy-key-guard.ts	1
 extensions/reef/src/registration-state.ts	3
-extensions/reef/src/setup.ts	5
+extensions/reef/src/setup.ts	3
 extensions/reef/src/state.ts	3
 extensions/reef/src/transport.ts	3
 extensions/runway/video-generation-provider.ts	1
@@ -1150,7 +1148,7 @@ extensions/slack/src/scopes.ts	2
 extensions/slack/src/secret-contract.ts	1
 extensions/slack/src/security-audit.ts	6
 extensions/slack/src/send.ts	6
-extensions/slack/src/setup-core.ts	7
+extensions/slack/src/setup-core.ts	5
 extensions/slack/src/setup-surface.ts	1
 extensions/slack/src/streaming.ts	3
 extensions/slack/src/target-parsing.ts	1
@@ -1879,7 +1877,6 @@ src/agents/provider-request-config.ts	6
 src/agents/provider-secret-egress.ts	3
 src/agents/provider-tool-policy.ts	1
 src/agents/provider-transport-fetch.ts	4
-src/agents/replay-turn-classification.ts	1
 src/agents/run-termination.ts	3
 src/agents/run-wait.ts	2
 src/agents/runtime-plan/build.ts	4
@@ -2373,7 +2370,7 @@ src/commands/configure.wizard.ts	2
 src/commands/daemon-install-helpers.ts	3
 src/commands/docs.ts	2
 src/commands/doctor-agent-memory-schema.ts	1
-src/commands/doctor-auth-flat-profiles.ts	5
+src/commands/doctor-auth-flat-profiles.ts	3
 src/commands/doctor-auth-migration-receipts.ts	3
 src/commands/doctor-auth-profile-config.ts	4
 src/commands/doctor-config-analysis.ts	3
@@ -2720,7 +2717,6 @@ src/gateway/mcp-app-operations.ts	3
 src/gateway/mcp-app-reconstruction.ts	3
 src/gateway/mcp-grant-store.ts	2
 src/gateway/mcp-http.handlers.ts	4
-src/gateway/mcp-http.request.ts	2
 src/gateway/mcp-http.schema.ts	3
 src/gateway/method-scopes.ts	10
 src/gateway/node-browser-proxy-policy.ts	1
@@ -2923,7 +2919,6 @@ src/hooks/loader.ts	1
 src/hooks/message-hook-mappers.ts	2
 src/hooks/module-loader.ts	3
 src/hooks/policy.ts	1
-src/hooks/workspace.ts	1
 src/infra/advertised-lan-host.ts	1
 src/infra/agent-event-lifecycle.ts	1
 src/infra/agent-events.ts	2
@@ -3062,7 +3057,7 @@ src/infra/sqlite-file-generation.ts	9
 src/infra/sqlite-files.ts	1
 src/infra/sqlite-index-schema.ts	2
 src/infra/sqlite-integrity.ts	2
-src/infra/sqlite-readonly-location.ts	4
+src/infra/sqlite-readonly-location.ts	3
 src/infra/sqlite-schema-contract.ts	9
 src/infra/sqlite-snapshot.ts	2
 src/infra/sqlite-strict.ts	7
@@ -3084,7 +3079,6 @@ src/infra/state-migrations.fs.ts	1
 src/infra/state-migrations.legacy-session-store.ts	3
 src/infra/state-migrations.legacy-sessions.ts	2
 src/infra/state-migrations.mcp-oauth.ts	2
-src/infra/state-migrations.media-persistence.ts	1
 src/infra/state-migrations.meeting-transcripts-detection.ts	4
 src/infra/state-migrations.meeting-transcripts-files.ts	5
 src/infra/state-migrations.meeting-transcripts-verify.ts	2
@@ -3670,7 +3664,7 @@ src/wizard/setup.post-install-migration.ts	1
 src/wizard/setup.shared.ts	1
 src/wizard/setup.ts	2
 src/worker/inference-stream.runtime.ts	5
-src/worker/launch-descriptor.ts	6
+src/worker/launch-descriptor.ts	5
 src/worker/node-workspace-protocol.ts	1
 src/worker/worker-command.runtime.ts	1
 src/worker/worker-connection-admission.ts	2
@@ -3930,7 +3924,6 @@ ui/src/pages/new-session/place-facts.ts	1
 ui/src/pages/new-session/preferences.ts	1
 ui/src/pages/plugin/logbook-view.ts	1
 ui/src/pages/plugin/route.ts	1
-ui/src/pages/plugins/view.ts	2
 ui/src/pages/portals/portal-reachability.ts	1
 ui/src/pages/profile/identity-section.ts	2
 ui/src/pages/secrets/view.ts	5

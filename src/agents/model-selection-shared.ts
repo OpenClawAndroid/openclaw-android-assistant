@@ -17,6 +17,7 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-snapshot.js";
 import { loadManifestMetadataSnapshot } from "../plugins/manifest-contract-eligibility.js";
 import { getActivePluginRegistryWorkspaceDirFromState } from "../plugins/runtime-state.js";
+import { dedupeByKey } from "../shared/dedupe-by-key.js";
 import { resolveAgentConfig } from "./agent-scope-config.js";
 import { resolveConfiguredProviderFallback } from "./configured-provider-fallback.js";
 import { DEFAULT_PROVIDER } from "./defaults.js";
@@ -273,6 +274,30 @@ function mergeModelCatalogEntries(params: {
   return merged;
 }
 
+/** One scope ranks exact IDs ahead of folded matches; ambiguity remains a match. */
+function createModelProviderMatcher(raw: string) {
+  const model = raw.trim();
+  const foldedModel = normalizeLowercaseStringOrEmpty(model);
+  const exact = new Set<string>();
+  const folded = new Set<string>();
+  return {
+    add(provider: string, ...ids: string[]) {
+      const providerId = normalizeProviderId(provider);
+      if (!model || !providerId) {
+        return;
+      }
+      if (ids.some((id) => id.trim() === model)) {
+        exact.add(providerId);
+      } else if (ids.some((id) => normalizeLowercaseStringOrEmpty(id) === foldedModel)) {
+        folded.add(providerId);
+      }
+    },
+    get matches() {
+      return exact.size > 0 ? exact : folded;
+    },
+  };
+}
+
 /** Infer a unique provider for a bare model from configured model rows. */
 export function inferUniqueProviderFromConfiguredModels(
   params: {
@@ -282,16 +307,14 @@ export function inferUniqueProviderFromConfiguredModels(
     allowManifestNormalization?: boolean;
   } & ModelManifestNormalizationContext,
 ): string | undefined {
-  const model = params.model.trim();
-  if (!model) {
+  if (!params.model.trim()) {
     return undefined;
   }
-  const normalized = normalizeLowercaseStringOrEmpty(model);
   const collectModelMapProviders = (models: Record<string, unknown> | undefined) => {
-    const providers = new Set<string>();
+    const matcher = createModelProviderMatcher(params.model);
     for (const key of Object.keys(models ?? {})) {
       const ref = key.trim();
-      if (!ref || !ref.includes("/") || ref.endsWith("/*")) {
+      if (!ref.includes("/") || ref.endsWith("/*")) {
         continue;
       }
       const parsed = parseModelRef(ref, DEFAULT_PROVIDER, {
@@ -299,65 +322,38 @@ export function inferUniqueProviderFromConfiguredModels(
         allowPluginNormalization: false,
         manifestPlugins: params.manifestPlugins,
       });
-      if (
-        parsed &&
-        (parsed.model === model || normalizeLowercaseStringOrEmpty(parsed.model) === normalized)
-      ) {
-        providers.add(normalizeProviderId(parsed.provider));
+      if (parsed) {
+        matcher.add(parsed.provider, parsed.model);
       }
     }
-    return providers;
+    return matcher;
   };
-  const agentProviders = params.agentId
-    ? collectModelMapProviders(resolveAgentConfig(params.cfg, params.agentId)?.models)
-    : new Set<string>();
-  if (agentProviders.size > 0) {
-    return agentProviders.size === 1 ? agentProviders.values().next().value : undefined;
-  }
-
-  const providers = collectModelMapProviders(params.cfg.agents?.defaults?.models);
-  const addProvider = (provider: string) => {
-    const normalizedProvider = normalizeProviderId(provider);
-    if (!normalizedProvider) {
-      return;
+  if (params.agentId) {
+    const { matches } = collectModelMapProviders(
+      resolveAgentConfig(params.cfg, params.agentId)?.models,
+    );
+    if (matches.size > 0) {
+      return matches.size === 1 ? matches.values().next().value : undefined;
     }
-    providers.add(normalizedProvider);
-  };
-  const configuredProviders = params.cfg.models?.providers;
-  if (configuredProviders) {
-    const normalizeModelId = createConfiguredProviderCatalogModelIdNormalizer({
-      allowManifestNormalization: params.allowManifestNormalization,
-      manifestPlugins: params.manifestPlugins,
-    });
-    for (const [providerId, providerConfig] of Object.entries(configuredProviders)) {
-      const models = providerConfig?.models;
-      if (!Array.isArray(models)) {
-        continue;
-      }
-      for (const entry of models) {
-        const modelId = entry?.id?.trim();
-        if (!modelId) {
-          continue;
-        }
-        const normalizedModelId = normalizeModelId(providerId, modelId);
-        if (
-          modelId === model ||
-          normalizeLowercaseStringOrEmpty(modelId) === normalized ||
-          normalizedModelId === model ||
-          normalizeLowercaseStringOrEmpty(normalizedModelId) === normalized
-        ) {
-          addProvider(providerId);
-        }
-      }
-      if (providers.size > 1) {
-        return undefined;
+  }
+  const matcher = collectModelMapProviders(params.cfg.agents?.defaults?.models);
+  const normalizeModelId = createConfiguredProviderCatalogModelIdNormalizer({
+    allowManifestNormalization: params.allowManifestNormalization,
+    manifestPlugins: params.manifestPlugins,
+  });
+  for (const [providerId, providerConfig] of Object.entries(params.cfg.models?.providers ?? {})) {
+    if (!Array.isArray(providerConfig?.models)) {
+      continue;
+    }
+    for (const entry of providerConfig.models) {
+      const modelId = entry?.id?.trim();
+      if (modelId) {
+        matcher.add(providerId, modelId, normalizeModelId(providerId, modelId));
       }
     }
   }
-  if (providers.size !== 1) {
-    return undefined;
-  }
-  return providers.values().next().value;
+  const { matches } = matcher;
+  return matches.size === 1 ? matches.values().next().value : undefined;
 }
 
 /** Infer a unique provider for a bare model from a provider catalog. */
@@ -365,29 +361,12 @@ function inferUniqueProviderFromCatalog(params: {
   catalog: readonly ModelCatalogEntry[];
   model: string;
 }): string | undefined {
-  const model = params.model.trim();
-  if (!model) {
-    return undefined;
-  }
-  const normalized = normalizeLowercaseStringOrEmpty(model);
-  const providers = new Set<string>();
+  const matcher = createModelProviderMatcher(params.model);
   for (const entry of params.catalog) {
-    const entryId = entry.id.trim();
-    if (!entryId) {
-      continue;
-    }
-    if (entryId !== model && normalizeLowercaseStringOrEmpty(entryId) !== normalized) {
-      continue;
-    }
-    const provider = normalizeProviderId(entry.provider);
-    if (provider) {
-      providers.add(provider);
-    }
-    if (providers.size > 1) {
-      return undefined;
-    }
+    matcher.add(entry.provider, entry.id);
   }
-  return providers.size === 1 ? providers.values().next().value : undefined;
+  const { matches } = matcher;
+  return matches.size === 1 ? matches.values().next().value : undefined;
 }
 
 /** Resolve the provider used when a model string omits provider/id syntax. */
@@ -1032,6 +1011,7 @@ function prepareModelPolicy(params: ModelPolicyPreparationParams) {
       : policyAliasIndex;
   const configuredCatalog = buildConfiguredModelCatalog({
     cfg: params.cfg,
+    catalog: params.catalog,
     manifestPlugins: params.manifestPlugins,
   });
   const metadata = buildModelCatalogMetadata({
@@ -1374,6 +1354,7 @@ function resolveConfiguredModelManifestPlugins(params: {
 /** Build catalog entries from configured provider model rows. */
 export function buildConfiguredModelCatalog(params: {
   cfg: OpenClawConfig;
+  catalog?: readonly ModelCatalogEntry[];
   workspaceDir?: string;
   manifestPlugins?: ModelManifestPlugins;
 }): ModelCatalogEntry[] {
@@ -1384,6 +1365,14 @@ export function buildConfiguredModelCatalog(params: {
 
   const manifestPlugins = resolveConfiguredModelManifestPlugins(params);
   const normalizeModelId = createConfiguredProviderCatalogModelIdNormalizer({ manifestPlugins });
+  const capturedByIdentity = params.catalog?.length
+    ? new Map(
+        dedupeByKey(params.catalog, resolveModelCatalogIdentityKey).map((entry) => [
+          resolveModelCatalogIdentityKey(entry),
+          entry,
+        ]),
+      )
+    : undefined;
   const catalog: ModelCatalogEntry[] = [];
   for (const [providerRaw, provider] of Object.entries(providers)) {
     const providerId = normalizeProviderId(providerRaw);
@@ -1396,6 +1385,12 @@ export function buildConfiguredModelCatalog(params: {
       if (!id) {
         continue;
       }
+      // Provider defaults are fallbacks; only a model-level pin overrides its captured route.
+      const accepted = capturedByIdentity?.get(
+        resolveModelCatalogIdentityKey({ provider: providerId, id }),
+      );
+      const api = model.api ?? accepted?.api ?? provider.api;
+      const baseUrl = model.baseUrl ?? accepted?.baseUrl ?? provider.baseUrl;
       const name = normalizeOptionalString(model?.name) || id;
       const contextWindow =
         typeof model?.contextWindow === "number" && model.contextWindow > 0
@@ -1419,10 +1414,8 @@ export function buildConfiguredModelCatalog(params: {
         provider: providerId,
         id,
         name,
-        api: model.api ?? provider.api,
-        ...((model.baseUrl ?? provider.baseUrl)
-          ? { baseUrl: model.baseUrl ?? provider.baseUrl }
-          : {}),
+        api,
+        ...(baseUrl ? { baseUrl } : {}),
         contextWindow,
         contextTokens,
         reasoning,

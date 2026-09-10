@@ -20,7 +20,7 @@ import {
 /** Select display slots without loading custom content or details into history metadata. */
 export function isVisibleHistoryNonMessageEventSql(
   type: Expression<string | null>,
-  event: Expression<string>,
+  event: Expression<string | null>,
 ): RawBuilder<SqlBool> {
   // Match isVisibleTranscriptRecord; CASE avoids parsing unrelated marker payloads.
   return /* kysely-allow-raw: query-time display selection leaves canonical events and message indexes unchanged. */ sql<SqlBool>`CASE

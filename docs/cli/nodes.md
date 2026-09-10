@@ -84,6 +84,8 @@ Flags:
 - `--timeout <ms>`: Gateway transport timeout (default `30000`). For a positive invoke timeout, the effective transport timeout is `max(timeout, invokeTimeout + 10000)`, allowing transport grace beyond the node's invoke deadline.
 - `--idempotency-key <key>`: optional idempotency key.
 
+The invocation timeout covers Gateway checks, node wake-up, readiness retries, and the node response. Clock adjustments do not reset or extend this elapsed-time budget.
+
 `system.run` and `system.run.prepare` are blocked here; use the `exec` tool with `host=node` for shell execution instead. `system.which` is allowed through `invoke`.
 
 ## Notify, push, location, screen

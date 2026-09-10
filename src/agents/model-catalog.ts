@@ -17,10 +17,10 @@ import { augmentModelCatalogWithProviderPlugins } from "../plugins/provider-runt
 import { createLazyPromise } from "../shared/lazy-promise.js";
 import { modelCatalogRowToEntry } from "./model-catalog-entry.js";
 import { modelSupportsInput as modelCatalogEntrySupportsInput } from "./model-catalog-lookup.js";
+import { normalizeCatalogRouteBaseUrl, overlayCatalogMetadata } from "./model-catalog-metadata.js";
 import { assignProviderModelOrder, compareModelCatalogEntries } from "./model-catalog-order.js";
 import { createPreparedModelCatalogProviderNormalizer } from "./model-catalog-provider-normalizer.js";
 import type { ModelCatalogEntry, ModelCatalogSnapshot } from "./model-catalog.types.js";
-import { resolveCatalogOwnedModelCompat } from "./model-compat-catalog.js";
 import { createConfiguredProviderCatalogModelIdNormalizer } from "./model-ref-shared.js";
 import { buildConfiguredModelCatalog } from "./model-selection-shared.js";
 import { resolveModelCatalogIdentityKey } from "./openai-model-routes.js";
@@ -66,151 +66,6 @@ const loadProviderApiKeyResolver = createLazyPromise(
 export function resetModelCatalogBuilderCacheForTest() {
   manifestModelCatalogCache = new WeakMap();
   hasLoggedModelCatalogError = false;
-}
-
-function mergeCatalogCompat(
-  base: ModelCatalogEntry["compat"] | undefined,
-  override: ModelCatalogEntry["compat"] | undefined,
-): ModelCatalogEntry["compat"] | undefined {
-  if (!base) {
-    return override;
-  }
-  if (!override) {
-    return base;
-  }
-  return { ...base, ...override };
-}
-
-function mergeCatalogParams(
-  base: ModelCatalogEntry["params"] | undefined,
-  override: ModelCatalogEntry["params"] | undefined,
-): ModelCatalogEntry["params"] | undefined {
-  if (!base) {
-    return override;
-  }
-  if (!override) {
-    return base;
-  }
-  return { ...base, ...override };
-}
-
-function normalizeCatalogRouteBaseUrl(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  try {
-    const url = new URL(value);
-    url.pathname = url.pathname.replace(/\/+$/u, "") || "/";
-    return url.toString();
-  } catch {
-    return value.replace(/\/+$/u, "");
-  }
-}
-
-function catalogRouteChanges(base: ModelCatalogEntry, overlay: ModelCatalogEntry): boolean {
-  if (overlay.api === undefined && overlay.baseUrl === undefined) {
-    return false;
-  }
-  return (
-    (overlay.api !== undefined && base.api !== undefined && overlay.api !== base.api) ||
-    (overlay.baseUrl !== undefined &&
-      base.baseUrl !== undefined &&
-      normalizeCatalogRouteBaseUrl(overlay.baseUrl) !== normalizeCatalogRouteBaseUrl(base.baseUrl))
-  );
-}
-
-function clearRouteBoundCatalogMetadata(entry: ModelCatalogEntry): ModelCatalogEntry {
-  const {
-    contextWindow: _contextWindow,
-    contextWindows: _contextWindows,
-    contextWindowDefault: _contextWindowDefault,
-    contextTokens: _contextTokens,
-    reasoning: _reasoning,
-    configuredReasoning: _configuredReasoning,
-    thinkingLevelMap: _thinkingLevelMap,
-    input: _input,
-    params: _params,
-    compat: _compat,
-    mediaInput: _mediaInput,
-    ...routeNeutral
-  } = entry;
-  return routeNeutral;
-}
-
-function overlayCatalogMetadata(
-  base: ModelCatalogEntry,
-  overlay: ModelCatalogEntry,
-  options?: {
-    preserveBaseCompat?: boolean;
-  },
-): ModelCatalogEntry {
-  // Catalog rows with one logical provider/id may describe different physical
-  // routes. Capabilities are atomic with their route; never carry them across
-  // an API/endpoint change when the new source omits those facts.
-  const routeChanged = catalogRouteChanges(base, overlay);
-  const routeBase = routeChanged ? clearRouteBoundCatalogMetadata(base) : base;
-  const params = mergeCatalogParams(routeBase.params, overlay.params);
-  const thinkingLevelMap = overlay.thinkingLevelMap ?? routeBase.thinkingLevelMap;
-  // Options + default are one normalized unit (default ∈ options): an overlay
-  // that replaces the options list must also own the default, or a base default
-  // absent from the new list would leak through the field-by-field merge.
-  const {
-    contextWindows: _baseContextWindows,
-    contextWindowDefault: _baseContextWindowDefault,
-    ...selectionNeutralBase
-  } = routeBase;
-  const contextWindowSelection =
-    overlay.contextWindows !== undefined
-      ? {
-          contextWindows: overlay.contextWindows,
-          ...(overlay.contextWindowDefault !== undefined
-            ? { contextWindowDefault: overlay.contextWindowDefault }
-            : {}),
-        }
-      : {
-          ...(routeBase.contextWindows !== undefined
-            ? { contextWindows: routeBase.contextWindows }
-            : {}),
-          ...((overlay.contextWindowDefault ?? routeBase.contextWindowDefault)
-            ? {
-                contextWindowDefault:
-                  overlay.contextWindowDefault ?? routeBase.contextWindowDefault,
-              }
-            : {}),
-        };
-  return {
-    ...selectionNeutralBase,
-    ...contextWindowSelection,
-    ...(routeChanged ? { name: overlay.name } : {}),
-    ...(overlay.api !== undefined ? { api: overlay.api } : {}),
-    ...(overlay.baseUrl !== undefined ? { baseUrl: overlay.baseUrl } : {}),
-    ...(overlay.contextWindow !== undefined ? { contextWindow: overlay.contextWindow } : {}),
-    ...(overlay.contextTokens !== undefined ? { contextTokens: overlay.contextTokens } : {}),
-    ...(overlay.reasoning !== undefined ? { reasoning: overlay.reasoning } : {}),
-    ...(overlay.configuredReasoning !== undefined
-      ? { configuredReasoning: overlay.configuredReasoning }
-      : {}),
-    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
-    ...(overlay.input !== undefined ? { input: overlay.input } : {}),
-    ...(params ? { params } : {}),
-    ...(overlay.mediaInput !== undefined ? { mediaInput: overlay.mediaInput } : {}),
-    ...(overlay.providerOrder !== undefined ? { providerOrder: overlay.providerOrder } : {}),
-    ...(overlay.status !== undefined ? { status: overlay.status } : {}),
-    ...(overlay.statusReason !== undefined ? { statusReason: overlay.statusReason } : {}),
-    ...(overlay.replaces !== undefined ? { replaces: overlay.replaces } : {}),
-    ...(overlay.replacedBy !== undefined ? { replacedBy: overlay.replacedBy } : {}),
-    compat: options?.preserveBaseCompat
-      ? resolveCatalogOwnedModelCompat({
-          catalogRoute: base,
-          catalogCompat: base.compat,
-          configuredRoute: {
-            api: overlay.api ?? base.api,
-            baseUrl: overlay.baseUrl ?? base.baseUrl,
-          },
-          configuredCompat: overlay.compat,
-        })
-      : mergeCatalogCompat(routeBase.compat, overlay.compat),
-  };
 }
 
 function normalizeCatalogEntryContract(entry: ModelCatalogEntry): ModelCatalogEntry {
@@ -488,10 +343,12 @@ export async function buildPreparedModelCatalogSnapshot(
     mergeCatalogRouteVariants(routeVariants, manifestModels);
     mergeCatalogEntries(models, manifestModels);
     logStage("manifest-models-merged", `entries=${models.length}`);
-    const configuredModels = buildConfiguredModelCatalog({
+    const configuredCatalogParams = {
       cfg,
+      catalog: orderedRegistryModels,
       manifestPlugins: manifestMetadataSnapshot,
-    });
+    };
+    const configuredModels = buildConfiguredModelCatalog(configuredCatalogParams);
     logStage("configured-models-prepared", `entries=${models.length}`);
 
     if (!params.readOnly && params.includeProviderPluginAugmentation !== false) {
@@ -579,6 +436,7 @@ export async function buildPreparedModelCatalogSnapshot(
     logStage("plugin-models-merged", `entries=${models.length}`);
 
     if (configuredModels.length > 0) {
+      const configuredOverrides = buildConfiguredModelCatalog(configuredCatalogParams);
       // Augmentation may mutate borrowed rows. Reindex before configured overlays so
       // route lookup keeps the first current donor, including duplicate keys.
       routeVariants.indexByKey.clear();
@@ -588,11 +446,11 @@ export async function buildPreparedModelCatalogSnapshot(
           routeVariants.indexByKey.set(key, index);
         }
       });
-      mergeCatalogEntries(models, configuredModels, {
+      mergeCatalogEntries(models, configuredOverrides, {
         catalogRoutes: routeVariants,
         preserveBaseCompat: true,
       });
-      mergeCatalogRouteVariants(routeVariants, configuredModels, { preserveBaseCompat: true });
+      mergeCatalogRouteVariants(routeVariants, configuredOverrides, { preserveBaseCompat: true });
     }
     logStage("configured-models-finalized", `entries=${models.length}`);
 

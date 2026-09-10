@@ -68,6 +68,8 @@ Full key reference, defaults, and JSON5 examples: [Configuration reference](/gat
 
 Explicit `modelPolicy.allow` restrictions were introduced in v2026.8.1. For directly authored legacy model maps, `openclaw doctor --fix` copies the complete restriction into `modelPolicy.allow` when every ref is valid. If any ref needs provider qualification, Doctor preserves the entire legacy restriction and reports how to set an explicit policy. Until then, model-map edits still change the legacy restriction; no keys are silently dropped and no empty policy is substituted. Include-owned migrations retain the existing edit-owning-file requirement.
 
+<a id="selection-source-and-fallback-behavior" />
+
 ## Selection source and fallback strictness
 
 The same `provider/model` behaves differently depending on where it came from:
@@ -303,7 +305,8 @@ Without a scope flag, selections change only the current session. `agents.defaul
 - A user-selected `/model` ref is strict for that session: if it becomes unreachable, the reply fails visibly instead of silently falling back through `agents.defaults.model.fallbacks`. Configured defaults and cron job primaries still use fallback chains.
 - `/model status` is the detailed view: auth candidates per provider, and (when configured) the provider endpoint `baseUrl` plus `api` mode.
 - Model refs are parsed by splitting on the first `/`; type `provider/model`. If the model ID itself contains `/` (OpenRouter-style), include the provider prefix, e.g. `/model openrouter/moonshotai/kimi-k2`. If you omit the provider, OpenClaw tries: (1) alias match, (2) unique configured-provider match for that exact unprefixed model id, (3) the configured default provider (deprecated fallback) — and if that provider no longer exposes the configured default model, the first configured provider/model instead, to avoid surfacing a stale removed-provider default.
-- Model refs are normalized to lowercase; provider IDs are otherwise exact, so use the ID advertised by the plugin.
+- When inferring a provider, exact model ID case takes precedence over case-insensitive matches within the same configuration scope. A case-insensitive match is used only when it identifies one provider. Per-agent model entries take precedence over global entries and configured provider catalogs.
+- Provider IDs are normalized to lowercase; model IDs follow the provider's normalization rules. Use the spelling advertised by the plugin.
 
 Full command behavior and config: [Slash commands](/tools/slash-commands).
 

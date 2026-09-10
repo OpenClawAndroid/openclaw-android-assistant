@@ -29,6 +29,7 @@ import {
   publishPreparedBackupArchive,
   type BackupArchivePublication,
 } from "./backup-archive-publication.js";
+import { stageBackupConfigCapture } from "./backup-config-capture.js";
 import {
   observeBackupTarEntryProgress,
   removePreparedBackupArchive,
@@ -531,14 +532,20 @@ export async function createBackupArchive(
   }
   const tempArchivePath = publication.tempArchivePath;
   try {
+    const configRemaps = await stageBackupConfigCapture(plan.configCapture, tempDir);
     const { legacyAuditSnapshots, stateSqliteBackup } = await createConsistentStateSnapshotPlan({
       inventory: plan.inventory,
       stateDir: stateAsset?.sourcePath,
       tempDir,
       onlyConfig,
     });
-    const sourcePathRemaps = new Map<string, string>();
-    const skippedStateSourcePaths = new Set<string>();
+    const sourcePathRemaps = new Map(configRemaps);
+    const skippedStateSourcePaths = new Set(configRemaps.values());
+    if (plan.configCapture?.files.length === 0) {
+      // A config created after sealing must not introduce an uncaptured graph.
+      skippedStateSourcePaths.add(path.resolve(plan.configPath));
+      skippedStateSourcePaths.add(await canonicalizePathForContainment(plan.configPath));
+    }
     for (const snapshot of stateSqliteBackup.snapshots) {
       sourcePathRemaps.set(path.resolve(snapshot.sourcePath), snapshot.archiveSourcePath);
       for (const skippedSourcePath of snapshot.skippedSourcePaths) {
@@ -694,6 +701,7 @@ export async function createBackupArchive(
               },
               [
                 manifestPath,
+                ...configRemaps.keys(),
                 ...stateSqliteBackup.snapshots.map((snapshot) => snapshot.sourcePath),
                 ...legacyAuditSnapshots.map((snapshot) => snapshot.sourcePath),
                 ...result.assets.map((asset) => asset.sourcePath),
@@ -704,11 +712,18 @@ export async function createBackupArchive(
           },
         });
         const unexpectedSqliteSourcePath = unexpectedSqliteSourcePaths[0];
-        const archiveValidationError = unexpectedSqliteSourcePath
+        let archiveValidationError = unexpectedSqliteSourcePath
           ? new Error(
               `SQLite state appeared after snapshot discovery: ${unexpectedSqliteSourcePath}. Retry backup so it can be snapshotted.`,
             )
           : archiveSymlinkViolation;
+        if (!archiveValidationError) {
+          try {
+            await plan.configCapture?.assertRootAlias?.();
+          } catch (error) {
+            archiveValidationError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
         if (archiveValidationError) {
           if (!removePreparedBackupArchive(prepared)) {
             publication.pendingCleanupArchives.push(prepared);

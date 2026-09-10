@@ -3,12 +3,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { listAgentIds, resolveAgentDir } from "../agents/agent-scope-config.js";
 import {
-  readConfigFileSnapshot,
+  createConfigIO,
   resolveConfigPath,
   resolveOAuthDir,
   resolveStateDir,
 } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  resolveBackupConfigCapture,
+  type BackupConfigCapture,
+} from "../infra/backup-config-capture.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import {
   resolveActivatedPluginBackupInventory,
@@ -82,6 +86,7 @@ type SkippedBackupAsset = {
 };
 
 type BackupPlan = {
+  configCapture?: BackupConfigCapture;
   stateDir: string;
   configPath: string;
   oauthDir: string;
@@ -175,6 +180,7 @@ async function resolveBackupPlanFromPaths(params: {
   workspaceDirs?: string[];
   agentRoots?: readonly BackupAgentRoot[];
   pluginInventory?: ActivatedPluginBackupInventory;
+  configCapture?: BackupConfigCapture;
   unresolvedOwnership?: boolean;
   includeWorkspace?: boolean;
   onlyConfig?: boolean;
@@ -196,7 +202,11 @@ async function resolveBackupPlanFromPaths(params: {
   const oauthSourcePath = await canonicalizePathForContainment(oauthDir);
   const inventory = await createBackupResourceInventory({
     stateDir: canonicalStateDir,
-    configPaths: [configPath, configSourcePath],
+    configPaths: [
+      configPath,
+      configSourcePath,
+      ...(params.configCapture?.files ?? []).map((file) => file.canonicalPath),
+    ],
     oauthDirs: [oauthDir, oauthSourcePath],
     workspaceDirs: await Promise.all(
       workspaceDirs.map((workspaceDir) => canonicalizePathForContainment(workspaceDir)),
@@ -282,6 +292,12 @@ async function resolveBackupPlanFromPaths(params: {
     ...(isOwnedPathCoveredBy(oauthSourcePath, canonicalStateDir)
       ? []
       : [{ kind: "credentials" as const, sourcePath: path.resolve(oauthDir) }]),
+    ...(params.configCapture?.files ?? [])
+      .filter((file) => file.canonicalPath !== configSourcePath)
+      .map((file) => ({
+        kind: "config" as const,
+        sourcePath: file.canonicalPath,
+      })),
     ...workspaceDirs.map((workspaceDir) => ({
       kind: "workspace" as const,
       sourcePath: path.resolve(workspaceDir),
@@ -418,6 +434,7 @@ async function resolveBackupPlanFromPaths(params: {
     configPath,
     oauthDir,
     workspaceDirs: workspaceDirs.map((entry) => path.resolve(entry)),
+    configCapture: params.configCapture,
     inventory,
     included,
     skipped,
@@ -573,25 +590,27 @@ export async function resolveBackupPlanFromDisk(
   }
 
   // Backup discovery must not initialize or migrate the state DB before snapshot validation.
-  const configSnapshot = await readConfigFileSnapshot({ observe: false });
+  const configRead = await createConfigIO({ observe: false }).readConfigFileSnapshotForWrite();
+  const configSnapshot = configRead.snapshot;
   const discoverySnapshot = resolveStartupConfigSnapshot(configSnapshot) ?? configSnapshot;
+  const configCapture = await resolveBackupConfigCapture(configRead);
   if (includeWorkspace && discoverySnapshot.exists && !discoverySnapshot.valid) {
     throw new Error(
       `Config invalid at ${shortenHomePath(discoverySnapshot.path)}. OpenClaw cannot reliably discover custom workspaces for backup. Fix the config or rerun with --no-include-workspace for a partial backup.`,
     );
   }
-  const cleanupPlan = buildCleanupPlan({
-    // Discovery uses the validated compatibility view; the archive still reads configPath bytes.
-    cfg: discoverySnapshot.config,
-    stateDir,
-    configPath,
-    oauthDir,
-  });
   const unresolvedOwnership = discoverySnapshot.exists && !discoverySnapshot.valid;
+  const discoveredWorkspaceDirs = unresolvedOwnership
+    ? []
+    : buildCleanupPlan({
+        cfg: discoverySnapshot.config,
+        stateDir,
+        configPath,
+        oauthDir,
+      }).workspaceDirs;
   const agentRoots = unresolvedOwnership
     ? []
     : await resolveBackupAgentRoots(discoverySnapshot.config);
-  const discoveredWorkspaceDirs = cleanupPlan.workspaceDirs;
   // Effective agent workspaces can omit their shared base. Exclude it only here
   // so full backups and destructive cleanup retain their existing selection.
   if (!includeWorkspace && discoverySnapshot.valid) {
@@ -615,6 +634,7 @@ export async function resolveBackupPlanFromDisk(
     workspaceDirs: discoveredWorkspaceDirs,
     agentRoots,
     pluginInventory,
+    configCapture,
     unresolvedOwnership,
     includeWorkspace,
     onlyConfig,

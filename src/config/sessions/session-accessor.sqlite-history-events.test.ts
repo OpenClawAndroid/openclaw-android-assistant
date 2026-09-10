@@ -20,6 +20,7 @@ import {
   readSessionTranscriptHistoryAnchorPage,
   readSessionTranscriptHistoryEvents,
   readSessionTranscriptHistoryEventById,
+  readSessionTranscriptHistoryEventCount,
   readSessionTranscriptHistoryEventPage,
 } from "./session-accessor.sqlite-history-events.js";
 
@@ -300,6 +301,100 @@ describe("SQLite transcript history events", () => {
       });
     },
   );
+
+  it("excludes pre-reset custom metadata while retaining the reset prefix and later markers", async () => {
+    // Valid transcript JSON can exceed SQLite's 1,000-level JSON nesting limit.
+    const details: unknown = JSON.parse(`${"[".repeat(1_001)}0${"]".repeat(1_001)}`);
+    const oldNotice = {
+      type: "custom_message",
+      id: "old-notice",
+      parentId: null,
+      customType: "display-report",
+      content: "old report",
+      display: true,
+      details,
+      timestamp: "2026-09-07T00:00:00.000Z",
+    };
+    const events = [
+      { type: "session", version: 3, id: scope.sessionId },
+      oldNotice,
+      {
+        type: "message",
+        id: "kept-user",
+        parentId: "old-notice",
+        message: { role: "user", content: "retained prompt" },
+      },
+      { ...oldNotice, id: "shallow-notice", parentId: "kept-user", details: {} },
+      {
+        type: "message",
+        id: "kept-assistant",
+        parentId: "shallow-notice",
+        message: { role: "assistant", content: "retained reply" },
+      },
+      {
+        type: "reset",
+        id: "reset",
+        parentId: "kept-assistant",
+        firstKeptEntryId: "kept-user",
+        reason: "new",
+        timestamp: "2026-09-07T01:00:00.000Z",
+      },
+      {
+        type: "compaction",
+        id: "compaction",
+        parentId: "reset",
+        summary: "current summary",
+        timestamp: "2026-09-07T02:00:00.000Z",
+      },
+    ];
+    await replaceTranscriptEvents(scope, events);
+
+    const history = readSessionTranscriptHistoryEvents(scope);
+    expect(history.map(historyEventId)).toEqual([
+      "kept-user",
+      "kept-assistant",
+      "reset",
+      "compaction",
+    ]);
+    expect(history.map(({ seq }) => seq)).toEqual([1, 2, 3, 4]);
+    expect(readSessionTranscriptHistoryEventCount(scope)).toBe(4);
+
+    const recent = readRecentSessionTranscriptHistoryEvents(scope, {
+      maxBytes: 65_536,
+      maxLines: 2,
+      maxMessages: 2,
+    });
+    expect(recent.totalMessages).toBe(4);
+    expect(recent.events.map(historyEventId)).toEqual(["reset", "compaction"]);
+    expect(recent.events.map(({ seq }) => seq)).toEqual([3, 4]);
+
+    const page = readSessionTranscriptHistoryEventPage(scope, { offset: 2, maxMessages: 2 });
+    expect(page.totalMessages).toBe(4);
+    expect(page.events.map(historyEventId)).toEqual(["kept-user", "kept-assistant"]);
+    expect(page.events.map(({ seq }) => seq)).toEqual([1, 2]);
+
+    const anchored = readSessionTranscriptHistoryAnchorPage(scope, {
+      messageId: "reset",
+      maxMessages: 4,
+    });
+    expect(anchored).toMatchObject({ found: true, totalMessages: 4 });
+    expect(anchored.events.map(historyEventId)).toEqual([
+      "kept-user",
+      "kept-assistant",
+      "reset",
+      "compaction",
+    ]);
+
+    expect(() =>
+      readSessionTranscriptHistoryAnchorPage(scope, { messageId: "old-notice", maxMessages: 3 }),
+    ).toThrow(/malformed JSON/i);
+
+    await replaceTranscriptEvents(scope, [
+      ...events,
+      { ...oldNotice, id: "current-notice", parentId: "compaction" },
+    ]);
+    expect(() => readSessionTranscriptHistoryEvents(scope)).toThrow(/malformed JSON/i);
+  });
 
   it("does not read an inactive boundary between active sequence bounds", async () => {
     await persistSessionTranscriptTurn(scope, {
