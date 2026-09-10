@@ -223,6 +223,8 @@ describe("models auth login explicit credential selection", () => {
     "profile-id",
     "set-default",
     "unavailable-import",
+    "credential-only",
+    "revoked-after-save",
     "concurrent-config",
     "concurrent-providers",
     "concurrent-models",
@@ -319,9 +321,12 @@ describe("models auth login explicit credential selection", () => {
               id: ${JSON.stringify(provider)}, label: "Auth store proof",
               auth: [{ id: "token", label: "Fixture token", kind: "token",
                 credentialImport: { migrationProviderId: ${JSON.stringify(provider)}, itemId: "auth:shared", credentialKind: "token" },
-                async run({ config }) {
+                async run({ config, credentialOnly }) {
                   const result = ${JSON.stringify({ profiles: [{ profileId: `${provider}:fresh`, credential: fresh }], defaultModel: `${provider}/recommended` })};
-                  if (${JSON.stringify(selection)} === "concurrent-config" || ${JSON.stringify(selection)} === "concurrent-providers") {
+                  if (${JSON.stringify(selection)} === "credential-only") {
+                    if (!credentialOnly) throw new Error("Credential-only login attempted starter discovery");
+                    result.configPatch = ${JSON.stringify({ agents: { defaults: { model: { primary: "authstore-proof/recommended" }, models: { "authstore-proof/*": {} } } } })};
+                  } else if (${JSON.stringify(selection)} === "concurrent-config" || ${JSON.stringify(selection)} === "concurrent-providers") {
                     const concurrent = ${JSON.stringify(selection)} === "concurrent-providers"
                       ? { models: { providers: { "other-proof": {
                           baseUrl: "https://other.invalid", api: "openai-completions", models: []
@@ -461,9 +466,22 @@ describe("models auth login explicit credential selection", () => {
             ? { profileId: freshId }
             : selection === "set-default"
               ? { setDefault: true }
-              : selection !== "unavailable-import"
-                ? { profileId: freshId }
-                : {}),
+              : selection === "credential-only"
+                ? { credentialOnly: true }
+                : selection === "revoked-after-save"
+                  ? {
+                      credentialOnly: true,
+                      assertCurrent: () => {
+                        if (loadPersistedAuthProfileStore()?.profiles[freshId]) {
+                          throw new Error(
+                            "Login authority was revoked after the credential write.",
+                          );
+                        }
+                      },
+                    }
+                  : selection !== "unavailable-import"
+                    ? { profileId: freshId }
+                    : {}),
         ...(selection === "runtime-canonical-models" ? {} : { config }),
         runtime,
         prompter: createWizardPrompter({
@@ -472,7 +490,9 @@ describe("models auth login explicit credential selection", () => {
           confirm: unexpectedPrompt,
         }),
       });
-      if (modelConflict) {
+      if (selection === "revoked-after-save") {
+        await expect(login).rejects.toThrow("credentials were saved");
+      } else if (modelConflict) {
         await expect
           .soft(login)
           .rejects.toThrow("Credentials saved, but provider settings could not be applied");
@@ -495,6 +515,9 @@ describe("models auth login explicit credential selection", () => {
       if (selection === "concurrent-config") {
         expect(savedConfig.logging.level).toBe("debug");
         expect(savedConfig.models.providers[provider].baseUrl).toBe("https://fixture.invalid");
+      }
+      if (selection === "credential-only") {
+        expect(savedConfig.agents.defaults.models).toBeUndefined();
       }
       if (selection === "concurrent-providers") {
         expect(savedConfig.models.providers[provider].baseUrl).toBe("https://fixture.invalid");
@@ -547,7 +570,9 @@ describe("models auth login explicit credential selection", () => {
           `Removed cached auth profiles for provider "${provider}" (--force). Running fresh auth flow.`,
         );
       }
-      if (selection !== "config-rejected" && !modelConflict) {
+      if (selection === "revoked-after-save") {
+        expect(local?.order?.[provider]).toEqual([`${provider}:local`]);
+      } else if (selection !== "config-rejected" && !modelConflict) {
         expect(runtime.log).toHaveBeenCalledWith(`Auth profile: ${freshId} (${provider}/token)`);
       }
     } finally {

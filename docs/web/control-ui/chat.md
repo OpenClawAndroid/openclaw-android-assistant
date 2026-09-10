@@ -65,7 +65,7 @@ They are generated separately from the agent's work, so a title is not a complet
 status or a report of tool access. Existing titles and manual names are left
 unchanged; click a title to rename it.
 
-Collapsed tool rows keep the tool label visible and truncate long summaries with an ellipsis. Tool and subagent activity rows use the same text size and weight. Running subagents show **Subagent** beside an animated indicator; terminal rows show **Subagent finished**, **Subagent failed**, or **Subagent cancelled**. Subagent previews and their hover text flatten Markdown into a single plain-text line, including unfinished emphasis in live updates. Open the subagent details to read the full formatted transcript.
+Collapsed tool rows keep the tool label visible and truncate long summaries with an ellipsis. Tool and subagent activity rows use the same text size and weight. Running subagents show **Subagent** beside an animated indicator; terminal rows show **Subagent finished**, **Subagent failed**, or **Subagent cancelled**. Subagent previews and their hover text flatten Markdown into a single plain-text line, including unfinished emphasis in live updates. Open the subagent details for a compact activity feed with formatted assistant text, grouped tool calls, and timestamps. Expand a tool row to inspect each command, path, or query. The panel shows current progress above the feed; finished tasks show their outcome and duration. **Show earlier** loads history without moving the entry you were reading. New activity follows the bottom only while you are already there.
 
 A turn that fails before producing any reply leaves a durable notice in the thread. Failed and timed-out turns also show the available failure reason in the sidebar's compact summary and run-error tooltip, including while a session refresh is still catching up.
 
@@ -323,6 +323,11 @@ Subagents use the same task transcript view, including subagents run by the
 Codex harness. Select a task to read its messages, thinking, and tool calls;
 select **Show earlier** to load older history. Task activity refreshes the view
 while the subagent runs. The generic fallback label is **Subagent**.
+
+For tasks with a child session, capped assistant replies load their complete text
+automatically. The preview stays visible while loading. If recovery fails three
+times, the panel keeps the preview and offers **Retry**. Task transcripts without
+a session address keep the text supplied by their runtime.
 
 The viewer reads history from the runtime that owns it. New native subagent
 tasks retain their original history source when later turns replace the parent's
