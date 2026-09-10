@@ -11,6 +11,7 @@ import type { WorkerNodeDesktopCarrier } from "./node-desktop-carrier.js";
 import type { NodeWorkerTunnelManager } from "./node-worker-tunnel.js";
 import { readWorkerProjectPreparation } from "./preparation-identity.js";
 import type { WorkerProviderLifecycleInputOptions } from "./provider-lifecycle.types.js";
+import { WorkerRuntimeRefreshPendingError } from "./provider-runtime-refresh.js";
 import type { WorkerDesktopLaunchResult, WorkerDesktopObserveResult } from "./service-contract.js";
 import type { WorkerEnvironmentState } from "./state.js";
 import type { WorkerEnvironmentRecord, WorkerEnvironmentStore } from "./store.js";
@@ -175,6 +176,13 @@ export function createWorkerEnvironmentAccess(options: WorkerEnvironmentAccessOp
           "provider_failure",
           "Worker lease isolation is not reconciled; retry after provider inspection",
         );
+      }
+      if (
+        record.ownerEpoch === request.ownerEpoch &&
+        record.lastError &&
+        !verifyWorkerAdmissionHandshake(record.bootstrapReceipt, currentBundle)
+      ) {
+        throw new WorkerRuntimeRefreshPendingError(boundedError(record.lastError));
       }
       const credential = store.getCredential(request.environmentId);
       if (

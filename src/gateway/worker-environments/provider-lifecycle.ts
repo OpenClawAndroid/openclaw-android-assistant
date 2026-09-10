@@ -1,13 +1,11 @@
 import { isDeepStrictEqual } from "node:util";
 import type { WorkerAdmissionHandshake } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
 import type { SecretRef } from "../../config/types.secrets.js";
-import { validateCloudWorkerProfileSettings } from "../../config/zod-schema.cloud-workers.js";
 import {
   WorkerProviderError,
   type WorkerExecutionMode,
   type WorkerLease,
   type WorkerNodeRuntimeIdentity,
-  type WorkerProfile,
   type WorkerProvider,
 } from "../../plugins/types.js";
 import { verifyWorkerAdmissionHandshake } from "./admission.js";
@@ -19,19 +17,17 @@ import {
 } from "./project-preparation.js";
 import { createWorkerProviderIntent } from "./provider-intent.js";
 import type { WorkerProviderLifecycleOptions } from "./provider-lifecycle.types.js";
+import { createWorkerMachineCatalog } from "./provider-machine-catalog.js";
 import { createWorkerNodeProvisioning } from "./provider-node-provisioning.js";
 import { createWorkerProviderOwnerLifecycle } from "./provider-owner-lifecycle.js";
-import {
-  requestStaleWorkerDestroy,
-  retireMismatchedWorkerLease,
-} from "./provider-persisted-lease.js";
+import { retireMismatchedWorkerLease } from "./provider-persisted-lease.js";
 import { createWorkerProvisionCancellation } from "./provider-provisioning-cancellation.js";
+import { createWorkerRuntimeRefresher } from "./provider-runtime-refresh.js";
 import {
-  normalizeWorkerMachineOptions,
-  normalizeWorkerOperatingSystems,
   requireProviderOperationTimeoutMs,
   requireWorkerLease,
   requireWorkerLeaseStatus,
+  requireWorkerProfile as validateWorkerProfile,
   resolveWorkerLeaseTransportError,
 } from "./service-validation.js";
 import type { WorkerEnvironmentRecord } from "./store.js";
@@ -44,13 +40,7 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
   const now = options.now ?? Date.now;
   const { commitReady, ensurePendingCredential } = options.credentialBroker;
 
-  function requireWorkerProfile(value: unknown): WorkerProfile {
-    const error = validateCloudWorkerProfileSettings(value);
-    if (error) {
-      throw serviceError("invalid_profile", error);
-    }
-    return value as WorkerProfile;
-  }
+  const requireWorkerProfile = (value: unknown) => validateWorkerProfile(value, serviceError);
 
   const identityResolverFor = (
     record: WorkerEnvironmentRecord,
@@ -89,27 +79,12 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
     destroy,
   } = createWorkerProviderOwnerLifecycle({ ...options, providerFor, requireWorkerProfile });
 
-  const listMachineOptions = async (profileId: string) => {
-    const profile = options.getConfig().cloudWorkers?.profiles?.[profileId];
-    if (!profile) {
-      return undefined;
-    }
-    const provider = options.resolveProvider(profile.provider);
-    return normalizeWorkerMachineOptions(
-      await provider?.listMachineOptions?.(requireWorkerProfile(profile.settings ?? {})),
-    );
-  };
-
-  const listOperatingSystems = async (profileId: string) => {
-    const profile = options.getConfig().cloudWorkers?.profiles?.[profileId];
-    if (!profile) {
-      return undefined;
-    }
-    const provider = options.resolveProvider(profile.provider);
-    return normalizeWorkerOperatingSystems(
-      await provider?.listOperatingSystems?.(requireWorkerProfile(profile.settings ?? {})),
-    );
-  };
+  const machineCatalog = createWorkerMachineCatalog({
+    getConfig: options.getConfig,
+    resolveProvider: options.resolveProvider,
+    warn: options.warn,
+    requireWorkerProfile,
+  });
 
   const expirePrepared = (record: WorkerEnvironmentRecord) =>
     record.preparation?.consumedAtMs === null && record.preparation.expiresAtMs <= now()
@@ -136,6 +111,13 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
     commitReady,
     failBootstrap: async (record, leaseId, provider, error, patch) =>
       await failBootstrap(record, leaseId, provider, error, "bootstrap_failure", patch),
+  });
+
+  const refreshRuntime = createWorkerRuntimeRefresher({
+    ...options,
+    requireCurrentOwner,
+    stopOwner,
+    identityResolverFor,
   });
 
   const finishBootstrap = async (
@@ -270,28 +252,21 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
           },
         });
       }
-      const provisionOptions =
-        machineClass ||
-        os ||
-        executionMode ||
-        enrollmentOperation ||
-        projectOperation ||
-        cancellation
+      const provisionOptions = {
+        profileId: record.profileId,
+        ...(machineClass ? { machineClass } : {}),
+        ...(os ? { os } : {}),
+        ...(executionMode ? { executionMode } : {}),
+        ...(enrollmentOperation
           ? {
-              ...(machineClass ? { machineClass } : {}),
-              ...(os ? { os } : {}),
-              ...(executionMode ? { executionMode } : {}),
-              ...(enrollmentOperation
-                ? {
-                    beginNodeEnrollment: enrollmentOperation.begin,
-                    prepareNodeRuntime: enrollmentOperation.prepareRuntime,
-                    nodeRuntimeIdentity,
-                  }
-                : {}),
-              ...(cancellation ? { signal: cancellation.signal } : {}),
-              ...(projectOperation ? { project: projectOperation.project } : {}),
+              beginNodeEnrollment: enrollmentOperation.begin,
+              prepareNodeRuntime: enrollmentOperation.prepareRuntime,
+              nodeRuntimeIdentity,
             }
-          : undefined;
+          : {}),
+        ...(cancellation ? { signal: cancellation.signal } : {}),
+        ...(projectOperation ? { project: projectOperation.project } : {}),
+      };
       cancellation?.assertActive();
       const provision = async () => {
         const assertCurrent = () => {
@@ -605,17 +580,10 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
       return;
     }
     if (!record.sshEndpoint || record.state === "attached") {
-      if (
-        currentBundle &&
-        (!record.bootstrapReceipt ||
-          !verifyWorkerAdmissionHandshake(record.bootstrapReceipt, currentBundle))
-      ) {
-        // Attached and node-backed environments bind placement authority to the admitted build.
-        // Retire stale owners; only unattached SSH leases can bootstrap a replacement in place.
-        await finishDestroy(requestStaleWorkerDestroy(record, store), provider).catch(
-          () => undefined,
-        );
-      }
+      // Failed upgrades retain the old receipt and exact lease for recovery.
+      await refreshRuntime(record, provider, currentBundle, signal).catch((error: unknown) => {
+        saveError(requireCurrentOwner(record), error);
+      });
       return;
     }
     if (record.state === "draining" && record.destroyRequestedAtMs === null) {
@@ -735,8 +703,7 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
       }),
     destroy,
     identityResolverFor,
-    listMachineOptions,
-    listOperatingSystems,
+    ...machineCatalog,
     providerFor,
     reconcileRecord,
   };
