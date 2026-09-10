@@ -8,7 +8,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stopChildProcess } from "../../test/helpers/stop-child-process.js";
 import { hasNodeErrorCode } from "../infra/path-guards.js";
-import * as sqliteReadOnly from "../infra/sqlite-readonly-location.js";
+import * as sqliteReadOnly from "../infra/sqlite-snapshot-source.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { withTempDir } from "../test-utils/temp-dir.js";

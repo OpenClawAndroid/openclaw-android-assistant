@@ -41,6 +41,7 @@ import type {
   CliBackendPlugin,
 } from "../../plugins/cli-backend.types.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
+import type { HookRunner } from "../../plugins/hooks.js";
 import {
   clearMemoryPluginState,
   registerTestMemoryPromptBuilder,
@@ -2529,6 +2530,18 @@ describe("prepareCliRunContext", () => {
     expect(context.params.prompt).toContain("isUser=false");
     expect(context.params.prompt).toContain("trusted hook context");
     expect(context.params.prompt).toContain("foreign reply text");
+    expect(hookRunner.runBeforePromptBuild).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        trigger: "user",
+        inputProvenance: {
+          kind: "inter_session",
+          sourceSessionKey: "agent:main:slack:dm:U123",
+          sourceChannel: "slack",
+          sourceTool: "sessions_send",
+        },
+      }),
+    );
   });
 
   it("applies agent_turn_prepare-only context on the CLI path", async () => {
@@ -2582,7 +2595,7 @@ describe("prepareCliRunContext", () => {
   it("applies before_prompt_build hook context for CLI preparation", async () => {
     const hookRunner = {
       hasHooks: vi.fn((_hookName: string) => true),
-      runBeforePromptBuild: vi.fn(async () => ({
+      runBeforePromptBuild: vi.fn<HookRunner["runBeforePromptBuild"]>(async () => ({
         prependContext: "prompt prepend",
         systemPrompt: "prompt system",
         prependSystemContext: "prompt prepend system",
@@ -2602,15 +2615,11 @@ describe("prepareCliRunContext", () => {
       `${wrappedPluginSystemContext("prompt prepend system")}\n\nprompt system\n\n${wrappedPluginSystemContext("prompt append system")}${SYSTEM_PROMPT_CACHE_BOUNDARY}\nCurrent model identity: test-cli/test-model. If asked what model you are, answer with this value for the current run.`,
     );
     expect(hookRunner.runBeforePromptBuild).toHaveBeenCalledOnce();
-    const beforePromptBuildCalls = hookRunner.runBeforePromptBuild.mock.calls as unknown as Array<
-      [unknown, unknown]
-    >;
-    const promptContext = beforePromptBuildCalls[0]?.[1] as
-      | { channel?: string; chatId?: string; senderId?: string }
-      | undefined;
+    const promptContext = hookRunner.runBeforePromptBuild.mock.calls[0]?.[1];
     expect(promptContext?.channel).toBe("discord");
     expect(promptContext?.chatId).toBe("room-1");
     expect(promptContext?.senderId).toBe("user-789");
+    expect(promptContext?.inputProvenance).toBeUndefined();
   });
 
   it("applies turn-authorized prompt enrichment after CLI tool preparation", async () => {

@@ -206,6 +206,12 @@ export async function runExclusiveSqliteSessionWrite<T>(
     ...(diagnostics?.workerThreadId !== undefined
       ? { workerThreadId: diagnostics.workerThreadId }
       : {}),
+    ...(diagnostics?.reclamationAdmission
+      ? {
+          reclamationAdmissionId: diagnostics.reclamationAdmission.admissionId,
+          reclamationAdmissionReleaseCause: diagnostics.reclamationAdmission.releaseCause,
+        }
+      : {}),
     ...(diagnostics?.artifactPreparation
       ? { artifactPreparation: artifactPreparationLogFields(diagnostics.artifactPreparation) }
       : {}),

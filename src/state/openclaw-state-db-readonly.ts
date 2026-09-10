@@ -7,7 +7,7 @@ import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import {
   prepareSqliteReadOnlyLocation,
   prepareSqliteReadOnlyLocationSync,
-} from "../infra/sqlite-readonly-location.js";
+} from "../infra/sqlite-snapshot-source.js";
 import { withSqliteSourceHandle } from "../infra/sqlite-source-handle.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";

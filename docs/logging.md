@@ -387,6 +387,19 @@ It excludes database opening and the separately timed begin and commit steps.
 These elapsed durations do not measure SQL CPU time or establish a causal link
 to a nearby request.
 
+Immediate `BEGIN` warnings also include `beginAdmission`: `nativeAttempts` counts
+actual native `BEGIN IMMEDIATE` calls and `nativeMs` measures those calls;
+`serviceCalls` counts synchronous admission-service callbacks and `serviceMs`
+measures them. A service callback may find no work, so its count does not mean
+that reclamation was authorized. Failed attempts and throwing callbacks retain
+their partial measurements. Deferred `BEGIN` and `COMMIT` have no breakdown.
+
+These fields use the same wall clock as the unchanged `elapsedMs` total. Native
+time excludes busy-timeout configuration and restoration; other bookkeeping can
+leave a remainder. A service can synchronously join another transaction, whose
+time is already included in the outer `serviceMs`; do not add nested warnings
+together. The breakdown does not identify CPU time or a physical lock holder.
+
 ### SQLite session writes
 
 The `session-sqlite` subsystem emits `slow SQLite session write` when total
@@ -408,6 +421,13 @@ Use `operation` to locate the owning code path. It does not identify a specific
 SQL statement, measure CPU time or lock contention, or establish that a nearby
 RPC caused the delay. Older records may lack `operation`; do not infer it from
 adjacent log messages.
+
+`session.reclamation.worker-commit` labels every numbered Worker write admission,
+not only its final commit. `reclamationAdmissionId` is the actual request ID,
+scoped to that Worker and process. `reclamationAdmissionReleaseCause` records the
+observed `worker-release` message or `worker-exit` event. It does not infer an
+initial/final phase or prove successful commit or cleanup. An early failure can
+leave the release cause absent because neither event has been observed yet.
 
 For `session.lifecycle.artifacts-prepare`, the same warning includes a bounded
 `artifactPreparation` object. `admissionMode` distinguishes an existing cached
