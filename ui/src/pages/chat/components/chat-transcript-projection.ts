@@ -128,13 +128,9 @@ export function projectChatTranscript(
     streamStartedAt: props.streamStartedAt,
     queue: props.queue,
     pendingInputs: props.pendingInputs,
-    workerSetupPendingRunIds: ["requested", "provisioning", "syncing", "starting"].includes(
+    workerSetupPending: ["requested", "provisioning", "syncing", "starting"].includes(
       activeSession?.placement?.state ?? "",
-    )
-      ? props.pendingInputs?.flatMap((input) =>
-          input.state === "queued" && input.runId ? [input.runId] : [],
-        )
-      : undefined,
+    ),
     workspaceSyncPendingRunIds:
       (activeSession?.placement?.state === "active" ||
         activeSession?.placement?.state === "draining") &&
@@ -305,6 +301,7 @@ export function projectChatTranscript(
     embedSandboxMode: props.embedSandboxMode ?? "scripts",
     allowExternalEmbedUrls: props.allowExternalEmbedUrls ?? false,
     fetchLinkFavicon: props.fetchLinkFavicon,
+    pluginToolIcons: props.pluginToolIcons,
     githubRepo: props.githubRepo,
     showAssistantAvatar: avatarPlacement === "gutter" && Boolean(assistantIdentity.avatar),
   } satisfies StreamGroupOptions;
@@ -687,6 +684,7 @@ export function projectChatTranscript(
     props.embedSandboxMode ?? "scripts",
     props.allowExternalEmbedUrls ?? false,
     Boolean(props.fetchLinkFavicon),
+    props.pluginToolIcons,
     props.githubRepo?.owner,
     props.githubRepo?.repo,
     threadContextWindow,
