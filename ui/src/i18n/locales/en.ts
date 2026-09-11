@@ -2211,6 +2211,16 @@ export const en: TranslationMap & {
     blockedAgentFilter: "blocked by agent filter",
   },
   nav: {
+    gateway: {
+      sectionLabel: "Gateway",
+      menuLabel: "Gateway: {gateway}",
+      primaryTag: "primary",
+      setPrimary: "Set as primary…",
+      openSettings: "Gateway settings…",
+      connected: "Connected",
+      unreachable: "Unreachable",
+      unknown: "Unknown status",
+    },
     owner: "Owner",
     back: "Back",
     forward: "Forward",
@@ -4704,10 +4714,9 @@ export const en: TranslationMap & {
       viewDetails: "View details",
     },
     modelAccounts: {
-      label: "Account for this chat",
+      section: "Account",
       automatic: "Automatic (new-chat default)",
       manage: "Manage saved accounts…",
-      draftHint: "Applies only to this session. Your new-chat default is unchanged.",
     },
     mentions: {
       menu: "Mention a person",
@@ -4728,6 +4737,8 @@ export const en: TranslationMap & {
     errorDetails: "Error details",
     details: "Details",
     copyError: "Copy error",
+    providerAccessRemoved:
+      "This reply stopped because the provider was signed out. Sign in again or choose another model.",
     providerPolicy: {
       bufferingTitle: "Cyber safety review",
       bufferingBody: "OpenAI is reviewing this response for cyber safety.",
@@ -4971,15 +4982,6 @@ export const en: TranslationMap & {
       oneMessage: "{count} message",
       messages: "{count} messages",
       activeBranch: "Active branch",
-      gatewayPicker: {
-        menuLabel: "Gateway: {gateway}",
-        primaryTag: "primary",
-        setPrimary: "Set as primary…",
-        openSettings: "Gateway settings…",
-        connected: "Connected",
-        unreachable: "Unreachable",
-        unknown: "Unknown status",
-      },
     },
     board: {
       faceLabel: "Session face",
@@ -5470,8 +5472,6 @@ export const en: TranslationMap & {
       selectionScopeSession: "Selecting a model changes only this session.",
       selectionScopeAgent: "Selecting a model updates this agent's default.",
       selectionScopeGlobal: "Selecting a model updates the global default.",
-      resetSessionModel: "Reset session model",
-      useDefaultModel: "Use default ({model}) for this session",
       defaultWithModel: "Default ({model})",
       defaultWithLevel: "Default ({level})",
       fastHelp: "Faster responses, higher usage of limits.",
@@ -5909,6 +5909,7 @@ export const en: TranslationMap & {
       running: "Running",
       completed: "Completed",
       exitCode: "Exit code {code}",
+      failureCount: "{count} failed",
       noOutputFailed: "No output — tool failed.",
       noOutputSucceeded: "No output — tool completed successfully.",
       noResult: "No result available.",
