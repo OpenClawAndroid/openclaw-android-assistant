@@ -9465,6 +9465,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
     public let featuredat: Int?
     public let order: Double?
     public let hasicon: Bool?
+    public let channelids: [String]?
     public let install: PluginCatalogInstallAction?
     public let error: String?
     public let categories: [String]?
@@ -9488,6 +9489,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
         featuredat: Int? = nil,
         order: Double? = nil,
         hasicon: Bool? = nil,
+        channelids: [String]? = nil,
         install: PluginCatalogInstallAction? = nil,
         error: String? = nil,
         categories: [String]? = nil,
@@ -9510,6 +9512,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
         self.featuredat = featuredat
         self.order = order
         self.hasicon = hasicon
+        self.channelids = channelids
         self.install = install
         self.error = error
         self.categories = categories
@@ -9534,6 +9537,7 @@ public struct PluginCatalogEntry: Codable, Sendable {
         case featuredat = "featuredAt"
         case order
         case hasicon = "hasIcon"
+        case channelids = "channelIds"
         case install
         case error
         case categories
@@ -9772,6 +9776,10 @@ public struct PluginDiscoveryCatalogFacts: Codable, Sendable {
     public let downloads: Double?
     public let installs: Double?
     public let verificationtier: String?
+    public let featured: Bool?
+    public let trending: Bool?
+    public let featuredrank: Int?
+    public let trendingrank: Int?
     public let publishedtoclawhub: Bool?
 
     public init(
@@ -9788,6 +9796,10 @@ public struct PluginDiscoveryCatalogFacts: Codable, Sendable {
         downloads: Double? = nil,
         installs: Double? = nil,
         verificationtier: String? = nil,
+        featured: Bool? = nil,
+        trending: Bool? = nil,
+        featuredrank: Int? = nil,
+        trendingrank: Int? = nil,
         publishedtoclawhub: Bool? = nil)
     {
         self.name = name
@@ -9803,6 +9815,10 @@ public struct PluginDiscoveryCatalogFacts: Codable, Sendable {
         self.downloads = downloads
         self.installs = installs
         self.verificationtier = verificationtier
+        self.featured = featured
+        self.trending = trending
+        self.featuredrank = featuredrank
+        self.trendingrank = trendingrank
         self.publishedtoclawhub = publishedtoclawhub
     }
 
@@ -9820,6 +9836,10 @@ public struct PluginDiscoveryCatalogFacts: Codable, Sendable {
         case downloads
         case installs
         case verificationtier = "verificationTier"
+        case featured
+        case trending
+        case featuredrank = "featuredRank"
+        case trendingrank = "trendingRank"
         case publishedtoclawhub = "publishedToClawHub"
     }
 }
@@ -10088,21 +10108,25 @@ public struct PluginsCatalogBrowseParams: Codable, Sendable {
 
 public struct PluginsCatalogBrowseResult: Codable, Sendable {
     public let items: [PluginDiscoveryEntry]
+    public let categories: [PluginDiscoveryCategory]?
     public let nextcursor: String?
     public let remoteerror: String?
 
     public init(
         items: [PluginDiscoveryEntry],
+        categories: [PluginDiscoveryCategory]? = nil,
         nextcursor: String? = nil,
         remoteerror: String? = nil)
     {
         self.items = items
+        self.categories = categories
         self.nextcursor = nextcursor
         self.remoteerror = remoteerror
     }
 
     private enum CodingKeys: String, CodingKey {
         case items
+        case categories
         case nextcursor = "nextCursor"
         case remoteerror = "remoteError"
     }
