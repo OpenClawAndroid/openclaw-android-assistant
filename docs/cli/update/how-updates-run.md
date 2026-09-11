@@ -71,12 +71,27 @@ available, preserving bundled trust. External path installs keep their existing
 classification. The live plugin files and host links stay unchanged. Channels,
 cron, automatic updates, and other side services are suppressed in this canary.
 
+Snapshot preparation budgets time for the SQLite database and journal bytes,
+including copying and verification passes, with a five-minute startup floor.
+It uses the larger of that allowance and the configured per-step timeout.
+The deadline extends while private files continue changing. A stalled snapshot
+reports its size and applied budget. Snapshot time does not consume the separate
+runtime validation budget, which also honors the configured per-step timeout.
+
+Before copying databases, the updater estimates space for the SQLite snapshot
+set, temporary copies, and the candidate Doctor backup. If the system temporary
+filesystem is too small, it uses an OpenClaw-owned directory under the selected
+state directory's `tmp` folder. If neither filesystem has enough space, it
+refuses with the required size and the available space at both locations.
+Capacity estimates cannot reserve space against other processes writing to the
+same filesystem.
+
 Schema checks also use private SQLite copies so inspection does not create or
 modify WAL sidecars beside live databases. Each schema inspection has a
 30-second deadline; if compatibility cannot be verified, rollback is refused.
 
 The canary binds a free loopback port and must report `/startupz` as `started`,
-then `/readyz` as ready within a five-minute total budget. Failure records the
+then `/readyz` as ready within the configured per-step timeout. Failure records the
 phase, elapsed time, and bounded diagnostics; the canary process group and
 temporary state are cleaned up. This proves candidate startup on copied state;
 live channel and provider behavior are checked after activation.
