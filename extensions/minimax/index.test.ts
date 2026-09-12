@@ -807,15 +807,12 @@ describe("minimax provider hooks", () => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       expect(url).toBe("https://api.minimax.io/v1/token_plan/remains");
-      return new Response(
-        JSON.stringify({
-          data: {
-            current_interval_total_count: 100,
-            current_interval_usage_count: 98,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return Response.json({
+        data: {
+          current_interval_total_count: 100,
+          current_interval_usage_count: 98,
+        },
+      });
     });
 
     const result = await apiProvider.fetchUsageSnapshot?.({

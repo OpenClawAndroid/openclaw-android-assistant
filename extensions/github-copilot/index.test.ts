@@ -632,26 +632,22 @@ describe("github-copilot plugin", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: "gpt-5.4",
-                  name: "GPT-5.4",
-                  model_picker_enabled: true,
-                  policy: { state: "enabled" },
-                  capabilities: {
-                    type: "chat",
-                    limits: { max_context_window_tokens: 200_000, max_output_tokens: 64_000 },
-                    supports: { streaming: true, tool_calls: true },
-                  },
-                },
-              ],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            {
+              id: "gpt-5.4",
+              name: "GPT-5.4",
+              model_picker_enabled: true,
+              policy: { state: "enabled" },
+              capabilities: {
+                type: "chat",
+                limits: { max_context_window_tokens: 200_000, max_output_tokens: 64_000 },
+                supports: { streaming: true, tool_calls: true },
+              },
+            },
+          ],
+        }),
       ),
     );
     const provider = registerProviderWithPluginConfig({});
@@ -822,57 +818,53 @@ describe("github-copilot plugin", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: "eligible",
-                  name: "Eligible",
-                  model_picker_enabled: true,
-                  model_picker_category: "versatile",
-                  policy: { state: "enabled" },
-                  capabilities: {
-                    type: "chat",
-                    limits: { max_context_window_tokens: 200_000, max_output_tokens: 64_000 },
-                    supports: { streaming: true, tool_calls: true },
-                  },
-                },
-                {
-                  id: "disabled",
-                  name: "Disabled",
-                  model_picker_enabled: true,
-                  policy: { state: "disabled" },
-                  capabilities: {
-                    type: "chat",
-                    supports: { streaming: true, tool_calls: true },
-                  },
-                },
-                {
-                  id: "hidden",
-                  name: "Hidden",
-                  model_picker_enabled: false,
-                  policy: { state: "enabled" },
-                  capabilities: {
-                    type: "chat",
-                    supports: { streaming: true, tool_calls: true },
-                  },
-                },
-                {
-                  id: "chat-only",
-                  name: "Chat only",
-                  model_picker_enabled: true,
-                  policy: { state: "enabled" },
-                  capabilities: {
-                    type: "chat",
-                    supports: { streaming: false, tool_calls: false },
-                  },
-                },
-              ],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            {
+              id: "eligible",
+              name: "Eligible",
+              model_picker_enabled: true,
+              model_picker_category: "versatile",
+              policy: { state: "enabled" },
+              capabilities: {
+                type: "chat",
+                limits: { max_context_window_tokens: 200_000, max_output_tokens: 64_000 },
+                supports: { streaming: true, tool_calls: true },
+              },
+            },
+            {
+              id: "disabled",
+              name: "Disabled",
+              model_picker_enabled: true,
+              policy: { state: "disabled" },
+              capabilities: {
+                type: "chat",
+                supports: { streaming: true, tool_calls: true },
+              },
+            },
+            {
+              id: "hidden",
+              name: "Hidden",
+              model_picker_enabled: false,
+              policy: { state: "enabled" },
+              capabilities: {
+                type: "chat",
+                supports: { streaming: true, tool_calls: true },
+              },
+            },
+            {
+              id: "chat-only",
+              name: "Chat only",
+              model_picker_enabled: true,
+              policy: { state: "enabled" },
+              capabilities: {
+                type: "chat",
+                supports: { streaming: false, tool_calls: false },
+              },
+            },
+          ],
+        }),
       ),
     );
     const provider = registerProviderWithPluginConfig({});
@@ -1090,31 +1082,28 @@ describe("github-copilot plugin", () => {
           baseUrl: "https://api.githubcopilot.first",
         });
       const catalogResponse = (contextWindow: number, promptTokens: number) =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: "gpt-5.6-sol",
-                name: "GPT-5.6 Sol",
-                object: "model",
-                vendor: "OpenAI",
-                capabilities: {
-                  type: "chat",
-                  limits: {
-                    max_context_window_tokens: contextWindow,
-                    max_prompt_tokens: promptTokens,
-                    max_output_tokens: 128_000,
-                  },
-                  supports: {
-                    vision: true,
-                    reasoning_effort: ["none", "low", "medium", "high", "xhigh"],
-                  },
+        Response.json({
+          data: [
+            {
+              id: "gpt-5.6-sol",
+              name: "GPT-5.6 Sol",
+              object: "model",
+              vendor: "OpenAI",
+              capabilities: {
+                type: "chat",
+                limits: {
+                  max_context_window_tokens: contextWindow,
+                  max_prompt_tokens: promptTokens,
+                  max_output_tokens: 128_000,
+                },
+                supports: {
+                  vision: true,
+                  reasoning_effort: ["none", "low", "medium", "high", "xhigh"],
                 },
               },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+            },
+          ],
+        });
       vi.stubGlobal(
         "fetch",
         vi
@@ -1195,27 +1184,24 @@ describe("github-copilot plugin", () => {
           baseUrl: "https://api.githubcopilot.direct",
         });
       const catalogResponse = (contextWindow: number, promptTokens: number) =>
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: "gpt-5.6-sol",
-                name: "GPT-5.6 Sol",
-                object: "model",
-                vendor: "OpenAI",
-                capabilities: {
-                  type: "chat",
-                  limits: {
-                    max_context_window_tokens: contextWindow,
-                    max_prompt_tokens: promptTokens,
-                    max_output_tokens: 128_000,
-                  },
+        Response.json({
+          data: [
+            {
+              id: "gpt-5.6-sol",
+              name: "GPT-5.6 Sol",
+              object: "model",
+              vendor: "OpenAI",
+              capabilities: {
+                type: "chat",
+                limits: {
+                  max_context_window_tokens: contextWindow,
+                  max_prompt_tokens: promptTokens,
+                  max_output_tokens: 128_000,
                 },
               },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+            },
+          ],
+        });
       vi.stubGlobal(
         "fetch",
         vi
@@ -1293,22 +1279,16 @@ describe("github-copilot plugin", () => {
               ? input.url
               : String(input);
       if (target === "https://github.com/login/device/code") {
-        return new Response(
-          JSON.stringify({
-            device_code: "device-code-stub",
-            user_code: "ABCD-1234",
-            verification_uri: "https://github.com/login/device",
-            expires_in: 900,
-            interval: 0,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return Response.json({
+          device_code: "device-code-stub",
+          user_code: "ABCD-1234",
+          verification_uri: "https://github.com/login/device",
+          expires_in: 900,
+          interval: 0,
+        });
       }
       if (target === "https://github.com/login/oauth/access_token") {
-        return new Response(
-          JSON.stringify({ access_token: "refreshed-token", token_type: "bearer" }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return Response.json({ access_token: "refreshed-token", token_type: "bearer" });
       }
       throw new Error(`unexpected fetch in github-copilot refresh test: ${target}`);
     });
@@ -1383,22 +1363,16 @@ describe("github-copilot plugin", () => {
               ? input.url
               : String(input);
       if (target === `https://${domain}/login/device/code`) {
-        return new Response(
-          JSON.stringify({
-            device_code: "device-code-stub",
-            user_code: "ABCD-1234",
-            verification_uri: `https://${domain}/login/device`,
-            expires_in: 900,
-            interval: 0,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return Response.json({
+          device_code: "device-code-stub",
+          user_code: "ABCD-1234",
+          verification_uri: `https://${domain}/login/device`,
+          expires_in: 900,
+          interval: 0,
+        });
       }
       if (target === `https://${domain}/login/oauth/access_token`) {
-        return new Response(JSON.stringify({ access_token: accessToken, token_type: "bearer" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return Response.json({ access_token: accessToken, token_type: "bearer" });
       }
       throw new Error(`unexpected fetch in github-copilot device flow test: ${target}`);
     });
@@ -1775,10 +1749,7 @@ describe("github-copilot plugin", () => {
         }
         accessTokenPolls += 1;
         return {
-          response: new Response(
-            JSON.stringify({ access_token: "refreshed-token", token_type: "bearer" }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
+          response: Response.json({ access_token: "refreshed-token", token_type: "bearer" }),
           finalUrl: params.url,
           release,
         };

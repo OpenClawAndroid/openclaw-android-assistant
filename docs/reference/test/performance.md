@@ -29,6 +29,29 @@ Native imports also need the plugin's declared dependencies and a resolvable `op
 
 ## Benchmarks
 
+<Accordion title="Session history (scripts/bench-session-history.ts)">
+
+Measure SQLite history pages and the Gateway's bounded history reader with
+synthetic conversations, including sparse markers, dense markers, and resets:
+
+```bash
+pnpm test:sessions:history:bench --samples 30 --output history.json
+pnpm test:sessions:history:bench --profile sparse,trailing,reset --operation recent --analyze --samples 15 --output history-analyzed.json
+```
+
+The second command includes 5,000 trailing compaction markers and refreshes
+SQLite planner statistics before reading. Compare both statistics states when
+changing a query. `--operation` selects `recent`, `page`, or `gateway-tail`;
+omitting it measures all three.
+
+Each reader runs in a fresh process. Reports separate imports, the first read
+(including database open), and warm p50/p95 wall and CPU time. OS caches are not
+flushed. SQL plans, statement counts, rows delivered to JavaScript, and JSON
+parsing counts come from a separate instrumented read. Heap deltas are
+uncollected observations, not total allocations. Fixtures are removed afterward.
+
+</Accordion>
+
 <Accordion title="Model latency (scripts/bench-model.ts)">
 
 ```bash
@@ -142,6 +165,53 @@ continuous peak-RSS coverage of the entire agent workload.
 Equal request counts do not equalize their overlap with agent turns or the
 Gateway's time-dependent background work.
 
+To measure clicking an existing session in the Control UI sidebar during load,
+build the UI and install Playwright Chromium, then enable the browser probe:
+
+```bash
+pnpm ui:build
+pnpm --dir ui exec playwright install chromium
+pnpm test:gateway:concurrency -- --session-count 1000 --concurrency 16 --turns-per-session 2 --browser-session-clicks 3 --browser-history-messages 80 --timeout-ms 240000 --no-diagnostics-timeline --output .artifacts/gateway-session-clicks.json
+```
+
+`--browser-session-clicks` defaults to 0 and accepts up to 20 first visits,
+followed by one revisit to a recent pane. The probe seeds separate idle click
+targets after the inventory. `--browser-history-messages` defaults to 80 per
+target (maximum 500), independent of `--history-messages`, so a large inventory
+does not require history in every session. `--history-message-chars` also sizes
+the browser targets' synthetic Markdown. The browser uses the built assets in
+`dist/control-ui`; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can select an installed
+Chromium executable.
+
+`browser.inventory` records requested load and click target counts alongside
+the authoritative unarchived and retained session counts before load, including
+the click targets. Retained counts include archived sessions; normal inventory
+maintenance can reduce the unarchived count during seeding.
+
+Each run's `browser.clicks` records time from the actual browser click event to
+the target pane's visible history, enabled composer, and successful transcript load
+followed by a paint opportunity (`readyMs`). These timings exclude Playwright
+actionability waits. RPC `windowStartMs` offsets begin before that wait;
+`latencyMs` measures the observed request/response round trip. Request records
+include socket identity, method, session key, success, error, and response bytes.
+An `inherited` request began before the click window and has a negative
+`windowStartMs`; its latency includes the earlier wait. Completed click records
+remain unchanged when a later window observes the response. The probe includes
+message subscribe/unsubscribe requests to expose subscription recovery waits.
+`connections` records observed socket, hello, and outer event sequence gaps;
+negative offsets include recent setup events. Close events report observed inbound
+silence, without inferring a close reason. `paneStates` records changes to the selected pane's loading,
+readiness, connection epoch, and rendered history error. A displayed history
+failure retains visible-history/composer timings but fails the click instead of
+counting as ready. Browser `longTasks`
+contains the milliseconds each observed long task overlaps the click-to-ready
+interval, separate from the Gateway's Node CPU, event-loop, and memory
+samples. Pre-load `/new` and initial-session timings stay outside the click
+summary. Compare first visits and cached revisits separately, and check
+`activeLoadAtStart`, `activeLoadAtFinish`, and `samplesOutsideActiveLoad` before
+attributing latency to concurrent work. A recorded click failure makes the benchmark
+exit unsuccessfully after writing its report.
+
 `--heap-prof-dir` samples allocations in the Gateway's main V8 isolate, starting
 after startup, session seeding, and probe warmup. Sampling ends after the load
 and its final memory probe, before profile serialization and teardown. It uses
@@ -161,6 +231,18 @@ Sampling is statistical and adds overhead. Use unprofiled runs for latency
 comparisons. Existing heap/RSS measurements are taken before exporting the
 profile. `--cpu-prof-dir` remains available separately and includes startup;
 the recorded `loadWindow` identifies the measured interval in that CPU profile.
+
+For CPU attribution during concurrent work, including on Windows, add
+`--load-cpu-prof-dir .artifacts/gateway-load-cpu`. This captures the Gateway's
+main V8 isolate at a 1 ms sampling interval after setup and through the final
+memory probe. The private benchmark IPC channel stops the profiler and writes
+the `.cpuprofile` before process teardown, without depending on signal-driven
+profile flushing. Each run's `loadCpuProfile` records its path, duration, and
+sample count; open the raw profile in Chrome DevTools. Worker isolates are not
+included. Profiled runs add overhead, so keep them separate from latency
+comparisons. `--cpu-prof-dir` retains its startup-inclusive native profiling
+behavior. `--load-cpu-prof-dir` and `--heap-prof-dir` require separate runs so
+exporting one profile cannot contaminate the other capture.
 
 </Accordion>
 

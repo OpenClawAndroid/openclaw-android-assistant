@@ -219,6 +219,11 @@ logs the skipped notice and keeps the update outcome in the run record and
 Control UI; it does not redirect the notice to another chat or wake the rejected
 session with diagnostics.
 
+Update lifecycle notices also honor the destination account's `actions.sendMessage`
+policy. An explicit account setting overrides the channel default; when neither
+sets the flag, notices are allowed. Disabled sends are recorded as skipped notices
+without preventing the update or its Control UI report.
+
 Managed systemd or launchd updates can stop the Gateway before an intermediate
 notice is delivered. The complete four-message sequence is not guaranteed for
 those installations; the durable run report remains available after reconnect.

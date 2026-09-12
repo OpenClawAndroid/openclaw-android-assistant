@@ -152,6 +152,9 @@ function serializeMarkdownDestination(href: string): string {
 type DelimitedMarkdownScan = { end: number } | { next: number } | undefined;
 
 function blankBlockEnd(text: string, index: number): number | undefined {
+  if (text[index] !== "\n" && text[index] !== "\r") {
+    return undefined;
+  }
   const match = /^(?:\r?\n)[ \t]*(?:\r?\n)/u.exec(text.slice(index));
   return match ? index + match[0].length : undefined;
 }

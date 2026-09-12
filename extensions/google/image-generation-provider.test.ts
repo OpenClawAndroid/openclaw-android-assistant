@@ -199,25 +199,22 @@ describe("Google image-generation provider", () => {
   it("passes request SSRF policy to the provider HTTP helper", async () => {
     mockGoogleApiKeyAuth();
     const postJsonRequest = vi.spyOn(providerHttp, "postJsonRequest").mockResolvedValue({
-      response: new Response(
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "image/png",
-                      data: Buffer.from("png-data").toString("base64"),
-                    },
+      response: Response.json({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: "image/png",
+                    data: Buffer.from("png-data").toString("base64"),
                   },
-                ],
-              },
+                },
+              ],
             },
-          ],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+          },
+        ],
+      }),
       finalUrl:
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent",
       release: async () => {},

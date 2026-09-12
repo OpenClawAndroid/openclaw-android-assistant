@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../../config/types.openclaw.js";
 import type { RestartSentinelPayload } from "../../infra/restart-sentinel.js";
 import type { RespawnSupervisor } from "../../infra/supervisor-markers.js";
 import type { UpdateChannel } from "../../infra/update-channels.js";
+import { getUpdateRun } from "../../infra/update-run-ledger.js";
 import { createTempHomeEnv, type TempHomeEnv } from "../../test-utils/temp-home.js";
 
 let ledgerHome: TempHomeEnv | undefined;
@@ -460,3 +462,71 @@ beforeEach(() => {
     reason: "not-git-update",
   });
 });
+
+export async function invokeUpdateRun(
+  params: Record<string, unknown>,
+  respond?: (ok: boolean, response?: unknown) => void,
+  runtimeConfig: OpenClawConfig = {
+    update: {},
+    commands: { ownerAllowFrom: ["slack:C0123ABC", "slack:C0456DEF"] },
+  },
+) {
+  const { updateHandlers } = await import("./update.js");
+  const onRespond = respond ?? (() => {});
+  await expectDefined(
+    updateHandlers["update.run"],
+    'updateHandlers["update.run"] test invariant',
+  )({
+    params,
+    respond: onRespond as never,
+    context: { getRuntimeConfig: () => runtimeConfig },
+  } as never);
+}
+
+export async function captureUpdateRunPayload(
+  params: Record<string, unknown> = {},
+  runtimeConfig?: OpenClawConfig,
+): Promise<UpdateRunPayload | undefined> {
+  let payload: UpdateRunPayload | undefined;
+  await invokeUpdateRun(
+    params,
+    (_ok: boolean, response: unknown) => {
+      payload = response as UpdateRunPayload;
+    },
+    runtimeConfig,
+  );
+  if (
+    payload?.result?.status &&
+    payload.result.status !== "ok" &&
+    payload.handoff?.status !== "started"
+  ) {
+    expect(getUpdateRun(payload.runId)).toMatchObject({
+      status: payload.result.status === "skipped" ? "skipped" : "failed",
+      phase: "finished",
+      reason: payload.result.reason,
+    });
+  }
+  return payload;
+}
+
+export function mockGlobalInstallSurface() {
+  initializeGatewayUpdateStatusMock.mockResolvedValueOnce({
+    root: "/tmp/openclaw-global",
+    status: { root: "/tmp/openclaw-global", installKind: "package", packageManager: "npm" },
+    installReceipt: null,
+  });
+  resolveUpdateInstallSurfaceMock.mockResolvedValueOnce({
+    kind: "global",
+    mode: "npm",
+    root: "/tmp/openclaw-global",
+    packageRoot: "/tmp/openclaw-global",
+  });
+}
+
+export function mockGitInstallSurface(root: string) {
+  initializeGatewayUpdateStatusMock.mockResolvedValueOnce({
+    root,
+    status: { root, installKind: "git", packageManager: "pnpm" },
+    installReceipt: null,
+  });
+}

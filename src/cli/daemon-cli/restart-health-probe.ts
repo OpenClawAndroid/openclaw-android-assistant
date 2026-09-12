@@ -266,7 +266,7 @@ export async function confirmGatewayReachable(params: {
     const auth = params.auth ?? context.auth;
     const configuredProbe =
       params.configuredProbe ?? createConfiguredGatewayLocalProbe(context.config);
-    const target = await configuredProbe.resolveWebSocketTarget(params.port);
+    const target = await configuredProbe.resolveWebSocketTarget(params.port, params.signal);
     if (!target) {
       return { ...result, gatewayBuildId: null, probeError: "gateway TLS certificate unavailable" };
     }

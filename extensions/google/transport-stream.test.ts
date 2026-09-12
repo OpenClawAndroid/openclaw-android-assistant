@@ -208,11 +208,11 @@ function mockGoogleTextResponse(text = "ok"): void {
 }
 
 function buildRateLimitResponse(): Response {
-  return new Response(
-    JSON.stringify({
+  return Response.json(
+    {
       error: { message: "quota exceeded", status: "RESOURCE_EXHAUSTED" },
-    }),
-    { status: 429, headers: { "content-type": "application/json" } },
+    },
+    { status: 429 },
   );
 }
 
@@ -2357,10 +2357,7 @@ describe("google transport stream", () => {
           credentialQuotaProject,
         );
         tokenFetchMock.mockResolvedValueOnce(
-          new Response(JSON.stringify({ access_token: "fixture-vertex-token", expires_in: 3600 }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
+          Response.json({ access_token: "fixture-vertex-token", expires_in: 3600 }),
         );
       } else if (credentialType === "service_account") {
         const tempDir = await mkdtemp(
@@ -2430,12 +2427,9 @@ describe("google transport stream", () => {
     await useGoogleAuthorizedUserCredentials("adc", "refresh-token");
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "vertex-project");
     vi.stubEnv("GOOGLE_CLOUD_LOCATION", "global");
-    const tokenFetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: "ya29.vertex-token", expires_in: 3600 }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    );
+    const tokenFetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ access_token: "ya29.vertex-token", expires_in: 3600 }));
     mockGoogleTextResponse();
 
     const result = await runGoogleVertexStreamResult({ fetch: tokenFetchMock });
@@ -2556,20 +2550,12 @@ describe("google transport stream", () => {
     const tokenFetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            access_token: "ya29.unsafe-token",
-            expires_in: Number.MAX_SAFE_INTEGER,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ access_token: "ya29.fresh-token", expires_in: 3600 }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
+        Response.json({
+          access_token: "ya29.unsafe-token",
+          expires_in: Number.MAX_SAFE_INTEGER,
         }),
-      );
+      )
+      .mockResolvedValueOnce(Response.json({ access_token: "ya29.fresh-token", expires_in: 3600 }));
 
     await expect(resolveGoogleVertexAuthorizedUserHeaders(tokenFetchMock)).resolves.toEqual({
       Authorization: "Bearer ya29.unsafe-token",
@@ -2603,12 +2589,9 @@ describe("google transport stream", () => {
     vi.stubEnv("APPDATA", appDataDir);
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "vertex-project");
     vi.stubEnv("GOOGLE_CLOUD_LOCATION", "global");
-    const tokenFetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: "ya29.appdata-token", expires_in: 3600 }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    );
+    const tokenFetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ access_token: "ya29.appdata-token", expires_in: 3600 }));
     mockGoogleTextResponse();
 
     await runGoogleVertexStreamResult({ fetch: tokenFetchMock });

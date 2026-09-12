@@ -62,12 +62,9 @@ describe("describeGeminiVideo", () => {
     const fetchFn = withFetchPreconnect(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seenKey = headers.get("x-goog-api-key");
-      return new Response(
-        JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "video ok" }] } }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return Response.json({
+        candidates: [{ content: { parts: [{ text: "video ok" }] } }],
+      });
     });
 
     const result = await describeGeminiVideo({
@@ -93,12 +90,9 @@ describe("describeGeminiVideo", () => {
     ).toBe(false);
 
     const fetchFn = withFetchPreconnect(async () => {
-      return new Response(
-        JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "video ok" }] } }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return Response.json({
+        candidates: [{ content: { parts: [{ text: "video ok" }] } }],
+      });
     });
 
     await describeGeminiVideo({

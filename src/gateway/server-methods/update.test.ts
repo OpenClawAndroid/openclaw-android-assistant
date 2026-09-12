@@ -25,8 +25,6 @@ import {
   withTransferredUpdateHandoff,
   runGatewayUpdateMock,
   runGatewayUpdatePreflightMock,
-  resolveUpdateInstallSurfaceMock,
-  initializeGatewayUpdateStatusMock,
   recordLatestUpdateRestartSentinelMock,
   isRestartEnabledMock,
   detectRespawnSupervisorMock,
@@ -41,82 +39,17 @@ import {
   resolveGatewayLifecycleNoticeRouteMock,
   scheduleGatewaySigusr1RestartMock,
   runPostCoreFinalizeAfterGatewayUpdateMock,
-  type UpdateRunPayload,
+  invokeUpdateRun,
+  captureUpdateRunPayload,
+  mockGlobalInstallSurface,
+  mockGitInstallSurface,
 } from "./update.test-harness.js";
-
-async function invokeUpdateRun(
-  params: Record<string, unknown>,
-  respond?: (ok: boolean, response?: unknown) => void,
-  runtimeConfig: OpenClawConfig = {
-    update: {},
-    commands: { ownerAllowFrom: ["slack:C0123ABC", "slack:C0456DEF"] },
-  },
-) {
-  const { updateHandlers } = await import("./update.js");
-  const onRespond = respond ?? (() => {});
-  await expectDefined(
-    updateHandlers["update.run"],
-    'updateHandlers["update.run"] test invariant',
-  )({
-    params,
-    respond: onRespond as never,
-    context: { getRuntimeConfig: () => runtimeConfig },
-  } as never);
-}
-
-async function captureUpdateRunPayload(
-  params: Record<string, unknown> = {},
-  runtimeConfig?: OpenClawConfig,
-): Promise<UpdateRunPayload | undefined> {
-  let payload: UpdateRunPayload | undefined;
-  await invokeUpdateRun(
-    params,
-    (_ok: boolean, response: unknown) => {
-      payload = response as UpdateRunPayload;
-    },
-    runtimeConfig,
-  );
-  if (
-    payload?.result?.status &&
-    payload.result.status !== "ok" &&
-    payload.handoff?.status !== "started"
-  ) {
-    expect(getUpdateRun(payload.runId)).toMatchObject({
-      status: payload.result.status === "skipped" ? "skipped" : "failed",
-      phase: "finished",
-      reason: payload.result.reason,
-    });
-  }
-  return payload;
-}
 
 function readCapturedPayload(): RestartSentinelPayload {
   if (!sentinelState.capturedPayload) {
     throw new Error("expected restart sentinel payload");
   }
   return sentinelState.capturedPayload;
-}
-
-function mockGlobalInstallSurface() {
-  initializeGatewayUpdateStatusMock.mockResolvedValueOnce({
-    root: "/tmp/openclaw-global",
-    status: { root: "/tmp/openclaw-global", installKind: "package", packageManager: "npm" },
-    installReceipt: null,
-  });
-  resolveUpdateInstallSurfaceMock.mockResolvedValueOnce({
-    kind: "global",
-    mode: "npm",
-    root: "/tmp/openclaw-global",
-    packageRoot: "/tmp/openclaw-global",
-  });
-}
-
-function mockGitInstallSurface(root: string) {
-  initializeGatewayUpdateStatusMock.mockResolvedValueOnce({
-    root,
-    status: { root, installKind: "git", packageManager: "pnpm" },
-    installReceipt: null,
-  });
 }
 
 describe("update.run acknowledgement", () => {
@@ -134,6 +67,66 @@ describe("update.run acknowledgement", () => {
       origin: { sessionKey },
       verification: { noticeDelivered: false },
     });
+  });
+  it.each([
+    {
+      name: "channel disabled",
+      base: false,
+      account: undefined,
+      accountId: "work",
+      allowed: false,
+    },
+    { name: "account enabled", base: false, account: true, accountId: "work", allowed: true },
+    { name: "account disabled", base: true, account: false, accountId: "work", allowed: false },
+    { name: "unset", base: undefined, account: undefined, accountId: "work", allowed: true },
+    {
+      name: "default account enabled",
+      base: false,
+      account: true,
+      accountId: undefined,
+      allowed: true,
+    },
+    {
+      name: "default account disabled",
+      base: true,
+      account: false,
+      accountId: undefined,
+      allowed: false,
+    },
+  ])("honors update notice send policy ($name)", async ({ base, account, accountId, allowed }) => {
+    const sessions = await import("../../config/sessions.js");
+    vi.mocked(sessions.extractDeliveryInfo).mockReturnValueOnce({
+      deliveryContext: { channel: "telegram", to: "12345", accountId },
+      threadId: undefined,
+    });
+    resolveGatewayLifecycleNoticeRouteMock.mockReturnValueOnce({
+      channel: "telegram",
+      to: "12345",
+      accountId,
+      threadId: undefined,
+    });
+    const response = await captureUpdateRunPayload(
+      { sessionKey: "agent:main:telegram:dm:12345" },
+      {
+        update: {},
+        commands: { ownerAllowFrom: ["telegram:12345"] },
+        channels: {
+          telegram: {
+            actions: { sendMessage: base },
+            defaultAccount: "work",
+            accounts: { work: { actions: { sendMessage: account } } },
+          },
+        },
+      },
+    );
+    expect(response).toMatchObject({ ok: true, ackDelivered: allowed, ackQueued: allowed });
+    expect(runGatewayUpdateMock).toHaveBeenCalledOnce();
+    expect(sendGatewayLifecycleNoticeMock).toHaveBeenCalledTimes(allowed ? 2 : 0);
+    if (!allowed) {
+      expect(getUpdateRun(expectDefined(response, "update response").runId)).toMatchObject({
+        verification: { noticeDelivered: false },
+      });
+    }
   });
 
   it.each([false, true])(
