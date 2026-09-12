@@ -9,7 +9,9 @@ import { sanitizeForLog, stripAnsi } from "../../packages/terminal-core/src/ansi
 import { REDACTED_SENTINEL } from "../config/redact-snapshot.js";
 import { isSecretRefShape } from "../config/redact-snapshot.secret-ref.js";
 import { isBlockedObjectKey } from "../infra/prototype-keys.js";
-import { redactSensitiveText } from "./redact.js";
+import { parseRedactPatternSource, replaceRedactPattern } from "./redact-pattern-runtime.js";
+import { AWS_SECRET_ACCESS_KEY_MATCHER, VENDOR_TOKEN_REDACT_PATTERNS } from "./redact-patterns.js";
+import { redactSensitiveText, redactText } from "./redact.js";
 
 // Redaction helpers for support bundles; preserve operational shape while removing private data.
 const SECRET_SUPPORT_FIELD_RE =
@@ -26,8 +28,9 @@ const SENSITIVE_COMMAND_ARG_RE =
 const BASIC_AUTH_RE = /\bBasic\s+[A-Za-z0-9+/]+={0,2}/giu;
 const COOKIE_HEADER_RE = /\b(Cookie|Set-Cookie)\s*:\s*[^\r\n]+/giu;
 const AWS_ACCESS_KEY_ID_RE = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/gu;
-const AWS_SECRET_ACCESS_KEY_RE =
-  /(?<![A-Za-z0-9/+=_,-])(?<!;base64,[A-Za-z0-9+/=]*)(?=[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]))(?=[A-Za-z0-9/+=]{0,39}[A-Z])(?=[A-Za-z0-9/+=]{0,39}[a-z])(?=[A-Za-z0-9/+=]{0,39}[0-9/+=])(?=[A-Za-z0-9/+=]{0,39}[^A-Fa-f0-9])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=_,-])/gu;
+const vendorTokenPatterns = VENDOR_TOKEN_REDACT_PATTERNS.map(
+  (pattern) => new RegExp(...parseRedactPatternSource(pattern)),
+);
 const JWT_RE = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gu;
 const URL_USERINFO_RE = /\b([a-z][a-z0-9+.-]*:\/\/)([^/@\s:?#]+)(?::([^/@\s?#]+))?@/giu;
 const URL_PARAM_RE = /([?&])([^=&\s]+)=([^&#\s]+)/giu;
@@ -301,12 +304,17 @@ function redactSensitiveTextForSupport(value: string): string {
 }
 
 function redactCommonCredentialTextForSupport(value: string): string {
-  return value
+  const redacted = value
     .replace(BASIC_AUTH_RE, "Basic <redacted>")
     .replace(COOKIE_HEADER_RE, "$1: <redacted>")
     .replace(AWS_ACCESS_KEY_ID_RE, "<redacted-aws-key>")
-    .replace(JWT_RE, "<redacted-jwt>")
-    .replace(AWS_SECRET_ACCESS_KEY_RE, "<redacted-aws-secret-key>");
+    .replace(JWT_RE, "<redacted-jwt>");
+  // Whole vendor tokens precede bare keys; field masking must not consume the full support mask.
+  return replaceRedactPattern(
+    redactText(redacted, vendorTokenPatterns, { fullContext: true }),
+    AWS_SECRET_ACCESS_KEY_MATCHER,
+    () => "<redacted-aws-secret-key>",
+  );
 }
 
 function redactUrlSecretsForSupport(value: string): string {
