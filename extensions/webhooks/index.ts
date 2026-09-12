@@ -26,10 +26,11 @@ function registerWebhookRoutes(api: OpenClawPluginApi): void {
       path: route.path,
       secretInput: route.secret,
       defaultControllerId: route.controllerId,
-      taskFlow,
-      taskFlowReads: api.runtime.tasks.async.managedFlows.bindSession({
-        sessionKey: route.sessionKey,
-      }),
+      taskFlow: {
+        ...api.runtime.tasks.async.managedFlows.bindSession({ sessionKey: route.sessionKey }),
+        cancel: taskFlow.cancel,
+        runTask: taskFlow.runTask,
+      },
     };
     targetsByPath.set(target.path, [...(targetsByPath.get(target.path) ?? []), target]);
     api.registerHttpRoute({

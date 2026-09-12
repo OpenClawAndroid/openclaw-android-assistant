@@ -3,8 +3,9 @@
 
 import { expectDefined } from "@openclaw/normalization-core";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextEngine } from "../../../context-engine/types.js";
+import * as gatewayCallRuntime from "../../../gateway/call.js";
 import { openOpenClawStateDatabase } from "../../../state/openclaw-state-db.js";
 import {
   resetTaskFlowRegistryForTests,
@@ -48,15 +49,15 @@ const sessionStore = vi.hoisted(
     ),
 );
 
-vi.mock("../../../gateway/call.js", () => ({
-  callGateway: vi.fn(async (opts: unknown) => {
-    const request = opts as { method?: string };
+const gatewayCall = vi
+  .spyOn(gatewayCallRuntime, "callGateway")
+  .mockImplementation(async (request) => {
     if (request.method === "agent.wait") {
       return { status: "pending" };
     }
     return {};
-  }),
-}));
+  });
+afterAll(() => gatewayCall.mockRestore());
 
 vi.mock("../../../infra/agent-events.js", () => ({
   getAgentEventLifecycleGeneration: () => "test-generation",

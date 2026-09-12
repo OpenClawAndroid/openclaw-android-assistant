@@ -223,9 +223,6 @@ function configApplyHintForOperations(
   if (paths.length === 0) {
     return "No gateway restart needed.";
   }
-  if (paths.some((path) => path === "plugins.entries" || path.startsWith("plugins.entries."))) {
-    return "Restart the gateway to apply.";
-  }
   const plan = buildGatewayReloadPlan(paths, { candidateConfig: afterConfig });
   if (
     plan.restartGateway ||

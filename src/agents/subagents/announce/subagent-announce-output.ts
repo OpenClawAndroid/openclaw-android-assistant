@@ -23,7 +23,7 @@ import {
   readLatestSubagentOutputWithRetryUsing,
 } from "./subagent-announce-capture.js";
 import {
-  callGateway,
+  callSubagentLifecycleGateway,
   getRuntimeConfig,
   readSubagentSessionEntry,
   readSessionMessagesAsync,
@@ -45,7 +45,7 @@ const ASSISTANT_TOOL_CALL_BLOCK_TYPES = new Set([
   "function_call",
 ]);
 type SubagentAnnounceOutputDeps = {
-  callGateway: typeof callGateway;
+  callGateway: typeof callSubagentLifecycleGateway;
   getRuntimeConfig: typeof getRuntimeConfig;
   readSubagentSessionEntry: typeof readSubagentSessionEntry;
   readSessionMessagesAsync: typeof readSessionMessagesAsync;
@@ -54,7 +54,7 @@ type SubagentAnnounceOutputDeps = {
 };
 
 const defaultSubagentAnnounceOutputDeps: SubagentAnnounceOutputDeps = {
-  callGateway,
+  callGateway: callSubagentLifecycleGateway,
   getRuntimeConfig,
   readSubagentSessionEntry,
   readSessionMessagesAsync,

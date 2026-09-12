@@ -503,6 +503,7 @@ async function runPluginUpdateCommandUnlocked(
   });
   const deferredInstallTransactions: PluginInstallTransaction[] = [];
   let packageUpdatePersisted = false;
+  let updateFailure: { error: unknown } | undefined;
   try {
     let pluginResult =
       pluginSelection.pluginIds.length > 0
@@ -672,9 +673,12 @@ async function runPluginUpdateCommandUnlocked(
       error: defaultRuntime.error,
     });
     return outcomeSummary.hasErrors ? 1 : 0;
+  } catch (error) {
+    updateFailure = { error };
+    throw error;
   } finally {
     if (!packageUpdatePersisted) {
-      await settlePluginInstallTransactions(deferredInstallTransactions, "rollback");
+      await settlePluginInstallTransactions(deferredInstallTransactions, "rollback", updateFailure);
     }
   }
 }

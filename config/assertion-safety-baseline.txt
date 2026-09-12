@@ -1910,7 +1910,7 @@ src/agents/shell-snapshot.ts	1
 src/agents/spawn-plan.ts	1
 src/agents/subagents/announce/subagent-announce-completion-delivery.ts	2
 src/agents/subagents/announce/subagent-announce-delivery-retry.ts	2
-src/agents/subagents/announce/subagent-announce-delivery.runtime.ts	2
+src/agents/subagents/announce/subagent-announce-delivery.runtime.ts	1
 src/agents/subagents/announce/subagent-announce-delivery.ts	1
 src/agents/subagents/announce/subagent-announce-origin.ts	2
 src/agents/subagents/announce/subagent-announce-output.ts	8
@@ -1966,7 +1966,6 @@ src/agents/tools/cron-tool.ts	10
 src/agents/tools/dashboard-tool.ts	2
 src/agents/tools/embedded-gateway-stub.ts	7
 src/agents/tools/gateway-tool.ts	5
-src/agents/tools/gateway.ts	1
 src/agents/tools/goal-tools.ts	2
 src/agents/tools/heartbeat-response-tool.ts	1
 src/agents/tools/image-generate-tool.ts	2
@@ -3353,7 +3352,6 @@ src/plugins/runtime/runtime-agent.ts	1
 src/plugins/runtime/runtime-channel.ts	1
 src/plugins/runtime/runtime-llm-isolated.ts	3
 src/plugins/runtime/runtime-llm.runtime.ts	4
-src/plugins/runtime/runtime-taskflow.ts	1
 src/plugins/schema-validator.ts	6
 src/plugins/sdk-alias.ts	2
 src/plugins/session-catalog-history-import.ts	1

@@ -4,6 +4,7 @@ import {
   getAgentEventLifecycleGeneration,
   isAgentEventLifecycleGenerationCurrent,
 } from "../../../infra/agent-events.js";
+import { getGatewayContextResolver as getEntryGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
 import {
   runWithGatewayIndependentRootWorkAdmission,
   GatewayDrainingError,
@@ -433,6 +434,8 @@ export function createSubagentRegistryRestorer(config: {
             }
             const outcome = await deleteSubagentSessionForCleanup({
               callGateway: deps().callGateway,
+              gatewayBinding: { resolveGatewayContext: getEntryGatewayContextResolver(entry) },
+              isCurrent: ownsCleanup,
               childSessionKey: entry.childSessionKey,
               expectedSessionId,
               expectedLifecycleRevision,

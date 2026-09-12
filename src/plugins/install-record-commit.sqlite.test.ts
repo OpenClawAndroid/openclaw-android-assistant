@@ -326,7 +326,7 @@ describe("plugin install record commit rollback", () => {
 
 describe("committed plugin configuration", () => {
   it.each([false, true])(
-    "returns the persisted configuration (pending records: %s)",
+    "returns committed source separately from authored configuration (pending records: %s)",
     async (pending) => {
       await withOpenClawTestState({ label: "committed-plugin-config" }, async (state) => {
         await state.writeConfig({ gateway: { mode: "local" } });
@@ -344,8 +344,13 @@ describe("committed plugin configuration", () => {
         const result = await commitConfigWithPendingPluginInstalls({ nextConfig });
         const persisted = JSON.parse(await fs.promises.readFile(state.configPath, "utf8"));
 
+        const { meta: _meta, ...authoredConfig } = persisted;
+        expect(authoredConfig).toEqual({ gateway: { mode: "local" } });
+        // The committed source resolves the implicit roster without writing it into authored JSON.
+        const resolvedSource = { ...persisted, agents: { entries: { main: {} } } };
         expect(result.path).toBe(state.configPath);
-        expect(result.nextConfig).toEqual(persisted);
+        expect(result.nextConfig).toEqual(resolvedSource);
+        expect(result.persistedSourceConfig).toEqual(resolvedSource);
         expect(result.nextConfig.meta?.lastTouchedVersion).toEqual(expect.any(String));
         expect(result.movedInstallRecords).toBe(pending);
         expect(result.nextConfig.plugins?.installs).toBeUndefined();

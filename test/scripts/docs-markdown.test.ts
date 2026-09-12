@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { createDocsMarkdown, parseDocsDocument } from "../../scripts/lib/docs-markdown.mjs";
 
 describe("docs Markdown rendering", () => {
+  it("preserves published acronym and localized component anchors", () => {
+    // A slugify upgrade must preserve targets in the publisher's MDX and locales too.
+    const document = parseDocsDocument(
+      '<ParamField body="APIUsage">Usage</ParamField>\n\n' +
+        '<Accordion title="سلوك إعادة المحاولة">Retry</Accordion>',
+    );
+
+    expect(document.ids).toEqual(["param-apiusage", "slwk-ieadt-almhawlt"]);
+  });
+
   it.each(["", "> "].flatMap((quote) => ["html", "jsx"].map((kind) => ({ quote, kind }))))(
     "keeps list fences after multiline $kind with prefix $quote",
     ({ quote, kind }) => {

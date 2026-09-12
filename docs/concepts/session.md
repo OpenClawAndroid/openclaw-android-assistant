@@ -208,6 +208,10 @@ Accepting, queueing, or preparing a resume request alone does not refresh it.
 CLI backends that do not report turn acceptance refresh the budget only after
 observed assistant output or tool activity; silent startup does not refresh it.
 
+When replaying an interrupted turn, recovery preserves its recorded tool calls
+and results, including nested tool activity, and reuses the original user message.
+A completed reply or a later user message closes that turn to replay.
+
 If automatic recovery is exhausted, the transcript remains available. Use
 **Resume in new session** in WebChat, or `/new` or `/reset` in other channels,
 to start a replacement session.

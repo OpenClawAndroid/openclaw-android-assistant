@@ -700,6 +700,7 @@ describe("subagent registry recovery scheduling", () => {
         expectedLifecycleRevision: "session-revision",
       },
       timeoutMs: 10_000,
+      assertDispatchCurrent: expect.any(Function),
     });
     expect(runs.has(entry.runId)).toBe(false);
     expect(runs.get(successor.runId)).toBe(successor);

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
+import * as sqliteQuery from "../../infra/kysely-sync.js";
 import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
@@ -116,12 +117,22 @@ describe("pending cron receipt retention", () => {
 
       expect(inspectActiveCronRunReceipt({ storePath, jobId: job.id })).toBeUndefined();
       // A late settlement still prunes after an owner edit closes its receipt.
-      finishCronRunReceipt({ handle: pending!, status: "ok", finishedAtMs: now });
+      const queries = vi.spyOn(sqliteQuery, "executeSqliteQuerySync");
+      let fetchedRows: number;
+      try {
+        finishCronRunReceipt({ handle: pending!, status: "ok", finishedAtMs: now });
+        fetchedRows = queries.mock.results.flatMap((result) =>
+          result.type === "return" ? result.value.rows : [],
+        ).length;
+      } finally {
+        queries.mockRestore();
+      }
       expect(terminalIds()).toEqual([...history.slice(1).toReversed(), pending!.receiptId]);
       expect(retirement()).toEqual({ receipt_id: pending!.receiptId });
       expect((await loadCronStore(storePath)).jobs[0]?.state.runningReceiptId).toBe(
         pending!.receiptId,
       );
+      expect(fetchedRows).toBeLessThanOrEqual(8);
 
       await reconciler.start();
       expect(runCommandJob).toHaveBeenCalledOnce();

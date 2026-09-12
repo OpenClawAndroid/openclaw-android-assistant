@@ -47,6 +47,18 @@ Classified database errors survive transport, and canonical close joins worker
 operations and native cleanup. Cold registry restoration and runtime-configuration
 preparation still retain their existing main-thread behavior.
 
+The optional `tasks.async.managedFlows` creation and revision mutations use the
+same row kernels in the shared worker, with fresh owner, managed-mode, and
+revision checks inside write admission. The admitted operation retains its actor
+through the durable result and worker-backed projection reconciliation, including
+during orderly shutdown. Delayed results cannot overwrite newer synchronous
+writes or refreshes. Reconciliation failures leave the flow projection dirty and
+preserve the durable mutation result without replaying the write.
+
+Synchronous callers keep their existing transaction behavior. Native cancellation,
+child-task linkage, and compound task/subagent completion retain their existing
+owners until their complete persistence and lifecycle boundaries move together.
+
 SQLite worker transport preserves complete result values. Results within the
 64 MiB inline reply budget keep their existing reply path; larger results are
 serialized once and transferred in 8 MiB frames. The original operation retains

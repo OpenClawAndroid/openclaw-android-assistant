@@ -2,7 +2,11 @@
 import { createRuntimeTaskFlow } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import type { LobsterRunner } from "./lobster-runner.js";
-import { resumeManagedLobsterFlow, runManagedLobsterFlow } from "./lobster-taskflow.js";
+import {
+  resumeManagedLobsterFlow,
+  runManagedLobsterFlow,
+  type BoundTaskFlow,
+} from "./lobster-taskflow.js";
 import { createFakeTaskFlow } from "./taskflow-test-helpers.js";
 
 function expectManagedFlowFailure(
@@ -74,7 +78,7 @@ describe("runManagedLobsterFlow", () => {
     const result = await runManagedLobsterFlow(createRunFlowParams(taskFlow, runner));
 
     expect(result.ok).toBe(true);
-    expect(taskFlow.createManaged).toHaveBeenCalledWith({
+    expect(taskFlow.tryCreateManaged).toHaveBeenCalledWith({
       controllerId: "tests/lobster",
       goal: "Run Lobster workflow",
       currentStep: "run_lobster",
@@ -217,7 +221,7 @@ describe("resumeManagedLobsterFlow", () => {
 
   it("returns a mutation error when taskFlow resume is rejected", async () => {
     const taskFlow = createFakeTaskFlow({
-      resume: vi.fn().mockReturnValue({
+      resume: vi.fn().mockResolvedValue({
         applied: false,
         code: "revision_conflict",
       }),
@@ -288,9 +292,17 @@ describe("cancelled managed Lobster flows", () => {
   it.each(["run", "resume"])(
     "persists a cancelled TaskFlow for a rejected Lobster %s",
     async (action) => {
-      const taskFlow = createRuntimeTaskFlow().bindSession({
+      const legacy = createRuntimeTaskFlow().bindSession({
         sessionKey: `agent:main:lobster-cancel-${action}`,
       });
+      const taskFlow: BoundTaskFlow = {
+        tryCreateManaged: async (params) => legacy.tryCreateManaged(params),
+        resume: async (params) => legacy.resume(params),
+        setWaiting: async (params) => legacy.setWaiting(params),
+        finish: async (params) => legacy.finish(params),
+        fail: async (params) => legacy.fail(params),
+        cancel: legacy.cancel,
+      };
       const runner = createRunner({
         ok: true,
         status: "cancelled",
@@ -301,7 +313,7 @@ describe("cancelled managed Lobster flows", () => {
       if (action === "run") {
         result = await runManagedLobsterFlow(createRunFlowParams(taskFlow, runner));
       } else {
-        const waitingFlow = taskFlow.createManaged({
+        const waitingFlow = legacy.createManaged({
           controllerId: "tests/lobster",
           goal: "Resume Lobster workflow",
           status: "waiting",
@@ -316,7 +328,7 @@ describe("cancelled managed Lobster flows", () => {
       if (!result.ok) {
         throw result.error;
       }
-      expect(taskFlow.get(result.flow.flowId)?.status).toBe("cancelled");
+      expect(legacy.get(result.flow.flowId)?.status).toBe("cancelled");
     },
   );
 

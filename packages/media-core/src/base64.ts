@@ -2,14 +2,15 @@
 export function estimateBase64DecodedBytes(base64: string): number {
   // Avoid `trim()`/`replace()` here: they allocate a second (potentially huge) string.
   // We only need a conservative decoded-size estimate to enforce budgets before Buffer.from(..., "base64").
-  let effectiveLen = 0;
-  for (let i = 0; i < base64.length; i += 1) {
-    const code = base64.charCodeAt(i);
-    // Treat ASCII control + space as whitespace; base64 decoders commonly ignore these.
-    if (code <= 0x20) {
-      continue;
+  let effectiveLen = base64.length;
+  // oxlint-disable-next-line eslint/no-control-regex -- Preserve the estimator's ASCII control and space handling.
+  const firstWhitespace = base64.search(/[\x00-\x20]/);
+  if (firstWhitespace !== -1) {
+    for (let i = firstWhitespace; i < base64.length; i += 1) {
+      if (base64.charCodeAt(i) <= 0x20) {
+        effectiveLen -= 1;
+      }
     }
-    effectiveLen += 1;
   }
 
   if (effectiveLen === 0) {

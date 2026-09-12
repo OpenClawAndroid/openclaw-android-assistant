@@ -15,13 +15,18 @@ import type { ChannelApprovalKind } from "../infra/approval-types.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { createInternalAgentTurnFacade } from "./agent-turn/internal-facade.js";
 import type { InternalAgentTurnPrincipalOptions } from "./agent-turn/internal-facade.types.js";
-import { APPROVALS_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
+import {
+  resolveLeastPrivilegeOperatorScopesForMethod,
+  APPROVALS_SCOPE,
+  WRITE_SCOPE,
+} from "./method-scopes.js";
 import type { GatewayMethodRegistry } from "./methods/registry.js";
 import { dispatchGatewayRequestInProcess } from "./server-in-process-dispatch.js";
 import type {
   GatewayInstanceAgentDispatchOptions,
   GatewayInstanceRuntime,
   GatewayRecoveryRuntime,
+  GatewayRecoverySessionMethod,
 } from "./server-instance-runtime.types.js";
 import type { AgentRunRequest } from "./server-methods/agent-request-types.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
@@ -80,20 +85,35 @@ export function createGatewayInstanceRuntime(
     allowedMethods: ReadonlySet<string>;
     client: ReturnType<typeof createSyntheticPluginRuntimeClient>;
     method: string;
-    payload: Record<string, unknown>;
+    payload: unknown;
     timeoutMs?: number;
+    signal?: AbortSignal;
+    assertCurrent?: () => void;
   }): Promise<T> => {
     assertDispatchAvailable(params.method);
     if (!params.allowedMethods.has(params.method)) {
       throw new Error(`Gateway internal principal cannot dispatch ${params.method}`);
     }
-    return await dispatchGatewayRequestInProcess<T>(params.method, params.payload, {
+    const context = options.getContext();
+    const assertCurrent = () => {
+      assertDispatchAvailable(params.method);
+      if (options.getContext() !== context) {
+        throw new Error(`Gateway instance dispatch unavailable for ${params.method}`);
+      }
+      params.assertCurrent?.();
+    };
+    assertCurrent();
+    const result = await dispatchGatewayRequestInProcess<T>(params.method, params.payload, {
       client: params.client,
-      context: options.getContext(),
+      context,
       methodRegistry: options.getMethodRegistry(),
       requestIdPrefix: "gateway-internal",
       timeoutMs: params.timeoutMs,
+      signal: params.signal,
+      sessionMutationCommitGuard: assertCurrent,
     });
+    assertCurrent();
+    return result;
   };
 
   const recoveryClient = createSyntheticPluginRuntimeClient({
@@ -114,7 +134,23 @@ export function createGatewayInstanceRuntime(
   });
   const approvalRouteMethods = new Set(["send"]);
 
+  const recoverySessionMethods = new Set<GatewayRecoverySessionMethod>([
+    "chat.history",
+    "chat.abort",
+    "sessions.delete",
+  ]);
   const recovery: GatewayRecoveryRuntime = {
+    dispatchSessionMethod: (method, payload, requestOptions = {}) =>
+      dispatch({
+        allowedMethods: recoverySessionMethods,
+        client: createSyntheticPluginRuntimeClient({
+          operatorRoleActor: { kind: "system" },
+          scopes: resolveLeastPrivilegeOperatorScopesForMethod(method, payload),
+        }),
+        method,
+        payload,
+        ...requestOptions,
+      }),
     dispatchAgent: async <T>(
       payload: AgentRunRequest,
       timeoutMs?: number,
@@ -165,9 +201,9 @@ export function createGatewayInstanceRuntime(
         cancelSubagentCompletionToolHandoff(delegatedToolPolicyHandoffId);
       }
     },
-    waitForAgent: async <T>(payload: AgentWaitParams, timeoutMs?: number) => {
+    waitForAgent: async <T>(payload: AgentWaitParams, timeoutMs?: number, signal?: AbortSignal) => {
       assertDispatchAvailable("agent.wait");
-      return await recoveryAgentTurns.wait<T>(payload, timeoutMs);
+      return await recoveryAgentTurns.wait<T>(payload, timeoutMs, signal);
     },
     sendRecoveryNotice: async (payload) => {
       if (closed || !options.isDispatchAvailable()) {

@@ -24,7 +24,7 @@ const gatewayTestState = vi.hoisted(() => ({
   targetBySessionKey: new Map<string, { agentId: string; storePath: string }>(),
 }));
 
-vi.mock("../gateway/call.runtime.js", () => ({
+vi.mock("../gateway/call.js", () => ({
   callGateway: gatewayTestState.callGateway,
 }));
 

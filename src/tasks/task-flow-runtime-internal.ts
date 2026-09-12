@@ -14,6 +14,7 @@ export {
   reloadTaskFlowRegistryFromStore,
   resolveTaskFlowForLookupToken,
   resumeFlow,
+  runTaskFlowRegistryWorkerMutation,
   setFlowWaiting,
   syncFlowFromTaskResult,
   updateFlowRecordByIdExpectedRevision,

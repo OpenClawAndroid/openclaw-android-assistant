@@ -465,6 +465,7 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
           nextConfig,
           sourceConfig: publication ? publication.sourceConfig : nextConfig,
           changedPaths: plan.changedPaths,
+          reloadPluginIds: plan.reloadPluginIds,
           pluginLifecycle: plan.pluginLifecycle,
           prepareConfigEffects,
           commitRuntime,

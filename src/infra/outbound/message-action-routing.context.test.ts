@@ -13,7 +13,7 @@ import {
 } from "./message-action-runner.test-support.js";
 
 const contextFixture = createMessageActionContextFixture();
-const { handleWorkspaceAction } = contextFixture;
+const { handleForumAction, handleWorkspaceAction } = contextFixture;
 
 describe("runMessageAction context isolation", () => {
   beforeEach(() => contextFixture.setup());
@@ -337,6 +337,31 @@ describe("runMessageAction context isolation", () => {
       message: /Cross-context messaging denied/,
     },
     {
+      name: "blocks cross-provider topic creation by default",
+      action: "topic-create" as const,
+      cfg: workspaceConfig,
+      actionParams: {
+        channel: "forum",
+        target: "@opsbot",
+        name: "Cross-provider mutation",
+      },
+      toolContext: { currentChannelId: "C12345678", currentChannelProvider: "workspace" },
+      message: /Cross-context messaging denied/,
+    },
+    {
+      name: "blocks cross-provider topic edits by default",
+      action: "topic-edit" as const,
+      cfg: workspaceConfig,
+      actionParams: {
+        channel: "forum",
+        target: "@opsbot",
+        messageThreadId: "42",
+        name: "Updated topic",
+      },
+      toolContext: { currentChannelId: "C12345678", currentChannelProvider: "workspace" },
+      message: /Cross-context messaging denied/,
+    },
+    {
       name: "blocks same-provider cross-context when disabled",
       action: "send" as const,
       cfg: {
@@ -425,6 +450,68 @@ describe("runMessageAction context isolation", () => {
         agentId,
       }),
     ).rejects.toThrow(message);
+  });
+
+  it.each(["topic-create", "topic-edit"] as const)(
+    "denies cross-provider %s before provider adapter dispatch",
+    async (action) => {
+      const outcome = await runMessageAction({
+        cfg: workspaceConfig,
+        action,
+        params: {
+          channel: "forum",
+          target: "@opsbot",
+          name: "Protected topic",
+          ...(action === "topic-edit" ? { messageThreadId: "42" } : {}),
+        },
+        toolContext: {
+          currentChannelId: "C12345678",
+          currentChannelProvider: "workspace",
+        },
+        dryRun: false,
+      }).then(
+        (result) => ({ result, error: undefined }),
+        (error: unknown) => ({ result: undefined, error }),
+      );
+      expect(handleForumAction).not.toHaveBeenCalled();
+      expect(outcome.result).toBeUndefined();
+      expect(outcome.error).toBeInstanceOf(Error);
+      expect((outcome.error as Error).message).toMatch(/Cross-context messaging denied/);
+    },
+  );
+
+  it.each([
+    {
+      name: "same-context",
+      cfg: workspaceConfig,
+      toolContext: { currentChannelId: "@opsbot", currentChannelProvider: "forum" },
+    },
+    {
+      name: "explicit cross-provider opt-in",
+      cfg: {
+        ...workspaceConfig,
+        tools: { message: { crossContext: { allowAcrossProviders: true } } },
+      } as OpenClawConfig,
+      toolContext: { currentChannelId: "C12345678", currentChannelProvider: "workspace" },
+    },
+  ])("dispatches topic actions for $name", async ({ cfg, toolContext }) => {
+    for (const action of ["topic-create", "topic-edit"] as const) {
+      await expect(
+        runMessageAction({
+          cfg,
+          action,
+          params: {
+            channel: "forum",
+            target: "@opsbot",
+            name: "Allowed topic",
+            ...(action === "topic-edit" ? { messageThreadId: "42" } : {}),
+          },
+          toolContext,
+          dryRun: false,
+        }),
+      ).resolves.toMatchObject({ kind: "action", channel: "forum", action });
+    }
+    expect(handleForumAction).toHaveBeenCalledTimes(2);
   });
 
   it("retains direct-operator target-kind validation", async () => {

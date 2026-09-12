@@ -8,6 +8,7 @@ import {
   mintMessageActionTurnCapability,
   revokeMessageActionTurnCapability,
 } from "../../gateway/message-action-turn-capability.js";
+import { createGatewayMethodRegistry } from "../../gateway/methods/registry.js";
 import {
   buildMinimalGatewayHelloOkPayload,
   closeMinimalGatewayServer,
@@ -15,9 +16,13 @@ import {
   sendMinimalGatewayConnectChallenge,
   sendMinimalGatewayResponse,
 } from "../../gateway/minimal-gateway.test-helpers.js";
-import type { GatewayRequestContext } from "../../gateway/server-methods/types.js";
+import type {
+  GatewayRequestContext,
+  GatewayRequestHandler,
+} from "../../gateway/server-methods/types.js";
 import {
   claimAgentRunDelegatedAuthority,
+  getActiveAgentRunDelegatedAuthority,
   releaseAgentRunDelegatedAuthority,
 } from "../../infra/agent-run-registry.js";
 import { runMessageAction } from "../../infra/outbound/message-action-runner.js";
@@ -32,9 +37,9 @@ import { createOperationalRunInstanceRef } from "../admitted-run-context.js";
 import { withGatewayToolCallerIdentity } from "./gateway-caller-context.js";
 import { createMessageTool } from "./message-tool-execution.js";
 
-// The real client/transport proves endpoint selection here. Registered-handler
-// session binding and pre-I/O revocation are covered by server-methods/send.test.ts.
-it("delivers a hosted message action over the local socket without contacting the remote primary", async () => {
+// Real routing proves hosted actions do not connect to either configured endpoint.
+// Provider receipt and pre-I/O authority checks remain in server-methods/send.test.ts.
+it("dispatches a hosted message action without connecting to either Gateway endpoint", async () => {
   const state = await createOpenClawTestState({
     env: { OPENCLAW_GATEWAY_URL: undefined, OPENCLAW_GATEWAY_TOKEN: undefined },
   });
@@ -117,7 +122,27 @@ it("delivers a hosted message action over the local socket without contacting th
     };
     setRuntimeConfigSnapshot(config, config);
     process.env.OPENCLAW_GATEWAY_URL = remote.url;
-    const context = { getRuntimeConfig: () => config } as GatewayRequestContext;
+    const dispatched = vi.fn<GatewayRequestHandler>(({ params, client, respond }) => {
+      expect(client?.internal?.agentRuntimeIdentity).toMatchObject({
+        agentId: "ops",
+        sessionKey,
+        operationalRunInstance,
+      });
+      respond(true, { ok: true, listener: "hosted-local", action: params });
+    });
+    const methods = createGatewayMethodRegistry([
+      {
+        name: "message.action",
+        owner: { kind: "core", area: "message" },
+        scope: "operator.write",
+        handler: dispatched,
+      },
+    ]);
+    const context = {
+      getRuntimeConfig: () => config,
+      getGatewayMethodRegistry: () => methods,
+      trackExecution: <T>(run: () => Promise<T>) => run(),
+    } as GatewayRequestContext;
     const tool = createMessageTool({
       getRuntimeConfig: () => config,
       runMessageAction,
@@ -140,6 +165,8 @@ it("delivers a hosted message action over the local socket without contacting th
           sessionKey,
           operationalRunInstance,
           gatewayContextResolver: () => context,
+          receiptAuthority: () =>
+            getActiveAgentRunDelegatedAuthority(operationalRunInstance) === authority,
         },
         () =>
           tool.execute("hosted-reaction", {
@@ -152,23 +179,23 @@ it("delivers a hosted message action over the local socket without contacting th
       );
     const result = await execute();
     expect(result.details).toMatchObject({ ok: true, listener: "hosted-local" });
-    expect(local.requests.map((request) => request.method)).toEqual(["connect", "message.action"]);
-    expect(local.requests[0]?.params?.auth).toMatchObject({
-      token: "synthetic-hosted-local-token",
-      agentRuntimeIdentityToken: expect.any(String),
+    expect(dispatched).toHaveBeenCalledOnce();
+    expect(result.details).toMatchObject({
+      action: {
+        channel: "gatewaychat",
+        action: "react",
+        sessionKey,
+        params: { messageId: "message-1", emoji: "✅" },
+      },
     });
-    expect(local.requests[1]?.params).toMatchObject({
-      channel: "gatewaychat",
-      action: "react",
-      sessionKey,
-      params: { messageId: "message-1", emoji: "✅" },
-    });
+    expect(local.connections).not.toHaveBeenCalled();
     expect(remote.connections).not.toHaveBeenCalled();
     releaseAgentRunDelegatedAuthority(authority);
     await expect(execute()).rejects.toThrow(
-      "agent runtime identity requires active delegated run authority",
+      /agent (?:runtime identity requires active delegated run|tool caller) authority/,
     );
-    expect(local.requests.map((request) => request.method)).toEqual(["connect", "message.action"]);
+    expect(dispatched).toHaveBeenCalledOnce();
+    expect(local.connections).not.toHaveBeenCalled();
     expect(remote.connections).not.toHaveBeenCalled();
   } finally {
     revokeMessageActionTurnCapability(capability);

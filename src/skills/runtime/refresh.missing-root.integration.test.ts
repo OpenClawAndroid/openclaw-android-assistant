@@ -134,15 +134,12 @@ it("refreshes skills created beneath an initially missing project skills root", 
   const { ensureSkillsWatcher, closeSkillsWatchers, registerSkillsChangeListener } =
     await import("./refresh.js");
   const changes: string[] = [];
-  let expectedReadyEvents = 0;
   let readyEvents = 0;
   const unregister = registerSkillsChangeListener((event) => {
     if (event.workspaceDir !== workspaceDir) {
       return;
     }
-    if (event.reason === "watch-targets" && event.changedPath) {
-      expectedReadyEvents = event.changedPath.split("|").length;
-    } else if (event.reason === "watch") {
+    if (event.reason === "watch") {
       if (event.changedPath) {
         changes.push(event.changedPath);
       } else {
@@ -164,8 +161,7 @@ it("refreshes skills created beneath an initially missing project skills root", 
     // public ready invalidations because Bun cannot observe Chokidar's already-
     // bound node:fs export through the spy below.
     await vi.waitFor(() => {
-      expect(expectedReadyEvents).toBeGreaterThan(0);
-      expect(readyEvents).toBe(expectedReadyEvents);
+      expect(readyEvents).toBe(1);
     });
     // Bun does not project spy replacements onto already-bound node:fs named exports.
     if (!process.versions.bun) {

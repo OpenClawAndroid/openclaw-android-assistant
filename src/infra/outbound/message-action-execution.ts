@@ -1,5 +1,6 @@
 import { asOptionalRecord as asResultRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { GatewayProtocolRequestTimeoutError } from "../../../packages/gateway-client/src/protocol-request.js";
 import { GatewayErrorDetailCodes } from "../../../packages/gateway-protocol/src/gateway-error-details.js";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/schema/error-codes.js";
 import { stripPlainTextToolCallBlocks } from "../../../packages/tool-call-repair/src/index.js";
@@ -32,7 +33,10 @@ import type {
   ResolvedActionContext,
 } from "./message-action-contracts.js";
 import { resolveAndApplyOutboundThreadId } from "./message-action-threading.js";
-import { resolveOutboundMessageGatewayOptions } from "./message-gateway-options.js";
+import {
+  resolveOutboundMessageGatewayOptions,
+  type OutboundGatewayRequestContext,
+} from "./message-gateway-options.js";
 import {
   applyCrossContextDecoration,
   buildCrossContextDecoration,
@@ -107,6 +111,7 @@ async function callGatewayMessageAction<T>(params: {
   gateway?: MessageActionGateway;
   actionParams: Record<string, unknown>;
   agentRuntimeIdentityToken?: string;
+  requestContext?: OutboundGatewayRequestContext;
   abortSignal?: AbortSignal;
   onUnknownDeliveryOutcome?: () => void;
 }): Promise<T> {
@@ -127,12 +132,20 @@ async function callGatewayMessageAction<T>(params: {
     signal: params.abortSignal,
     agentRuntimeIdentityToken: params.agentRuntimeIdentityToken,
   };
+  const request = <R>(
+    options: typeof call | (Omit<typeof call, "timeoutMs"> & { timeoutMs: number | null }),
+  ) =>
+    params.gateway?.request
+      ? params.gateway.request<R>(options, params.requestContext)
+      : callGatewayLeastPrivilege<R>(options);
   try {
-    return await callGatewayLeastPrivilege<T>(call);
+    return await request<T>(call);
   } catch (error) {
     if (
-      !isGatewayTransportError(error) ||
-      error.kind !== "timeout" ||
+      !(
+        (isGatewayTransportError(error) && error.kind === "timeout") ||
+        (error instanceof GatewayProtocolRequestTimeoutError && error.requestSent)
+      ) ||
       params.actionParams.action !== "send"
     ) {
       throw error;
@@ -161,7 +174,7 @@ async function callGatewayMessageAction<T>(params: {
   };
   // A caller-side timeout does not cancel Gateway work. Reattach once with the
   // unchanged idempotency key so the live Gateway can join the original work.
-  return await callGatewayLeastPrivilege<T>(reconciliationCall);
+  return await request<T>(reconciliationCall);
 }
 
 function isConfirmedGatewayMessageActionRejection(error: unknown): boolean {
@@ -302,10 +315,13 @@ export async function executeGatewayAction(
     ctx.gateway.terminalSourceReplyReceiptOwner === "caller" && ctx.input.sourceReplyFinal === true;
   // Resolve local capability/auth preflight before arming a durable send intent.
   // A failure here proves the RPC never reached the gateway.
-  const agentRuntimeIdentityToken = await ctx.gateway.resolveAgentRuntimeIdentityToken?.({
+  const requestContext = {
     sourceReplyFinal: ctx.input.sourceReplyFinal,
     sourceReplyToolCallId: ctx.input.sourceReplyToolCallId,
-  });
+  };
+  const agentRuntimeIdentityToken = ctx.gateway.request
+    ? undefined
+    : await ctx.gateway.resolveAgentRuntimeIdentityToken?.(requestContext);
   const sourceReplyMirror = {
     action: params.action,
     channel: ctx.channel,
@@ -337,6 +353,7 @@ export async function executeGatewayAction(
       gateway: ctx.gateway,
       abortSignal: ctx.input.abortSignal,
       agentRuntimeIdentityToken,
+      requestContext,
       onUnknownDeliveryOutcome: () => {
         hadUnknownDeliveryOutcome = true;
       },

@@ -1569,9 +1569,13 @@ describe("searchVector sqlite-vec KNN", () => {
     }
   });
 
-  it.each(["UTF-8", "UTF-16le", "UTF-16be"])(
-    "bounds KNN body fetches while preserving snippets in a %s database",
-    async (encoding) => {
+  it.each(
+    ["UTF-8", "UTF-16le", "UTF-16be"].flatMap((encoding) =>
+      ["KNN", "fallback"].map((mode) => ({ encoding, mode })),
+    ),
+  )(
+    "bounds $mode body fetches while preserving snippets in a $encoding database",
+    async ({ encoding, mode }) => {
       const db = new DatabaseSync(":memory:", { allowExtension: true });
       try {
         db.exec(`PRAGMA encoding = '${encoding}'`);
@@ -1608,6 +1612,15 @@ describe("searchVector sqlite-vec KNN", () => {
         const prepare = db.prepare.bind(db);
         const prepareSpy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
           const statement = prepare(sql);
+          statement.get = new Proxy(statement.get.bind(statement), {
+            apply(get, _receiver, values) {
+              const row = get(...values);
+              if (typeof row?.text === "string") {
+                fetchedBytes += Buffer.byteLength(row.text);
+              }
+              return row;
+            },
+          });
           statement.all = new Proxy(statement.all.bind(statement), {
             apply(all, _receiver, values) {
               const rows = all(...values);
@@ -1627,7 +1640,7 @@ describe("searchVector sqlite-vec KNN", () => {
             const results = await searchVectorFixture(db, {
               limit: texts.length,
               snippetMaxChars,
-              ensureVectorReady: async () => true,
+              ensureVectorReady: async () => mode === "KNN",
             });
             expect(results.map(({ id, snippet }) => ({ id, snippet }))).toEqual(
               stored.map(({ id, text }) => ({
@@ -1639,6 +1652,28 @@ describe("searchVector sqlite-vec KNN", () => {
           // Allow encoding expansion without materializing complete chunk bodies.
           const totalSnippetLimit = snippetLimits.reduce((sum, limit) => sum + limit, 0);
           expect(fetchedBytes).toBeLessThanOrEqual(texts.length * totalSnippetLimit * 8);
+          if (mode === "fallback") {
+            for (const snippetMaxChars of [
+              0,
+              -1,
+              1.5,
+              Number.NaN,
+              Infinity,
+              Number.MAX_SAFE_INTEGER,
+              Number.MAX_SAFE_INTEGER + 1,
+            ]) {
+              const results = await searchVectorFixture(db, {
+                limit: texts.length,
+                snippetMaxChars,
+              });
+              expect(results.map(({ id, snippet }) => ({ id, snippet }))).toEqual(
+                stored.map(({ id, text }) => ({
+                  id,
+                  snippet: truncateUtf16Safe(String(text), snippetMaxChars),
+                })),
+              );
+            }
+          }
         } finally {
           prepareSpy.mockRestore();
         }

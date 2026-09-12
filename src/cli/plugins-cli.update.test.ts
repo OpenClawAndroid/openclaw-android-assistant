@@ -529,12 +529,13 @@ describe("plugins cli update", () => {
 
   it.each([
     { failure: "plugin install", settlement: "rollback" },
+    { failure: "plugin install and rollback", settlement: "rollback" },
     { failure: "later hook install", settlement: "rollback" },
     { failure: "config write", settlement: "rollback" },
     { failure: "backup cleanup", settlement: "commit" },
   ])("settles package updates when $failure fails", async ({ failure, settlement }) => {
     primeUpdateConfigSnapshot({ config: {} });
-    const pluginInstall = failure === "plugin install";
+    const pluginInstall = failure.startsWith("plugin install");
     if (pluginInstall) {
       setInstalledPluginIndexInstallRecords({
         alpha: { source: "npm", spec: "@acme/alpha@1.0.0", installPath: "/tmp/alpha" },
@@ -555,6 +556,9 @@ describe("plugins cli update", () => {
         },
         rollback: async () => {
           events.push("rollback");
+          if (failure === "plugin install and rollback") {
+            throw new Error("backup restore failed");
+          }
         },
       });
       if (pluginInstall || failure === "later hook install") {

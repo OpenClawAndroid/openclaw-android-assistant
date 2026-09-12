@@ -3551,6 +3551,7 @@ describe("subagent registry lifecycle hardening", () => {
           expectedLifecycleRevision: "child-lifecycle-revision",
         },
         timeoutMs: 10_000,
+        assertDispatchCurrent: expect.any(Function),
       }),
     );
     await waitForLifecycleState(() =>
@@ -3683,6 +3684,7 @@ describe("subagent registry lifecycle hardening", () => {
           expectedLifecycleRevision: "child-lifecycle-revision",
         },
         timeoutMs: 10_000,
+        assertDispatchCurrent: expect.any(Function),
       }),
     );
     expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();

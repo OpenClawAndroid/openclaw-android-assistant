@@ -8,18 +8,6 @@ import type { OpenClawConfig } from "../runtime-api.js";
 import { createTaskFlowWebhookRequestHandler, type TaskFlowWebhookTarget } from "./http.js";
 
 type BoundTaskFlow = TaskFlowWebhookTarget["taskFlow"];
-type ManagedFlow = NonNullable<ReturnType<BoundTaskFlow["createManaged"]>>;
-
-function createManagedFlow(
-  target: TaskFlowWebhookTarget,
-  params: Parameters<BoundTaskFlow["createManaged"]>[0],
-): ManagedFlow {
-  const flow = target.taskFlow.createManaged(params);
-  if (!flow) {
-    throw new Error("expected managed TaskFlow creation to succeed");
-  }
-  return flow;
-}
 
 type MockIncomingMessage = IncomingMessage & {
   destroyed?: boolean;
@@ -32,16 +20,25 @@ let nextSessionId = 0;
 // This HTTP fixture models the Promise-valued SDK contract. Real SQLite worker
 // execution is covered through the registered runtime's integration tests.
 function createFlowBindings(sessionKey: string) {
-  const taskFlow = createRuntimeTaskFlow().bindSession({ sessionKey });
-  const taskFlowReads: TaskFlowWebhookTarget["taskFlowReads"] = {
+  const legacy = createRuntimeTaskFlow().bindSession({ sessionKey });
+  const taskFlow: BoundTaskFlow = {
     sessionKey,
-    get: async (flowId) => taskFlow.get(flowId),
-    list: async () => taskFlow.list(),
-    findLatest: async () => taskFlow.findLatest(),
-    resolve: async (token) => taskFlow.resolve(token),
-    getTaskSummary: async (flowId) => taskFlow.getTaskSummary(flowId),
+    get: async (flowId) => legacy.get(flowId),
+    list: async () => legacy.list(),
+    findLatest: async () => legacy.findLatest(),
+    resolve: async (token) => legacy.resolve(token),
+    getTaskSummary: async (flowId) => legacy.getTaskSummary(flowId),
+    createManaged: async (params) => legacy.createManaged(params),
+    tryCreateManaged: async (params) => legacy.tryCreateManaged(params),
+    setWaiting: async (params) => legacy.setWaiting(params),
+    resume: async (params) => legacy.resume(params),
+    finish: async (params) => legacy.finish(params),
+    fail: async (params) => legacy.fail(params),
+    requestCancel: async (params) => legacy.requestCancel(params),
+    cancel: legacy.cancel,
+    runTask: legacy.runTask,
   };
-  return { taskFlow, taskFlowReads };
+  return { taskFlow };
 }
 
 function createJsonRequest(params: {
@@ -135,7 +132,7 @@ describe("createTaskFlowWebhookRequestHandler", () => {
     "get_task_summary",
   ] as const)("awaits the SDK read result for %s", async (action) => {
     const { handler, target, secret } = createHandler();
-    const created = createManagedFlow(target, {
+    const created = await target.taskFlow.createManaged({
       controllerId: "tests/webhook-reads",
       goal: "Read a synthetic flow",
     });
@@ -178,7 +175,7 @@ describe("createTaskFlowWebhookRequestHandler", () => {
 
     expect(res.statusCode).toBe(401);
     expect(res.body).toBe("unauthorized");
-    expect(target.taskFlow.list()).toStrictEqual([]);
+    expect(await target.taskFlow.list()).toStrictEqual([]);
   });
 
   it("keeps an unresolved SecretRef-backed route cold", async () => {
@@ -240,12 +237,14 @@ describe("createTaskFlowWebhookRequestHandler", () => {
     expect(parsed.result.flow.goal).toBe("Review inbound queue");
     expect(parsed.result.flow.ownerKey).toBeUndefined();
     expect(parsed.result.flow.requesterOrigin).toBeUndefined();
-    expect(target.taskFlow.get(parsed.result.flow.flowId)?.flowId).toBe(parsed.result.flow.flowId);
+    expect((await target.taskFlow.get(parsed.result.flow.flowId))?.flowId).toBe(
+      parsed.result.flow.flowId,
+    );
   });
 
   it("runs child tasks and scrubs task ownership fields from responses", async () => {
     const { handler, target, secret } = createHandler();
-    const flow = createManagedFlow(target, {
+    const flow = await target.taskFlow.createManaged({
       controllerId: "webhooks/zapier",
       goal: "Triage inbox",
     });
@@ -299,7 +298,7 @@ describe("createTaskFlowWebhookRequestHandler", () => {
 
   it("returns 409 for revision conflicts", async () => {
     const { handler, target, secret } = createHandler();
-    const flow = createManagedFlow(target, {
+    const flow = await target.taskFlow.createManaged({
       controllerId: "webhooks/zapier",
       goal: "Review inbox",
     });
@@ -326,7 +325,7 @@ describe("createTaskFlowWebhookRequestHandler", () => {
 
   it("rejects internal runtimes and running-only metadata from external callers", async () => {
     const { handler, target, secret } = createHandler();
-    const flow = createManagedFlow(target, {
+    const flow = await target.taskFlow.createManaged({
       controllerId: "webhooks/zapier",
       goal: "Review inbox",
     });
@@ -370,7 +369,7 @@ describe("createTaskFlowWebhookRequestHandler", () => {
 
   it("reuses the same task record when retried with the same runId", async () => {
     const { handler, target, secret } = createHandler();
-    const flow = createManagedFlow(target, {
+    const flow = await target.taskFlow.createManaged({
       controllerId: "webhooks/zapier",
       goal: "Triage inbox",
     });
@@ -405,16 +404,16 @@ describe("createTaskFlowWebhookRequestHandler", () => {
     const firstParsed = parseJsonBody(first);
     const secondParsed = parseJsonBody(second);
     expect(firstParsed.result.task.taskId).toBe(secondParsed.result.task.taskId);
-    expect(target.taskFlow.getTaskSummary(flow.flowId)?.total).toBe(1);
+    expect((await target.taskFlow.getTaskSummary(flow.flowId))?.total).toBe(1);
   });
 
   it("returns 409 when cancellation targets a terminal flow", async () => {
     const { handler, target, secret } = createHandler();
-    const flow = createManagedFlow(target, {
+    const flow = await target.taskFlow.createManaged({
       controllerId: "webhooks/zapier",
       goal: "Review inbox",
     });
-    const finished = target.taskFlow.finish({
+    const finished = await target.taskFlow.finish({
       flowId: flow.flowId,
       expectedRevision: flow.revision,
     });

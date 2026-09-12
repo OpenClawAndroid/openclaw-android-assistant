@@ -175,6 +175,8 @@ async function collectGatewayDaemonFindingsWithRuntime(
 async function listGatewayCronJobsWithRuntime(
   ctx: HealthCheckContext,
 ): Promise<readonly CronJob[]> {
+  const { bindAgentToolGatewayRequest } = await import("../agents/tools/in-process-gateway.js");
+  const requestGateway = bindAgentToolGatewayRequest({ hostedOnly: true });
   if (
     (await hasActiveGatewayExecCredential({ cfg: ctx.cfg })) &&
     ctx.allowExecSecretRefs !== true
@@ -183,20 +185,20 @@ async function listGatewayCronJobsWithRuntime(
       "Gateway cron inventory skipped because credentials use an exec SecretRef; rerun doctor with --allow-exec.",
     );
   }
-  const { callGateway } = await import("../gateway/call.js");
   const jobs: CronJob[] = [];
   let offset = 0;
   let snapshotRevision: string | undefined;
   let total: number | undefined;
 
   while (total === undefined || offset < total) {
-    const page = await callGateway<CronListPageResult>({
+    const request = {
       method: "cron.list",
       params: { includeDisabled: true, limit: 200, offset },
       timeoutMs: 3000,
       config: ctx.cfg,
       deviceIdentity: null,
-    });
+    };
+    const page = await requestGateway<CronListPageResult>(request);
     const validPage =
       Array.isArray(page.jobs) &&
       typeof page.snapshotRevision === "string" &&

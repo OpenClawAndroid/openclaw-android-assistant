@@ -2,6 +2,9 @@ import { vi } from "vitest";
 import type { PluginRuntime } from "../../plugins/runtime/types.js";
 
 type BoundTaskFlowRuntime = ReturnType<PluginRuntime["tasks"]["managedFlows"]["bindSession"]>;
+type BoundAsyncManagedTaskFlows = ReturnType<
+  PluginRuntime["tasks"]["async"]["managedFlows"]["bindSession"]
+>;
 
 function createTaskFlowSessionMock(): BoundTaskFlowRuntime {
   return {
@@ -37,6 +40,22 @@ function createAsyncFlowReadSession(params: { sessionKey?: string }) {
   return { ...createAsyncReadSession(params), getTaskSummary: vi.fn(async () => undefined) };
 }
 
+function createAsyncManagedFlowSession(params: {
+  sessionKey?: string;
+}): BoundAsyncManagedTaskFlows {
+  const missing = { applied: false, code: "not_found" } as const;
+  return {
+    ...createAsyncFlowReadSession(params),
+    createManaged: vi.fn<BoundAsyncManagedTaskFlows["createManaged"]>(),
+    tryCreateManaged: vi.fn(async () => null),
+    setWaiting: vi.fn(async () => missing),
+    resume: vi.fn(async () => missing),
+    finish: vi.fn(async () => missing),
+    fail: vi.fn(async () => missing),
+    requestCancel: vi.fn(async () => missing),
+  };
+}
+
 function readBinding<Bound>(factory: (params: { sessionKey?: string }) => Bound) {
   return { bindSession: vi.fn(factory), fromToolContext: vi.fn(factory) };
 }
@@ -46,7 +65,7 @@ export function createPluginTasksRuntimeMock(): PluginRuntime["tasks"] {
     async: {
       runs: readBinding(createAsyncReadSession),
       flows: readBinding(createAsyncFlowReadSession),
-      managedFlows: readBinding(createAsyncFlowReadSession),
+      managedFlows: readBinding(createAsyncManagedFlowSession),
     },
     runs: {
       bindSession: vi.fn<PluginRuntime["tasks"]["runs"]["bindSession"]>(),

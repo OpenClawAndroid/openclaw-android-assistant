@@ -228,7 +228,15 @@ describe("outbound policy helpers", () => {
     expectCrossContextPolicyResult(params);
   });
 
-  it.each(["edit", "delete", "pin", "unpin", "poll-vote"] satisfies ChannelMessageActionName[])(
+  it.each([
+    "edit",
+    "delete",
+    "pin",
+    "unpin",
+    "poll-vote",
+    "topic-create",
+    "topic-edit",
+  ] satisfies ChannelMessageActionName[])(
     "blocks cross-provider %s actions by default",
     (action) => {
       expectCrossContextPolicyResult({
@@ -243,7 +251,14 @@ describe("outbound policy helpers", () => {
     },
   );
 
-  it.each(["edit", "delete", "pin", "unpin"] satisfies ChannelMessageActionName[])(
+  it.each([
+    "edit",
+    "delete",
+    "pin",
+    "unpin",
+    "topic-create",
+    "topic-edit",
+  ] satisfies ChannelMessageActionName[])(
     "allows cross-provider %s actions when explicitly enabled",
     (action) => {
       expectCrossContextPolicyResult({
@@ -263,7 +278,14 @@ describe("outbound policy helpers", () => {
     },
   );
 
-  it.each(["edit", "delete", "pin", "unpin"] satisfies ChannelMessageActionName[])(
+  it.each([
+    "edit",
+    "delete",
+    "pin",
+    "unpin",
+    "topic-create",
+    "topic-edit",
+  ] satisfies ChannelMessageActionName[])(
     "allows current-context %s actions without cross-provider opt-in",
     (action) => {
       expectCrossContextPolicyResult({
@@ -348,6 +370,8 @@ describe("outbound policy helpers", () => {
     { action: "upload-file", expected: true },
     { action: "thread-reply", expected: true },
     { action: "thread-create", expected: false },
+    { action: "topic-create", expected: false },
+    { action: "topic-edit", expected: false },
   ] satisfies Array<{ action: ChannelMessageActionName; expected: boolean }>)(
     "marks supported cross-context action %j",
     ({ action, expected }) => {

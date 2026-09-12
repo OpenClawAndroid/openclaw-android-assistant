@@ -159,7 +159,7 @@ vi.mock("../../cli/outbound-send-deps.js", () => ({
   createOutboundSendDeps: vi.fn().mockReturnValue({}),
 }));
 
-vi.mock("../../gateway/call.runtime.js", () => ({
+vi.mock("../../gateway/call.js", () => ({
   callGateway: vi.fn().mockResolvedValue({ ok: true, deleted: true }),
 }));
 
@@ -190,7 +190,7 @@ import { retireSessionMcpRuntime } from "../../agents/agent-bundle-mcp-tools.js"
 // Import after mocks
 import { countActiveDescendantRuns } from "../../agents/subagents/registry/subagent-registry-read.js";
 import { appendAssistantMessageToSessionTranscript } from "../../config/sessions/transcript.runtime.js";
-import { callGateway } from "../../gateway/call.runtime.js";
+import { callGateway } from "../../gateway/call.js";
 import { PlatformMessageNotDispatchedError } from "../../infra/outbound/deliver-types.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import {

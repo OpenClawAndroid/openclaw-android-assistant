@@ -245,10 +245,11 @@ export async function resolveReplyDirectives(params: {
     sessionKey,
   };
 
-  // Only load workspace skill commands when aliases or explicit skill references need them.
-  // This avoids scanning skills for ordinary text, paths, and built-in slash directives.
+  // Every directive parser requires a whitespace/start slash, including directives
+  // whose removal exposes a model alias. URLs alone do not need skill-name reservation.
   const skillCommands =
-    canInterpretTextDirectives && (rawAliases.length > 0 || hasSkillReferences)
+    canInterpretTextDirectives &&
+    ((rawAliases.length > 0 && /(?:^|\s)\//u.test(commandText)) || hasSkillReferences)
       ? (await skillCommandsLoader.load()).listSkillCommandsForWorkspace({
           ...skillCommandContext,
           skillFilter,

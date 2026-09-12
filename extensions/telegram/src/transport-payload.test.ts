@@ -157,9 +157,7 @@ describe("Telegram topic transport payloads", () => {
             text: "accepted",
           }
         : true;
-      return new Response(JSON.stringify({ ok: true, result }), {
-        headers: { "content-type": "application/json" },
-      });
+      return Response.json({ ok: true, result });
     },
   );
   const bot = new Bot(TOKEN, { client: { fetch } });

@@ -824,6 +824,7 @@ describe("ensureSkillsWatcher", () => {
   );
 
   it("refreshes skills snapshots when watched skill roots change", async () => {
+    vi.useFakeTimers();
     const sharedA = await createFixtureDirectory("shared-a");
     const sharedB = await createFixtureDirectory("shared-b");
     const seen: SkillsChangeEvent[] = [];
@@ -850,6 +851,20 @@ describe("ensureSkillsWatcher", () => {
         reason: "watch-targets",
         changedPath: expect.stringContaining(sharedB.replaceAll("\\", "/")),
       },
+    ]);
+    seen.length = 0;
+    const replacement = watchForSkillRoot(sharedB).watcher;
+    for (const watcher of createdWatchers) {
+      if (watcher !== replacement) {
+        watcher.emit("ready");
+      }
+    }
+    await vi.advanceTimersByTimeAsync(250);
+    expect(seen).toEqual([]);
+    replacement.emit("ready");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(seen).toEqual([
+      { workspaceDir: fixtureWorkspaceDir, reason: "watch", changedPath: undefined },
     ]);
   });
 
@@ -960,6 +975,13 @@ describe("ensureSkillsWatcher", () => {
         event === "change" ? path.join(sharedRoot, "demo", "SKILL.md") : undefined;
       const watcher = watchForSkillRoot(sharedRoot).watcher;
       if (event === "ready") {
+        for (const other of createdWatchers) {
+          if (other !== watcher) {
+            other.emit("ready");
+          }
+        }
+        await vi.advanceTimersByTimeAsync(250);
+        expect(seen).toEqual([]);
         watcher.emit("ready");
       } else {
         watcher.emit("all", event, changedPath);

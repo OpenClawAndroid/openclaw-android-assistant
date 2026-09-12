@@ -6,23 +6,14 @@ import path from "node:path";
 import OpenAI from "openai";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
-import {
-  buildAgentRunTerminalOutcome,
-  buildAgentRunTerminalOutcomeFromLifecycleEvent,
-} from "../agents/agent-run-terminal-outcome.js";
 import { createClientToolNameConflictError } from "../agents/agent-tool-definition-adapter.js";
-import { createAgentCommandLifecycle } from "../agents/command/lifecycle.js";
 import { FailoverError } from "../agents/failover-error.js";
 import { HISTORY_CONTEXT_MARKER } from "../auto-reply/reply/history.js";
 import { CURRENT_MESSAGE_MARKER } from "../auto-reply/reply/mentions.js";
 import { recordAgentRunTerminalOutcome } from "../channels/turn/agent-run-terminal-outcome.js";
 import { resetConfigRuntimeState } from "../config/config.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
-import {
-  emitAgentEvent,
-  getAgentEventLifecycleGeneration,
-  onAgentEvent,
-} from "../infra/agent-events.js";
+import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import { getGatewayContextResolver } from "../plugins/runtime/gateway-request-scope.js";
 import { enqueueCommandInLane } from "../process/command-queue.js";
 import {
@@ -36,6 +27,19 @@ import {
   expectHttpForeignSessionAuthority,
   expectSharedSecretHttpOwnerIdentity,
 } from "./http-authority.test-support.js";
+import {
+  assistantSnapshotCases,
+  streamingFailureCases,
+  captureStreamingTerminals,
+  emitResolvedStreamingFailure,
+  incompatibleReplacementCases,
+  compatibleReplacementCases,
+  bufferedReplacementCases,
+  emitIncompatibleAssistantReplacement,
+  emitCompatibleAssistantReplacement,
+  emitBufferedAssistantReplacement,
+  createOpenAiHttpTestClient,
+} from "./http-stream.test-support.js";
 import type { ResponseResource } from "./open-responses.schema.js";
 import { buildAssistantDeltaResult } from "./test-helpers.agent-results.js";
 import {
@@ -411,12 +415,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
         payloads: [{ text }],
       } as never);
 
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const request = {
         model: "openclaw",
         input: "Return the plain-text response.",
@@ -445,71 +444,13 @@ describe("OpenResponses HTTP API (e2e)", () => {
     },
   );
 
-  it.each([
-    {
+  it.each(
+    assistantSnapshotCases({
       name: "buffered leading text in cumulative assistant snapshots",
       events: [{ text: "<tag>ok</tag>", delta: "tag>ok</tag>" }],
       expected: "<tag>ok</tag>",
-    },
-    {
-      name: "identical snapshots from distinct assistant items",
-      events: [
-        { itemId: "answer-1", text: "Echo", delta: "Echo" },
-        { itemId: "answer-2", text: "Echo", delta: "Echo" },
-      ],
-      expected: "Echo\n\nEcho",
-      resultTexts: ["Echo", "Echo"],
-    },
-    {
-      name: "replayed and growing snapshots across assistant items",
-      events: [
-        { itemId: "answer-1", text: "Echo", delta: "Echo" },
-        { itemId: "answer-1", text: "Echo", delta: "Echo" },
-        { itemId: "answer-2", text: "Echo", delta: "Echo" },
-        { itemId: "answer-2", text: "Echo", delta: "Echo" },
-        { itemId: "answer-2", text: "Echo!", delta: "!" },
-      ],
-      expected: "Echo\n\nEcho!",
-    },
-    {
-      name: "repeated delta-only text within an assistant item",
-      events: [
-        { itemId: "answer-1", delta: "Echo" },
-        { itemId: "answer-1", delta: "Echo" },
-      ],
-      expected: "EchoEcho",
-    },
-    {
-      name: "split leading newlines followed by the matching item snapshot",
-      events: [
-        { itemId: "answer-1", text: "First." },
-        { itemId: "answer-2", delta: "\n" },
-        { itemId: "answer-2", delta: "\n" },
-        { itemId: "answer-2", delta: "Se" },
-        { itemId: "answer-2", delta: "cond." },
-        { itemId: "answer-2", text: "\n\nSecond." },
-      ],
-      expected: "First.\n\nSecond.",
-    },
-    {
-      name: "an empty new item followed by deltas and a matching snapshot",
-      events: [
-        { itemId: "answer-1", text: "First." },
-        { itemId: "answer-2", delta: "" },
-        { itemId: "answer-2", delta: "Second." },
-        { itemId: "answer-2", text: "Second." },
-      ],
-      expected: "First.\n\nSecond.",
-    },
-    {
-      name: "text beyond the live display cap",
-      events: [
-        { itemId: "answer-1", text: "x".repeat(500_001), delta: "x".repeat(500_001) },
-        { itemId: "answer-2", text: "tail", delta: "tail" },
-      ],
-      expected: `${"x".repeat(500_001)}\n\ntail`,
-    },
-  ])(
+    }),
+  )(
     "preserves $name in official SDK assistant streams",
     async ({ events, expected, resultTexts }) => {
       agentCommandMock.mockClear();
@@ -525,12 +466,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
         return { payloads: (resultTexts ?? [expected]).map((text) => ({ text })) };
       }) as never);
 
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const stream = client.responses.stream({
         model: "openclaw",
         input: "Preserve the complete assistant snapshot.",
@@ -547,100 +483,27 @@ describe("OpenResponses HTTP API (e2e)", () => {
     },
   );
 
-  it.each([
-    { name: "rewritten", replacementText: "final answer" },
-    { name: "shortened", replacementText: "dra" },
-    { name: "rewritten then extended by a delta", replacementText: "other answer", tailDelta: "!" },
-    { name: "cleared", replacementText: "" },
-    {
-      name: "replaced by a held provisional item",
-      previousText: "Echo",
-      replacementText: "Replacement",
-      replaceable: true,
-    },
-    {
-      name: "cleared by a held provisional item",
-      previousText: "Echo",
-      replacementText: "",
-      replaceable: true,
-    },
-    {
-      name: "cleared by an explicit empty final result",
-      previousText: "Echo",
-      replacementText: "Echo tail",
-      resultText: "",
-      replaceable: true,
-    },
-    {
-      name: "cleared by held output without a text-bearing result",
-      previousText: "Echo",
-      replacementText: "",
-      noResultText: true,
-      replaceable: true,
-    },
-    {
-      name: "replaced by a held item followed by its native terminal echo",
-      previousText: "Echo",
-      replacementText: "Replacement",
-      replaceable: true,
-      terminalEcho: true,
-    },
-  ])(
+  it.each(incompatibleReplacementCases)(
     "fails an official SDK Responses stream when streamed text is $name",
-    async ({
-      replacementText,
-      previousText = "draft answer",
-      replaceable,
-      resultText,
-      noResultText,
-      terminalEcho,
-      tailDelta,
-    }) => {
+    async (scenario) => {
+      const { previousText = "draft answer" } = scenario;
       agentCommandMock.mockClear();
       agentCommandMock.mockImplementationOnce((async (opts: unknown) => {
         const runId = (opts as { runId?: string }).runId;
         if (!runId) {
           throw new Error("expected a streaming response run ID");
         }
-        emitAgentEvent({
-          runId,
-          stream: "assistant",
-          data: {
-            text: previousText,
-            delta: previousText,
-            ...(replaceable ? { itemId: "answer-1" } : {}),
-          },
-        });
-        emitAgentEvent({
-          runId,
-          stream: "assistant",
-          data: {
-            text: replacementText,
-            replace: true,
-            ...(replaceable
-              ? { itemId: "answer-2", delta: "", replaceable: true }
-              : { phase: "commentary" }),
-          },
-        });
-        if (terminalEcho) {
-          emitAgentEvent({ runId, stream: "assistant", data: { text: replacementText } });
-        }
-        if (tailDelta) {
-          emitAgentEvent({ runId, stream: "assistant", data: { delta: tailDelta } });
-        }
-        emitAgentEvent({ runId, stream: "lifecycle", data: { phase: "end" } });
         return {
-          payloads: noResultText ? [] : [{ text: resultText ?? replacementText }],
+          ...emitIncompatibleAssistantReplacement(
+            runId,
+            scenario,
+            scenario.replaceable ? "" : undefined,
+          ),
           meta: { agentMeta: { usage: { input: 11, output: 7, total: 18 } } },
         };
       }) as never);
 
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const events = await client.responses.create({
         model: "openclaw",
         input: "Reject an incompatible replacement snapshot.",
@@ -687,195 +550,56 @@ describe("OpenResponses HTTP API (e2e)", () => {
     },
   );
 
-  it.each([
-    {
-      name: "a producer replacement snapshot without a delta",
-      previousDelta: undefined,
-      replacementDelta: undefined,
-      expectedDeltas: "final answer",
-    },
-    {
-      name: "a producer replacement snapshot with its own delta",
-      previousDelta: undefined,
-      replacementDelta: "final answer",
-      expectedDeltas: "final answer",
-    },
-    {
-      name: "an append-compatible replacement after streamed partial text",
-      previousDelta: "final ",
-      replacementDelta: "answer",
-      expectedDeltas: "final answer",
-    },
-    {
-      name: "a held append-compatible replacement",
-      previousDelta: "Echo",
-      replacementText: "Echo tail",
-      replacementDelta: "",
-      replaceable: true,
-      expectedDeltas: "Echo tail",
-    },
-    {
-      name: "a corrected held replacement",
-      previousDelta: "Echo",
-      intermediateText: "Replacement",
-      replacementText: "Echo tail",
-      replacementDelta: "",
-      replaceable: true,
-      expectedDeltas: "Echo tail",
-    },
-    {
+  it.each(
+    compatibleReplacementCases.toSpliced(5, 0, {
       name: "an explicit non-provisional recovery",
       previousDelta: "final ",
       intermediateText: "incompatible correction",
       replacementDelta: "answer",
       expectedDeltas: "final answer",
-    },
-    {
-      name: "a held draft recovered only by the authoritative final result",
-      previousDelta: "Echo",
-      replacementText: "Replacement",
-      replacementDelta: "",
-      resultText: "Echo tail",
-      expectedDeltas: "Echo tail",
-      replaceable: true,
-    },
-    {
-      name: "held text without a text-bearing final payload",
-      previousDelta: "Echo",
-      replacementText: "Echo tail",
-      replacementDelta: "",
-      noResultText: true,
-      expectedDeltas: "Echo tail",
-      replaceable: true,
-    },
-    {
-      name: "an initial held draft cleared by an explicit empty result",
-      replacementText: "Draft",
-      replacementDelta: "",
-      resultText: "",
-      expectedDeltas: "",
-      replaceable: true,
-    },
-    {
-      name: "a held replacement completed by its native terminal echo",
-      previousDelta: "Echo",
-      replacementText: "Echo tail",
-      replacementDelta: "",
-      expectedDeltas: "Echo tail",
-      replaceable: true,
-      terminalEcho: true,
-    },
-    {
-      name: "an incompatible native echo recovered by the final result",
-      previousDelta: "Echo",
-      replacementText: "Replacement",
-      replacementDelta: "",
-      resultText: "Echo tail",
-      expectedDeltas: "Echo tail",
-      replaceable: true,
-      terminalEcho: true,
-    },
-  ])(
-    "keeps official SDK Responses text consistent for $name",
-    async ({
-      previousDelta,
-      replacementDelta,
-      expectedDeltas,
-      replacementText = "final answer",
-      replaceable,
-      intermediateText,
-      resultText,
-      noResultText,
-      terminalEcho,
-    }) => {
-      agentCommandMock.mockClear();
-      agentCommandMock.mockImplementationOnce((async (opts: unknown) => {
-        const runId = (opts as { runId?: string }).runId;
-        if (!runId) {
-          throw new Error("expected a streaming response run ID");
-        }
-        if (previousDelta) {
-          emitAgentEvent({
-            runId,
-            stream: "assistant",
-            data: {
-              text: previousDelta,
-              delta: previousDelta,
-              ...(replaceable ? { itemId: "answer-1" } : {}),
-            },
-          });
-        }
-        if (intermediateText !== undefined) {
-          emitAgentEvent({
-            runId,
-            stream: "assistant",
-            data: {
-              text: intermediateText,
-              delta: "",
-              replace: true,
-              ...(replaceable ? { itemId: "answer-2", replaceable: true } : {}),
-            },
-          });
-        }
-        emitAgentEvent({
-          runId,
-          stream: "assistant",
-          data: {
-            text: replacementText,
-            replace: true,
-            ...(replaceable
-              ? {
-                  itemId: intermediateText === undefined ? "answer-2" : "answer-3",
-                  replaceable: true,
-                }
-              : { phase: "commentary" }),
-            ...(replacementDelta === undefined ? {} : { delta: replacementDelta }),
-          },
-        });
-        if (terminalEcho) {
-          emitAgentEvent({ runId, stream: "assistant", data: { text: replacementText } });
-        }
-        emitAgentEvent({ runId, stream: "lifecycle", data: { phase: "end" } });
-        return { payloads: noResultText ? [] : [{ text: resultText ?? replacementText }] };
-      }) as never);
-
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
-      const events = await client.responses.create({
-        model: "openclaw",
-        input: "Stream a replacement snapshot exactly once.",
-        stream: true,
-      });
-
-      const deltas: string[] = [];
-      const doneTexts: string[] = [];
-      const completedTexts: string[] = [];
-      for await (const event of events) {
-        if (event.type === "response.output_text.delta") {
-          deltas.push(event.delta);
-        } else if (event.type === "response.output_text.done") {
-          doneTexts.push(event.text);
-        } else if (event.type === "response.completed") {
-          completedTexts.push(
-            ...event.response.output.flatMap((item) =>
-              item.type === "message"
-                ? item.content.flatMap((part) => (part.type === "output_text" ? [part.text] : []))
-                : [],
-            ),
-          );
-        }
+    }),
+  )("keeps official SDK Responses text consistent for $name", async (scenario) => {
+    const { resultText, replacementText = "final answer", expectedDeltas } = scenario;
+    agentCommandMock.mockClear();
+    agentCommandMock.mockImplementationOnce((async (opts: unknown) => {
+      const runId = (opts as { runId?: string }).runId;
+      if (!runId) {
+        throw new Error("expected a streaming response run ID");
       }
+      return emitCompatibleAssistantReplacement(runId, scenario);
+    }) as never);
 
-      expect(deltas.join("")).toBe(expectedDeltas);
-      expect(doneTexts).toEqual([resultText ?? replacementText]);
-      expect(completedTexts).toEqual([resultText ?? replacementText]);
-      expect(agentCommandMock).toHaveBeenCalledTimes(1);
-    },
-  );
+    const client = createOpenAiHttpTestClient(enabledPort);
+    const events = await client.responses.create({
+      model: "openclaw",
+      input: "Stream a replacement snapshot exactly once.",
+      stream: true,
+    });
+
+    const deltas: string[] = [];
+    const doneTexts: string[] = [];
+    const completedTexts: string[] = [];
+    for await (const event of events) {
+      if (event.type === "response.output_text.delta") {
+        deltas.push(event.delta);
+      } else if (event.type === "response.output_text.done") {
+        doneTexts.push(event.text);
+      } else if (event.type === "response.completed") {
+        completedTexts.push(
+          ...event.response.output.flatMap((item) =>
+            item.type === "message"
+              ? item.content.flatMap((part) => (part.type === "output_text" ? [part.text] : []))
+              : [],
+          ),
+        );
+      }
+    }
+
+    expect(deltas.join("")).toBe(expectedDeltas);
+    expect(doneTexts).toEqual([resultText ?? replacementText]);
+    expect(completedTexts).toEqual([resultText ?? replacementText]);
+    expect(agentCommandMock).toHaveBeenCalledTimes(1);
+  });
 
   it.each([
     ["JSON-object output", { format: { type: "json_object" } }],
@@ -1774,12 +1498,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
       },
     } as never);
 
-    const client = new OpenAI({
-      apiKey: "test",
-      baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-      defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-      maxRetries: 0,
-    });
+    const client = createOpenAiHttpTestClient(enabledPort);
     const response = await client.responses
       .stream({
         model: "openclaw",
@@ -1852,12 +1571,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
         return result;
       }) as never);
 
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const stream = client.responses.stream({
         model: "openclaw",
         input: "Finish the streamed response.",
@@ -1903,12 +1617,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
       }) as never);
 
       try {
-        const client = new OpenAI({
-          apiKey: "test",
-          baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-          defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-          maxRetries: 0,
-        });
+        const client = createOpenAiHttpTestClient(enabledPort);
         const stream = client.responses.stream({
           model: "openclaw",
           input: "Flush the final assistant microtask.",
@@ -1974,12 +1683,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
     }) as never);
 
     try {
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const stream = client.responses.stream({
         model: "openclaw",
         input: "Reject a late incompatible assistant replacement.",
@@ -2030,12 +1734,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
         };
       }) as never);
 
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const stream = client.responses.stream({
         model: "openclaw",
         input: "Report the provider failure.",
@@ -2247,103 +1946,33 @@ describe("OpenResponses HTTP API (e2e)", () => {
     await res.text();
   });
 
-  it.each(
-    [
-      {
-        label: "terminal metadata",
-        meta: { error: { kind: "incomplete_turn" as const, message: "private provider failure" } },
-        expectedPhase: "error" as const,
-      },
-      {
-        label: "an error stop reason",
-        meta: { stopReason: "error" },
-        expectedPhase: "end" as const,
-      },
-      {
-        label: "a run-budget timeout without error metadata",
-        meta: { aborted: false, timeoutPhase: "provider" as const, providerStarted: true },
-        expectedPhase: "end" as const,
-      },
-    ].flatMap((failure) =>
-      [false, true].map((producerTerminal) => ({
-        meta: failure.meta,
-        expectedPhase: failure.expectedPhase,
-        producerTerminal,
-        label: `${failure.label} ${producerTerminal ? "after" : "without"} a producer terminal`,
-      })),
-    ),
-  )(
+  it.each(streamingFailureCases)(
     "fails resolved streaming agent failures from $label",
     async ({ meta, expectedPhase, producerTerminal }) => {
       let runId: string | undefined;
-      const terminals: Array<{ phase: "end" | "error"; status: string }> = [];
-      const unsubscribe = onAgentEvent((event) => {
-        if (event.runId === runId && event.stream === "lifecycle") {
-          const phase = event.data?.phase;
-          if (phase === "end" || phase === "error") {
-            terminals.push({
-              phase,
-              status: buildAgentRunTerminalOutcomeFromLifecycleEvent({ phase, data: event.data })
-                .status,
-            });
-          }
-        }
-      });
+      const { terminals, unsubscribe } = captureStreamingTerminals(() => runId);
       agentCommandMock.mockClear();
       agentCommandMock.mockImplementationOnce((async (options: unknown) => {
         runId = (options as { runId?: string }).runId;
         if (!runId) {
           throw new Error("expected a streaming response run ID");
         }
-        emitAgentEvent({ runId, stream: "assistant", data: { delta: "partial answer" } });
-        const result = {
-          payloads: [{ text: "Command may have changed state", isError: true }],
-          meta: {
-            durationMs: 0,
+        return emitResolvedStreamingFailure(
+          runId,
+          { meta, producerTerminal },
+          {
             agentMeta: {
               sessionId: "failed-stream-session",
               provider: "openai",
               model: "test-model",
               usage: { input: 11, output: 7, total: 18 },
             },
-            ...meta,
           },
-        };
-        if (producerTerminal) {
-          const lifecycle = createAgentCommandLifecycle({
-            runId,
-            lifecycleGeneration: getAgentEventLifecycleGeneration,
-            startedAt: Date.now(),
-            state: {
-              currentTurnUserMessagePersisted: true,
-              lifecycleFinishing: false,
-              lifecycleEnded: false,
-            },
-          });
-          const terminal = {
-            metadata: {},
-            outcome: buildAgentRunTerminalOutcome({
-              status: meta.timeoutPhase ? "timeout" : "error",
-              stopReason: meta.timeoutPhase ? undefined : "error",
-              timeoutPhase: meta.timeoutPhase,
-            }),
-          };
-          if (lifecycle.resolveResultError(result, false)) {
-            lifecycle.emitResultError(result, false, terminal);
-          } else {
-            lifecycle.emitEnd(terminal);
-          }
-        }
-        return recordAgentRunTerminalOutcome(result, "failed");
+        );
       }) as never);
 
       try {
-        const client = new OpenAI({
-          apiKey: "test",
-          baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-          defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-          maxRetries: 0,
-        });
+        const client = createOpenAiHttpTestClient(enabledPort);
         const stream = client.responses.stream({ model: "openclaw", input: "hi" });
         const terminalEvents: string[] = [];
         const content: string[] = [];
@@ -3176,50 +2805,16 @@ describe("OpenResponses HTTP API (e2e)", () => {
     },
   );
 
-  it.each([
-    [
-      "a completed replacement",
-      { text: "final answer", delta: "", replace: true },
-      "final answer",
-      "final answer",
-    ],
-    ["an empty snapshot", { text: "", delta: "" }, "", "No response from OpenClaw."],
-    [
-      "an empty replacement snapshot",
-      { text: "", delta: "", replace: true },
-      "",
-      "No response from OpenClaw.",
-    ],
-    ["an empty delta without a snapshot", { delta: "" }, "", "coordination draft"],
-  ])(
-    "buffers replaceable assistant events through %s",
-    async (_name, replacement, finalText, expected) => {
+  it.each(bufferedReplacementCases)(
+    "buffers replaceable assistant events through $name",
+    async ({ replacement, finalText, expected }) => {
       agentCommandMock.mockClear();
       agentCommandMock.mockImplementationOnce((async (opts: unknown) => {
         const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
-        emitAgentEvent({
-          runId,
-          stream: "assistant",
-          data: { text: "coordination draft", delta: "coordination draft", replaceable: true },
-        });
-        emitAgentEvent({
-          runId,
-          stream: "assistant",
-          data: { ...replacement, replaceable: true },
-        });
-        if (finalText) {
-          emitAgentEvent({ runId, stream: "assistant", data: { text: finalText } });
-        }
-        emitAgentEvent({ runId, stream: "lifecycle", data: { phase: "end" } });
-        return { payloads: finalText ? [{ text: finalText }] : [] };
+        return emitBufferedAssistantReplacement(runId, { replacement, finalText });
       }) as never);
 
-      const client = new OpenAI({
-        apiKey: "test",
-        baseURL: `http://127.0.0.1:${enabledPort}/v1`,
-        defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-        maxRetries: 0,
-      });
+      const client = createOpenAiHttpTestClient(enabledPort);
       const stream = client.responses.stream({
         model: "openclaw",
         input: "hi",
@@ -3551,12 +3146,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
     [false, "Sunny, 70F."],
   ])("continues a client tool result (stream=%s, output=%s)", async (stream, output) => {
     const port = enabledPort;
-    const client = new OpenAI({
-      apiKey: "test",
-      baseURL: `http://127.0.0.1:${port}/v1`,
-      defaultHeaders: { "x-openclaw-scopes": "operator.write" },
-      maxRetries: 0,
-    });
+    const client = createOpenAiHttpTestClient(port);
     agentCommandMock.mockClear();
     agentCommandMock.mockResolvedValueOnce({
       payloads: [{ text: "Let me check that." }],

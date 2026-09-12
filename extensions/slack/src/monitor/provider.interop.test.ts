@@ -434,13 +434,10 @@ describe("createSlackBoltApp", () => {
       slackWebhookPath: "/slack/events",
       clientOptions: {
         fetch: async () =>
-          new Response(
-            JSON.stringify({
-              ok: true,
-              url: `ws://127.0.0.1:${address.port}`,
-            }),
-            { headers: { "content-type": "application/json" } },
-          ),
+          Response.json({
+            ok: true,
+            url: `ws://127.0.0.1:${address.port}`,
+          }),
       },
     });
     if (!receiver || typeof receiver !== "object") {

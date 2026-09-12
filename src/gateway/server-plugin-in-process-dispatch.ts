@@ -250,6 +250,9 @@ function resolveInProcessGatewayDispatch(
     agentRuntimeIdentity || options?.nodeInvokeStream
       ? {
           ...(scopedStreamClient ?? baseSyntheticClient),
+          ...(agentRuntimeIdentity && !scopedStreamClient
+            ? { connId: `agent-runtime:${agentRuntimeIdentity.operationalRunInstance.instanceId}` }
+            : {}),
           ...(scopedStreamClient
             ? {
                 connect: {

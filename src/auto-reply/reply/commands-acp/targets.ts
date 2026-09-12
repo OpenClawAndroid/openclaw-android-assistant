@@ -2,7 +2,7 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { AcpSessionTarget } from "../../../acp/control-plane/manager.types.js";
 import { resolveAcpSessionTarget } from "../../../acp/control-plane/manager.utils.js";
-import { callGateway } from "../../../gateway/call.js";
+import { bindAgentToolGatewayRequest } from "../../../agents/tools/in-process-gateway.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { parseAgentSessionKey } from "../../../routing/session-key.js";
 import { SESSION_ID_RE } from "../../../sessions/session-id.js";
@@ -25,6 +25,7 @@ async function resolveSessionKeyByToken(
   }
   attempts.push({ label: trimmed });
 
+  const callGateway = bindAgentToolGatewayRequest({ hostedOnly: true });
   for (const params of attempts) {
     const resolved = await callGateway({
       method: "sessions.resolve",

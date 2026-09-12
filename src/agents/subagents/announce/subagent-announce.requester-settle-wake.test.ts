@@ -41,7 +41,7 @@ const { registryRuntimeMock } = vi.hoisted(() => ({
 vi.mock("../registry/subagent-registry-read.js", () => registryRuntimeMock);
 
 vi.mock("./subagent-announce.runtime.js", () => ({
-  callGateway: vi.fn(async () => ({})),
+  callSubagentLifecycleGateway: vi.fn(async () => ({})),
   dispatchGatewayMethodInProcess: vi.fn(async () => ({})),
   isEmbeddedAgentRunActive: vi.fn(() => false),
   getRuntimeConfig: () => ({ session: { mainKey: "main", scope: "per-sender" } }),

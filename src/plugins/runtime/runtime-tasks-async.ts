@@ -1,15 +1,31 @@
+import {
+  collectNestedErrorCandidates,
+  extractErrorCode,
+} from "@openclaw/normalization-core/error-coercion";
+import type { SqliteWorkerStore } from "../../infra/sqlite-worker-contract.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
+import type { OpenClawStateWorkerOperations } from "../../state/openclaw-state-worker-contract.js";
 import {
   mapTaskFlowDetail,
   mapTaskRunAggregateSummary,
   mapTaskRunDetail,
   mapTaskRunView,
 } from "../../tasks/task-domain-views.js";
-import { ensureTaskFlowRegistryReady } from "../../tasks/task-flow-runtime-internal.js";
+import {
+  buildFlowRecord,
+  buildManagedTaskFlowPatch,
+  type FlowRecordPatch,
+  type ManagedTaskFlowMutation,
+} from "../../tasks/task-flow-registry.records.js";
+import {
+  ensureTaskFlowRegistryReady,
+  runTaskFlowRegistryWorkerMutation,
+} from "../../tasks/task-flow-runtime-internal.js";
 import { canOwnerAccessTask } from "../../tasks/task-owner-access.js";
 import { ensureTaskRegistryReady } from "../../tasks/task-registry-state.js";
 import type { TaskRecord } from "../../tasks/task-registry.types.js";
 import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
+import { asManagedTaskFlowRecord, mapFlowUpdateResult } from "./runtime-managed-flow-result.js";
 import type {
   BoundAsyncManagedTaskFlowsRuntime,
   BoundAsyncTaskFlowsRuntime,
@@ -30,11 +46,11 @@ function bind(params: Binding) {
 
 async function readStore(includeTasks: boolean, includeFlows: boolean) {
   const context = captureOpenClawStateWorkerContext();
-  // Cold restore retains canonical schema admission and failure semantics. Only
-  // this first admission uses main-thread SQLite; warmed queries run in the worker.
+  // Registry restore retains its main-thread admission and failure semantics;
+  // the subsequent query or mutation uses the shared worker.
   if (includeFlows) {
     context.admission.assertCurrent();
-    ensureTaskFlowRegistryReady();
+    ensureTaskFlowRegistryReady({ refreshProjection: false });
   }
   if (includeTasks) {
     context.admission.assertCurrent();
@@ -96,8 +112,71 @@ async function readFlowTaskSummary(ownerKey: string, flowId: string) {
   });
 }
 
-function bindFlowReads(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
+function bindManagedFlows(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
   const binding = bind(params);
+  const prepareWrite = async () => {
+    const { store, context } = await readStore(false, true);
+    return <T>(
+      flowId: string,
+      mutate: (
+        scope: Pick<SqliteWorkerStore<OpenClawStateWorkerOperations>, "execute">,
+      ) => Promise<T>,
+    ) =>
+      store.runOpenClawStateWorkerOperation(context, (scope) =>
+        runTaskFlowRegistryWorkerMutation(
+          { admission: context.admission, flowId },
+          () => mutate(scope),
+          () => scope.execute({ type: "flows.current", input: { flowId } }),
+        ),
+      );
+  };
+  const tryCreateManaged: BoundAsyncManagedTaskFlowsRuntime["tryCreateManaged"] = async (input) => {
+    const snapshot = structuredClone(input);
+    const write = await prepareWrite();
+    const flow = buildFlowRecord({
+      ...snapshot,
+      ownerKey: binding.sessionKey,
+      requesterOrigin: binding.requesterOrigin,
+      syncMode: "managed",
+    });
+    try {
+      const created = await write(flow.flowId, (scope) =>
+        scope.execute({ type: "flows.createManaged", input: { flow } }),
+      );
+      return asManagedTaskFlowRecord(created) ?? null;
+    } catch (error) {
+      // Retirement can aggregate an uncertain operation with a cleanup error.
+      if (
+        collectNestedErrorCandidates(error).some(
+          (candidate) => extractErrorCode(candidate) === "outcome-unknown",
+        )
+      ) {
+        throw error;
+      }
+      return null;
+    }
+  };
+  const update = async (
+    mutation: ManagedTaskFlowMutation,
+    input: FlowRecordPatch & { flowId: string; expectedRevision: number },
+  ) => {
+    const snapshot = structuredClone(input);
+    const write = await prepareWrite();
+    const patch = buildManagedTaskFlowPatch(mutation, snapshot);
+    const result = await write(snapshot.flowId, (scope) =>
+      scope.execute({
+        type: "flows.updateManaged",
+        input: {
+          flowId: snapshot.flowId,
+          expectedRevision: snapshot.expectedRevision,
+          ownerKey: binding.sessionKey,
+          patch,
+        },
+      }),
+    );
+    return mapFlowUpdateResult(result);
+  };
+
   const read = async (lookup: "id" | "latest" | "resolve", token?: string) => {
     const { store, context } = await readStore(false, true);
     return store.executeOpenClawStateWorker(context, {
@@ -107,6 +186,19 @@ function bindFlowReads(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
   };
   return {
     ...binding,
+    tryCreateManaged,
+    async createManaged(input) {
+      const flow = await tryCreateManaged(input);
+      if (!flow) {
+        throw new Error("TaskFlow persistence failed.");
+      }
+      return flow;
+    },
+    setWaiting: (input) => update("setWaiting", input),
+    resume: (input) => update("resume", input),
+    finish: (input) => update("finish", input),
+    fail: (input) => update("fail", input),
+    requestCancel: (input) => update("requestCancel", input),
     get: (flowId) => read("id", flowId),
     async list() {
       const { store, context } = await readStore(false, true);
@@ -170,9 +262,12 @@ export function createRuntimeAsyncTasks(): PluginRuntimeAsyncTasks {
         bindFlows({ sessionKey: ctx.sessionKey ?? "", requesterOrigin: ctx.deliveryContext }),
     },
     managedFlows: {
-      bindSession: bindFlowReads,
+      bindSession: bindManagedFlows,
       fromToolContext: (ctx) =>
-        bindFlowReads({ sessionKey: ctx.sessionKey ?? "", requesterOrigin: ctx.deliveryContext }),
+        bindManagedFlows({
+          sessionKey: ctx.sessionKey ?? "",
+          requesterOrigin: ctx.deliveryContext,
+        }),
     },
   };
 }

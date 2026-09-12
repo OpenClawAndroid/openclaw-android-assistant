@@ -9,14 +9,14 @@ import {
   stageActivePluginRegistry,
 } from "../plugins/runtime.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import { getFreePort } from "../test-utils/ports.js";
+import { getDeterministicFreePortBlock } from "../test-utils/ports.js";
 import { createGatewayKernel } from "./server-kernel.js";
 import type { GatewayServer } from "./server-public.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 describe("Gateway startup node capabilities", () => {
   it("reconnects affected nodes when plugins attach after their handshake", async () => {
-    const port = await getFreePort();
+    const port = await getDeterministicFreePortBlock({ offsets: [0] });
     const state = await createOpenClawTestState({
       label: "gateway-startup-node-capabilities",
       layout: "home",

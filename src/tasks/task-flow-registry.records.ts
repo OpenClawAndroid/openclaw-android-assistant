@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type {
   JsonValue,
@@ -77,6 +78,63 @@ export type FlowRecordCreateFields = {
   endedAt?: number | null;
 };
 
+export type ManagedTaskFlowMutation = "setWaiting" | "resume" | "finish" | "fail" | "requestCancel";
+
+/** Both transports translate managed actions through the same field and timestamp rules. */
+export function buildManagedTaskFlowPatch(
+  mutation: ManagedTaskFlowMutation,
+  input: FlowRecordPatch,
+): FlowRecordPatch {
+  switch (mutation) {
+    case "setWaiting":
+      return {
+        status:
+          normalizeOptionalString(input.blockedTaskId) ||
+          normalizeOptionalString(input.blockedSummary)
+            ? "blocked"
+            : "waiting",
+        currentStep: input.currentStep,
+        stateJson: input.stateJson,
+        waitJson: input.waitJson,
+        blockedTaskId: input.blockedTaskId,
+        blockedSummary: input.blockedSummary,
+        endedAt: null,
+        updatedAt: input.updatedAt,
+      };
+    case "resume":
+      return {
+        status: input.status ?? "queued",
+        currentStep: input.currentStep,
+        stateJson: input.stateJson,
+        waitJson: null,
+        blockedTaskId: null,
+        blockedSummary: null,
+        endedAt: null,
+        updatedAt: input.updatedAt,
+      };
+    case "finish":
+    case "fail": {
+      const endedAt = input.endedAt ?? input.updatedAt ?? Date.now();
+      return {
+        status: mutation === "finish" ? "succeeded" : "failed",
+        currentStep: input.currentStep,
+        stateJson: input.stateJson,
+        waitJson: null,
+        blockedTaskId: mutation === "finish" ? null : input.blockedTaskId,
+        blockedSummary: mutation === "finish" ? null : input.blockedSummary,
+        endedAt,
+        updatedAt: input.updatedAt ?? endedAt,
+      };
+    }
+    case "requestCancel":
+      return {
+        cancelRequestedAt: input.cancelRequestedAt ?? input.updatedAt ?? Date.now(),
+        updatedAt: input.updatedAt,
+      };
+  }
+  throw new Error("Unknown managed task-flow mutation");
+}
+
 export type CreateFlowRecordParams = FlowRecordCreateFields & {
   syncMode?: TaskFlowSyncMode;
   controllerId?: string | null;
@@ -106,6 +164,18 @@ export function cloneFlowRecord(record: TaskFlowRecord): TaskFlowRecord {
       : {}),
     ...(record.waitJson !== undefined ? { waitJson: cloneStructuredValue(record.waitJson)! } : {}),
   };
+}
+
+/** Optional record fields decode without own undefined properties; JSON payloads retain their shape. */
+export function areTaskFlowRecordsEqual(
+  left: TaskFlowRecord | undefined,
+  right: TaskFlowRecord | undefined,
+): boolean {
+  const fields = (record: TaskFlowRecord | undefined) =>
+    record
+      ? Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined))
+      : undefined;
+  return isDeepStrictEqual(fields(left), fields(right));
 }
 
 export function normalizeRestoredFlowRecord(record: TaskFlowRecord): TaskFlowRecord {

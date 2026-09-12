@@ -12,6 +12,7 @@ import {
 import { withEnvAsync } from "../../test-utils/env.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../../utils/message-channel.js";
 import { drainPendingDeliveriesCore } from "./delivery-queue-recovery.js";
+import type { OutboundMessageGatewayOptionsInput } from "./message-gateway-options.js";
 
 const setRegistry = (registry: ReturnType<typeof createTestRegistry>) => {
   setActivePluginRegistry(registry);
@@ -310,6 +311,46 @@ function setDemoPollRegistry(outboundOptions: Parameters<typeof createDemoAliasO
 }
 
 describe("sendPoll channel normalization", () => {
+  it.each(["send", "poll"] as const)(
+    "keeps hosted %s delivery on its bound Gateway",
+    async (method) => {
+      setDemoPollRegistry({ deliveryMode: "gateway" });
+      const resolveAgentRuntimeIdentityToken = vi.fn();
+      const gateway: OutboundMessageGatewayOptionsInput = {
+        request: async () => {
+          throw new Error("unexpected unconfigured Gateway request");
+        },
+        resolveAgentRuntimeIdentityToken,
+      };
+      const request = vi.spyOn(gateway, "request").mockResolvedValue({ messageId: "owned-1" });
+      const common = {
+        cfg: {},
+        to: "conversation:demo-target",
+        channel: "workspace-chat",
+        idempotencyKey: "owned-delivery",
+        gateway,
+      };
+      const result =
+        method === "send"
+          ? await sendMessage({ ...common, content: "hello" })
+          : await sendPoll({ ...common, question: "Lunch?", options: ["Pizza", "Sushi"] });
+
+      expect(request).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method,
+          params: expect.objectContaining({
+            channel: "demo-alias-channel",
+            idempotencyKey: "owned-delivery",
+          }),
+        }),
+      );
+      expect(result.result).toMatchObject({ messageId: "owned-1" });
+      expect(callGatewayMock).not.toHaveBeenCalled();
+      expect(resolveAgentRuntimeIdentityToken).not.toHaveBeenCalled();
+    },
+  );
+
   it("normalizes plugin aliases for gateway polls", async () => {
     callGatewayMock.mockResolvedValueOnce({ messageId: "p1", channelId: "channel-1" });
     setDemoPollRegistry({ deliveryMode: "gateway" });

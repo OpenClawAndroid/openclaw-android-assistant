@@ -5,6 +5,7 @@ import type { GatewayRequestContext } from "../../gateway/server-methods/types.j
 
 const mocks = vi.hoisted(() => ({
   hasContext: true,
+  context: {} as GatewayRequestContext,
   dispatch: vi.fn(),
   callGateway: vi.fn(),
   callGatewayTool: vi.fn(),
@@ -16,7 +17,8 @@ vi.mock("../../gateway/method-scopes.js", () => ({
 
 vi.mock("../../gateway/server-plugins.js", () => ({
   dispatchGatewayMethodInProcess: mocks.dispatch,
-  getInProcessGatewayRequestContext: vi.fn(),
+  getInProcessGatewayRequestContext: (resolver?: () => GatewayRequestContext | undefined) =>
+    resolver ? resolver() : mocks.hasContext ? mocks.context : undefined,
   runWithOperatorToolGatewayCleanupContext: <T>(run: () => T) => run(),
   hasInProcessGatewayContext: (resolveGatewayContext?: () => GatewayRequestContext | undefined) =>
     Boolean(resolveGatewayContext?.() ?? mocks.hasContext),
@@ -28,6 +30,7 @@ vi.mock("../../gateway/call.js", () => ({ callGateway: mocks.callGateway }));
 import { withGatewayToolCallerIdentity } from "./gateway-caller-context.js";
 import { getGatewaySessionSpawnContext } from "./gateway-session-spawn-context.js";
 import {
+  bindAgentToolGatewayRequest,
   callAgentToolGatewayRequest,
   callInProcessGatewayTool,
   callInProcessGatewayToolWithCreation,
@@ -332,6 +335,7 @@ describe("request-shaped in-process Gateway dispatch", () => {
         onAccepted,
         signal: controller.signal,
         timeoutMs: 10_000,
+        resolveGatewayContext: expect.any(Function),
       },
     );
     expect(mocks.callGateway).not.toHaveBeenCalled();
@@ -451,6 +455,52 @@ describe("request-shaped in-process Gateway dispatch", () => {
       ),
     ).rejects.toThrow(/Gateway|gateway|unavailable/u);
     expect(cancelDispatches).toBe(0);
+  });
+
+  it("keeps a captured multi-request operation on its original Gateway", async () => {
+    const admitted = {} as GatewayRequestContext;
+    let current: GatewayRequestContext | undefined = admitted;
+    const request = bindAgentToolGatewayRequest({ resolveGatewayContext: () => current });
+    await request({ method: "question.get", params: { id: "question-1" } });
+    current = { ...admitted };
+    await expect(
+      request({ method: "question.resolve", params: { id: "question-1" } }),
+    ).rejects.toThrow("Gateway instance unavailable");
+    expect(mocks.dispatch).toHaveBeenCalledOnce();
+    expect(mocks.callGateway).not.toHaveBeenCalled();
+  });
+
+  it("retains local-embedded transport for hosted-only operation bindings", async () => {
+    const context = { localEmbedded: true } as GatewayRequestContext;
+    const request = bindAgentToolGatewayRequest({
+      resolveGatewayContext: () => context,
+      hostedOnly: true,
+    });
+    await request({ method: "question.get", params: { id: "question-1" } });
+    expect(mocks.callGateway).toHaveBeenCalledOnce();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("composes supplied dispatch authority with the caller commit fence", async () => {
+    let current = true;
+    const assertDispatchCurrent = () => {
+      if (!current) {
+        throw new Error("source authority retired");
+      }
+    };
+    mocks.dispatch.mockImplementationOnce(async (_method, _params, options) => {
+      current = false;
+      options.sessionMutationCommitGuard();
+      return { ok: true };
+    });
+    await expect(
+      callAgentToolGatewayRequest({
+        method: "sessions.patch",
+        params: { key: "target", pinned: true },
+        assertDispatchCurrent,
+      }),
+    ).rejects.toThrow("source authority retired");
+    expect(mocks.callGateway).not.toHaveBeenCalled();
   });
 
   it("falls back to the original Gateway request outside the Gateway process", async () => {

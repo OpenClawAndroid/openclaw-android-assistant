@@ -7,12 +7,10 @@ import {
   MAX_DATE_TIMESTAMP_MS,
   MAX_TIMER_TIMEOUT_MS,
 } from "@openclaw/normalization-core/number-coercion";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const callGatewayMock = vi.fn();
-vi.mock("../gateway/call.js", () => ({
-  callGateway: (opts: unknown) => callGatewayMock(opts),
-}));
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import * as gatewayCallRuntime from "../gateway/call.js";
+const callGatewayMock = vi.spyOn(gatewayCallRuntime, "callGateway");
+afterAll(() => callGatewayMock.mockRestore());
 
 import {
   readLatestAssistantReply,

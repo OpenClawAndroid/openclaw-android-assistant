@@ -8,7 +8,7 @@ function getNativeWindowDragPoster() {
 }
 
 const INTERACTIVE_TARGET_SELECTOR =
-  "a, button, input, select, textarea, [role='button'], [contenteditable]";
+  "a, button, input, select, textarea, [role='button'], [role='tab'], [role='menu'], [role^='menuitem'], [contenteditable]";
 
 /**
  * mousedown handler for chrome-like rows (split pane headers): asks the native

@@ -14,6 +14,8 @@ const SESSIONS_PATCH_WRITE_SCOPE_MUTATIONS: ReadonlySet<string> = new Set([
   "archived",
   "unread",
   "model",
+  "thinkingLevel",
+  "fastMode",
   "permissionMode",
 ]);
 

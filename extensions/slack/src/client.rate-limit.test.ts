@@ -43,10 +43,7 @@ function createRateLimitTransport(
         return new Response("synthetic server failure", { status: 500 });
       }
     }
-    return new Response(JSON.stringify({ ok: true, ts: STREAM_TS }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return Response.json({ ok: true, ts: STREAM_TS });
   };
   return { fetch, requests };
 }

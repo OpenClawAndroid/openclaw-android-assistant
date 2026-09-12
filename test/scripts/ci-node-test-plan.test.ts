@@ -13,6 +13,7 @@ import {
   createNodeTestShards,
   createSelectedNodeTestShardBundles,
   createVitestCacheWarmGroups,
+  hasCompleteStartupCorpusCoverage,
   isExclusiveCompactShardName,
   isPolicyTestOwnedPath,
   packNodeTestGroups,
@@ -57,6 +58,52 @@ import { createUnitVitestConfigWithOptions } from "../vitest/vitest.unit.config.
 import { createWizardVitestConfig } from "../vitest/vitest.wizard.config.ts";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+describe("startup corpus coverage", () => {
+  const files = [
+    "src/config/config-startup-corpus.test.ts",
+    "src/config/state-startup-corpus.test.ts",
+  ];
+  const group = {
+    shard_name: "core-runtime-config",
+    configs: ["test/vitest/vitest.runtime-config.config.ts"],
+    requiresDist: false,
+    runner: "ubuntu-24.04",
+    includePatterns: files,
+    env: { OPENCLAW_VITEST_MAX_WORKERS: "2" },
+  };
+  it("retains complete ownership across separate file groups", () => {
+    const groups = files.map((file) => ({ ...group, includePatterns: [file] }));
+    expect(hasCompleteStartupCorpusCoverage([{ requiresDist: false, groups }])).toBe(true);
+    expect(listMatchedTestFiles(createRuntimeConfigVitestConfig({}))).toEqual(
+      expect.arrayContaining(files),
+    );
+  });
+  it.each<
+    { label: string } & Partial<Parameters<typeof hasCompleteStartupCorpusCoverage>[0][number]>
+  >([
+    { label: "partial file list", groups: [{ ...group, includePatterns: files.slice(0, 1) }] },
+    { label: "unknown full config", groups: [{ ...group, includePatterns: undefined }] },
+    {
+      label: "glob instead of complete files",
+      groups: [{ ...group, includePatterns: ["src/config/**"] }],
+    },
+    { label: "different config", groups: [{ ...group, configs: ["vitest.config.ts"] }] },
+    {
+      label: "native shard",
+      groups: [{ ...group, env: { OPENCLAW_NODE_TEST_VITEST_ARGS_JSON: '["--shard=1/2"]' } }],
+    },
+    {
+      label: "name filter",
+      groups: [{ ...group, env: { OPENCLAW_NODE_TEST_VITEST_ARGS_JSON: '["-t","one"]' } }],
+    },
+    { label: "target precedence", groups: [group], targets: files.slice(0, 1) },
+    { label: "non-admitted dist row", groups: [group], requiresDist: true },
+    { label: "no groups", groups: [] },
+  ])("does not certify $label", ({ label: _label, ...shard }) => {
+    expect(hasCompleteStartupCorpusCoverage([{ requiresDist: false, ...shard }])).toBe(false);
+  });
+});
 
 type VitestTestConfig = {
   dir?: string;

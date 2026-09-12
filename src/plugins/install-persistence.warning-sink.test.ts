@@ -99,9 +99,6 @@ describe("plugin install persistence warning audiences", () => {
     );
     expect(pluginsCliRuntimeLogs.join("\n")).toContain("requires configuration first");
     expect(pluginsCliRuntimeLogs).toContain("Installed plugin: workboard");
-    const sourceChangeMessage =
-      "Plugin source changes take effect on the next Gateway start. Installs performed by the running Gateway request an automatic restart when config reload is enabled; installs from a separate shell, or with config reload off, require a manual Gateway restart. Configuration reload can restart connected channels before that Gateway restart.";
-    expect(pluginsCliRuntimeLogs.filter((line) => line === sourceChangeMessage)).toHaveLength(1);
   });
 
   it("preserves owner-authored exclusive-slot warnings verbatim", async () => {

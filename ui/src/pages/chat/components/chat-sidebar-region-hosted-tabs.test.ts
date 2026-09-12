@@ -84,12 +84,51 @@ function labels(shell: HTMLElement) {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const shell of shells.splice(0)) {
     shell.remove();
   }
 });
 
 describe("chat sidebar hosted tabs", () => {
+  it("drags passive header chrome while keeping changing tabs and controls interactive", async () => {
+    const postMessage = vi.fn();
+    vi.stubGlobal("webkit", { messageHandlers: { openclawWindowDrag: { postMessage } } });
+    const { panel, region, shell, changed } = await mount();
+    region.availableSlots = ["browser", "terminal"];
+    const press = (target: Element) => {
+      postMessage.mockClear();
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+        button: 0,
+      });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    for (const pages of [[firstTab], tabs, [secondTab], []]) {
+      panel.hostedTabs = pages;
+      await changed();
+      for (const selector of [".side-panel__header", ".side-panel__header-tabs"]) {
+        expect(press(shell.querySelector(selector)!).defaultPrevented).toBe(true);
+        expect(postMessage).toHaveBeenCalledExactlyOnceWith({ type: "window-drag" });
+      }
+      for (const target of shell.querySelectorAll(
+        ".side-panel__header wa-tab, .side-panel__header .tabstrip-tab__label, .side-panel__header button, .side-panel__header button svg, .side-panel-type-menu__item, .side-panel-type-option__label",
+      )) {
+        expect(press(target).defaultPrevented).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+      }
+      const menu = shell.querySelector("wa-dropdown")!.shadowRoot!.querySelector('[role="menu"]')!;
+      expect(press(menu).defaultPrevented).toBe(false);
+      expect(postMessage).not.toHaveBeenCalled();
+      expect(press(panel).defaultPrevented).toBe(false);
+      expect(postMessage).not.toHaveBeenCalled();
+    }
+  });
+
   it("replaces Browser with its tabs, selects the active page and brackets the group", async () => {
     const { shell } = await mount();
     expect(labels(shell)).toEqual(["Review", "First page", "Second page", "Files"]);

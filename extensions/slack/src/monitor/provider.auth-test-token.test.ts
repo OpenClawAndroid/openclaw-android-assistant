@@ -158,16 +158,13 @@ describe("auth.test boot call", () => {
     const actualClient = await vi.importActual<typeof import("../client.js")>("../client.js");
     useSlackStartupAuthClientOnce(actualClient.createSlackStartupAuthClient);
     const globalFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          bot_id: "BBOT",
-          is_enterprise_install: false,
-          ok: true,
-          team_id: "T1",
-          user_id: "UBOT",
-        }),
-        { headers: { "content-type": "application/json" }, status: 200 },
-      ),
+      Response.json({
+        bot_id: "BBOT",
+        is_enterprise_install: false,
+        ok: true,
+        team_id: "T1",
+        user_id: "UBOT",
+      }),
     );
     const monitor = startSlackMonitor(monitorSlackProvider);
     try {

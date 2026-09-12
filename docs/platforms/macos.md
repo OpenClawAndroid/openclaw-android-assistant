@@ -199,6 +199,8 @@ Use the tab strip to select or close a page, the URL bar to navigate, and the ba
 
 The titlebar controls follow the app sidebar: while it is expanded, back/forward sit at its right edge next to the sidebar toggle; while it is collapsed, they make way for a search button (opens the command palette) and a new-session button.
 
+Drag the empty space beside the side-panel tabs to move the window. The full height of the header is available, and the draggable space follows tabs as they are added, removed, or resized. Tabs and header buttons keep their normal click and tab-reordering behavior.
+
 Mac tabs stay visible when a menu or hover card opens elsewhere in the dashboard. A tab's page temporarily hides only when the menu overlaps its Browser pane, or while a modal dialog or the command palette is open, and returns when the obstruction clears.
 
 Drag the empty header space or title in the docked OpenClaw chat panel to move the app window. Its dock-position and close buttons remain clickable.

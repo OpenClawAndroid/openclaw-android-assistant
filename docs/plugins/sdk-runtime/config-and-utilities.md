@@ -86,6 +86,11 @@ Native command probes should use `runCommandWithTimeout` from
 before returning. For commands whose output is always UTF-8, such as JSON status
 probes, use `runUtf8CommandWithTimeout` from the same subpath.
 
+When launching an isolated Gateway child that your plugin owns, remove
+`SUPERVISOR_HINT_ENV_VARS` from its environment after applying caller overrides.
+This list is exported from `openclaw/plugin-sdk/process-runtime`; inherited parent
+service markers would otherwise assign restart ownership to that parent's supervisor.
+
 Use `splitCommandArgs(raw)` from the same subpath to group quoted process
 arguments. Backslashes and `#` stay literal; there is no shell expansion.
 Unfinished quotes return `null` unless the caller passes

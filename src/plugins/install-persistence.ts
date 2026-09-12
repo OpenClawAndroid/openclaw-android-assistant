@@ -492,11 +492,6 @@ export async function persistPluginInstall(params: {
         install: params.install,
         warn,
       });
-      if (!params.applyRuntime && !params.deferRuntime) {
-        runtime.log(
-          "Plugin source changes take effect on the next Gateway start. Installs performed by the running Gateway request an automatic restart when config reload is enabled; installs from a separate shell, or with config reload off, require a manual Gateway restart. Configuration reload can restart connected channels before that Gateway restart.",
-        );
-      }
       return next;
     });
   } catch (error) {
@@ -517,7 +512,7 @@ export async function persistPluginInstall(params: {
   } finally {
     if (committed) {
       await params.transaction?.commit().catch(() => {
-        const warning = "Plugin install committed, but backup cleanup failed. Restart is required.";
+        const warning = "Plugin install committed, but backup cleanup failed.";
         params.persistenceLogger?.warn?.(warning);
         params.runtime?.log(warning);
       });

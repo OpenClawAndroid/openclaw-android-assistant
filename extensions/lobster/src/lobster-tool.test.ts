@@ -1,8 +1,12 @@
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { createPluginRuntimeMock } from "openclaw/plugin-sdk/plugin-test-runtime";
 // Lobster tests cover lobster tool plugin behavior.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it, vi } from "vitest";
+import plugin from "../index.js";
 import type { OpenClawPluginApi, OpenClawPluginToolContext } from "../runtime-api.js";
+import * as lobsterRunner from "./lobster-runner.js";
 import { createLobsterTool } from "./lobster-tool.js";
 import { createFakeTaskFlow } from "./taskflow-test-helpers.js";
 
@@ -34,6 +38,150 @@ function fakeCtx(overrides: Partial<OpenClawPluginToolContext> = {}): OpenClawPl
 const requireRecord = createRequireRecord("record", "expected-label-record");
 
 describe("lobster plugin tool", () => {
+  it("propagates uncertain registered creation without retrying or starting its runner", async () => {
+    const runtime = createPluginRuntimeMock();
+    const ctx = fakeCtx();
+    const bound = runtime.tasks.async.managedFlows.fromToolContext(ctx);
+    const legacy = runtime.tasks.managedFlows.fromToolContext(ctx);
+    const lost = Object.assign(new Error("Worker reply was lost"), { code: "outcome-unknown" });
+    const failure = new AggregateError(
+      [new Error("Cleanup failed")],
+      "Creation outcome is unknown",
+      { cause: lost },
+    );
+    vi.mocked(bound.tryCreateManaged).mockRejectedValue(failure);
+    vi.mocked(runtime.tasks.async.managedFlows.fromToolContext).mockReturnValue(bound);
+    vi.mocked(runtime.tasks.managedFlows.fromToolContext).mockReturnValue(legacy);
+    const runner = { run: vi.fn<lobsterRunner.LobsterRunner["run"]>() };
+    const runnerFactory = vi
+      .spyOn(lobsterRunner, "createEmbeddedLobsterRunner")
+      .mockReturnValue(runner);
+    const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
+    try {
+      plugin.register(fakeApi({ runtime, registerTool }));
+      const factory = registerTool.mock.calls[0]?.[0];
+      if (typeof factory !== "function") {
+        throw new Error("Expected the registered Lobster tool factory");
+      }
+      const tool = factory(ctx);
+      if (!tool || Array.isArray(tool)) {
+        throw new Error("Expected a bound Lobster tool");
+      }
+      await expect(
+        tool.execute("uncertain-create", {
+          action: "run",
+          pipeline: "noop",
+          flowControllerId: "tests/lobster",
+          flowGoal: "Synthetic uncertain flow",
+        }),
+      ).rejects.toBe(failure);
+      expect(bound.tryCreateManaged).toHaveBeenCalledTimes(1);
+      expect(bound.createManaged).not.toHaveBeenCalled();
+      expect(legacy.tryCreateManaged).not.toHaveBeenCalled();
+      expect(legacy.createManaged).not.toHaveBeenCalled();
+      expect(runner.run).not.toHaveBeenCalled();
+    } finally {
+      runnerFactory.mockRestore();
+    }
+  });
+
+  it.each(["run", "resume"] as const)(
+    "awaits persistence before and after a registered managed %s",
+    async (action) => {
+      const runtime = createPluginRuntimeMock();
+      const ctx = fakeCtx();
+      const bound = runtime.tasks.async.managedFlows.fromToolContext(ctx);
+      const taskFlow = createFakeTaskFlow();
+      const admitted = createDeferred<void>();
+      const admissionEntered = createDeferred<void>();
+      const completed = createDeferred<void>();
+      const completionEntered = createDeferred<void>();
+      const create = taskFlow.tryCreateManaged;
+      taskFlow.tryCreateManaged = vi.fn(async (params) => {
+        admissionEntered.resolve();
+        await admitted.promise;
+        return create(params);
+      });
+      const resume = taskFlow.resume;
+      taskFlow.resume = vi.fn(async (params) => {
+        admissionEntered.resolve();
+        await admitted.promise;
+        return resume(params);
+      });
+      const finish = taskFlow.finish;
+      taskFlow.finish = vi.fn(async (params) => {
+        completionEntered.resolve();
+        await completed.promise;
+        return finish(params);
+      });
+      vi.mocked(runtime.tasks.async.managedFlows.fromToolContext).mockReturnValue({
+        ...bound,
+        ...taskFlow,
+      });
+      const runner = {
+        run: vi.fn<lobsterRunner.LobsterRunner["run"]>().mockResolvedValue({
+          ok: true,
+          status: "ok",
+          output: [],
+          requiresApproval: null,
+        }),
+      };
+      const runnerFactory = vi
+        .spyOn(lobsterRunner, "createEmbeddedLobsterRunner")
+        .mockReturnValue(runner);
+      const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
+      let execution: Promise<unknown> | undefined;
+      try {
+        plugin.register(fakeApi({ runtime, registerTool }));
+        const factory = registerTool.mock.calls[0]?.[0];
+        if (typeof factory !== "function") {
+          throw new Error("Expected the registered Lobster tool factory");
+        }
+        const tool = factory(ctx);
+        if (!tool || Array.isArray(tool)) {
+          throw new Error("Expected a bound Lobster tool");
+        }
+        let settled = false;
+        execution = Promise.resolve(
+          tool.execute(
+            "managed-registered",
+            action === "run"
+              ? {
+                  action,
+                  pipeline: "noop",
+                  flowControllerId: "tests/lobster",
+                  flowGoal: "Synthetic flow",
+                }
+              : {
+                  action,
+                  token: "synthetic-token",
+                  approve: true,
+                  flowId: "flow-1",
+                  flowExpectedRevision: 1,
+                },
+          ),
+        ).finally(() => {
+          settled = true;
+        });
+        await Promise.race([admissionEntered.promise, execution]);
+        expect(runner.run).not.toHaveBeenCalled();
+        admitted.resolve();
+        await Promise.race([completionEntered.promise, execution]);
+        expect(runner.run).toHaveBeenCalledTimes(1);
+        expect(settled).toBe(false);
+        completed.resolve();
+        expect(await execution).toMatchObject({
+          details: { ok: true, mutation: { applied: true, flow: { status: "succeeded" } } },
+        });
+      } finally {
+        admitted.resolve();
+        completed.resolve();
+        await Promise.allSettled([execution]);
+        runnerFactory.mockRestore();
+      }
+    },
+  );
+
   it("returns the Lobster envelope in details", async () => {
     const runner = {
       run: vi.fn().mockResolvedValue({
@@ -137,7 +285,7 @@ describe("lobster plugin tool", () => {
       flowWaitingStep: " ",
     });
 
-    expect(taskFlow.createManaged).not.toHaveBeenCalled();
+    expect(taskFlow.tryCreateManaged).not.toHaveBeenCalled();
     expect(runner.run).toHaveBeenCalledWith({
       action: "run",
       pipeline: "noop",
@@ -415,7 +563,7 @@ describe("lobster plugin tool", () => {
       flowWaitingStep: "await_review",
     });
 
-    expect(taskFlow.createManaged).toHaveBeenCalledWith({
+    expect(taskFlow.tryCreateManaged).toHaveBeenCalledWith({
       controllerId: "tests/lobster",
       goal: "Run Lobster workflow",
       currentStep: "run_lobster",
@@ -442,6 +590,21 @@ describe("lobster plugin tool", () => {
     expect(mutation.applied).toBe(true);
   });
 
+  it("does not start the runner when managed creation fails to persist", async () => {
+    const taskFlow = createFakeTaskFlow({ tryCreateManaged: vi.fn().mockResolvedValue(null) });
+    const runner = { run: vi.fn<lobsterRunner.LobsterRunner["run"]>() };
+    const tool = createLobsterTool(fakeApi(), { runner, taskFlow });
+    await expect(
+      tool.execute("failed-create", {
+        action: "run",
+        pipeline: "noop",
+        flowControllerId: "tests/lobster",
+        flowGoal: "Synthetic flow",
+      }),
+    ).rejects.toThrow("TaskFlow persistence failed.");
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
   it("preserves explicit empty flow state in managed TaskFlow run mode", async () => {
     const runner = {
       run: vi.fn().mockResolvedValue({
@@ -462,7 +625,7 @@ describe("lobster plugin tool", () => {
       flowStateJson: "{}",
     });
 
-    expect(taskFlow.createManaged).toHaveBeenCalledWith({
+    expect(taskFlow.tryCreateManaged).toHaveBeenCalledWith({
       controllerId: "tests/lobster",
       goal: "Run Lobster workflow",
       currentStep: "run_lobster",

@@ -102,7 +102,9 @@ export async function finalizePluginUpdateSummary(params: {
           logger: params.logger,
         })) || changed;
     } catch (error) {
-      await settlePluginInstallTransactions(params.transactionState.transactions, "rollback");
+      await settlePluginInstallTransactions(params.transactionState.transactions, "rollback", {
+        error,
+      });
       throw error;
     }
   }

@@ -5,7 +5,7 @@ import {
   normalizeOptionalString,
 } from "../../packages/normalization-core/src/string-coerce.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { callGateway as defaultCallGateway } from "../gateway/call.js";
+import type { callGateway as defaultCallGateway } from "../gateway/call.js";
 import {
   createSessionVisibilityDecisionChecker,
   listSpawnedSessionKeysWithResult,

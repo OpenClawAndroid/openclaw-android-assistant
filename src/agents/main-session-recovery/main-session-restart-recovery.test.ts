@@ -138,6 +138,7 @@ const sendRecoveryNotice = vi.fn<GatewayRecoveryRuntime["sendRecoveryNotice"]>(a
   suppressed: false,
 }));
 const mockRecoveryRuntime = {
+  dispatchSessionMethod: vi.fn(),
   dispatchAgent: async <T>(
     params: Record<string, unknown>,
     timeoutMs?: number,
@@ -4772,6 +4773,7 @@ describe("main-session-restart-recovery", () => {
       sessionKey: "agent:main:main",
       storePath,
       gatewayRuntime: {
+        dispatchSessionMethod: vi.fn(),
         dispatchAgent: dispatchAgent as GatewayRecoveryRuntime["dispatchAgent"],
         waitForAgent: vi.fn(),
         sendRecoveryNotice: vi.fn(),
@@ -4830,6 +4832,7 @@ describe("main-session-restart-recovery", () => {
           sessionKey: "agent:main:main",
         },
         gatewayRuntime: {
+          dispatchSessionMethod: vi.fn(),
           dispatchAgent: dispatchAgent as GatewayRecoveryRuntime["dispatchAgent"],
           sendRecoveryNotice: vi.fn(),
           waitForAgent: vi.fn(),
@@ -4887,6 +4890,7 @@ describe("main-session-restart-recovery", () => {
         sessionKey: "agent:main:main",
         storePath,
         gatewayRuntime: {
+          dispatchSessionMethod: vi.fn(),
           dispatchAgent: dispatchAgent as GatewayRecoveryRuntime["dispatchAgent"],
           waitForAgent: vi.fn(async () => ({
             runId: "recovery-main",
@@ -5026,6 +5030,7 @@ describe("main-session-restart-recovery", () => {
           sessionKey: "agent:main:main",
           storePath,
           gatewayRuntime: {
+            dispatchSessionMethod: vi.fn(),
             dispatchAgent: dispatchAgent as GatewayRecoveryRuntime["dispatchAgent"],
             waitForAgent: vi.fn(async () => ({
               runId: "recovery-main",

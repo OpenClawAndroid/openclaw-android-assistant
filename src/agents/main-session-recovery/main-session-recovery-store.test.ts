@@ -586,6 +586,7 @@ describe("main session recovery store", () => {
           session: { scope: "global", store: storePath },
         },
         gatewayRuntime: {
+          dispatchSessionMethod: dispatch,
           dispatchAgent: dispatch,
           waitForAgent: dispatch,
           sendRecoveryNotice: dispatch,

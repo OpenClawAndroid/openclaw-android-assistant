@@ -1,5 +1,6 @@
 // Public process helpers for plugins that spawn or probe local commands.
 
+export { SUPERVISOR_HINT_ENV_VARS } from "../infra/supervisor-markers.js";
 export { splitCommandArgs } from "../utils/shell-argv.js";
 export {
   type CommandOptions,

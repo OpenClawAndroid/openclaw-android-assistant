@@ -88,6 +88,32 @@ type NodeTestPlanOptions = {
   runnerBackend?: string;
 };
 
+export function hasCompleteStartupCorpusCoverage(
+  shards: readonly {
+    requiresDist: boolean;
+    targets?: readonly string[];
+    groups?: readonly NodeTestShardGroup[];
+  }[],
+): boolean {
+  // Only explicit, unfiltered file owners prove the corpus is complete. A
+  // config name or native shard can still execute just part of either file.
+  const groups = shards.flatMap((shard) =>
+    !shard.requiresDist && !shard.targets?.length ? (shard.groups ?? []) : [],
+  );
+  return [
+    "src/config/config-startup-corpus.test.ts",
+    "src/config/state-startup-corpus.test.ts",
+  ].every((file) =>
+    groups.some(
+      (group) =>
+        group.configs.length === 1 &&
+        group.configs[0] === "test/vitest/vitest.runtime-config.config.ts" &&
+        Object.keys(group.env ?? {}).every((key) => key === "OPENCLAW_VITEST_MAX_WORKERS") &&
+        group.includePatterns?.includes(file),
+    ),
+  );
+}
+
 type CompactNodeTestPlanMode = "pull-request" | "push";
 
 type PolicyTestWatch = {

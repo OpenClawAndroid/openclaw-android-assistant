@@ -134,6 +134,7 @@ async function setupAcceptedRecovery(persistedPhase: "attempted" | "consumed" = 
     throw new Error("Already accepted recovery must not dispatch another turn");
   });
   const gatewayRuntime: GatewayRecoveryRuntime = {
+    dispatchSessionMethod: vi.fn(),
     dispatchAgent,
     waitForAgent: async () => {
       throw new Error("Recovery settlement must not wait through Gateway");

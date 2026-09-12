@@ -81,6 +81,7 @@ export function useSubagentRestartRecoveryFixture() {
 
   const dispatchAgent = vi.fn(acceptRecoveryDispatch);
   const gatewayRuntime: GatewayRecoveryRuntime = {
+    dispatchSessionMethod: vi.fn(),
     dispatchAgent: dispatchAgent as GatewayRecoveryRuntime["dispatchAgent"],
     waitForAgent: vi.fn(async () => ({
       status: "pending",

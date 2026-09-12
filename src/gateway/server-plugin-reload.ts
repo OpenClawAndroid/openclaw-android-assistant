@@ -134,7 +134,7 @@ export async function reloadGatewayPlugins(
       errors.push(error);
     }
   };
-  const replacePluginIds = new Set(requestedIds);
+  const replacePluginIds = new Set([...requestedIds, ...(params.reloadPluginIds ?? [])]);
   for (const record of previousRegistry.plugins) {
     if (
       params.changedPaths.some(

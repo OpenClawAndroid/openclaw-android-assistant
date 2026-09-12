@@ -14,6 +14,7 @@ import { exitCliAfterOutput } from "../one-shot-exit.js";
 import { printResult } from "./progress.js";
 import type { UpdateCommandOptions } from "./shared.js";
 import type { FinishUpdateParams } from "./update-command-finish-types.js";
+import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
 import {
   recordUpdateResultNextAction,
   UnreportedUpdateAdmissionOutcome,
@@ -75,7 +76,10 @@ export async function withUpdateCommandTerminalResult<T>(
     const result = await owner.publish("error" in outcome ? outcome.error : undefined);
     if ("error" in outcome) {
       const failure = outcome.error;
-      if (failure instanceof UpdateCommandPendingRecoveryFailure) {
+      if (
+        failure instanceof UpdateCommandPendingRecoveryFailure ||
+        failure instanceof UpdateCommandRecoveryPendingError
+      ) {
         // Publication does not restore authority for outer failure triage.
         throw new UpdateCommandFinalizedRecoveryFailure(result);
       }

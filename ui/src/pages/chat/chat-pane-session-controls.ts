@@ -55,6 +55,10 @@ export function readChatPaneMutationAccess(
       method: "sessions.patch",
       params: { key: sessionKey, thinkingLevel: null },
     }),
+    contextWindow: readSessionMethodAccess(snapshot, {
+      method: "sessions.patch",
+      params: { key: sessionKey, contextWindow: null },
+    }),
     permission: readSessionMethodAccess(snapshot, {
       method: "sessions.patch",
       params: { key: sessionKey, permissionMode: "guarded" },
@@ -73,6 +77,7 @@ export function renderChatPaneComposerControls(params: {
   agentDefaultPermissionMode?: ChatPermissionPickerProps["defaultMode"];
   modelAccess: SessionMethodAccess;
   effortAccess: SessionMethodAccess;
+  contextWindowAccess: SessionMethodAccess;
   permissionAccess: SessionMethodAccess;
   canSelectFull: boolean;
   onModelSetup: () => void;
@@ -88,6 +93,7 @@ export function renderChatPaneComposerControls(params: {
     agentDefaultPermissionMode,
     modelAccess,
     effortAccess,
+    contextWindowAccess,
     permissionAccess,
     canSelectFull,
     onModelSetup,
@@ -195,6 +201,9 @@ export function renderChatPaneComposerControls(params: {
           modelsLoading: state.chatModelsLoading,
           modelMutationDisabledReason: modelAccess.allowed ? undefined : modelAccess.reason,
           effortMutationDisabledReason: effortAccess.allowed ? undefined : effortAccess.reason,
+          contextWindowMutationDisabledReason: contextWindowAccess.allowed
+            ? undefined
+            : contextWindowAccess.reason,
           sending: state.chatSending,
           sessionKey: state.sessionKey,
           selectedSession,
@@ -207,7 +216,7 @@ export function renderChatPaneComposerControls(params: {
               ? switchChatFastMode(state, next, targetSessionKey)
               : Promise.resolve(false),
           onContextWindowSelect: (next, targetSessionKey) =>
-            effortAccess.allowed
+            contextWindowAccess.allowed
               ? switchChatContextWindow(state, next, targetSessionKey)
               : Promise.resolve(false),
           onModelPickerOpen: () => refreshChatModelCatalogOnDemand(state),

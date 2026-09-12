@@ -331,8 +331,9 @@ describe("createGatewayInstanceRuntime", () => {
   });
 
   it("preserves a trusted approval resolver display name", async () => {
+    const context = createContext();
     const runtime = createGatewayInstanceRuntime({
-      getContext: createContext,
+      getContext: () => context,
       getMethodRegistry: () =>
         createRegistry({
           "exec.approval.list": ({ client, respond }) =>
@@ -362,8 +363,9 @@ describe("createGatewayInstanceRuntime", () => {
       const handlerCanFinish = new Promise<void>((resolve) => {
         finishHandler = resolve;
       });
+      const context = createContext();
       const runtime = createGatewayInstanceRuntime({
-        getContext: createContext,
+        getContext: () => context,
         getMethodRegistry: () =>
           createRegistry({
             send: async () => {

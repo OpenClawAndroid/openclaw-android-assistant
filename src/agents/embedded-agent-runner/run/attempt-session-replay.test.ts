@@ -12,7 +12,11 @@ import { withOwnedSessionTranscriptWrites } from "../../../config/sessions/trans
 import { rotateAgentEventLifecycleGeneration } from "../../../infra/agent-events.js";
 import type { ImageContent } from "../../../llm/types.js";
 import { finalizeRuntimePromptImages } from "../../../media/runtime-prompt-image-provenance.js";
-import { createUserTurnTranscriptRecorder } from "../../../sessions/user-turn-transcript.js";
+import { createNestedToolActivity } from "../../../sessions/nested-tool-activity.js";
+import {
+  createUserTurnTranscriptRecorder,
+  type PersistedUserTurnMessage,
+} from "../../../sessions/user-turn-transcript.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../../../test-utils/openclaw-test-state.js";
@@ -48,6 +52,47 @@ import type { EmbeddedRunAttemptParams } from "./types.js";
 
 registerAgentSessionLoopTestLifecycle();
 
+function appendCompletedToolWork(
+  manager: SessionManager,
+  runId: string,
+  beforeNested?: () => void,
+) {
+  const original = guardSessionManager(manager, { runId });
+  original.appendMessage(
+    createAssistant(
+      testModel,
+      [{ type: "toolCall", id: "completed-read", name: "read", arguments: {} }],
+      "toolUse",
+    ),
+  );
+  beforeNested?.();
+  original.appendMessage(
+    createNestedToolActivity({
+      runId,
+      scopeId: "nested-scope",
+      afterEntryId: original.getAppendParentId(),
+      startOrder: 0,
+      parentToolCallId: "completed-read",
+      toolCallId: "nested-read",
+      toolName: "read",
+      input: {},
+      result: { content: [{ type: "text", text: "Nested read completed" }] },
+      isError: false,
+      startedAt: 2,
+      timestamp: 3,
+    }),
+  );
+  original.appendMessage({
+    role: "toolResult",
+    toolCallId: "completed-read",
+    toolName: "read",
+    content: [{ type: "text", text: "Already read: use this completed result" }],
+    isError: false,
+    timestamp: 4,
+  });
+  original.appendCustomEntry("openclaw.cache-ttl", { timestamp: 4 });
+}
+
 async function withInterruptedTurn(
   appendOnlyRuntimeContext: boolean,
   run: (fixture: {
@@ -58,7 +103,7 @@ async function withInterruptedTurn(
     target: NonNullable<ReturnType<SessionManager["getSessionTarget"]>>;
     revoke: () => void;
   }) => Promise<void>,
-  interruptedTurn = true,
+  options: { interruptedTurn?: boolean; toolProgress?: boolean } = {},
 ) {
   await withOpenClawTestState({ label: "interrupted-keyed-replay" }, async (state) => {
     const runId = "interrupted-keyed-replay";
@@ -98,7 +143,10 @@ async function withInterruptedTurn(
         carrier.details,
       );
     }
-    if (interruptedTurn) {
+    if (options.toolProgress) {
+      appendCompletedToolWork(original, runId);
+    }
+    if (options.interruptedTurn !== false) {
       original.appendMessage(
         createFailureMessage(testModel, createAgentRunRestartAbortError(), true),
       );
@@ -165,7 +213,7 @@ async function withInterruptedTurn(
             effectiveCwd: state.workspaceDir,
             effectiveWorkspace: state.workspaceDir,
             onSessionManagerCreated: onCreated ?? (() => {}),
-            replayAllowedToolNames: new Set(),
+            replayAllowedToolNames: new Set(["read"]),
             resolveActiveContextEnginePluginId: () => undefined,
             sessionAgentId: "main",
             transcriptLifecycle: lifecycle,
@@ -269,6 +317,60 @@ async function withReplaySession(
 }
 
 describe("interrupted canonical user replay", () => {
+  it.each([
+    { appendOnly: false, interruptedTurn: false, toolProgress: true },
+    { appendOnly: true, interruptedTurn: false, toolProgress: true },
+    { appendOnly: false, interruptedTurn: true, toolProgress: true },
+    { appendOnly: true, interruptedTurn: true, toolProgress: true },
+    { appendOnly: false, interruptedTurn: true, toolProgress: false },
+    { appendOnly: true, interruptedTurn: true, toolProgress: false },
+  ])(
+    "replays one user after restart (carrier=$appendOnly, abort row=$interruptedTurn, tools=$toolProgress)",
+    async ({ appendOnly, interruptedTurn, toolProgress }) => {
+      await withInterruptedTurn(
+        appendOnly,
+        async (fixture) => {
+          const before = loadTranscriptEventsSync(fixture.target);
+          await withReplaySession(fixture, appendOnly, async (session, submit) => {
+            streamMocks.streamSimple.mockImplementation((model) =>
+              createAssistantResultStream(
+                createAssistant(model, [{ type: "text", text: "Continued from completed work" }]),
+              ),
+            );
+            await submit();
+            expect(streamMocks.streamSimple).toHaveBeenCalledOnce();
+            const messages = streamMocks.streamSimple.mock.calls[0]![1].messages;
+            expect(
+              messages.filter(
+                (message: { role: string; content: unknown }) =>
+                  message.role === "user" &&
+                  JSON.stringify(message.content).includes(fixture.attempt.prompt),
+              ),
+            ).toHaveLength(1);
+            if (toolProgress) {
+              expect(messages).toContainEqual(
+                expect.objectContaining({
+                  role: "toolResult",
+                  toolCallId: "completed-read",
+                  content: [{ type: "text", text: "Already read: use this completed result" }],
+                }),
+              );
+            }
+            expect(session.getLastAssistantText()).toBe("Continued from completed work");
+            const after = loadTranscriptEventsSync(fixture.target);
+            expect(after.slice(0, before.length)).toEqual(before);
+            expect(
+              after.filter(
+                (entry) => (entry as { message?: { role?: string } }).message?.role === "user",
+              ),
+            ).toHaveLength(1);
+          });
+        },
+        { interruptedTurn, toolProgress },
+      );
+    },
+  );
+
   it.each([
     { appendOnly: false, queue: "steer" },
     { appendOnly: true, queue: "steer" },
@@ -430,7 +532,7 @@ describe("interrupted canonical user replay", () => {
             { images: finalizeRuntimePromptImages([{ image, factIndex: 0 }]).images },
           );
         },
-        interrupted,
+        { interruptedTurn: interrupted },
       );
     },
   );
@@ -535,6 +637,50 @@ describe("interrupted canonical user replay", () => {
     },
   );
 
+  it.each(["other-run", "final", "hidden-user", "unknown-activity"] as const)(
+    "does not resume tool work across %s transcript entries",
+    async (boundary) => {
+      await withInterruptedTurn(false, async (fixture) => {
+        const original = SessionManager.open(fixture.target);
+        if (boundary === "final") {
+          guardSessionManager(original, { runId: fixture.attempt.runId }).appendMessage(
+            createAssistant(testModel, [{ type: "text", text: "Already finished" }]),
+          );
+        }
+        appendCompletedToolWork(
+          original,
+          boundary === "other-run" ? "unrelated-run" : fixture.attempt.runId,
+          () => {
+            // This row and the nested activity share one omitted context link.
+            if (boundary === "hidden-user") {
+              const hiddenUser: PersistedUserTurnMessage = {
+                role: "user",
+                content: "A newer hidden user request",
+                excludeFromContext: true,
+                timestamp: 2,
+              };
+              original.appendMessage(hiddenUser);
+            } else if (boundary === "unknown-activity") {
+              original.appendMessage({
+                role: "custom",
+                customType: "unidentified-activity",
+                content: "Unknown context must close the replay",
+                display: false,
+                excludeFromContext: true,
+                timestamp: 2,
+              });
+            }
+          },
+        );
+        await withReplaySession(fixture, false, async (_session, submit) => {
+          await submit();
+          expect(streamMocks.streamSimple).not.toHaveBeenCalled();
+          expect(fixture.attempt.userTurnTranscriptRecorder!.hasPersisted()).toBe(false);
+        });
+      });
+    },
+  );
+
   it.each([
     { ordering: "repeated-restart", appendOnly: false },
     { ordering: "repeated-restart", appendOnly: true },
@@ -576,39 +722,6 @@ describe("interrupted canonical user replay", () => {
               }
             : {},
         );
-      });
-    },
-  );
-
-  it.each([false, true])(
-    "sends the recovered user once with append-only context %s",
-    async (appendOnlyRuntimeContext) => {
-      await withInterruptedTurn(appendOnlyRuntimeContext, async (fixture) => {
-        const before = loadTranscriptEventsSync(fixture.target);
-        await withReplaySession(fixture, appendOnlyRuntimeContext, async (session, submit) => {
-          streamMocks.streamSimple.mockImplementation((model) =>
-            createAssistantResultStream(
-              createAssistant(model, [{ type: "text", text: "Recovered final" }]),
-            ),
-          );
-          await submit();
-          expect(streamMocks.streamSimple).toHaveBeenCalledOnce();
-          const messages = streamMocks.streamSimple.mock.calls[0]![1].messages;
-          expect(
-            messages.filter(
-              (message: { role: string; content: unknown }) =>
-                message.role === "user" &&
-                JSON.stringify(message.content).includes(fixture.attempt.prompt),
-            ),
-          ).toHaveLength(1);
-          expect(session.getLastAssistantText()).toBe("Recovered final");
-          expect(loadTranscriptEventsSync(fixture.target).slice(0, before.length)).toEqual(before);
-          expect(
-            loadTranscriptEventsSync(fixture.target).filter(
-              (entry) => (entry as { message?: { role?: string } }).message?.role === "user",
-            ),
-          ).toHaveLength(1);
-        });
       });
     },
   );
@@ -759,7 +872,7 @@ it.each([
         expect(attempt.promptCacheKey).toBe(expected);
         expect(loadTranscriptEventsSync(target)).toEqual(before);
       },
-      false,
+      { interruptedTurn: false },
     );
   },
 );

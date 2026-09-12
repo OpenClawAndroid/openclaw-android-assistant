@@ -403,6 +403,31 @@ describe("Mistral provider", () => {
     expect((mistralMockState.payloads[0] as { stop?: unknown }).stop).toEqual(["STOP"]);
   });
 
+  it.each([360, undefined])(
+    "preserves requested maxTokens %s when the model output limit is unknown",
+    async (maxTokens) => {
+      const model = makeMistralModel();
+      Reflect.deleteProperty(model, "maxTokens");
+      let sentMaxTokens: unknown;
+      let payloadCaptured = false;
+      await runSimpleMistralFixture(
+        context,
+        {
+          maxTokens,
+          onPayload: (payload) => {
+            payloadCaptured = true;
+            sentMaxTokens = (payload as { maxTokens?: number }).maxTokens;
+            throw new Error("stop before network");
+          },
+        },
+        model,
+      );
+
+      expect(payloadCaptured).toBe(true);
+      expect(sentMaxTokens).toBe(maxTokens);
+    },
+  );
+
   it("preserves Mistral messages while keeping error bodies UTF-16 safe and bounded", async () => {
     const prefix = "a".repeat(3_999);
     mistralMockState.streamError = Object.assign(new Error("invalid request"), {

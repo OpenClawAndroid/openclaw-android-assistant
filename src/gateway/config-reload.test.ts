@@ -682,6 +682,79 @@ describe("buildGatewayReloadPlan", () => {
     expect(plan.hotReasons).toStrictEqual([]);
   });
 
+  it.each(["unloaded", "cold", "undeclared"] as const)(
+    "replaces the plugin generation for %s channel settings without restarting the Gateway",
+    (state) => {
+      const channelRegistry = createTestRegistry(
+        state === "undeclared"
+          ? [
+              {
+                pluginId: "chat-owner",
+                source: "test",
+                plugin: { ...telegramPlugin, reload: undefined },
+              },
+            ]
+          : [],
+      );
+      if (state !== "unloaded") {
+        channelRegistry.plugins.push(
+          createPluginRecord({
+            id: "chat-owner",
+            source: "test",
+            origin: "bundled",
+            enabled: true,
+            configSchema: false,
+            channelIds: ["telegram"],
+          }),
+        );
+      }
+      setActivePluginRegistry(channelRegistry);
+      const plan = buildGatewayReloadPlan(["channels.telegram.enabled"]);
+      expect(plan.restartGateway).toBe(false);
+      expect(plan.reloadPlugins).toBe(true);
+      expect(plan.reloadPluginIds).toEqual(
+        state === "unloaded" ? undefined : new Set(["chat-owner"]),
+      );
+      expect(plan.hotReasons).toEqual(["channels.telegram.enabled"]);
+      expect(resolveConfigReloadMetadata("channels.telegram.enabled").kind).toBe("hot");
+    },
+  );
+
+  it.each(
+    ["hotPrefixes", "noopPrefixes", "restartPrefixes"].flatMap((policy) =>
+      ["channels", "channels.telegram"].map((prefix) => ({ policy, prefix })),
+    ),
+  )(
+    "preserves declared $policy for $prefix during an unrelated plugin reload",
+    ({ policy, prefix }) => {
+      const channelRegistry = createTestRegistry();
+      channelRegistry.plugins.push(
+        createPluginRecord({
+          id: "chat-owner",
+          source: "test",
+          origin: "bundled",
+          enabled: true,
+          configSchema: false,
+          channelIds: ["telegram"],
+        }),
+      );
+      channelRegistry.reloads.push({
+        pluginId: "chat-owner",
+        pluginName: "Chat owner",
+        source: "test",
+        registration: { [policy]: [prefix] },
+      });
+      setActivePluginRegistry(channelRegistry);
+      const plan = buildGatewayReloadPlan([
+        "channels.telegram.enabled",
+        "plugins.entries.other.config.value",
+      ]);
+      expect(plan.reloadPlugins).toBe(true);
+      expect(plan.reloadPluginIds).toBeUndefined();
+      expect(plan.restartGateway).toBe(policy === "restartPrefixes");
+    },
+  );
+
   it.each(["plugins.installs.telegram.installPath", "plugins.load.paths.0"])(
     "routes plugin source changes through the runtime owner: %s",
     (path) => {
@@ -1514,7 +1587,8 @@ describe("buildGatewayReloadPlan", () => {
         restartChannels: new Set(),
       });
       expect(buildGatewayReloadPlan(["channels.telegram.botToken"])).toMatchObject({
-        restartGateway: true,
+        restartGateway: false,
+        reloadPlugins: true,
         restartChannels: new Set(),
       });
 

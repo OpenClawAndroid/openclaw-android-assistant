@@ -64,6 +64,7 @@ type ChatModelControlsProps = {
   modelsLoading?: boolean;
   modelMutationDisabledReason?: string;
   effortMutationDisabledReason?: string;
+  contextWindowMutationDisabledReason?: string;
   fastModeTarget?: ChatFastModeTarget;
   sending: boolean;
   sessionKey: string;
@@ -485,7 +486,7 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
                 options: contextWindows,
                 selected: selectedContextWindow,
                 ...(defaultContextWindow ? { defaultId: defaultContextWindow } : {}),
-                disabled: commonDisabled || effortMutationDisabled,
+                disabled: commonDisabled || Boolean(props.contextWindowMutationDisabledReason),
                 onSelect: async (next, targetSessionKey) => {
                   await props.onContextWindowSelect?.(next, targetSessionKey);
                 },

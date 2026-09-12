@@ -226,16 +226,22 @@ export class SessionManagerEntries extends SessionManagerPersistence {
     return error;
   }
 
-  resolveCurrentTurnEntryId(isInterruptedTail?: (entry: SessionEntry) => boolean): string | null {
+  resolveCurrentTurnEntryId(
+    isInterruptedTail?: (entry: SessionEntry) => boolean,
+    readOmittedEntry?: (entryId: string) => SessionEntry | undefined,
+  ): string | null {
     let parentId = this.appendParentId;
-    let remainingAncestors = this.byId.size;
+    let remainingAncestors = readOmittedEntry
+      ? (this.boundedContextLimits?.maxEvents ?? this.byId.size + this.opaqueParentsById.size)
+      : this.byId.size;
     // Compaction rewrites context without consuming the current user turn.
     // Walk physical parents: opaque/context-excluded users still close older
-    // turns. Replay may recognize its interrupted tail, never skip missing rows.
+    // turns. Replay may read its omitted activity, never skip unidentified rows.
     while (parentId && remainingAncestors-- > 0) {
-      const parent = this.byId.get(parentId);
+      const parent = this.byId.get(parentId) ?? readOmittedEntry?.(parentId);
       if (
         !parent ||
+        parent.id !== parentId ||
         (!isSessionContextMetadataEntry(parent) &&
           parent.type !== "compaction" &&
           !isInterruptedTail?.(parent))

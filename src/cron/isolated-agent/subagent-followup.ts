@@ -2,6 +2,7 @@
 import { readLatestAssistantReply, waitForAgentRunsToDrain } from "../../agents/run-wait.js";
 import { resolveSubagentCompletionResultText } from "../../agents/subagents/completion/subagent-completion-result.js";
 import { listDescendantRunsForRequester } from "../../agents/subagents/registry/subagent-registry-read.js";
+import { bindAgentToolGatewayRequest } from "../../agents/tools/in-process-gateway.js";
 import { selectDeliverableSessionsReply } from "../../agents/tools/sessions-send-tokens.js";
 import { stripHeartbeatToken } from "../../auto-reply/heartbeat.js";
 import {
@@ -36,6 +37,7 @@ export async function readDescendantSubagentFallbackReply(params: {
     return undefined;
   }
 
+  const callGateway = bindAgentToolGatewayRequest({ hostedOnly: true });
   const replies: string[] = [];
   // Limit fallback synthesis to the latest few children so a noisy run does not
   // flood the cron announce with stale descendant output.
@@ -51,7 +53,7 @@ export async function readDescendantSubagentFallbackReply(params: {
       entry.execution.transcriptTarget === undefined;
     const reply = canReadTranscript
       ? selectDeliverableSessionsReply(
-          await readLatestAssistantReply({ sessionKey: entry.childSessionKey }),
+          await readLatestAssistantReply({ sessionKey: entry.childSessionKey, callGateway }),
           completionReply,
         )
       : completionReply;
@@ -82,6 +84,7 @@ export async function waitForDescendantSubagentSummary(params: {
   observedActiveDescendants?: boolean;
 }): Promise<string | undefined> {
   const timings = resolveCronSubagentTimings();
+  const callGateway = bindAgentToolGatewayRequest({ hostedOnly: true });
   const initialReply = params.initialReply?.trim();
   const deadline = Date.now() + Math.max(timings.waitMinMs, Math.floor(params.timeoutMs));
 
@@ -103,12 +106,13 @@ export async function waitForDescendantSubagentSummary(params: {
   // Delivery text has already lost MEDIA directives. Compare history against
   // its own text so the unchanged parent cannot masquerade as new synthesis.
   const initialParentReply = (
-    await readLatestAssistantReply({ sessionKey: params.sessionKey })
+    await readLatestAssistantReply({ sessionKey: params.sessionKey, callGateway })
   )?.trim();
   // Wait until no descendant runs remain active. Descendants can finish and
   // spawn more descendants, so the helper refreshes the run set until it drains.
   await waitForAgentRunsToDrain({
     deadlineAtMs: deadline,
+    callGateway,
     initialPendingRunIds: initialActiveRuns.map((entry) => entry.runId),
     getPendingRunIds: () => getActiveRuns().map((entry) => entry.runId),
   });
@@ -120,7 +124,9 @@ export async function waitForDescendantSubagentSummary(params: {
   const gracePeriodDeadline = Math.min(Date.now() + timings.finalReplyGraceMs, deadline);
 
   const resolveUsableLatestReply = async () => {
-    const latest = (await readLatestAssistantReply({ sessionKey: params.sessionKey }))?.trim();
+    const latest = (
+      await readLatestAssistantReply({ sessionKey: params.sessionKey, callGateway })
+    )?.trim();
     if (
       latest &&
       latest.toUpperCase() !== SILENT_REPLY_TOKEN.toUpperCase() &&

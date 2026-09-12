@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { TEST_TLS_CERT_PEM, TEST_TLS_KEY_PEM } from "../../test/helpers/tls-fixture.js";
 import {
   acquireAgentRunPreparedModelRuntime,
   acquirePublishedPreparedModelRuntime,
@@ -615,6 +616,65 @@ describe("Gateway startup lifetime", () => {
       }
     },
   );
+
+  it("stops TLS renewal when the started Gateway closes", async () => {
+    const state = await createStartupTestState("gateway-tls-renewal-close");
+    const port = await getFreePort();
+    const token = "gateway-tls-renewal-token";
+    const certPath = await state.writeText("tls/cert.pem", TEST_TLS_CERT_PEM);
+    const keyPath = await state.writeText("tls/key.pem", TEST_TLS_KEY_PEM);
+    await state.writeConfig({
+      agents: { defaults: { model: { primary: "openai/gpt-5.6-sol" } } },
+      gateway: {
+        auth: { mode: "token", token },
+        controlUi: { enabled: false },
+        port,
+        tls: { enabled: true, autoGenerate: false, certPath, keyPath },
+      },
+    });
+    state.applyEnv();
+    const renewalModule = await import("./server-tls-renewal.js");
+    const startRenewal = renewalModule.startGatewayTlsRenewal;
+    let renewal: ReturnType<typeof startRenewal>;
+    const stopped = vi.fn();
+    const renewalSpy = vi
+      .spyOn(renewalModule, "startGatewayTlsRenewal")
+      .mockImplementation((params) => {
+        renewal = startRenewal(params);
+        if (renewal) {
+          const stop = renewal.stop.bind(renewal);
+          renewal.stop = async () => {
+            await stop();
+            stopped();
+          };
+        }
+        return renewal;
+      });
+    let server: GatewayServer | undefined;
+    try {
+      const { startGatewayServerCore } = await import("./server-start.js");
+      server = await startGatewayServerCore(port, {
+        auth: { mode: "token", token },
+        bind: "loopback",
+        controlUiEnabled: false,
+        sidecarStartup: "defer",
+      });
+      await server.startupSettled;
+      expect(renewal).toBeDefined();
+      expect(stopped).not.toHaveBeenCalled();
+      await expect(server.close()).resolves.toBeUndefined();
+      expect(stopped).toHaveBeenCalledOnce();
+    } finally {
+      // Retire the fixture's watchers even when broken registration makes close fail.
+      await renewal?.stop();
+      try {
+        await server?.close();
+      } finally {
+        renewalSpy.mockRestore();
+        await state.cleanup();
+      }
+    }
+  });
 
   it("closes startup tracing when required TLS material is unavailable", async () => {
     startupTraceEventLoopDelay.instances.length = 0;

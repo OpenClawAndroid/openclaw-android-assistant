@@ -4,6 +4,7 @@ import {
   loadSessionEntry,
   loadTranscriptHeaderSync,
   readActiveTranscriptEntryAnchor,
+  readTranscriptEventAtSeqSync,
   type SessionTranscriptWriteScope,
 } from "../../../config/sessions/session-accessor.js";
 import {
@@ -13,6 +14,7 @@ import {
   withOwnedSessionTranscriptWriterFence,
 } from "../../../config/sessions/transcript-write-context.js";
 import type { InternalSessionEntry } from "../../../config/sessions/types.js";
+import { readNestedToolActivity } from "../../../sessions/nested-tool-activity.js";
 import type {
   PersistedUserTurnMessage,
   UserTurnTranscriptRecorder,
@@ -22,6 +24,7 @@ import {
   AGENT_RUN_RESTART_ABORT_ERROR,
   AGENT_RUN_RESTART_ABORT_ERROR_CODE,
 } from "../../run-termination.js";
+import { isIndexedSessionEntry } from "../../sessions/session-manager-codec.js";
 import type { SessionManager } from "../../sessions/session-manager.js";
 
 /** Re-adopt the current turn without reopening arbitrary historical keyed users. */
@@ -64,27 +67,61 @@ export function preparePersistedCurrentUserTurn(params: {
       throw new SessionTranscriptWriterClaimReboundError();
     }
     sessionManager.reloadPersistedTranscript();
-    const userId = sessionManager.resolveCurrentTurnEntryId((entry) => {
-      if (entry.type === "custom_message") {
+    const userId = sessionManager.resolveCurrentTurnEntryId(
+      (entry) => {
+        if (entry.type === "custom_message") {
+          return (
+            entry.customType === "openclaw:turn-aborted" ||
+            entry.customType === OPENCLAW_RUNTIME_CONTEXT_CUSTOM_TYPE
+          );
+        }
+        if (entry.type !== "message") {
+          return false;
+        }
+        if (entry.message.role === "custom") {
+          return readNestedToolActivity(entry.message)?.details.runId === runId;
+        }
+        if (Reflect.get(entry.message, "__openclaw")?.runId !== runId) {
+          return false;
+        }
+        // Restart can land between tool batches, without an empty abort message.
+        // Keep this run's completed work in place while re-adopting its exact user.
+        if (entry.message.role === "toolResult") {
+          return true;
+        }
+        if (entry.message.role !== "assistant") {
+          return false;
+        }
+        if (entry.message.stopReason === "toolUse") {
+          return true;
+        }
+        const aborted = entry.message;
+        const errorCode: unknown = Reflect.get(aborted, "errorCode");
         return (
-          entry.customType === "openclaw:turn-aborted" ||
-          entry.customType === OPENCLAW_RUNTIME_CONTEXT_CUSTOM_TYPE
+          aborted.stopReason === "aborted" &&
+          (errorCode !== undefined
+            ? errorCode === AGENT_RUN_RESTART_ABORT_ERROR_CODE
+            : aborted.errorMessage === AGENT_RUN_RESTART_ABORT_ERROR) &&
+          aborted.content.every((part) => part.type === "text" && part.text === "")
         );
-      }
-      if (entry.type !== "message" || entry.message.role !== "assistant") {
-        return false;
-      }
-      const aborted = entry.message;
-      const errorCode: unknown = Reflect.get(aborted, "errorCode");
-      return (
-        aborted.stopReason === "aborted" &&
-        Reflect.get(aborted, "__openclaw")?.runId === runId &&
-        (errorCode !== undefined
-          ? errorCode === AGENT_RUN_RESTART_ABORT_ERROR_CODE
-          : aborted.errorMessage === AGENT_RUN_RESTART_ABORT_ERROR) &&
-        aborted.content.every((part) => part.type === "text" && part.text === "")
-      );
-    });
+      },
+      (entryId) => {
+        // Bounded model history omits display-only nested tools. Read their exact
+        // physical links without admitting hidden users or hydrating model context.
+        const omitted = readActiveTranscriptEntryAnchor({ ...scope, entryId });
+        if (!omitted) {
+          return undefined;
+        }
+        const event = readTranscriptEventAtSeqSync(scope, omitted.rawSeq)?.event;
+        return isIndexedSessionEntry(event) &&
+          event.type === "message" &&
+          event.id === omitted.entryId &&
+          event.parentId === omitted.effectiveParentId &&
+          readNestedToolActivity(event.message)?.details.runId === runId
+          ? event
+          : undefined;
+      },
+    );
     const user = userId ? sessionManager.getEntry(userId) : undefined;
     if (
       user?.type !== "message" ||

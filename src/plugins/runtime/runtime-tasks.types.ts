@@ -3,7 +3,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { TaskFlowRecord } from "../../tasks/task-flow-registry.types.js";
 import type { TaskDeliveryState, TaskRegistrySummary } from "../../tasks/task-registry.types.js";
 import type { OpenClawPluginToolContext } from "../tool-types.js";
-import type { PluginRuntimeTaskFlow } from "./runtime-taskflow.types.js";
+import type { BoundTaskFlowRuntime, PluginRuntimeTaskFlow } from "./runtime-taskflow.types.js";
 import type {
   TaskFlowDetail,
   TaskFlowView,
@@ -89,13 +89,29 @@ export type BoundAsyncTaskFlowsRuntime = AsyncTaskReadBinding & {
   resolve: (token: string) => Promise<TaskFlowDetail | undefined>;
   getTaskSummary: (flowId: string) => Promise<TaskRunAggregateSummary | undefined>;
 };
-export type BoundAsyncManagedTaskFlowsRuntime = AsyncTaskReadBinding & {
-  get: (flowId: string) => Promise<TaskFlowRecord | undefined>;
-  list: () => Promise<TaskFlowRecord[]>;
-  findLatest: () => Promise<TaskFlowRecord | undefined>;
-  resolve: (token: string) => Promise<TaskFlowRecord | undefined>;
-  getTaskSummary: (flowId: string) => Promise<TaskRegistrySummary | undefined>;
+type AsyncManagedFlowWrites = {
+  [
+    Key in
+      | "createManaged"
+      | "tryCreateManaged"
+      | "setWaiting"
+      | "resume"
+      | "finish"
+      | "fail"
+      | "requestCancel"
+  ]: (
+    ...args: Parameters<BoundTaskFlowRuntime[Key]>
+  ) => Promise<ReturnType<BoundTaskFlowRuntime[Key]>>;
 };
+
+export type BoundAsyncManagedTaskFlowsRuntime = AsyncTaskReadBinding &
+  AsyncManagedFlowWrites & {
+    get: (flowId: string) => Promise<TaskFlowRecord | undefined>;
+    list: () => Promise<TaskFlowRecord[]>;
+    findLatest: () => Promise<TaskFlowRecord | undefined>;
+    resolve: (token: string) => Promise<TaskFlowRecord | undefined>;
+    getTaskSummary: (flowId: string) => Promise<TaskRegistrySummary | undefined>;
+  };
 
 type AsyncTaskBinding<Runtime, Bound> = {
   [Key in keyof Runtime]: Runtime[Key] extends (...args: infer Args) => unknown

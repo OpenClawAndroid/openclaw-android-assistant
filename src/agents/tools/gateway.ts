@@ -12,14 +12,19 @@ import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
 } from "../../../packages/gateway-protocol/src/client-info.js";
-import { ErrorCodes } from "../../../packages/gateway-protocol/src/schema/error-codes.js";
 import { getRuntimeConfig, resolveGatewayPort } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   createAgentRuntimeExecutionLineageHandoff,
   readAgentRuntimeExecutionLineage,
 } from "../../gateway/agent-runtime-execution-lineage.js";
-import { mintAgentRuntimeIdentityToken } from "../../gateway/agent-runtime-identity-token.js";
+import {
+  createAgentRuntimeIdentity,
+  mintAgentRuntimeIdentityToken,
+  verifyAgentRuntimeIdentityToken,
+  type AgentRuntimeIdentity,
+  type AgentRuntimeIdentityTokenParams,
+} from "../../gateway/agent-runtime-identity-token.js";
 import { callGateway } from "../../gateway/call.js";
 import { resolveGatewayCredentialsFromConfig, trimToUndefined } from "../../gateway/credentials.js";
 import { resolveMessageActionTurnCapability } from "../../gateway/message-action-turn-capability.js";
@@ -42,6 +47,11 @@ import { readPositiveIntegerParam, readToolStringParam } from "./common.js";
 import { getGatewayToolCallerIdentity } from "./gateway-caller-context.js";
 import { getGatewaySessionSpawnContext } from "./gateway-session-spawn-context.js";
 import { getGatewaySessionSpawnParentExecutionIdentityToken } from "./gateway-session-spawn-execution-identity.js";
+import {
+  isStaleGatewayAgentRuntimeIdentityRejection,
+  isStaleGatewayNodeInvokeTurnSourceRejection,
+  staleGatewayAgentRuntimeIdentityError,
+} from "./gateway-transport-errors.js";
 
 /** Optional gateway connection overrides accepted by agent tools. */
 export type GatewayCallOptions = {
@@ -373,13 +383,14 @@ function resolveApprovalRequesterDeviceIdentityForGatewayTool(params: {
   }
 }
 
-async function resolveAgentRuntimeIdentityTokenForGatewayTool(params: {
+async function resolveAgentRuntimeIdentityForGatewayTool(params: {
   method: string;
   opts: GatewayCallOptions;
   target: GatewayOverrideTarget;
   required?: boolean;
   signal?: AbortSignal;
-}): Promise<string | undefined> {
+  inProcess: boolean;
+}): Promise<string | AgentRuntimeIdentity | undefined> {
   const optionalLocalIdentity = OPTIONAL_LOCAL_AGENT_RUNTIME_IDENTITY_METHODS.has(params.method);
   if (
     !params.required &&
@@ -405,7 +416,16 @@ async function resolveAgentRuntimeIdentityTokenForGatewayTool(params: {
     throw new Error("agent gateway calls require the trusted local gateway context");
   }
   if (identity.signedAgentRuntimeIdentityToken) {
-    return identity.signedAgentRuntimeIdentityToken;
+    if (!params.inProcess) {
+      return identity.signedAgentRuntimeIdentityToken;
+    }
+    const verified = await verifyAgentRuntimeIdentityToken(
+      identity.signedAgentRuntimeIdentityToken,
+    );
+    if (!verified) {
+      throw new Error("invalid agent runtime identity token");
+    }
+    return verified;
   }
   // Independent CLI runs have local claims, not authority in the target Gateway.
   if (optionalLocalIdentity && !params.required && !identity.gatewayContextResolver) {
@@ -451,7 +471,7 @@ async function resolveAgentRuntimeIdentityTokenForGatewayTool(params: {
         activeAuthority && approvalSignals?.length
           ? claimAgentRunApprovalAuthority(activeAuthority, approvalSignals)
           : undefined;
-      return await mintAgentRuntimeIdentityToken({
+      const prepared: AgentRuntimeIdentityTokenParams = {
         ...identity,
         operationalRunInstance: identity.operationalRunInstance,
         approvalAuthority,
@@ -461,7 +481,15 @@ async function resolveAgentRuntimeIdentityTokenForGatewayTool(params: {
           : sessionSpawnContext
             ? { executionIdentityToken: parentExecutionIdentityToken, sessionSpawnContext }
             : {}),
-      });
+      };
+      if (!params.inProcess) {
+        return await mintAgentRuntimeIdentityToken(prepared);
+      }
+      const runtimeIdentity = await createAgentRuntimeIdentity(prepared);
+      if (!runtimeIdentity) {
+        throw new Error("invalid agent runtime identity");
+      }
+      return runtimeIdentity;
     } catch (error) {
       lineageHandoff?.revoke();
       throw error;
@@ -474,7 +502,7 @@ async function resolveAgentRuntimeIdentityTokenForGatewayTool(params: {
   }
 }
 
-export async function resolveMessageActionAgentRuntimeIdentityToken(params: {
+type MessageActionAgentRuntimeIdentityParams = {
   opts: GatewayCallOptions;
   target: "local" | "remote";
   turnCapability?: string;
@@ -484,7 +512,12 @@ export async function resolveMessageActionAgentRuntimeIdentityToken(params: {
   sourceReplyFinal?: boolean;
   sourceReplyToolCallId?: string;
   callerOwnsTerminalReceipt?: boolean;
-}): Promise<string | undefined> {
+};
+
+async function resolveMessageActionIdentity<T>(
+  params: MessageActionAgentRuntimeIdentityParams,
+  createIdentity: (params: AgentRuntimeIdentityTokenParams) => Promise<T | undefined>,
+): Promise<T | undefined> {
   const terminalSourceReply = params.sourceReplyFinal === true;
   const sourceReplyToolCallId = normalizeOptionalString(params.sourceReplyToolCallId);
   if (terminalSourceReply && !sourceReplyToolCallId) {
@@ -552,7 +585,7 @@ export async function resolveMessageActionAgentRuntimeIdentityToken(params: {
         ...(params.sourceReplyFinal === false ? { sourceReplyFinal: false as const } : {}),
         ...(sourceReplyToolCallId ? { sourceReplyToolCallId } : {}),
       };
-  return await mintAgentRuntimeIdentityToken({
+  return await createIdentity({
     ...identity,
     sessionKey: turnCapabilitySessionKey,
     operationalRunInstance: identity.operationalRunInstance,
@@ -560,52 +593,32 @@ export async function resolveMessageActionAgentRuntimeIdentityToken(params: {
   });
 }
 
-function isStaleGatewayAgentRuntimeIdentityRejection(error: unknown): boolean {
-  const message = formatErrorMessage(error);
-  if (
-    message.includes(
-      "gateway rejected required agent runtime identity auth field; refusing to retry without it",
-    )
-  ) {
-    return true;
-  }
+export async function resolveMessageActionAgentRuntimeIdentityToken(
+  params: MessageActionAgentRuntimeIdentityParams,
+): Promise<string | undefined> {
+  return await resolveMessageActionIdentity(params, mintAgentRuntimeIdentityToken);
+}
+
+export async function resolveMessageActionAgentRuntimeIdentity(
+  params: MessageActionAgentRuntimeIdentityParams,
+): Promise<AgentRuntimeIdentity | undefined> {
+  return await resolveMessageActionIdentity(params, async (prepared) => {
+    const identity = await createAgentRuntimeIdentity(prepared);
+    if (!identity) {
+      throw new Error("invalid agent runtime identity");
+    }
+    return identity;
+  });
+}
+
+/** Explicit destinations remain transport calls; retired hosted bindings must reject locally. */
+export function shouldUseInProcessGatewayTool(opts: GatewayCallOptions): boolean {
+  const resolver = getGatewayToolCallerIdentity()?.gatewayContextResolver;
   return (
-    message.includes("invalid connect params") &&
-    message.includes("/auth") &&
-    message.includes("unexpected property 'agentRuntimeIdentityToken'")
-  );
-}
-
-function isStaleGatewayNodeInvokeTurnSourceRejection(error: unknown): boolean {
-  if (!(error instanceof Error) || error.name !== "GatewayClientRequestError") {
-    return false;
-  }
-  const requestError = error as Error & { gatewayCode?: unknown; details?: unknown };
-  if (requestError.gatewayCode !== ErrorCodes.INVALID_REQUEST) {
-    return false;
-  }
-  const details = asNullableRecord(requestError.details);
-  // Only explicit pre-dispatch provenance makes a second invoke safe. Older
-  // gateways without this fact must fail rather than risk duplicate execution.
-  if (details?.nodeCommandDispatched !== false) {
-    return false;
-  }
-  const message = formatErrorMessage(error);
-  if (!message.includes("invalid node.invoke params:")) {
-    return false;
-  }
-  return ["turnSourceChannel", "turnSourceTo", "turnSourceAccountId", "turnSourceThreadId"].some(
-    (field) => message.includes(`unexpected property '${field}'`),
-  );
-}
-
-function staleGatewayAgentRuntimeIdentityError(cause: unknown): Error {
-  return new Error(
-    [
-      "The running Gateway is from an older OpenClaw build and rejected current agent runtime connection metadata.",
-      "Restart the Gateway with `openclaw gateway restart`, then retry.",
-    ].join(" "),
-    { cause },
+    Boolean(resolver) &&
+    !trimToUndefined(opts.gatewayUrl) &&
+    !trimToUndefined(opts.gatewayToken) &&
+    resolver?.()?.localEmbedded !== true
   );
 }
 
@@ -631,23 +644,48 @@ export async function callGatewayTool<T = Record<string, unknown>>(
   ) {
     throw new Error("Gateway dispatch authority requires version 2 and a synchronous assertion");
   }
+  const inProcess = shouldUseInProcessGatewayTool(opts);
   const gateway = resolveGatewayOptions(opts);
   const resolveGatewayContext = getGatewayToolCallerIdentity()?.gatewayContextResolver;
   const callParams = attachNodeInvokeTurnSource(method, params);
   const scopes = Array.isArray(extra?.scopes)
     ? extra.scopes
     : resolveLeastPrivilegeOperatorScopesForMethod(method, callParams);
+  const runtimeIdentity = await resolveAgentRuntimeIdentityForGatewayTool({
+    method,
+    opts,
+    target: inProcess ? "local" : gateway.target,
+    required: extra?.requireAgentRuntimeIdentity,
+    signal: extra?.signal,
+    inProcess,
+  });
+  if (inProcess) {
+    if (typeof runtimeIdentity === "string") {
+      throw new Error("in-process Gateway requests require an internal runtime identity");
+    }
+    const { callAgentToolGatewayRequest, withAgentToolGatewayRuntimeIdentity } =
+      await import("./in-process-gateway.js");
+    return await callAgentToolGatewayRequest<T>(
+      withAgentToolGatewayRuntimeIdentity(
+        {
+          method,
+          params: callParams,
+          timeoutMs: gateway.timeoutMs,
+          signal: extra?.signal,
+          expectFinal: extra?.expectFinal,
+          assertDispatchCurrent: dispatchAuthority?.assertCurrent,
+          scopes,
+        },
+        runtimeIdentity,
+      ),
+    );
+  }
+  const agentRuntimeIdentityToken =
+    typeof runtimeIdentity === "string" ? runtimeIdentity : undefined;
   const approvalRuntimeToken = resolveApprovalRuntimeTokenForGatewayTool({
     method,
     opts,
     target: gateway.target,
-  });
-  const agentRuntimeIdentityToken = await resolveAgentRuntimeIdentityTokenForGatewayTool({
-    method,
-    opts,
-    target: gateway.target,
-    required: extra?.requireAgentRuntimeIdentity,
-    signal: extra?.signal,
   });
   const deviceIdentity = resolveApprovalRequesterDeviceIdentityForGatewayTool({
     method,

@@ -51,26 +51,17 @@ export function createMattermostReactionFetchMock(params: {
   return vi.fn<typeof fetch>(async (url, init) => {
     const urlText = requestUrl(url);
     if (params.postChannelId !== undefined && urlText.endsWith(`/api/v4/posts/${params.postId}`)) {
-      return new Response(JSON.stringify({ id: params.postId, channel_id: params.postChannelId }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return Response.json({ id: params.postId, channel_id: params.postChannelId });
     }
     if (urlText.endsWith("/api/v4/users/me")) {
-      return new Response(JSON.stringify({ id: userId }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return Response.json({ id: userId });
     }
     if (params.postChannelId && urlText.endsWith(`/api/v4/channels/${params.postChannelId}`)) {
-      return new Response(
-        JSON.stringify({
-          id: params.postChannelId,
-          type: params.channelType ?? "O",
-          name: params.channelName ?? "fixture-channel",
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return Response.json({
+        id: params.postChannelId,
+        type: params.channelType ?? "O",
+        name: params.channelName ?? "fixture-channel",
+      });
     }
 
     if (allowAdd && urlText.endsWith("/api/v4/reactions")) {

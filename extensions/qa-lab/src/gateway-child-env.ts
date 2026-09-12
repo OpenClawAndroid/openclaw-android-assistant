@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SUPERVISOR_HINT_ENV_VARS } from "openclaw/plugin-sdk/process-runtime";
 import { buildQaCodexAppServerArgs } from "./codex-app-server-args.js";
 import type { QaProviderMode } from "./model-selection.js";
 import {
@@ -18,6 +19,11 @@ import { listMockCodexModelInfos } from "./providers/shared/mock-model-config.js
 import type { RuntimeId } from "./runtime-parity.js";
 
 const QA_GATEWAY_CHILD_BLOCKED_ENV_VARS = Object.freeze([
+  // QA owns this child; parent service and test-runner markers describe a different process.
+  ...SUPERVISOR_HINT_ENV_VARS,
+  "VITEST",
+  "VITEST_POOL_ID",
+  "VITEST_WORKER_ID",
   "BASH_ENV",
   "BASHOPTS",
   "ENV",
@@ -40,15 +46,6 @@ function scrubQaGatewayChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
       delete env[envKey];
     }
   }
-  return env;
-}
-
-function scrubQaGatewayChildTestRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  // The Gateway is a product child, not a nested Vitest worker. Leaking runner
-  // markers makes the dist launcher select test-only startup behavior.
-  delete env.VITEST;
-  delete env.VITEST_POOL_ID;
-  delete env.VITEST_WORKER_ID;
   if (env.NODE_ENV === "test") {
     delete env.NODE_ENV;
   }
@@ -136,7 +133,7 @@ export function buildQaRuntimeEnv(params: {
   // launcher or runtime child can import them before its own allowlist runs.
   delete normalizedEnv[QA_LIVE_ANTHROPIC_SETUP_TOKEN_ENV];
   delete normalizedEnv[QA_LIVE_SETUP_TOKEN_VALUE_ENV];
-  return scrubQaGatewayChildEnv(scrubQaGatewayChildTestRunnerEnv(normalizedEnv));
+  return scrubQaGatewayChildEnv(normalizedEnv);
 }
 
 export async function stageQaCodexMockModelCatalog(params: {

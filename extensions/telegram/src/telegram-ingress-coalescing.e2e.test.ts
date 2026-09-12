@@ -154,23 +154,17 @@ function createBotApiTransport() {
     const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
     if (url.includes("/getFile")) {
       getFileCall += 1;
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          result: {
-            file_id: `photo-${getFileCall}`,
-            file_unique_id: `unique-${getFileCall}`,
-            file_size: 4,
-            file_path: `photos/photo-${getFileCall}.jpg`,
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return Response.json({
+        ok: true,
+        result: {
+          file_id: `photo-${getFileCall}`,
+          file_unique_id: `unique-${getFileCall}`,
+          file_size: 4,
+          file_path: `photos/photo-${getFileCall}.jpg`,
+        },
+      });
     }
-    return new Response(JSON.stringify({ ok: true, result: true }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return Response.json({ ok: true, result: true });
   }) as unknown as typeof fetch;
   return { fetch: fetchImpl, sourceFetch: fetchImpl, close: async () => {} };
 }

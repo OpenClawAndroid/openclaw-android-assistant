@@ -57,6 +57,7 @@ const dispatchAgent = vi.fn(async (payload: Record<string, unknown>, _timeoutMs?
   };
 });
 const gatewayRuntime: GatewayRecoveryRuntime = {
+  dispatchSessionMethod: vi.fn(),
   dispatchAgent: dispatchAgent as GatewayRecoveryRuntime["dispatchAgent"],
   waitForAgent: vi.fn(),
   sendRecoveryNotice: vi.fn(async () => ({ suppressed: false })),

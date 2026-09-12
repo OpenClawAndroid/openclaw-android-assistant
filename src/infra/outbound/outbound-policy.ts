@@ -43,6 +43,8 @@ const CONTEXT_GUARDED_ACTIONS = new Set<ChannelMessageActionName>([
   "unpin",
   "thread-create",
   "thread-reply",
+  "topic-create",
+  "topic-edit",
   "sticker",
 ]);
 

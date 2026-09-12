@@ -27,6 +27,8 @@ export type GatewayReloadPlan = {
   restartHeartbeat: boolean;
   reconcileSystemJobs?: boolean;
   reloadPlugins: boolean;
+  /** Plugin owners whose undeclared channel settings require fresh registration. */
+  reloadPluginIds?: Set<string>;
   pluginLifecycle?: {
     pluginIds: readonly string[];
     reason: PluginLifecycleReason;
@@ -72,6 +74,7 @@ type ReloadPolicy = {
   actions?: readonly ReloadAction[];
   channels?: readonly ChannelPlugin[];
   services?: readonly string[];
+  replaceChannelPlugins?: boolean;
   accountScoped?: boolean;
 };
 type ReloadRule = Omit<ReloadPolicy, "prefixes"> & { prefix: string };
@@ -274,6 +277,12 @@ const DEFAULT_RELOAD_POLICIES: ReloadPolicy[] = [
     kind: "hot",
   },
   { prefixes: ["plugins"], kind: "hot", actions: ["reloadPlugins", "disposeMcpRuntimes"] },
+  {
+    prefixes: ["channels"],
+    kind: "hot",
+    actions: ["reloadPlugins"],
+    replaceChannelPlugins: true,
+  },
   { prefixes: ["gateway", "discovery"], kind: "restart" },
 ];
 
@@ -536,6 +545,18 @@ export function buildGatewayReloadPlan(
     plan.hotReasons.push(path);
     for (const action of rule?.actions ?? []) {
       plan[action] = true;
+    }
+    if (rule?.replaceChannelPlugins) {
+      // Manifest channel IDs survive even when registration has no active channel.
+      for (const record of getReloadPolicyCatalog().registry?.plugins ?? []) {
+        if (
+          record.channelIds.some(
+            (id) => path === "channels" || matchesReloadPrefix(path, `channels.${id}`),
+          )
+        ) {
+          (plan.reloadPluginIds ??= new Set()).add(record.id);
+        }
+      }
     }
     for (const service of rule?.services ?? []) {
       plan.restartServices?.add(service);

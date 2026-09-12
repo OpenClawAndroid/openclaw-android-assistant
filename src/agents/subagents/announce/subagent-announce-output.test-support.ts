@@ -3,13 +3,12 @@ export * from "./subagent-announce-output.js";
 type OutputRuntime = typeof import("./subagent-announce.runtime.js");
 type OutputDeps = Pick<
   OutputRuntime,
-  | "callGateway"
   | "getRuntimeConfig"
   | "readSubagentSessionEntry"
   | "readSessionMessagesAsync"
   | "resolveAgentIdFromSessionKey"
   | "resolveSessionStorePathCore"
->;
+> & { callGateway: OutputRuntime["callSubagentLifecycleGateway"] };
 
 type Testing = {
   setDepsForTest(overrides?: Partial<OutputDeps>): void;

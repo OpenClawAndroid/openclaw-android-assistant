@@ -793,10 +793,12 @@ export function resolveUsageHookProviderPluginContracts(params: {
   workspaceDir?: string;
   env?: PluginLoadOptions["env"];
 }): UsageHookProviderPluginContract[] {
-  const registry = loadProviderRegistrySnapshot(params);
+  const { snapshot: registry, manifestRegistry: preparedManifestRegistry } =
+    loadPluginRegistrySnapshotWithMetadata(params);
   const manifestRegistry = resolveManifestRegistry({
     ...params,
     registry,
+    manifestRegistry: preparedManifestRegistry,
     includeDisabled: true,
   });
   const usagePluginIds = new Set(
@@ -804,7 +806,9 @@ export function resolveUsageHookProviderPluginContracts(params: {
       plugin.contracts?.usageProviders?.length ? [plugin.id] : [],
     ),
   );
-  const normalizedConfig = normalizePluginsConfigWithRegistry(params.config?.plugins, registry);
+  const normalizedConfig = normalizePluginsConfigWithRegistry(params.config?.plugins, registry, {
+    manifestRegistry,
+  });
   const enabledPluginIds = listRegistryPluginIds(
     registry,
     (plugin) =>

@@ -435,8 +435,20 @@ export async function searchChunksByEmbedding(params: {
     rowid: number | bigint;
     embedding: string;
   };
+  const snippetByteLimit =
+    Number.isSafeInteger(params.snippetMaxChars) && params.snippetMaxChars > 0
+      ? params.snippetMaxChars * 4
+      : undefined;
+  // Byte prefixes preserve NUL in UTF-8 and UTF-16 databases. Four bytes per
+  // UTF-16 unit leave final truncation to truncateUtf16Safe. SQLite returns
+  // NULL for an empty BLOB substring, so retain the original empty text.
+  const snippetSql =
+    snippetByteLimit === undefined
+      ? "text"
+      : "COALESCE(CAST(substr(CAST(text AS BLOB), 1, ?) AS TEXT), text)";
+  const snippetParams = snippetByteLimit === undefined ? [] : [snippetByteLimit];
   const payloadStmt = params.db.prepare(
-    `SELECT id, path, start_line, end_line, text, source FROM memory_index_chunks WHERE rowid = ?`,
+    `SELECT id, path, start_line, end_line, ${snippetSql} AS text, source FROM memory_index_chunks WHERE rowid = ?`,
   );
   type ChunkPayload = {
     id: string;
@@ -469,7 +481,7 @@ export async function searchChunksByEmbedding(params: {
         // Hydrate contenders before yielding so an old score cannot acquire a
         // replacement chunk's payload.
         // SAFETY: these schema-defined columns belong to this rowid in the active read snapshot.
-        const payload = payloadStmt.get(row.rowid) as ChunkPayload;
+        const payload = payloadStmt.get(...snippetParams, row.rowid) as ChunkPayload;
         const result: SearchRowResult = {
           id: payload.id,
           path: payload.path,

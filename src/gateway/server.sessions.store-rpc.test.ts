@@ -951,7 +951,7 @@ test("write-scoped operators manage chat organization but not admin session sett
       key: "agent:main:topic-a",
       label: "Sneaky",
       model: null,
-      thinkingLevel: "high",
+      verboseLevel: "full",
     });
     expect(mixedFieldsDenied.ok).toBe(false);
     expect(mixedFieldsDenied.error?.message).toContain("missing scope: operator.admin");

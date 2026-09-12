@@ -955,70 +955,79 @@ describe("Anthropic provider", () => {
     expect((capturedPayload as { max_tokens?: number }).max_tokens).toBe(model.maxTokens);
   });
 
-  it("clamps an excessive output request to the model limit", async () => {
-    const model = makeAnthropicModel({
-      id: "claude-opus-4-5",
-      name: "Claude Opus 4.5",
-      contextWindow: 4_000,
-      maxTokens: 512,
-    });
-    const { payload: capturedPayload } = await captureSimpleAnthropicPayload(
-      model,
-      { apiKey: "test-api-key", maxTokens: 5_000, reasoning: "off", stopBeforeNetwork: true },
-      {
-        messages: [
-          makeAnthropicAssistantMessage(
-            [
-              {
-                type: "thinking",
-                thinking: "private reasoning ".repeat(1_000),
-                thinkingSignature: "sig_old",
-              },
-              { type: "text", text: "Visible answer." },
-            ],
-            { model: model.id },
-          ),
-          { role: "user", content: "again", timestamp: 0 },
-        ],
-      },
-    );
+  it.each([
+    { modelMaxTokens: 512, expectedMaxTokens: 512 },
+    { modelMaxTokens: undefined, expectedMaxTokens: 5_000 },
+  ])(
+    "resolves explicit output requests with model limit $modelMaxTokens",
+    async ({ modelMaxTokens, expectedMaxTokens }) => {
+      const model = makeAnthropicModel({
+        id: "claude-opus-4-5",
+        name: "Claude Opus 4.5",
+        contextWindow: 4_000,
+        maxTokens: modelMaxTokens,
+      });
+      const { payload: capturedPayload } = await captureSimpleAnthropicPayload(
+        model,
+        { apiKey: "test-api-key", maxTokens: 5_000, reasoning: "off", stopBeforeNetwork: true },
+        {
+          messages: [
+            makeAnthropicAssistantMessage(
+              [
+                {
+                  type: "thinking",
+                  thinking: "private reasoning ".repeat(1_000),
+                  thinkingSignature: "sig_old",
+                },
+                { type: "text", text: "Visible answer." },
+              ],
+              { model: model.id },
+            ),
+            { role: "user", content: "again", timestamp: 0 },
+          ],
+        },
+      );
 
-    expect((capturedPayload as { max_tokens?: number }).max_tokens).toBe(model.maxTokens);
-  });
+      expect(capturedPayload.max_tokens).toBe(expectedMaxTokens);
+    },
+  );
 
-  it("restores the caller output cap when thinking cannot fit", async () => {
-    const model = makeAnthropicModel({
-      id: "claude-haiku-4-5",
-      name: "Claude Haiku 4.5",
-      contextWindow: 4_000,
-      maxTokens: 500,
-    });
-    const { payload: capturedPayload } = await captureSimpleAnthropicPayload(
-      model,
-      { apiKey: "test-api-key", maxTokens: 32, reasoning: "low", stopBeforeNetwork: true },
-      {
-        messages: [
-          makeAnthropicAssistantMessage(
-            [
-              {
-                type: "thinking",
-                thinking: "private reasoning ".repeat(1_000),
-                thinkingSignature: "sig_tool",
-              },
-              { type: "toolCall", id: "call_1", name: "lookup", arguments: {} },
-            ],
-            { model: model.id, stopReason: "toolUse" },
-          ),
-          makeTextToolResult("call_1", "lookup", "42", false, 0),
-        ],
-      },
-    );
+  it.each([500, undefined])(
+    "restores the caller output cap when thinking cannot fit with model limit %s",
+    async (maxTokens) => {
+      const model = makeAnthropicModel({
+        id: "claude-haiku-4-5",
+        name: "Claude Haiku 4.5",
+        contextWindow: 4_000,
+        maxTokens,
+      });
+      const { payload: capturedPayload } = await captureSimpleAnthropicPayload(
+        model,
+        { apiKey: "test-api-key", maxTokens: 32, reasoning: "low", stopBeforeNetwork: true },
+        {
+          messages: [
+            makeAnthropicAssistantMessage(
+              [
+                {
+                  type: "thinking",
+                  thinking: "private reasoning ".repeat(1_000),
+                  thinkingSignature: "sig_tool",
+                },
+                { type: "toolCall", id: "call_1", name: "lookup", arguments: {} },
+              ],
+              { model: model.id, stopReason: "toolUse" },
+            ),
+            makeTextToolResult("call_1", "lookup", "42", false, 0),
+          ],
+        },
+      );
 
-    expect(capturedPayload as { max_tokens?: number; thinking?: unknown }).toMatchObject({
-      max_tokens: 32,
-    });
-    expect((capturedPayload as { thinking?: unknown }).thinking).toEqual({ type: "disabled" });
-  });
+      expect(capturedPayload as { max_tokens?: number; thinking?: unknown }).toMatchObject({
+        max_tokens: 32,
+      });
+      expect((capturedPayload as { thinking?: unknown }).thinking).toEqual({ type: "disabled" });
+    },
+  );
 
   it("preserves mixed text and image tool-result order", async () => {
     const imageData = Buffer.from("image").toString("base64");

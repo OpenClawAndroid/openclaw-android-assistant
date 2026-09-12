@@ -7,6 +7,10 @@ import {
 } from "../../../config/sessions/session-accessor.js";
 import { resolveSessionStorePathForScope } from "../../../config/sessions/session-store-path.js";
 import { formatErrorMessage, readErrorName } from "../../../infra/errors.js";
+import {
+  getGatewayContextResolver,
+  withPluginRuntimeGatewayContextResolver,
+} from "../../../plugins/runtime/gateway-request-scope.js";
 import { resolveAgentIdFromSessionKey } from "../../../routing/session-key.js";
 import { extractTextFromChatContent } from "../../../shared/chat-content.js";
 import type { DetachedTaskFindResult } from "../../../tasks/detached-task-runtime-contract.js";
@@ -178,17 +182,21 @@ export const hasPriorRequesterDeliveryMirror = async (
       value.startsWith(`${entry.runId}:message-tool:`) ||
       value.startsWith(`${entry.runId}:internal-source-reply:`));
   try {
-    const history = await params.callGateway<{
-      messages?: unknown[];
-    }>({
-      method: "chat.history",
-      params: {
-        sessionKey: entry.requesterSessionKey,
-        limit: 25,
-        maxChars: DELIVERY_MIRROR_HISTORY_MAX_CHARS,
-      },
-      timeoutMs: 5_000,
-    });
+    const history = await withPluginRuntimeGatewayContextResolver(
+      getGatewayContextResolver(entry),
+      () =>
+        params.callGateway<{
+          messages?: unknown[];
+        }>({
+          method: "chat.history",
+          params: {
+            sessionKey: entry.requesterSessionKey,
+            limit: 25,
+            maxChars: DELIVERY_MIRROR_HISTORY_MAX_CHARS,
+          },
+          timeoutMs: 5_000,
+        }),
+    );
     const mirror = history.messages?.find((message) => {
       if (!message || typeof message !== "object") {
         return false;
@@ -375,11 +383,15 @@ export const freezeRunResultAtCompletion = async (
         : undefined);
     const sessionTarget: SessionTranscriptRuntimeTarget | undefined =
       agentId && sessionId && storePath ? { agentId, sessionId, sessionKey, storePath } : undefined;
-    const captured = await params.captureSubagentCompletionReply(entry.childSessionKey, {
-      waitForReply: entry.expectsCompletionMessage === true,
-      outcome,
-      ...(sessionTarget ? { sessionTarget } : {}),
-    });
+    const captured = await withPluginRuntimeGatewayContextResolver(
+      getGatewayContextResolver(entry),
+      () =>
+        params.captureSubagentCompletionReply(entry.childSessionKey, {
+          waitForReply: entry.expectsCompletionMessage === true,
+          outcome,
+          ...(sessionTarget ? { sessionTarget } : {}),
+        }),
+    );
     resultText = captured?.trim() ? capFrozenResultText(captured) : null;
   } catch {
     resultText = null;
@@ -451,7 +463,9 @@ export const refreshFrozenResultFromSession = async (
 
   let captured: string | undefined;
   try {
-    captured = await params.captureSubagentCompletionReply(sessionKey);
+    captured = await withPluginRuntimeGatewayContextResolver(getGatewayContextResolver(entry), () =>
+      params.captureSubagentCompletionReply(sessionKey),
+    );
   } catch {
     return false;
   }

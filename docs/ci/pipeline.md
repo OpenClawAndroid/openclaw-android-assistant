@@ -75,11 +75,13 @@ the job's uploaded artifacts.
 | `docs-external-links`            | Separate workflow: Docs External Link Audit checks external documentation links with lychee and uploads a report; it reports findings without failing, so it never blocks a pull request                                                                                                                 | Scheduled and manual dispatch                          |
 
 Full canonical `main` pushes run the operator config and prior-release state
-startup corpora once through the Node `runtime-config` owner. Other runs that
-select baseline-ratchets retain its explicit **Check startup corpus** step:
-pull requests may select only changed tests, and release-gate dispatches
-also validate a separate merge tree. Both state repair passes and the static
-baseline ratchets remain unchanged.
+startup corpora once through the Node `runtime-config` owner. Canonical pull
+requests also omit the duplicate **Check startup corpus** step when preflight
+certifies both complete files in the required Node matrix on the exact same
+checkout revision. Partial, filtered or unknown plans retain the explicit step;
+release-gate dispatches retain their separate merge-tree proof. Both state
+repair passes, all static baseline ratchets and required Node failure aggregation
+remain unchanged.
 
 Ordinary pull requests that change only independent Control UI unit-test entries
 keep all three UI unit rows, performance checks, and existing type/lint gates,

@@ -929,13 +929,10 @@ describe("Slack durable ingress", () => {
       const usersInfoFetch = vi.fn<NonNullable<WebClientOptions["fetch"]>>(async (input) => {
         const pathname = new URL(String(input)).pathname;
         if (pathname.endsWith("/conversations.info")) {
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              channel: { id: "C_TEST", name: "general", is_channel: true },
-            }),
-            { headers: { "content-type": "application/json" }, status: 200 },
-          );
+          return Response.json({
+            ok: true,
+            channel: { id: "C_TEST", name: "general", is_channel: true },
+          });
         }
         if (!pathname.endsWith("/users.info")) {
           throw new Error(`unexpected Slack API request: ${pathname}`);
@@ -947,10 +944,7 @@ describe("Slack durable ingress", () => {
             status: 429,
           });
         }
-        return new Response(JSON.stringify({ ok: true, user: { id: "U_TEST", name: "alice" } }), {
-          headers: { "content-type": "application/json" },
-          status: 200,
-        });
+        return Response.json({ ok: true, user: { id: "U_TEST", name: "alice" } });
       });
       const first = attachBoltMemberIngress({ queue, trackEvent, usersInfoFetch });
       first.ingress.start();

@@ -307,8 +307,15 @@ function decodeMessageActionContext(
 
 function decodePayload(value: string, nowMs: number): AgentRuntimeIdentityTokenPayload | undefined {
   try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
-    const result = agentRuntimeIdentityTokenPayloadSchema.safeParse(parsed);
+    return parsePayload(JSON.parse(Buffer.from(value, "base64url").toString("utf8")), nowMs);
+  } catch {
+    return undefined;
+  }
+}
+
+function parsePayload(value: unknown, nowMs: number): AgentRuntimeIdentityTokenPayload | undefined {
+  try {
+    const result = agentRuntimeIdentityTokenPayloadSchema.safeParse(value);
     if (!result.success) {
       return undefined;
     }
@@ -422,7 +429,9 @@ export type AgentRuntimeIdentityTokenParams = {
   approvalAuthority?: AgentRunDelegatedAuthority;
 };
 
-function prepareAgentRuntimeIdentityTokenPayload(params: AgentRuntimeIdentityTokenParams): string {
+function prepareAgentRuntimeIdentityTokenPayload(
+  params: AgentRuntimeIdentityTokenParams,
+): AgentRuntimeIdentityTokenPayload {
   const operationalInstanceId = normalizeOptionalString(params.operationalRunInstance.instanceId);
   const operationalRunId = normalizeOptionalString(params.operationalRunInstance.runId);
   if (!operationalInstanceId || !operationalRunId) {
@@ -504,7 +513,7 @@ function prepareAgentRuntimeIdentityTokenPayload(params: AgentRuntimeIdentityTok
         expiresAtMs: Date.now() + CRON_SELF_MANAGEMENT_TOKEN_TTL_MS,
       }
     : undefined;
-  return encodePayload({
+  return {
     kind: AGENT_RUNTIME_IDENTITY_TOKEN_KIND,
     agentId: normalizeAgentId(params.agentId),
     sessionKey: params.sessionKey.trim(),
@@ -539,14 +548,14 @@ function prepareAgentRuntimeIdentityTokenPayload(params: AgentRuntimeIdentityTok
     ...(params.executionIdentityToken?.runId === operationalRunId
       ? { executionIdentity: params.executionIdentityToken }
       : {}),
-  });
+  };
 }
 
 /** Measure the exact ASCII token size without reading signing credentials or minting a bearer. */
 export function measureAgentRuntimeIdentityTokenBytes(
   params: AgentRuntimeIdentityTokenParams,
 ): number {
-  const payload = prepareAgentRuntimeIdentityTokenPayload(params);
+  const payload = encodePayload(prepareAgentRuntimeIdentityTokenPayload(params));
   return Buffer.byteLength(`${payload}.${signPayload("", payload)}`, "utf8");
 }
 
@@ -554,7 +563,7 @@ export function measureAgentRuntimeIdentityTokenBytes(
 export async function mintAgentRuntimeIdentityToken(
   params: AgentRuntimeIdentityTokenParams,
 ): Promise<string> {
-  const payload = prepareAgentRuntimeIdentityTokenPayload(params);
+  const payload = encodePayload(prepareAgentRuntimeIdentityTokenPayload(params));
   const signature = signPayload(await requireSharedAgentRuntimeIdentitySecret(), payload);
   return `${payload}.${signature}`;
 }
@@ -580,6 +589,20 @@ export async function verifyAgentRuntimeIdentityToken(
   if (!payload) {
     return undefined;
   }
+  return resolveAgentRuntimeIdentityPayload(payload);
+}
+
+/** Build a host-owned caller identity without minting or reading transport credentials. */
+export async function createAgentRuntimeIdentity(
+  params: AgentRuntimeIdentityTokenParams,
+): Promise<AgentRuntimeIdentity | undefined> {
+  const payload = parsePayload(prepareAgentRuntimeIdentityTokenPayload(params), Date.now());
+  return payload ? resolveAgentRuntimeIdentityPayload(payload) : undefined;
+}
+
+function resolveAgentRuntimeIdentityPayload(
+  payload: AgentRuntimeIdentityTokenPayload,
+): AgentRuntimeIdentity | undefined {
   const handoff = payload.executionLineageHandoffId
     ? redeemAgentRuntimeExecutionLineageHandoff({
         id: payload.executionLineageHandoffId,

@@ -13,7 +13,10 @@ import {
   mintMessageActionTurnCapability,
   revokeMessageActionTurnCapability,
 } from "../../gateway/message-action-turn-capability.js";
-import type { GatewayRequestContext } from "../../gateway/server-methods/types.js";
+import type {
+  GatewayRequestContext,
+  GatewayRequestOptions,
+} from "../../gateway/server-methods/types.js";
 import {
   claimAgentRunDelegatedAuthority,
   releaseAgentRunDelegatedAuthority,
@@ -32,6 +35,7 @@ import { callGatewayTool, resolveMessageActionAgentRuntimeIdentityToken } from "
 
 const mocks = vi.hoisted(() => ({
   callGateway: vi.fn(),
+  handleGatewayRequest: vi.fn<(options: GatewayRequestOptions) => Promise<void>>(),
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -41,6 +45,9 @@ vi.mock("../../config/config.js", () => ({
 
 vi.mock("../../gateway/call.js", () => ({
   callGateway: (...args: unknown[]) => mocks.callGateway(...args),
+}));
+vi.mock("../../gateway/server-methods.js", () => ({
+  handleGatewayRequest: mocks.handleGatewayRequest,
 }));
 
 function capturedGatewayCall(): CallGatewayOptions {
@@ -59,7 +66,13 @@ async function withActiveGatewayToolCallerIdentity<T>(
   const authority = claimAgentRunDelegatedAuthority(identity.operationalRunInstance);
   expect(validateAgentRunDelegatedAuthority(authority)).toBe(true);
   try {
-    return await withGatewayToolCallerIdentity(identity, run);
+    return await withGatewayToolCallerIdentity(
+      {
+        receiptAuthority: () => validateAgentRunDelegatedAuthority(authority),
+        ...identity,
+      },
+      run,
+    );
   } finally {
     expect(releaseAgentRunDelegatedAuthority(authority)).toBe(true);
     expect(validateAgentRunDelegatedAuthority(authority)).toBe(false);
@@ -71,6 +84,9 @@ describe("gateway tool runtime identity", () => {
 
   beforeEach(() => {
     mocks.callGateway.mockReset();
+    mocks.handleGatewayRequest.mockReset().mockImplementation(async ({ respond }) => {
+      respond(true, { ok: true });
+    });
   });
 
   afterEach(() => {
@@ -92,22 +108,39 @@ describe("gateway tool runtime identity", () => {
     ["wake", { mode: "now", text: "ping" }, { ok: true }],
     ["question.request", { questions: [] }, { id: "question-1" }],
   ] as const)(
-    "marks trusted local %s calls with runtime identity",
+    "dispatches hosted %s calls with trusted runtime identity and no socket",
     async (method, params, result) => {
-      mocks.callGateway.mockResolvedValueOnce(result);
-      const context = {} as GatewayRequestContext;
+      mocks.handleGatewayRequest.mockImplementationOnce(async ({ respond }) => {
+        respond(true, result);
+      });
+      const context = {
+        trackExecution: (run: () => Promise<void>) => run(),
+      } as GatewayRequestContext;
+      const operationalRunInstance = createOperationalRunInstanceRef("run-1");
 
-      await withActiveGatewayToolCallerIdentity(
-        {
-          agentId: "ops",
-          sessionKey: "agent:ops:telegram:direct:alice",
-          operationalRunInstance: createOperationalRunInstanceRef("run-1"),
-          gatewayContextResolver: () => context,
-        },
-        async () => await callGatewayTool(method, {}, params),
-      );
+      await expect(
+        withActiveGatewayToolCallerIdentity(
+          {
+            agentId: "ops",
+            sessionKey: "agent:ops:telegram:direct:alice",
+            operationalRunInstance,
+            gatewayContextResolver: () => context,
+          },
+          async () => await callGatewayTool(method, {}, params),
+        ),
+      ).resolves.toEqual(result);
 
-      expect(capturedGatewayCall().agentRuntimeIdentityToken).toEqual(expect.any(String));
+      expect(mocks.callGateway).not.toHaveBeenCalled();
+      expect(mocks.handleGatewayRequest).toHaveBeenCalledTimes(1);
+      const call = mocks.handleGatewayRequest.mock.calls[0]?.[0];
+      expect(call?.context).toBe(context);
+      expect(call?.req).toMatchObject({ method, params });
+      expect(call?.client?.internal?.agentRuntimeIdentity).toMatchObject({
+        kind: "agentRuntime",
+        agentId: "ops",
+        sessionKey: "agent:ops:telegram:direct:alice",
+        operationalRunInstance,
+      });
     },
   );
 
@@ -142,11 +175,15 @@ describe("gateway tool runtime identity", () => {
     },
   );
 
-  it.each(["before call", "during mint", "replacement", "before retry"])(
+  it.each(["before call", "during preparation", "replacement", "before wire retry"])(
     "rejects a retired Gateway binding without dropping identity (%s)",
     async (closure) => {
       mocks.callGateway.mockResolvedValueOnce({ id: "question-1" });
-      let context: GatewayRequestContext | undefined = {} as GatewayRequestContext;
+      const wireRetry = closure === "before wire retry";
+      let context: GatewayRequestContext | undefined = {
+        ...(wireRetry ? { localEmbedded: true } : {}),
+        trackExecution: (run: () => Promise<void>) => run(),
+      } as GatewayRequestContext;
       await withActiveGatewayToolCallerIdentity(
         {
           agentId: "ops",
@@ -157,7 +194,7 @@ describe("gateway tool runtime identity", () => {
         async () => {
           if (closure === "before call") {
             context = undefined;
-          } else if (closure === "before retry") {
+          } else if (wireRetry) {
             mocks.callGateway.mockReset().mockImplementationOnce(async () => {
               context = undefined;
               throw Object.assign(
@@ -174,13 +211,16 @@ describe("gateway tool runtime identity", () => {
               context = closure === "replacement" ? ({} as GatewayRequestContext) : undefined;
             });
           }
-          const method = closure === "before retry" ? "node.invoke" : "question.request";
+          const method = wireRetry ? "node.invoke" : "question.request";
           await expect(callGatewayTool(method, {}, {})).rejects.toThrow(
-            "admitting Gateway is no longer available",
+            wireRetry
+              ? "admitting Gateway is no longer available"
+              : /Gateway instance unavailable|admitting Gateway is no longer available/,
           );
         },
       );
-      expect(mocks.callGateway).toHaveBeenCalledTimes(closure === "before retry" ? 1 : 0);
+      expect(mocks.callGateway).toHaveBeenCalledTimes(wireRetry ? 1 : 0);
+      expect(mocks.handleGatewayRequest).not.toHaveBeenCalled();
     },
   );
 

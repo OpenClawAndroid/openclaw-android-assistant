@@ -314,13 +314,22 @@ async function callMessageGateway<T>(params: {
   onPlatformSendDispatch?: () => Promise<void>;
   assertDirectAdapterHandoff?: () => void;
 }): Promise<T> {
-  const { callGatewayLeastPrivilege } = await loadMessageGatewayRuntime();
   const gateway = resolveGatewayOptions(params.gateway);
   // Mint before the local dispatch fence so revocation during RPC is enforced
   // by the Gateway's live operational-run validator, not token freshness.
-  const agentRuntimeIdentityToken = await params.gateway?.resolveAgentRuntimeIdentityToken?.();
+  const agentRuntimeIdentityToken = params.gateway?.request
+    ? undefined
+    : await params.gateway?.resolveAgentRuntimeIdentityToken?.();
   await params.onPlatformSendDispatch?.();
   params.assertDirectAdapterHandoff?.();
+  if (params.gateway?.request) {
+    return await params.gateway.request<T>({
+      method: params.method,
+      params: params.params,
+      timeoutMs: gateway.timeoutMs,
+    });
+  }
+  const { callGatewayLeastPrivilege } = await loadMessageGatewayRuntime();
   return await callGatewayLeastPrivilege<T>({
     ...gateway,
     method: params.method,

@@ -1,4 +1,4 @@
-import fs, { type Stats } from "node:fs";
+import fs, { type BigIntStats, type Stats } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync as HandoffDatabase } from "node:sqlite";
 import { sql } from "kysely";
@@ -54,13 +54,13 @@ export type ManagedUpdateLeaseDatabaseIdentity = Readonly<{
   parentIdentity: string;
 }>;
 
-function assertPath(stat: Stats, kind: "directory" | "file") {
+function assertPath(stat: Stats | BigIntStats, kind: "directory" | "file") {
   if (
     stat.isSymbolicLink() ||
     !(kind === "directory" ? stat.isDirectory() : stat.isFile()) ||
-    (kind === "file" && stat.nlink !== 1) ||
-    (typeof process.getuid === "function" && stat.uid !== process.getuid()) ||
-    (process.platform !== "win32" && (stat.mode & 0o077) !== 0)
+    (kind === "file" && BigInt(stat.nlink) !== 1n) ||
+    (typeof process.getuid === "function" && BigInt(stat.uid) !== BigInt(process.getuid())) ||
+    (process.platform !== "win32" && (BigInt(stat.mode) & 0o077n) !== 0n)
   ) {
     throw new Error("managed handoff lease " + kind + " is unsafe");
   }
@@ -97,11 +97,17 @@ function repairPrivateFileMode(databasePath: string, stat: Stats): Stats {
   return fs.lstatSync(databasePath);
 }
 
-function assertSamePath(stat: Stats, expected: Stats, kind: "directory" | "file"): void {
+function assertSamePath(
+  stat: Stats | BigIntStats,
+  expected: Stats | BigIntStats,
+  kind: "directory" | "file",
+): void {
   assertPath(stat, kind);
   if (
     (process.platform === "win32" &&
-      (stat.dev === 0 || stat.ino === 0 || expected.dev === 0 || expected.ino === 0)) ||
+      [stat.dev, stat.ino, expected.dev, expected.ino].some(
+        (value) => value === 0 || value === 0n,
+      )) ||
     !sameFileIdentity(stat, expected)
   ) {
     throw new Error("managed handoff lease " + kind + " changed during initialization");
@@ -133,11 +139,16 @@ function createMissingDatabaseFile(databasePath: string, parentReceipt: Director
       // SQLite commits schema on this inode; a crash here leaves its existing empty-file recovery.
       fs.fsyncSync(descriptor);
     }
+    // Windows file IDs can exceed Number's exact integer range.
     const identity =
       descriptor === undefined
         ? repairPrivateFileMode(databasePath, fs.lstatSync(databasePath))
-        : fs.fstatSync(descriptor);
-    assertSamePath(fs.lstatSync(databasePath), identity, "file");
+        : fs.fstatSync(descriptor, { bigint: true });
+    const currentIdentity =
+      descriptor === undefined
+        ? fs.lstatSync(databasePath)
+        : fs.lstatSync(databasePath, { bigint: true });
+    assertSamePath(currentIdentity, identity, "file");
     assertSamePath(fs.lstatSync(parentReceipt.path), parentReceipt.identity, "directory");
     requireDirectorySync(syncDirectorySync(parentReceipt), "Managed handoff lease directory");
   } finally {

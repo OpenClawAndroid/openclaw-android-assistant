@@ -37,7 +37,7 @@ import type { InstallSafetyOverrides } from "./install-security-scan.js";
 import type { InstallPolicyWarningDetails } from "./install-security-scan.types.js";
 import {
   requestDeferredPluginInstall,
-  resolvePluginInstallTransaction,
+  takePluginInstallTransaction,
 } from "./install-transaction.js";
 import {
   isUnavailableNpmTarget,
@@ -431,7 +431,7 @@ async function installResolvedManagedPluginSource(
         mode: request.mode ?? "install",
       });
     }
-    const transaction = resolvePluginInstallTransaction(installed);
+    const transaction = takePluginInstallTransaction(installed);
     if (completed.expectedPluginId && installed.pluginId !== completed.expectedPluginId) {
       await transaction?.rollback();
       return {

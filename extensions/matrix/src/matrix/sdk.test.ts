@@ -984,10 +984,7 @@ describe("MatrixClient request hardening", () => {
     const order: string[] = [];
     const fetchMock = vi.fn(async () => {
       order.push("put");
-      return new Response(JSON.stringify({ event_id: "$sent" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return Response.json({ event_id: "$sent" });
     });
     stubRuntimeFetch(fetchMock as unknown as typeof fetch);
     const client = new MatrixClient("http://127.0.0.1:8008", "token", {
@@ -1078,15 +1075,12 @@ describe("MatrixClient request hardening", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);
       if (url.includes("/_matrix/client/v1/media/download/")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             errcode: "M_UNRECOGNIZED",
             error: "Unrecognized request",
-          }),
-          {
-            status: 404,
-            headers: { "content-type": "application/json" },
           },
+          { status: 404 },
         );
       }
       return new Response(payload, { status: 200 });

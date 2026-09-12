@@ -11,7 +11,8 @@ import { resolveSessionStorePathCore } from "../../../config/sessions.js";
 import { loadSessionEntryReadOnly as loadSessionEntry } from "../../../config/sessions/session-accessor.js";
 import { resolvePersistedSessionStoreOwnerForKey } from "../../../config/sessions/session-store-owner.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
-import { callGateway } from "../../../gateway/call.js";
+import type { callGateway } from "../../../gateway/call.js";
+import { bindGatewayLifecycleRequest } from "../../../gateway/server-recovery-runtime-context.js";
 import { resolveExternalBestEffortDeliveryTarget } from "../../../infra/outbound/best-effort-delivery.js";
 import { createBoundDeliveryRouter } from "../../../infra/outbound/bound-delivery-router.js";
 import { resolveConversationIdFromTargets } from "../../../infra/outbound/conversation-id.js";
@@ -133,7 +134,7 @@ function loadDefaultRequesterSessionEntry(
 }
 
 const defaultSubagentAnnounceDeliveryDeps: SubagentAnnounceDeliveryDeps = {
-  callGateway: ((...args) => callGateway(...args)) as typeof callGateway,
+  callGateway: (request) => bindGatewayLifecycleRequest()(request),
   dispatchGatewayMethodInProcess: ((...args) =>
     dispatchGatewayMethodInProcess(...args)) as typeof dispatchGatewayMethodInProcess,
   getRuntimeConfig: () => getRuntimeConfig(),

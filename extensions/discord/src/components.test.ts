@@ -529,9 +529,7 @@ describe("discord component registry", () => {
             init?.method === "GET"
               ? { id: "789", type: 0 }
               : { id: "delivered-message", channel_id: "789" };
-          return new Response(JSON.stringify(message), {
-            headers: { "content-type": "application/json" },
-          });
+          return Response.json(message);
         },
       });
 

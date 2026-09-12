@@ -165,10 +165,7 @@ describe("readMattermostError", () => {
   });
 
   it("parses bounded JSON error messages from response bodies", async () => {
-    const response = new Response(JSON.stringify({ message: "invalid token", id: "app.error" }), {
-      status: 401,
-      headers: { "content-type": "application/json" },
-    });
+    const response = Response.json({ message: "invalid token", id: "app.error" }, { status: 401 });
     const jsonSpy = vi.spyOn(response, "json").mockRejectedValue(new Error("unbounded"));
     const textSpy = vi.spyOn(response, "text").mockRejectedValue(new Error("unbounded"));
 
@@ -195,10 +192,7 @@ describe("readMattermostError", () => {
 
   it("redacts reflected credentials in JSON error messages", async () => {
     const token = "mm-bot-token-ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const response = new Response(JSON.stringify({ message: `auth failed for Bearer ${token}` }), {
-      status: 401,
-      headers: { "content-type": "application/json" },
-    });
+    const response = Response.json({ message: `auth failed for Bearer ${token}` }, { status: 401 });
 
     const detail = await readMattermostError(response, { Authorization: `Bearer ${token}` });
 

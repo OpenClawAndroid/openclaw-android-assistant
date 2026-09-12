@@ -542,7 +542,7 @@ describe("plugins cli list", () => {
             "openclaw plugins inspect broken",
             "edit or remove the config-selected plugin source",
             "openclaw plugins registry --refresh",
-            "openclaw gateway restart --force",
+            "openclaw plugins reload broken",
           ],
         },
       ],

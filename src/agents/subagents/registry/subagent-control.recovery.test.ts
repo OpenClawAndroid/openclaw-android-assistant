@@ -227,6 +227,7 @@ it.each(
       },
     );
     const recoveryRuntime: GatewayRecoveryRuntime = {
+      dispatchSessionMethod: vi.fn(),
       dispatchAgent: dispatchRecovery as GatewayRecoveryRuntime["dispatchAgent"],
       waitForAgent: async () => await new Promise<never>(() => {}),
       sendRecoveryNotice: async () => {

@@ -162,6 +162,7 @@ export type GatewayReloadHandlerParams = {
     nextConfig: OpenClawConfig;
     sourceConfig: OpenClawConfig;
     changedPaths: readonly string[];
+    reloadPluginIds?: ReadonlySet<string>;
     pluginLifecycle?: GatewayReloadPlan["pluginLifecycle"];
     /** Validate remaining config effects before the prepared plugin owner starts drainage. */
     prepareConfigEffects: (replacement: {

@@ -68,12 +68,9 @@ describe("nextcloud-talk send cfg threading", () => {
 
   function mockNextcloudMessageResponse(messageId: number, timestamp: number): void {
     fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          ocs: { data: { id: messageId, timestamp } },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+      Response.json({
+        ocs: { data: { id: messageId, timestamp } },
+      }),
     );
   }
 

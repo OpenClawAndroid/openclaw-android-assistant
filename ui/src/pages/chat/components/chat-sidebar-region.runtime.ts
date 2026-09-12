@@ -2,6 +2,7 @@ import "../../../styles/chat/side-panel.css";
 import { html, nothing, render as renderTemplate, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
+import { beginNativeWindowDrag } from "../../../app/native-window-drag.ts";
 import { icons } from "../../../components/icons.ts";
 import { renderPanelEmptyState } from "../../../components/panel-empty-state.ts";
 import {
@@ -361,7 +362,11 @@ class ChatSidebarRegion extends OpenClawLightDomElement {
     const activePanel = column.panels.find((panel) => panel.id === active?.id);
     const activeActions = (activePanel ? this.panelActions[activePanel.slot] : null) ?? null;
     return html`
-      <header class="rail-header side-panel__header" data-region-header="side">
+      <header
+        class="rail-header side-panel__header"
+        data-region-header="side"
+        @mousedown=${beginNativeWindowDrag}
+      >
         <div class="side-panel__header-tabs">
           ${renderPanelTabStrip({
             tabs,

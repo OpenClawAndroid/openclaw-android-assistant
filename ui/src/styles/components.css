@@ -3924,6 +3924,23 @@ td.data-table-key-col {
   background: var(--menu-selected);
 }
 
+.agent-select__option-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-select__option-check {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.agent-select__option-check svg {
+  width: 14px;
+  height: 14px;
+}
+
 .agent-select__separator {
   height: 1px;
   margin: 6px 4px;

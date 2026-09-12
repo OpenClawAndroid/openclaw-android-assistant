@@ -642,22 +642,13 @@ describe("method scope resolution", () => {
     ).toEqual({ allowed: false, missingScope: "operator.admin" });
   });
 
-  it("delegates effort patches to the admin-scoped session policy", () => {
-    const params = { key: "agent:main:ios-1", thinkingLevel: "high" };
-    expect(resolveLeastPrivilegeOperatorScopesForMethod("sessions.patch", params)).toEqual([
-      "operator.admin",
-    ]);
-    expect(authorizeOperatorScopesForMethod("sessions.patch", ["operator.write"], params)).toEqual({
-      allowed: false,
-      missingScope: "operator.admin",
-    });
-    expect(authorizeOperatorScopesForMethod("sessions.patch", ["operator.admin"], params)).toEqual({
-      allowed: true,
-    });
-  });
-
-  it("delegates model patches to the write-scoped session policy", () => {
-    const params = { key: "agent:main:ios-1", model: "anthropic/claude-sonnet-5" };
+  it.each([
+    { model: "anthropic/claude-sonnet-5" },
+    { thinkingLevel: "high" },
+    { fastMode: true },
+    { thinkingLevel: null, fastMode: null },
+  ])("delegates model and effort patches to the write-scoped session policy: %j", (patch) => {
+    const params = { key: "agent:main:ios-1", ...patch };
     expect(resolveLeastPrivilegeOperatorScopesForMethod("sessions.patch", params)).toEqual([
       "operator.write",
     ]);

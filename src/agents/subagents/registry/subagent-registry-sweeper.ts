@@ -2,6 +2,7 @@ import type { callGateway } from "../../../gateway/call.js";
 import type { GatewayRecoveryRuntime } from "../../../gateway/server-instance-runtime.types.js";
 import { getAgentRunContext } from "../../../infra/agent-run-registry.js";
 import { isFastTestRuntimeEnv } from "../../../infra/env.js";
+import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
 import { runWithGatewayIndependentRootWorkAdmission } from "../../../process/gateway-work-admission.js";
 import { emitSessionLifecycleEvent } from "../../../sessions/session-lifecycle-events.js";
 import { createLazyImportLoader } from "../../../shared/lazy-promise.js";
@@ -195,13 +196,15 @@ export function createSubagentRegistrySweeper(params: {
   }
 
   async function deleteSession(
-    childSessionKey: string,
+    entry: SubagentRunRecord,
     identity: FrozenSessionIdentity,
   ): Promise<"deleted" | "changed"> {
     let failure: unknown;
     const outcome = await deleteSubagentSessionForCleanup({
       callGateway: params.callGateway,
-      childSessionKey,
+      gatewayBinding: { resolveGatewayContext: getGatewayContextResolver(entry) },
+      isCurrent: () => runs.get(entry.runId) === entry,
+      childSessionKey: entry.childSessionKey,
       expectedSessionId: identity.sessionId,
       expectedLifecycleRevision: identity.lifecycleRevision,
       onError: (error) => {
@@ -421,7 +424,7 @@ export function createSubagentRegistrySweeper(params: {
               } else {
                 let deletion: "deleted" | "changed";
                 try {
-                  deletion = await deleteSession(entry.childSessionKey, sessionIdentity);
+                  deletion = await deleteSession(entry, sessionIdentity);
                 } catch (error) {
                   params.warn("failed to retry collector launch cleanup", {
                     runId,
@@ -517,8 +520,7 @@ export function createSubagentRegistrySweeper(params: {
             sessionOwnershipChanged = true;
           } else {
             try {
-              sessionOwnershipChanged =
-                (await deleteSession(entry.childSessionKey, sessionIdentity)) === "changed";
+              sessionOwnershipChanged = (await deleteSession(entry, sessionIdentity)) === "changed";
             } catch (error) {
               params.warn("sessions.delete failed during subagent sweep; keeping run for retry", {
                 runId,
@@ -576,7 +578,7 @@ export function createSubagentRegistrySweeper(params: {
             continue;
           }
           try {
-            const deletion = await deleteSession(candidate.childSessionKey, sessionIdentity);
+            const deletion = await deleteSession(candidate, sessionIdentity);
             if (runs.get(candidateRunId) !== candidate) {
               groupMembershipChanged = true;
               break;

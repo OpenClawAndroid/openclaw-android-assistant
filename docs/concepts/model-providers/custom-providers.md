@@ -377,6 +377,8 @@ Example (OpenAI-compatible):
     - `cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }`
     - `maxTokens`: no fixed default. For OpenAI-compatible Completions, an unknown output limit omits both `max_tokens` and `max_completion_tokens`, letting the provider apply its default.
 
+    Anthropic and Mistral requests preserve an explicit request output limit when the model's `maxTokens` is unknown. Anthropic manual thinking must fit within that request limit when no model output capacity is available.
+
     An omitted `contextWindow` remains unset so authored native-window metadata is unambiguous. When neither discovery nor per-model context metadata is available, context-budget callers use the standard `200000`-token fallback.
 
     Recommended: set explicit values that match your proxy/model limits.

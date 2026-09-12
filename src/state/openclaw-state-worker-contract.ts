@@ -1,5 +1,9 @@
 import type { SqliteFileGeneration } from "../infra/sqlite-file-generation.js";
 import type { TaskFlowView } from "../plugins/runtime/task-domain-types.js";
+import type {
+  TaskFlowRegistryUpdate,
+  TaskFlowRegistryUpdateResult,
+} from "../tasks/task-flow-registry.store.types.js";
 import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
 import type { TaskRecord, TaskRegistrySummary } from "../tasks/task-registry.types.js";
 
@@ -22,6 +26,20 @@ type TaskFlowReadQuery = {
 
 /** Commands share one physical shared-state actor; bindings belong to commands, not open input. */
 export type OpenClawStateWorkerOperations = {
+  "flows.createManaged": {
+    input: { flow: TaskFlowRecord };
+    output: TaskFlowRecord;
+  };
+  "flows.updateManaged": {
+    input: TaskFlowRegistryUpdate & {
+      ownerKey: string;
+    };
+    output:
+      | TaskFlowRegistryUpdateResult
+      | { applied: false; reason: "not_managed"; current: TaskFlowRecord }
+      | { applied: false; reason: "persist_failed"; current?: TaskFlowRecord };
+  };
+  "flows.current": { input: { flowId: string }; output: TaskFlowRecord | undefined };
   "tasks.get": { input: { taskId: string }; output: TaskRecord | undefined };
   "tasks.list": { input: { ownerKey: string }; output: TaskRecord[] };
   "tasks.resolve": {

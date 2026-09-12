@@ -586,7 +586,10 @@ export function capturePluginGenerationArtifact(
       capturePluginModuleSource(filename, (root, source) => copyPackage(root, source, false, true)),
     );
   const packageForFile = (filename: string) =>
-    findPluginCapturedPackage(packages.values(), filename)?.owner;
+    // Every captured package root and dependency link belongs to this artifact.
+    isPathInside(directory, filename)
+      ? findPluginCapturedPackage(packages.values(), filename)?.owner
+      : undefined;
 
   try {
     const sourceRoot = fs.realpathSync(rootDir);

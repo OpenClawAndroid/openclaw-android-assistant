@@ -356,7 +356,7 @@ vi.mock("../../tasks/cron-run-continuation-cleanup.js", () => ({
   removeCronRunContinuationSessionIfIdle: removeCronRunContinuationSessionIfIdleMock,
 }));
 
-vi.mock("../../gateway/call.runtime.js", () => ({
+vi.mock("../../gateway/call.js", () => ({
   callGateway: callGatewayMock,
 }));
 

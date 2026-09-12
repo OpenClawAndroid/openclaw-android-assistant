@@ -56,7 +56,7 @@ export function clampMaxTokensToModel(
 ): number | undefined {
   return requestedMaxTokens === undefined
     ? undefined
-    : Math.max(1, Math.min(requestedMaxTokens, model.maxTokens));
+    : Math.max(1, Math.min(requestedMaxTokens, model.maxTokens ?? requestedMaxTokens));
 }
 
 export function clampReasoning(effort: ThinkingLevel): Exclude<ThinkingLevel, "xhigh">;

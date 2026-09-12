@@ -2249,7 +2249,7 @@
     "@shikijs/core": "4.4.3",
     "@shikijs/engine-javascript": "4.4.3",
     "@shikijs/engine-oniguruma": "4.4.3",
-    "@sindresorhus/slugify": "3.0.1",
+    "@sindresorhus/slugify": "2.2.1",
     "@types/express": "5.0.6",
     "@types/hosted-git-info": "3.0.5",
     "@types/jsdom": "30.0.0",

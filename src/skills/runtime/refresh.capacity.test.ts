@@ -47,6 +47,48 @@ describe("ensureSkillsWatcher", () => {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   });
 
+  it.each(["before", "after"] as const)(
+    "reconciles healthy roots when a scan fails %s its siblings become ready",
+    async (order) => {
+      vi.useFakeTimers();
+      refreshModule.ensureSkillsWatcher({ workspaceDir: fixtureWorkspaceDir });
+      const failed = watchForSkillRoot(path.join(fixtureWorkspaceDir, "skills")).watcher;
+      const seen: Array<
+        Parameters<Parameters<typeof refreshModule.registerSkillsChangeListener>[0]>[0]
+      > = [];
+      refreshModule.registerSkillsChangeListener((change) => seen.push(change));
+      const fail = () =>
+        failed.emit("error", Object.assign(new Error("scan failed"), { code: "EIO" }));
+      if (order === "before") {
+        fail();
+      }
+      for (const watcher of createdWatchers) {
+        if (watcher !== failed) {
+          watcher.emit("ready");
+        }
+      }
+      if (order === "after") {
+        await vi.advanceTimersByTimeAsync(250);
+        expect(seen).toEqual([]);
+        fail();
+      }
+      await vi.advanceTimersByTimeAsync(250);
+      const reconciliation = {
+        workspaceDir: fixtureWorkspaceDir,
+        reason: "watch",
+        changedPath: undefined,
+      };
+      expect(seen).toEqual([reconciliation]);
+      fail();
+      await vi.advanceTimersByTimeAsync(250);
+      expect(seen).toEqual([reconciliation]);
+      // Errors can also be recoverable: a later completed scan must catch up.
+      failed.emit("ready");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(seen).toEqual([reconciliation, reconciliation]);
+    },
+  );
+
   it.each(["EMFILE", "ENFILE", "ENOSPC"])(
     "refreshes shared skill snapshots during preparation after native %s",
     async (code) => {

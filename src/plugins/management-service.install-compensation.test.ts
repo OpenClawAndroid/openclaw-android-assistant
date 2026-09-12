@@ -10,6 +10,7 @@ import {
 import type { PluginCapabilityConsentHandler } from "./capability-consent.js";
 import {
   attachPluginInstallTransaction,
+  resolvePluginInstallTransaction,
   resolvePluginInstallTransactionRequest,
 } from "./install-transaction.js";
 import type { PluginInstallArtifactConsentHandler } from "./install-types.js";
@@ -311,6 +312,7 @@ describe("managed plugin install transactions", () => {
       });
       if (failure === "none") {
         await expect(installed).resolves.toMatchObject({ ok: true });
+        expect(resolvePluginInstallTransaction({ ...(await installed) })).toBeUndefined();
       } else if (failure === "authority-closed") {
         await expect(installed).rejects.toThrow("authority-closed");
         expect(mocks.commit).not.toHaveBeenCalled();
@@ -417,7 +419,7 @@ describe("managed plugin install transactions", () => {
         });
         expect(transaction.commit).not.toHaveBeenCalled();
       } else {
-        const warning = "Plugin install committed, but backup cleanup failed. Restart is required.";
+        const warning = "Plugin install committed, but backup cleanup failed.";
         await expect(installed).resolves.toMatchObject({ ok: true, warnings: [warning] });
         expect(runtime.log).toHaveBeenCalledWith(warning);
         expect(transaction.rollback).not.toHaveBeenCalled();
