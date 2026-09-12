@@ -12,6 +12,7 @@ import {
   type PluginLifecycleRuntimeApply,
 } from "../../plugins/lifecycle.js";
 import { ManagedPluginLifecycleError } from "../../plugins/management-lifecycle-error.js";
+import { OpenClawStateLeaseError } from "../../state/openclaw-state-lease.js";
 
 const managementMocks = vi.hoisted(() => ({
   install: vi.fn(),
@@ -39,6 +40,7 @@ async function callHandler(
   params: Record<string, unknown>,
   runtimeConfig: Record<string, unknown> = {},
   applyRuntime: PluginLifecycleRuntimeApply = async () => application,
+  localClient = false,
 ) {
   let ok: boolean | null = null;
   let response: unknown;
@@ -49,7 +51,8 @@ async function callHandler(
   )({
     params,
     req: {} as never,
-    client: null as never,
+    // Minimal transport fixture: only the host-attested ingress marker is read here.
+    client: (localClient ? { internal: { isLocalClient: true } } : null) as never,
     isWebchatConnect: () => false,
     context: {
       getRuntimeConfig: () => runtimeConfig,
@@ -92,6 +95,40 @@ describe("plugin management Gateway mutation handlers", () => {
     managementMocks.reload.mockReset();
     managementMocks.setEnabled.mockReset();
     managementMocks.uninstall.mockReset();
+  });
+
+  it.each([
+    { source: "local", path: "/tmp/demo.tgz" },
+    { source: "npm-pack", archivePath: "/tmp/demo.tgz" },
+    { source: "git", spec: "git:file:///tmp/demo.git" },
+    { source: "marketplace", marketplace: "/tmp/marketplace", plugin: "demo" },
+    { source: "marketplace", marketplace: "registered-marketplace", plugin: "demo" },
+    { source: "marketplace", marketplace: "https://example.test/marketplace.json", plugin: "demo" },
+  ])("requires host-attested local ingress for $source artifacts", async (request) => {
+    managementMocks.install.mockResolvedValue({ plugin: workboard, application });
+    expect(await callHandler("plugins.install", request)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: expect.stringContaining("Gateway host") },
+    });
+    expect(managementMocks.install).not.toHaveBeenCalled();
+    expect(await callHandler("plugins.install", request, {}, undefined, true)).toMatchObject({
+      ok: true,
+      response: { restartRequired: false, runtime: application },
+    });
+    expect(managementMocks.install).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ request }),
+    );
+  });
+
+  it.each([
+    { source: "npm", spec: "demo@1.2.3" },
+    { source: "git", spec: "git:https://example.test/demo.git@v1" },
+  ])("keeps remote $source source requests on the install owner", async (request) => {
+    managementMocks.install.mockResolvedValue({ plugin: workboard, application });
+    expect(await callHandler("plugins.install", request)).toHaveProperty("ok", true);
+    expect(managementMocks.install).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ request }),
+    );
   });
 
   it.each([undefined, ["Plugin cleanup did not finish; inspect the Gateway log."]])(
@@ -143,16 +180,33 @@ describe("plugin management Gateway mutation handlers", () => {
     });
   });
 
-  it("preserves an earlier publication when a later management phase fails", async () => {
-    managementMocks.uninstall.mockImplementation(async (options) => {
-      await options.applyRuntime({ config: {}, pluginIds: ["workboard"], reason: "uninstall" });
-      throw new Error("file cleanup failed");
-    });
-    expect(await callHandler("plugins.uninstall", { pluginId: "workboard" })).toMatchObject({
-      ok: false,
-      error: { code: "UNAVAILABLE", details: { runtime: { ...application, committed: true } } },
-    });
-  });
+  it.each([
+    { label: "cleanup", error: new Error("file cleanup failed") },
+    {
+      label: "nested lease",
+      error: new OpenClawStateLeaseError("package cleanup lease timed out", {
+        code: "OPENCLAW_STATE_LEASE_TIMEOUT",
+      }),
+    },
+  ])(
+    "preserves an earlier publication without making a later $label failure retryable",
+    async ({ error }) => {
+      managementMocks.uninstall.mockImplementation(async (options) => {
+        await options.applyRuntime({ config: {}, pluginIds: ["workboard"], reason: "uninstall" });
+        throw error;
+      });
+      const result = await callHandler("plugins.uninstall", { pluginId: "workboard" });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: "UNAVAILABLE",
+          message: expect.stringContaining(error.message),
+          details: { runtime: { ...application, committed: true } },
+        },
+      });
+      expect(result.error).not.toHaveProperty("retryable");
+    },
+  );
 
   it.each([false, true])(
     "keeps successful application warnings with final facts when a later apply rejects: %s",

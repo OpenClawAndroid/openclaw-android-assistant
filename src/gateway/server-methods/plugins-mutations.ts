@@ -9,10 +9,12 @@ import type {
   PluginsInstallResult,
   PluginsUninstallResult,
 } from "../../../packages/gateway-protocol/src/schema/plugins.js";
+import { pluginInstallRequiresLocalHost } from "../../plugins/install-source-plan.js";
 import {
   capturePluginRuntimeApplications,
   type PluginRuntimeApplication,
 } from "../../plugins/lifecycle.js";
+import { ManagedPluginLifecycleError } from "../../plugins/management-lifecycle-error.js";
 import {
   installManagedPlugin,
   refreshManagedPlugins,
@@ -20,7 +22,10 @@ import {
   setManagedPluginEnabled,
 } from "../../plugins/management-mutations.js";
 import { uninstallManagedPlugin } from "../../plugins/management-uninstall.js";
-import { pluginLifecycleError } from "./plugins-lifecycle-error.js";
+import {
+  pluginLifecycleError,
+  withGatewayPluginLifecycleLease,
+} from "./plugins-lifecycle-error.js";
 import type { GatewayRequestHandler, GatewayRequestHandlers } from "./types.js";
 import { assertValidParams, type Validator } from "./validation.js";
 
@@ -36,9 +41,13 @@ type PluginLifecycleOptions = Required<
 function lifecycleHandler<T>(
   method: string,
   validate: Validator<T>,
-  run: (params: T, lifecycle: PluginLifecycleOptions) => Promise<PluginLifecycleResult>,
+  run: (
+    params: T,
+    lifecycle: PluginLifecycleOptions,
+    client: Parameters<GatewayRequestHandler>[0]["client"],
+  ) => Promise<PluginLifecycleResult>,
 ): GatewayRequestHandler {
-  return async ({ params, respond, context, signal, sessionMutationCommitGuard }) => {
+  return async ({ params, respond, context, signal, sessionMutationCommitGuard, client }) => {
     if (!assertValidParams(params, validate, method, respond)) {
       return;
     }
@@ -63,11 +72,13 @@ function lifecycleHandler<T>(
           },
         });
       });
-      const { application, plugin, pluginId, pluginIds, removed, warnings } = await run(params, {
+      const lifecycle: PluginLifecycleOptions = {
         applyRuntime: captured.applyRuntime,
         beforePersistentApply,
         ...(signal ? { signal } : {}),
-      });
+      };
+      const { application, plugin, pluginId, pluginIds, removed, warnings } =
+        await withGatewayPluginLifecycleLease(signal, () => run(params, lifecycle, client));
       if (!application) {
         throw new Error("Plugin lifecycle did not return a runtime application receipt.");
       }
@@ -107,7 +118,14 @@ export const pluginMutationHandlers: GatewayRequestHandlers = {
   "plugins.install": lifecycleHandler(
     "plugins.install",
     validatePluginsInstallParams,
-    (params, lifecycle) => installManagedPlugin({ request: params, ...lifecycle }),
+    (params, lifecycle, client) => {
+      if (pluginInstallRequiresLocalHost(params) && !client?.internal?.isLocalClient) {
+        throw new ManagedPluginLifecycleError(
+          "Local plugin artifacts require a connection from the Gateway host. Run `openclaw plugins install` on that host.",
+        );
+      }
+      return installManagedPlugin({ request: params, ...lifecycle });
+    },
   ),
   "plugins.uninstall": lifecycleHandler(
     "plugins.uninstall",

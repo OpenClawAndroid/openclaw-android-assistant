@@ -10,10 +10,16 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
+  prepareSqliteQuerySync,
 } from "../infra/kysely-sync.js";
 import { normalizeSqliteNumber } from "../infra/sqlite-number.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
-import type { TaskFlowRegistryStoreSnapshot } from "./task-flow-registry.store.types.js";
+import { applyFlowPatch, normalizeRestoredFlowRecord } from "./task-flow-registry.records.js";
+import type {
+  TaskFlowRegistryStoreSnapshot,
+  TaskFlowRegistryUpdate,
+  TaskFlowRegistryUpdateResult,
+} from "./task-flow-registry.store.types.js";
 import {
   parseOptionalTaskFlowSyncMode,
   parseTaskFlowStatus,
@@ -130,6 +136,20 @@ function getFlowRegistryKysely(db: DatabaseSync) {
   return getNodeSqliteKysely<FlowRegistryStoreDatabase>(db);
 }
 
+type TaskFlowRegistryQueries = {
+  point?: ReturnType<typeof prepareSqliteQuerySync<string, FlowRegistryRow>>;
+};
+const taskFlowRegistryQueries = new WeakMap<DatabaseSync, TaskFlowRegistryQueries>();
+
+function getTaskFlowRegistryQueries(db: DatabaseSync): TaskFlowRegistryQueries {
+  let queries = taskFlowRegistryQueries.get(db);
+  if (!queries) {
+    queries = {};
+    taskFlowRegistryQueries.set(db, queries);
+  }
+  return queries;
+}
+
 export function readTaskFlowRegistrySnapshot(db: DatabaseSync): TaskFlowRegistryStoreSnapshot {
   const query = getFlowRegistryKysely(db)
     .selectFrom("flow_runs")
@@ -195,11 +215,42 @@ export function upsertTaskFlowRowInDatabase(db: DatabaseSync, row: BoundTaskFlow
 }
 
 export function readTaskFlowRecord(db: DatabaseSync, flowId: string): TaskFlowRecord | undefined {
-  const row = executeSqliteQueryTakeFirstSync(
-    db,
-    getFlowRegistryKysely(db).selectFrom("flow_runs").selectAll().where("flow_id", "=", flowId),
-  );
+  const queries = getTaskFlowRegistryQueries(db);
+  const read = (queries.point ??= prepareSqliteQuerySync<string, FlowRegistryRow>(db, (parameter) =>
+    getFlowRegistryKysely(db)
+      .selectFrom("flow_runs")
+      .selectAll()
+      .where(
+        "flow_id",
+        "=",
+        parameter((value) => value),
+      ),
+  ));
+  const row = read(flowId).rows[0];
   return row ? rowToFlowRecord(row) : undefined;
+}
+
+/** The caller holds the SQLite write transaction across the revision check and update. */
+export function updateTaskFlowRecordInDatabase(
+  db: DatabaseSync,
+  params: TaskFlowRegistryUpdate,
+): TaskFlowRegistryUpdateResult {
+  const stored = readTaskFlowRecord(db, params.flowId);
+  if (!stored) {
+    return { applied: false, reason: "not_found" };
+  }
+  const current = normalizeRestoredFlowRecord(stored);
+  if (current.revision !== params.expectedRevision) {
+    return { applied: false, reason: "revision_conflict", current };
+  }
+  let flow: TaskFlowRecord;
+  try {
+    flow = applyFlowPatch(current, params.patch);
+  } catch (error) {
+    return { applied: false, reason: "invalid_patch", error };
+  }
+  upsertTaskFlowRowInDatabase(db, bindTaskFlowRecord(flow));
+  return { applied: true, previous: current, flow };
 }
 
 /** Revalidate the native flow lifecycle before recording its exact execution binding. */

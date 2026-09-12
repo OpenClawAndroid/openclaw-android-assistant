@@ -11,6 +11,7 @@ import {
   CONTROL_PLANE_UPDATE_SENTINEL_META_ENV,
   UPDATE_RUN_ID_ENV,
 } from "./update-control-plane-sentinel.js";
+import { UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV } from "./update-doctor-result.js";
 import {
   POST_CORE_UPDATE_ENV,
   POST_CORE_UPDATE_CHANNEL_ENV,
@@ -22,6 +23,7 @@ import {
 } from "./update-post-core-context.js";
 import { buildUpdateRehearsalPathEnv } from "./update-rehearsal-paths.js";
 import { buildUpdateDoctorEnv } from "./update-runner-doctor.js";
+import type { UpdateSnapshotCapacity } from "./update-snapshot-capacity.js";
 
 export type UpdateCandidateRehearsal = {
   sourceConfig: OpenClawConfig;
@@ -31,6 +33,8 @@ export type UpdateCandidateRehearsal = {
   workspaceDir: string;
   env: NodeJS.ProcessEnv;
   port: number;
+  snapshotCapacity: UpdateSnapshotCapacity;
+  cleanupDirectories: string[];
   cleanup: () => Promise<void>;
 };
 
@@ -164,6 +168,7 @@ export async function prepareUpdateCandidateRehearsal(params: {
       ...SUPERVISOR_HINT_ENV_VARS,
       CONTROL_PLANE_UPDATE_SENTINEL_META_ENV,
       UPDATE_RUN_ID_ENV,
+      UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV,
       "OPENCLAW_UPDATE_RUN_HANDOFF",
       POST_CORE_UPDATE_ENV,
       POST_CORE_UPDATE_CHANNEL_ENV,
@@ -177,7 +182,12 @@ export async function prepareUpdateCandidateRehearsal(params: {
     }
     return env;
   };
-  const { stateDir: tempDir, pluginPaths } = await prepareUpdateCandidateStateSnapshot({
+  const {
+    stateDir: tempDir,
+    pluginPaths,
+    snapshotCapacity,
+    cleanupDirectories,
+  } = await prepareUpdateCandidateStateSnapshot({
     ...params,
     env: sourceEnv,
     workerEnv,
@@ -185,6 +195,11 @@ export async function prepareUpdateCandidateRehearsal(params: {
   const env = workerEnv(tempDir);
   const configPath = path.join(tempDir, "openclaw.json");
   const workspaceDir = path.join(tempDir, "workspace");
+  const cleanup = async () => {
+    for (const directory of cleanupDirectories) {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  };
   try {
     params.signal?.throwIfAborted();
     const port = await tryListenOnPort({
@@ -212,10 +227,12 @@ export async function prepareUpdateCandidateRehearsal(params: {
       workspaceDir,
       env,
       port,
-      cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
+      snapshotCapacity,
+      cleanupDirectories,
+      cleanup,
     };
   } catch (error) {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await cleanup();
     throw error;
   }
 }

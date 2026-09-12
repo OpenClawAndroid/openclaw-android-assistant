@@ -607,6 +607,7 @@ export const channelsHandlers: GatewayRequestHandlers = {
     payload.statusIssues = collectGatewayChannelStatusIssues({
       payload,
       plugins: statusPlugins,
+      reloadingChannels: runtime.reloadingChannels,
       defaultAccountIds: defaultAccountIdMap,
       context,
       warnings: statusWarnings,

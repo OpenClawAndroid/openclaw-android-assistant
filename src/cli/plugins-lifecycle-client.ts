@@ -3,11 +3,34 @@ import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
 } from "../../packages/gateway-protocol/src/client-info.js";
-import type { PluginsInspectResult } from "../../packages/gateway-protocol/src/schema/plugins.js";
-import { getRuntimeConfig } from "../config/config.js";
+import type {
+  PluginsInspectResult,
+  PluginsReloadResult,
+} from "../../packages/gateway-protocol/src/schema/plugins.js";
 import { callGateway } from "../gateway/call.js";
 import { readActiveGatewayLockIdentity } from "../infra/gateway-lock.js";
 import type { PluginCapabilityConsentHandler } from "../plugins/capability-consent.js";
+import type { PluginInstallBatchReload } from "../plugins/install-runtime-batch.js";
+
+/** Capture the local client before a Claw batch takes any package or plugin lease. */
+export async function resolvePluginBatchReload(): Promise<PluginInstallBatchReload | undefined> {
+  const gateway = await resolvePluginLifecycleGateway();
+  return gateway
+    ? async (plugins) => {
+        const result = await gateway<PluginsReloadResult>("plugins.reload", {
+          plugins,
+        });
+        if (!result.runtime) {
+          throw new Error(
+            "Gateway did not confirm the plugin batch runtime generation. Inspect plugin status before retrying.",
+          );
+        }
+        return result.warnings?.length
+          ? { ...result.runtime, warnings: result.warnings }
+          : result.runtime;
+      }
+    : undefined;
+}
 
 export type PluginLifecycleGateway = <T>(
   method: string,
@@ -17,14 +40,12 @@ export type PluginLifecycleGateway = <T>(
 
 /** Select the local runtime owner before acquiring a lease the Gateway also needs. */
 export async function resolvePluginLifecycleGateway(): Promise<PluginLifecycleGateway | null> {
-  const owner = await readActiveGatewayLockIdentity();
+  const owner = await readActiveGatewayLockIdentity({ requireInspection: true });
   if (!owner) {
     return null;
   }
-  const config = getRuntimeConfig();
   const request = <T>(method: string, params: Record<string, unknown>) =>
     callGateway<T>({
-      config,
       method,
       params,
       localPortOverride: owner.port,

@@ -469,7 +469,11 @@ describe("channelsHandlers channels.status", () => {
     const refuse = vi.fn(() => {
       throw new Error("plugin is quiesced");
     });
-    const plugin = createChannelPlugin({ probeAccount: refuse, buildChannelSummary: refuse });
+    const plugin = createChannelPlugin({
+      probeAccount: refuse,
+      buildChannelSummary: refuse,
+      collectStatusIssues: refuse,
+    });
     plugin.config.listAccountIds = refuse;
     plugin.config.resolveAccount = refuse;
     mocks.listChannelPlugins.mockReturnValue([plugin]);
@@ -488,6 +492,14 @@ describe("channelsHandlers channels.status", () => {
     expect(payload.partial).toBe(true);
     expect(payload.warnings).toEqual([
       "whatsapp: plugin runtime is paused for reload; reporting recorded account state",
+    ]);
+    expect(payload.statusIssues).toEqual([
+      expect.objectContaining({
+        channel: "whatsapp",
+        accountId: "recorded",
+        kind: "runtime",
+        message: "Channel is enabled and configured, but its runtime is not running.",
+      }),
     ]);
     expect(refuse).not.toHaveBeenCalled();
     expect(mocks.buildChannelAccountSnapshotFromAccount).not.toHaveBeenCalled();

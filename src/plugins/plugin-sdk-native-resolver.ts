@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { isPathInside, isPathStrictlyInside } from "../infra/path-guards.js";
+import { supportsNativeModuleAliasHooks } from "./native-module-require.js";
 import { pluginCacheExistsSync, pluginCacheRealpathSync } from "./plugin-cache-files.js";
 import { getPluginSdkHostFacts } from "./plugin-cache-sdk.js";
 import { getPluginCache } from "./plugin-cache.js";
@@ -353,7 +354,12 @@ function installResolver(): void {
   const native = getPluginCache().sdk.native;
   const previousResolveFilename = moduleWithResolver[nodeResolveFilenameProperty];
   // Packaged runtimes without aliases must retain the runtime's native resolution path.
-  if (installed || !previousResolveFilename || !(native.aliases.size || native.sdkProviders.size)) {
+  if (
+    installed ||
+    !previousResolveFilename ||
+    !(native.aliases.size || native.sdkProviders.size) ||
+    !supportsNativeModuleAliasHooks()
+  ) {
     return;
   }
   moduleWithResolver[nodeResolveFilenameProperty] = ((request, parent, isMain, options) =>
