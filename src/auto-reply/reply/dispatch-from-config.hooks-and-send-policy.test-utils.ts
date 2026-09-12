@@ -1697,7 +1697,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     },
   );
 
-  it("does not auto-restore an archived restart-recovery tombstone", async () => {
+  it("keeps an archived restart tombstone closed while sending recovery guidance", async () => {
     setNoAbort();
     const sessionId = "restart-tombstone-session";
     const sessionKey = "agent:main:matrix:channel:room-a";
@@ -1744,7 +1744,10 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
       mainRestartRecovery: { tombstone: { reason: "automatic recovery exhausted" } },
     });
     expect(replyResolver).not.toHaveBeenCalled();
-    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
+    expect(dispatcher.sendFinalReply).toHaveBeenCalledWith({
+      text: "My session in this room ended during restart recovery. Use /reset or /new to start a replacement session.",
+      isError: true,
+    });
   });
 
   it("does not add a lifecycle parent lookup for an ordinary healthy threaded turn", async () => {

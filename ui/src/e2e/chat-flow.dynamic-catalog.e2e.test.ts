@@ -120,7 +120,6 @@ suite.define(() => {
       await gateway.setMethodResponse("sessions.list", sessionResponse(discoveredLevels, 65_536));
       await gateway.setMethodResponse("models.list", { models: [discoveredModel] });
       const sessionListCount = (await gateway.getRequests("sessions.list", rosterMatch)).length;
-      await modelSelect.click();
       expect(await gateway.getRequests("models.list")).toHaveLength(1);
       await gateway.emitGatewayEvent("chat.metadata.changed", {});
       const modelsRequest = await gateway.waitForRequest("models.list", { after: 1 });
@@ -134,6 +133,8 @@ suite.define(() => {
         match: rosterMatch,
       });
       expect(refreshedSessionsRequest.params).toMatchObject({ agentId: "main" });
+      await modelSelect.click();
+      expect(await gateway.getRequests("models.list")).toHaveLength(2);
       const modelOption = main.locator(
         '[data-chat-model-option="omniroute/deepseekv4flash-equivalent"]',
       );

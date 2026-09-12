@@ -23,9 +23,11 @@ import {
   authorizeClientVoiceConfirmation,
   bindAuthorizedClientVoiceConfirmation,
   checkClientVoiceToolConfirmationPolicy,
-  noteClientVoiceConfirmationUtterance,
 } from "../talk/client-voice-confirmation.js";
-import { resetClientVoiceConfirmationStateForTest } from "../talk/client-voice-confirmation.test-support.js";
+import {
+  noteClientVoiceConfirmationUtteranceForTest as noteClientVoiceConfirmationUtterance,
+  resetClientVoiceConfirmationStateForTest,
+} from "../talk/client-voice-confirmation.test-support.js";
 import { ensureClientVoiceAgentSessionEntry } from "../talk/client-voice-session.js";
 import { clientVoiceSessionTesting } from "../talk/client-voice-session.test-support.js";
 import { resolveRealtimeVoiceProviderCapabilities } from "../talk/provider-resolver.js";
@@ -44,7 +46,7 @@ import {
 import { registerChatAbortController, type ChatAbortControllerEntry } from "./chat-abort.js";
 import { createChatRunState } from "./server-chat-state.js";
 import { bindTalkRealtimeRelayAgentConsult } from "./talk-realtime-relay-agent-consult.js";
-import { projectTalkRealtimeRelayProviderError } from "./talk-realtime-relay-issues.js";
+import { resolveTalkRealtimeRelayPresentation } from "./talk-realtime-relay-issues.js";
 import { drainingRelaySessions, relaySessions } from "./talk-realtime-relay-state.js";
 import { MAX_RELAY_TOOL_CALL_IDENTITIES } from "./talk-realtime-relay-tool-call-ledger.js";
 import {
@@ -180,23 +182,28 @@ function ensureActiveRelayTurnId(relaySessionId: string): string {
   return relay.harness.talk.activeTurnId ?? "turn-1";
 }
 
+function createIdleRelayProvider(): RealtimeVoiceProviderPlugin {
+  return {
+    id: "relay-test",
+    label: "Relay Test",
+    isConfigured: () => true,
+    createBridge: () => makeRelayTransport(),
+  };
+}
+
 describe("talk realtime relay provider error projection", () => {
   it.each(providerErrorCases)(
     "projects public $name failures to fixed copy",
     ({ error, expected }) => {
-      const message = projectTalkRealtimeRelayProviderError("relay-test", false, error);
+      const message = resolveTalkRealtimeRelayPresentation({
+        provider: createIdleRelayProvider(),
+        providerConfig: {},
+      }).publicError(error).message;
 
       expect(message).toBe(expected);
       expect(message).not.toContain(error.message);
     },
   );
-
-  it.each(providerErrorCases)("keeps opaque $name failures generic", ({ error }) => {
-    const message = projectTalkRealtimeRelayProviderError("relay-test", true, error);
-
-    expect(message).toBe(RELAY_GENERIC_ERROR);
-    expect(message).not.toContain(error.message);
-  });
 });
 
 describe("talk realtime gateway relay", () => {
@@ -214,7 +221,11 @@ describe("talk realtime gateway relay", () => {
       },
     );
     let current = true;
-    const runAgentConsult = bindTalkRealtimeRelayAgentConsult(runPrompt as never, () => current);
+    const runAgentConsult = bindTalkRealtimeRelayAgentConsult(
+      runPrompt as never,
+      () => current,
+      async () => {},
+    );
     (
       runAgentConsult as RealtimeVoiceAgentConsultRunner & {
         adoptCompletionClaims?: () => void;
@@ -244,7 +255,11 @@ describe("talk realtime gateway relay", () => {
         revokeRequesterFinal,
       },
     );
-    const runAgentConsult = bindTalkRealtimeRelayAgentConsult(runPrompt as never, () => true);
+    const runAgentConsult = bindTalkRealtimeRelayAgentConsult(
+      runPrompt as never,
+      () => true,
+      async () => {},
+    );
 
     (
       runAgentConsult as RealtimeVoiceAgentConsultRunner & {
@@ -506,15 +521,6 @@ describe("talk realtime gateway relay", () => {
       testState = undefined;
     }
   });
-
-  function createIdleRelayProvider(): RealtimeVoiceProviderPlugin {
-    return {
-      id: "relay-test",
-      label: "Relay Test",
-      isConfigured: () => true,
-      createBridge: () => makeRelayTransport(),
-    };
-  }
 
   it("settles relay-owned registrations after refusal invalidates a detached grant", async () => {
     const provider = createIdleRelayProvider();

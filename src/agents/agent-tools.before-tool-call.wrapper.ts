@@ -520,6 +520,7 @@ export function wrapToolWithBeforeToolCallHook(
       // A voice grant binds the post-finalizer execution shape. Consume it only
       // after steering can no longer suppress the prepared call.
       const voiceConfirmation = consumeFinalClientVoiceToolConfirmation({
+        toolCallId,
         toolName,
         params: executeParams,
         ctx,

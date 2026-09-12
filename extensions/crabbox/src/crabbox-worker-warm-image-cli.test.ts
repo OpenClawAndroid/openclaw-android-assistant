@@ -7,6 +7,7 @@ import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerCrabboxWarmImageCommands } from "./crabbox-worker-warm-image-cli.js";
 import {
+  assertCrabboxWarmImageMigrationReady,
   openCrabboxWarmImageStore,
   type WarmProfileRecord,
 } from "./crabbox-worker-warm-image-store.js";
@@ -71,7 +72,9 @@ describe("Crabbox warm-image CLI", () => {
       namespace: "warm-leases",
       maxEntries: 256,
     });
+    expect(() => assertCrabboxWarmImageMigrationReady()).not.toThrow();
     legacy.register("cbx_legacy", { machineClass: "standard" });
+    expect(() => assertCrabboxWarmImageMigrationReady()).toThrow("legacy worker allocations");
     await runCli("--json");
     const selector = JSON.parse(output).legacyLeases[0].selector as string;
     expect(JSON.parse(output).legacyLeases[0]).toMatchObject({
@@ -92,6 +95,7 @@ describe("Crabbox warm-image CLI", () => {
       "--acknowledge-provider-cleanup",
     );
     expect(legacy.lookup("cbx_legacy")).toBeUndefined();
+    expect(() => assertCrabboxWarmImageMigrationReady()).not.toThrow();
   });
 
   it("inspects retained capture ownership after reopening SQLite without changing it", async () => {

@@ -83,17 +83,23 @@ describe("createComputerTool v2 execution", () => {
   });
 
   it("refreshes a prepared schema from the Gateway override target", async () => {
-    const remoteCapabilities = v2Descriptor(["screenshot", "launch_app"]);
+    const remoteCapabilities = v2Descriptor(["screenshot", "launch_app", "get_accessibility_tree"]);
     listNodesMock.mockResolvedValue([macComputerNode({ computerUse: remoteCapabilities })]);
     const tool = createVisionComputerTool({
       pairedNodeComputerUse: {
-        actions: ["screenshot", "list_windows"],
-        guidanceCapabilities: v2Descriptor(["screenshot", "list_windows"]),
+        actions: ["screenshot", "list_windows", "get_window_state"],
+        guidanceCapabilities: v2Descriptor(["screenshot", "list_windows", "get_window_state"]),
       },
     });
 
     expect(readActionEnum(tool)).toContain("list_windows");
     expect(readActionEnum(tool)).not.toContain("launch_app");
+    for (const field of ["query", "depth", "maxElements"]) {
+      expect(tool.parameters).toHaveProperty(
+        `properties.${field}.description`,
+        expect.stringContaining("get_window_state with windowRef"),
+      );
+    }
 
     await tool.execute("remote-observe", {
       action: "screenshot",
@@ -108,7 +114,30 @@ describe("createComputerTool v2 execution", () => {
       }),
       undefined,
     );
-    expect(readActionEnum(tool)).toEqual(["screenshot", "launch_app", "wait"]);
+    expect(readActionEnum(tool)).toEqual([
+      "screenshot",
+      "launch_app",
+      "get_accessibility_tree",
+      "wait",
+    ]);
+    for (const field of ["query", "depth", "maxElements"]) {
+      expect(tool.parameters).toHaveProperty(
+        `properties.${field}.description`,
+        expect.stringContaining("get_accessibility_tree"),
+      );
+    }
+    await tool.execute("legacy-tree", {
+      action: "get_accessibility_tree",
+      query: "Save",
+      depth: 10,
+      maxElements: 100,
+    });
+    expect(readLastComputerActParams()).toEqual({
+      action: "get_accessibility_tree",
+      query: "Save",
+      depth: 10,
+      maxElements: 100,
+    });
   });
 
   it("advertises execution-owned actions only with an attempt cleanup owner", async () => {
@@ -421,6 +450,10 @@ describe("createComputerTool v2 execution", () => {
       snapshotFormat: "dom_refs_v1",
       includeScreenshot: true,
     });
+    expect(tool.parameters).toHaveProperty(
+      "properties.query.description",
+      expect.stringContaining("get_browser_state: requires snapshotFormat=semantic_v2"),
+    );
 
     callGatewayToolMock.mockImplementation(async (_method, _opts, body) =>
       (body as ComputerActBody).command === COMPUTER_ACT_COMMAND

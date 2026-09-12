@@ -795,6 +795,9 @@ function* resolveSyntheticAuthProviders(
     params.context.providerConfig,
     params.modelApi,
   );
+  const matchesSyntheticAuthProvider = (provider: ProviderPlugin) =>
+    matchesAnyProviderPluginRef(provider, providerRefs) &&
+    Boolean(provider.resolveSyntheticAuth || provider.prepareSyntheticAuth);
   const discoveryPluginIds = [
     ...new Set(
       providerRefs.flatMap(
@@ -816,10 +819,12 @@ function* resolveSyntheticAuthProviders(
           env: params.env,
           onlyPluginIds: discoveryPluginIds,
           discoveryEntriesOnly: true,
+          includeSyntheticAuthProviders: true,
+          includeManifestModelCatalogProviders: false,
         })
       : []
-  ).find((provider) => matchesAnyProviderPluginRef(provider, providerRefs));
-  if (discoveryProvider?.resolveSyntheticAuth || discoveryProvider?.prepareSyntheticAuth) {
+  ).find(matchesSyntheticAuthProvider);
+  if (discoveryProvider) {
     yield discoveryProvider;
     return;
   }
@@ -833,7 +838,7 @@ function* resolveSyntheticAuthProviders(
       yield provider;
     }
   }
-  if (providerRefs.length === 1) {
+  if (discoveryPluginIds.length === 0 && providerRefs.length === 1) {
     // Last-resort match for custom provider ids with no resolvable owning plugin (e.g. Ollama
     // aliases). Entry modules only: a full plugin-runtime sweep here costs seconds per ref on
     // source checkouts and belongs to explicit control-plane loads.
@@ -843,8 +848,9 @@ function* resolveSyntheticAuthProviders(
       env: params.env,
       discoveryEntriesOnly: true,
       includeSyntheticAuthProviders: true,
-    }).find((provider) => matchesAnyProviderPluginRef(provider, providerRefs));
-    if (fallbackProvider?.resolveSyntheticAuth || fallbackProvider?.prepareSyntheticAuth) {
+      includeManifestModelCatalogProviders: false,
+    }).find(matchesSyntheticAuthProvider);
+    if (fallbackProvider) {
       yield fallbackProvider;
     }
   }

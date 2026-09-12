@@ -64,6 +64,7 @@ describe("Gateway provider transcript drain", () => {
           entryId: expect.any(String),
           role: "user",
           text: "cancel",
+          confirmation: null,
         });
         expect(flushTranscript).not.toHaveBeenCalled();
         expect(closeLogicalSession).not.toHaveBeenCalled();

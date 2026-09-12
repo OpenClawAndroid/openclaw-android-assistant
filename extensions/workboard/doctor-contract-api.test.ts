@@ -15,19 +15,23 @@ import { createWorkboardSqliteStores } from "./src/sqlite-store.js";
 import { WorkboardStore } from "./src/store.js";
 import { sqliteTestAuxStores } from "./src/test/sqlite-store.js";
 
-function createDoctorContext(env: NodeJS.ProcessEnv): PluginDoctorStateMigrationContext {
+function createDoctorContext(
+  env: NodeJS.ProcessEnv,
+  supportsCount = true,
+): PluginDoctorStateMigrationContext {
   return {
     openPluginStateKeyedStore<T>(options: OpenKeyedStoreOptions) {
-      return createPluginStateKeyedStore<T>("workboard", {
+      const store = createPluginStateKeyedStore<T>("workboard", {
         ...options,
         env: options.env ?? env,
       });
+      return { ...store, count: supportsCount ? store.count : undefined };
     },
   };
 }
 
 describe("workboard doctor contract", () => {
-  it("migrates shipped .28 plugin-state workboard data into sqlite", async () => {
+  it.each([true, false])("migrates .28 data with count support %s", async (supportsCount) => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-doctor-"));
     const env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
     try {
@@ -103,7 +107,7 @@ describe("workboard doctor contract", () => {
           env,
           stateDir,
           oauthDir: path.join(stateDir, "oauth"),
-          context: createDoctorContext(env),
+          context: createDoctorContext(env, supportsCount),
         }),
       ).resolves.toMatchObject({
         preview: [expect.stringContaining("4 legacy .28 plugin-state KV entries")],
@@ -114,7 +118,7 @@ describe("workboard doctor contract", () => {
         env,
         stateDir,
         oauthDir: path.join(stateDir, "oauth"),
-        context: createDoctorContext(env),
+        context: createDoctorContext(env, supportsCount),
       });
 
       expect(result).toMatchObject({

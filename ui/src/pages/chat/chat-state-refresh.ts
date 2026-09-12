@@ -51,6 +51,7 @@ type ChatMetadataBinding = {
   client: GatewayBrowserClient;
   scope: { agentId?: string; sessionKey: string };
   version: number;
+  sessionFactsInvalidated: boolean;
   catalogRequest?: { version: number; controller: AbortController; promise: Promise<boolean> };
   isCurrent: () => boolean;
   unsubscribe: () => void;
@@ -150,6 +151,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
     client,
     scope,
     version: 0,
+    sessionFactsInvalidated: false,
     isCurrent: () =>
       metadataBindings.get(host) === binding &&
       host.connected &&
@@ -162,6 +164,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
         return;
       }
       if (update.type === "invalidated") {
+        binding.sessionFactsInvalidated ||= update.refreshSessionFacts;
         void refreshChatMetadata(host);
         return;
       }
@@ -189,7 +192,19 @@ export async function refreshChatMetadata(host: ChatPageHost): Promise<void> {
   }
   // Only accepted store publications update availability or fetch errors.
   const metadata = loadChatMetadata(binding.client, binding.scope).catch(() => undefined);
-  await Promise.all([metadata, loadChatModelCatalog(host, binding)]);
+  const version = binding.version;
+  const catalog = loadChatModelCatalog(host, binding).then((accepted) => {
+    if (
+      binding.sessionFactsInvalidated &&
+      accepted &&
+      binding.isCurrent() &&
+      binding.version === version
+    ) {
+      binding.sessionFactsInvalidated = false;
+      host.sessions.invalidate();
+    }
+  });
+  await Promise.all([metadata, catalog]);
 }
 
 export async function refreshChatModelAuthStatus(host: ChatPageHost, opts?: { refresh?: boolean }) {

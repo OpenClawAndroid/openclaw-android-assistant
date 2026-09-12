@@ -90,6 +90,12 @@ export type CodexSessionCatalogControl = {
 
 export type CodexSessionCatalogControlFactory = {
   forRequest(agentId: string, source?: CodexCatalogHome): CodexSessionCatalogControl;
+  /** Native default, with the shipped agent selector retained for explicitly configured sources. */
+  forNode(agentId?: string): {
+    control: CodexSessionCatalogControl;
+    sourceHomeId: string;
+    codexHome: string;
+  };
   homesForAgent(agentId: string): readonly CodexCatalogHome[];
   forUpstream(
     agentId: string,

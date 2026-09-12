@@ -1,5 +1,9 @@
 /** Tests node-host runner startup, connection configuration, and lifecycle. */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildGatewayConnectAuth,
+  selectGatewayConnectAuth,
+} from "../../packages/gateway-client/src/connect-auth.js";
 import { ConnectErrorDetailCodes } from "../../packages/gateway-protocol/src/connect-error-details.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { getConfigResolutionFacts, setConfigResolutionFacts } from "../config/resolution-facts.js";
@@ -23,6 +27,15 @@ describe("runNodeHost", () => {
     expect(mocks.runStartupMigrations).toHaveBeenCalledTimes(1);
     expect(mocks.runStartupMigrations.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.configureNodeHost.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("forwards an explicit full-surface reset to the durable config owner", async () => {
+    await expect(
+      runNodeHost({ gatewayHost: "127.0.0.1", gatewayPort: 18789, allCommands: true }),
+    ).rejects.toThrow("event loop readiness timeout");
+    expect(mocks.configureNodeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ allCommands: true }),
     );
   });
 
@@ -238,6 +251,138 @@ describe("runNodeHost", () => {
     expect(config.gateway.remote).toEqual({
       token: "remote-token",
       password: "remote-password",
+    });
+  });
+
+  describe("saved node gateway authentication", () => {
+    const gateway = { host: "paired.example", port: 443, tls: true, contextPath: "/node" };
+    const runOptions = {
+      gatewayHost: gateway.host,
+      gatewayPort: gateway.port,
+      gatewayTls: gateway.tls,
+      gatewayContextPath: gateway.contextPath,
+    };
+
+    beforeEach(() => {
+      mocks.useFakeRuntime = true;
+      vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", undefined);
+      vi.stubEnv("OPENCLAW_GATEWAY_PASSWORD", undefined);
+      mocks.loadNodeHostConfig.mockResolvedValue({ version: 1, nodeId: "node-test", gateway });
+      mocks.loadDeviceAuthTokenReadOnly.mockImplementation(({ role }) =>
+        role === "node" ? { role, token: "paired-node-token", scopes: [], updatedAtMs: 1 } : null,
+      );
+      mocks.getRuntimeConfig.mockReturnValue({
+        gateway: {
+          mode: "local",
+          auth: {
+            mode: "password",
+            password: { source: "env", provider: "default", id: "SOURCE_GATEWAY_PASSWORD" },
+          },
+        },
+      });
+      mocks.resolveGatewayCredentialsWithSecretInputs.mockResolvedValue({
+        password: "source-gateway-password",
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      mocks.resolveGatewayCredentialsWithSecretInputs.mockResolvedValue({});
+    });
+
+    it("restarts a paired service without sending the source Gateway password", async () => {
+      await expect(runNodeHost(runOptions)).rejects.toThrow("event loop readiness timeout");
+
+      const auth = buildGatewayConnectAuth(
+        selectGatewayConnectAuth({ ...lastCapturedOptions(), storedToken: "paired-node-token" }),
+      );
+      expect(auth).toMatchObject({
+        deviceToken: "paired-node-token",
+        token: undefined,
+        password: undefined,
+      });
+      expect(mocks.resolveGatewayCredentialsWithSecretInputs).not.toHaveBeenCalled();
+      expect(lastCapturedOptions()?.deviceToken).toBeUndefined();
+    });
+
+    it.each([
+      { envKey: "OPENCLAW_GATEWAY_TOKEN", expected: { token: "explicit-credential" } },
+      { envKey: "OPENCLAW_GATEWAY_PASSWORD", expected: { password: "explicit-credential" } },
+    ])(
+      "preserves an explicit $envKey override without config fallback",
+      async ({ envKey, expected }) => {
+        vi.stubEnv(envKey, " explicit-credential ");
+
+        await expect(runNodeHost(runOptions)).rejects.toThrow("event loop readiness timeout");
+
+        expect(lastCapturedOptions()).toMatchObject({
+          token: undefined,
+          password: undefined,
+          ...expected,
+        });
+        expect(mocks.resolveGatewayCredentialsWithSecretInputs).not.toHaveBeenCalled();
+      },
+    );
+
+    it("ignores blank environment credentials on a paired restart", async () => {
+      vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", "  ");
+      vi.stubEnv("OPENCLAW_GATEWAY_PASSWORD", "\t");
+
+      await expect(runNodeHost(runOptions)).rejects.toThrow("event loop readiness timeout");
+
+      expect(lastCapturedOptions()).toMatchObject({ token: undefined, password: undefined });
+      expect(mocks.resolveGatewayCredentialsWithSecretInputs).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { label: "host", changed: { gatewayHost: "another.example" } },
+      { label: "port", changed: { gatewayPort: 8443 } },
+      { label: "TLS", changed: { gatewayTls: false } },
+      { label: "context path", changed: { gatewayContextPath: "/other" } },
+    ])("keeps config authentication when retargeting the $label", async ({ changed }) => {
+      await expect(runNodeHost({ ...runOptions, ...changed })).rejects.toThrow(
+        "event loop readiness timeout",
+      );
+
+      expect(lastCapturedOptions()?.password).toBe("source-gateway-password");
+      expect(mocks.resolveGatewayCredentialsWithSecretInputs).toHaveBeenCalledOnce();
+    });
+
+    it.each(["no saved endpoint", "no node token", "operator token only"])(
+      "keeps config authentication with %s",
+      async (missing) => {
+        if (missing === "no saved endpoint") {
+          mocks.loadNodeHostConfig.mockResolvedValue(null);
+        } else {
+          mocks.loadDeviceAuthTokenReadOnly.mockImplementation(({ role }) =>
+            missing === "operator token only" && role === "operator"
+              ? { role, token: "operator-token", scopes: [], updatedAtMs: 1 }
+              : null,
+          );
+        }
+
+        await expect(runNodeHost(runOptions)).rejects.toThrow("event loop readiness timeout");
+
+        expect(lastCapturedOptions()?.password).toBe("source-gateway-password");
+        expect(mocks.resolveGatewayCredentialsWithSecretInputs).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("keeps remote-mode credentials when selecting another Gateway", async () => {
+      mocks.getRuntimeConfig.mockReturnValue({
+        gateway: {
+          mode: "remote",
+          remote: { url: "wss://another.example:443", token: "remote-token" },
+        },
+      });
+      mocks.resolveGatewayCredentialsWithSecretInputs.mockResolvedValue({ token: "remote-token" });
+
+      await expect(runNodeHost({ ...runOptions, gatewayHost: "another.example" })).rejects.toThrow(
+        "event loop readiness timeout",
+      );
+
+      expect(lastCapturedOptions()?.token).toBe("remote-token");
+      expect(mocks.resolveGatewayCredentialsWithSecretInputs).toHaveBeenCalledOnce();
     });
   });
 

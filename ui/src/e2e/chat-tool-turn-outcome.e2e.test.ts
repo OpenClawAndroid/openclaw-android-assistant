@@ -27,7 +27,7 @@ function failedTool(timestamp: number) {
   return {
     role: "toolResult",
     toolName: "shell",
-    content: JSON.stringify({ status: "failed", exitCode: 1 }),
+    content: JSON.stringify({ status: "failed", exitCode: 1, error: "Command could not finish" }),
     isError: true,
     timestamp,
   };
@@ -265,21 +265,29 @@ suite.define(() => {
 
     await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionKey));
     await page.getByText("Recovered on the next autonomous turn.", { exact: true }).waitFor();
+    const workSummaries = page.locator(".chat-work-group > .chat-activity-group__summary");
+    await workSummaries.first().waitFor();
+    expect(await workSummaries.first().getByText("1 failed", { exact: true }).isVisible()).toBe(
+      true,
+    );
+    expect(await page.getByText("Command could not finish", { exact: false }).count()).toBe(0);
     await expandCompletedWorkGroups(page);
 
     expect(await page.locator(".chat-tool-msg-summary__label").allTextContents()).toEqual([
       "Tool output",
       "Tool output",
     ]);
-    // Collapsed rows stay neutral even when the call failed; the failure is
-    // recorded as the expanded body's outcome, with the reported exit code.
+    // Collapsed rows retain only the status; diagnostics need explicit expansion.
     const summaryClasses = await page
       .locator(".chat-tool-msg-summary")
       .evaluateAll((nodes) => nodes.map((node) => node.className));
     expect(summaryClasses).toHaveLength(2);
     expect(summaryClasses[0]).not.toContain("chat-tool-msg-summary--error");
     expect(summaryClasses[1]).not.toContain("chat-tool-msg-summary--error");
+    expect(await page.getByText("Command could not finish", { exact: false }).count()).toBe(0);
     await page.locator(".chat-tool-msg-summary").first().click();
+    await page.locator(".chat-json-summary").first().click();
+    await page.getByText("Command could not finish", { exact: false }).waitFor();
     await expect
       .poll(() => page.locator(".chat-tool-card__outcome").first().textContent())
       .toBe("Exit code 1");
@@ -619,7 +627,7 @@ suite.define(() => {
     await context.close();
   });
 
-  it("sweeps a text wave over the active tool row and stops it on the result", async () => {
+  it("stops the active tool wave on failure and keeps diagnostics behind disclosure", async () => {
     const context = await suite.browser.newContext({ viewport: { height: 800, width: 1200 } });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
@@ -695,7 +703,8 @@ suite.define(() => {
         toolCallId: "call-wave",
         name: "exec",
         phase: "result",
-        result: { text: "done" },
+        isError: true,
+        result: { text: "Command could not finish in /workspace/example" },
       },
     });
     // The wave is a live-run marker only: the result event must end it and
@@ -710,6 +719,13 @@ suite.define(() => {
       });
     expect(settled.animationName).toBe("none");
     expect(settled.color).not.toBe("rgba(0, 0, 0, 0)");
+    const failedRow = page.locator(".chat-tool-msg-summary").first();
+    expect(await failedRow.getByText("failed", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByText("Command could not finish", { exact: false }).count()).toBe(0);
+    await failedRow.click();
+    await page
+      .getByText("Command could not finish in /workspace/example", { exact: true })
+      .waitFor();
     await context.close();
   });
 

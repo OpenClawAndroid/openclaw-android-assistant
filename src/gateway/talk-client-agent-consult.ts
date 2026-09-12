@@ -30,7 +30,9 @@ import { parseRealtimeVoiceAgentConsultArgs } from "../talk/agent-consult-tool.j
 import { controlRealtimeVoiceAgentRun } from "../talk/agent-run-control.js";
 import {
   authorizeClientVoiceConfirmation,
+  authorizeObservedClientVoiceConfirmation,
   bindAuthorizedClientVoiceConfirmation,
+  observeClientVoiceConfirmationRun,
 } from "../talk/client-voice-confirmation.js";
 import {
   assertClientVoiceSessionOpen,
@@ -40,6 +42,7 @@ import { registerChatAbortController } from "./chat-abort.js";
 import type { GatewayRequestContext } from "./server-methods/shared-types.js";
 import type {
   TalkAgentConsultRequest,
+  TalkAgentConsultSource,
   TalkRequesterFinalBinding,
   TalkRequesterFinalRegistration,
 } from "./talk-client-agent-consult.types.js";
@@ -65,6 +68,7 @@ function createTalkClientAgentRuntime(params: {
   config: OpenClawConfig;
   rawSourceRef?: string;
   assertCurrent?: () => void;
+  getAdditionalSystemPrompt?: () => string | undefined;
   bindOperationalRunInstance?: (instance: OperationalRunInstanceRef) => void;
 }) {
   const agentRuntime = createPluginRuntime().agent;
@@ -110,6 +114,9 @@ function createTalkClientAgentRuntime(params: {
       // its final transcript would lose the answer when no spoken replacement arrives.
       return await execution.runEmbeddedAgent({
         ...runParams,
+        extraSystemPrompt: [runParams.extraSystemPrompt, params.getAdditionalSystemPrompt?.()]
+          .filter(Boolean)
+          .join("\n\n"),
         preparedRunAdmission,
         // Speech is mirrored separately. Keep generated input in current-turn custody,
         // but never display it or replay it as a later user request.
@@ -217,14 +224,20 @@ export function createTalkClientAgentConsultRunner(params: {
     resolveRegistration: (registration: EmbeddedRunCompletionRegistration | undefined) => void;
     signal?: AbortSignal;
     voiceSessionId?: string;
+    source: TalkAgentConsultSource;
   };
   let promptOwner: PromptOwner | undefined;
   let requesterFinalRegistration: TalkRequesterFinalRegistration | undefined;
-  const createOwnedAgentRuntime = (owner: PromptOwner, assertCurrent?: () => void) =>
+  const createOwnedAgentRuntime = (
+    owner: PromptOwner,
+    assertCurrent?: () => void,
+    getAdditionalSystemPrompt?: () => string | undefined,
+  ) =>
     createTalkClientAgentRuntime({
       config: params.config,
       ...(params.ownerConnId ? { rawSourceRef: params.ownerConnId } : {}),
       assertCurrent,
+      getAdditionalSystemPrompt,
       bindOperationalRunInstance: (instance) => {
         const identity = owner.identity;
         if (
@@ -244,6 +257,7 @@ export function createTalkClientAgentConsultRunner(params: {
     owner?: PromptOwner,
     ready?: () => Promise<void>,
     assertCurrent?: () => void,
+    source: TalkAgentConsultSource = "tool-call",
   ) => {
     const parsedArgs = parseRealtimeVoiceAgentConsultArgs(args);
     const voiceSessionId = params.getVoiceSessionId();
@@ -269,14 +283,19 @@ export function createTalkClientAgentConsultRunner(params: {
           voiceSessionId,
           confirmationId: parsedArgs.confirmationId,
         })
-      : undefined;
+      : source === "native-delegation"
+        ? authorizeObservedClientVoiceConfirmation({ agentId, voiceSessionId })
+        : undefined;
+    let confirmationRetryContext: string | undefined;
+    const getAdditionalSystemPrompt = () => confirmationRetryContext;
     const runtime = owner
-      ? createOwnedAgentRuntime(owner, assertCurrent)
-      : assertCurrent
+      ? createOwnedAgentRuntime(owner, assertCurrent, getAdditionalSystemPrompt)
+      : assertCurrent || source === "native-delegation"
         ? createTalkClientAgentRuntime({
             config: params.config,
             ...(params.ownerConnId ? { rawSourceRef: params.ownerConnId } : {}),
             assertCurrent,
+            getAdditionalSystemPrompt,
           })
         : getAgentRuntime();
     const talkConfig = normalizeTalkSection(params.config.talk);
@@ -286,6 +305,8 @@ export function createTalkClientAgentConsultRunner(params: {
     if (!admission) {
       throw new GatewayDrainingError();
     }
+    let confirmationObservation: ReturnType<typeof observeClientVoiceConfirmationRun> | undefined;
+    let yielded = false;
     return await admission
       .run(() =>
         consultRealtimeVoiceAgent({
@@ -329,11 +350,19 @@ export function createTalkClientAgentConsultRunner(params: {
                 config: params.config,
               });
             }
+            if (source === "native-delegation") {
+              confirmationObservation = observeClientVoiceConfirmationRun({
+                agentId,
+                voiceSessionId,
+                runId,
+              });
+            }
             if (owner) {
               assertCurrent?.();
               owner.identity = { runId, sessionId };
               owner.completionClaim = prepareEmbeddedAgentRunCompletionClaim(sessionId, runId);
               if (owner.requesterFinal) {
+                const requesterFinal = owner.requesterFinal;
                 const registration = registerRequesterFinalAttachment({
                   requesterAgentId: agentId,
                   requesterSessionKey: canonicalKey,
@@ -341,15 +370,20 @@ export function createTalkClientAgentConsultRunner(params: {
                   requesterTurnRunId: runId,
                   lifecycleGeneration: owner.lifecycleGeneration,
                   timeoutMs,
-                  append: owner.requesterFinal.append,
+                  append: (text) =>
+                    requesterFinal.append(confirmationObservation?.readReply() ?? text),
                 });
                 owner.requesterFinalRegistration = registration;
                 requesterFinalRegistration = registration;
               }
               void owner.completionClaim.registered.then(owner.resolveRegistration);
             }
-            if (confirmationGrant) {
-              bindAuthorizedClientVoiceConfirmation({ grant: confirmationGrant, runId });
+            if (
+              confirmationGrant &&
+              bindAuthorizedClientVoiceConfirmation({ grant: confirmationGrant, runId }) &&
+              source === "native-delegation"
+            ) {
+              confirmationRetryContext = confirmationGrant.retryContext;
             }
             const registration = params.ownerConnId
               ? registerChatAbortController({
@@ -393,7 +427,18 @@ export function createTalkClientAgentConsultRunner(params: {
           },
         }),
       )
-      .finally(admission.release);
+      .then((result) => {
+        yielded = result.yielded === true;
+        const confirmationReply = confirmationObservation?.readReply();
+        return confirmationReply ? { ...result, text: confirmationReply } : result;
+      })
+      .finally(() => {
+        // Yielded runs keep observing until run.completed; retained replies read historical facts.
+        if (!yielded) {
+          confirmationObservation?.release();
+        }
+        admission.release();
+      });
   };
   const isOwnerCurrent = (owner: PromptOwner, sessionId?: string): boolean =>
     promptOwner === owner && owner.isCurrent?.(sessionId) === true;
@@ -479,6 +524,7 @@ export function createTalkClientAgentConsultRunner(params: {
     ) {
       throw new Error("The active Talk consult is no longer current");
     }
+    let confirmationRetryContext: string | undefined;
     const result = await controlRealtimeVoiceAgentRun({
       sessionKey: canonicalKey,
       runTarget: {
@@ -508,9 +554,19 @@ export function createTalkClientAgentConsultRunner(params: {
         ) {
           throw new Error("The active Talk consult caller authority no longer matches");
         }
+        if (owner.source === "native-delegation" && owner.voiceSessionId) {
+          const grant = authorizeObservedClientVoiceConfirmation({
+            agentId,
+            voiceSessionId: owner.voiceSessionId,
+          });
+          if (grant && bindAuthorizedClientVoiceConfirmation({ grant, runId: identity.runId })) {
+            confirmationRetryContext = grant.retryContext;
+          }
+        }
         return overlay;
       },
       text: prompt,
+      getSteeringContext: () => confirmationRetryContext,
       mode: "steer",
     });
     if (!result.ok || result.queued !== true || !isOwnerCurrent(owner, identity.sessionId)) {
@@ -524,6 +580,7 @@ export function createTalkClientAgentConsultRunner(params: {
     ready?: () => Promise<void>,
     assertCurrent?: () => void,
     requesterFinal?: TalkRequesterFinalBinding,
+    source: TalkAgentConsultSource = "tool-call",
   ) => {
     if (promptOwner) {
       throw new Error("A Talk consult is already active");
@@ -536,13 +593,14 @@ export function createTalkClientAgentConsultRunner(params: {
       registered,
       requestSignal: signal,
       requesterFinal,
+      source,
       resolveRegistration,
     };
     const revokeRegistrationOnAbort = () => resolveRegistration(undefined);
     promptOwner = owner;
     signal?.addEventListener("abort", revokeRegistrationOnAbort, { once: true });
     try {
-      return await runArgs(args, signal, owner, ready, assertCurrent);
+      return await runArgs(args, signal, owner, ready, assertCurrent, source);
     } catch (error) {
       resolveRegistration(undefined);
       throw error;
@@ -564,9 +622,17 @@ export function createTalkClientAgentConsultRunner(params: {
           undefined,
           undefined,
           requesterFinal,
+          "native-delegation",
         );
       }
-      return await runArgs({ question: prompt }, signal);
+      return await runArgs(
+        { question: prompt },
+        signal,
+        undefined,
+        undefined,
+        undefined,
+        "native-delegation",
+      );
     },
     {
       ...lifecycleMethods,
@@ -586,8 +652,12 @@ export function createTalkClientAgentConsultRunner(params: {
         source,
         agentRuntime: getAgentRuntime(),
       }),
-    runArgs: (args: unknown, signal?: AbortSignal, assertCurrent?: () => void) =>
-      runArgs(args, signal, undefined, undefined, assertCurrent),
+    runArgs: (
+      args: unknown,
+      signal?: AbortSignal,
+      assertCurrent?: () => void,
+      source?: TalkAgentConsultSource,
+    ) => runArgs(args, signal, undefined, undefined, assertCurrent, source),
     runOwnedArgs: lifecycleBoundRunArgs,
     runPrompt,
   };

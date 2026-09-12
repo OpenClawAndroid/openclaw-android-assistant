@@ -320,18 +320,20 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
         }
         return;
       case "input_transcript.added":
-        this.emitFramelessTranscript("user", event.item?.text, false, { itemId: event.item?.id });
-        return;
       case "output_transcript.added":
-        this.emitFramelessTranscript("assistant", event.item?.text, false, {
-          itemId: event.item?.id,
-        });
+        this.emitFramelessTranscript(
+          event.type === "input_transcript.added" ? "user" : "assistant",
+          event.item?.text,
+          false,
+          { itemId: event.item?.id, textMode: "verbatim" },
+        );
         return;
       case "turn.done": {
         const role = event.turn?.role;
         if (role === "user" || role === "assistant") {
           this.emitFramelessTranscript(role, event.turn?.transcript, true, {
             itemId: event.turn?.id,
+            textMode: "snapshot",
           });
           if (this.closed) {
             return;

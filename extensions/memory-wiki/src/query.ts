@@ -22,8 +22,8 @@ import {
 } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig, WikiSearchBackend, WikiSearchCorpus } from "./config.js";
 import {
-  parseWikiMarkdown,
-  toWikiPageSummary,
+  type parseWikiMarkdown,
+  scanWikiPageSummary,
   type WikiClaim,
   type WikiPageSummary,
 } from "./markdown.js";
@@ -160,6 +160,7 @@ type WikiGetResult = {
 
 export type QueryableWikiPage = WikiPageSummary & {
   raw: string;
+  parsed: ReturnType<typeof parseWikiMarkdown>;
 };
 
 type QuerySearchOverrides = {
@@ -245,8 +246,8 @@ async function readQueryableWikiPagesByPaths(
       const absolutePath = path.join(rootDir, relativePath);
       try {
         const raw = await vault.readText(relativePath);
-        const summary = toWikiPageSummary({ absolutePath, relativePath, raw });
-        return summary ? { ...summary, raw } : null;
+        const scan = scanWikiPageSummary({ absolutePath, relativePath, raw });
+        return scan.status === "valid" ? { ...scan.page, raw, parsed: scan.parsed } : null;
       } catch (error) {
         // Compiled candidates and directory listings can outlive a page. Only absence
         // may fall through to discovery; boundary refusals must remain terminal.
@@ -336,7 +337,7 @@ function buildPageSearchText(page: QueryableWikiPage): string {
     page.title,
     page.relativePath,
     page.id ?? "",
-    JSON.stringify(parseWikiMarkdown(page.raw).frontmatter),
+    JSON.stringify(page.parsed.frontmatter),
     ...buildPageSearchFields(page, page.relationships),
     page.claims.map((claim) => claim.text).join(" "),
     page.claims.map((claim) => claim.id ?? "").join(" "),
@@ -1282,8 +1283,7 @@ export async function getMemoryWikiPage(input: {
         : (await readQueryableWikiPages(effectiveConfig.vault.path)).filter(canReadPage);
     const page = digestLookupPage ?? resolveQueryableWikiPageByLookup(pages, params.lookup);
     if (page) {
-      const parsed = parseWikiMarkdown(page.raw);
-      const lines = parsed.body.split(/\r?\n/);
+      const lines = page.parsed.body.split(/\r?\n/);
       const totalLines = lines.length;
       const slice = lines.slice(fromLine - 1, fromLine - 1 + lineCount).join("\n");
       const truncated = fromLine - 1 + lineCount < totalLines;

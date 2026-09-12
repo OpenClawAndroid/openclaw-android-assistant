@@ -42,11 +42,16 @@ export function enqueueRelayVoiceTranscript(
   role: "user" | "assistant",
   text: string,
 ): boolean {
+  const observed =
+    role === "user" && !session.closing
+      ? session.confirmationReadiness.observeUserTranscript(text, true)
+      : undefined;
   const normalizedText = normalizeVoiceTranscriptText(text);
   if (!normalizedText) {
     return true;
   }
   if (!ensureRelayVoiceSession(session)) {
+    session.confirmationReadiness.fail(new Error("Realtime voice session could not be recorded"));
     return true;
   }
   const transcriptSeq = session.voiceTranscriptSeq + 1;
@@ -70,6 +75,7 @@ export function enqueueRelayVoiceTranscript(
             entryId,
             role,
             text: normalizedText,
+            confirmation: observed?.confirmation ?? null,
             ...(session.voiceConfig ? { config: session.voiceConfig } : {}),
           });
           return;
@@ -82,13 +88,17 @@ export function enqueueRelayVoiceTranscript(
     { weight: normalizedText.length },
   );
   if (!admission.accepted) {
+    session.confirmationReadiness.fail(
+      new Error("Realtime voice transcript queue is closed or full"),
+    );
     if (admission.reason === "overflow") {
       session.failSession(VOICE_TRANSCRIPT_QUEUE_POLICY.overflowMessage);
     }
     return false;
   }
   session.voiceTranscriptSeq = transcriptSeq;
-  void admission.completion.catch((error: unknown) => {
+  void admission.completion.then(observed?.persisted, (error: unknown) => {
+    session.confirmationReadiness.fail(error);
     logRelayVoiceFailure(session, "realtime relay transcript append failed", error);
   });
   return true;

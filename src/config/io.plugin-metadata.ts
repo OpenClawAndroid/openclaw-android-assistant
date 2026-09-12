@@ -17,6 +17,7 @@ import {
 } from "../plugins/plugin-metadata-snapshot.js";
 import { normalizePluginPolicyId } from "../plugins/plugin-policy-id.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
+import type { PluginInstallRecord } from "./types.plugins.js";
 
 function mergeRegistries(registries: readonly PluginManifestRegistry[]): PluginManifestRegistry {
   const grouped = new Map<
@@ -79,6 +80,7 @@ type ResolveConfigWidePluginMetadataParams = {
   env?: NodeJS.ProcessEnv;
   stateDir?: string;
   allowCurrent?: boolean;
+  installRecords?: Record<string, PluginInstallRecord>;
 };
 
 export function resolveConfigWidePluginMetadataSnapshot(
@@ -89,7 +91,11 @@ export function resolveConfigWidePluginMetadataSnapshot(
       resolveConfigWidePluginMetadataSnapshot(params),
     );
   }
-  if (params.allowCurrent !== false && params.stateDir === undefined) {
+  if (
+    params.allowCurrent !== false &&
+    params.stateDir === undefined &&
+    params.installRecords === undefined
+  ) {
     const gatewaySnapshot = getGatewayPluginMetadataSnapshot();
     if (gatewaySnapshot) {
       return gatewaySnapshot;
@@ -125,6 +131,7 @@ function resolveConfigWidePluginMetadataSnapshotImpl(
       ...(params.stateDir ? { stateDir: params.stateDir } : {}),
       env,
       allowCurrent: params.allowCurrent,
+      ...(params.installRecords ? { installRecords: params.installRecords } : {}),
       allowWorkspaceScopedCurrent: true,
     });
   const firstSnapshot = resolveSnapshot(workspaceDirs[0]);

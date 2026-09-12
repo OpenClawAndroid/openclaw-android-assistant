@@ -2,9 +2,9 @@
 import fs from "node:fs";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadBundledPluginPublicSurface } from "../../plugin-sdk/test-helpers/public-surface-loader.js";
 import { createPluginMetadataSnapshotFixture } from "../../plugins/plugin-metadata.test-support.js";
 import type { ProviderPlugin } from "../../plugins/types.js";
+import { loadBundledPluginFacade } from "../../test-utils/bundled-plugin-public-surface.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -4781,7 +4781,7 @@ describe("resolveModel", () => {
   it.each(["provider", "model"])(
     "preserves authored %s transport and model overrides",
     async (scope) => {
-      const { buildOpenAIProvider } = await loadBundledPluginPublicSurface<{
+      const { buildOpenAIProvider } = await loadBundledPluginFacade<{
         buildOpenAIProvider: () => ProviderPlugin;
       }>({ pluginId: "openai", artifactBasename: "api.js" });
       const provider = buildOpenAIProvider();

@@ -7,6 +7,7 @@ function* sortEntriesWork<T extends object>(
   entries: T[],
   compare: (a: T, b: T) => number,
   shouldYield?: () => boolean,
+  limit = entries.length,
 ): SynchronousWork<T[]> {
   if (!shouldYield || entries.length <= SORT_RUN_SIZE) {
     return entries.toSorted(compare);
@@ -25,15 +26,19 @@ function* sortEntriesWork<T extends object>(
     for (let start = 0; start < sorted.length; start += width * 2) {
       const middle = Math.min(start + width, sorted.length);
       const end = Math.min(start + width * 2, sorted.length);
+      // A discarded run suffix cannot contribute to the final result window.
+      const leftEnd = Math.min(middle, start + limit);
+      const rightEnd = Math.min(end, middle + limit);
+      const mergedEnd = start + Math.min(limit, leftEnd - start + rightEnd - middle);
       let left = start;
       let right = middle;
-      for (let index = start; index < end; index++) {
+      for (let index = start; index < mergedEnd; index++) {
         if (shouldYield()) {
           yield;
         }
         // Prefer the earlier run for equal entries, preserving the native sort's stability.
         const takeRight =
-          left >= middle || (right < end && compare(sorted[left]!, sorted[right]!) > 0);
+          left >= leftEnd || (right < rightEnd && compare(sorted[left]!, sorted[right]!) > 0);
         merged[index] = takeRight ? sorted[right++]! : sorted[left++]!;
       }
     }
@@ -96,6 +101,6 @@ export function* sortAndLimitByWork<T extends object>(
     }
     return selected;
   }
-  const sorted = yield* sortEntriesWork(entries, compare, shouldYield);
+  const sorted = yield* sortEntriesWork(entries, compare, shouldYield, limit);
   return limit === undefined ? sorted : sorted.slice(0, limit);
 }

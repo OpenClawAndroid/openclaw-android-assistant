@@ -51,7 +51,7 @@ async function registerDeliveredWhatsAppApprovalPayload(
   (
     await loadWhatsAppQuestionReactionsModule()
   ).registerWhatsAppQuestionReactionTargetForDeliveredPayload(params);
-  (
+  await (
     await loadWhatsAppApprovalReactionsModule()
   ).registerWhatsAppApprovalReactionTargetForDeliveredPayload(params);
 }

@@ -35,7 +35,7 @@ Optional global boolean for [managed worktree filesystem acceleration](/concepts
 }
 ```
 
-Set `false` to use normal Git checkout and file copying for new worktrees. This option applies across agents and managed-worktree owners; existing checkouts are unchanged. Supported backends are Btrfs snapshots on Linux and APFS file clones on macOS. Repository setup and dependencies remain per-worktree.
+Set `false` to use normal Git checkout and file copying for new worktrees. This option applies across agents and managed-worktree owners; existing checkouts are unchanged. Supported backends are Btrfs snapshots on Linux and APFS directory clones on macOS. Repository setup and dependencies remain per-worktree.
 
 ## Models
 

@@ -17,6 +17,17 @@ import {
 const execFileAsync = promisify(execFile);
 const GiB = 1024 ** 3;
 
+function isWorktreeAdd(argv: readonly string[]): boolean {
+  if (argv[0] !== "git") {
+    return false;
+  }
+  let command = 1;
+  while (argv[command] === "-c" || argv[command] === "-C") {
+    command += 2;
+  }
+  return argv[command] === "worktree" && argv[command + 1] === "add";
+}
+
 describe("ManagedWorktreeService capacity", () => {
   const initializeRepository = useManagedWorktreeTestRepository();
   let root: string;
@@ -146,12 +157,14 @@ describe("ManagedWorktreeService capacity", () => {
     const otherRepo = await initializeRepository(path.join(root, "other"));
     const otherService = new ManagedWorktreeService({ env });
     const realRun = commandExec.runCommandWithTimeout;
+    let pressureInjected = false;
     vi.spyOn(commandExec, "runCommandWithTimeout").mockImplementation(async (argv, options) => {
       const result = await realRun(argv, options);
-      if (argv[0] === "git" && argv[3] === "worktree" && argv[4] === "add") {
+      if (isWorktreeAdd(argv)) {
         // The first checkout still passes its postchecks, but a second checkout
         // cannot fit its estimate. Without the shared lease both adds can start.
         availableBytes = 16 * GiB;
+        pressureInjected = true;
       }
       return result;
     });
@@ -159,6 +172,7 @@ describe("ManagedWorktreeService capacity", () => {
       service.create({ repoRoot: repo, name: "last-one", baseRef: "HEAD" }),
       otherService.create({ repoRoot: otherRepo, name: "last-two", baseRef: "HEAD" }),
     ]);
+    expect(pressureInjected).toBe(true);
     expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(outcomes.filter((result) => result.status === "rejected")).toEqual([
       expect.objectContaining({
@@ -241,16 +255,19 @@ describe("ManagedWorktreeService capacity", () => {
       mode: 0o755,
     });
     const realRun = commandExec.runCommandWithTimeout;
+    let pressureInjected = false;
     vi.spyOn(commandExec, "runCommandWithTimeout").mockImplementation(async (argv, options) => {
       const result = await realRun(argv, options);
-      if (argv[0] === "git" && argv[3] === "worktree" && argv[4] === "add") {
+      if (isWorktreeAdd(argv)) {
         availableBytes = GiB;
+        pressureInjected = true;
       }
       return result;
     });
     await expect(
       service.create({ repoRoot: repo, name: "setup-space", baseRef: "HEAD" }),
     ).rejects.toThrow(/disk space/i);
+    expect(pressureInjected).toBe(true);
     await expect(fs.stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
     expect(service.listRegistryRecords()).toEqual([]);
     expect(await git(repo, "branch", "--list", "openclaw/setup-space")).toBe("");

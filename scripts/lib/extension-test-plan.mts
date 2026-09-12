@@ -7,7 +7,10 @@ import { isActiveMemoryExtensionRoot } from "../../test/vitest/vitest.extension-
 import { isBrowserExtensionRoot } from "../../test/vitest/vitest.extension-browser-paths.mjs";
 import { resolveSplitChannelExtensionShard } from "../../test/vitest/vitest.extension-channel-split-paths.mjs";
 import { isCodexExtensionRoot } from "../../test/vitest/vitest.extension-codex-paths.mjs";
-import { isDatabaseWorkerExtensionRoot } from "../../test/vitest/vitest.extension-database-workers-paths.mjs";
+import {
+  databaseWorkerExtensionTestFiles,
+  isDatabaseWorkerExtensionRoot,
+} from "../../test/vitest/vitest.extension-database-workers-paths.mjs";
 import { isDiffsExtensionRoot } from "../../test/vitest/vitest.extension-diffs-paths.mjs";
 import { isFeishuExtensionRoot } from "../../test/vitest/vitest.extension-feishu-paths.mjs";
 import { isIrcExtensionRoot } from "../../test/vitest/vitest.extension-irc-paths.mjs";
@@ -254,7 +257,12 @@ function listFilesystemTestFiles(rootPath: string) {
 
 /** List working-tree test files for extension roots, including new untracked tests. */
 export function listExtensionTestFilesForRoots(roots: string[]) {
-  const files = roots.flatMap((root) => listFilesystemTestFiles(path.join(repoRoot, root)));
+  const files = roots.flatMap((root) => {
+    const rootPath = path.join(repoRoot, root);
+    return fs.existsSync(rootPath) && fs.statSync(rootPath).isFile()
+      ? [root]
+      : listFilesystemTestFiles(rootPath);
+  });
   return [...new Set(files)].toSorted((left, right) => left.localeCompare(right));
 }
 
@@ -357,6 +365,9 @@ export function estimateExtensionTestCost(config: string, testFileCount: number)
 
 /** Resolve the dedicated Vitest config for an extension root. */
 export function resolveExtensionTestConfig(root: string) {
+  if (databaseWorkerExtensionTestFiles.includes(root)) {
+    return "test/vitest/vitest.extension-database-workers.config.ts";
+  }
   const splitChannelShard = resolveSplitChannelExtensionShard(root);
   if (splitChannelShard) {
     return splitChannelShard.config;
@@ -419,7 +430,27 @@ export function resolveExtensionTestPlan(params: { cwd?: string; targetArg?: str
     (sum, root) => sum + countTestFiles(path.join(repoRoot, root)),
     0,
   );
-  const estimatedCost = estimateExtensionTestCost(config, testFileCount);
+  const workerFiles = databaseWorkerExtensionTestFiles.filter(
+    (file) =>
+      file.startsWith(`${relativeExtensionDir}/`) && fs.existsSync(path.join(repoRoot, file)),
+  );
+  const groups = [{ config, roots, testFileCount: testFileCount - workerFiles.length }];
+  if (workerFiles.length > 0) {
+    groups.push({
+      config: resolveExtensionTestConfig(workerFiles[0]!),
+      roots: workerFiles,
+      testFileCount: workerFiles.length,
+    });
+  }
+  const planGroups = groups
+    .filter((group) => group.testFileCount > 0)
+    .map((group) =>
+      Object.assign({}, group, {
+        extensionIds: [extensionId],
+        estimatedCost: estimateExtensionTestCost(group.config, group.testFileCount),
+      }),
+    );
+  const estimatedCost = planGroups.reduce((sum, group) => sum + group.estimatedCost, 0);
 
   return {
     config,
@@ -427,6 +458,7 @@ export function resolveExtensionTestPlan(params: { cwd?: string; targetArg?: str
     extensionDir: relativeExtensionDir,
     extensionId,
     hasTests: testFileCount > 0,
+    planGroups,
     roots,
     testFileCount,
   };
@@ -443,7 +475,7 @@ export function mergeExtensionTestPlans(plans: ResolvedExtensionTestPlan[]): Ext
     .map((plan) => plan.extensionId)
     .toSorted((left, right) => left.localeCompare(right));
 
-  for (const plan of testPlans) {
+  for (const plan of testPlans.flatMap((entry) => entry.planGroups)) {
     const current = groupsByConfig.get(plan.config) ?? {
       config: plan.config,
       extensionIds: [],
@@ -452,7 +484,7 @@ export function mergeExtensionTestPlans(plans: ResolvedExtensionTestPlan[]): Ext
       testFileCount: 0,
     };
 
-    current.extensionIds.push(plan.extensionId);
+    current.extensionIds.push(...plan.extensionIds);
     current.roots.push(...plan.roots);
     current.estimatedCost += plan.estimatedCost;
     current.testFileCount += plan.testFileCount;

@@ -1,6 +1,7 @@
 /** CLI runner for node-host stdin/stdout command dispatch. */
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { CloudflareAccessCredentials } from "../../packages/gateway-client/src/cloudflare-access.js";
+import { gatewayOriginScope } from "../../packages/gateway-client/src/gateway-origin-scope.js";
 import { startGatewayClientWhenEventLoopReady } from "../../packages/gateway-client/src/readiness.js";
 import {
   GATEWAY_CLIENT_MODES,
@@ -11,12 +12,18 @@ import { getRuntimeConfig, type OpenClawConfig } from "../config/config.js";
 import { copyConfigResolutionFactsExcept } from "../config/resolution-facts.js";
 import { GatewayClientRequestError, type GatewayReconnectPausedInfo } from "../gateway/client.js";
 import { resolveGatewayCredentialsWithSecretInputs } from "../gateway/credentials-secret-inputs.js";
+import { resolveExplicitGatewayAuth } from "../gateway/credentials.js";
+import { loadDeviceAuthTokenReadOnly } from "../infra/device-auth-store.js";
 import { loadOrCreateDeviceIdentity } from "../infra/device-identity.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
+import { logInfo } from "../logger.js";
 import { VERSION } from "../version.js";
-import { configureNodeHost, type NodeHostGatewayConfig } from "./config.js";
+import { configureNodeHost, loadNodeHostConfig, type NodeHostGatewayConfig } from "./config.js";
 import { startNodeHostConnection } from "./connection.js";
-import { createNodeHostGatewayCandidateConnection } from "./gateway-candidate-connection.js";
+import {
+  createNodeHostGatewayCandidateConnection,
+  formatGatewayCandidateUrl,
+} from "./gateway-candidate-connection.js";
 import {
   resolveNodeHostCloudflareAccess,
   type NodeHostCloudflareAccessConfig,
@@ -50,6 +57,8 @@ type NodeHostRunOptions = {
   nodeId?: string;
   displayName?: string;
   installedAppsSharing?: boolean;
+  commands?: string[];
+  allCommands?: boolean;
 };
 
 function writeStderrLine(message: string): void {
@@ -101,14 +110,35 @@ function handleNodeHostReconnectPaused(
 
 async function resolveNodeHostGatewayCredentials(params: {
   config: OpenClawConfig;
+  savedGateway?: NodeHostGatewayConfig;
+  gatewayCandidates: readonly NodeHostGatewayConfig[];
+  deviceId: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<{ token?: string; password?: string }> {
+  const env = params.env ?? process.env;
+  const savedGatewayScope = params.savedGateway
+    ? gatewayOriginScope(formatGatewayCandidateUrl(params.savedGateway))
+    : undefined;
+  if (
+    savedGatewayScope &&
+    params.gatewayCandidates.every(
+      (candidate) => gatewayOriginScope(formatGatewayCandidateUrl(candidate)) === savedGatewayScope,
+    ) &&
+    loadDeviceAuthTokenReadOnly({ deviceId: params.deviceId, role: "node", env })?.token
+  ) {
+    // A co-located Gateway's shared password must not displace the paired node
+    // credential. GatewayClient rereads the current token when connecting.
+    return resolveExplicitGatewayAuth({
+      token: env.OPENCLAW_GATEWAY_TOKEN,
+      password: env.OPENCLAW_GATEWAY_PASSWORD,
+    });
+  }
   const mode = params.config.gateway?.mode === "remote" ? "remote" : "local";
   const configForResolution =
     mode === "local" ? buildNodeHostLocalAuthConfig(params.config) : params.config;
   return await resolveGatewayCredentialsWithSecretInputs({
     config: configForResolution,
-    env: params.env,
+    env,
     localPrecedence: "env-first",
     remoteTokenPrecedence: "env-first",
     remotePasswordPrecedence: "env-first", // pragma: allowlist secret
@@ -138,6 +168,7 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
   // state migrators. Runtime invokes those owners here and never migrates inline.
   await runStartupMigrations({ log: { info: writeStderrLine, warn: writeStderrLine } });
   const cfg = getRuntimeConfig();
+  const savedConfig = await loadNodeHostConfig();
   const plannedGateway: NodeHostGatewayConfig = {
     host: opts.gatewayHost,
     port: opts.gatewayPort,
@@ -153,6 +184,8 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     fallbackDisplayName,
     gateway: plannedGateway,
     installedAppsSharing: opts.installedAppsSharing,
+    commands: opts.commands,
+    allCommands: opts.allCommands,
   });
   const nodeId = config.nodeId;
   const displayName = config.displayName ?? fallbackDisplayName;
@@ -197,11 +230,17 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     forceWorkerRuns: opts.forceWorkerRuns,
     ephemeral: opts.ephemeral,
     installedAppsSharingEnabled: config.installedAppsSharing,
+    commands: config.commands,
   });
+  logInfo(`node-host: advertised commands: ${preparedRuntime.manifest.commands.join(", ")}`);
+  const deviceIdentity = loadOrCreateDeviceIdentity();
   const { token, password } = opts.gatewayBootstrapToken
     ? {}
     : await resolveNodeHostGatewayCredentials({
         config: cfg,
+        savedGateway: savedConfig?.gateway,
+        gatewayCandidates,
+        deviceId: deviceIdentity.deviceId,
         env: process.env,
       });
 
@@ -218,7 +257,6 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     });
   };
 
-  const deviceIdentity = loadOrCreateDeviceIdentity();
   const client = createNodeHostGatewayCandidateConnection({
     candidates: gatewayCandidates,
     cloudflareAccessByCandidate,

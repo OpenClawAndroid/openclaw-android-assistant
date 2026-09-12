@@ -24,6 +24,10 @@ import { formatAgentInternalEventsForPrompt } from "../internal-events.js";
 import { resetRecentMediaGenerationDuplicateGuardsForTests } from "../media-generation-task-status-shared.test-support.js";
 import * as videoGenerateBackground from "./media-generate-background.js";
 import { canonicalizeMediaGenerationTestConfig } from "./media-generation-config.test-support.js";
+import {
+  defineMediaGenerationCancellationTests,
+  defineMediaGenerationDuplicateTests,
+} from "./media-generation-lifecycle.test-support.js";
 import { createVideoGenerateTool as createVideoGenerateToolImpl } from "./video-generate-tool.js";
 
 function createVideoGenerateTool(
@@ -1198,131 +1202,62 @@ describe("createVideoGenerateTool", () => {
     expect(wake.result).not.toContain("MEDIA:");
   });
 
-  it.each([
-    { mode: "inline", agentSessionKey: undefined },
-    { mode: "detached", agentSessionKey: "agent:main:discord:direct:123" },
-  ])(
-    "does not start $mode video generation when its caller aborts during preparation",
-    async ({ agentSessionKey }) => {
-      taskExecutorMocks.createRunningTaskRun.mockReturnValue({ taskId: "task-video-aborted" });
-      const generateVideo = vi.spyOn(videoGenerationRuntime, "generateVideo");
-      const scheduleBackgroundWork = vi.fn();
-      const tool = expectVideoGenerateTool(
-        createVideoGenerateTool({
-          config: asConfig({
-            agents: { defaults: { videoGenerationModel: { primary: "vydra/veo3" } } },
-          }),
-          agentSessionKey,
-          requesterOrigin: { channel: "discord", to: "channel:1" },
-          scheduleBackgroundWork,
-        }),
-      );
-      const controller = new AbortController();
-      const abortReason = new Error("video requester cancelled");
-
-      const pending = tool.execute("call-video-aborted", { prompt: "a video" }, controller.signal);
-      controller.abort(abortReason);
-
-      await expect(pending).rejects.toBe(abortReason);
-      expect(taskExecutorMocks.createRunningTaskRun).not.toHaveBeenCalled();
-      expect(scheduleBackgroundWork).not.toHaveBeenCalled();
-      expect(generateVideo).not.toHaveBeenCalled();
+  defineMediaGenerationCancellationTests({
+    kind: "video",
+    tasks: taskExecutorMocks,
+    createTool: (options) => expectVideoGenerateTool(createVideoGenerateTool(options)),
+    requesterOrigin: { channel: "discord", to: "channel:1" },
+    references: ["./first.png", "./second.png"],
+    referenceSignal: "caller",
+    loadMedia: () => vi.spyOn(webMedia, "loadWebMedia"),
+    setup: (phase) => {
+      if (phase === "reference") {
+        mockVideoPluginProvider({ imageToVideo: { enabled: true, maxInputImages: 2 } });
+        return { primary: "video-plugin/vid-v1", generate: mockSavedVideoResult() };
+      }
+      const generate = vi.spyOn(videoGenerationRuntime, "generateVideo").mockResolvedValue({
+        provider: "vydra",
+        model: "veo3",
+        attempts: [],
+        ignoredOverrides: [],
+        videos: [{ url: "https://example.com/accepted.mp4", mimeType: "video/mp4" }],
+      });
+      vi.spyOn(
+        videoGenerateBackground.videoGenerationTaskLifecycle,
+        "wakeTaskCompletion",
+      ).mockResolvedValue({ status: "delivered" });
+      return { primary: "vydra/veo3", generate };
     },
-  );
-
-  it("stops loading later video references when the caller aborts a pending reference", async () => {
-    mockVideoPluginProvider({ imageToVideo: { enabled: true, maxInputImages: 2 } });
-    const generateVideo = mockSavedVideoResult();
-    let releaseReference!: (value: Awaited<ReturnType<typeof webMedia.loadWebMedia>>) => void;
-    const firstReference = new Promise<Awaited<ReturnType<typeof webMedia.loadWebMedia>>>(
-      (resolve) => {
-        releaseReference = resolve;
-      },
-    );
-    const loadWebMedia = vi.spyOn(webMedia, "loadWebMedia").mockResolvedValue({
-      kind: "image",
-      buffer: Buffer.from("second-image"),
-      contentType: "image/png",
-    });
-    loadWebMedia.mockImplementationOnce(() => firstReference);
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({ taskId: "task-video-references" });
-    const scheduleBackgroundWork = vi.fn();
-    const tool = expectVideoGenerateTool(
-      createVideoGenerateTool({
-        config: asConfig({
-          agents: { defaults: { videoGenerationModel: { primary: "video-plugin/vid-v1" } } },
-        }),
-        workspaceDir: process.cwd(),
-        agentSessionKey: "agent:main:discord:direct:123",
-        requesterOrigin: { channel: "discord", to: "channel:1" },
-        scheduleBackgroundWork,
-      }),
-    );
-    const controller = new AbortController();
-    const abortReason = new Error("video requester cancelled while loading a reference");
-
-    const pending = tool.execute(
-      "call-video-references-aborted",
-      { prompt: "a video with references", images: ["./first.png", "./second.png"] },
-      controller.signal,
-    );
-    await vi.waitFor(() => expect(loadWebMedia).toHaveBeenCalledOnce());
-    controller.abort(abortReason);
-    releaseReference({
-      kind: "image",
-      buffer: Buffer.from("first-image"),
-      contentType: "image/png",
-    });
-
-    await expect(pending).rejects.toBe(abortReason);
-    expect(loadWebMedia).toHaveBeenCalledOnce();
-    expect(taskExecutorMocks.createRunningTaskRun).not.toHaveBeenCalled();
-    expect(scheduleBackgroundWork).not.toHaveBeenCalled();
-    expect(generateVideo).not.toHaveBeenCalled();
-    const loadOptions = loadWebMedia.mock.calls[0]?.[1] as
-      | { requestInit?: { signal?: AbortSignal } }
-      | undefined;
-    expect(loadOptions?.requestInit?.signal).toBe(controller.signal);
   });
 
-  it("keeps an accepted detached video task running after its requester aborts", async () => {
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({ taskId: "task-video-accepted" });
-    const generateVideo = vi.spyOn(videoGenerationRuntime, "generateVideo").mockResolvedValue({
-      provider: "vydra",
-      model: "veo3",
-      attempts: [],
-      ignoredOverrides: [],
-      videos: [{ url: "https://example.com/accepted.mp4", mimeType: "video/mp4" }],
-    });
-    vi.spyOn(
-      videoGenerateBackground.videoGenerationTaskLifecycle,
-      "wakeTaskCompletion",
-    ).mockResolvedValue({ status: "delivered" });
-    const controller = new AbortController();
-    const scheduled: Array<() => Promise<void>> = [];
-    const tool = expectVideoGenerateTool(
-      createVideoGenerateTool({
-        config: asConfig({
-          agents: { defaults: { videoGenerationModel: { primary: "vydra/veo3" } } },
-        }),
-        agentSessionKey: "agent:main:discord:direct:123",
-        requesterOrigin: { channel: "discord", to: "channel:1" },
-        scheduleBackgroundWork: (work) => scheduled.push(work),
-        onAsyncTaskStarted: () => controller.abort(new Error("requester ended after acceptance")),
-      }),
-    );
-
-    const result = await tool.execute(
-      "call-video-accepted",
-      { prompt: "an accepted video" },
-      controller.signal,
-    );
-
-    expect(resultDetails(result).status).toBe("started");
-    expect(scheduled).toHaveLength(1);
-    await scheduled[0]?.();
-    expect(generateVideo).toHaveBeenCalledOnce();
-    expect(taskExecutorMocks.completeTaskRunByRunId).toHaveBeenCalledOnce();
+  defineMediaGenerationDuplicateTests({
+    kind: "video",
+    tasks: taskExecutorMocks,
+    listTasks: taskRuntimeInternalMocks.listTasksForOwnerKey,
+    createTool: (options) => expectVideoGenerateTool(createVideoGenerateTool(options)),
+    requesterOrigin: { channel: "discord", to: "channel:1" },
+    setupProviders: () => {
+      vi.spyOn(videoGenerationRuntime, "listRuntimeVideoGenerationProviders").mockReturnValue([
+        {
+          id: "google",
+          defaultModel: "veo-3.1-fast-generate-preview",
+          models: ["veo-3.1-fast-generate-preview", "veo-3.1-pro-generate-preview"],
+          capabilities: {},
+          generateVideo: vi.fn(async () => {
+            throw new Error("not used");
+          }),
+        },
+      ]);
+    },
+    cases: [
+      {
+        name: "dedupes a model-only primary video request repeated with provider-qualified model",
+        primary: "veo-3.1-pro-generate-preview",
+        model: "veo-3.1-pro-generate-preview",
+        request: { prompt: "friendly lobster surfing" },
+        progressSummary: "Generated 1 video",
+      },
+    ],
   });
 
   it("surfaces provider generation failures inline when there is no detached session", async () => {
@@ -1346,83 +1281,6 @@ describe("createVideoGenerateTool", () => {
       "queue boom",
     );
     expect(taskExecutorMocks.failTaskRunByRunId).not.toHaveBeenCalled();
-  });
-
-  it("dedupes a model-only primary video request repeated with provider-qualified model", async () => {
-    vi.spyOn(videoGenerationRuntime, "listRuntimeVideoGenerationProviders").mockReturnValue([
-      {
-        id: "google",
-        defaultModel: "veo-3.1-fast-generate-preview",
-        models: ["veo-3.1-fast-generate-preview", "veo-3.1-pro-generate-preview"],
-        capabilities: {},
-        generateVideo: vi.fn(async () => {
-          throw new Error("not used");
-        }),
-      },
-    ]);
-    const now = Date.now();
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({
-      taskId: "task-model-only-video",
-    });
-    const scheduled: Array<() => Promise<void>> = [];
-    const tool = createVideoGenerateTool({
-      config: asConfig({
-        agents: {
-          defaults: {
-            videoGenerationModel: { primary: "veo-3.1-pro-generate-preview" },
-          },
-        },
-      }),
-      agentSessionKey: "agent:main:discord:direct:123",
-      requesterOrigin: {
-        channel: "discord",
-        to: "channel:1",
-      },
-      scheduleBackgroundWork: (work) => {
-        scheduled.push(work);
-      },
-    });
-    if (!tool) {
-      throw new Error("expected video_generate tool");
-    }
-
-    await tool.execute("call-model-only-start", {
-      prompt: "friendly lobster surfing",
-    });
-    const createdTask = firstMockCallArg(taskExecutorMocks.createRunningTaskRun) as {
-      runId: string;
-    };
-    taskRuntimeInternalMocks.listTasksForOwnerKey.mockReturnValue([
-      {
-        taskId: "task-model-only-video",
-        runId: createdTask.runId,
-        runtime: "cli",
-        taskKind: "video_generation",
-        sourceId: "video_generate:google",
-        requesterSessionKey: "agent:main:discord:direct:123",
-        ownerKey: "agent:main:discord:direct:123",
-        scopeKind: "session",
-        task: "friendly lobster surfing",
-        status: "succeeded",
-        deliveryStatus: "not_applicable",
-        notifyPolicy: "silent",
-        createdAt: now - 20_000,
-        endedAt: now - 10_000,
-        progressSummary: "Generated 1 video",
-      },
-    ]);
-
-    const result = await tool.execute("call-provider-qualified-repeat", {
-      prompt: "friendly lobster surfing",
-      model: "google/veo-3.1-pro-generate-preview",
-    });
-    const text = (result.content?.[0] as { text?: string } | undefined)?.text ?? "";
-
-    expect(scheduled).toHaveLength(1);
-    expect(taskExecutorMocks.createRunningTaskRun).toHaveBeenCalledTimes(1);
-    expect(text).toContain("Video generation task task-model-only-video recently succeeded");
-    expect(resultDetails(result).duplicateGuard).toBe(true);
-    expect(resultDetails(result).active).toBe(false);
   });
 
   it("shows duration normalization details from runtime metadata", async () => {

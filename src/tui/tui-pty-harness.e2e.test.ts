@@ -825,9 +825,13 @@ describe("TUI PTY harness", { concurrent: false }, () => {
     TEST_TIMEOUT_MS,
   );
 
-  it(
-    "authenticates a streamed prefix before the complete ordered final frame",
-    async () => await exerciseStreamingRendering(startTuiFixture, STARTUP_TIMEOUT_MS),
+  it.each([
+    ["authenticates a streamed prefix before the complete ordered final frame", undefined],
+    ["preserves streaming activity when Ctrl+C selects clear", "clear"],
+    ["preserves streaming activity when Ctrl+C selects warn", "warn"],
+  ] as const)(
+    "%s",
+    (_name, ctrlC) => exerciseStreamingRendering(startTuiFixture, STARTUP_TIMEOUT_MS, ctrlC),
     STARTUP_TEST_TIMEOUT_MS,
   );
 

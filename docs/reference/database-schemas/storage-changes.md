@@ -36,8 +36,16 @@ kernels. Their existing facades retain global connection acquisition, cache and
 close behavior, and write transaction admission. Compound subagent and cron
 operations call the kernels on their already-admitted connection. Task status
 classification stays with the pure record types, so decoding does not load
-provider or plugin runtime ownership. These operations and their transaction
-callbacks remain synchronous; this separation does not move SQL to a worker.
+provider or plugin runtime ownership. Kernels and their transaction callbacks
+remain synchronous. The asynchronous task and flow read facade runs these read
+kernels in the shared-state worker.
+
+The host captures the database path, state environment, and current admission
+before awaited work. The shared worker owns its canonical connection and schema
+opening, with Gateway schema authority delegated by its live coordinator owner.
+Classified database errors survive transport, and canonical close joins worker
+operations and native cleanup. Cold registry restoration and runtime-configuration
+preparation still retain their existing main-thread behavior.
 
 SQLite worker transport preserves complete result values. Results within the
 64 MiB inline reply budget keep their existing reply path; larger results are
@@ -204,18 +212,30 @@ the review checkpoint below.
 
 ## Review checkpoint for material changes
 
-Before implementing a material SQLite or persistent-store change, open or link a maintainer discussion and record acceptance of the design. A schema-version bump is always material, but a change can be material even when the numeric version stays the same.
+An explicit maintainer repair-and-land request covers internal scheduling,
+database admission, and lifecycle implementation decisions. The implementer
+owns design selection, risk assessment, and verification. Describe the design
+and its evidence in the PR; do not require a separate approval for each
+implementation decision within that scope.
 
-Treat a change as material when it introduces or materially changes any of these:
+Before changing public contracts, schemas, durability, retention, or permissions,
+open or link a maintainer discussion and record acceptance of the design. A
+schema-version bump always needs acceptance, but keeping the numeric version
+unchanged does not exempt a change to these contracts:
 
-- a table, dedicated database, durable projection, cache, index, or other persisted representation
+- a table, dedicated database, durable projection, persisted cache, index, or other schema representation
 - which data is canonical, derived, reconstructible, retained, deleted, exported, or visible after restart
 - user-visible persistence semantics, including a second interpretation of existing durable data
-- migration, backfill, repair, downgrade, rollback, retention, compaction, or corruption recovery
-- transaction boundaries, writer ownership, concurrency, locking, publication fencing, or reader consistency
-- read, write, disk, startup, or maintenance cost enough to affect the store's operating model
+- upgrade, downgrade, rollback, retention, compaction, or corruption-recovery contracts
+- durability, reader consistency, or permission boundaries
 
-The discussion should identify the owning store and lifecycle, the problem being solved, alternatives that avoid new persistence, canonical versus derived data, schema and upgrade/downgrade behavior, retention and deletion behavior, concurrency and recovery invariants, performance/storage impact, rollback plan, and validation limits. The implementing PR must link the accepted decision.
+Internal transaction boundaries, writer admission, locking, and lifecycle
+mechanics are engineering decisions within an authorized repair when they
+preserve those contracts. Prove FIFO ordering, current authority after awaited
+work, integrity checks, publication fencing, and settlement of write-capable
+work. Assess performance and storage costs as part of that verification.
+
+When separate acceptance is required, the discussion should identify the owning store and lifecycle, the problem being solved, alternatives that avoid new persistence, canonical versus derived data, schema and upgrade/downgrade behavior, retention and deletion behavior, concurrency and recovery invariants, performance/storage impact, rollback plan, and validation limits. The implementing PR must link that accepted decision.
 
 The checkpoint normally does not apply to a read-only query that preserves existing semantics, a bounded query-plan improvement with no material write/disk tradeoff, routine maintenance of an existing approved schema, or tests, generated baselines, and documentation that only follow an already accepted design. A mechanical migration or repair still links the decision that approved its persistent contract.
 

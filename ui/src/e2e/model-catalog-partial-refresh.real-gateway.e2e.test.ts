@@ -89,9 +89,17 @@ suite.define(() => {
       model: "openai/gpt-5.4",
     });
     await call("sessions.patch", { key, thinkingLevel: "high" });
-    const catalog: ModelCatalogResult = JSON.parse(
+    let catalog: ModelCatalogResult = JSON.parse(
       await call("models.list", { agentId: "main", view: "configured", refresh: true }),
     );
+    await expect
+      .poll(async () => {
+        if (catalog.pendingProviders?.length) {
+          catalog = JSON.parse(await call("models.list", { agentId: "main", view: "configured" }));
+        }
+        return catalog.pendingProviders ?? [];
+      })
+      .toEqual([]);
     await fs.writeFile(
       path.join(suite.artifactDir, "models-list.json"),
       JSON.stringify(catalog, null, 2),
@@ -126,6 +134,12 @@ suite.define(() => {
           await model.click();
           // A failed background refresh must not add chrome above a usable list.
           await composer.locator('[data-chat-model-option="openai/gpt-5.4"]').waitFor();
+          // CLI discovery starts with agent hydration and can outlive model loading.
+          await composer
+            .locator(
+              '[data-chat-model-target-group="cliAgents"] [data-chat-model-catalog-state="loading"]',
+            )
+            .waitFor({ state: "detached" });
           expect(await composer.locator("[data-chat-model-catalog-state]").count()).toBe(0);
           const stage = route === "new" ? "new" : "chat";
           await page.screenshot({

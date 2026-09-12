@@ -677,7 +677,7 @@ export function redactText(
     next =
       pattern instanceof RegExp && !options?.fullContext && !chunkUnsafePatterns.has(pattern)
         ? replacePatternBounded(next, pattern, replaceRegex)
-        : replaceRedactPattern(next, pattern, replace);
+        : replaceRedactPattern(next, pattern, replace, replaceRegex);
   }
   return next;
 }

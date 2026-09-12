@@ -422,7 +422,7 @@ async function registerDeliveredSignalApprovalPayloadForReactions(
   });
   const { registerSignalApprovalReactionTargetForDeliveredPayload } =
     await loadSignalApprovalReactionsModule();
-  registerSignalApprovalReactionTargetForDeliveredPayload({
+  await registerSignalApprovalReactionTargetForDeliveredPayload({
     cfg: params.cfg,
     target: { ...params.target, accountId: account.accountId },
     payload: params.payload,

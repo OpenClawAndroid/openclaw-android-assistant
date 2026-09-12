@@ -77,8 +77,6 @@ function isPluginData(value: unknown, seen?: Set<object>): boolean {
   if (seen?.has(value)) {
     return true;
   }
-  const visited = seen ?? new Set<object>();
-  visited.add(value);
   const native = Array.isArray(value)
     ? Array
     : types.isMap(value)
@@ -114,6 +112,13 @@ function isPluginData(value: unknown, seen?: Set<object>): boolean {
       (nested ??= []).push(descriptor.value);
     }
   }
+  if (!nested && native !== Map && native !== Set) {
+    // Repeated leaves in an existing graph still share its completed classification.
+    seen?.add(value);
+    return true;
+  }
+  const visited = seen ?? new Set<object>();
+  visited.add(value);
   if (nested) {
     for (const child of nested) {
       if (!isPluginData(child, visited)) {

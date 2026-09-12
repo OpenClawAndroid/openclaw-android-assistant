@@ -1,4 +1,23 @@
 import { resolveFailoverReasonFromError } from "../agents/failover-error.js";
+import { projectInternalRealtimeVoicePublicConfig } from "../talk/provider-internal.js";
+import type { CreateTalkRealtimeRelaySessionParams } from "./talk-realtime-relay-state.js";
+
+export function resolveTalkRealtimeRelayPresentation(
+  params: Pick<CreateTalkRealtimeRelaySessionParams, "provider" | "providerConfig" | "model">,
+) {
+  const publicModel = projectInternalRealtimeVoicePublicConfig({
+    provider: params.provider,
+    providerConfig: params.providerConfig,
+    config: { model: params.model },
+  }).model;
+  const opaqueRoute =
+    typeof params.model === "string" && params.model.length > 0 && publicModel !== params.model;
+  return {
+    publicModel,
+    publicError: (error: unknown) =>
+      new Error(projectTalkRealtimeRelayProviderError(params.provider.id, opaqueRoute, error)),
+  };
+}
 
 type TalkRealtimeRelayIssue = {
   code: "realtime_unavailable";
@@ -41,7 +60,7 @@ export function buildTalkRealtimeRelayIssuePayload(
   };
 }
 
-export function projectTalkRealtimeRelayProviderError(
+function projectTalkRealtimeRelayProviderError(
   provider: string,
   opaqueRoute: boolean,
   error: unknown,

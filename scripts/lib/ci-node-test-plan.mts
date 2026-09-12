@@ -838,7 +838,7 @@ function expandCompactGroup(group: NodeTestShardGroup): NodeTestShardGroup[] {
   }
   return expandedGroups;
 }
-export const TOOLING_CONFIG = "test/vitest/vitest.tooling.config.ts";
+const TOOLING_CONFIG = "test/vitest/vitest.tooling.config.ts";
 const TOOLING_DOCKER_TEST_FILE = "test/scripts/docker-build-helper.test.ts";
 const TOOLING_ISOLATED_CONFIG = "test/vitest/vitest.tooling-isolated.config.ts";
 // The full matrix is capped at 28 jobs. Admit the consistently slow serial
@@ -2802,44 +2802,113 @@ export function packNodeTestGroups<Group>(
   return bins;
 }
 
-/** Select complete tooling files without losing their canonical process and artifact owners. */
-export function createToolingNodeTestShardBundles(
+/** Select exact files without losing their canonical process and artifact owners. */
+export function createSelectedNodeTestShardBundles(
   targets: readonly string[],
   options: Pick<NodeTestPlanOptions, "runnerBackend"> = {},
 ): CompactNodeTestShard[] | null {
   const shards = createNodeTestShards({ includeReleaseOnlyPluginShards: false });
   const selected = new Set(targets);
-  const owners = new Set<NodeTestShard>();
+  const configs = new Map<string, string>();
   for (const target of selected) {
     const plans = buildVitestRunPlans([target]);
+    if (
+      !isTestFileTarget(target) ||
+      !statSync(target, { throwIfNoEntry: false })?.isFile() ||
+      plans.length !== 1 ||
+      plans[0]!.watchMode ||
+      plans[0]!.forwardedArgs.length > 0 ||
+      plans[0]!.includePatterns?.length !== 1 ||
+      plans[0]!.includePatterns[0] !== target
+    ) {
+      return null;
+    }
+    configs.set(target, plans[0]!.config);
+  }
+  if (selected.size === 0) {
+    return null;
+  }
+  const tooling = new Set([...selected].filter((target) => configs.get(target) === TOOLING_CONFIG));
+  const owners = new Set<NodeTestShard>();
+  for (const target of tooling) {
     const matches = shards.filter(
       (shard) =>
         shard.configs.length === 1 &&
         shard.configs[0] === TOOLING_CONFIG &&
         shard.includePatterns?.includes(target),
     );
-    if (
-      plans.length !== 1 ||
-      plans[0]?.config !== TOOLING_CONFIG ||
-      plans[0].watchMode ||
-      plans[0].forwardedArgs.length > 0 ||
-      plans[0].includePatterns?.length !== 1 ||
-      plans[0].includePatterns[0] !== target ||
-      matches.length !== 1
-    ) {
+    if (matches.length !== 1) {
       return null;
     }
     owners.add(matches[0]!);
   }
-  if (owners.size === 0) {
-    return null;
+  // Expansion owns multi-config families and fixed stripes. Project its final
+  // jobs so narrowing cannot increase workers through serial-job resource scaling.
+  const full =
+    selected.size > tooling.size
+      ? createCompactNodeTestShardBundles(shards, options, "pull-request")
+      : [];
+  const canonicalGroups = full.flatMap((shard) => shard.groups);
+  const selectedGroups = new Map<NodeTestShardGroup, string[]>();
+  for (const target of selected) {
+    if (tooling.has(target)) {
+      continue;
+    }
+    const matches = canonicalGroups.filter(
+      (group) =>
+        !group.requiresDist &&
+        group.configs.length === 1 &&
+        group.configs[0] === configs.get(target) &&
+        group.env?.OPENCLAW_NODE_TEST_VITEST_ARGS_JSON === undefined &&
+        (!group.includePatterns || group.includePatterns.includes(target)),
+    );
+    if (matches.length !== 1) {
+      return null;
+    }
+    const owner = matches[0]!;
+    selectedGroups.set(owner, [...(selectedGroups.get(owner) ?? []), target]);
   }
-  return createCompactNodeTestShardBundles(
-    shards.filter((shard) => owners.has(shard) || shard.requiresDist),
-    options,
-    "pull-request",
-    selected,
-  );
+  return [
+    ...(tooling.size
+      ? createCompactNodeTestShardBundles(
+          shards.filter((shard) => owners.has(shard) || shard.requiresDist),
+          options,
+          "pull-request",
+          tooling,
+        )
+      : []),
+    ...full.flatMap((shard) => {
+      const groups = shard.groups.flatMap((group) => {
+        const files = selectedGroups.get(group);
+        if (!files?.length) {
+          return [];
+        }
+        const includePatterns =
+          group.includePatterns?.filter((file) => files.includes(file)) ?? files;
+        // Refit folds complete selector generations into their parent. Keep that
+        // parent separate: a complete subset is not a full-suite observation.
+        const { timingKeys } = createCompactSplitTimingGeneration({
+          configs: group.configs,
+          env: group.env,
+          parentShardName: `changed-${group.shard_name}`,
+          stripes: [includePatterns],
+        });
+        return [{ ...group, includePatterns, timing_key: timingKeys[0]! }];
+      });
+      // Retain the original admission floor and preparation until subset costs
+      // have independent measurements; fewer files alone do not price cold imports.
+      return groups.length
+        ? [
+            {
+              ...shard,
+              checkName: `checks-node-changed-${shard.shardName}`,
+              shardName: `changed-${shard.shardName}`,
+              groups,
+            },
+          ]
+        : [];
+    }),
+  ];
 }
 
 function createCompactNodeTestShardBundles(

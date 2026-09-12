@@ -2,6 +2,7 @@
 import type {
   PluginDoctorStateMigration,
   PluginDoctorStateMigrationContext,
+  PluginStateKeyedStore,
 } from "openclaw/plugin-sdk/runtime-doctor-migrations";
 import type {
   PersistedWorkboardAttachment,
@@ -22,7 +23,7 @@ function openLegacyStore<T>(params: {
   env: NodeJS.ProcessEnv;
   namespace: string;
   maxEntries: number;
-}): WorkboardKeyedStore<T> {
+}): PluginStateKeyedStore<T> {
   return params.context.openPluginStateKeyedStore<T>({
     namespace: params.namespace,
     maxEntries: params.maxEntries,
@@ -176,31 +177,34 @@ export const stateMigrations: PluginDoctorStateMigration[] = [
     label: "Workboard .28 plugin-state KV",
     async detectLegacyState(params) {
       const env = migrationEnv(params);
-      const cards = await openLegacyStore<PersistedWorkboardCard>({
+      const cards = openLegacyStore<PersistedWorkboardCard>({
         context: params.context,
         env,
         namespace: "workboard.cards",
         maxEntries: MAX_CARDS,
-      }).entries();
-      const boards = await openLegacyStore<PersistedWorkboardBoard>({
+      });
+      const boards = openLegacyStore<PersistedWorkboardBoard>({
         context: params.context,
         env,
         namespace: "workboard.boards",
         maxEntries: 200,
-      }).entries();
-      const subscriptions = await openLegacyStore<PersistedWorkboardNotificationSubscription>({
+      });
+      const subscriptions = openLegacyStore<PersistedWorkboardNotificationSubscription>({
         context: params.context,
         env,
         namespace: "workboard.notify",
         maxEntries: 2000,
-      }).entries();
-      const attachments = await openLegacyStore<PersistedWorkboardAttachment>({
+      });
+      const attachments = openLegacyStore<PersistedWorkboardAttachment>({
         context: params.context,
         env,
         namespace: "workboard.attachments",
         maxEntries: MAX_CARDS * 21,
-      }).entries();
-      const count = cards.length + boards.length + subscriptions.length + attachments.length;
+      });
+      let count = 0;
+      for (const store of [cards, boards, subscriptions, attachments]) {
+        count += store.count ? await store.count() : (await store.entries()).length;
+      }
       if (count === 0) {
         return null;
       }

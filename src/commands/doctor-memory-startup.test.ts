@@ -8,7 +8,6 @@ import { ensureMemoryIndexSchema } from "../plugin-sdk/memory-core-host-engine-s
 import { createPluginStateKeyedStoreForTests } from "../plugin-sdk/plugin-state-test-runtime.js";
 import { createTestPluginApi } from "../plugin-sdk/plugin-test-api.js";
 import { createPluginRuntimeMock } from "../plugin-sdk/test-helpers/plugin-runtime-mock.js";
-import { loadBundledPluginPublicSurface } from "../plugin-sdk/test-helpers/public-surface-loader.js";
 import {
   coercePluginDoctorContractModule,
   type PluginDoctorContractModule,
@@ -28,12 +27,13 @@ import {
   prepareSecretsRuntimeSnapshot,
 } from "../secrets/runtime.js";
 import { writeSecretStoreEntry } from "../secrets/store/secret-store.js";
+import { loadBundledPluginFacade } from "../test-utils/bundled-plugin-public-surface.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 
 beforeEach(async () => {
   setActivePluginRegistry(createEmptyPluginRegistry());
   // The shared loader resolves manifest-owned public artifacts from checkout source, never dist.
-  const { default: openaiPlugin } = await loadBundledPluginPublicSurface<{
+  const { default: openaiPlugin } = await loadBundledPluginFacade<{
     default: OpenClawPluginDefinition;
   }>({ pluginId: "openai", artifactBasename: "index.js" });
   assert(openaiPlugin.register);
@@ -140,7 +140,7 @@ describe("Memory Core cold startup migrations", () => {
             context,
           };
           const { stateMigrations } = coercePluginDoctorContractModule(
-            await loadBundledPluginPublicSurface<PluginDoctorContractModule>({
+            await loadBundledPluginFacade<PluginDoctorContractModule>({
               pluginId: "memory-core",
               artifactBasename: "doctor-contract-api.js",
             }),

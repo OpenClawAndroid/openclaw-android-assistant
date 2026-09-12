@@ -12,7 +12,6 @@ export {
   expectedOpenaiPluginCodexCatalogEntriesWithGpt55,
   expectCodexMissingAuthHint,
   importProviderRuntimeCatalogModule,
-  loadBundledPluginPublicSurface,
   type ProviderPlugin,
 } from "./test-helpers/provider-catalog.js";
 export { describeProviderContracts } from "./test-helpers/provider-contract.js";

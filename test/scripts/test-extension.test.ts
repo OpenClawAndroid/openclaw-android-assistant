@@ -180,6 +180,33 @@ describe("scripts/test-extension.mts", () => {
     expect(plan.hasTests).toBe(true);
   });
 
+  it("splits the iMessage batch between persistence and channel owners without double counting", () => {
+    const batch = resolveExtensionBatchPlan({ extensionIds: ["imessage"] });
+    const files = listExtensionTestFilesForRoots(["extensions/imessage"]);
+    expect(batch.extensionIds).toEqual(["imessage"]);
+    expect(batch.testFileCount).toBe(files.length);
+    expect(batch.planGroups).toEqual([
+      expect.objectContaining({
+        config: "test/vitest/vitest.extension-database-workers.config.ts",
+        roots: ["extensions/imessage/src/approval-reactions.persistence.test.ts"],
+        extensionIds: ["imessage"],
+        testFileCount: 1,
+      }),
+      expect.objectContaining({
+        config: "test/vitest/vitest.extension-imessage.config.ts",
+        roots: ["extensions/imessage"],
+        extensionIds: ["imessage"],
+        testFileCount: files.length - 1,
+      }),
+    ]);
+    expect(listExtensionTestFilesForRoots(batch.planGroups[0]!.roots)).toEqual([
+      "extensions/imessage/src/approval-reactions.persistence.test.ts",
+    ]);
+    const shards = createExtensionTestShards({ extensionIds: ["imessage"], shardCount: 2 });
+    expect(shards).toHaveLength(1);
+    expect(shards[0]?.planGroups).toEqual(batch.planGroups);
+  });
+
   it.each([
     {
       name: "Matrix",

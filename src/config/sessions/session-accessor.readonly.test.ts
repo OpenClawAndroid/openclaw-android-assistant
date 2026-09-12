@@ -187,6 +187,9 @@ describe("session accessor readonly listing", () => {
       ["bad-json", 15],
       ["bad-timestamp", 16],
       ["ordinary:internal-session-effects:visible", 5],
+      ["internal-session-effects", 4],
+      ["internal-session-effects-extra:visible", 3],
+      ["internal-session-effects:hidden:extra", 998],
       ["internal-session-effects:hidden", 999],
     ] as const) {
       replaceSessionEntrySync(
@@ -225,6 +228,8 @@ describe("session accessor readonly listing", () => {
       "agent:main:tie-a",
       "agent:main:tie-b",
       "agent:main:ordinary:internal-session-effects:visible",
+      "agent:main:internal-session-effects",
+      "agent:main:internal-session-effects-extra:visible",
       "agent:main:zero",
     ];
     const options = { recentLimit: 3, agentIds: [scope.agentId] };
@@ -237,7 +242,7 @@ describe("session accessor readonly listing", () => {
         .toSorted(),
     ).toEqual(expectedKeys.toSorted());
     const summary = readSessionStoreSummaryReadOnly(scope, options);
-    expect(summary.count).toBe(5);
+    expect(summary.count).toBe(7);
     expect(summary.recent.map(({ sessionKey }) => sessionKey)).toEqual(expectedKeys.slice(0, 3));
     expect(summary.recent[0]?.entry).toMatchObject({
       sessionId: "pending-updated",
@@ -246,9 +251,9 @@ describe("session accessor readonly listing", () => {
     expectDefined(summary.recent[0], "recent pending session").entry.label = "caller-owned";
     expect(readSessionStoreSummaryReadOnly(scope, options).recent[0]?.entry.label).toBe("fresh");
     expect(readSessionStoreSummaryReadOnly(scope, { ...options, recentLimit: 0 })).toEqual({
-      count: 5,
+      count: 7,
       recent: [],
-      byAgent: new Map([[scope.agentId, { count: 5, recent: [] }]]),
+      byAgent: new Map([[scope.agentId, { count: 7, recent: [] }]]),
     });
 
     const retainedScope = { ...scope, sessionKey: "agent:main:retained" };

@@ -143,6 +143,9 @@ export function buildComputerToolDescription(
     advertisesAction(capabilities, "screenshot")
       ? "`screenshot` and `wait` capture the desktop and return frameId; they do not accept window or browser targets."
       : "",
+    hasWindowState && advertisesAction(capabilities, "list_windows")
+      ? "Use `list_windows` to obtain windowRef."
+      : "",
     hasWindowState && hasImageObservation && hasAccessibilityObservation
       ? "Observe first with `get_window_state` using windowRef: it returns the window image, accessibility, and observationId for window input; ground the target on both image and accessibility."
       : hasWindowState
@@ -151,6 +154,11 @@ export function buildComputerToolDescription(
             ...(hasAccessibilityObservation ? ["accessibility"] : []),
           ].join(" and ")} data.`
         : "",
+    hasWindowState &&
+    hasAccessibilityObservation &&
+    advertisesAction(capabilities, "get_accessibility_tree")
+      ? "Use `get_accessibility_tree` for unfiltered desktop discovery. For a window subtree or `query`, `depth`, and `maxElements` filters, use `get_window_state` with `windowRef`."
+      : "",
     targetOrder.length > 0 ? `Target order: ${targetOrder.join(" > ")}.` : "",
     hasWindowPixelTarget
       ? "Window inputs follow `details.coordinateSpace`: `image-pixels` uses the delivered image; accessibility bounds retain provider-native units."

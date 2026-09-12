@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import fsp from "node:fs/promises";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import type { NodeWorkerWorkspaceExecResult } from "../../worker/node-workspace-protocol.js";
+import {
+  NODE_WORKER_WORKSPACE_STDOUT_MAX_BYTES,
+  type NodeWorkerWorkspaceExecResult,
+} from "../../worker/node-workspace-protocol.js";
 import {
   NODE_WORKSPACE_EMPTY_MANIFEST_REF,
   type NodeWorkerWorkspaceTransferInput,
@@ -32,8 +35,11 @@ import {
 } from "./workspace-manifest.js";
 import { createWorkerWorkspaceQuiescence } from "./workspace-quiescence.js";
 import { workerWorkspaceTransferPaths } from "./workspace-result-staging.js";
+import { captureRemoteWorkspaceManifest } from "./workspace-sync-helpers.js";
 
 const workspaceLog = createSubsystemLogger("gateway/worker-workspace");
+// Leave room for the manifest reference and bounded numeric metrics in the result envelope.
+const NODE_WORKSPACE_HASH_MEMO_BYTES = NODE_WORKER_WORKSPACE_STDOUT_MAX_BYTES - 4 * 1024;
 
 export type NodeWorkerWorkspaceBinding = {
   source:
@@ -144,7 +150,7 @@ export function createNodeWorkerWorkspaceActions(params: {
   const reconcileWorkspace = (request: WorkerWorkspaceReconcileRequest) =>
     runInstrumentedWorkspaceReconcile((metrics) =>
       request.source.kind === "repository"
-        ? reconcileRepository(request)
+        ? reconcileRepository(request, metrics)
         : reconcileWorkspaceRun(
             {
               remoteWorkspaceDir: request.remoteWorkspaceDir,
@@ -156,7 +162,10 @@ export function createNodeWorkerWorkspaceActions(params: {
             metrics,
           ),
     );
-  const reconcileRepository = async (request: WorkerWorkspaceReconcileRequest) => {
+  const reconcileRepository = async (
+    request: WorkerWorkspaceReconcileRequest,
+    metrics: WorkspaceReconcileMetrics,
+  ) => {
     if (request.source.kind !== "repository") {
       throw new Error("Repository checkpoint source is required");
     }
@@ -181,11 +190,18 @@ export function createNodeWorkerWorkspaceActions(params: {
       );
       try {
         const verifyStable = async () => {
-          const observed = await workspace.captureManifest(
-            request.remoteWorkspaceDir,
-            uploaded.base.baseCommit,
-            uploaded.currentManifestRef,
-          );
+          const observed = await captureRemoteWorkspaceManifest({
+            runWorkspaceCommand: exec,
+            remoteWorkspaceDir: request.remoteWorkspaceDir,
+            baseCommit: uploaded.base.baseCommit,
+            priorManifestDigests: [
+              uploaded.currentManifestRef.slice(7),
+              uploaded.baseManifestRef.slice(7),
+            ],
+            hashMemo: placementHashMemo,
+            metrics,
+            maxHashMemoBytes: NODE_WORKSPACE_HASH_MEMO_BYTES,
+          });
           if (observed !== uploaded.currentManifestRef) {
             throw new Error("Repository workspace changed during checkpoint capture");
           }
@@ -318,11 +334,15 @@ export function createNodeWorkerWorkspaceActions(params: {
     try {
       let expectedRemoteRef = uploaded.currentManifestRef;
       const verifyStable = async () => {
-        const observed = await workspace.captureManifest(
-          request.remoteWorkspaceDir,
-          uploaded.base.baseCommit,
-          expectedRemoteRef,
-        );
+        const observed = await captureRemoteWorkspaceManifest({
+          runWorkspaceCommand: exec,
+          remoteWorkspaceDir: request.remoteWorkspaceDir,
+          baseCommit: uploaded.base.baseCommit,
+          priorManifestDigests: [expectedRemoteRef.slice(7), uploaded.baseManifestRef.slice(7)],
+          hashMemo: placementHashMemo,
+          metrics,
+          maxHashMemoBytes: NODE_WORKSPACE_HASH_MEMO_BYTES,
+        });
         if (observed !== expectedRemoteRef) {
           throw new Error("Cloud workspace changed during final reconciliation");
         }

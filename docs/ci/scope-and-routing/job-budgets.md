@@ -27,6 +27,9 @@ durations must not be summed into wall time.
 These receipts do not establish transform-cache hits.
 Tooling stripes install Go only when their selected files include the docs
 translation test; historical whole-config plans retain their existing setup.
+The workflow pins the runner's Go version so frozen targets cannot select a
+different compiler. Updates keep this pin aligned with the current translation
+module's preferred toolchain and both Testbox bootstrap workflows.
 
 Shell-heavy macOS signing and elevation cases admit up to three cases per file,
 capped at Node's available parallelism. Independent checkout fixture tables

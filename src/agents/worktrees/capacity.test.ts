@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import * as gitExec from "../../infra/git-exec.js";
+import * as commandExec from "../../process/exec.js";
 import { estimateWorktreeGitBytes } from "./capacity.js";
 import { runGit } from "./git.js";
 
@@ -78,40 +79,47 @@ describe("worktree Git size estimates", () => {
         await git(clone, "config", "extensions.partialclone", "origin");
         await git(clone, "config", "--unset", "remote.origin.promisor");
       }
-      const commandSpy = vi.spyOn(gitExec, "executeGitCommand");
+      const commandSpy = vi.spyOn(gitExec, "executeGitCommandBytes");
+      const bufferedSpy = vi.spyOn(commandExec, "runCommandBuffered");
       await expect(estimateWorktreeGitBytes(clone, commit)).resolves.toBe(16_384);
       const fetches = commandSpy.mock.calls.filter(([, args]) => args[0] === "fetch");
-      expect(fetches).toHaveLength(1);
-      expect(fetches[0]).toEqual([
-        clone,
-        [
-          "fetch",
-          "origin",
-          "--no-tags",
-          "--no-write-fetch-head",
-          "--recurse-submodules=no",
-          "--stdin",
-        ],
-        expect.objectContaining({ timeoutMs: 300_000, input: `${missing.join("\n")}\n` }),
+      expect(fetches.length).toBe(1);
+      const [fetchRoot, fetchArgs, fetchOptions] = fetches[0]!;
+      expect(fetchRoot).toBe(clone);
+      expect(fetchArgs).toEqual([
+        "fetch",
+        "origin",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--recurse-submodules=no",
+        "--stdin",
       ]);
+      expect(fetchOptions?.timeoutMs).toBe(300_000);
+      const input = fetchOptions?.input;
       expect(
-        commandSpy.mock.calls.find(([, args]) => args[0] === "ls-tree")?.[2]?.env,
-      ).toMatchObject({
-        GIT_NO_LAZY_FETCH: "1",
-      });
+        typeof input === "string"
+          ? input
+          : input === undefined
+            ? undefined
+            : Buffer.from(input.buffer, input.byteOffset, input.byteLength).toString("utf8"),
+      ).toBe(`${missing.join("\n")}\n`);
+      expect(
+        bufferedSpy.mock.calls.find(([argv]) => argv[0] === "git" && argv.includes("ls-tree"))?.[1]
+          ?.env?.GIT_NO_LAZY_FETCH,
+      ).toBe("1");
       commandSpy.mockClear();
       await expect(estimateWorktreeGitBytes(clone, commit)).resolves.toBe(16_384);
-      expect(commandSpy.mock.calls.filter(([, args]) => args[0] === "fetch")).toHaveLength(0);
+      expect(commandSpy.mock.calls.filter(([, args]) => args[0] === "fetch").length).toBe(0);
     },
   );
 
   it("explains missing objects when no promisor remote can repair the clone", async () => {
     const { clone, commit } = await partialClone();
     await git(clone, "config", "--unset", "remote.origin.promisor");
-    const commandSpy = vi.spyOn(gitExec, "executeGitCommand");
+    const commandSpy = vi.spyOn(gitExec, "executeGitCommandBytes");
     await expect(estimateWorktreeGitBytes(clone, commit)).rejects.toThrow(
       `Repository is missing 2 objects for ${commit}; fetch or repair the clone.`,
     );
-    expect(commandSpy.mock.calls.filter(([, args]) => args[0] === "fetch")).toHaveLength(0);
+    expect(commandSpy.mock.calls.filter(([, args]) => args[0] === "fetch").length).toBe(0);
   });
 });

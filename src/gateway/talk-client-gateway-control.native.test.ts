@@ -1,14 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
-import {
-  createTalkClientGatewayControlOwner,
-  createTalkRealtimeRunControlOwner,
-} from "./talk-client-gateway-control.js";
+import { createTalkClientGatewayControlOwner } from "./talk-client-gateway-control.js";
 import {
   controlBridge,
   controlContext,
   sessionTarget,
 } from "./talk-client-gateway-control.test-support.js";
+import { createTalkRealtimeRunControlOwner } from "./talk-realtime-run-control.js";
 
 const statusResult = {
   ok: true,

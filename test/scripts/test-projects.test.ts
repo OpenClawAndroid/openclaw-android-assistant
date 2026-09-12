@@ -3315,6 +3315,13 @@ describe("scripts/test-projects changed-target routing", () => {
     expect(plans).toEqual(listExpectedFullExtensionRunPlans());
   });
 
+  it("keeps the top-level extensions watch target on its aggregate owner", () => {
+    expectSingleVitestRunPlan(buildVitestRunPlans(["--watch", "extensions"]), {
+      config: "test/vitest/vitest.full-extensions.config.ts",
+      watchMode: true,
+    });
+  });
+
   it("bounds an explicit Telegram config target across process lifetimes", () => {
     const config = "test/vitest/vitest.extension-telegram.config.ts";
     const plans = buildVitestRunPlans([config], process.cwd());

@@ -49,7 +49,7 @@ function nestedHistoryMessage(
 }
 
 suite.define(() => {
-  it("shows child work and its failure before disclosure, with details surviving reload", async () => {
+  it("keeps failed child diagnostics behind disclosure, including after reload", async () => {
     const artifactDir = createControlUiE2eArtifactDir("chat-nested-tool-presentation");
     await suite.withPage(
       { viewport: { width: 1280, height: 900 }, locale: "en-US" },
@@ -129,9 +129,10 @@ suite.define(() => {
         await page.screenshot({ path: path.join(artifactDir, "01-collapsed.png") });
         expect(await summary.getAttribute("aria-expanded")).toBe("false");
         expect(await summary.textContent()).toContain("Ran a command, read a file");
-        const failure = work.locator(".chat-tool-failure", { hasText: "gh: command not found" });
+        const failure = summary.getByText("1 failed", { exact: true });
         expect(await failure.isVisible()).toBe(true);
-        expect(await failure.textContent()).toContain("Sign in to GitHub");
+        expect(await work.textContent()).not.toContain("gh: command not found");
+        expect(await work.textContent()).not.toContain("Sign in to GitHub");
         await summary.click();
         const activityBody = work.locator(".chat-activity-group__body");
         const wrapper = activityBody.locator(".chat-tool-msg-summary", {
@@ -144,6 +145,7 @@ suite.define(() => {
           hasText: "Sign in to GitHub",
         });
         await login.waitFor();
+        expect(await activityBody.getByText("gh: command not found").count()).toBe(0);
         await login.click();
         await activityBody.getByText(command, { exact: true }).first().waitFor();
         expect(
@@ -160,12 +162,14 @@ suite.define(() => {
         expect(await summary.getAttribute("aria-expanded")).toBe("false");
         expect(await summary.textContent()).toContain("Ran a command, read a file");
         expect(await failure.isVisible()).toBe(true);
+        expect(await work.textContent()).not.toContain("gh: command not found");
         await page.screenshot({ path: path.join(artifactDir, "03-reloaded.png") });
         await page.emulateMedia({ reducedMotion: "reduce" });
         await page.setViewportSize({ width: 390, height: 844 });
         await page.locator('.shell-nav[aria-hidden="true"]').waitFor({ state: "attached" });
         await failure.waitFor();
         expect(await failure.isVisible()).toBe(true);
+        expect(await work.textContent()).not.toContain("gh: command not found");
         await page.screenshot({
           path: path.join(artifactDir, "04-mobile.png"),
           animations: "disabled",

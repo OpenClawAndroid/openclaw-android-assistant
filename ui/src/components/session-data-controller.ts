@@ -172,6 +172,9 @@ export class SessionDataController implements ReactiveController, SessionCatalog
 
   expandedAgentId = (): string => this.host.expandedAgentId();
 
+  sessionCatalogIdsWithoutVisibleRows = (): readonly string[] =>
+    this.host.sessionCatalogIdsWithoutVisibleRows();
+
   readonly requestSessionDataUpdate = () => this.host.requestUpdate();
 
   sessionListQuery = (agentId: string) => sidebarSessionListQuery(this.host, agentId);

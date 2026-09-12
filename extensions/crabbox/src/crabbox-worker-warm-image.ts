@@ -257,7 +257,7 @@ export function createCrabboxWarmImageManager(dependencies: {
     // whole profile has no images, allocations, or deletion obligations left.
     for (const generation of ["previous", "image"] as const) {
       for (const { key } of candidates) {
-        if (openStore().entries().length < WARM_IMAGE_MAX_ENTRIES) {
+        if ((openStore().count?.() ?? openStore().entries().length) < WARM_IMAGE_MAX_ENTRIES) {
           return;
         }
         const remaining = () => deadline - Date.now();
@@ -273,7 +273,7 @@ export function createCrabboxWarmImageManager(dependencies: {
         }
       }
     }
-    if (openStore().entries().length >= WARM_IMAGE_MAX_ENTRIES) {
+    if ((openStore().count?.() ?? openStore().entries().length) >= WARM_IMAGE_MAX_ENTRIES) {
       throw new Error(
         "Crabbox warm-image profile capacity is full; stop outstanding workers or resolve cleanup with openclaw crabbox warm-images before retrying.",
       );

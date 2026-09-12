@@ -576,6 +576,8 @@ export async function gatherDispatchRequest(
     notePreparedSession,
     resolvePreparedTranscriptBinding,
     sessionAgentId,
+    dispatchOperationSessionKey,
+    operationSessionStoreEntry,
     noteRunVerbosity: verboseProgress.noteRunVerbosity,
     shouldEmitVerboseProgress,
     shouldEmitFullVerboseProgress,

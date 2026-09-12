@@ -209,58 +209,98 @@ describe("Doctor retired plugin install config", () => {
     expect(JSON.parse(fs.readFileSync(configPath, "utf8")).plugins).not.toHaveProperty("installs");
   }, 90_000);
 
-  it("preserves enabled custom-path plugin settings before stale-config repair", async () => {
-    const { root, stateDir, configPath, env, config } = await createDoctorFixture();
-    const pluginDir = path.join(root, "custom-plugin");
-    fs.mkdirSync(pluginDir);
-    fs.writeFileSync(
-      path.join(pluginDir, "package.json"),
-      JSON.stringify({
-        name: "migration-proof-plugin",
-        version: "1.0.0",
-        type: "module",
-        openclaw: { extensions: ["./index.js"] },
-      }),
-    );
-    fs.writeFileSync(
-      path.join(pluginDir, "openclaw.plugin.json"),
-      JSON.stringify({
-        id: "migration-proof-plugin",
-        configSchema: {
-          type: "object",
-          properties: { sentinel: { type: "string" } },
-          additionalProperties: false,
-        },
-      }),
-    );
-    fs.writeFileSync(
-      path.join(pluginDir, "index.js"),
-      'export default { id: "migration-proof-plugin", register() {} };\n',
-    );
-    const legacy = { source: "path" as const, sourcePath: pluginDir, installPath: pluginDir };
-    const entry = { enabled: true, config: { sentinel: "preserved" } };
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify({
-        ...config,
-        plugins: {
-          enabled: true,
-          entries: { "migration-proof-plugin": entry },
-          installs: { "migration-proof-plugin": legacy },
-        },
-      }),
-    );
-    const result = runBuiltRuntime(runtimeRoot, env, doctorArgs, 60_000);
-    const output = `${result.stdout}\n${result.stderr}`;
-    expect(result.status, output).toBe(0);
-    const repaired = JSON.parse(fs.readFileSync(configPath, "utf8")) as OpenClawConfig;
-    expect(repaired.plugins, output).not.toHaveProperty("installs");
-    expect(repaired.plugins?.entries?.["migration-proof-plugin"], output).toEqual(entry);
-    clearLoadInstalledPluginIndexInstallRecordsCache();
-    expect(
-      readPersistedInstalledPluginIndexInstallRecords({ stateDir, env })?.[
-        "migration-proof-plugin"
-      ],
-    ).toEqual(legacy);
-  }, 90_000);
+  it.each([
+    { mode: "doctor", invalid: false },
+    { mode: "startup", invalid: false },
+    { mode: "startup", invalid: true },
+  ])(
+    "validates enabled record-only plugin settings during $mode repair, invalid=$invalid",
+    async ({ mode, invalid }) => {
+      const { root, stateDir, configPath, env, config } = await createDoctorFixture();
+      const pluginDir = path.join(root, "custom-plugin");
+      fs.mkdirSync(pluginDir);
+      fs.writeFileSync(
+        path.join(pluginDir, "package.json"),
+        JSON.stringify({
+          name: "migration-proof-plugin",
+          version: "1.0.0",
+          type: "module",
+          openclaw: { extensions: ["./index.js"] },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(pluginDir, "openclaw.plugin.json"),
+        JSON.stringify({
+          id: "migration-proof-plugin",
+          configSchema: {
+            type: "object",
+            properties: { sentinel: { type: "string" } },
+            additionalProperties: false,
+          },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(pluginDir, "index.js"),
+        'export default { id: "migration-proof-plugin", register() {} };\n',
+      );
+      const legacy = { source: "path" as const, sourcePath: pluginDir, installPath: pluginDir };
+      const entry = { enabled: true, config: { sentinel: invalid ? 42 : "preserved" } };
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          ...config,
+          plugins: {
+            enabled: true,
+            entries: { "migration-proof-plugin": entry },
+            installs: { "migration-proof-plugin": legacy },
+          },
+        }),
+      );
+      const original = fs.readFileSync(configPath, "utf8");
+      const result =
+        mode === "doctor"
+          ? runBuiltRuntime(runtimeRoot, env, doctorArgs, 60_000)
+          : await runIsolatedModuleScript(
+              env,
+              `
+        const { runDoctorConfigPreflight } = await import(${JSON.stringify(resolveRuntimeWorkerUrl(doctorConfigRuntimeEntrypoints.preflight).href)});
+        let refused = false;
+        try {
+          const result = await runDoctorConfigPreflight({
+            migrateLegacyConfig: false,
+            requireStartupMigrationCheckpoint: true,
+            skipPristineStartupStateMigrations: true,
+          });
+          if (!result.snapshot.valid) throw new Error("startup config invalid");
+        } catch (error) {
+          if (!${invalid} || error.code !== 78) throw error;
+          refused = true;
+        }
+        if (refused !== ${invalid}) throw new Error("unexpected startup admission");
+      `,
+              { timeoutMs: 60_000 },
+            );
+      const output = `${result.stdout}\n${result.stderr}`;
+      if ("status" in result) {
+        expect(result.status, output).toBe(0);
+      }
+      clearLoadInstalledPluginIndexInstallRecordsCache();
+      if (invalid) {
+        expect(fs.readFileSync(configPath, "utf8"), output).toBe(original);
+        expect(fs.existsSync(`${configPath}.bak`)).toBe(false);
+        expect(readPersistedInstalledPluginIndexInstallRecords({ stateDir, env })).toEqual({});
+        return;
+      }
+      const repaired = JSON.parse(fs.readFileSync(configPath, "utf8")) as OpenClawConfig;
+      expect(repaired.plugins, output).not.toHaveProperty("installs");
+      expect(repaired.plugins?.entries?.["migration-proof-plugin"], output).toEqual(entry);
+      clearLoadInstalledPluginIndexInstallRecordsCache();
+      expect(
+        readPersistedInstalledPluginIndexInstallRecords({ stateDir, env })?.[
+          "migration-proof-plugin"
+        ],
+      ).toEqual(legacy);
+    },
+    90_000,
+  );
 });

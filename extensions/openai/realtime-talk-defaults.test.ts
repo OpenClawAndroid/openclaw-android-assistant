@@ -32,6 +32,27 @@ describe("OpenAI Talk account defaults", () => {
   afterEach(restoreTestEnvironment);
 
   it.each([
+    { name: "fresh", config: {} },
+    { name: "existing", config: { voice: "cedar", interruptResponseOnInputAudio: false } },
+    { name: "explicit Live", config: { model: "gpt-live-1", voice: "marin" } },
+  ])("preserves provider defaults for $name Discord relay configuration", ({ config }) => {
+    const provider = buildOpenAIRealtimeVoiceProvider();
+    const resolved = resolveConfiguredRealtimeVoiceProvider({
+      providers: [provider],
+      configuredProviderId: provider.id,
+      providerConfigs: { openai: { apiKey: "test-api-key-platform", ...config } },
+      cfg: {},
+      surface: "gateway-relay",
+      autoRespondToAudio: true,
+      useProviderDefaultModel: true,
+    });
+    expect(resolved.providerConfig.model).toBe(config.model ?? provider.defaultModel);
+    if (config.voice) {
+      expect(resolved.providerConfig.voice).toBe(config.voice);
+    }
+  });
+
+  it.each([
     {
       account: "Platform profile",
       apiProfile: true,

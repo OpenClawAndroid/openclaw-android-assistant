@@ -42,6 +42,11 @@ export function createComputerToolSchema(
   targetScope: "paired" | "session" = "paired",
 ) {
   const supportsHold = actions.includes("hold_key");
+  const accessibilityTarget = actions.includes("get_window_state")
+    ? "get_window_state with windowRef"
+    : actions.includes("get_accessibility_tree")
+      ? "get_accessibility_tree"
+      : "Accessibility observations";
   return Type.Object({
     action: stringEnum(actions),
     ...(targetScope === "paired"
@@ -129,9 +134,29 @@ export function createComputerToolSchema(
       description:
         "Window-targeted input delivery. This does not turn desktop input into background window input.",
     }),
-    query: Type.Optional(Type.String()),
-    depth: Type.Optional(Type.Integer({ minimum: 0, maximum: 64 })),
-    maxElements: Type.Optional(Type.Integer({ minimum: 1, maximum: 2_000 })),
+    query: Type.Optional(
+      Type.String({
+        description:
+          `${accessibilityTarget}: text filter.` +
+          (actions.includes("get_browser_state")
+            ? " get_browser_state: requires snapshotFormat=semantic_v2 with browserRef and pageRef."
+            : ""),
+      }),
+    ),
+    depth: Type.Optional(
+      Type.Integer({
+        minimum: 0,
+        maximum: 64,
+        description: `${accessibilityTarget}: maximum tree depth.`,
+      }),
+    ),
+    maxElements: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: 2_000,
+        description: `${accessibilityTarget}: maximum returned elements.`,
+      }),
+    ),
     app: Type.Optional(Type.String()),
     value: Type.Optional(Type.String()),
     path: Type.Optional(

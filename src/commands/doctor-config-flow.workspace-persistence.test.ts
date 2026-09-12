@@ -79,13 +79,14 @@ describe("Doctor workspace persistence", () => {
     ["entries", true],
     ["list", true],
   ] as const)(
-    "persists per-agent migrations with explicit ownership (%s, update in progress: %s)",
-    async (shape, updateInProgress) => {
+    "persists per-agent migrations with explicit ownership (%s, writable update: %s)",
+    async (shape, writableUpdate) => {
       await withDoctorConfigPreflightHome(async (home) => {
         await withEnvAsync(
           {
             OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
-            OPENCLAW_UPDATE_IN_PROGRESS: updateInProgress ? "1" : undefined,
+            OPENCLAW_UPDATE_IN_PROGRESS: writableUpdate ? "1" : undefined,
+            OPENCLAW_UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE: writableUpdate ? "1" : undefined,
           },
           async () => {
             const entries = {

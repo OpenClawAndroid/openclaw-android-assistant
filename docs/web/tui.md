@@ -119,7 +119,7 @@ prompt, never in the composer.
 - Enter: send message
 - Shift+Enter or Ctrl+J: insert a newline without sending
 - Esc: collapse an open question prompt, or abort the active run from the composer
-- Ctrl+C: clear input (press twice to exit)
+- Ctrl+C: clear input and show an exit hint in the chat log (press twice to exit); the active run status stays visible
 - Ctrl+D: exit
 - Ctrl+L: model picker
 - Ctrl+G: agent picker

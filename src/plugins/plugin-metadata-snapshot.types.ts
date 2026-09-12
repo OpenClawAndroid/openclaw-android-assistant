@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { PluginInstallRecord } from "../config/types.plugins.js";
 import type { ChannelAccountKeyPolicy } from "../routing/account-lookup.js";
 import type { PluginDiscoveryResult } from "./discovery.types.js";
 import type { InstalledPluginIndex } from "./installed-plugin-index-types.js";
@@ -94,6 +95,7 @@ export type LoadPluginMetadataSnapshotParams = {
   stateDir?: string;
   env?: NodeJS.ProcessEnv;
   index?: InstalledPluginIndex;
+  installRecords?: Record<string, PluginInstallRecord>;
   pluginIds?: readonly string[];
   pluginIdScope?: PluginMetadataSnapshotPluginIdScope;
   preferPersisted?: boolean;

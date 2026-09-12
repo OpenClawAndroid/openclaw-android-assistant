@@ -46,14 +46,24 @@ function assertOwned(options: WorktreeFilesystemOptions) {
   options.commitGuard();
 }
 
+function gitOptions(options: WorktreeFilesystemOptions) {
+  return {
+    signal: options.signal,
+    beforeRun: () => assertOwned(options),
+    killProcessTree: true,
+  };
+}
+
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function indexPath(worktree: string): Promise<string> {
+async function indexPath(worktree: string, options: WorktreeFilesystemOptions): Promise<string> {
   return path.resolve(
     worktree,
-    normalizeGitPathForFilesystem(await requireGit(worktree, ["rev-parse", "--git-path", "index"])),
+    normalizeGitPathForFilesystem(
+      await requireGit(worktree, ["rev-parse", "--git-path", "index"], gitOptions(options)),
+    ),
   );
 }
 
@@ -72,9 +82,11 @@ async function checkoutKey(options: CheckoutOptions, commit: string): Promise<st
   ) {
     return undefined;
   }
-  const config = await requireGit(options.repoRoot, ["config", "--null", "--list"], {
-    signal: options.signal,
-  });
+  const config = await requireGit(
+    options.repoRoot,
+    ["config", "--null", "--list"],
+    gitOptions(options),
+  );
   for (const field of config.split("\0")) {
     const key = field.split("\n", 1)[0]?.toLowerCase() ?? "";
     if (
@@ -91,7 +103,7 @@ async function checkoutKey(options: CheckoutOptions, commit: string): Promise<st
     return undefined;
   }
   for (const variable of ["GIT_ATTR_GLOBAL", "GIT_ATTR_SYSTEM"]) {
-    const result = await runGit(options.repoRoot, ["var", variable], { signal: options.signal });
+    const result = await runGit(options.repoRoot, ["var", variable], gitOptions(options));
     // Older Git cannot report its attribute search paths: retain native checkout.
     if (
       result.code !== 0 ||
@@ -112,13 +124,13 @@ async function retireTemplate(
   const registered =
     (await worktreePathExists(record.repoRoot)) &&
     (await worktreePathExists(record.commonDir)) &&
-    (await listGitWorktrees(record.repoRoot, { signal: options.signal })).some(
+    (await listGitWorktrees(record.repoRoot, gitOptions(options))).some(
       (entry) => path.resolve(entry.path) === record.path,
     );
   assertOwned(options);
   if (registered) {
     await requireGit(record.repoRoot, ["worktree", "remove", "--force", record.path], {
-      signal: options.signal,
+      ...gitOptions(options),
       timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
     });
   } else {
@@ -156,7 +168,7 @@ async function prepareTemplate(options: CheckoutOptions) {
   const commit = await requireGit(
     options.repoRoot,
     ["rev-parse", "--verify", `${options.base}^{commit}`],
-    { signal: options.signal },
+    gitOptions(options),
   );
   const contentKey = await checkoutKey(options, commit);
   if (!contentKey) {
@@ -172,11 +184,11 @@ async function prepareTemplate(options: CheckoutOptions) {
     const status = await runGit(
       existing.path,
       ["status", "--porcelain", "--untracked-files=all", "--ignored"],
-      { signal: options.signal },
+      gitOptions(options),
     );
     const head =
       status.code === 0
-        ? await requireGit(existing.path, ["rev-parse", "HEAD"], { signal: options.signal })
+        ? await requireGit(existing.path, ["rev-parse", "HEAD"], gitOptions(options))
         : undefined;
     if (status.code === 0 && !status.stdout && head === commit) {
       assertOwned(options);
@@ -210,7 +222,7 @@ async function prepareTemplate(options: CheckoutOptions) {
   await backend.createTemplate(record.path, options);
   assertOwned(options);
   await requireGit(options.repoRoot, ["worktree", "add", "--detach", "--", record.path, commit], {
-    signal: options.signal,
+    ...gitOptions(options),
     timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
   });
   assertOwned(options);
@@ -241,7 +253,7 @@ export async function addManagedWorktree(options: CheckoutOptions): Promise<GitR
       options.destination,
       options.base,
     ],
-    { signal: options.signal, timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS },
+    { ...gitOptions(options), timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS },
   );
   if (added.code !== 0 || !template) {
     return added;
@@ -250,10 +262,8 @@ export async function addManagedWorktree(options: CheckoutOptions): Promise<GitR
   let marker: Buffer | undefined;
   try {
     marker = await fs.readFile(markerPath);
-    const destinationIndex = await indexPath(options.destination);
-    const head = await requireGit(options.destination, ["rev-parse", "HEAD"], {
-      signal: options.signal,
-    });
+    const destinationIndex = await indexPath(options.destination, options);
+    const head = await requireGit(options.destination, ["rev-parse", "HEAD"], gitOptions(options));
     if (head !== template.record.sourceCommit) {
       throw new Error("worktree base moved during template preparation");
     }
@@ -264,14 +274,27 @@ export async function addManagedWorktree(options: CheckoutOptions): Promise<GitR
     await template.backend.cloneTemplate(template.record.path, options.destination, options);
     assertOwned(options);
     await fs.writeFile(markerPath, marker);
-    const sourceIndex = await indexPath(template.record.path);
+    const sourceIndex = await indexPath(template.record.path, options);
     assertOwned(options);
-    await fs.copyFile(sourceIndex, destinationIndex, constants.COPYFILE_FICLONE);
-    // Snapshot backends preserve file identity. Git validates its own cached stat
-    // data; a future backend with different inode semantics still remains correct.
+    let copied = false;
+    if (template.backend.id === "apfs") {
+      const { copyApfsCloneIndex } = await import("./checkout-apfs.js");
+      copied = await copyApfsCloneIndex(
+        template.record.path,
+        options.destination,
+        sourceIndex,
+        destinationIndex,
+        options,
+      );
+    }
+    if (!copied) {
+      assertOwned(options);
+      await fs.copyFile(sourceIndex, destinationIndex, constants.COPYFILE_FICLONE);
+    }
+    // Git validates every remaining stat mismatch and retains normal edit detection.
     assertOwned(options);
     await requireGit(options.destination, ["update-index", "--refresh"], {
-      signal: options.signal,
+      ...gitOptions(options),
       timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
     });
     return added;
@@ -289,19 +312,19 @@ export async function addManagedWorktree(options: CheckoutOptions): Promise<GitR
     assertOwned(options);
     log.warn(`worktree snapshot failed; using Git checkout: ${String(error)}`);
     const checkout = await runGit(options.destination, ["reset", "--hard", "HEAD"], {
-      signal: options.signal,
+      ...gitOptions(options),
       timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
     });
     if (checkout.code !== 0) {
       assertOwned(options);
-      await requireGit(options.repoRoot, ["worktree", "remove", "--force", options.destination], {
-        signal: options.signal,
-      });
+      await requireGit(
+        options.repoRoot,
+        ["worktree", "remove", "--force", options.destination],
+        gitOptions(options),
+      );
       if (options.branch) {
         assertOwned(options);
-        await requireGit(options.repoRoot, ["branch", "-D", options.branch], {
-          signal: options.signal,
-        });
+        await requireGit(options.repoRoot, ["branch", "-D", options.branch], gitOptions(options));
       }
     }
     return checkout.code === 0 ? added : checkout;

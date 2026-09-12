@@ -8,7 +8,7 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
-import type { TranscriptSessionDescriptor } from "./provider-types.js";
+import type { TranscriptSessionDescriptor, TranscriptUtterance } from "./provider-types.js";
 import { safeTranscriptPathSegment, transcriptSessionSelector, TranscriptsStore } from "./store.js";
 import { summarizeTranscripts } from "./summary.js";
 
@@ -210,23 +210,64 @@ describe("TranscriptsStore", () => {
   it("deduplicates exact retries but preserves same-id revisions", async () => {
     const { store } = createStore();
     const target = session();
-    const interim = { id: "utterance-1", text: "draft", final: false };
-    await store.writeSession(target);
-    await store.appendUtteranceForSession(target, interim);
-    await store.appendUtteranceForSession(target, interim);
-    const final = {
-      id: "utterance-1",
-      text: "final text",
-      final: true,
-    };
-    await store.appendUtteranceForSession(target, final);
-    await store.appendUtteranceForSession(target, interim);
-    await store.appendUtteranceForSession(target, final);
-
-    await expect(store.readUtterancesForSession(target)).resolves.toMatchObject([
+    const interim = { id: "utterance-1", text: "draft" };
+    const revisions: TranscriptUtterance[] = [
       interim,
-      { id: "utterance-1", text: "final text", final: true },
-    ]);
+      { ...interim, final: false },
+      { ...interim, final: true },
+      { ...interim, text: "draft\0revision" },
+      { ...interim, startedAt: "" },
+      { ...interim, startedAt: "2026-07-01T10:00:01.000Z" },
+      { ...interim, endedAt: "2026-07-01T10:00:02.000Z" },
+      { ...interim, speaker: { label: "" } },
+      { ...interim, speaker: { label: "Sam" } },
+      { ...interim, speaker: { id: "speaker-1", label: "Sam" } },
+      { ...interim, metadata: {} },
+      { ...interim, metadata: { language: "en", confidence: 1 } },
+      { ...interim, metadata: { confidence: 1, language: "en" } },
+    ];
+    await store.writeSession(target);
+    for (const revision of revisions) {
+      await store.appendUtteranceForSession(target, revision);
+      await store.appendUtteranceForSession(target, revision);
+    }
+    for (const revision of revisions) {
+      await store.appendUtteranceForSession(target, revision);
+    }
+    await expect(store.readUtterancesForSession(target)).resolves.toEqual(
+      revisions.map((revision) => Object.assign({ sessionId: target.sessionId }, revision)),
+    );
+
+    for (const other of [session("other"), session(target.sessionId, "2026-07-02T10:00:00.000Z")]) {
+      await store.writeSession(other);
+      await store.appendUtteranceForSession(other, interim);
+      await expect(store.readUtterancesForSession(other)).resolves.toEqual([
+        { ...interim, sessionId: other.sessionId },
+      ]);
+    }
+  });
+
+  it("does not treat SQLite's replacement of lone surrogates as an exact retry", async () => {
+    const { store } = createStore();
+    const target = session();
+    await store.writeSession(target);
+    const revisions: TranscriptUtterance[] = [
+      { id: "text", text: "\ud800" },
+      { id: "start", text: "draft", startedAt: "\ud800" },
+      { id: "end", text: "draft", endedAt: "\ud800" },
+      { id: "speaker-id", text: "draft", speaker: { id: "\ud800", label: "Sam" } },
+      { id: "speaker-label", text: "draft", speaker: { label: "\ud800" } },
+    ];
+    for (const revision of revisions) {
+      await store.appendUtteranceForSession(target, revision);
+      await store.appendUtteranceForSession(target, revision);
+    }
+    const stored = await store.readUtterancesForSession(target);
+    expect(stored.map((row) => row.id)).toEqual(revisions.flatMap((row) => [row.id, row.id]));
+    for (const row of stored) {
+      await store.appendUtteranceForSession(target, row);
+    }
+    await expect(store.readUtterancesForSession(target)).resolves.toEqual(stored);
   });
 
   it.each(["standup", "2026-07-03/raw-id"])(

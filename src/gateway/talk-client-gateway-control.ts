@@ -1,23 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { GATEWAY_CLIENT_CAPS } from "../../packages/gateway-protocol/src/client-info.js";
 import type { ReplyToolAuthorityOverlay } from "../auto-reply/reply/reply-run-registry.contracts.js";
-import { racePromiseWithAbortSignal } from "../infra/abort-signal.js";
 import { readErrorName } from "../infra/errors.js";
-import { BoundedSerialQueue } from "../shared/bounded-serial-queue.js";
 import {
   REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
   resolveRealtimeVoiceAgentConsultToolsAllow,
 } from "../talk/agent-consult-tool.js";
-import { REALTIME_VOICE_AGENT_CONTROL_FAILURE_MESSAGE } from "../talk/agent-run-control-shared.js";
 import {
   buildRealtimeVoiceAgentCancelProviderResult,
-  buildRealtimeVoiceAgentControlSpeechMessage,
   controlRealtimeVoiceAgentRun,
   parseRealtimeVoiceAgentControlToolArgs,
   REALTIME_VOICE_AGENT_CONTROL_TOOL_NAME,
-  resolveRealtimeVoiceAgentControlIntent,
 } from "../talk/agent-run-control.js";
-import type { RealtimeVoiceAgentControlResult } from "../talk/agent-run-control.js";
+import { createClientVoiceConfirmationReadiness } from "../talk/client-voice-confirmation-readiness.js";
+import type { ClientVoiceConfirmationUtteranceContext } from "../talk/client-voice-confirmation.js";
 import type {
   RealtimeVoiceAgentConsultRunner,
   RealtimeVoiceCloseDisposition,
@@ -42,6 +38,10 @@ import type {
   GatewayControlCommands,
   GatewayControlOwner,
 } from "./talk-client-gateway-control.types.js";
+import {
+  createRealtimeControlQueue,
+  createTalkRealtimeRunControlOwner,
+} from "./talk-realtime-run-control.js";
 import { registerTalkConnectionCleanup } from "./talk-session-registry.js";
 import type { PreparedTalkSessionTarget } from "./talk-session-target.types.js";
 
@@ -49,7 +49,6 @@ const owners = new Map<string, GatewayControlOwner>();
 const pendingOwners = new Set<GatewayControlOwner>();
 
 const REALTIME_VOICE_CONTEXT_MAX_UTF8_BYTES = 8_000;
-const REALTIME_CONTROL_MAX_PENDING = 8;
 
 export type TalkAgentConsultAuthority = {
   senderIsOwner: boolean;
@@ -76,111 +75,6 @@ export function resolveTalkAgentConsultAuthority(
     senderIsOwner: false,
     ...(replyCaller ? { replyCaller } : {}),
     toolsAllow: resolveRealtimeVoiceAgentConsultToolsAllow("safe-read-only"),
-  };
-}
-
-function createRealtimeControlQueue(): BoundedSerialQueue {
-  return new BoundedSerialQueue({
-    maxPendingCount: REALTIME_CONTROL_MAX_PENDING,
-    maxPendingWeight: REALTIME_CONTROL_MAX_PENDING,
-  });
-}
-
-export function createTalkRealtimeRunControlOwner(params: {
-  controlSource?: "delegation" | "transcript";
-  supportsToolCalls?: boolean;
-  hasActiveRun: () => boolean;
-  prepare: (args: unknown) => () => Promise<RealtimeVoiceAgentControlResult>;
-  speak: (message: string) => void;
-  warn: (message: string) => void;
-}) {
-  const queue = createRealtimeControlQueue();
-  const enqueue = (
-    args: unknown,
-    options: {
-      ready?: () => Promise<void>;
-      onResult?: (result: RealtimeVoiceAgentControlResult) => void | Promise<void>;
-      onError?: (error: unknown) => void | Promise<void>;
-    } = {},
-  ): boolean => {
-    // Capture the owner (including absence) before any FIFO/readiness wait.
-    let execute: () => Promise<RealtimeVoiceAgentControlResult>;
-    try {
-      execute = params.prepare(args);
-    } catch (error) {
-      execute = async () => {
-        throw error;
-      };
-    }
-    const admission = queue.enqueue(
-      async () => {
-        let result: RealtimeVoiceAgentControlResult;
-        try {
-          await options.ready?.();
-          result = await execute();
-        } catch (error) {
-          if (!options.onError) {
-            throw error;
-          }
-          await options.onError(error);
-          return;
-        }
-        // Reply failures are transport failures, not another execution failure to answer twice.
-        await options.onResult?.(result);
-      },
-      { sealOnOverflow: false },
-    );
-    if (!admission.accepted) {
-      params.warn(`realtime Talk control queue rejected work: ${admission.reason}`);
-      return false;
-    }
-    void admission.completion.catch((error: unknown) => {
-      params.warn(`realtime Talk control failed: ${formatError(error)}`);
-    });
-    return true;
-  };
-  const handleInput = (
-    text: string,
-    respond: (message: string) => void,
-    ready?: () => Promise<void>,
-  ): "control" | "consult" => {
-    const intent = resolveRealtimeVoiceAgentControlIntent({ text });
-    const intrinsic = intent.mode === "status" || intent.mode === "cancel";
-    const allowIdle = params.controlSource === "delegation" || params.supportsToolCalls === false;
-    if (!intent.shouldAutoControl || (!params.hasActiveRun() && !(allowIdle && intrinsic))) {
-      return "consult";
-    }
-    const reply = (message: string) =>
-      respond(buildRealtimeVoiceAgentControlSpeechMessage(message));
-    if (
-      !enqueue(
-        { text, mode: intent.mode },
-        {
-          ready,
-          onResult: (result) => {
-            if (result.speak && !result.suppress && result.message.trim()) {
-              reply(result.message);
-            }
-          },
-          onError: () => reply(REALTIME_VOICE_AGENT_CONTROL_FAILURE_MESSAGE),
-        },
-      )
-    ) {
-      reply(
-        "OpenClaw's voice control queue is full. Please try again after the pending controls finish.",
-      );
-    }
-    return "control";
-  };
-  return {
-    enqueue,
-    handleDelegationInput: params.controlSource === "delegation" ? handleInput : undefined,
-    handleSpoken: (text: string, ready?: () => Promise<void>): boolean =>
-      params.controlSource !== "delegation" && handleInput(text, params.speak, ready) === "control",
-    close: () => {
-      queue.seal();
-      return queue.flush();
-    },
   };
 }
 
@@ -224,6 +118,7 @@ export function createTalkClientGatewayControlOwner(params: {
     entryId: string;
     role: "user" | "assistant";
     text: string;
+    confirmation?: ClientVoiceConfirmationUtteranceContext | null;
   }) => Promise<void>;
   flushTranscript: () => Promise<void>;
   closeLogicalSession: () => Promise<void>;
@@ -237,6 +132,11 @@ export function createTalkClientGatewayControlOwner(params: {
   const { signal } = lifetime;
   let transcriptSequence = 0;
   let acceptingProviderTranscripts = true;
+  const confirmationReadiness = createClientVoiceConfirmationReadiness({
+    agentId: params.sessionTarget.agentId,
+    voiceSessionId: params.voiceSessionId,
+    flushTranscript: params.flushTranscript,
+  });
   const entryPrefix = `gateway-${randomUUID()}`;
   const consultQueue = createRealtimeControlQueue();
   const consultControllers = new Map<
@@ -294,10 +194,7 @@ export function createTalkClientGatewayControlOwner(params: {
   const awaitProviderConsultReadiness = async (consultSignal: AbortSignal): Promise<void> => {
     assertActive();
     consultSignal.throwIfAborted();
-    await racePromiseWithAbortSignal(
-      params.flushTranscript(),
-      AbortSignal.any([signal, consultSignal]),
-    );
+    await confirmationReadiness.wait(consultSignal);
     // Keep accepted work detached, but reject pending admission if either owner
     // changed while transcript writes were draining.
     assertActive();
@@ -445,6 +342,7 @@ export function createTalkClientGatewayControlOwner(params: {
             () => awaitProviderConsultReadiness(delegatedSignal),
             assertActive,
             ownerBoundRequesterFinal,
+            "native-delegation",
           );
         }
         await awaitProviderConsultReadiness(delegatedSignal);
@@ -452,6 +350,7 @@ export function createTalkClientGatewayControlOwner(params: {
           { question: prompt },
           delegatedSignal,
           assertActive,
+          "native-delegation",
         );
       } finally {
         consultControllers.delete(consultId);
@@ -468,7 +367,7 @@ export function createTalkClientGatewayControlOwner(params: {
       revokeRequesterFinal: () => params.runAgentConsult.revokeRequesterFinal?.(),
       steer: params.runAgentConsult.steer
         ? async (request: Parameters<RealtimeVoiceAgentConsultRunner>[0]) => {
-            assertActive();
+            await awaitProviderConsultReadiness(request.signal ?? signal);
             return await params.runAgentConsult.steer!(request);
           }
         : undefined,
@@ -508,7 +407,12 @@ export function createTalkClientGatewayControlOwner(params: {
   };
 
   const handleTranscript = (role: "user" | "assistant", text: string, final: boolean): void => {
-    if (!acceptingProviderTranscripts || !text.trim() || (signal.aborted && !final)) {
+    if (!acceptingProviderTranscripts || (signal.aborted && !final)) {
+      return;
+    }
+    const userTranscript =
+      role === "user" ? confirmationReadiness.observeUserTranscript(text, final) : undefined;
+    if (!text.trim()) {
       return;
     }
     if (!signal.aborted) {
@@ -532,9 +436,20 @@ export function createTalkClientGatewayControlOwner(params: {
     }
     transcriptSequence += 1;
     const entryId = `${entryPrefix}-${transcriptSequence}`;
-    void params.appendTranscript({ entryId, role, text }).catch((error: unknown) => {
-      warn(`talk Gateway control transcript failed: ${formatError(error)}`);
-    });
+    void params
+      .appendTranscript({
+        entryId,
+        role,
+        text,
+        ...(role === "user" ? { confirmation: userTranscript?.confirmation ?? null } : {}),
+      })
+      .then(
+        () => userTranscript?.persisted(),
+        (error: unknown) => {
+          confirmationReadiness.fail(error);
+          warn(`talk Gateway control transcript failed: ${formatError(error)}`);
+        },
+      );
     if (role === "user" && !signal.aborted) {
       runControl.handleSpoken(text, params.flushTranscript);
     }
@@ -691,6 +606,7 @@ export function createTalkClientGatewayControlOwner(params: {
       // preserveRuns keeps accepted work alive, not a retired transport's presentation authority.
       params.runAgentConsult.revokeRequesterFinal?.();
       lifetime.abort(new Error("Realtime voice session closed"));
+      confirmationReadiness.close();
       return closing;
     },
   };

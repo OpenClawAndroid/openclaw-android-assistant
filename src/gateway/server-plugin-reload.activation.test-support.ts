@@ -48,7 +48,7 @@ export async function verifyPreparedSidecarRecovery(
   });
   let paused = false;
   const preparationError = new Error("later sidecar preparation failed");
-  fixture.runtime.runtimeState.gatewayLifetimeSidecars = [
+  fixture.runtime.runtimeState.gatewayLifetimeSidecars.publish(
     {
       stop: async () => {},
       preparePluginReload: () => {
@@ -67,7 +67,7 @@ export async function verifyPreparedSidecarRecovery(
         throw preparationError;
       },
     },
-  ];
+  );
   const manager = createRecoveryChannelManager(fixture);
   fixture.runtime.channelManager = manager;
   let stopping: Promise<void> | undefined;
@@ -90,7 +90,9 @@ export async function verifyPreparedSidecarRecovery(
     expect(start).not.toHaveBeenCalled();
     expect(signals).toHaveLength(1);
     expect(signals[0]?.aborted).toBe(mode === "aborted-predecessor");
-    expect(manager.getRuntimeSnapshot(channelId).channels[channelId]).toMatchObject({
+    expect(
+      manager.getRuntimeSnapshot({ channelId, inspectAccounts: false }).channels[channelId],
+    ).toMatchObject({
       running: true,
       connected: true,
       lifecycle: "ready",
@@ -263,18 +265,20 @@ export async function verifyIndependentPostCommitActivation(
     },
   });
   const resumed = vi.fn();
-  fixture.runtime.runtimeState.gatewayLifetimeSidecars = [0, 1].map((index) => ({
-    stop: async () => {},
-    preparePluginReload: () => ({
-      drain: async () => {},
-      resume: () => {
-        if (boundary === "sidecar" && index === 0) {
-          throw failure;
-        }
-        resumed(index);
-      },
-    }),
-  }));
+  fixture.runtime.runtimeState.gatewayLifetimeSidecars.publish(
+    ...[0, 1].map((index) => ({
+      stop: async () => {},
+      preparePluginReload: () => ({
+        drain: async () => {},
+        resume: () => {
+          if (boundary === "sidecar" && index === 0) {
+            throw failure;
+          }
+          resumed(index);
+        },
+      }),
+    })),
+  );
   if (boundary === "notification") {
     fixture.runtime.broadcast = () => {
       throw failure;
@@ -459,18 +463,20 @@ export async function verifyIndependentRollbackRestoration(
       }
     },
   });
-  fixture.runtime.runtimeState.gatewayLifetimeSidecars = [0, 1].map((index) => ({
-    stop: async () => {},
-    preparePluginReload: () => ({
-      drain: async () => {},
-      resume: () => {
-        resumed.push(index);
-        if (boundary === "services" && index === 0) {
-          throw sidecarFailure;
-        }
-      },
-    }),
-  }));
+  fixture.runtime.runtimeState.gatewayLifetimeSidecars.publish(
+    ...[0, 1].map((index) => ({
+      stop: async () => {},
+      preparePluginReload: () => ({
+        drain: async () => {},
+        resume: () => {
+          resumed.push(index);
+          if (boundary === "services" && index === 0) {
+            throw sidecarFailure;
+          }
+        },
+      }),
+    })),
+  );
   const manager = createRecoveryChannelManager(fixture);
   fixture.runtime.channelManager = manager;
   try {
@@ -492,13 +498,18 @@ export async function verifyIndependentRollbackRestoration(
         },
       });
       expect(
-        manager.getRuntimeSnapshot("healthy-restore").reloadingChannels?.has("healthy-restore"),
+        manager
+          .getRuntimeSnapshot({ channelId: "healthy-restore", inspectAccounts: false })
+          .reloadingChannels?.has("healthy-restore"),
       ).toBe(true);
       expect(starts).toEqual(["first-restore", "healthy-restore"]);
     } else {
       expect(result).toMatchObject({ cause: { errors: [expect.any(Error), failure] } });
       expect(starts).toEqual(["first-restore", "healthy-restore", "healthy-restore"]);
-      expect(manager.getRuntimeSnapshot("healthy-restore").reloadingChannels?.size ?? 0).toBe(0);
+      expect(
+        manager.getRuntimeSnapshot({ channelId: "healthy-restore", inspectAccounts: false })
+          .reloadingChannels?.size ?? 0,
+      ).toBe(0);
     }
     expect(fixture.siblingStart).toHaveBeenCalledOnce();
     expect(fixture.siblingStop).not.toHaveBeenCalled();

@@ -8,7 +8,6 @@ import {
   expectedOpenaiPluginCodexCatalogEntriesWithGpt55,
   expectCodexMissingAuthHint,
   importProviderRuntimeCatalogModule,
-  loadBundledPluginPublicSurface,
 } from "openclaw/plugin-sdk/provider-test-contracts";
 import type { ProviderPlugin } from "openclaw/plugin-sdk/provider-test-contracts";
 import { beforeEach, describe, it, vi } from "vitest";
@@ -61,12 +60,7 @@ vi.mock("openclaw/plugin-sdk/provider-catalog-runtime", async () => {
 export function describeOpenAIProviderCatalogContract() {
   const contractDepsPromise = (async () => {
     vi.resetModules();
-    const openaiPlugin = await loadBundledPluginPublicSurface<{
-      default: Parameters<typeof registerProviderPlugin>[0]["plugin"];
-    }>({
-      pluginId: "openai",
-      artifactBasename: "index.js",
-    });
+    const openaiPlugin = await import("../index.js");
     const openaiProviders = (
       await registerProviderPlugin({
         plugin: openaiPlugin.default,

@@ -815,9 +815,9 @@ describe("noteSecurityWarnings gateway exposure", () => {
   });
 
   it("keeps intentional Discord open groupPolicy below the update lint error threshold", async () => {
-    const { loadBundledPluginPublicSurface } =
-      await import("../plugin-sdk/test-helpers/public-surface-loader.js");
-    const { resolveDiscordAccount, discordPlugin } = await loadBundledPluginPublicSurface<{
+    const { loadBundledPluginFacade } =
+      await import("../test-utils/bundled-plugin-public-surface.js");
+    const { resolveDiscordAccount, discordPlugin } = await loadBundledPluginFacade<{
       discordPlugin: ChannelPlugin;
       resolveDiscordAccount: (params: {
         cfg: OpenClawConfig;

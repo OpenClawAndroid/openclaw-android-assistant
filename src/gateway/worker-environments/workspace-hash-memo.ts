@@ -190,13 +190,12 @@ export function selectWorkerWorkspaceHashMemoEntries(
   return selected.toSorted(compareIdentity);
 }
 
-export function serializeRemoteWorkspaceHashMemo(memo: WorkspaceHashMemo): string {
+export function serializeRemoteWorkspaceHashMemo(
+  memo: WorkspaceHashMemo,
+  maxBytes = MAX_WORKSPACE_HASH_MEMO_BYTES,
+): string {
   return JSON.stringify(
-    selectWorkerWorkspaceHashMemoEntries(
-      memo,
-      MAX_RECONCILIATION_ENTRIES,
-      MAX_WORKSPACE_HASH_MEMO_BYTES,
-    ),
+    selectWorkerWorkspaceHashMemoEntries(memo, MAX_RECONCILIATION_ENTRIES, maxBytes),
   );
 }
 

@@ -5,12 +5,12 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import type { AuthProfileStore } from "../agents/auth-profiles.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { loadBundledPluginPublicSurface } from "../plugin-sdk/test-helpers/public-surface-loader.js";
 import type {
   PluginOrigin,
   PluginWebFetchProviderEntry,
   PluginWebSearchProviderEntry,
 } from "../plugins/types.js";
+import { loadBundledPluginFacade } from "../test-utils/bundled-plugin-public-surface.js";
 import { getPath, setPathCreateStrict } from "./path-utils.js";
 
 const COVERAGE_WEB_PROVIDER_PLUGIN_IDS = vi.hoisted(() => ({
@@ -917,7 +917,7 @@ describe("secrets runtime target coverage", () => {
           async (channelId) =>
             [
               channelId,
-              await loadBundledPluginPublicSurface<object>({
+              await loadBundledPluginFacade<object>({
                 pluginId: channelId,
                 artifactBasename: "secret-contract-api.js",
               }),

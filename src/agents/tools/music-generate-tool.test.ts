@@ -11,6 +11,10 @@ import { formatAgentInternalEventsForPrompt } from "../internal-events.js";
 import { resetRecentMediaGenerationDuplicateGuardsForTests } from "../media-generation-task-status-shared.test-support.js";
 import * as musicGenerateBackground from "./media-generate-background.js";
 import { canonicalizeMediaGenerationTestConfig } from "./media-generation-config.test-support.js";
+import {
+  defineMediaGenerationCancellationTests,
+  defineMediaGenerationDuplicateTests,
+} from "./media-generation-lifecycle.test-support.js";
 import { createMusicGenerateTool as createMusicGenerateToolImpl } from "./music-generate-tool.js";
 
 function createMusicGenerateTool(
@@ -877,354 +881,87 @@ describe("createMusicGenerateTool", () => {
     ]);
   });
 
-  it.each([
-    { mode: "inline", agentSessionKey: undefined },
-    { mode: "detached", agentSessionKey: "agent:main:discord:direct:123" },
-  ])(
-    "does not start $mode music generation when its caller aborts during preparation",
-    async ({ agentSessionKey }) => {
-      taskExecutorMocks.createRunningTaskRun.mockReturnValue({ taskId: "task-music-aborted" });
-      const generateMusic = vi.spyOn(musicGenerationRuntime, "generateMusic");
-      const scheduleBackgroundWork = vi.fn();
-      const tool = expectMusicGenerateTool(
-        createMusicGenerateTool({
-          config: asConfig({
-            agents: {
-              defaults: { musicGenerationModel: { primary: "google/lyria-3-clip-preview" } },
-            },
-          }),
-          agentSessionKey,
-          requesterOrigin: { channel: "discord", to: "channel:1" },
-          scheduleBackgroundWork,
-        }),
-      );
-      const controller = new AbortController();
-      const abortReason = new Error("music requester cancelled");
-
-      const pending = tool.execute("call-music-aborted", { prompt: "a song" }, controller.signal);
-      controller.abort(abortReason);
-
-      await expect(pending).rejects.toBe(abortReason);
-      expect(taskExecutorMocks.createRunningTaskRun).not.toHaveBeenCalled();
-      expect(scheduleBackgroundWork).not.toHaveBeenCalled();
-      expect(generateMusic).not.toHaveBeenCalled();
+  defineMediaGenerationCancellationTests({
+    kind: "music",
+    tasks: taskExecutorMocks,
+    createTool: (options) => expectMusicGenerateTool(createMusicGenerateTool(options)),
+    requesterOrigin: { channel: "discord", to: "channel:1" },
+    references: ["https://example.test/first.png", "https://example.test/second.png"],
+    referenceSignal: "composed",
+    loadMedia: () => vi.spyOn(webMedia, "loadWebMedia"),
+    setup: (phase) => {
+      if (phase === "reference") {
+        vi.spyOn(musicGenerationRuntime, "listRuntimeMusicGenerationProviders").mockReturnValue([
+          {
+            id: "minimax",
+            defaultModel: "music-2.6",
+            models: ["music-2.6"],
+            capabilities: { edit: { enabled: true, maxInputImages: 2 } },
+            generateMusic: vi.fn(async () => {
+              throw new Error("not used");
+            }),
+          },
+        ]);
+        return {
+          primary: "minimax/music-2.6",
+          generate: vi.spyOn(musicGenerationRuntime, "generateMusic"),
+        };
+      }
+      const generate = vi.spyOn(musicGenerationRuntime, "generateMusic").mockResolvedValue({
+        provider: "google",
+        model: "lyria-3-clip-preview",
+        attempts: [],
+        ignoredOverrides: [],
+        tracks: [{ buffer: Buffer.from("music"), mimeType: "audio/mpeg", fileName: "music.mp3" }],
+      });
+      vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValue({
+        path: "/tmp/accepted-music.mp3",
+        id: "accepted-music.mp3",
+        size: 5,
+        contentType: "audio/mpeg",
+      });
+      return { primary: "google/lyria-3-clip-preview", generate };
     },
-  );
-
-  it("stops loading later music references when the caller aborts a pending reference", async () => {
-    vi.spyOn(musicGenerationRuntime, "listRuntimeMusicGenerationProviders").mockReturnValue([
-      {
-        id: "minimax",
-        defaultModel: "music-2.6",
-        models: ["music-2.6"],
-        capabilities: { edit: { enabled: true, maxInputImages: 2 } },
-        generateMusic: vi.fn(async () => {
-          throw new Error("not used");
-        }),
-      },
-    ]);
-    const generateMusic = vi.spyOn(musicGenerationRuntime, "generateMusic");
-    let releaseReference!: (value: Awaited<ReturnType<typeof webMedia.loadWebMedia>>) => void;
-    const firstReference = new Promise<Awaited<ReturnType<typeof webMedia.loadWebMedia>>>(
-      (resolve) => {
-        releaseReference = resolve;
-      },
-    );
-    const loadWebMedia = vi.spyOn(webMedia, "loadWebMedia").mockResolvedValue({
-      kind: "image",
-      buffer: Buffer.from("second-image"),
-      contentType: "image/png",
-    });
-    loadWebMedia.mockImplementationOnce(() => firstReference);
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({ taskId: "task-music-references" });
-    const scheduleBackgroundWork = vi.fn();
-    const tool = expectMusicGenerateTool(
-      createMusicGenerateTool({
-        config: asConfig({
-          agents: { defaults: { musicGenerationModel: { primary: "minimax/music-2.6" } } },
-        }),
-        workspaceDir: process.cwd(),
-        agentSessionKey: "agent:main:discord:direct:123",
-        requesterOrigin: { channel: "discord", to: "channel:1" },
-        scheduleBackgroundWork,
-      }),
-    );
-    const controller = new AbortController();
-    const abortReason = new Error("music requester cancelled while loading a reference");
-
-    const pending = tool.execute(
-      "call-music-references-aborted",
-      {
-        prompt: "a song with references",
-        images: ["https://example.test/first.png", "https://example.test/second.png"],
-      },
-      controller.signal,
-    );
-    await vi.waitFor(() => expect(loadWebMedia).toHaveBeenCalledOnce());
-    controller.abort(abortReason);
-    releaseReference({
-      kind: "image",
-      buffer: Buffer.from("first-image"),
-      contentType: "image/png",
-    });
-
-    await expect(pending).rejects.toBe(abortReason);
-    expect(loadWebMedia).toHaveBeenCalledOnce();
-    expect(taskExecutorMocks.createRunningTaskRun).not.toHaveBeenCalled();
-    expect(scheduleBackgroundWork).not.toHaveBeenCalled();
-    expect(generateMusic).not.toHaveBeenCalled();
-    const loadOptions = loadWebMedia.mock.calls[0]?.[1] as
-      | { requestInit?: { signal?: AbortSignal } }
-      | undefined;
-    expect(loadOptions?.requestInit?.signal?.aborted).toBe(true);
-    expect(loadOptions?.requestInit?.signal?.reason).toBe(abortReason);
   });
 
-  it("keeps an accepted detached music task running after its requester aborts", async () => {
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({ taskId: "task-music-accepted" });
-    const generateMusic = vi.spyOn(musicGenerationRuntime, "generateMusic").mockResolvedValue({
-      provider: "google",
-      model: "lyria-3-clip-preview",
-      attempts: [],
-      ignoredOverrides: [],
-      tracks: [{ buffer: Buffer.from("music"), mimeType: "audio/mpeg", fileName: "music.mp3" }],
-    });
-    vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValue({
-      path: "/tmp/accepted-music.mp3",
-      id: "accepted-music.mp3",
-      size: 5,
-      contentType: "audio/mpeg",
-    });
-    const controller = new AbortController();
-    const scheduled: Array<() => Promise<void>> = [];
-    const tool = expectMusicGenerateTool(
-      createMusicGenerateTool({
-        config: asConfig({
-          agents: {
-            defaults: { musicGenerationModel: { primary: "google/lyria-3-clip-preview" } },
-          },
-        }),
-        agentSessionKey: "agent:main:discord:direct:123",
-        requesterOrigin: { channel: "discord", to: "channel:1" },
-        scheduleBackgroundWork: (work) => scheduled.push(work),
-        onAsyncTaskStarted: () => controller.abort(new Error("requester ended after acceptance")),
-      }),
-    );
-
-    const result = await tool.execute(
-      "call-music-accepted",
-      { prompt: "an accepted song" },
-      controller.signal,
-    );
-
-    expect(detailsOf(result).status).toBe("started");
-    expect(scheduled).toHaveLength(1);
-    await scheduled[0]?.();
-    expect(generateMusic).toHaveBeenCalledOnce();
-    expect(taskExecutorMocks.completeTaskRunByRunId).toHaveBeenCalledOnce();
-  });
-
-  it("dedupes a recent default-model music request repeated with explicit or model-only override", async () => {
-    const now = Date.now();
-    vi.spyOn(musicGenerationRuntime, "listRuntimeMusicGenerationProviders").mockReturnValue([
-      {
-        id: "google",
-        defaultModel: "lyria-3-clip-preview",
-        models: ["lyria-3-clip-preview"],
-        capabilities: {
-          generate: {
-            supportsInstrumental: true,
-          },
+  defineMediaGenerationDuplicateTests({
+    kind: "music",
+    tasks: taskExecutorMocks,
+    listTasks: taskRuntimeInternalMocks.listTasksForOwnerKey,
+    createTool: (options) => expectMusicGenerateTool(createMusicGenerateTool(options)),
+    requesterOrigin: { channel: "discord", to: "channel:1" },
+    setupProviders: () => {
+      vi.spyOn(musicGenerationRuntime, "listRuntimeMusicGenerationProviders").mockReturnValue([
+        {
+          id: "google",
+          defaultModel: "lyria-3-clip-preview",
+          models: ["lyria-3-clip-preview", "lyria-3-pro-preview"],
+          capabilities: { generate: { supportsInstrumental: true } },
+          generateMusic: vi.fn(async () => {
+            throw new Error("not used");
+          }),
         },
-        generateMusic: vi.fn(async () => {
-          throw new Error("not used");
-        }),
-      },
-    ]);
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({
-      taskId: "task-recent-music",
-      runtime: "cli",
-      requesterSessionKey: "agent:main:discord:direct:123",
-      ownerKey: "agent:main:discord:direct:123",
-      scopeKind: "session",
-      task: "night-drive synthwave",
-      status: "running",
-      deliveryStatus: "not_applicable",
-      notifyPolicy: "silent",
-      createdAt: now - 20_000,
-    });
-    const scheduled: Array<() => Promise<void>> = [];
-    const tool = createMusicGenerateTool({
-      config: asConfig({
-        agents: {
-          defaults: {
-            musicGenerationModel: {
-              primary: "google/lyria-3-clip-preview",
-              timeoutMs: 180_000,
-            },
-          },
-        },
-      }),
-      agentSessionKey: "agent:main:discord:direct:123",
-      requesterOrigin: {
-        channel: "discord",
-        to: "channel:1",
-      },
-      scheduleBackgroundWork: (work) => {
-        scheduled.push(work);
-      },
-    });
-    if (!tool) {
-      throw new Error("expected music_generate tool");
-    }
-
-    await tool.execute("call-start-default", {
-      prompt: "night-drive synthwave",
-      instrumental: true,
-    });
-    taskRuntimeInternalMocks.listTasksForOwnerKey.mockReturnValue([
+      ]);
+    },
+    cases: [
       {
-        taskId: "task-recent-music",
-        runId: "tool:music_generate:test-run",
-        runtime: "cli",
-        taskKind: "music_generation",
-        sourceId: "music_generate:google",
-        requesterSessionKey: "agent:main:discord:direct:123",
-        ownerKey: "agent:main:discord:direct:123",
-        scopeKind: "session",
-        task: "night-drive synthwave",
-        status: "succeeded",
-        deliveryStatus: "not_applicable",
-        notifyPolicy: "silent",
-        createdAt: now - 20_000,
-        endedAt: now - 10_000,
+        name: "dedupes a recent default-model music request repeated with explicit or model-only override",
+        primary: "google/lyria-3-clip-preview",
+        model: "lyria-3-clip-preview",
+        defaultModel: true,
+        timeoutMs: 180_000,
+        request: { prompt: "night-drive synthwave", instrumental: true },
         progressSummary: "Generated 1 track",
       },
-    ]);
-
-    const duplicate = await tool.execute("call-repeat-explicit", {
-      prompt: "night-drive synthwave",
-      instrumental: true,
-      model: "google/lyria-3-clip-preview",
-    });
-
-    expect(scheduled).toHaveLength(1);
-    expect(taskExecutorMocks.createRunningTaskRun).toHaveBeenCalledTimes(1);
-    expect((duplicate.content?.[0] as { text?: string } | undefined)?.text).toContain(
-      "Music generation task task-recent-music recently succeeded",
-    );
-    const details = detailsOf(duplicate);
-    expect(details.duplicateGuard).toBe(true);
-    expect(details.active).toBe(false);
-
-    const modelOnlyDuplicate = await tool.execute("call-repeat-model-only", {
-      prompt: "night-drive synthwave",
-      instrumental: true,
-      model: "lyria-3-clip-preview",
-    });
-
-    expect(scheduled).toHaveLength(1);
-    expect(taskExecutorMocks.createRunningTaskRun).toHaveBeenCalledTimes(1);
-    expect((modelOnlyDuplicate.content?.[0] as { text?: string } | undefined)?.text).toContain(
-      "Music generation task task-recent-music recently succeeded",
-    );
-    const modelOnlyDetails = detailsOf(modelOnlyDuplicate);
-    expect(modelOnlyDetails.duplicateGuard).toBe(true);
-    expect(modelOnlyDetails.active).toBe(false);
-  });
-
-  it("dedupes a model-only primary music request repeated with provider-qualified model", async () => {
-    const now = Date.now();
-    vi.spyOn(musicGenerationRuntime, "listRuntimeMusicGenerationProviders").mockReturnValue([
       {
-        id: "google",
-        defaultModel: "lyria-3-clip-preview",
-        models: ["lyria-3-clip-preview", "lyria-3-pro-preview"],
-        capabilities: {
-          generate: {
-            supportsInstrumental: true,
-          },
-        },
-        generateMusic: vi.fn(async () => {
-          throw new Error("not used");
-        }),
-      },
-    ]);
-    taskExecutorMocks.createRunningTaskRun.mockReturnValue({
-      taskId: "task-model-only-music",
-      runtime: "cli",
-      requesterSessionKey: "agent:main:discord:direct:123",
-      ownerKey: "agent:main:discord:direct:123",
-      scopeKind: "session",
-      task: "night-drive synthwave",
-      status: "running",
-      deliveryStatus: "not_applicable",
-      notifyPolicy: "silent",
-      createdAt: now - 20_000,
-    });
-    const scheduled: Array<() => Promise<void>> = [];
-    const tool = createMusicGenerateTool({
-      config: asConfig({
-        agents: {
-          defaults: {
-            musicGenerationModel: {
-              primary: "lyria-3-pro-preview",
-              timeoutMs: 180_000,
-            },
-          },
-        },
-      }),
-      agentSessionKey: "agent:main:discord:direct:123",
-      requesterOrigin: {
-        channel: "discord",
-        to: "channel:1",
-      },
-      scheduleBackgroundWork: (work) => {
-        scheduled.push(work);
-      },
-    });
-    if (!tool) {
-      throw new Error("expected music_generate tool");
-    }
-
-    await tool.execute("call-model-only-start", {
-      prompt: "night-drive synthwave",
-      instrumental: true,
-    });
-    taskRuntimeInternalMocks.listTasksForOwnerKey.mockReturnValue([
-      {
-        taskId: "task-model-only-music",
-        runId: "tool:music_generate:test-run",
-        runtime: "cli",
-        taskKind: "music_generation",
-        sourceId: "music_generate:google",
-        requesterSessionKey: "agent:main:discord:direct:123",
-        ownerKey: "agent:main:discord:direct:123",
-        scopeKind: "session",
-        task: "night-drive synthwave",
-        status: "succeeded",
-        deliveryStatus: "not_applicable",
-        notifyPolicy: "silent",
-        createdAt: now - 20_000,
-        endedAt: now - 10_000,
+        name: "dedupes a model-only primary music request repeated with provider-qualified model",
+        primary: "lyria-3-pro-preview",
+        model: "lyria-3-pro-preview",
+        timeoutMs: 180_000,
+        request: { prompt: "night-drive synthwave", instrumental: true },
         progressSummary: "Generated 1 track",
       },
-    ]);
-
-    const result = await tool.execute("call-provider-qualified-repeat", {
-      prompt: "night-drive synthwave",
-      instrumental: true,
-      model: "google/lyria-3-pro-preview",
-    });
-
-    expect(scheduled).toHaveLength(1);
-    expect(taskExecutorMocks.createRunningTaskRun).toHaveBeenCalledTimes(1);
-    expect((result.content?.[0] as { text?: string } | undefined)?.text).toContain(
-      "Music generation task task-model-only-music recently succeeded",
-    );
-    const details = detailsOf(result);
-    expect(details.duplicateGuard).toBe(true);
-    expect(details.active).toBe(false);
+    ],
   });
 
   it("rolls back late music saves after a concurrent persistence failure", async () => {

@@ -8,7 +8,7 @@ import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import { createRuntimeConfigReader } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { sleepWithAbort } from "openclaw/plugin-sdk/runtime-env";
-import type { ResolvedSlackAccount } from "../accounts.js";
+import { resolveSlackAccount } from "../accounts.js";
 import type { SlackSendIdentity } from "../send.js";
 import type { SlackMessageEvent } from "../types.js";
 import { hasSlackMessageTableBlock } from "./block-text.js";
@@ -81,7 +81,6 @@ function shouldDebounceSlackMessage(message: SlackMessageEvent, cfg: SlackMonito
 
 export function createSlackMessageHandler(params: {
   ctx: SlackMonitorContext;
-  account: ResolvedSlackAccount;
   abortSignal?: AbortSignal;
   /** Called on each inbound event to update liveness tracking. */
   trackEvent?: () => void;
@@ -89,28 +88,8 @@ export function createSlackMessageHandler(params: {
   onPrepared?: (prepared: PreparedSlackMessage) => void;
   dispatchReplayGuard?: SlackMessageDispatchReplayGuard;
 }): SlackMessageHandler {
-  const { ctx, account, trackEvent, onPrepared } = params;
+  const { ctx, trackEvent, onPrepared } = params;
   const readConfig = createRuntimeConfigReader(ctx.cfg);
-  const runtimeContexts = new WeakMap<
-    NonNullable<SlackMonitorContext["cfg"]>,
-    SlackMonitorContext
-  >();
-  const resolveRuntimeContext = (): SlackMonitorContext => {
-    // Channel monitors outlive config reloads; pin one live snapshot per turn without reconnecting.
-    const runtimeConfig = readConfig();
-    if (runtimeConfig === ctx.cfg) {
-      return ctx;
-    }
-    const cached = runtimeContexts.get(runtimeConfig);
-    if (cached) {
-      return cached;
-    }
-    // Keep identity, allowlists, and other mutable monitor state live while pinning this config.
-    const runtimeContext = Object.create(ctx) as SlackMonitorContext;
-    runtimeContext.cfg = runtimeConfig;
-    runtimeContexts.set(runtimeConfig, runtimeContext);
-    return runtimeContext;
-  };
   const dispatchReplayGuard =
     params.dispatchReplayGuard ??
     createSlackMessageDispatchReplayGuard({
@@ -148,9 +127,10 @@ export function createSlackMessageHandler(params: {
             .map((entry) => entry.opts.dispatchCompletion)
             .filter((completion) => completion !== undefined);
           const retry = entries.find((entry) => entry.retry)?.retry;
-          const runtimeContext = retry?.runtimeContext ?? resolveRuntimeContext();
+          let admittedContext = retry?.runtimeContext;
           for (let retryAttempt = retry?.attempt ?? 0; ; retryAttempt += 1) {
             try {
+              const runtimeContext = (admittedContext ??= await ctx.readRuntimeContext());
               admissionLifecycle.abortSignal.throwIfAborted();
               await (async () => {
                 const flushedEntry = entries.at(-1);
@@ -276,7 +256,10 @@ export function createSlackMessageHandler(params: {
                 try {
                   prepared = await prepareSlackMessage({
                     ctx: runtimeContext,
-                    account,
+                    account: resolveSlackAccount({
+                      cfg: runtimeContext.cfg,
+                      accountId: ctx.accountId,
+                    }),
                     message: syntheticMessage,
                     opts: {
                       ...lastOpts,
@@ -362,7 +345,9 @@ export function createSlackMessageHandler(params: {
               }
               break;
             } catch (error) {
+              const runtimeContext = admittedContext;
               if (
+                runtimeContext &&
                 retryAttempt < RETRYABLE_FLUSH_MAX_ATTEMPTS &&
                 isRetryableSlackInboundError(error) &&
                 !entries.some((entry) => entry.opts.eventScope || entry.opts.dispatchCompletion)

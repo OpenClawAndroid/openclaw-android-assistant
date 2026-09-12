@@ -8,7 +8,7 @@ import { invalidateModelCatalogCache } from "../model-catalog-cache.ts";
 export type ChatMetadataResult = CommandsListResult;
 
 export type ChatMetadataUpdate =
-  | { type: "invalidated" }
+  | { type: "invalidated"; refreshSessionFacts: boolean }
   | { type: "loading" }
   | { type: "result"; result: ChatMetadataResult }
   | { type: "error"; error: unknown };
@@ -64,7 +64,11 @@ export function invalidateChatMetadataStore(
     entry.writer = undefined;
   }
   for (const entry of invalidated) {
-    notifyChatMetadataListeners(entry, { type: "invalidated" });
+    notifyChatMetadataListeners(entry, {
+      type: "invalidated",
+      // Session mutations own roster reconciliation; global catalog changes also change session facts.
+      refreshSessionFacts: !scope?.sessionKey,
+    });
     entry.release();
   }
 }

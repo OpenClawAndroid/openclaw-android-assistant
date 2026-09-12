@@ -99,7 +99,8 @@ export function listCrabboxLegacyWarmLeases(env?: NodeJS.ProcessEnv) {
 }
 
 export function assertCrabboxWarmImageMigrationReady(): void {
-  if (listCrabboxLegacyWarmLeases().length > 0) {
+  const leases = openLegacyLeases();
+  if ((leases.count?.() ?? leases.entries().length) > 0) {
     throw new Error(
       "Crabbox has legacy worker allocations whose original image choices are unknown; run openclaw doctor --fix and follow its provider-cleanup recovery instructions before provisioning workers.",
     );

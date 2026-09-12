@@ -1702,7 +1702,7 @@ async function runTuiUnlocked(opts: RunTuiOptions): Promise<TuiResult> {
     state.lastCtrlCAt = decision.nextLastCtrlCAt;
     if (decision.action === "clear") {
       editor.setText("");
-      setActivityStatus("cleared input; press ctrl+c again to exit");
+      chatLog.addSystem("cleared input; press ctrl+c again to exit");
       tui.requestRender();
       return;
     }
@@ -1710,7 +1710,7 @@ async function runTuiUnlocked(opts: RunTuiOptions): Promise<TuiResult> {
       requestExit();
       return;
     }
-    setActivityStatus("press ctrl+c again to exit");
+    chatLog.addSystem("press ctrl+c again to exit");
     tui.requestRender();
   };
   editor.onCtrlC = () => {

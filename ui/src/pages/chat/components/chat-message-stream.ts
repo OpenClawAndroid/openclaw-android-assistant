@@ -193,9 +193,9 @@ export function renderWorkGroupSummary(
               >`
             : nothing
         }
+        ${opts.expanded ? nothing : renderToolFailures(cards)}
         <span class="chat-tool-row__chevron" aria-hidden="true">${icons.chevronRight}</span>
       </button>
-      ${opts.expanded ? nothing : renderToolFailures(cards)}
       <div class="chat-work-group__separator" aria-hidden="true"></div>
       ${opts.expanded ? nothing : (opts.browserTabPreviews ?? nothing)}
     </div>

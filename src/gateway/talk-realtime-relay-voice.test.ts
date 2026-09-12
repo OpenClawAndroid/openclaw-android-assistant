@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createClientVoiceConfirmationReadiness } from "../talk/client-voice-confirmation-readiness.js";
 import { VOICE_TRANSCRIPT_QUEUE_POLICY } from "../talk/voice-transcript.js";
 import type { RelaySession } from "./talk-realtime-relay-state.js";
 import {
@@ -42,6 +43,11 @@ function createRelaySession(): {
       getRuntimeConfig: () => ({}),
       logGateway: { warn: vi.fn() },
     },
+    confirmationReadiness: createClientVoiceConfirmationReadiness({
+      agentId: "main",
+      voiceSessionId: "relay-voice-bounded",
+      flushTranscript: async () => await session.voiceTranscriptQueue.flush(),
+    }),
     voiceSessionCreated: false,
     voiceTranscriptSeq: 0,
     voiceTranscriptQueue: VOICE_TRANSCRIPT_QUEUE_POLICY.createQueue(),

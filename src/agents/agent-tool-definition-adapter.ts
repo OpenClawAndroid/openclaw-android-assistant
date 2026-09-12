@@ -427,6 +427,7 @@ export function toToolDefinitions(
               // A voice grant binds the post-finalizer execution shape. Consuming it
               // earlier would let later alias or tool-owned rewrites escape the grant.
               const voiceConfirmation = consumeFinalClientVoiceToolConfirmation({
+                toolCallId,
                 toolName: name,
                 params: executeParams,
                 ctx: hookContext,
@@ -620,6 +621,7 @@ export function toClientToolDefinitions(
             return { content: [], details: { status: "skipped" } };
           }
           const voiceConfirmation = consumeFinalClientVoiceToolConfirmation({
+            toolCallId,
             toolName: func.name,
             params: paramsRecord,
             ctx: hookContext,

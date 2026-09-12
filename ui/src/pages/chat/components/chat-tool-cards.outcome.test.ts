@@ -133,53 +133,75 @@ describe("tool-card outcomes", () => {
       "Unknown",
     );
     expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
-    expect(container.querySelector(".chat-tool-failure")?.textContent).toContain("Tool not found");
+    expect(summaryButton?.textContent).toContain("failed");
+    expect(container.textContent).not.toContain("Tool not found");
   });
 
-  it("shows a redacted failure reason without opening the command details", () => {
-    const container = document.createElement("div");
-    render(
-      renderToolCard(
-        {
-          id: "login-failure",
-          name: "exec",
-          isError: true,
-          completed: true,
-          args: { title: "Sign in to GitHub", command: "gh auth login" },
-          outputText: JSON.stringify({ error: "Cannot connect: token=example-secret-value" }),
-          exitCode: 1,
-        },
-        { messageKey: "login", expanded: false, onToggleExpanded: vi.fn() },
-      ),
-      container,
-    );
-    expect(container.textContent).toContain("Sign in to GitHub");
-    expect(container.querySelector(".chat-tool-failure")?.textContent).toContain("Cannot connect");
-    expect(container.textContent).not.toContain("example-secret-value");
-    expect(container.textContent).not.toContain("gh auth login");
-    expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
-  });
-
-  it("previews only the first diagnostic line and removes terminal escapes", () => {
-    const container = document.createElement("div");
-    render(
-      renderToolCard(
-        {
-          id: "multiline-failure",
-          name: "exec",
-          isError: true,
-          completed: true,
-          outputText: "\n\u001b[31mgh: command not found\u001b[0m\nVerbose process diagnostics",
-        },
-        { messageKey: "login", expanded: false, onToggleExpanded: vi.fn() },
-      ),
-      container,
-    );
-    const preview = container.querySelector(".chat-tool-failure")?.textContent;
-    expect(preview).toContain("gh: command not found");
-    expect(preview).not.toContain("Verbose process diagnostics");
-    expect(preview).not.toContain("\u001b");
-  });
+  it.each([
+    {
+      name: "structured",
+      output: JSON.stringify({ error: "Cannot connect to the service" }),
+      diagnostic: "Cannot connect to the service",
+      exitCode: 1,
+      outcome: "Exit code 1",
+    },
+    {
+      name: "multiline",
+      output: "gh: command not found\nVerbose process diagnostics",
+      diagnostic: "gh: command not found",
+      exitCode: undefined,
+      outcome: "failed",
+    },
+    {
+      name: "long path",
+      output:
+        "Error: Could not find edits[1] in /workspace/dashboard-state-persistence-and-defaults/ui/src/e2e/dashboard-presentation-defaults.e2e.test.ts",
+      diagnostic: "Could not find edits[1]",
+      exitCode: undefined,
+      outcome: "failed",
+    },
+  ])(
+    "keeps $name diagnostics inside expanded tool details",
+    ({ output, diagnostic, exitCode, outcome }) => {
+      const container = document.createElement("div");
+      let expanded = false;
+      const show = () =>
+        render(
+          renderToolCard(
+            {
+              id: "login-failure",
+              name: "exec",
+              isError: true,
+              completed: true,
+              args: { title: "Sign in to GitHub", command: "gh auth login" },
+              outputText: output,
+              exitCode,
+            },
+            {
+              messageKey: "login",
+              expanded,
+              onToggleExpanded: () => {
+                expanded = !expanded;
+                show();
+              },
+            },
+          ),
+          container,
+        );
+      show();
+      expect(container.textContent).toContain("Sign in to GitHub");
+      expect(container.textContent).not.toContain(diagnostic);
+      expect(container.querySelector(".chat-tool-msg-summary")?.textContent).toContain(outcome);
+      expect(container.textContent).not.toContain(output);
+      expect(container.textContent).not.toContain("gh auth login");
+      expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
+      container.querySelector<HTMLButtonElement>(".chat-tool-msg-summary")?.click();
+      expect(container.querySelector(".chat-tool-msg-body")?.textContent).toContain(output);
+      expect(container.querySelector(".chat-tool-card__outcome")?.textContent).toBe(outcome);
+      container.querySelector<HTMLButtonElement>(".chat-tool-msg-summary")?.click();
+      expect(container.textContent).not.toContain(diagnostic);
+    },
+  );
 
   it("renders a neutral summary when the tool card has an explicit error flag", () => {
     const container = document.createElement("div");

@@ -35,8 +35,9 @@ it.each([
     const home = path.join(root, "home");
     const temporaryRoot = path.join(root, "transfers");
     await fs.mkdir(workspaceDir);
-    const exec = async (argv: string[]) => {
+    const exec = async (argv: string[], input?: string | Uint8Array) => {
       const result = await runCommandWithTimeout(argv, {
+        input,
         cwd: workspaceDir,
         timeoutMs: 10_000,
         baseEnv: {
@@ -171,7 +172,7 @@ it.each([
       workspaceTransfer: service,
       runWorkspaceCommand: async (command) => {
         if (!command.transfer) {
-          return await exec([...command.argv]);
+          return await exec([...command.argv], command.input);
         }
         const publication =
           command.transfer.direction === "upload" &&

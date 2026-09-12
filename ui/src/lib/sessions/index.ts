@@ -579,6 +579,7 @@ export function createSessionCapability(
     reconcileChanged,
     reconcileRunTerminal,
     refresh: roster.refresh,
+    invalidate: () => roster.scheduleEvent(),
     refreshReplacement: roster.refreshReplacement,
     createResult: mutations.createResult,
     create: mutations.create,

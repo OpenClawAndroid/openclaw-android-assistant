@@ -126,7 +126,7 @@ async function registerDeliveredIMessageApprovalPayload(
     payload: params.payload,
     results: params.results,
   });
-  (
+  await (
     await loadIMessageApprovalReactionsModule()
   ).registerIMessageApprovalReactionTargetForDeliveredPayload({
     accountId,

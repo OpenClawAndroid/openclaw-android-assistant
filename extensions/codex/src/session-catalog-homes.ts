@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { listAgentIds, resolveAgentDir } from "openclaw/plugin-sdk/agent-scope-runtime";
+import {
+  listAgentIds,
+  resolveAgentDir,
+  resolveSessionAgentIdsStrict,
+} from "openclaw/plugin-sdk/agent-scope-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   resolveCodexAppServerHomeDir,
@@ -14,7 +18,11 @@ import {
   replaceCodexCatalogConnectionHomes,
 } from "./app-server/plugin-app-cache-key.js";
 import { canonicalCodexCatalogHome, codexCatalogHomeId } from "./session-catalog-home-id.js";
-import { CODEX_LOCAL_SESSION_HOST_ID, MAX_HOST_COUNT } from "./session-catalog-parsing.js";
+import {
+  CatalogParamsError,
+  CODEX_LOCAL_SESSION_HOST_ID,
+  MAX_HOST_COUNT,
+} from "./session-catalog-parsing.js";
 import type { CodexCatalogHome } from "./session-catalog-types.js";
 
 export type { CodexCatalogHome } from "./session-catalog-types.js";
@@ -132,6 +140,14 @@ function resolveCodexCatalogHomes(params: {
 
 type CodexCatalogHomeResolver = {
   forAgent(agentId: string): readonly CodexCatalogHome[];
+  forNode(agentId?: string): Pick<
+    CodexCatalogHome,
+    "appServer" | "localSessionsRoot" | "sourceHomeId"
+  > & {
+    codexHome: string;
+    agentId?: string;
+    agentDir?: string;
+  };
 };
 
 /** Discovers Codex homes once per immutable Gateway config generation. */
@@ -144,6 +160,10 @@ export function createCodexCatalogHomeResolver(params: {
 }): CodexCatalogHomeResolver {
   const env = params.env ?? process.env;
   const homesByConfig = new WeakMap<OpenClawConfig, Map<string, readonly CodexCatalogHome[]>>();
+  const nodeHomesByConfig = new WeakMap<
+    OpenClawConfig,
+    ReturnType<CodexCatalogHomeResolver["forNode"]>
+  >();
   const buildSnapshot = (config: OpenClawConfig) => {
     const pluginConfig = params.getPluginConfig();
     const homesByAgent = new Map(
@@ -173,20 +193,68 @@ export function createCodexCatalogHomeResolver(params: {
     return homesByAgent;
   };
   let lastSnapshot = buildSnapshot(params.config);
-  return {
-    forAgent(agentId) {
-      // agents.entries hot-reloads without plugin re-registration. Config identity therefore owns
-      // both filesystem discovery and the supervised-binding connection-home snapshot.
-      const config = params.getRuntimeConfig();
-      if (!config) {
-        return lastSnapshot.get(agentId) ?? [];
-      }
-      const cached = homesByConfig.get(config);
-      if (cached) {
-        return cached.get(agentId) ?? [];
-      }
-      lastSnapshot = buildSnapshot(config);
+  const forAgent = (agentId: string): readonly CodexCatalogHome[] => {
+    // Config identity owns filesystem discovery and the binding connection-home snapshot.
+    const config = params.getRuntimeConfig();
+    if (!config) {
       return lastSnapshot.get(agentId) ?? [];
+    }
+    const cached = homesByConfig.get(config);
+    if (cached) {
+      return cached.get(agentId) ?? [];
+    }
+    lastSnapshot = buildSnapshot(config);
+    return lastSnapshot.get(agentId) ?? [];
+  };
+  return {
+    forAgent,
+    forNode(requestedAgentId) {
+      const config = params.getRuntimeConfig() ?? params.config;
+      const pluginConfig = params.getPluginConfig();
+      const configured = readCodexPluginConfig(pluginConfig).appServer;
+      if (
+        configured?.homeScope === "agent" ||
+        (configured?.transport && configured.transport !== "stdio")
+      ) {
+        // v2026.9.4 exposed explicit node sources through this agent-qualified selector.
+        const agentId = resolveSessionAgentIdsStrict({
+          config,
+          agentId: requestedAgentId,
+        }).sessionAgentId;
+        const source = forAgent(agentId)[0];
+        if (!source) {
+          throw new CatalogParamsError(`unknown Codex session catalog agent: ${agentId}`);
+        }
+        return {
+          ...source,
+          agentId,
+          codexHome: resolveCodexAppServerLocalHomeDir(
+            source.appServer.start,
+            source.agentDir,
+            env,
+          ),
+        };
+      }
+      const cached = nodeHomesByConfig.get(config);
+      if (cached) {
+        return cached;
+      }
+      const appServer = params.resolveRuntimeOptions({ pluginConfig, config, env });
+      const codexHome = canonicalCodexCatalogHome(resolveCodexAppServerUserHomeDir(env));
+      const source = {
+        sourceHomeId: codexCatalogHomeId(codexHome),
+        codexHome,
+        localSessionsRoot: path.join(codexHome, "sessions"),
+        appServer: {
+          ...appServer,
+          start: {
+            ...appServer.start,
+            env: { ...appServer.start.env, CODEX_HOME: codexHome },
+          },
+        },
+      };
+      nodeHomesByConfig.set(config, source);
+      return source;
     },
   };
 }

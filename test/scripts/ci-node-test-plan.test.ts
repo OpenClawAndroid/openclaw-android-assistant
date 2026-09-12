@@ -11,7 +11,7 @@ import {
   type CompactNodeTestShard,
   createNodeTestShardBundles,
   createNodeTestShards,
-  createToolingNodeTestShardBundles,
+  createSelectedNodeTestShardBundles,
   createVitestCacheWarmGroups,
   isExclusiveCompactShardName,
   isPolicyTestOwnedPath,
@@ -2222,7 +2222,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       expect(owner?.runner, runnerBackend).toBe(
         runnerBackend === "blacksmith" ? EXTRA_LARGE_NODE_TEST_RUNNER : DEFAULT_NODE_TEST_RUNNER,
       );
-      const precise = createToolingNodeTestShardBundles([compilerFixture], { runnerBackend });
+      const precise = createSelectedNodeTestShardBundles([compilerFixture], { runnerBackend });
       const preciseOwner = precise?.find((job) =>
         job.groups.some((group) => group.includePatterns?.includes(compilerFixture)),
       );
@@ -2368,13 +2368,13 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     );
     // Every selected file is now indivisible above the admission cap. Overflow
     // must retain these 96 files plus two dist owners, never resurrect the full suite.
-    expect(() => createToolingNodeTestShardBundles(selected, { runnerBackend: "github" })).toThrow(
+    expect(() => createSelectedNodeTestShardBundles(selected, { runnerBackend: "github" })).toThrow(
       "exceeds 80 jobs (98 planned)",
     );
   });
 
   it("keeps the private runtime prerequisite on precise tooling readers", () => {
-    const shards = createToolingNodeTestShardBundles([PRIVATE_QA_TOOLING_TEST]);
+    const shards = createSelectedNodeTestShardBundles([PRIVATE_QA_TOOLING_TEST]);
     expect(shards).not.toBeNull();
     const readers = shards?.filter((shard) => !shard.requiresDist) ?? [];
     expect(readers).toHaveLength(1);
@@ -2395,7 +2395,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       vi.spyOn(testTimings, "readCompactGroupTimings").mockReturnValue(
         Object.fromEntries(defaultShards.map((shard) => [shard.shardName, 1])),
       );
-      const plan = createToolingNodeTestShardBundles(targets, { runnerBackend });
+      const plan = createSelectedNodeTestShardBundles(targets, { runnerBackend });
       expect(plan).not.toBeNull();
       const readers = plan!.filter((shard) => !shard.requiresDist);
       expect(readers).toHaveLength(1);

@@ -216,8 +216,12 @@ export function applyGatewayAuthOverridesForStartupPreflight(
     ...config,
     gateway: {
       ...config.gateway,
-      auth: mergeGatewayAuthConfig(config.gateway?.auth, overrides.auth),
-      tailscale: mergeGatewayTailscaleConfig(config.gateway?.tailscale, overrides.tailscale),
+      ...(overrides.auth
+        ? { auth: mergeGatewayAuthConfig(config.gateway?.auth, overrides.auth) }
+        : {}),
+      ...(overrides.tailscale
+        ? { tailscale: mergeGatewayTailscaleConfig(config.gateway?.tailscale, overrides.tailscale) }
+        : {}),
     },
   };
   copyConfigResolutionFactsExcept(config, next, [

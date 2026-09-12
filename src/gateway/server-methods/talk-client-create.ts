@@ -279,7 +279,7 @@ export const createTalkClient: GatewayRequestHandler = async ({
             runAgentConsult: consultRunner.runOwnedArgs,
             getToolAuthorityOverlay: (source) =>
               consultRunner.getToolAuthorityOverlay(undefined, source),
-            appendTranscript: ({ entryId, role, text }) =>
+            appendTranscript: ({ entryId, role, text, confirmation }) =>
               appendClientVoiceTranscript({
                 agentId,
                 sessionKey,
@@ -288,6 +288,7 @@ export const createTalkClient: GatewayRequestHandler = async ({
                 entryId,
                 role,
                 text,
+                confirmation,
                 config: runtimeConfig,
               }),
             flushTranscript: () =>

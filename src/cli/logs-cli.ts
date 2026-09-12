@@ -431,22 +431,16 @@ function formatLogLine(
 
   const timeLabel = colorize(opts.rich, theme.muted, time);
   const labelValue = colorize(opts.rich, theme.accent, label);
-  const levelValue =
+  const levelStyle =
     level === "error" || level === "fatal"
-      ? colorize(opts.rich, theme.error, levelLabel)
+      ? theme.error
       : level === "warn"
-        ? colorize(opts.rich, theme.warn, levelLabel)
+        ? theme.warn
         : level === "debug" || level === "trace"
-          ? colorize(opts.rich, theme.muted, levelLabel)
-          : colorize(opts.rich, theme.info, levelLabel);
-  const messageValue =
-    level === "error" || level === "fatal"
-      ? colorize(opts.rich, theme.error, message)
-      : level === "warn"
-        ? colorize(opts.rich, theme.warn, message)
-        : level === "debug" || level === "trace"
-          ? colorize(opts.rich, theme.muted, message)
-          : colorize(opts.rich, theme.info, message);
+          ? theme.muted
+          : theme.info;
+  const levelValue = colorize(opts.rich, levelStyle, levelLabel);
+  const messageValue = colorize(opts.rich, levelStyle, message);
 
   const head = [timeLabel, levelValue, labelValue].filter(Boolean).join(" ");
   return [head, messageValue].filter(Boolean).join(" ").trim();

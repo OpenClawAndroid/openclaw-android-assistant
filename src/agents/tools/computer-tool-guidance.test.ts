@@ -24,13 +24,23 @@ function descriptor(
 describe("computer tool guidance", () => {
   it("stays provider-neutral and free of host setup instructions", () => {
     const description = buildComputerToolDescription(
-      descriptor(["screenshot", "left_click", "list_windows", "get_window_state", "set_value"]),
+      descriptor([
+        "screenshot",
+        "left_click",
+        "list_windows",
+        "get_accessibility_tree",
+        "get_window_state",
+        "set_value",
+      ]),
     );
 
     expect(description).toContain("Observe first with `get_window_state`");
     expect(description).toContain("capture the desktop and return frameId");
     expect(description).toContain("do not accept window or browser targets");
     expect(description).toContain("observationId for window input");
+    expect(description).toContain("`list_windows` to obtain windowRef");
+    expect(description).toContain("`get_accessibility_tree` for unfiltered desktop discovery");
+    expect(description).toContain("`query`, `depth`, and `maxElements` filters");
     expect(description).toContain('`effect:"confirmed"` > `unverifiable` > `suspected_noop`');
     expect(description).toContain("never blind-retry a mutation");
     expect(description).toContain("For window input");
@@ -68,6 +78,17 @@ describe("computer tool guidance", () => {
     expect(windowBackground).toContain('deliveryMode:"background"');
     expect(windowBackground).toContain("background_occluded");
     expect(windowBackground).not.toMatch(/desktop coordinates|foreground|frameId/);
+
+    const discoveryOnly = buildComputerToolDescription(descriptor(["get_accessibility_tree"]));
+    expect(discoveryOnly).not.toMatch(/get_window_state|list_windows|unfiltered/);
+
+    const imageOnly = buildComputerToolDescription(
+      descriptor(["list_windows", "get_accessibility_tree", "get_window_state"], {
+        observations: ["image"],
+      }),
+    );
+    expect(imageOnly).toContain("advertised image data");
+    expect(imageOnly).not.toMatch(/window subtree|`query`|`depth`|`maxElements`/);
   });
 
   it("distinguishes key taps from advertised held-key support", () => {

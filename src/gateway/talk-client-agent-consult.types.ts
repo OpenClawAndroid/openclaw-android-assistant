@@ -8,6 +8,8 @@ export type TalkAgentConsultRequest = Parameters<RealtimeVoiceAgentConsultRunner
   requesterFinal?: TalkRequesterFinalBinding;
 };
 
+export type TalkAgentConsultSource = "tool-call" | "native-delegation";
+
 export type TalkRequesterFinalRegistration = {
   releaseProvisional: () => void;
   revoke: () => void;
@@ -27,6 +29,7 @@ export type LifecycleBoundTalkAgentConsult = ((
   ready?: () => Promise<void>,
   assertCurrent?: () => void,
   requesterFinal?: TalkRequesterFinalBinding,
+  source?: TalkAgentConsultSource,
 ) => Promise<{ text: string; yielded?: true }>) &
   TalkAgentConsultLifecycleMethods;
 
@@ -34,4 +37,5 @@ export type ReusableTalkAgentConsult = (
   args: unknown,
   signal: AbortSignal,
   assertCurrent?: () => void,
+  source?: TalkAgentConsultSource,
 ) => Promise<{ text: string }>;

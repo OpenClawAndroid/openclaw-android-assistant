@@ -269,6 +269,7 @@ function loadGatewaySessionSnapshot(
     loadGatewaySessionEntryReadOnly(sessionKey, {
       clone: false,
       includeStoreChildEntries: true,
+      projection: lightweight ? "list" : "full",
       agentId: options?.agentId,
     });
   if (!entry) {

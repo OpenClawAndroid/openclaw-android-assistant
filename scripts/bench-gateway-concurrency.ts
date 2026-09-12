@@ -790,6 +790,7 @@ function buildConfig(
   agents.defaults = {
     ...(agents.defaults as Record<string, unknown>),
     maxConcurrent: concurrency,
+    heartbeat: { every: "0m" },
     utilityModel: "openai/gpt-5.6-luna",
   };
   const pluginFixtures =

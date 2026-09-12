@@ -89,6 +89,8 @@ export async function controlRealtimeVoiceAgentRun(
     } | null;
     text: string;
     getToolAuthorityOverlay?: () => ReplyToolAuthorityOverlay;
+    /** Host context prepared by the validated authority callback, never provider text. */
+    getSteeringContext?: () => string | undefined;
     mode?: unknown;
     recentEvents?: readonly TalkEvent[];
   },
@@ -209,7 +211,9 @@ export async function controlRealtimeVoiceAgentRun(
   if (preparedOwner.sessionId !== sessionId || (target && !target.isCurrent(sessionId))) {
     return noActiveRun();
   }
-  const steerText = mode === "followup" ? buildRealtimeVoiceAgentFollowupSteeringText(text) : text;
+  const steeringText = [params.getSteeringContext?.(), text].filter(Boolean).join("\n\n");
+  const steerText =
+    mode === "followup" ? buildRealtimeVoiceAgentFollowupSteeringText(steeringText) : steeringText;
   const options = {
     steeringMode: "all" as const,
     debounceMs: 0,

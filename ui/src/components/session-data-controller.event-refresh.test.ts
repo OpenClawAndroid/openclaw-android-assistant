@@ -150,6 +150,7 @@ function createFilteredSessionController(
     selectedAgentIdForSessions: () => selectedAgentId,
     sidebarSessionStatusFilter: () => selectedStatusFilter,
     sidebarSessionOwnerFilter: () => membership,
+    sessionCatalogIdsWithoutVisibleRows: () => [],
     querySelector: () => null,
   } satisfies SessionDataControllerHost;
   const controller = new SessionDataController(host);

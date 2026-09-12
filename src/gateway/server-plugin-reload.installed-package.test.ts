@@ -31,6 +31,7 @@ import { withEnvAsync } from "../test-utils/env.js";
 import type { GatewayRequestHandlerOptions } from "./server-methods/types.js";
 import { reloadGatewayPlugins } from "./server-plugin-reload.js";
 import { createGatewayPluginRuntimeGeneration } from "./server-plugin-runtime-generation.js";
+import { createGatewaySidecarStopOwner } from "./server-sidecar-owners.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 const tempDirs: string[] = [];
@@ -171,7 +172,7 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
         pluginMetadata: metadata,
         getCronService: () => runtime.runtimeState.cronState.cron,
       },
-      runtimeState: { cronState: {}, gatewayLifetimeSidecars: [] },
+      runtimeState: { cronState: {}, gatewayLifetimeSidecars: createGatewaySidecarStopOwner() },
       ambientEnvTriggers: "suppress",
       coreGatewayMethodNames: [],
       baseMethods: [],

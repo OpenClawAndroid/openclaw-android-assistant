@@ -128,6 +128,7 @@ export async function listPairedNode(params: {
         nodeId: params.node.nodeId,
         command: CODEX_APP_SERVER_THREADS_LIST_COMMAND,
         params: {
+          // Released nodes still require the Gateway route hint; native readers ignore it.
           agentId: params.agentId,
           cursor: params.query.cursors?.[hostId],
           limit: params.query.limitPerHost,

@@ -738,30 +738,34 @@ describe("normalizeToolParameterSchema", () => {
     });
   });
 
-  it("normalizes OpenAPI nullable and schema-only annotations", () => {
-    expect(
-      normalizeToolParameterSchema({
+  it.each(["first", "last"] as const)(
+    "normalizes OpenAPI annotations declared %s while preserving unchanged siblings",
+    (position) => {
+      const status = { type: "string", enum: ["available"] };
+      const annotations = { nullable: true, readOnly: true, example: "available" };
+      const unchanged = { allOf: [{ type: "string" }, { minLength: 1 }] };
+      const schema = {
         type: "object",
         properties: {
+          unchanged,
+          status:
+            position === "first" ? { ...annotations, ...status } : { ...status, ...annotations },
+        },
+      };
+      const original = JSON.stringify(schema);
+      expect(normalizeToolParameterSchema(schema)).toEqual({
+        type: "object",
+        properties: {
+          unchanged,
           status: {
-            type: "string",
-            enum: ["available"],
-            nullable: true,
-            readOnly: true,
-            example: "available",
+            type: ["string", "null"],
+            enum: ["available", null],
           },
         },
-      }),
-    ).toEqual({
-      type: "object",
-      properties: {
-        status: {
-          type: ["string", "null"],
-          enum: ["available", null],
-        },
-      },
-    });
-  });
+      });
+      expect(JSON.stringify(schema)).toBe(original);
+    },
+  );
 
   it("preserves schema properties named like OpenAPI annotations", () => {
     expect(

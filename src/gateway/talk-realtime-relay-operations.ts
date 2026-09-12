@@ -110,6 +110,7 @@ export function closeRelaySession(
   }
   const closing: NonNullable<RelaySession["closing"]> = { reason };
   session.closing = closing;
+  session.confirmationReadiness.close();
   const disposition = options?.disposition ?? "abort";
   session.harness.close();
   session.outputOwnership.drain?.resolve();

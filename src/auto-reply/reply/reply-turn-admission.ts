@@ -393,6 +393,10 @@ export async function admitReplyTurn(
                   },
                 );
                 if (archivedSessionError) {
+                  const tombstone = currentEntry?.mainRestartRecovery?.tombstone;
+                  if (params.kind === "visible" && tombstone) {
+                    log.warn(`${archivedSessionError} Recovery reason: ${tombstone.reason}`);
+                  }
                   rejectLifecycleInvalidatedWork({
                     kind: params.kind,
                     message: archivedSessionError,

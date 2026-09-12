@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { finalizeEvent, getPublicKey, type Event, type Filter } from "nostr-tools";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
@@ -403,10 +404,56 @@ describe("Buzz gateway cold-start recovery", () => {
     });
   });
 
+  it("reads persisted room activations once when reconnecting at capacity", async () => {
+    let reads = 0;
+    // oxlint-disable-next-line typescript/unbound-method -- Called below with the intercepted native database receiver.
+    const prepare = DatabaseSync.prototype.prepare;
+    vi.spyOn(DatabaseSync.prototype, "prepare").mockImplementation(
+      function (this: DatabaseSync, sql) {
+        const statement = prepare.call(this, sql);
+        if (/^select\b.*\bfrom "plugin_state_entries"/iu.test(sql)) {
+          const get = statement.get.bind(statement);
+          vi.spyOn(statement, "get").mockImplementation((...bindings) => {
+            reads += 1;
+            return get(...bindings);
+          });
+          const all = statement.all.bind(statement);
+          vi.spyOn(statement, "all").mockImplementation((...bindings) => {
+            reads += 1;
+            return all(...bindings);
+          });
+          const iterate = statement.iterate.bind(statement);
+          vi.spyOn(statement, "iterate").mockImplementation((...bindings) => {
+            reads += 1;
+            return iterate(...bindings);
+          });
+        }
+        return statement;
+      },
+    );
+    const store = openBuzzRecoveryWatermarkStore({ accountId: ACCOUNT_ID });
+    const channelIds = Array.from({ length: BUZZ_MAX_CONFIGURED_ROOMS }, (_, i) => `room-${i}`);
+    await resolveBuzzRecoverySince({
+      store,
+      channelIds,
+      nowSeconds: START_SECONDS,
+      lookbackSeconds: LOOKBACK_SECONDS,
+    });
+    reads = 0;
+    const recovered = await resolveBuzzRecoverySince({
+      store,
+      channelIds,
+      nowSeconds: START_SECONDS + 60,
+      lookbackSeconds: LOOKBACK_SECONDS,
+    });
+    expect(recovered).toEqual(new Map(channelIds.map((id) => [id, START_SECONDS])));
+    expect(reads).toBe(1);
+  });
+
   it("rejects recovery when an existing room cursor cannot be read", async () => {
     const store = openBuzzRecoveryWatermarkStore({ accountId: ACCOUNT_ID });
     await store.register(`room:${SECOND_CHANNEL_ID}`, { seconds: START_SECONDS - 60 });
-    vi.spyOn(store, "lookup").mockRejectedValueOnce(new Error("first room cursor unavailable"));
+    vi.spyOn(store, "entries").mockRejectedValueOnce(new Error("first room cursor unavailable"));
     await expect(
       resolveBuzzRecoverySince({
         store,
@@ -417,18 +464,22 @@ describe("Buzz gateway cold-start recovery", () => {
     ).rejects.toThrow("first room cursor unavailable");
   });
 
-  it("rejects recovery when a persisted room activation floor is invalid", async () => {
+  it("preserves room-order writes when a later activation floor is invalid", async () => {
     const store = openBuzzRecoveryWatermarkStore({ accountId: ACCOUNT_ID });
-    await store.register(`room:${CHANNEL_ID}`, { seconds: "corrupt" } as never);
+    await store.register("room:removed", { seconds: START_SECONDS - 60 });
+    await store.register(`room:${SECOND_CHANNEL_ID}`, { seconds: "corrupt" } as never);
 
     await expect(
       resolveBuzzRecoverySince({
         store,
-        channelIds: [CHANNEL_ID],
+        channelIds: [CHANNEL_ID, SECOND_CHANNEL_ID, "later-room"],
         nowSeconds: START_SECONDS,
         lookbackSeconds: LOOKBACK_SECONDS,
       }),
-    ).rejects.toThrow(`Invalid Buzz recovery watermark for room ${CHANNEL_ID}`);
+    ).rejects.toThrow(`Invalid Buzz recovery watermark for room ${SECOND_CHANNEL_ID}`);
+    expect(await store.lookup("room:removed")).toBeUndefined();
+    expect(await store.lookup(`room:${CHANNEL_ID}`)).toEqual({ seconds: START_SECONDS });
+    expect(await store.lookup("room:later-room")).toBeUndefined();
   });
 
   it("recovers a later-arriving room message with an older sender timestamp", async () => {

@@ -68,7 +68,7 @@ export function updateRealtimeTalkConversation(
     });
   }
   const nowMs = update.nowMs ?? Date.now();
-  if (update.textMode === "verbatim") {
+  if (update.textMode === "verbatim" || update.textMode === "snapshot") {
     return upsertRealtimeConversationEntry(
       state,
       update.role,
@@ -142,7 +142,7 @@ function upsertRealtimeConversationEntry(
       {
         id,
         role,
-        text: boundRealtimeConversationText(textMode === "verbatim" ? text : text.trimStart()),
+        text: boundRealtimeConversationText(textMode ? text : text.trimStart()),
         isStreaming: !isFinal,
       },
     ].slice(-MAX_CONVERSATION_ENTRIES);
@@ -160,11 +160,13 @@ function upsertRealtimeConversationEntry(
     return upsertRealtimeConversationEntry(state, role, null, text, isFinal, textMode);
   }
   const mergedText =
-    textMode === "verbatim"
-      ? entry.text + text
-      : role === "assistant"
-        ? mergeAssistantTranscriptText(entry.text, text, isFinal)
-        : mergeRealtimeTranscriptText(entry.text, text, isFinal);
+    textMode === "snapshot"
+      ? text
+      : textMode === "verbatim"
+        ? entry.text + text
+        : role === "assistant"
+          ? mergeAssistantTranscriptText(entry.text, text, isFinal)
+          : mergeRealtimeTranscriptText(entry.text, text, isFinal);
   const updatedText = boundRealtimeConversationText(mergedText);
   const entries =
     entry.text === updatedText && entry.isStreaming === !isFinal

@@ -13,6 +13,7 @@ import {
   workerSshRemoteCommand,
 } from "./ssh.js";
 import type { WorkerWorkspaceCommand, WorkerLocalWorkspaceSyncRequest } from "./tunnel-contract.js";
+import { boundedWorkerError } from "./worker-error.js";
 import {
   parseRemoteWorkspaceManifestEnvelope,
   recordRemoteWorkspaceHashMetrics,
@@ -21,7 +22,10 @@ import {
   type WorkspaceHashMemo,
   type WorkspaceReconcileMetrics,
 } from "./workspace-hash-memo.js";
-import { REMOTE_WORKSPACE_MANIFEST_JS } from "./workspace-sync-scripts.js";
+import {
+  createRemoteWorkspaceManifestScript,
+  REMOTE_WORKSPACE_MANIFEST_JS,
+} from "./workspace-sync-scripts.js";
 
 const MANIFEST_REF_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const INBOUND_QUOTA_INITIAL_POLL_MS = 25;
@@ -221,6 +225,7 @@ export async function captureRemoteWorkspaceManifest(params: {
   priorManifestDigests: readonly string[];
   hashMemo: WorkspaceHashMemo;
   metrics: WorkspaceReconcileMetrics;
+  maxHashMemoBytes?: number;
 }): Promise<string> {
   params.metrics.remoteManifestCalls += 1;
   const startedAt = performance.now();
@@ -230,20 +235,27 @@ export async function captureRemoteWorkspaceManifest(params: {
       argv: [
         "node",
         "-e",
-        REMOTE_WORKSPACE_MANIFEST_JS,
+        params.maxHashMemoBytes === undefined
+          ? REMOTE_WORKSPACE_MANIFEST_JS
+          : createRemoteWorkspaceManifestScript(params.maxHashMemoBytes),
         params.remoteWorkspaceDir,
         params.baseCommit ?? "",
-        ...(params.baseCommit ? ["eligible"] : []),
+        params.baseCommit ? "eligible" : "all",
         ...params.priorManifestDigests,
         "memo-v1",
       ],
-      input: serializeRemoteWorkspaceHashMemo(params.hashMemo),
+      input: serializeRemoteWorkspaceHashMemo(params.hashMemo, params.maxHashMemoBytes),
     })
     .finally(() => {
       params.metrics.remoteManifestWallDurationMs += performance.now() - startedAt;
     });
   if (!workerWorkspaceCommandSucceeded(captured)) {
-    throw workspaceSyncError(captured);
+    throw new Error(
+      `Worker workspace manifest capture failed: ${boundedWorkerError(
+        captured.stderr.trim() ||
+          `${captured.termination} (exit code ${captured.code}, signal ${captured.signal})`,
+      )}`,
+    );
   }
   let response;
   try {

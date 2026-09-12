@@ -69,3 +69,13 @@ export {
   createNoisyRgbaBuffer,
   createSolidPngBuffer,
 } from "./test-helpers/image-fixtures.js";
+export {
+  createMeetingBrowserFixture,
+  createMeetingNodeBrowserFixture,
+} from "./test-helpers/meeting-browser.js";
+export {
+  createMeetingPluginFixture,
+  defineMeetingPluginSurfaceTests,
+} from "./test-helpers/meeting-plugin-contract.js";
+export { defineMeetingChromeCleanupTests } from "./test-helpers/meeting-chrome-contract.js";
+export { defineMeetingSessionFlowTests } from "./test-helpers/meeting-session-contract.js";

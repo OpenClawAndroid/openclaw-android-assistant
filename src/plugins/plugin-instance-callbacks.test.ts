@@ -651,18 +651,47 @@ describe("collection data classification", () => {
             )
           : { map: new Map([["key", { value: 1 }]]), set: new Set(["value"]), array: ["value"] };
       const instance = new PluginInstance("plain-collections");
+      const shared = { value: 2 };
+      source.map.set("shared", shared);
+      source.map.set("self", source.map);
+      source.set.add(shared);
+      source.set.add(source.set);
+      source.array.push(shared, source.array);
       const view = instance.wrap(source);
       expect(view).toBe(source);
       expect(Map.prototype.get.call(view.map, "key")).toEqual({ value: 1 });
       expect(Set.prototype.has.call(view.set, "value")).toBe(true);
       expect(Array.prototype.includes.call(view.array, "value")).toBe(true);
-      expect(structuredClone(view)).toEqual({
-        map: new Map([["key", { value: 1 }]]),
-        set: new Set(["value"]),
-        array: ["value"],
-      });
+      const cloned = structuredClone(view);
+      expect(cloned.map.get("key")).toEqual({ value: 1 });
+      expect(cloned.map.get("shared")).toBe(cloned.array[1]);
+      expect(cloned.set.has(cloned.array[1])).toBe(true);
+      expect(cloned.map.get("self")).toBe(cloned.map);
+      expect(cloned.set.has(cloned.set)).toBe(true);
+      expect(cloned.array[2]).toBe(cloned.array);
       await instance.dispose();
       expect(Map.prototype.get.call(view.map, "key")).toEqual({ value: 1 });
     },
   );
+
+  it("reclassifies a mutable record becoming callable and then data without releasing retained calls", async () => {
+    const instance = new PluginInstance("mutable-classification");
+    const source: { value: number; run?: () => number } = { value: 1 };
+    try {
+      expect(instance.wrap(source)).toBe(source);
+      source.run = () => 42;
+      const view = instance.wrap(source);
+      expect(view).not.toBe(source);
+      const retained = view.run!;
+      expect(retained()).toBe(42);
+      delete source.run;
+      expect(instance.wrap(source)).toBe(source);
+      expect(structuredClone(instance.wrap(source))).toEqual({ value: 1 });
+      await instance.dispose();
+      expect(() => retained()).toThrow("reloaded or disabled");
+      expect(instance.wrap(source)).toBe(source);
+    } finally {
+      await instance.dispose();
+    }
+  });
 });

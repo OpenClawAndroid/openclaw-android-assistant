@@ -542,50 +542,54 @@ export function readRecentSessionTranscriptHistoryEvents(
 
 export function readSessionTranscriptHistoryEventPage(
   scope: SessionTranscriptReadScope,
-  options: { maxMessages: number; offset: number; maxBytes?: number },
+  options: { maxMessages: number; offset: number; maxBytes?: number; readOnly?: boolean },
 ): SessionTranscriptMessageEventPage {
-  return withCurrentProjectionSnapshot(scope, (projection) => {
-    const history = resolveVisibleHistoryProjection(projection);
-    const offset = Math.min(
-      Math.max(0, Math.floor(Number.isFinite(options.offset) ? options.offset : 0)),
-      history.total,
-    );
-    const maxMessages = Math.max(
-      0,
-      Math.floor(Number.isFinite(options.maxMessages) ? options.maxMessages : 0),
-    );
-    const endExclusive = Math.max(0, history.total - offset);
-    const requestedStart = Math.max(0, endExclusive - maxMessages);
-    const boundedStart =
-      options.maxBytes === undefined
-        ? requestedStart
-        : resolveRecentHistoryStart(
-            projection,
-            requestedStart,
-            endExclusive,
-            history,
-            Math.max(
-              1024,
-              Math.floor(Number.isFinite(options.maxBytes) ? options.maxBytes : 1024 * 1024),
-            ),
-            maxMessages,
-            false,
-          );
-    // A single oversized event must not defeat the hard limit or trap pagination.
-    // Skip its source position explicitly; callers disclose the omission to readers.
-    const omittedOversized = maxMessages > 0 && endExclusive > 0 && boundedStart === endExclusive;
-    const consumedStart = omittedOversized ? endExclusive - 1 : boundedStart;
-    return {
-      activeLeafEntryId: projection.state.leafEventId,
-      events: readVisibleHistoryRange(projection, boundedStart, endExclusive, history),
-      displaySource: history.displaySource,
-      totalMessages: history.total,
-      ...(options.maxBytes !== undefined && maxMessages > 0 && consumedStart > 0
-        ? { olderOffset: history.total - consumedStart }
-        : {}),
-      ...(omittedOversized ? { omittedOversized: true } : {}),
-    };
-  });
+  return withCurrentProjectionSnapshot(
+    scope,
+    (projection) => {
+      const history = resolveVisibleHistoryProjection(projection);
+      const offset = Math.min(
+        Math.max(0, Math.floor(Number.isFinite(options.offset) ? options.offset : 0)),
+        history.total,
+      );
+      const maxMessages = Math.max(
+        0,
+        Math.floor(Number.isFinite(options.maxMessages) ? options.maxMessages : 0),
+      );
+      const endExclusive = Math.max(0, history.total - offset);
+      const requestedStart = Math.max(0, endExclusive - maxMessages);
+      const boundedStart =
+        options.maxBytes === undefined
+          ? requestedStart
+          : resolveRecentHistoryStart(
+              projection,
+              requestedStart,
+              endExclusive,
+              history,
+              Math.max(
+                1024,
+                Math.floor(Number.isFinite(options.maxBytes) ? options.maxBytes : 1024 * 1024),
+              ),
+              maxMessages,
+              false,
+            );
+      // A single oversized event must not defeat the hard limit or trap pagination.
+      // Skip its source position explicitly; callers disclose the omission to readers.
+      const omittedOversized = maxMessages > 0 && endExclusive > 0 && boundedStart === endExclusive;
+      const consumedStart = omittedOversized ? endExclusive - 1 : boundedStart;
+      return {
+        activeLeafEntryId: projection.state.leafEventId,
+        events: readVisibleHistoryRange(projection, boundedStart, endExclusive, history),
+        displaySource: history.displaySource,
+        totalMessages: history.total,
+        ...(options.maxBytes !== undefined && maxMessages > 0 && consumedStart > 0
+          ? { olderOffset: history.total - consumedStart }
+          : {}),
+        ...(omittedOversized ? { omittedOversized: true } : {}),
+      };
+    },
+    options,
+  );
 }
 
 export function readSessionTranscriptHistoryEventCount(scope: SessionTranscriptReadScope): number {

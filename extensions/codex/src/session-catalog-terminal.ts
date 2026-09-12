@@ -117,11 +117,10 @@ export function codexNodeTerminalCapability(node: {
 
 export function createCodexTerminalNodeHostCommand(
   bindRequest: (paramsJSON?: string | null) => {
-    agentId: string;
+    codexHome: string;
     control: CodexSessionCatalogControl;
     paramsJSON: string;
   },
-  configSources: CodexTerminalConfigSources,
 ): OpenClawPluginNodeHostCommand {
   return {
     command: CODEX_TERMINAL_RESUME_COMMAND,
@@ -166,10 +165,7 @@ export function createCodexTerminalNodeHostCommand(
             args: ["resume", resume.threadId],
             ...(record.cwd ? { cwd: record.cwd } : {}),
             env: {
-              CODEX_HOME: resolveCodexCatalogTerminalHome({
-                ...configSources,
-                agentId: request.agentId,
-              }),
+              CODEX_HOME: request.codexHome,
             },
             cols: resume.cols,
             rows: resume.rows,

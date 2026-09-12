@@ -53,6 +53,7 @@ import { listDoctorConfiguredChannelIds } from "./doctor/shared/configured-chann
 import { containsAuthoredInclude } from "./doctor/shared/include-migration-ownership.js";
 import { normalizeCompatibilityConfigValues } from "./doctor/shared/legacy-config-core-migrate.js";
 import type { DoctorPluginMetadataSnapshotState } from "./doctor/shared/plugin-metadata-snapshot-scope.js";
+import { shouldSkipLegacyUpdateDoctorConfigWrite } from "./doctor/shared/update-phase.js";
 
 function collectInvalidHookTransformsDirWarnings(
   cfg: OpenClawConfig,
@@ -185,6 +186,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   const { importShippedPluginInstallConfigForDoctor } =
     await import("./doctor/shared/plugin-registry-migration.js");
   const pluginInstallConfigImport =
+    !shouldSkipLegacyUpdateDoctorConfigWrite(process.env) &&
     inspectShippedPluginInstallConfigRecords(preflight.snapshot.sourceConfig).status === "valid"
       ? await importShippedPluginInstallConfigForDoctor(preflight.snapshot)
       : undefined;

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolveExpiresAtMsFromDurationMs } from "@openclaw/normalization-core/number-coercion";
 import { REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME } from "../talk/agent-consult-tool.js";
 import { buildRealtimeVoiceAgentCancelProviderResult } from "../talk/agent-run-control-shared.js";
-import { projectInternalRealtimeVoicePublicConfig } from "../talk/provider-internal.js";
+import { createClientVoiceConfirmationReadiness } from "../talk/client-voice-confirmation-readiness.js";
 import {
   REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
   type RealtimeVoiceAudioClearReason,
@@ -12,7 +12,6 @@ import { createRealtimeVoiceSessionHarness } from "../talk/realtime-session-harn
 import type { TalkEventInput } from "../talk/talk-session-controller.js";
 import { VOICE_TRANSCRIPT_QUEUE_POLICY } from "../talk/voice-transcript.js";
 import { createTalkClientAgentConsultRunner } from "./talk-client-agent-consult.js";
-import { createTalkRealtimeRunControlOwner } from "./talk-client-gateway-control.js";
 import { bindTalkRealtimeRelayAgentConsult } from "./talk-realtime-relay-agent-consult.js";
 import {
   buildAlreadyDeliveredToolResult,
@@ -23,7 +22,7 @@ import {
 import {
   buildTalkRealtimeRelayIssuePayload as relayIssuePayload,
   createTalkRealtimeRelayIssue as realtimeRelayIssue,
-  projectTalkRealtimeRelayProviderError as projectError,
+  resolveTalkRealtimeRelayPresentation,
 } from "./talk-realtime-relay-issues.js";
 import {
   cancelTalkRealtimeRelayProviderToolCall,
@@ -55,29 +54,18 @@ import {
   RelayToolCallLedger,
 } from "./talk-realtime-relay-tool-call-ledger.js";
 import { enqueueRelayVoiceTranscript } from "./talk-realtime-relay-voice.js";
+import { createTalkRealtimeRunControlOwner } from "./talk-realtime-run-control.js";
 import { registerTalkConnectionCleanup } from "./talk-session-registry.js";
 
 // The relay contract is 20 ms of 24 kHz mono PCM16 per browser event.
 const RELAY_OUTPUT_AUDIO_FRAME_BYTES = 960;
-
-function isRelayAssistantEchoTranscript(session: RelaySession | undefined, text: string): boolean {
-  return session?.harness.isLikelyAssistantEchoTranscript(text) ?? false;
-}
 
 /** Creates a realtime voice relay session and returns the browser audio contract. */
 export function createTalkRealtimeRelaySession(
   params: CreateTalkRealtimeRelaySessionParams,
 ): TalkRealtimeRelaySessionResult {
   enforceRelaySessionLimits(params.connId);
-  const publicModel = projectInternalRealtimeVoicePublicConfig({
-    provider: params.provider,
-    providerConfig: params.providerConfig,
-    config: { model: params.model },
-  }).model;
-  const opaqueRoute =
-    typeof params.model === "string" && params.model.length > 0 && publicModel !== params.model;
-  const publicError = (error: unknown) =>
-    new Error(projectError(params.provider.id, opaqueRoute, error));
+  const { publicModel, publicError } = resolveTalkRealtimeRelayPresentation(params);
   const forceAgentConsultOnFinalTranscript = params.forceAgentConsultOnFinalTranscript === true;
   const relaySessionId = randomUUID();
   const expiresAtMs = resolveExpiresAtMsFromDurationMs(RELAY_SESSION_TTL_MS);
@@ -149,6 +137,13 @@ export function createTalkRealtimeRelaySession(
     },
   );
   const { agentId: relayAgentId, canonicalKey } = params.sessionTarget;
+  const confirmationReadiness = createClientVoiceConfirmationReadiness({
+    agentId: relayAgentId,
+    voiceSessionId: relaySessionId,
+    flushTranscript: async () => {
+      await getActiveRelay()?.voiceTranscriptQueue.flush();
+    },
+  });
   const consultRunner = createTalkClientAgentConsultRunner({
     config: params.cfg ?? params.context.getRuntimeConfig(),
     context: params.context,
@@ -175,6 +170,7 @@ export function createTalkRealtimeRelaySession(
   const runAgentConsult = bindTalkRealtimeRelayAgentConsult(
     consultRunner.runPrompt,
     () => getActiveRelay() !== undefined,
+    (signal) => confirmationReadiness.wait(signal),
   );
   const runControl = createTalkRealtimeRunControlOwner({
     controlSource: params.controlSource,
@@ -425,6 +421,9 @@ export function createTalkRealtimeRelaySession(
       if (!relay.closing && role === "assistant" && outputOwnership.phase === "cancelling") {
         return;
       }
+      if (!relay.closing && role === "user" && !final) {
+        confirmationReadiness.observeUserTranscript(text, false);
+      }
       if (final && !enqueueRelayVoiceTranscript(relay, role, text)) {
         return;
       }
@@ -457,7 +456,7 @@ export function createTalkRealtimeRelaySession(
       );
       if (params.controlSource === "transcript" && role === "user" && final && text.trim()) {
         const question = text.trim();
-        if (isRelayAssistantEchoTranscript(relay, question)) {
+        if (relay.harness.isLikelyAssistantEchoTranscript(question)) {
           return;
         }
         if (runControl.handleSpoken(question)) {
@@ -589,11 +588,13 @@ export function createTalkRealtimeRelaySession(
   try {
     bridge = harness.createBridge(bridgeRequest);
   } catch (error) {
+    confirmationReadiness.close();
     throw publicError(error);
   }
   bridgeRef.current = bridge;
   const earlyTerminal = constructionTerminal.current;
   if (earlyTerminal) {
+    confirmationReadiness.close();
     harness.close();
     const reportCloseFailure = () =>
       params.context.logGateway.warn(
@@ -664,6 +665,7 @@ export function createTalkRealtimeRelaySession(
     voiceSessionCreated: false,
     voiceTranscriptSeq: 0,
     voiceTranscriptQueue: VOICE_TRANSCRIPT_QUEUE_POLICY.createQueue(),
+    confirmationReadiness,
     failSession,
   };
   relayRef.current = relay;

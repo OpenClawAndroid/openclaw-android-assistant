@@ -468,6 +468,7 @@ export function renderToolCard(
         opts.onOpenWorkspaceFile,
       )}</span
     >
+    ${expanded ? nothing : renderToolFailures([card], false)}
     <span class="chat-tool-row__chevron" aria-hidden="true">${icons.chevronRight}</span>
   `;
 
@@ -520,7 +521,6 @@ export function renderToolCard(
               `
             : nothing
         }
-        ${expanded ? nothing : renderToolFailures([card], false)}
         ${opts.showApprovalReviews === false ? nothing : renderToolApprovalReviews(card)}
       </div>
     `,

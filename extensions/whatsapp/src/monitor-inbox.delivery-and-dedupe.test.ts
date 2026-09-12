@@ -37,7 +37,7 @@ describe("web monitor inbox delivery and dedupe", () => {
   });
 
   it("replays approval reactions after Gateway loss without losing batch siblings", async () => {
-    registerWhatsAppApprovalReactionTarget({
+    await registerWhatsAppApprovalReactionTarget({
       accountId: DEFAULT_ACCOUNT_ID,
       remoteJid: "15551230000@s.whatsapp.net",
       messageId: "approval-message",

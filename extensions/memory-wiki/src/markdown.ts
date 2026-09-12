@@ -119,7 +119,7 @@ export type WikiPageSummary = {
 };
 
 type WikiPageSummaryScanResult =
-  | { status: "valid"; page: WikiPageSummary }
+  | { status: "valid"; page: WikiPageSummary; parsed: ParsedWikiMarkdown }
   | { status: "invalid-frontmatter"; error: WikiPageFrontmatterError }
   | { status: "ignored" };
 
@@ -634,6 +634,7 @@ export function scanWikiPageSummary(params: {
 
   return {
     status: "valid",
+    parsed,
     page: {
       absolutePath: params.absolutePath,
       relativePath: params.relativePath.split(path.sep).join("/"),

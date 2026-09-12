@@ -62,9 +62,13 @@ export function replaceRedactPattern(
   text: string,
   pattern: ResolvedRedactPattern,
   replace: (match: RedactMatch) => string,
+  replaceRegex?: (...args: unknown[]) => string,
 ): string {
   if (pattern instanceof RegExp) {
-    return text.replace(pattern, (...args: unknown[]) => replace(readRedactMatch(args)));
+    return text.replace(
+      pattern,
+      replaceRegex ?? ((...args: unknown[]) => replace(readRedactMatch(args))),
+    );
   }
   const parts: string[] = [];
   let end = 0;

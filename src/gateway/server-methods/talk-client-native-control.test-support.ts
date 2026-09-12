@@ -23,7 +23,6 @@ import type { TalkRealtimeConfig } from "../../config/types.gateway.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import { createDiagnosticEmbeddedRunOwner } from "../../logging/diagnostic-run-activity.js";
-import { loadBundledPluginPublicSurface } from "../../plugin-sdk/test-helpers/public-surface-loader.js";
 import { resolveCapabilityProviderRegistration } from "../../plugins/capability-catalog.js";
 import { resolvePluginCapabilityCatalogContext } from "../../plugins/loader-runtime-load.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
@@ -34,6 +33,7 @@ import {
 } from "../../plugins/runtime.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
+import { loadBundledPluginFacade } from "../../test-utils/bundled-plugin-public-surface.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { createResponse } from "../server-http.test-harness.js";
 import { handleGatewayRequest } from "../server-methods.js";
@@ -118,7 +118,7 @@ vi.mock("openclaw/plugin-sdk/provider-auth", async (importOriginal) => ({
 
 export const upstream = nativeUpstream;
 
-const { default: openaiPlugin } = await loadBundledPluginPublicSurface<{
+const { default: openaiPlugin } = await loadBundledPluginFacade<{
   default: OpenClawPluginDefinition;
 }>({ pluginId: "openai", artifactBasename: "index.js" });
 

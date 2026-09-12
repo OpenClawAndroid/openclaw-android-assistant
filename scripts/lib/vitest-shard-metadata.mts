@@ -35,6 +35,8 @@ export type VitestShardTimingSpec = {
   includePatterns?: readonly string[] | null;
   /** Exact chunk files for scheduling; does not configure execution filtering. */
   timingTargets?: readonly string[];
+  /** Inherited filter identity, captured before its producer can remove the file. */
+  timingIncludePatterns?: readonly string[];
   watchMode?: boolean;
 };
 
@@ -118,6 +120,11 @@ export function createCompactSplitTimingGeneration(params: CompactSplitTimingGen
 
 export function resolveShardTimingKey(spec: VitestShardTimingSpec): string {
   const targets = spec.timingTargets ?? spec.includePatterns;
+  if (spec.timingIncludePatterns) {
+    const inherited = spec.timingIncludePatterns;
+    const chunk = targets ? `#targets-${targets.length}-${hashIncludePatterns(targets)}` : "";
+    return `${spec.config}#include-${inherited.length}-${hashIncludePatterns(inherited)}${chunk}`;
+  }
   if (!Array.isArray(targets) || targets.length === 0) {
     return spec.config;
   }

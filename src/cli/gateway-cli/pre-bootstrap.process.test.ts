@@ -140,7 +140,15 @@ describe("Gateway config selection before migration admission", () => {
       const configPath = path.join(stateDir, "openclaw.json");
       fs.writeFileSync(
         configPath,
-        JSON.stringify({ gateway: { mode: "local" }, plugins: { enabled: false } }),
+        JSON.stringify({
+          gateway: { mode: "local" },
+          meta: { lastTouchedAt: "2026-02-15T00:00:00.000Z" },
+          agents: { list: [{ id: "main" }, { id: "helper" }] },
+          plugins: {
+            enabled: false,
+            installs: { example: { source: "path", installPath: path.join(root, "plugin") } },
+          },
+        }),
       );
       if (withBackup) {
         fs.writeFileSync(
@@ -149,7 +157,10 @@ describe("Gateway config selection before migration admission", () => {
             gateway: { mode: "local" },
             agents: { defaults: { workspace: path.join(root, "workspace") } },
             messages: { ackReaction: "synthetic long-lived config baseline" },
-            plugins: { enabled: false },
+            plugins: {
+              enabled: false,
+              installs: { example: { source: "path", installPath: path.join(root, "plugin") } },
+            },
           }),
         );
       }

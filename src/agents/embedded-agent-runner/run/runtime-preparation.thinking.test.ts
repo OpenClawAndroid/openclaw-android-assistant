@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
-import { loadBundledPluginPublicSurface } from "../../../plugin-sdk/test-helpers/public-surface-loader.js";
 import { setCurrentPluginMetadataSnapshot } from "../../../plugins/current-plugin-metadata.test-support.js";
 import { loadPluginManifest } from "../../../plugins/manifest.js";
 import { clearPluginMetadataLifecycleCaches } from "../../../plugins/plugin-metadata-lifecycle.js";
@@ -14,6 +13,7 @@ import {
   setActivePluginRegistry,
 } from "../../../plugins/runtime.js";
 import type { ProviderPlugin } from "../../../plugins/types.js";
+import { loadBundledPluginFacade } from "../../../test-utils/bundled-plugin-public-surface.js";
 import { createTestAdmittedRunContext } from "../../admitted-run-context.test-support.js";
 import type { AuthProfileStore } from "../../auth-profiles.js";
 import type { ResolvedProviderAuth } from "../../model-auth.js";
@@ -90,7 +90,7 @@ describe("selected route thinking metadata at runtime preparation", () => {
   let provider: ProviderPlugin;
 
   beforeEach(async () => {
-    const { buildOpenAIProvider } = await loadBundledPluginPublicSurface<{
+    const { buildOpenAIProvider } = await loadBundledPluginFacade<{
       buildOpenAIProvider: () => ProviderPlugin;
     }>({ pluginId: "openai", artifactBasename: "api.js" });
     provider = buildOpenAIProvider();

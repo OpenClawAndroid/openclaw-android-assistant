@@ -173,7 +173,7 @@ export function startNodeHostConnection({
     label: string,
     isRetry = false,
   ): void => {
-    if (!gatewayHelloReceived) {
+    if (!gatewayHelloReceived || prepared.restrictedSurface) {
       return;
     }
     const connectionGeneration = gatewayConnectionGeneration;
@@ -447,7 +447,9 @@ export function startNodeHostConnection({
         ...(connection.cloudflareAccess ? { cloudflareAccess: connection.cloudflareAccess } : {}),
       });
       gatewayHelloReceived = true;
-      startHostStatsPublication();
+      if (!prepared.restrictedSurface) {
+        startHostStatsPublication();
+      }
       connectedGatewayProtocol = connection.protocol;
       gatewayCapabilities = new Set(connection.capabilities);
       publishRunnerInventory();

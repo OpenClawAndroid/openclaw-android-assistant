@@ -72,7 +72,10 @@ if [ -n "$author_name" ]; then git config user.name "$author_name"; fi
 if [ -n "$author_email" ]; then git config user.email "$author_email"; fi
 `;
 
-export const REMOTE_WORKSPACE_MANIFEST_JS = String.raw`const crypto = require("node:crypto");
+export function createRemoteWorkspaceManifestScript(
+  maxHashMemoBytes = MAX_WORKSPACE_HASH_MEMO_BYTES,
+): string {
+  return String.raw`const crypto = require("node:crypto");
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -80,7 +83,7 @@ ${WORKSPACE_PATH_EXCLUSIONS_JS}
 const workspaceStatIdentity = ${workspaceStatIdentity.toString()};
 const selectWorkerWorkspaceHashMemoEntries = ${selectWorkerWorkspaceHashMemoEntries.toString()};
 const MAX_RECONCILIATION_ENTRIES = ${MAX_RECONCILIATION_ENTRIES};
-const MAX_WORKSPACE_HASH_MEMO_BYTES = ${MAX_WORKSPACE_HASH_MEMO_BYTES};
+const MAX_WORKSPACE_HASH_MEMO_BYTES = ${maxHashMemoBytes};
 const root = fs.realpathSync(process.argv[1]);
 ${WORKSPACE_STAGED_INPUT_OWNERSHIP_JS}
 const requestedBaseCommit = process.argv[2] || null;
@@ -545,3 +548,6 @@ main().catch((error) => {
   process.stderr.write(String(error && error.stack ? error.stack : error) + "\n");
   process.exitCode = 1;
 });`;
+}
+
+export const REMOTE_WORKSPACE_MANIFEST_JS = createRemoteWorkspaceManifestScript();

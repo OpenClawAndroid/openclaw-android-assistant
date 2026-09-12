@@ -49,6 +49,7 @@ it.each(["config.changed", "chat.metadata.changed"])(
     );
     const client = { request } as unknown as GatewayBrowserClient;
     const state = {
+      ...makeChatHost(),
       client,
       connected: true,
       connectionEpoch: 1,
@@ -63,6 +64,7 @@ it.each(["config.changed", "chat.metadata.changed"])(
       chatError: "No route-compatible authentication source is configured",
       requestUpdate: vi.fn(),
     } as unknown as ChatPageHost;
+    const invalidateSessions = vi.spyOn(state.sessions, "invalidate").mockImplementation(() => {});
     const messages = state.chatMessages;
     const queue = state.chatQueue;
     const shell = document.createElement("openclaw-app-shell") as unknown as ChatMetadataShell;
@@ -110,6 +112,7 @@ it.each(["config.changed", "chat.metadata.changed"])(
       expect(state.chatQueue).toBe(queue);
       expect(state.chatRunId).toBeNull();
       expect(catalogRequest.mock.calls).toHaveLength(4);
+      expect(invalidateSessions).toHaveBeenCalledTimes(2);
     } finally {
       retireChatMetadataRequests(state);
     }

@@ -84,7 +84,8 @@ function stringifyObjectValue(
   const record = value as Record<string, unknown>;
   if (normalizeString === preserveString) {
     const fields: string[] = [];
-    for (const key of Object.keys(record).toSorted()) {
+    // oxlint-disable-next-line unicorn/no-array-sort -- Object.keys creates a private array.
+    for (const key of Object.keys(record).sort()) {
       fields.push(
         `${JSON.stringify(key)}:${stringifyStableValue(record[key], stack, normalizeString)}`,
       );
@@ -93,7 +94,8 @@ function stringifyObjectValue(
   }
   const entries = Object.keys(record)
     .map((key) => ({ key, normalizedKey: normalizeString(key) }))
-    .toSorted((left, right) => {
+    // oxlint-disable-next-line unicorn/no-array-sort -- map creates a private entry array.
+    .sort((left, right) => {
       const normalizedOrder = compareStableStrings(left.normalizedKey, right.normalizedKey);
       // Distinct source keys can normalize alike; preserve deterministic ordering without loss.
       return normalizedOrder || compareStableStrings(left.key, right.key);

@@ -187,14 +187,21 @@ export function updateChatRunProgressSnapshot(
           phase,
           name: typeof data.name === "string" ? data.name : undefined,
           toolCallId,
-          args: phase === "start" ? data.args : undefined,
-          partialResult: phase === "update" ? data.partialResult : undefined,
-          diff: phase === "input_delta" ? data.diff : undefined,
-          review: phase === "review" ? data.review : undefined,
-          approvalReviewOutcome:
-            phase === "review" || phase === "result" ? data.approvalReviewOutcome : undefined,
-          isError: phase === "result" ? data.isError : undefined,
-          result: phase === "result" ? data.result : undefined,
+          ...(phase === "start"
+            ? { args: data.args }
+            : phase === "update"
+              ? { partialResult: data.partialResult }
+              : phase === "input_delta"
+                ? { diff: data.diff }
+                : phase === "review"
+                  ? { review: data.review, approvalReviewOutcome: data.approvalReviewOutcome }
+                  : phase === "result"
+                    ? {
+                        approvalReviewOutcome: data.approvalReviewOutcome,
+                        isError: data.isError,
+                        result: data.result,
+                      }
+                    : {}),
         }
     : isAssistant
       ? {} // Reconnect needs the progress sequence, not another copy of buffered assistant text.

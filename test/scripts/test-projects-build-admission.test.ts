@@ -426,60 +426,128 @@ async function start(args: string[]) {
 }
 
 describe("full-suite timing metadata", () => {
-  it("carries chunk targets into timing samples without changing launch selection", async () => {
-    vi.stubEnv("OPENCLAW_TEST_PROJECTS_PARALLEL", "2");
-    vi.stubEnv("OPENCLAW_VITEST_MAX_WORKERS", "1");
-    vi.stubEnv("OPENCLAW_VITEST_SHARD_NAME", "same-parent");
-    vi.stubEnv("OPENCLAW_VITEST_ENABLE_MAGLEV", "0");
-    const planner = await import("../../scripts/test-projects.test-support.mts");
+  it("records inherited include selections without replacing whole-config history", async () => {
     const timings = await import("../../scripts/lib/vitest-shard-timings.mts");
+    const actual = await vi.importActual<
+      typeof import("../../scripts/lib/vitest-shard-timings.mts")
+    >("../../scripts/lib/vitest-shard-timings.mts");
     const { runTestProjects } = await import("../../scripts/test-projects-run.mts");
-    const files = ["test/scripts/run-with-env.test.ts", "test/scripts/run-node.test.ts"];
+    const root = tempDirs.make("inherited-timing-");
+    const timingFile = path.join(root, "timings.json");
+    vi.stubEnv("OPENCLAW_TEST_PROJECTS_TIMINGS_PATH", timingFile);
+    vi.stubEnv("OPENCLAW_VITEST_SHARD_NAME", "same-parent");
     const config = "test/vitest/vitest.tooling.config.ts";
-    vi.spyOn(planner, "buildFullSuiteVitestRunPlans").mockReturnValue(
-      files.map((file) => ({
-        config,
-        forwardedArgs: [file],
-        timingTargets: [file],
-        includePatterns: null,
-        watchMode: false,
-      })),
-    );
-    const writeTimings = vi.spyOn(timings, "writeShardTimings");
+    actual.writeShardTimings([actual.createShardTimingSample({ config }, 999_999)], root);
+    const writeTimings = vi
+      .spyOn(timings, "writeShardTimings")
+      .mockImplementation(actual.writeShardTimings);
     commands.prepare.mockResolvedValue(0);
     commands.reader.mockImplementation(() => ({
       completion: Promise.resolve({ code: 0, signal: null, groupJoined: true }),
       getForwardedSignal: () => undefined,
     }));
-
+    const files = ["test/scripts/run-with-env.test.ts", "test/scripts/run-node.test.ts"];
+    for (const file of files) {
+      const includeFile = patternFiles.writePatternFile("timing-include.json", [file]);
+      vi.stubEnv("OPENCLAW_VITEST_INCLUDE_FILE", includeFile);
+      await runTestProjects(async () => {}, [config]);
+      expect(fs.existsSync(includeFile)).toBe(true);
+      expect(commands.reader.mock.lastCall?.[0].env.OPENCLAW_VITEST_INCLUDE_FILE).toBe(includeFile);
+    }
+    const inheritedFile = process.env.OPENCLAW_VITEST_INCLUDE_FILE;
+    fs.writeFileSync(inheritedFile!, "{}");
+    await runTestProjects(async () => {}, [files[0]!]);
+    const inlineFile = commands.reader.mock.lastCall?.[0].env.OPENCLAW_VITEST_INCLUDE_FILE;
+    expect(inlineFile).not.toBe(inheritedFile);
+    expect(fs.existsSync(inheritedFile!)).toBe(true);
+    expect(fs.existsSync(inlineFile)).toBe(false);
+    const planner = await import("../../scripts/test-projects.test-support.mts");
+    const empty = vi.spyOn(planner, "buildFullSuiteVitestRunPlans").mockReturnValue([]);
     await runTestProjects(async () => {}, []);
-
-    expect(commands.reader).toHaveBeenCalledTimes(2);
-    const launches = commands.reader.mock.calls.map(([input]) => input);
-    expect(launches.map((input) => input.pnpmArgs)).toEqual(
-      files.map((file) => [
-        "exec",
-        "node",
-        "--no-maglev",
-        resolveVitestCliEntry(),
-        "run",
-        "--config",
-        config,
-        file,
-      ]),
-    );
-    for (const input of launches) {
-      expect(input.env.OPENCLAW_VITEST_INCLUDE_FILE).toBeFalsy();
-      expect(input.env.OPENCLAW_VITEST_MAX_WORKERS).toBe("1");
-    }
-    expect(writeTimings).toHaveBeenCalledTimes(1);
-    const samples = writeTimings.mock.calls[0]?.[0] ?? [];
-    expect(samples).toHaveLength(2);
-    expect(new Set(samples.map((sample) => sample?.config)).size).toBe(2);
-    for (const sample of samples) {
-      expect(sample).toMatchObject({ baseConfig: config, includePatternCount: 1 });
-    }
+    empty.mockRestore();
+    expect(commands.reader).toHaveBeenCalledTimes(3);
+    const samples = writeTimings.mock.calls.flatMap(([entries]) => entries);
+    expect(samples).toHaveLength(3);
+    expect(new Set(samples.map((sample) => sample?.config)).size).toBe(3);
+    expect(samples.every((sample) => sample?.includePatternCount === 1)).toBe(true);
+    const stored = JSON.parse(fs.readFileSync(timingFile, "utf8")).configs;
+    expect(stored[config].averageMs).toBe(999_999);
+    expect(Object.keys(stored)).toHaveLength(4);
+    vi.stubEnv("OPENCLAW_VITEST_INCLUDE_FILE", "");
+    const cliConfig = "test/vitest/vitest.cli.config.ts";
+    await runTestProjects(async () => {}, [cliConfig]);
+    expect(writeTimings.mock.lastCall?.[0]).toEqual([
+      expect.objectContaining({ config: cliConfig, includePatternCount: 0 }),
+    ]);
   });
+
+  it.each([false, true])(
+    "carries chunk targets without changing launch selection (inherited=%s)",
+    async (inherited) => {
+      vi.stubEnv("OPENCLAW_TEST_PROJECTS_PARALLEL", "2");
+      vi.stubEnv("OPENCLAW_VITEST_MAX_WORKERS", "1");
+      vi.stubEnv("OPENCLAW_VITEST_SHARD_NAME", "same-parent");
+      vi.stubEnv("OPENCLAW_VITEST_ENABLE_MAGLEV", "0");
+      const planner = await import("../../scripts/test-projects.test-support.mts");
+      const timings = await import("../../scripts/lib/vitest-shard-timings.mts");
+      const { runTestProjects } = await import("../../scripts/test-projects-run.mts");
+      const files = ["test/scripts/run-with-env.test.ts", "test/scripts/run-node.test.ts"];
+      const includeFile = inherited
+        ? patternFiles.writePatternFile("chunk-include.json", [files[0]!])
+        : undefined;
+      if (includeFile) {
+        vi.stubEnv("OPENCLAW_VITEST_INCLUDE_FILE", includeFile);
+      }
+      const config = "test/vitest/vitest.tooling.config.ts";
+      vi.spyOn(planner, "buildFullSuiteVitestRunPlans").mockReturnValue(
+        files.map((file) => ({
+          config,
+          forwardedArgs: [file],
+          timingTargets: [file],
+          includePatterns: null,
+          watchMode: false,
+        })),
+      );
+      const writeTimings = vi.spyOn(timings, "writeShardTimings");
+      commands.prepare.mockResolvedValue(0);
+      commands.reader.mockImplementation(() => ({
+        completion: Promise.resolve({ code: 0, signal: null, groupJoined: true }),
+        getForwardedSignal: () => undefined,
+      }));
+
+      await runTestProjects(async () => {}, []);
+
+      expect(commands.reader).toHaveBeenCalledTimes(2);
+      const launches = commands.reader.mock.calls.map(([input]) => input);
+      expect(launches.map((input) => input.pnpmArgs)).toEqual(
+        files.map((file) => [
+          "exec",
+          "node",
+          "--no-maglev",
+          resolveVitestCliEntry(),
+          "run",
+          "--config",
+          config,
+          file,
+        ]),
+      );
+      for (const input of launches) {
+        if (includeFile) {
+          expect(input.env.OPENCLAW_VITEST_INCLUDE_FILE).toBe(includeFile);
+        } else {
+          expect(input.env.OPENCLAW_VITEST_INCLUDE_FILE).toBeFalsy();
+        }
+        expect(input.env.OPENCLAW_VITEST_MAX_WORKERS).toBe("1");
+      }
+      expect(writeTimings).toHaveBeenCalledTimes(1);
+      const samples = writeTimings.mock.calls[0]?.[0] ?? [];
+      expect(samples).toHaveLength(2);
+      expect(new Set(samples.map((sample) => sample?.config)).size).toBe(2);
+      for (const sample of samples) {
+        expect(sample).toMatchObject({ baseConfig: config, includePatternCount: 1 });
+      }
+    },
+  );
 });
 
 describe("parallel cache lease completion", () => {

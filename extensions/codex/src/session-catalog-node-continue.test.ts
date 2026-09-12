@@ -26,6 +26,7 @@ import {
   resolveCodexAppServerHomeDir,
   resolveCodexAppServerUserHomeDir,
   resolveDefaultAgentDir,
+  resolveSessionAgentIdsStrict,
   createCodexTestBindingStore,
   CODEX_TERMINAL_RESUME_COMMAND,
   CODEX_TERMINAL_START_COMMAND,
@@ -287,17 +288,25 @@ describe("Codex supervision actions", () => {
     });
   });
 
-  it("does not join concurrent paired-node continues across explicit agent owners", async () => {
+  it("keeps Gateway-first upgrades compatible with the released node selector and separates concurrent owners", async () => {
+    const threadId = "123e4567-e89b-12d3-a456-426614174001";
     const runtimeConfig = {
       agents: { ownership: "explicit", list: [{ id: "alpha" }, { id: "beta" }] },
     } as OpenClawConfig;
-    const invoke = vi.fn<PluginRuntime["nodes"]["invoke"]>(async ({ command }) => {
+    // v2026.9.4 resolves every catalog packet through the node's configured agent roster.
+    const selectReleasedNodeAgent = (params: unknown) =>
+      resolveSessionAgentIdsStrict({
+        config: runtimeConfig,
+        agentId: (params as { agentId?: string }).agentId,
+      }).sessionAgentId;
+    const invoke = vi.fn<PluginRuntime["nodes"]["invoke"]>(async ({ command, params }) => {
+      selectReleasedNodeAgent(params);
       if (command === CODEX_APP_SERVER_THREADS_LIST_COMMAND) {
         return {
           payloadJSON: JSON.stringify({
             sessions: [
               {
-                threadId: "thread-remote",
+                threadId,
                 name: "Remote task",
                 status: "idle",
                 source: "cli",
@@ -317,8 +326,8 @@ describe("Codex supervision actions", () => {
         {
           nodeId: "devbox",
           connected: true,
-          commands: [...CODEX_NODE_CONTINUE_COMMANDS],
-          invocableCommands: [...CODEX_NODE_CONTINUE_COMMANDS],
+          commands: [...CODEX_NODE_CONTINUE_COMMANDS, CODEX_TERMINAL_RESUME_COMMAND],
+          invocableCommands: [...CODEX_NODE_CONTINUE_COMMANDS, CODEX_TERMINAL_RESUME_COMMAND],
         },
       ],
       invoke,
@@ -336,12 +345,28 @@ describe("Codex supervision actions", () => {
       throw new Error("expected the Codex session catalog continue provider");
     }
 
+    await expect(
+      provider!.list({ agentId: "alpha", hostIds: ["node:devbox"] }),
+    ).resolves.toMatchObject([{ sessions: [{ threadId }] }]);
+    await expect(
+      provider!.read({ agentId: "alpha", hostId: "node:devbox", threadId }),
+    ).resolves.toMatchObject({ items: [] });
+    const terminal = await provider!.openTerminal!({
+      agentId: "alpha",
+      hostId: "node:devbox",
+      threadId,
+    });
+    expect(terminal.kind).toBe("node");
+    if (terminal.kind === "node") {
+      expect(selectReleasedNodeAgent(JSON.parse(terminal.paramsJSON))).toBe("alpha");
+    }
+
     const [alpha, beta] = await Promise.all(
       ["alpha", "beta"].map((agentId) =>
         continueSession({
           agentId,
           hostId: "node:devbox",
-          threadId: "thread-remote",
+          threadId,
           clientScopes: ["operator.admin"],
         }),
       ),
@@ -350,16 +375,21 @@ describe("Codex supervision actions", () => {
     expect(alpha?.sessionKey).toMatch(/^agent:alpha:harness:codex:node-session:/);
     expect(beta?.sessionKey).toMatch(/^agent:beta:harness:codex:node-session:/);
     expect(alpha?.sessionKey).not.toBe(beta?.sessionKey);
-    expect(alpha).toMatchObject({ conversationBinding: { data: { agentId: "alpha" } } });
-    expect(beta).toMatchObject({ conversationBinding: { data: { agentId: "beta" } } });
+    expect(alpha).toMatchObject({
+      conversationBinding: {
+        data: { agentId: "alpha", nodeId: "devbox", sessionId: threadId },
+      },
+    });
+    expect(beta).toMatchObject({
+      conversationBinding: {
+        data: { agentId: "beta", nodeId: "devbox", sessionId: threadId },
+      },
+    });
     expect(createSessionEntry).toHaveBeenCalledTimes(2);
-    expect(
-      new Set(
-        invoke.mock.calls.map(
-          ([request]) => (request.params as { agentId?: string } | undefined)?.agentId,
-        ),
-      ),
-    ).toEqual(new Set(["alpha", "beta"]));
+    for (const [request] of invoke.mock.calls) {
+      expect(request.nodeId).toBe("devbox");
+      expect(["alpha", "beta"]).toContain(selectReleasedNodeAgent(request.params));
+    }
   });
 
   it("rejects paired-node continue without the permitted run command", async () => {
@@ -685,10 +715,9 @@ describe("Codex supervision actions", () => {
     await expect(
       getProvider()?.startTerminalSession?.({ agentId: "main", cwd: "/workspace/blank" }),
     ).resolves.toMatchObject({ argv: [executable], cwd: "/workspace/blank" });
-    const fresh = createCodexSessionCatalogNodeHostCommands(control, {
-      getPluginConfig: () => pluginConfig,
-      getRuntimeConfig: () => ({ agents: { ownership: "explicit", entries: { unrelated: {} } } }),
-    }).find((command) => command.command === CODEX_TERMINAL_START_COMMAND)!;
+    const fresh = createCodexSessionCatalogNodeHostCommands(control).find(
+      (command) => command.command === CODEX_TERMINAL_START_COMMAND,
+    )!;
     process.env.PATH = binDir;
     const io = { signal: new AbortController().signal, emitChunk: vi.fn(), onInput: vi.fn() };
     await fresh.handle(

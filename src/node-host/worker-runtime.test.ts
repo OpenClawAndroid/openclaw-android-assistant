@@ -11,13 +11,18 @@ import {
 import { testing as execApprovalsStoreTesting } from "../infra/exec-approvals-store.test-support.js";
 import { saveExecApprovals } from "../infra/exec-approvals.js";
 import { clearExecutablePathCache } from "../infra/executable-path.js";
+import * as pathEnv from "../infra/path-env.js";
+import * as terminalUpload from "../infra/terminal-file-upload.js";
 import { NODE_HOST_STATS_EVENT, NODE_HOST_STATS_INTERVAL_MS } from "../shared/node-host-stats.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import type { NodeHostConfig } from "./config.js";
 import type { ExecEventPayload } from "./invoke-types.js";
+import * as pluginNodeHost from "./plugin-node-host.js";
 
 const fixture = vi.hoisted(() => ({
+  loadConfig: vi.fn<() => Promise<NodeHostConfig | null>>(),
   prepare: vi.fn(),
   start: vi.fn(),
   handleInvoke: vi.fn<typeof import("./invoke.js").handleInvoke>(),
@@ -33,7 +38,7 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("node:readline", () => ({ createInterface: () => fixture.input }));
 vi.mock("./startup-state-migrations.js", () => ({ runStartupMigrations: async () => {} }));
-vi.mock("./config.js", () => ({ loadNodeHostConfig: async () => ({}) }));
+vi.mock("./config.js", () => ({ loadNodeHostConfig: fixture.loadConfig }));
 vi.mock("./runtime.js", () => ({ prepareNodeHostRuntime: fixture.prepare }));
 vi.mock("../infra/path-env.js", () => ({ ensureOpenClawCliOnPath: vi.fn() }));
 vi.mock("../infra/terminal-file-upload.js", async (importOriginal) => ({
@@ -55,8 +60,12 @@ vi.mock("./plugin-node-host.js", () => ({
 }));
 import { runNodeHostWorker } from "./worker.js";
 
+const { prepareNodeHostRuntime } =
+  await vi.importActual<typeof import("./runtime.js")>("./runtime.js");
+
 beforeEach(() => {
   vi.clearAllMocks();
+  fixture.loadConfig.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -182,6 +191,47 @@ it("refreshes runner facts only for the current private bridge generation", asyn
     input.emit("line", JSON.stringify({ type: "runner-inventory-refresh", generation: 3 }));
     await setImmediate();
     expect(publications()).toHaveLength(2);
+  } finally {
+    await stop();
+  }
+});
+
+it("keeps the private app worker unrestricted by a saved headless command allowlist", async () => {
+  fixture.loadConfig.mockResolvedValue({
+    version: 1,
+    nodeId: "headless-node",
+    commands: ["openclaw.sessions.list.v1"],
+  });
+  vi.spyOn(pathEnv, "ensureOpenClawCliOnPath").mockImplementation(() => {});
+  vi.spyOn(terminalUpload, "ensureTerminalUploadCleanup").mockResolvedValue();
+  vi.spyOn(pluginNodeHost, "ensureNodeHostPluginRegistry").mockResolvedValue();
+  vi.spyOn(pluginNodeHost, "listRegisteredNodeHostCapsAndCommands").mockReturnValue({
+    commands: ["openclaw.sessions.list.v1"],
+    caps: ["sessions"],
+    nodePluginTools: [],
+  });
+  fixture.prepare.mockImplementationOnce(async (params) => ({
+    ...(await prepareNodeHostRuntime({
+      ...params,
+      config: {
+        nodeHost: { workerRuns: { enabled: true, isolation: "none" }, skills: { enabled: false } },
+      },
+      env: {},
+    })),
+    start: fixture.start,
+  }));
+  const { messages, stop } = startWorkerFixture();
+  try {
+    await vi.waitFor(() => expect(messages.some((message) => message.type === "ready")).toBe(true));
+    expect.soft(messages).toContainEqual(
+      expect.objectContaining({
+        type: "ready",
+        manifest: expect.objectContaining({ commands: expect.arrayContaining(["system.run"]) }),
+      }),
+    );
+    const prepared = await fixture.prepare.mock.results[0]?.value;
+    expect.soft(prepared.workerHostingEnabled).toBe(true);
+    expect.soft(prepared.restrictedSurface).toBeUndefined();
   } finally {
     await stop();
   }
@@ -335,8 +385,6 @@ it.runIf(process.platform !== "win32").each([
           const { handleInvoke } =
             await vi.importActual<typeof import("./invoke.js")>("./invoke.js");
           fixture.handleInvoke.mockImplementation(handleInvoke);
-          const { prepareNodeHostRuntime } =
-            await vi.importActual<typeof import("./runtime.js")>("./runtime.js");
           const prepared = await prepareNodeHostRuntime({
             config: { nodeHost: { skills: { enabled: false } } },
             enableDuplexPluginCommands: true,

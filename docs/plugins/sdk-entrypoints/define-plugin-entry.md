@@ -94,6 +94,15 @@ export default definePluginEntry({
   policy checks, rollback, and untrusted-content wrapping. The provider supplies
   transcript text through `read(...)`; it must not write the destination session.
 
+  A read-only catalog of sessions published by another Gateway may set
+  `audience: "session-viewers"`. Viewers need `operator.read`; configured roles
+  must also allow viewing others' sessions (`sessions.others: "view"`,
+  `"suggest"`, or `"write"`). Source publication and receiver roles are checked
+  independently. Core rechecks the receiver's access after asynchronous reads;
+  the provider must recheck that the source session remains published before
+  returning its transcript. Provider attribution remains display metadata and
+  does not adopt the source session into the receiving Gateway.
+
   Native source titles are presentation, not unique session labels. When adopting
   a new source, pass its title as `displayName` to the owner-authorized
   [session creator](/plugins/sdk-runtime); the host bounds and stores that snapshot

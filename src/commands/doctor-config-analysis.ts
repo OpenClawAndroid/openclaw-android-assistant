@@ -6,10 +6,42 @@ import { note } from "../../packages/terminal-core/src/note.js";
 import { listAgentEntries } from "../agents/agent-scope-config.js";
 import { CONFIG_PATH } from "../config/config.js";
 import { INCLUDE_KEY } from "../config/includes.js";
+import { logConfigWarningsOnce } from "../config/io.warnings.js";
+import { formatConfigIssueLines } from "../config/issue-format.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.openclaw.js";
 import { OpenClawSchema } from "../config/zod-schema.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { isRecord } from "../utils.js";
+
+const configLog = createSubsystemLogger("config");
+
+export function noteDoctorConfigPreflightIssues(
+  snapshot: ConfigFileSnapshot,
+  options: { invalidConfigNote?: string | false; activeRepair: boolean },
+): void {
+  const invalidConfigNote =
+    options.invalidConfigNote ?? "Config invalid; doctor will run with best-effort config.";
+  if (
+    invalidConfigNote &&
+    snapshot.exists &&
+    !snapshot.valid &&
+    !options.activeRepair &&
+    snapshot.legacyIssues.length === 0
+  ) {
+    note(invalidConfigNote, "Config");
+    noteIncludeConfinementWarning(snapshot);
+  }
+  const warnings = snapshot.warnings ?? [];
+  if (warnings.length > 0) {
+    // Non-interactive Gateway stdout is a log stream; preserve its structured logging contract.
+    if (process.stdout.isTTY) {
+      note(formatConfigIssueLines(warnings, "-").join("\n"), "Config warnings");
+    } else {
+      logConfigWarningsOnce({ configPath: snapshot.path, warnings, logger: configLog });
+    }
+  }
+}
 
 type UnrecognizedKeysIssue = ZodIssue & {
   code: "unrecognized_keys";
@@ -228,7 +260,7 @@ export function noteImplicitFallbackClobberWarnings(cfg: OpenClawConfig): void {
 }
 
 /** Emits a config include warning when an include path escapes the config directory. */
-export function noteIncludeConfinementWarning(snapshot: {
+function noteIncludeConfinementWarning(snapshot: {
   path?: string | null;
   issues?: Array<{ message: string }>;
 }): void {

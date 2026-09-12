@@ -420,9 +420,9 @@ async function readPageSummaries(
       if (scan.status !== "valid") {
         return { scan, importInsight: null, overviewItem: null };
       }
-      const parsed = parseWikiMarkdown(raw);
+      const { parsed, ...summaryScan } = scan;
       return {
-        scan,
+        scan: summaryScan,
         importInsight: projectMemoryWikiImportInsight(scan.page, parsed),
         overviewItem: projectMemoryWikiOverviewItem(scan.page, parsed.body),
       };

@@ -1,6 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
-import { setImmediate } from "node:timers/promises";
 import { extractErrorCode, isMissingPathError } from "../../infra/errors.js";
 import { runCommandWithTimeout, type SpawnResult } from "../../process/exec.js";
 import { WORKTREE_CHECKOUT_TIMEOUT_MS } from "./git.js";
@@ -78,37 +76,6 @@ const btrfsBackend: WorktreeFilesystemBackend = {
   },
 };
 
-async function cloneApfsDirectory(
-  source: string,
-  destination: string,
-  options: WorktreeFilesystemOptions,
-  cloneFile: (source: string, destination: string) => void,
-): Promise<void> {
-  const stats = await fs.lstat(source);
-  if (!stats.isDirectory()) {
-    throw new Error(`Worktree template is not a directory: ${source}`);
-  }
-  const entries = await fs.readdir(source, { withFileTypes: true });
-  assertActive(options);
-  await fs.mkdir(destination, { mode: 0o700 });
-  for (const entry of entries) {
-    const sourcePath = path.join(source, entry.name);
-    const destinationPath = path.join(destination, entry.name);
-    if (entry.isDirectory()) {
-      await cloneApfsDirectory(sourcePath, destinationPath, options, cloneFile);
-    } else {
-      assertActive(options);
-      cloneFile(sourcePath, destinationPath);
-      // Native clones are synchronous metadata operations. Yield between files
-      // so cancellation and allocation-lease renewal can run in wide directories.
-      await setImmediate();
-    }
-  }
-  // Populate writable directories before restoring their source permissions.
-  assertActive(options);
-  await fs.chmod(destination, stats.mode & 0o777);
-}
-
 /** Probe without creating artifacts; the caller supplies an existing destination parent. */
 export async function detectWorktreeFilesystemBackend(
   parentPath: string,
@@ -129,7 +96,15 @@ export async function detectWorktreeFilesystemBackend(
         await fs.mkdir(destination);
       },
       async cloneTemplate(source, destination, cloneOptions) {
-        await cloneApfsDirectory(source, destination, cloneOptions, apfsFilesystem.cloneFile);
+        const stats = await fs.lstat(source);
+        if (!stats.isDirectory()) {
+          throw new Error(`Worktree template is not a directory: ${source}`);
+        }
+        assertActive(cloneOptions);
+        // Join the atomic native operation even on cancellation, so recovery
+        // cannot race a clone still writing the destination on another thread.
+        await apfsFilesystem.cloneDirectory(source, destination);
+        assertActive(cloneOptions);
       },
     };
   }

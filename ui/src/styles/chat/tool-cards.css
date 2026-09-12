@@ -1466,16 +1466,6 @@ openclaw-tooltip.chat-tasks-status__preview {
   }
 }
 .chat-tool-failure {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 8px 8px 28px;
-  color: var(--danger);
-  font-size: var(--control-ui-text-sm);
-  overflow-wrap: anywhere;
-}
-
-.chat-tool-failure__status {
   flex: none;
-  font-weight: 500;
+  white-space: nowrap;
 }

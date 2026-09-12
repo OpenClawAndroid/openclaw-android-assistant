@@ -9,7 +9,8 @@ title: "Node"
 # `openclaw node`
 
 Run a **headless node host** that connects to the Gateway WebSocket and exposes
-`system.run` / `system.which` on this machine.
+`system.run` / `system.which` on this machine by default. Use `--commands` to
+restrict the advertised surface, for example to read-only session sharing.
 
 On macOS, the menu bar app already embeds this node-host runtime into its own
 node connection and adds native Mac capabilities. Use `openclaw node run` on a
@@ -97,6 +98,8 @@ Options:
 - `--tls-fingerprint <sha256>`: Expected TLS certificate fingerprint (sha256)
 - `--node-id <id>`: Override the client instance ID stored in shared SQLite state (does not reset pairing)
 - `--display-name <name>`: Override the node display name
+- `--commands <ids>`: Persist an exact comma-separated command allowlist (repeatable); advertise only available matches and their required capabilities. Disables computer use, skills, plugin tools, MCP servers, and worker hosting. Omitting the flag preserves the saved list.
+- `--all-commands`: Advertise the full default command surface and forget any saved `--commands` allowlist. Cannot be combined with `--commands`.
 - `--share-installed-apps`: On macOS, advertise installed applications through `device.apps`
 - `--no-share-installed-apps`: Disable installed application sharing
 
@@ -116,11 +119,17 @@ persisted in service arguments.
 `openclaw node run` and `openclaw node install` resolve gateway auth from config/env (no `--token`/`--password` flags on node commands):
 
 - `OPENCLAW_GATEWAY_TOKEN` / `OPENCLAW_GATEWAY_PASSWORD` are checked first.
-- Then local config fallback: `gateway.auth.token` / `gateway.auth.password`.
+- When reconnecting to the saved Gateway endpoint with a paired node credential, use that credential and skip config auth. An explicit environment override supplies only its own credentials.
+- Otherwise, local config fallback applies: `gateway.auth.token` / `gateway.auth.password`.
 - In local mode, node host intentionally does not inherit `gateway.remote.token` / `gateway.remote.password`.
-- If `gateway.auth.token` / `gateway.auth.password` is explicitly configured via SecretRef and unresolved, node auth resolution fails closed (no remote fallback masking).
+- If config fallback selects an unresolved `gateway.auth.token` / `gateway.auth.password` SecretRef, node auth resolution fails closed (no remote fallback masking).
 - In `gateway.mode=remote`, remote client fields (`gateway.remote.token` / `gateway.remote.password`) are also eligible per remote precedence rules.
 - Node host auth resolution only honors `OPENCLAW_GATEWAY_*` env vars.
+
+The saved endpoint includes its host, port, TLS mode, and context path. Changing
+any of these restores normal config/env auth resolution. A node can therefore
+share its state directory with a local Gateway while reconnecting to a different
+paired Gateway, without sending the local Gateway's password on restart.
 
 For a Gateway behind Cloudflare Access, set `CF_ACCESS_CLIENT_ID` and
 `CF_ACCESS_CLIENT_SECRET` together before `openclaw connect`, `openclaw node
@@ -160,6 +169,8 @@ Options:
 - `--tls-fingerprint <sha256>`: Expected TLS certificate fingerprint (sha256)
 - `--node-id <id>`: Override the client instance ID stored in shared SQLite state (does not reset pairing)
 - `--display-name <name>`: Override the node display name
+- `--commands <ids>`: Persist the command allowlist for the installed service (repeatable), with the same restrictions as `node run`.
+- `--all-commands`: Advertise the full default command surface and forget any saved `--commands` allowlist. Cannot be combined with `--commands`.
 - `--share-installed-apps`: On macOS, advertise installed applications through `device.apps`
 - `--no-share-installed-apps`: Disable installed application sharing
 - `--runtime <node|bun>`: Service runtime (default: `node`). Bun 1.4+ with WAL-reset-safe `node:sqlite` is an explicit opt-in; Node remains recommended.
@@ -192,6 +203,10 @@ openclaw node uninstall
 ```
 
 Use `openclaw node run` for a foreground node host (no service).
+To remove a saved command allowlist, run `openclaw node run --all-commands`
+in the foreground, or reinstall the service with
+`openclaw node install --force --all-commands`. The reset is durable; the
+replacement service arguments no longer carry `--commands`.
 
 Service commands accept `--json` for machine-readable output.
 `node start` and `node restart` print install hints and exit nonzero when no

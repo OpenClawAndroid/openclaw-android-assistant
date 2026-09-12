@@ -1,7 +1,4 @@
-import {
-  listAgentIds,
-  resolveSessionAgentIdsStrict,
-} from "openclaw/plugin-sdk/agent-scope-runtime";
+import { resolveSessionAgentIdsStrict } from "openclaw/plugin-sdk/agent-scope-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { OpenClawPluginNodeHostCommand } from "openclaw/plugin-sdk/plugin-entry";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
@@ -44,7 +41,6 @@ import {
   codexNodeTerminalCapability,
   createCodexTerminalNodeHostCommand,
   createCodexTerminalStartNodeHostCommand,
-  type CodexTerminalConfigSources,
 } from "./session-catalog-terminal.js";
 import {
   parseCodexCatalogTranscriptPage,
@@ -322,32 +318,19 @@ export async function listCodexSessionCatalog(params: {
 /** Builds the node-local read-only Codex app-server catalog command. */
 export function createCodexSessionCatalogNodeHostCommands(
   controlFactory: CodexSessionCatalogControlFactory,
-  configSources: CodexTerminalConfigSources,
   bindingStore?: CodexAppServerBindingStore,
 ): OpenClawPluginNodeHostCommand[] {
-  // Node commands register before an agent request exists. Bind from the invoke payload so
-  // explicit multi-agent Codex homes never collapse to an ambient default.
+  // Native sources ignore the Gateway route; explicit preexisting sources retain their selector.
   const bindRequest = (paramsJSON?: string | null) => {
     const parsed = parseJsonParams(paramsJSON);
     if (!isRecord(parsed)) {
       throw new CatalogParamsError("Codex session catalog parameters must be an object");
     }
-    const requestedAgentId = readBoundedOptionalString(parsed, "agentId", MAX_SESSION_ID_LENGTH);
-    const config = configSources.getRuntimeConfig() ?? {};
-    const agentId = resolveSessionAgentIdsStrict({
-      config,
-      agentId: requestedAgentId,
-    }).sessionAgentId;
-    if (!listAgentIds(config).includes(agentId)) {
-      throw new CatalogParamsError(`unknown Codex session catalog agent: ${agentId}`);
-    }
+    const agentId = readBoundedOptionalString(parsed, "agentId", MAX_SESSION_ID_LENGTH);
     const request = { ...parsed };
     delete request.agentId;
-    const source = controlFactory.homesForAgent(agentId)[0];
     return {
-      agentId,
-      control: controlFactory.forRequest(agentId, source),
-      sourceHomeId: source?.sourceHomeId,
+      ...controlFactory.forNode(agentId),
       params: request,
       paramsJSON: JSON.stringify(request),
     };
@@ -436,7 +419,7 @@ export function createCodexSessionCatalogNodeHostCommands(
         }
       },
     },
-    createCodexTerminalNodeHostCommand(bindRequest, configSources),
+    createCodexTerminalNodeHostCommand(bindRequest),
     createCodexTerminalStartNodeHostCommand(),
   ];
   // MacNodeHostWorker sets app ownership at launch. Its native catalog may use a

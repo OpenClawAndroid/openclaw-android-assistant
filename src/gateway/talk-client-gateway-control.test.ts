@@ -6,13 +6,13 @@ import type { RealtimeVoiceBridge } from "../talk/provider-types.js";
 import {
   closeTalkClientGatewayControlSession,
   createTalkClientGatewayControlOwner,
-  createTalkRealtimeRunControlOwner,
 } from "./talk-client-gateway-control.js";
 import {
   sessionTarget,
   controlContext,
   controlBridge,
 } from "./talk-client-gateway-control.test-support.js";
+import { createTalkRealtimeRunControlOwner } from "./talk-realtime-run-control.js";
 import { cleanupTalkConnection } from "./talk-session-registry.js";
 
 describe("Talk client Gateway control owner", () => {
@@ -221,6 +221,7 @@ describe("Talk client Gateway control owner", () => {
         entryId: expect.stringMatching(/^gateway-[0-9a-f-]+-1$/),
         role: "user",
         text: "check the repository",
+        confirmation: expect.any(Object),
       });
       if (outcome === "cancelled") {
         await nextEventLoopTurn();
