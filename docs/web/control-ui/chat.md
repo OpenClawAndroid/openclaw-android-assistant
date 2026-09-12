@@ -33,6 +33,8 @@ navigable without a card; links to other origins keep normal browser behavior.
 Document-relative hrefs are never session links; file references such as
 `src/utils/foo.ts` retain workspace file handling.
 
+When authentication status is available, each provider heading in the chat model picker says how that provider is signed in: **API** for an API key (or an explicitly selected API-key account), the plan name for a provider with one subscription, and **Subscription** for a provider with several. With several subscriptions, the heading adds the email of an explicitly selected account when the Gateway supplies it, and the **Account** rows show each account's email; automatic selection shows no account identity. Hover a truncated heading to read the full text.
+
 ## Composer capability menu
 
 Select **+** beside the chat composer to open attachments and session capabilities in one menu:
