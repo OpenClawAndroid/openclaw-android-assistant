@@ -381,6 +381,9 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
                     phase: payload.phase,
                     title: payload.title,
                     explanation: payload.explanation,
+                    ...(payload.explanationFormat
+                      ? { explanationFormat: payload.explanationFormat }
+                      : {}),
                     steps,
                     source: payload.source,
                   };
@@ -408,6 +411,7 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
                   }
                   await state.sendPlanUpdate({
                     explanation: normalized.explanation,
+                    explanationFormat: normalized.explanationFormat,
                     steps,
                   });
                 },

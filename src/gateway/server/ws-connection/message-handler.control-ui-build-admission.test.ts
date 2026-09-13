@@ -198,6 +198,7 @@ describe("Control UI build admission over WebSocket", () => {
       };
       attachGatewayWsMessageHandler({
         socket,
+        prepareAuthenticatedReceive: () => ({ ok: true, value: vi.fn() }),
         connectionWork,
         upgradeReq: request as IncomingMessage,
         ingressAttribution: {

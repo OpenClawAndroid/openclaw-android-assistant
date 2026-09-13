@@ -2294,7 +2294,11 @@ describe("frozen admission workflow barriers", () => {
       const admission = workflowStep(job, "Admit frozen source contracts");
       expect(steps.indexOf(plan)).toBeLessThan(steps.indexOf(provision));
       expect(steps.indexOf(provision)).toBeLessThan(steps.indexOf(admission));
-      expect(provision.if).toBe("steps.frozen_selection.outputs.parser_required == 'true'");
+      expect(provision.if).toBe(
+        file === FULL_RELEASE_VALIDATION_WORKFLOW
+          ? "steps.frozen_selection.outputs.parser_required == 'true' || steps.publication_request.outputs.required == 'true'"
+          : "steps.frozen_selection.outputs.parser_required == 'true'",
+      );
       let install = provision.run;
       if (provision.uses) {
         expect(provision.uses).toBe("./.release-harness/.github/actions/setup-release-harness");
@@ -2963,6 +2967,7 @@ function runReleaseChecksInputValidation(
   );
   const fixture = frozenWorkflowFixture(RELEASE_CHECKS_WORKFLOW, "resolve_target", {}, {}, {}, [
     "scripts/full-release-validation-policy.mjs",
+    "scripts/full-release-publication-contract.mjs",
     "scripts/lib/release-changelog.mjs",
     "scripts/full-release-candidate-contract.mjs",
     "scripts/lib/cross-os-release-checks/suite-filter.mjs",
@@ -6603,6 +6608,7 @@ wait_for_run openclaw-npm-release.yml 404 "$EXPECTED_SHA" "$STARTED_JOB" "$APPRO
     expect(workflowJob(RELEASE_PUBLISH_WORKFLOW, "finalize_github_release").needs).toEqual([
       "publish",
       "publish_docker",
+      "approve_github_release",
     ]);
     expect(nativeJob["continue-on-error"]).toBe(true);
     expect(androidJob["continue-on-error"]).toBe(true);
@@ -12624,7 +12630,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       },
       trusted_workflow_json: {
         default: "",
-        required: false,
+        required: true,
         type: "string",
       },
     });
@@ -12648,7 +12654,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     );
     expect(toolingIdentity.env).toMatchObject({
       GH_TOKEN: "${{ github.token }}",
-      REQUESTED_IDENTITY_JSON: "${{ inputs.trusted_workflow_json }}",
+      REQUESTED_IDENTITY_JSON: "${{ steps.publication_dispatch.outputs.trusted_workflow_json }}",
       WORKFLOW_CONTRACT: "${{ env.RELEASE_ISOLATION_TOOLING_CONTRACT }}",
       WORKFLOW_FULL_REF: "${{ github.ref }}",
       WORKFLOW_REF: "${{ github.ref_name }}",
@@ -13824,7 +13830,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     expect(createReleaseIndex).toBeGreaterThanOrEqual(0);
     expect(verifyReleaseIndex).toBeGreaterThan(createReleaseIndex);
     expect(appendProofIndex).toBeGreaterThan(verifyReleaseIndex);
-    expect(finalizeJob.needs).toEqual(["publish", "publish_docker"]);
+    expect(finalizeJob.needs).toEqual(["publish", "publish_docker", "approve_github_release"]);
     expect(finalizeJob.if).toContain("needs.publish_docker.result == 'success'");
     expect(finalizeRelease.run).toContain('gh release edit "${RELEASE_TAG}"');
   });
@@ -13835,6 +13841,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     for (const source of [
       "scripts/release-ci-summary.mjs",
       "scripts/full-release-validation-policy.mjs",
+      "scripts/full-release-publication-contract.mjs",
       "scripts/lib/release-changelog.mjs",
       "scripts/full-release-candidate-contract.mjs",
       "scripts/lib/canonical-json.mjs",
@@ -14011,7 +14018,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       expect(workflow.on?.workflow_dispatch?.inputs?.[input]).toMatchObject({ required: false });
     }
     expect(publish.needs).toEqual(["resolve_release_target"]);
-    expect(finalize.needs).toEqual(["publish", "publish_docker"]);
+    expect(finalize.needs).toEqual(["publish", "publish_docker", "approve_github_release"]);
     expect(windows.needs).toEqual(["resolve_release_target", "finalize_github_release"]);
     expect(windows["continue-on-error"]).toBe(true);
     expect(windows.if).toContain("needs.finalize_github_release.result == 'success'");

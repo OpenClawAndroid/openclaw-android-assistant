@@ -13,6 +13,7 @@ import {
 import {
   type CapturedStreamEvent,
   makeCompletionsModel,
+  makeResponsesModel,
   createResponsesAssistantOutput,
   createAzureResponsesModel,
   streamChunks,
@@ -155,18 +156,15 @@ describe("openai transport stream", () => {
         throw new Error("Missing loopback server address");
       }
       const onResponse = vi.fn();
-      const model = {
+      const model = makeResponsesModel({
         id: "gpt-status",
         name: "GPT Status",
-        api: "openai-responses",
         provider: "custom-openai",
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
         reasoning: false,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128_000,
         maxTokens: 4_096,
-      } satisfies Model<"openai-responses">;
+      }) satisfies Model<"openai-responses">;
 
       const stream = await createOpenAIResponsesTransportStreamFn()(
         model,

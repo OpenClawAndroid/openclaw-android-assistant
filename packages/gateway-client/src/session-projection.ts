@@ -6,6 +6,7 @@ import {
   hasSessionProjectionAcceptedFinal,
   findUniqueSnapshotTerminalMatch,
   isUnsequencedLiveTerminal,
+  isSessionProjectionToolContinuation,
   readSessionProjectionFinalMessageIdentity,
 } from "./session-projection-final-identity.js";
 import {
@@ -250,6 +251,12 @@ function entryMatches(
   right: SessionProjectionEntry,
   allowSnapshotPromotion = false,
 ): boolean {
+  const leftSegment = readAssistantStreamSegmentIdentity(left.message);
+  const rightSegment = readAssistantStreamSegmentIdentity(right.message);
+  // One transcript row can contain separate commentary and tool display parts.
+  if (leftSegment?.itemId !== rightSegment?.itemId) {
+    return false;
+  }
   if (sameTranscriptIdentity(left.identity, right.identity)) {
     return true;
   }
@@ -263,8 +270,8 @@ function entryMatches(
     !provisionalEntry.identity.isImported &&
     !provisionalEntry.identity.id
   ) {
-    const durableSegment = readAssistantStreamSegmentIdentity(durableEntry.message);
-    const provisionalSegment = readAssistantStreamSegmentIdentity(provisionalEntry.message);
+    const durableSegment = durableEntry === left ? leftSegment : rightSegment;
+    const provisionalSegment = durableEntry === left ? rightSegment : leftSegment;
     // Terminal cleanup can materialize commentary before cursor history catches up.
     // Adopt its exact item/run without joining distinct durable rows or equal prose.
     if (
@@ -275,10 +282,11 @@ function entryMatches(
     ) {
       return true;
     }
-    // History changes retention, not identity: a hydrated row still owns its
-    // unsequenced run projection. Item-keyed commentary remains separate.
+    // Commentary and tool continuations cannot own an unkeyed final answer.
     if (
       provisionalEntry.live &&
+      !durableSegment &&
+      !isSessionProjectionToolContinuation(durableEntry.message) &&
       provisionalEntry.identity.sequence === null &&
       (provisionalEntry.afterSequence === undefined ||
         (provisionalEntry.afterSequence !== null &&
@@ -434,11 +442,7 @@ export function projectLiveSessionMessage(
         : state.entries.toSpliced(existingIndex, 1, incoming),
     );
   }
-  return withEntries(state, [
-    ...state.entries.slice(0, existingIndex),
-    incoming,
-    ...state.entries.slice(existingIndex + 1),
-  ]);
+  return withEntries(state, state.entries.toSpliced(existingIndex, 1, incoming));
 }
 
 /** Only observed live events and this client's pending turns may survive an older snapshot. */

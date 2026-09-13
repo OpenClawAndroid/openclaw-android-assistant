@@ -156,25 +156,6 @@ function formatDiffCount(value: number): string {
   return value.toLocaleString();
 }
 
-/**
- * The pre-PR publication row must not invite a duplicate PR, so live PRs
- * (even dismissed ones) hide it — decided on the undismissed PR list. The
- * gateway already omits branches with neither a creatable PR nor local
- * changed files.
- */
-export function createPullRequestBranch(
-  pullRequests: readonly ControlUiSessionPullRequest[],
-  branch: ControlUiSessionBranch | undefined,
-): ControlUiSessionBranch | undefined {
-  if (!branch) {
-    return undefined;
-  }
-  if (pullRequests.some((item) => item.state === "open" || item.state === "draft")) {
-    return undefined;
-  }
-  return branch;
-}
-
 // Collapsed rows lead with live work; merged/closed history sits behind the
 // "show more" toggle so a long landing streak never buries the active PR.
 function visibleChatPullRequests(

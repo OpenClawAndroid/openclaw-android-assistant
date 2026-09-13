@@ -522,16 +522,12 @@ export async function matchStandingIntents(params: {
         cursor = lastCandidate
           ? { createdAt: lastCandidate.created_at, id: lastCandidate.id }
           : cursor;
-        for (const candidate of candidates) {
+        for (const current of candidates) {
           if (fired.length >= INTENT_INJECTION_MAX_COUNT) {
             break;
           }
-          const current = executeSqliteQueryTakeFirstSync(
-            db,
-            kysely.selectFrom("standing_intents").selectAll().where("id", "=", candidate.id),
-          );
+          // This write transaction's page stays current: firing only changes the selected row.
           if (
-            !current ||
             !readKnownCreatorSender(current.creator_sender) ||
             !canFire(current, nowMs) ||
             !scopesMatch(current, channelScopes, storedSenderScope) ||

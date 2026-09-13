@@ -1386,7 +1386,9 @@ vi.mock("./doctor-config-preflight.js", async () => {
   };
 });
 
-vi.mock("./doctor-config-analysis.js", () => {
+vi.mock("./doctor-config-analysis.js", async (importOriginal) => {
+  const { noteDoctorHookConfigWarnings, noteMissingDefaultAgentOwner } =
+    await importOriginal<typeof import("./doctor-config-analysis.js")>();
   function formatConfigKeyPath(parts: Array<string | number>): string {
     if (parts.length === 0) {
       return "<root>";
@@ -1426,6 +1428,8 @@ vi.mock("./doctor-config-analysis.js", () => {
     noteImplicitFallbackClobberWarnings: noteImplicitFallbackClobberWarningsMock,
     noteOpencodeProviderOverrides: vi.fn(),
     noteMcpOriginWarning: vi.fn(),
+    noteDoctorHookConfigWarnings,
+    noteMissingDefaultAgentOwner,
     noteSandboxOriginProxyWarning: vi.fn(),
     resolveConfigPathTarget,
     stripUnknownConfigKeys: vi.fn((config: Record<string, unknown>) => {
@@ -1800,6 +1804,27 @@ describe("doctor config flow", () => {
       },
     });
   });
+
+  it.each([false, true])(
+    "explains how to select a default for an ownerless explicit fleet (repair: %s)",
+    async (repair) => {
+      const config: OpenClawConfig = {
+        agents: { ownership: "explicit", entries: { ops: {}, research: {} } },
+      };
+      const result = await runDoctorConfigWithInput({
+        config,
+        parsedConfig: config,
+        repair,
+        run: loadAndMaybeMigrateDoctorConfig,
+      });
+      expect(result.cfg.agents).toEqual(config.agents);
+      expect(result.shouldWriteConfig).toBe(false);
+      expect(terminalNoteMock).toHaveBeenCalledWith(
+        expect.stringContaining("openclaw config set agents.defaults.systemAgent.agentId <id>"),
+        "Agent ownership",
+      );
+    },
+  );
 
   it("materializes ambient roles for a multi-agent configured default", async () => {
     const rawConfig = {
@@ -2395,30 +2420,6 @@ describe("doctor config flow", () => {
       .filter(([, title]) => title === "Doctor warnings")
       .map(([message]) => message);
     expect(doctorWarnings.join("\n")).toContain("clobbers agents.defaults.model.fallbacks");
-  });
-
-  it("warns when hooks transformsDir points outside the hook transforms root", async () => {
-    const doctorWarnings = await collectDoctorWarnings({
-      hooks: {
-        enabled: true,
-        token: "hook-secret",
-        transformsDir: "/virtual/.openclaw/workspace/skills/linear-webhook",
-        mappings: [
-          {
-            match: { path: "linear" },
-            action: "agent",
-            messageTemplate: "Linear event",
-            transform: { module: "./openclaw-linear-transform.js" },
-          },
-        ],
-      },
-    });
-
-    const warning = doctorWarnings.join("\n");
-    expect(warning).toContain("hooks.transformsDir:");
-    expect(warning).toContain("/virtual/.openclaw/workspace/skills/linear-webhook");
-    expect(warning).toContain("/virtual/.openclaw/hooks/transforms");
-    expect(warning).toContain("move custom transforms there or remove hooks.transformsDir");
   });
 
   it("warns when internal hook entries include unsupported loader keys", async () => {

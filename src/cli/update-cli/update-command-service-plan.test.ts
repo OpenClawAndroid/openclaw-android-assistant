@@ -25,6 +25,7 @@ vi.mock("../../../node-sqlite.mjs", async (importOriginal) => {
 describe("package runtime compatibility guidance", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     probeState.text = true;
     vi.mocked(resolveNodeRuntimeInfo).mockReset();
   });
@@ -226,6 +227,58 @@ describe("package runtime compatibility guidance", () => {
   it("preserves an absent target", async () => {
     await expect(resolvePackageRuntimePreflight({})).resolves.toEqual({ ok: true, value: {} });
   });
+
+  it.each([
+    { timeoutMs: undefined, startupMs: 11_000, admitted: true },
+    { timeoutMs: 1_500_000, startupMs: 1_300_000, admitted: true },
+    { timeoutMs: 50, startupMs: 100, admitted: false },
+  ])(
+    "allows a slow selected Node within its owner budget $timeoutMs",
+    async ({ timeoutMs, startupMs, admitted }) => {
+      vi.useFakeTimers();
+      vi.mocked(resolveNodeRuntimeInfo).mockImplementation(async (_node, _env, allowance) => {
+        if (allowance === undefined) {
+          throw new Error("Runtime probe requires a finite allowance");
+        }
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, Math.min(startupMs, allowance));
+        });
+        return allowance < startupMs
+          ? { status: "probe-failed", error: new Error("runtime startup timed out") }
+          : {
+              status: "supported",
+              version: "24.19.0",
+              sqliteVersion: "3.51.3",
+              nodeSharedSqlite: false,
+              sqliteProbe: {
+                available: true,
+                version: "3.51.3",
+                text: true,
+                blob: true,
+                json: true,
+              },
+            };
+      });
+      const pending = resolvePackageRuntimePreflight({
+        target: { version: "2026.9.4", nodeEngine: ">=24.16.0" },
+        nodeRunner: "/fixture/bin/node",
+        timeoutMs,
+      });
+      await vi.advanceTimersByTimeAsync(startupMs);
+      const result = await pending;
+      if (admitted) {
+        expect(result).toEqual({
+          ok: true,
+          value: { nodeRunner: "/fixture/bin/node", targetVersion: "2026.9.4" },
+        });
+      } else {
+        expect(result).toMatchObject({
+          ok: false,
+          error: expect.stringContaining("runtime startup timed out"),
+        });
+      }
+    },
+  );
 
   it("refuses a failed recorded-runtime probe even with an unknown target engine", async () => {
     vi.mocked(resolveNodeRuntimeInfo).mockResolvedValue({

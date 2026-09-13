@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { withAgentRosterFactsBatch } from "./agent-scope-config.js";
 import { listConfiguredOwnerInputs } from "./prepared-model-runtime.configured.js";
 import { PreparedModelRuntimePublicationSupersededError } from "./prepared-model-runtime.errors.js";
 import {
@@ -90,27 +91,29 @@ export function listConfiguredRefreshInputs(
       workspacesByDir.set(agentDir, workspaceDir);
     }
   }
-  const inputs: PreparedModelRuntimeInput[] = [];
-  for (const rawInput of listConfiguredOwnerInputs(
-    config,
-    options.defaultWorkspaceDir,
-    options.allowGatewaySubagentBinding,
-  )) {
-    const input = normalizePreparedModelRuntimeInput(rawInput);
-    const preservedWorkspaceDir = input.agentId
-      ? preservedWorkspaceByAgentDir.get(input.agentId)?.get(input.agentDir)
-      : undefined;
-    inputs.push(
-      preservedWorkspaceDir
-        ? {
-            ...input,
-            workspaceDir: preservedWorkspaceDir,
-            preserveWorkspaceDirOnRefresh: true,
-          }
-        : input,
-    );
-  }
-  return inputs;
+  return withAgentRosterFactsBatch(config, () => {
+    const inputs: PreparedModelRuntimeInput[] = [];
+    for (const rawInput of listConfiguredOwnerInputs(
+      config,
+      options.defaultWorkspaceDir,
+      options.allowGatewaySubagentBinding,
+    )) {
+      const input = normalizePreparedModelRuntimeInput(rawInput);
+      const preservedWorkspaceDir = input.agentId
+        ? preservedWorkspaceByAgentDir.get(input.agentId)?.get(input.agentDir)
+        : undefined;
+      inputs.push(
+        preservedWorkspaceDir
+          ? {
+              ...input,
+              workspaceDir: preservedWorkspaceDir,
+              preserveWorkspaceDirOnRefresh: true,
+            }
+          : input,
+      );
+    }
+    return inputs;
+  });
 }
 
 /** Invalidates scoped owners and optionally advances retained owners to a new config stamp. */

@@ -12,19 +12,35 @@ import { resolveSafeChildProcessInvocation } from "./windows-command.js";
 export const COMMAND_PROCESS_TREE_KILL_GRACE_MS = 300;
 
 type CommandProcessScope = {
-  stopped: boolean;
+  signal: AbortSignal;
   children: Set<() => void>;
 };
 
 const commandProcessScope = new AsyncLocalStorage<CommandProcessScope>();
 
+export function resolveCommandProcessSignal(signal?: AbortSignal): AbortSignal | undefined {
+  const inherited = commandProcessScope.getStore()?.signal;
+  return inherited ? AbortSignal.any(signal ? [inherited, signal] : [inherited]) : signal;
+}
+
+/** Cleanup helpers must outlive cancellation of the commands they are settling. */
+export function runOutsideCommandProcessScope<T>(run: () => T): T {
+  return commandProcessScope.exit(run);
+}
+
 /** Terminal command deadlines stop their children before the caller permits rollback. */
 export async function withCommandProcessScope<T>(
   run: (stop: () => void) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
-  const scope: CommandProcessScope = { stopped: false, children: new Set() };
+  const controller = new AbortController();
+  const inherited = resolveCommandProcessSignal(signal);
+  const scope: CommandProcessScope = {
+    signal: inherited ? AbortSignal.any([inherited, controller.signal]) : controller.signal,
+    children: new Set(),
+  };
   const stop = () => {
-    scope.stopped = true;
+    controller.abort();
     for (const stopChild of scope.children) {
       stopChild();
     }
@@ -93,6 +109,8 @@ export function shouldSpawnWithShell(params: {
 
 type SpawnCommandOptions = ExecaOptions & {
   baseEnv?: NodeJS.ProcessEnv;
+  /** The command runner routes scope cancellation through its termination owner. */
+  inheritScopeCancellation?: boolean;
 };
 
 export function spawnCommandWithInvocation<
@@ -105,10 +123,17 @@ export function spawnCommandWithInvocation<
   invocation: ReturnType<typeof resolveSafeChildProcessInvocation>;
 } {
   const scope = commandProcessScope.getStore();
-  if (scope?.stopped) {
+  if (scope?.signal.aborted) {
     throw new Error("Command process scope is closed");
   }
-  const { baseEnv, env, windowsVerbatimArguments, ...execaOptions } = options;
+  const {
+    baseEnv,
+    env,
+    windowsVerbatimArguments,
+    cancelSignal,
+    inheritScopeCancellation = true,
+    ...execaOptions
+  } = options;
   const commandEnv = resolveCommandEnv({ argv, baseEnv, env });
   const invocation = resolveSafeChildProcessInvocation({
     argv,
@@ -118,6 +143,9 @@ export function spawnCommandWithInvocation<
   });
   const child = execa(invocation.command, invocation.args, {
     ...execaOptions,
+    cancelSignal: inheritScopeCancellation
+      ? resolveCommandProcessSignal(cancelSignal)
+      : cancelSignal,
     ...(scope ? { killDescendants: true } : {}),
     env: commandEnv,
     extendEnv: false,

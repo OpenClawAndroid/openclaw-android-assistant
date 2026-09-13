@@ -400,6 +400,7 @@ function attachGatewayHarness(options: {
   });
   attachGatewayWsMessageHandler({
     socket,
+    prepareAuthenticatedReceive: () => ({ ok: true, value: vi.fn() }),
     connectionWork,
     bootId: "post-connect-health-test-boot",
     upgradeReq: {

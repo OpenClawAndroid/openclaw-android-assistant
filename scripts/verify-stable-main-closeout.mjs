@@ -5,9 +5,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { loadReleaseChangelog } from "./lib/release-changelog.mjs";
 import {
+  requiresLinuxUpdaterObservation,
   verifyReleaseEvidenceChecksum,
   verifyStableMainCloseout,
 } from "./lib/stable-release-closeout.mjs";
+import { inspectLinuxUpdaterManifest } from "./linux-updater-manifest.mjs";
 
 function parseArgs(argv) {
   const values = new Map();
@@ -77,6 +79,16 @@ function main() {
     tagPackageJson.version === tagVersion.replace(/-[1-9]\d*$/u, "")
       ? tagPackageJson.version
       : tagVersion;
+  const release = readJson(resolve(args["release-json"]));
+  const existingManifest = args["existing-manifest"]
+    ? readJson(resolve(args["existing-manifest"]))
+    : undefined;
+  const linuxUpdaterObservation = requiresLinuxUpdaterObservation({ release, existingManifest })
+    ? inspectLinuxUpdaterManifest({
+        repository: process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw",
+        carrierTag: args.tag,
+      })
+    : undefined;
   const result = verifyStableMainCloseout({
     tag: args.tag,
     mainPackageJson: readJson(resolve(mainDir, "package.json")),
@@ -87,7 +99,8 @@ function main() {
     publishedAppcast: args["published-appcast"]
       ? readFileSync(resolve(args["published-appcast"]), "utf8")
       : undefined,
-    release: readJson(resolve(args["release-json"])),
+    release,
+    linuxUpdaterObservation,
     releaseTagSha: gitSha(tagDir),
     mainSha: gitSha(mainDir),
     fullReleaseValidationRunId: args["full-release-validation-run-id"],
@@ -100,9 +113,7 @@ function main() {
     publishRecovery: args["publish-recovery"]
       ? readJson(resolve(args["publish-recovery"]))
       : undefined,
-    existingManifest: args["existing-manifest"]
-      ? readJson(resolve(args["existing-manifest"]))
-      : undefined,
+    existingManifest,
     nowMs: Date.now(),
   });
   if (result.errors.length > 0 || !result.manifest) {

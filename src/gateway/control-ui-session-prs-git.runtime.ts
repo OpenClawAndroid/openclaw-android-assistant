@@ -9,7 +9,7 @@ export async function readCheckoutGitContext(
   root: string,
 ): Promise<GitReadOperations["checkout.context"]["output"]> {
   const branch = await gitOutput(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  if (!branch || branch === "HEAD") {
+  if (!branch) {
     return null;
   }
   const remoteUrl = await gitOutput(root, ["remote", "get-url", "origin"]);
@@ -19,7 +19,12 @@ export async function readCheckoutGitContext(
   }
   const defaultRef = await gitOutput(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   const defaultBranch = defaultRef?.replace(/^origin\//, "");
-  return { ...remote, branch, root, ...(defaultBranch ? { defaultBranch } : {}) };
+  return {
+    ...remote,
+    branch: branch === "HEAD" ? null : branch,
+    root,
+    ...(defaultBranch ? { defaultBranch } : {}),
+  };
 }
 
 const SHORTSTAT_FILES = /(\d+) files? changed/;

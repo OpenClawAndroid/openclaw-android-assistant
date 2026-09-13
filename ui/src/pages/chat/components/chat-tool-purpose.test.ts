@@ -98,4 +98,24 @@ describe("execution purpose cards", () => {
       card.args.command,
     );
   });
+
+  it("keeps multiline command previews readable and bounded without changing the source", () => {
+    const container = document.createElement("div");
+    const command =
+      "printf '\n--- recovery ---\n'\ncat recovery.md\n" + "echo example\n".repeat(100);
+    const card = { id: "multiline-command", name: "exec", args: { command } };
+    render(
+      renderToolCard(card, {
+        messageKey: "multiline-command",
+        expanded: true,
+        onToggleExpanded: vi.fn(),
+      }),
+      container,
+    );
+    const preview = container.querySelector(".chat-tool-row__cmd")?.textContent ?? "";
+    expect(preview).toContain("printf ' --- recovery --- ' cat recovery.md");
+    expect(preview.length).toBeLessThanOrEqual(200);
+    expect(resolveToolRowText(card)).toBe(`$ ${preview}`);
+    expect(container.querySelector(".chat-tool-msg-body")?.textContent).toContain(command);
+  });
 });

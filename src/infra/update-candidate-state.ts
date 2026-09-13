@@ -23,14 +23,16 @@ import {
   SQLITE_READONLY_CHILD_ARG,
 } from "./runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerArgv, resolveRuntimeWorkerUrl } from "./runtime-worker-url.js";
+import { resolvePrivateSqliteSnapshotStagingRoot } from "./sqlite-private-directory.js";
+import { removeTempDirectory } from "./sqlite-readonly-location-cleanup.js";
 import {
   createSqliteSnapshotStagingDirectory,
   inspectSqliteSchemaHeaderInProcess,
   prepareSqliteReadOnlyLocationSyncInProcess,
-  removeTempDirectory,
 } from "./sqlite-readonly-location.js";
 import { resolveAggregateSqliteInspectionTimeoutMs } from "./sqlite-readonly-worker.js";
 import { readSqliteUserVersion } from "./sqlite-user-version.js";
+import { withUpdateCandidateIoBudget } from "./update-candidate-io.js";
 import {
   UPDATE_CANDIDATE_PLUGIN_PLAN_FILENAME,
   resolveUpdateCandidateStateIdentity,
@@ -115,7 +117,7 @@ const StateDatabaseDiscoverySchema = z.object({
   spellings: z.tuple([z.string()], z.string()),
 });
 type StateDatabaseDiscovery = z.infer<typeof StateDatabaseDiscoverySchema>;
-export const UpdateCandidateStateInventorySchema = z
+const UpdateCandidateStateInventorySchema = z
   .array(z.tuple([z.string(), StateDatabaseDiscoverySchema]))
   .transform((entries) => new Map(entries));
 export const UpdateCandidateSnapshotInventorySchema = z.object({
@@ -206,6 +208,7 @@ async function withStateDatabaseSnapshot<T>(
 
 export async function collectStateDatabasePaths(
   input: StateInput,
+  options: { includeUnconfiguredAgents?: boolean } = {},
 ): Promise<Map<string, StateDatabaseDiscovery>> {
   const shared = path.resolve(input.stateDir, "state", "openclaw.sqlite");
   // Every discovery source queues one projection identity per database: with an
@@ -221,13 +224,15 @@ export async function collectStateDatabasePaths(
   };
   queue(shared);
   let directories: string[] = [];
-  try {
-    directories = (await fs.readdir(path.join(input.stateDir, "agents"), { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-      .map((entry) => entry.name);
-  } catch (error) {
-    if (!hasNodeErrorCode(error, "ENOENT")) {
-      throw error;
+  if (options.includeUnconfiguredAgents !== false) {
+    try {
+      directories = (await fs.readdir(path.join(input.stateDir, "agents"), { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+        .map((entry) => entry.name);
+    } catch (error) {
+      if (!hasNodeErrorCode(error, "ENOENT")) {
+        throw error;
+      }
     }
   }
   const configured = Object.entries(input.config.agents?.entries ?? {});
@@ -414,7 +419,8 @@ async function runUpdateStateInspectionWorker(params: {
   signal?: AbortSignal;
   sourceEnv: NodeJS.ProcessEnv;
   stagingRoot: string;
-  timeoutMs: number;
+  databases: Awaited<ReturnType<typeof readUpdateStateDatabaseSizes>>;
+  timeoutMs?: number;
   readOnlySource?: string;
 }) {
   const workerUrl = resolveRuntimeWorkerUrl({
@@ -426,38 +432,54 @@ async function runUpdateStateInspectionWorker(params: {
   const sourceTsconfigPath = /\.[cm]?ts$/.test(fileURLToPath(workerUrl))
     ? fileURLToPath(new URL("../../tsconfig.json", workerUrl))
     : undefined;
-  return await runCommandBuffered(
-    [
-      params.nodeRunner,
-      ...resolveRuntimeWorkerArgv(workerUrl, params.nodeRunner),
-      ...(params.readOnlySource
-        ? [SQLITE_READONLY_CHILD_ARG, "sync", params.readOnlySource, params.stagingRoot]
-        : []),
-    ],
+  return await withUpdateCandidateIoBudget(
     {
-      cwd: os.tmpdir(),
-      input: params.readOnlySource
-        ? undefined
-        : JSON.stringify({
-            ...params.input,
-            env: {
-              HOME: params.sourceEnv.HOME,
-              OPENCLAW_HOME: params.sourceEnv.OPENCLAW_HOME,
-              USERPROFILE: params.sourceEnv.USERPROFILE,
-              OPENCLAW_AGENT_DIR: params.sourceEnv.OPENCLAW_AGENT_DIR,
-              PI_CODING_AGENT_DIR: params.sourceEnv.PI_CODING_AGENT_DIR,
-            },
-          }),
-      baseEnv: params.sourceEnv,
-      env: {
-        XDG_CACHE_HOME: params.stagingRoot,
-        ...(sourceTsconfigPath ? { TSX_TSCONFIG_PATH: sourceTsconfigPath } : {}),
-      },
-      timeoutMs: params.timeoutMs,
-      killGraceMs: 500,
-      maxOutputBytes: { stdout: 1024 * 1024, stderr: 20_000 },
+      directory: params.stagingRoot,
+      bytes: params.databases.reduce(
+        (total, database) => total + Number(database.sizeBytes ?? 0),
+        0,
+      ),
+      timeoutMs: Math.max(
+        params.timeoutMs ?? 0,
+        resolveAggregateSqliteInspectionTimeoutMs("state schema inspection", params.databases),
+      ),
       signal: params.signal,
+      nodeRunner: params.nodeRunner,
+      env: params.sourceEnv,
     },
+    (signal) =>
+      runCommandBuffered(
+        [
+          params.nodeRunner,
+          ...resolveRuntimeWorkerArgv(workerUrl, params.nodeRunner),
+          ...(params.readOnlySource
+            ? [SQLITE_READONLY_CHILD_ARG, "sync", params.readOnlySource, params.stagingRoot]
+            : []),
+        ],
+        {
+          cwd: os.tmpdir(),
+          input: params.readOnlySource
+            ? undefined
+            : JSON.stringify({
+                ...params.input,
+                env: {
+                  HOME: params.sourceEnv.HOME,
+                  OPENCLAW_HOME: params.sourceEnv.OPENCLAW_HOME,
+                  USERPROFILE: params.sourceEnv.USERPROFILE,
+                  OPENCLAW_AGENT_DIR: params.sourceEnv.OPENCLAW_AGENT_DIR,
+                  PI_CODING_AGENT_DIR: params.sourceEnv.PI_CODING_AGENT_DIR,
+                },
+              }),
+          baseEnv: params.sourceEnv,
+          env: {
+            XDG_CACHE_HOME: params.stagingRoot,
+            ...(sourceTsconfigPath ? { TSX_TSCONFIG_PATH: sourceTsconfigPath } : {}),
+          },
+          killGraceMs: 500,
+          maxOutputBytes: { stdout: 1024 * 1024, stderr: 20_000 },
+          signal,
+        },
+      ),
   );
 }
 
@@ -524,53 +546,44 @@ async function discoverLegacyUpdateStateSchemaInspection(
 export async function readUpdateStateSchemaVersions({
   root,
   nodeRunner = process.execPath,
+  timeoutMs,
   signal,
   ...input
 }: StateInput & {
   // Omit only before activation; null forbids falling back after an uncertain swap.
   root?: string | null;
   nodeRunner?: string;
+  timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<UpdateStateSchemaVersion[]> {
   if (root === null) {
     throw new Error("The active installation root is unknown; state inspection is unsafe.");
   }
   const sourceEnv = input.env ?? process.env;
-  const stagingRoot = await createSqliteSnapshotStagingDirectory();
+  const stagingRoot = await createSqliteSnapshotStagingDirectory(
+    resolvePrivateSqliteSnapshotStagingRoot(sourceEnv),
+  );
   let outcome: { value: UpdateStateSchemaVersion[] } | { cause: unknown };
   try {
     const shared = path.resolve(input.stateDir, "state", "openclaw.sqlite");
-    const sizeOptions = { nodeRunner, signal, sourceEnv, stagingRoot };
-    const [sharedDatabase] = await readUpdateStateDatabaseSizes([shared], sizeOptions);
-    const discoveryResult = await runUpdateStateInspectionWorker({
+    const sizeOptions = { nodeRunner, signal, sourceEnv, stagingRoot, timeoutMs };
+    const discoveryParams = {
       input: { ...input, mode: "discover", stagingRoot },
       nodeRunner,
       root,
       signal,
       sourceEnv,
       stagingRoot,
-      timeoutMs: resolveAggregateSqliteInspectionTimeoutMs(
-        "state schema inspection",
-        sharedDatabase ? [sharedDatabase] : [],
-      ),
-    });
+      timeoutMs,
+      databases: await readUpdateStateDatabaseSizes([shared], sizeOptions),
+    };
+    const discoveryResult = await runUpdateStateInspectionWorker(discoveryParams);
     const legacyWorker =
       discoveryResult.code !== 0 &&
       discoveryResult.stderr.toString("utf8").includes("Unknown update state inspection mode");
     // Activation may replace the updater package. Both legacy subprocesses must use the candidate.
     const discovery = legacyWorker
-      ? await discoverLegacyUpdateStateSchemaInspection({
-          input,
-          nodeRunner,
-          root,
-          signal,
-          sourceEnv,
-          stagingRoot,
-          timeoutMs: resolveAggregateSqliteInspectionTimeoutMs(
-            "state schema inspection",
-            sharedDatabase ? [sharedDatabase] : [],
-          ),
-        })
+      ? await discoverLegacyUpdateStateSchemaInspection({ ...discoveryParams, input })
       : parseUpdateStateInspectionWorker(discoveryResult, UpdateStateSchemaInspectionPlanSchema);
     const sharedIdentity = resolveUpdateCandidateStateIdentity(input.stateDir, shared);
     // Legacy workers recopy the shared database and may inspect every raw alias.
@@ -583,18 +596,11 @@ export async function readUpdateStateSchemaVersions({
     outcome = {
       value: parseUpdateStateInspectionWorker(
         await runUpdateStateInspectionWorker({
+          ...discoveryParams,
           input: legacyWorker
             ? { ...input, mode: "versions" }
             : { ...input, mode: "versions", stagingRoot, inspectionPlan: discovery },
-          nodeRunner,
-          root,
-          signal,
-          sourceEnv,
-          stagingRoot,
-          timeoutMs: resolveAggregateSqliteInspectionTimeoutMs(
-            "state schema inspection",
-            await readUpdateStateDatabaseSizes(files, sizeOptions),
-          ),
+          databases: await readUpdateStateDatabaseSizes(files, sizeOptions),
         }),
         UpdateStateSchemaVersionsSchema,
       ),

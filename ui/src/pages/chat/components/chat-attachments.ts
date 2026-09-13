@@ -646,6 +646,23 @@ function renderBrowserAnnotationAttachment(
   `;
 }
 
+// Keep one live region mounted across batches; the counter counts batches, not files.
+export function renderAttachmentReadStatus(pendingReads: number) {
+  return html`<div
+    class="chat-attachments-status"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+  >
+    ${
+      pendingReads > 0
+        ? html`<span class="btn__spinner" aria-hidden="true"></span
+            >${t("chat.composer.preparingAttachments")}`
+        : nothing
+    }
+  </div>`;
+}
+
 export function renderAttachmentPreview(props: ChatAttachmentControlsProps) {
   const attachments = props.attachments ?? [];
   if (attachments.length === 0) {
@@ -653,8 +670,11 @@ export function renderAttachmentPreview(props: ChatAttachmentControlsProps) {
   }
   return html`
     <div class="chat-attachments-preview" ${scrollState(true)}>
-      ${attachments.map((att) =>
-        att.browserAnnotation
+      ${attachments.map((att) => {
+        const removeLabel = att.fileName?.trim()
+          ? t("chat.composer.removeNamedAttachment", { name: att.fileName })
+          : t("chat.composer.removeAttachment");
+        return att.browserAnnotation
           ? renderBrowserAnnotationAttachment(att, att.browserAnnotation, props)
           : html`
               <div
@@ -697,11 +717,11 @@ export function renderAttachmentPreview(props: ChatAttachmentControlsProps) {
                         `
                       : renderCompactAttachmentFile(att)
                 }
-                <openclaw-tooltip .content=${t("chat.composer.removeAttachment")}>
+                <openclaw-tooltip .content=${removeLabel}>
                   <button
                     class="chat-attachment-remove"
                     type="button"
-                    aria-label=${t("chat.composer.removeAttachment")}
+                    aria-label=${removeLabel}
                     ?disabled=${props.disabled}
                     @click=${() => {
                       const next = currentAttachments(props).filter((a) => a.id !== att.id);
@@ -713,8 +733,8 @@ export function renderAttachmentPreview(props: ChatAttachmentControlsProps) {
                   </button>
                 </openclaw-tooltip>
               </div>
-            `,
-      )}
+            `;
+      })}
     </div>
   `;
 }

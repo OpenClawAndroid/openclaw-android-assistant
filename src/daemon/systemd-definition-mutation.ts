@@ -96,8 +96,12 @@ async function inspect(
   const fingerprint = new Map<string, string>();
   let shared = new Set<string>();
   let sourcePath: string | undefined;
+  let artifactPath: string | undefined;
   const result = (capability: ServiceDefinitionMutationCapability) => ({
-    capability,
+    capability:
+      capability.kind !== "writable" && capability.artifact === "service-file" && artifactPath
+        ? { ...capability, path: artifactPath }
+        : capability,
     snapshots,
     fingerprint,
     shared,
@@ -141,6 +145,7 @@ async function inspect(
             : "definition-directory";
       const inspected =
         directory && !required ? ((await findExistingAncestor(file)) ?? file) : file;
+      artifactPath = inspected;
       const stat = await fs.lstat(inspected).catch((error: unknown) => {
         if (required || !hasErrnoCode(error, "ENOENT")) {
           throw error;

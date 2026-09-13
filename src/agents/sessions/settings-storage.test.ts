@@ -323,9 +323,10 @@ describe("FileSettingsStorage", () => {
     expect(existsSync(settingsPath)).toBe(false);
   });
 
-  it.each(["global", "project"] as const)(
+  it.for(["global", "project"] as const)(
     "preserves independent concurrent first writes to %s settings",
-    (scope) =>
+    { timeout: 20_000 },
+    (scope, { signal }) =>
       fixtures.run(async () => {
         const root = fixtures.createTempDir("openclaw-settings-concurrent-create-");
         const agentDir = join(root, "agent");
@@ -335,6 +336,7 @@ describe("FileSettingsStorage", () => {
         const contenderReady = join(root, "contender-ready");
         const releaseFirst = join(root, "release-first");
         const abort = new AbortController();
+        const writerSignal = AbortSignal.any([signal, abort.signal]);
         const writers: ReturnType<typeof runNodeScript>[] = [];
         const startWriter = (field: string) => {
           const writer = fixtures.track(
@@ -374,6 +376,8 @@ describe("FileSettingsStorage", () => {
                       while (!existsSync(releaseFirst)) {
                         Atomics.wait(pause, 0, 0, 2);
                       }
+                    } else if (!existsSync(releaseFirst)) {
+                      throw new Error("contender entered settings before the first writer was released");
                     }
                     return JSON.stringify({
                       ...(current ? JSON.parse(current) : {}),
@@ -392,8 +396,9 @@ describe("FileSettingsStorage", () => {
                 field,
               ],
               process.env,
-              10_000,
-              { signal: abort.signal, requireProcessTreeExit: true },
+              // The test deadline owns both children, including time spent waiting for contention.
+              undefined,
+              { signal: writerSignal, requireProcessTreeExit: true },
             ),
           );
           writers.push(writer);
@@ -402,15 +407,6 @@ describe("FileSettingsStorage", () => {
         try {
           expect(existsSync(settingsDir)).toBe(false);
           const first = startWriter("defaultModel");
-          let firstSettled = false;
-          void first.then(
-            () => {
-              firstSettled = true;
-            },
-            () => {
-              firstSettled = true;
-            },
-          );
           await Promise.race([
             waitForFile(firstEntered, 10_000),
             first.then((result) => {
@@ -424,8 +420,9 @@ describe("FileSettingsStorage", () => {
               throw new Error(`contender exited before reaching the lock: ${result.stderr}`);
             }),
           ]);
-          expect(firstSettled).toBe(false);
+          expect(existsSync(firstEntered)).toBe(true);
           expect(existsSync(`${settingsPath}.lock`)).toBe(true);
+          expect(existsSync(settingsPath)).toBe(false);
           fs.writeFileSync(releaseFirst, "continue");
           for (const result of await Promise.all(writers)) {
             expect(result, result.stderr).toMatchObject({ error: undefined, status: 0 });
@@ -440,6 +437,5 @@ describe("FileSettingsStorage", () => {
           await Promise.all(writers);
         }
       }),
-    20_000,
   );
 });

@@ -48,12 +48,24 @@ describe("system.info", () => {
 
   it("returns a schema-valid host resource snapshot", async () => {
     const respond = vi.fn();
+    const eventLoop = {
+      degraded: false,
+      degradedSinceMs: null,
+      reasons: [],
+      intervalMs: 1000,
+      delayP99Ms: 12,
+      delayMaxMs: 20,
+      utilization: 0.25,
+      cpuCoreRatio: 0.3,
+    };
+    const getEventLoopHealth = vi.fn(() => ({ ...eventLoop }));
 
     const request = {
       params: {},
       respond,
       context: {
         getRuntimeConfig: () => ({ gateway: { port: 18789 } }),
+        getEventLoopHealth,
       },
     } as unknown as GatewayRequestHandlerOptions;
 
@@ -61,6 +73,7 @@ describe("system.info", () => {
       systemHandlers["system.info"],
       'systemHandlers["system.info"] test invariant',
     )(request);
+    eventLoop.cpuCoreRatio = 0.6;
     await expectDefined(
       systemHandlers["system.info"],
       'systemHandlers["system.info"] test invariant',
@@ -79,6 +92,15 @@ describe("system.info", () => {
     expect(payload.processInstanceId).toBe(getGatewayProcessInstanceId());
     expect(payload.uptimeMs).toBeGreaterThanOrEqual(0);
     expect(payload.defaultAgentUtilityModel).toEqual({ status: "unavailable" });
+    expect(payload.eventLoop?.cpuCoreRatio).toBe(0.3);
+    expect(payload.processMemory?.rssBytes).toBeGreaterThan(0);
+    expect(payload.processMemory?.heapUsedBytes).toBeGreaterThan(0);
+    const refreshed = respond.mock.calls[1]?.[1];
+    if (!validateSystemInfoResult(refreshed)) {
+      throw new Error("system.info returned an invalid refreshed payload");
+    }
+    expect(refreshed.eventLoop?.cpuCoreRatio).toBe(0.6);
+    expect(getEventLoopHealth).toHaveBeenCalledTimes(2);
     expect(payload).toHaveProperty("disks", [
       { path: "/", totalBytes: 1_024_000, availableBytes: 409_600 },
       { path: "/Volumes/Data", totalBytes: 2_048_000, availableBytes: 1_536_000 },

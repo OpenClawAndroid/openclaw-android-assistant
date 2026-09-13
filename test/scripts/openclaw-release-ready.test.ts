@@ -665,6 +665,14 @@ function finalizationFixture(overrides: Record<string, unknown> = {}) {
         path: '.github/workflows/openclaw-release-publish.yml', head_sha: '${TOOLING_SHA}',
         head_branch: '${TOOLING.ref}', status: 'completed', conclusion: state.parentConclusion,
         ...state.publicationProducer }));
+    } else if (args[0] === 'api' && args[1] === 'repos/${REPOSITORY}/actions/runs/900') {
+      console.log(JSON.stringify({ id: 900, run_attempt: 1,
+        repository: { full_name: '${REPOSITORY}' }, event: 'workflow_dispatch',
+        path: process.env.FIXTURE_ACTIVATION_OWNER === 'button'
+          ? '.github/workflows/openclaw-release-promote.yml' : '.github/workflows/openclaw-release-publish.yml',
+        head_sha: '${TOOLING_SHA}',
+        head_branch: '${TOOLING.ref}', status: 'in_progress', conclusion: null,
+        ...state.currentWriter }));
     } else if (args[0] === 'api' && args[1] === 'repos/${REPOSITORY}/actions/workflows/openclaw-release-publish.yml/dispatches') {
       const receipt = join(process.env.RUNNER_TEMP, 'release-button/dispatch.json');
       appendFileSync(process.env.FIXTURE_TRACE, JSON.stringify({ event: 'publication-dispatch',
@@ -733,7 +741,9 @@ function finalizationFixture(overrides: Record<string, unknown> = {}) {
       request?: ReturnType<typeof publicationRequest>,
     ) {
       const ready = readyRelease();
-      ready.inputs = validateReleaseButtonInputs(inputs({ tag, npm_dist_tag: channel }));
+      if (owner === "button") {
+        ready.inputs = validateReleaseButtonInputs(inputs({ tag, npm_dist_tag: channel }));
+      }
       if (!request) {
         mockReadiness(fixture.scripts, ready);
       }
@@ -745,12 +755,14 @@ function finalizationFixture(overrides: Record<string, unknown> = {}) {
       );
       const job = workflow.jobs[owner === "button" ? "finalize" : "finalize_github_release"];
       const step = job.steps.find((entry: { run?: string }) => entry.run);
-      return spawnSync("bash", ["-c", step.run], {
+      // Bash 5.3 can block on these JSON here-strings on macOS.
+      return spawnSync(process.platform === "darwin" ? "/bin/bash" : "bash", ["-c", step.run], {
         cwd: dirname(fixture.scripts),
         env: {
           ...env,
           RELEASE_TAG: tag,
           SOURCE_SHA,
+          FIXTURE_ACTIVATION_OWNER: owner,
           RELEASE_NPM_DIST_TAG: channel,
           RELEASE_REQUEST: JSON.stringify(request ?? publicationRequest(ready)),
         },
@@ -1130,6 +1142,58 @@ describe("release preparation recovery", () => {
 });
 
 describe("verified release activation", () => {
+  it.each(["button", "parent"] as const)(
+    "keeps %s activation authoritative after an advisory Linux carry failure",
+    (owner) => {
+      for (const changes of [
+        {},
+        { sourceSha: "c".repeat(40) },
+        { toolingMissing: true },
+        { currentWriter: { status: "completed", conclusion: "cancelled" } },
+        { currentWriter: { run_attempt: 2 } },
+        ...(owner === "button" ? [{ parentRunAttempt: 2 }] : []),
+      ]) {
+        const fixture = finalizationFixture({ isPrerelease: false });
+        writeFixtureFile(
+          fixture.scripts,
+          "linux-updater-manifest.mjs",
+          `
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+const state = JSON.parse(readFileSync(process.env.FIXTURE_GITHUB_STATE, 'utf8'));
+Object.assign(state, ${JSON.stringify(changes)});
+writeFileSync(process.env.FIXTURE_GITHUB_STATE, JSON.stringify(state));
+appendFileSync(process.env.FIXTURE_TRACE, JSON.stringify({ event: 'carry-failed' }) + '\\n');
+console.error('fixture: Linux manifest transport unavailable');
+process.exitCode = 1;
+`,
+        );
+        const result = fixture.run(owner, "v2026.9.2", "latest");
+        const authorized = Object.keys(changes).length === 0;
+        expect(fixture.trace().some((event) => event.event === "carry-failed")).toBe(true);
+        expect(result.status, result.stderr).toBe(authorized ? 0 : 1);
+        expect(fixture.state()).toMatchObject({
+          writes: authorized ? 1 : 0,
+          isDraft: !authorized,
+        });
+      }
+    },
+  );
+
+  it("preserves the validated Tideclaw alpha activation path without Linux carry", () => {
+    const fixture = finalizationFixture();
+    const branch = "tideclaw/alpha/2026-09-13-0100Z";
+    fixture.env.GITHUB_REF_NAME = branch;
+    fixture.env.GITHUB_REF = `refs/heads/${branch}`;
+    const result = fixture.run("parent", "v2026.9.2-alpha.1", "alpha");
+    expect(result.status, result.stderr).toBe(0);
+    expect(fixture.state()).toMatchObject({
+      writes: 1,
+      isDraft: false,
+      isPrerelease: true,
+      isLatest: false,
+    });
+  });
+
   it.each([
     ["", undefined],
     ["", "650"],
@@ -1287,7 +1351,10 @@ describe("verified release activation", () => {
     (owner, tag, channel, prerelease, latest) => {
       const fixture = finalizationFixture({ isPrerelease: !prerelease });
       const result = fixture.run(owner, tag, channel);
-      expect(result.status, result.stderr).toBe(0);
+      expect(
+        result.status,
+        `${result.error?.message ?? ""} ${result.signal ?? ""} ${result.stderr}\n${JSON.stringify(fixture.trace().slice(-6))}`,
+      ).toBe(0);
       expect(fixture.state()).toMatchObject({
         writes: 1,
         isDraft: false,
@@ -1297,18 +1364,16 @@ describe("verified release activation", () => {
       if (owner === "button") {
         const calls = fixture.trace().map((entry) => entry.args as string[]);
         const writeIndex = calls.findIndex((args) => args[0] === "release" && args[1] === "edit");
-        expect(calls[writeIndex - 2]).toEqual([
+        const runIds = latest ? ["700", "900"] : ["700"];
+        expect(calls[writeIndex - runIds.length - 1]).toEqual([
           "api",
           `repos/${REPOSITORY}/git/ref/tags/${TOOLING.ref}`,
           "--method",
           "GET",
         ]);
-        expect(calls[writeIndex - 1]).toEqual([
-          "api",
-          `repos/${REPOSITORY}/actions/runs/700`,
-          "--method",
-          "GET",
-        ]);
+        expect(calls.slice(writeIndex - runIds.length, writeIndex)).toEqual(
+          runIds.map((id) => ["api", `repos/${REPOSITORY}/actions/runs/${id}`, "--method", "GET"]),
+        );
       }
     },
   );

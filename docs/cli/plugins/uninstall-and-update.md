@@ -56,6 +56,8 @@ If update finalization fails, the error reports the original cause first and ret
 
 On source installations, a selected plugin built with the host stays in use. Named updates, `--all`, and stable/beta core updates report why the registry copy was not admitted and leave its dormant install record unchanged. Package ownership checks still apply to plugins being updated; explicit plugin paths retain their selection priority.
 
+During `openclaw update`, a locally linked plugin with an explicit load path keeps its selection even when OpenClaw bundles the same plugin ID. The update reports the retained plugin and path as a warning; update that plugin at its source. Linked path records are excluded from package-update ownership reconciliation, so stale package metadata does not turn link retention into an update failure.
+
 `update --all` reports and skips orphaned path-source install records so remaining plugins can update. Remove an orphan record with `openclaw plugins uninstall <id>` when its files are no longer needed.
 
 <AccordionGroup>

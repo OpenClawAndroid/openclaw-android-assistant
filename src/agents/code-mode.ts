@@ -148,7 +148,9 @@ function createCodeModeExecDescription(
       ? " Read full types with `API.list(prefix?)` and `API.read(path)`; native tools: `tools/`."
       : "";
   const mcpGuidance =
-    !catalogKnown || hasMcp ? " MCP tools are available only through the `MCP` namespace." : "";
+    !catalogKnown || hasMcp
+      ? " MCP tools use the `MCP` namespace or callable `catalog.search` handles."
+      : "";
   const swarmGuidance = swarmEnabled
     ? " Swarm globals `agents.run`, `phase`, and `log` are available; read `agents.d.ts` for types and orchestration idioms."
     : "";

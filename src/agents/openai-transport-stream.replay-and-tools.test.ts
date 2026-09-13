@@ -802,18 +802,10 @@ describe("openai transport stream", () => {
         client: { responses: { create } } as never,
         request: request as never,
         requestOptions: undefined,
-        model: {
+        model: makeResponsesModel({
           id: "gpt-5.5",
           name: "GPT-5.5",
-          api: "openai-responses",
-          provider: "openai",
-          baseUrl: "https://api.openai.com/v1",
-          reasoning: true,
-          input: ["text"],
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 200_000,
-          maxTokens: 8192,
-        },
+        }),
       }),
     ).resolves.toMatchObject({
       stream: recoveredStream,
@@ -859,18 +851,10 @@ describe("openai transport stream", () => {
         } as never,
         request: { model: "gpt-5.5", stream: true, input: [] } as never,
         requestOptions: undefined,
-        model: {
+        model: makeResponsesModel({
           id: "gpt-5.5",
           name: "GPT-5.5",
-          api: "openai-responses",
-          provider: "openai",
-          baseUrl: "https://api.openai.com/v1",
-          reasoning: true,
-          input: ["text"],
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 200_000,
-          maxTokens: 8192,
-        },
+        }),
       }),
     ).rejects.toBe(failure);
 
@@ -1220,21 +1204,13 @@ describe("openai transport stream", () => {
   });
 
   it("raises minimal OpenAI Responses reasoning when web_search is available", () => {
-    const model = {
+    const model = makeResponsesModel({
       id: "gpt-5.4",
       name: "GPT-5.4",
-      api: "openai-responses",
-      provider: "openai",
-      baseUrl: "https://api.openai.com/v1",
-      reasoning: true,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 200000,
-      maxTokens: 8192,
       compat: {
         supportedReasoningEfforts: ["minimal", "low", "medium", "high"],
       },
-    } as unknown as Model<"openai-responses">;
+    });
 
     const params = buildOpenAIResponsesParams(
       model,
@@ -1258,21 +1234,13 @@ describe("openai transport stream", () => {
   });
 
   it("keeps minimal OpenAI Responses reasoning without web_search", () => {
-    const model = {
+    const model = makeResponsesModel({
       id: "gpt-5.4",
       name: "GPT-5.4",
-      api: "openai-responses",
-      provider: "openai",
-      baseUrl: "https://api.openai.com/v1",
-      reasoning: true,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 200000,
-      maxTokens: 8192,
       compat: {
         supportedReasoningEfforts: ["minimal", "low", "medium", "high"],
       },
-    } as unknown as Model<"openai-responses">;
+    });
 
     const params = buildOpenAIResponsesParams(
       model,

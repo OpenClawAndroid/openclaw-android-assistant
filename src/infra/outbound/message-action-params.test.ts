@@ -19,7 +19,6 @@ vi.mock("../../channels/plugins/message-action-discovery.js", () => ({
 import {
   collectActionMediaSourceHints,
   hydrateAttachmentParamsForAction,
-  normalizeSandboxMediaList,
   normalizeSandboxMediaParams,
   resolveExtraActionMediaSourceParamKeys,
   resolveAttachmentMediaPolicy,
@@ -141,40 +140,6 @@ describe("message action media helpers", () => {
       mediaReadFile,
     });
   });
-
-  maybeIt.each([
-    { name: "Docker", containerWorkdir: "/workspace" },
-    { name: "OpenShell", containerWorkdir: "/sandbox" },
-  ])(
-    "normalizes $name media lists and dedupes resolved workspace paths",
-    async ({ containerWorkdir }) => {
-      const sandboxRoot = await fs.mkdtemp(path.join(os.tmpdir(), "msg-params-list-"));
-      try {
-        await expect(
-          normalizeSandboxMediaList({
-            values: [" data:text/plain;base64,QQ== "],
-          }),
-        ).rejects.toThrow(/data:/i);
-        await expect(
-          normalizeSandboxMediaList({
-            values: [
-              ` file://${containerWorkdir}/assets/photo.png `,
-              `${containerWorkdir}/assets/photo.png`,
-              "buffer://message-send/attachment",
-              " ",
-            ],
-            sandboxRoot: ` ${sandboxRoot} `,
-            sandboxContainerWorkdir: containerWorkdir,
-          }),
-        ).resolves.toEqual([
-          path.join(sandboxRoot, "assets", "photo.png"),
-          "buffer://message-send/attachment",
-        ]);
-      } finally {
-        await fs.rm(sandboxRoot, { recursive: true, force: true });
-      }
-    },
-  );
 
   maybeIt.each([
     { name: "Docker", containerWorkdir: "/workspace" },

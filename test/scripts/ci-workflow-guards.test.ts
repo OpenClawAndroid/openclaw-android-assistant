@@ -7470,6 +7470,9 @@ server.listen(0, "127.0.0.1", () => {
       OPENCLAW_BUILD_PRIVATE_QA: "1",
       OPENCLAW_ENABLE_PRIVATE_QA_CLI: "1",
       OPENCLAW_VITEST_MAX_WORKERS: "2",
+      OPENCLAW_SELECTED_SHA: "${{ inputs.ref }}",
+      OPENCLAW_TOOLING_SHA: "${{ inputs.workflow_sha }}",
+      OPENCLAW_DOCKER_E2E_REPO_ROOT: "${{ github.workspace }}",
     });
     const producer = repoE2eWorkflow.jobs.build;
     const repoE2e = repoE2eWorkflow.jobs.test;
@@ -18343,6 +18346,137 @@ describe("Linux App validation routing", () => {
   });
 });
 
+it.each(["publish", "promote"])(
+  "requests independent Linux publication after stable %s activation",
+  (owner) => {
+    const workflow = parse(readFileSync(`.github/workflows/openclaw-release-${owner}.yml`, "utf8"));
+    const job = workflow.jobs.publish_linux;
+    expect(job, "stable publication must request the Linux release owner").toBeDefined();
+    expect(job["continue-on-error"]).toBe(true);
+    for (const [tag, channel, activation, expected] of [
+      ["v2026.9.4", "latest", "success", true],
+      ["v2026.9.4", "beta", "success", true],
+      ["v2026.9.4-beta.1", "beta", "success", false],
+      ["v2026.9.4-alpha.1", "alpha", "success", false],
+      ["v2026.8.33", "extended-stable", "success", false],
+      ["v2026.9.4", "latest", "failure", false],
+      ["v2026.9.4", "latest", "skipped", false],
+    ]) {
+      const admitted = runInNewContext(job.if.replace(/^\$\{\{|\}\}$/gu, ""), {
+        cancelled: () => false,
+        contains: (value: string, part: string) => value.includes(part),
+        inputs: { tag, npm_dist_tag: channel },
+        needs: {
+          publish: {
+            result: "success",
+            outputs: { release_tag: tag, npm_dist_tag: channel },
+          },
+          finalize: { result: activation },
+          finalize_github_release: { result: activation },
+        },
+      });
+      expect(admitted, `${owner}: ${tag}/${channel}/${activation}`).toBe(expected);
+    }
+    const dispatch = (job.steps as WorkflowStep[]).find(
+      ({ name }) => name === "Dispatch detached Linux release request",
+    );
+    expect(dispatch?.run).toContain("dispatch_linux_release_assets");
+    const finalize = workflow.jobs[owner === "publish" ? "finalize_github_release" : "finalize"];
+    expect(finalize.needs).not.toContain("publish_linux");
+    const approvalId = owner === "publish" ? "approve_github_release" : "approve_activation";
+    expect(workflow.jobs[approvalId].environment).toBe("npm-release");
+    expect(workflow.jobs[approvalId].permissions).toEqual({});
+    expect(workflow.jobs[approvalId].concurrency).toBeUndefined();
+    expect(finalize.environment).toBeUndefined();
+    expect(finalize.needs).toContain(approvalId);
+    for (const result of ["success", "failure", "skipped", "cancelled"]) {
+      expect(
+        runInNewContext(finalize.if.replace(/^\$\{\{|\}\}$/gu, ""), {
+          always: () => true,
+          contains: (value: string, part: string) => value.includes(part),
+          inputs: { tag: "v2026.9.4", prepared_plugins: "", publish_openclaw_npm: true },
+          needs: {
+            publish: { result: "success" },
+            publish_docker: { result: "success" },
+            verify: { result: "success" },
+            [approvalId]: { result },
+          },
+        }),
+      ).toBe(result === "success");
+    }
+    const activation = (finalize.steps as WorkflowStep[]).find(({ run }) =>
+      run?.includes("gh release edit"),
+    )?.run;
+    expect(activation).toContain("node scripts/linux-updater-manifest.mjs carry");
+    expect(activation?.indexOf("linux-updater-manifest.mjs carry")).toBeLessThan(
+      activation?.indexOf("gh release edit") ?? -1,
+    );
+  },
+);
+
+it("serializes Linux manifests with stable activation and reuses completed Linux builds", () => {
+  const linux = parse(readFileSync(".github/workflows/linux-app-release.yml", "utf8"));
+  const finalizers = (
+    [
+      ["openclaw-release-publish.yml", "finalize_github_release"],
+      ["openclaw-release-promote.yml", "finalize"],
+    ] as const
+  ).map(([file, job]) => parse(readFileSync(`.github/workflows/${file}`, "utf8")).jobs[job]);
+  for (const job of [...finalizers, linux.jobs.publish]) {
+    expect(job.concurrency).toEqual({
+      group: "linux-app-release-publish",
+      "cancel-in-progress": false,
+      queue: "max",
+    });
+  }
+  expect(linux.concurrency["cancel-in-progress"]).toBe(false);
+  expect(linux.concurrency.queue).toBe("max");
+  expect(linux.concurrency.group).not.toBe(linux.jobs.publish.concurrency.group);
+  for (const alreadyPublished of ["true", "false"]) {
+    expect(
+      runInNewContext(linux.jobs.build_linux.if.replace(/^\$\{\{|\}\}$/gu, ""), {
+        needs: { validate_release: { outputs: { already_published: alreadyPublished } } },
+      }),
+    ).toBe(alreadyPublished !== "true");
+  }
+  for (const [alreadyPublished, build, signing, expected] of [
+    ["true", "skipped", "skipped", true],
+    ["false", "success", "success", true],
+    ["false", "success", "failure", false],
+    ["false", "skipped", "skipped", false],
+  ]) {
+    expect(
+      runInNewContext(linux.jobs.publish.if.replace(/^\$\{\{|\}\}$/gu, ""), {
+        always: () => true,
+        needs: {
+          validate_release: {
+            outputs: { already_published: alreadyPublished, desktop_test_bundles: "false" },
+          },
+          build_linux: { result: build },
+          sign_linux: { result: signing },
+        },
+      }),
+    ).toBe(expected);
+  }
+  const steps = linux.jobs.publish.steps as WorkflowStep[];
+  for (const name of [
+    "Download Debian bundle",
+    "Download signed AppImage",
+    "Assemble release assets and updater manifest",
+    "Attach bundles to the release",
+  ]) {
+    const condition = expectDefined(steps.find((step) => step.name === name)?.if, name);
+    expect(
+      runInNewContext(condition.replace(/^\$\{\{|\}\}$/gu, ""), {
+        needs: { validate_release: { outputs: { already_published: "true" } } },
+      }),
+    ).toBe(false);
+  }
+  expect(
+    steps.findIndex(({ name }) => name === "Update the current stable Linux updater"),
+  ).toBeGreaterThan(steps.findIndex(({ name }) => name === "Attach bundles to the release"));
+});
+
 it("reports stale Linux release requests before selected code runs", () => {
   const workflow = parse(readFileSync(".github/workflows/linux-app-release.yml", "utf8"));
   const job = workflow.jobs.validate_release;
@@ -18509,7 +18643,7 @@ it("pins simple release admission owners before selected checkout and preserves 
       )
       .map(([name]) => name),
   ).toEqual(["publish"]);
-  expect(linux.jobs.publish.permissions).toEqual({ contents: "write" });
+  expect(linux.jobs.publish.permissions).toEqual({ actions: "read", contents: "write" });
   expect(
     Object.entries(linux.jobs)
       .filter(([, job]) => JSON.stringify(job).includes("${{ secrets.TAURI_SIGNING_PRIVATE_KEY"))
@@ -18523,7 +18657,7 @@ it("pins simple release admission owners before selected checkout and preserves 
     path: ".release-tooling",
     "persist-credentials": false,
     "sparse-checkout":
-      "apps/linux/src-tauri/tauri.conf.json\nscripts/lib/record-shared.mjs\nscripts/release-tooling-identity.mjs\n",
+      "apps/linux/src-tauri/tauri.conf.json\nscripts/lib/record-shared.mjs\nscripts/release-tooling-identity.mjs\nscripts/linux-updater-manifest.mjs\nscripts/lib/release-version.mjs\n",
   });
   const tooling = linuxSteps.find(({ name }) => name === "Verify trusted release tooling identity");
   expect(tooling?.env).toMatchObject({
@@ -18543,6 +18677,7 @@ it("pins simple release admission owners before selected checkout and preserves 
     release_tag: "${{ steps.request.outputs.release_tag }}",
     tag_sha: "${{ steps.ancestry.outputs.tag_sha }}",
     updater_pubkey: "${{ steps.updater_trust.outputs.updater_pubkey }}",
+    already_published: "${{ steps.completion.outputs.already_published }}",
   });
   const releaseRequest = expectDefined(
     linuxSteps.find(({ id }) => id === "request"),

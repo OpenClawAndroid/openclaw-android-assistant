@@ -183,6 +183,7 @@ export function createAgentRunEventHandler(params: {
         phase: readStringValue(evt.data.phase),
         title: readStringValue(evt.data.title),
         explanation: readStringValue(evt.data.explanation),
+        ...(evt.data.explanationFormat === "plain" ? { explanationFormat: "plain" as const } : {}),
         steps: normalizeAgentPlanSteps(evt.data.steps),
         source: readStringValue(evt.data.source),
       });

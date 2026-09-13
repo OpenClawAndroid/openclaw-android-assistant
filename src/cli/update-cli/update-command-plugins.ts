@@ -226,6 +226,9 @@ export async function updatePluginsAfterCoreUpdate(params: {
   for (const error of cohort.sync.summary.errors) {
     collectPluginOutcome({ ...error, status: "error" });
   }
+  for (const warning of cohort.sync.summary.warnings) {
+    getLogger().warn(warning);
+  }
   let pluginConfig = cohort.config;
   let pluginsChanged = cohort.changed || params.configChanged === true;
   for (const entry of cohort.missingPayloads) {
@@ -438,7 +441,9 @@ export async function updatePluginsAfterCoreUpdate(params: {
     ...new Map(pluginUpdateOutcomes.map((outcome) => [outcome.pluginId, outcome])).values(),
   ];
   const status =
-    warnings.length > 0 || finalPluginOutcomes.some((outcome) => outcome.status === "error")
+    warnings.length > 0 ||
+    cohort.sync.summary.warnings.length > 0 ||
+    finalPluginOutcomes.some((outcome) => outcome.status === "error")
       ? "warning"
       : "ok";
   const result: ProducedPluginUpdateResult = {

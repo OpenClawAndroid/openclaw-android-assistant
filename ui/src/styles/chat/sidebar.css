@@ -1012,6 +1012,10 @@ openclaw-chat-sidebar-region,
   min-height: 0;
   overflow: auto;
   padding: 16px;
+
+  &:has(.sidebar-file-toolbar) {
+    padding-top: 0;
+  }
 }
 
 .chat-task-detail {

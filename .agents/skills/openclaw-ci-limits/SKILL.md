@@ -271,17 +271,26 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   Complete ordinary hybrid bins containing only non-build CLI groups may use
   250s and co-locate split siblings, provided each original child still fits
   150s. Keep file splits, workers, process isolation and other profiles unchanged.
-  Runtime consumers in ordinary bins share preparation only with other consumers;
-  complete hybrid main and PR runtime-placement observations apply only after file
-  splitting. Precise changed-file templates retain their original capacity and floors.
-  Whole pinned groups may move between existing compatible serial runtime bins
-  under a 440s budget including the existing 100s build reserve. Preserve runner
-  anchors, all descriptors and invocation/generation counts; no additional jobs,
-  builds, worker limits or test deadlines. Reapply shared admission to both bins;
-  do not bypass a failed budget or count a runtime subset as a complete parent.
-  An unfit optimization keeps the complete runnable plan and its truthful estimate.
+  Initial packing separates runtime consumers from ordinary groups. Complete
+  hybrid main and PR runtime-placement observations apply only after file splitting;
+  precise changed-file templates retain their original capacity and floors.
+  Typed observations preserve configs, environment, complete files and build mode.
+  Prefer an exact measurement; otherwise use the maximum compatible contained
+  workload as an advisory floor, never sum overlaps or treat globs as whole files.
+  Whole pinned runtime groups may move to existing compatible ordinary jobs under
+  a 440s budget including the existing 100s build reserve. Keep runner anchors,
+  test partitions, invocation counts and worker limits. An ordinary recipient
+  becomes serial, explicitly retaining its old parallel groups' two-worker budget
+  while preserving their prepared timing identities and complete parent
+  generations. The CI executor applies the smaller of the
+  supplied job ceiling and group cap. This may add one runtime preparation while
+  reducing requested process slots; measure the tradeoff without adding jobs or
+  registrations. Equal maximum estimates prefer more recipient headroom.
+  Reapply shared family, group-count and budget admission to both replacements;
+  never suppress coverage or count a runtime subset as a complete parent.
+  An unfit optimization retains the runnable plan and its truthful estimate.
   Compare recipients with the donor job's fixed anchor, not only its group class.
-  Other serial, exclusive, private-QA, dist and hosted policies stay unchanged.
+  Exclusive, private-QA, dist and hosted policies stay unchanged.
   Affordable generated CLI runtime children may share one preparation in an
   exclusive serial bin within the same 150s budget; fixed stripe families remain
   separate. Other hybrid exclusive/dist sharing is unchanged. Complete inventories

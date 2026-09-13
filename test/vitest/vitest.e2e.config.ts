@@ -39,6 +39,7 @@ export function createE2EVitestConfig(env: Record<string, string | undefined> = 
     ...base,
     test: {
       ...baseTest,
+      pool: "forks",
       maxWorkers: e2eWorkers,
       reporters: [...sharedVitestConfig.test.reporters, "default"],
       sequence: { sequencer: RepoE2eSequencer },

@@ -4,6 +4,35 @@ import { renderGroupedMessage } from "./chat-message-bubble.ts";
 import { prepareChatMessageRender } from "./chat-message-markdown.ts";
 
 describe("plugin tool icons", () => {
+  it.each([
+    ["assistant", "memory_search"],
+    ["toolResult", "memory_search"],
+    ["assistant", "memory_get"],
+    ["toolResult", "memory_get"],
+  ])("keeps the memory glyph for %s %s rows with plugin artwork", (role, name) => {
+    const container = document.createElement("div");
+    const message =
+      role === "assistant"
+        ? { role, content: [{ type: "toolCall", id: "call", name, arguments: {} }] }
+        : {
+            role,
+            toolCallId: "call",
+            toolName: name,
+            content: [{ type: "text", text: "Saved context." }],
+          };
+    render(
+      renderGroupedMessage(prepareChatMessageRender(message), "message", {
+        isStreaming: false,
+        showReasoning: false,
+        showToolCalls: true,
+        pluginToolIcons: new Map([[name, { url: "blob:memory-plugin-icon", onError: vi.fn() }]]),
+      }),
+      container,
+    );
+    expect(container.querySelector(".chat-tool-msg-summary__icon img")).toBeNull();
+    expect(container.querySelector(".chat-tool-msg-summary__icon svg")).not.toBeNull();
+  });
+
   it.each(["assistant", "toolResult"])("uses the plugin icon for %s tool rows", (role) => {
     const container = document.createElement("div");
     const message =

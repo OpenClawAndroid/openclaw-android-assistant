@@ -317,13 +317,11 @@ export function buildMcpApiResponse(params: {
     };
   }
   const selectedName = typeof selector === "string" ? selector.trim() : "";
+  const exactMethod = params.server.tools.find((tool) => tool.method === selectedName);
   const selected = selectedName
-    ? params.server.tools.filter(
-        (tool) =>
-          tool.method === selectedName ||
-          tool.path.join(".") === selectedName ||
-          tool.mcpTool === selectedName,
-      )
+    ? exactMethod
+      ? [exactMethod]
+      : params.server.tools.filter((tool) => tool.mcpTool === selectedName)
     : params.server.tools;
   return {
     kind: "mcp_api",

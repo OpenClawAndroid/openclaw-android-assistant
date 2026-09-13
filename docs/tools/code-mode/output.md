@@ -124,11 +124,12 @@ The contract rules are strict:
 See [Tool plugins](/plugins/tool-plugins#output-contracts) for plugin authoring
 details.
 
-MCP catalog entries are not exposed as bare globals or through generic
-`catalog` discovery; they are available only through the generated `MCP`
-namespace. TypeScript-style declaration files
-are available through the read-only `API` virtual file surface, so agents can
-inspect MCP signatures without adding MCP schemas to the prompt:
+MCP catalog entries stay under the generated `MCP` namespace. Task-oriented
+`catalog.search(...)` also returns MCP handles that invoke the same namespace
+path and identify its declaration file. MCP entries remain absent from bare
+globals, `catalog.all()`, and the trusted quick index. TypeScript-style declaration
+files are available through the read-only `API` virtual file surface, so agents
+can inspect MCP signatures without adding MCP schemas to the prompt:
 
 ```typescript
 const files = await API.list("mcp");

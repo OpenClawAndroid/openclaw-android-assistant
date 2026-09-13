@@ -103,9 +103,7 @@ impl TrayHandles {
             status_line.pending_count = 0;
         }
         let _ = self.status.set_text(status_line.text());
-        let _ = self
-            .start
-            .set_enabled(snapshot.installed && !snapshot.running && !snapshot.reachable);
+        let _ = self.start.set_enabled(snapshot.phase == "stopped");
         let _ = self
             .stop
             .set_enabled(snapshot.installed && snapshot.running);

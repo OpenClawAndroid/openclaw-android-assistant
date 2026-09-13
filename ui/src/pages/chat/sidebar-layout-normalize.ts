@@ -1,4 +1,4 @@
-import { isRecord } from "@openclaw/normalization-core";
+import { isRecord, normalizeOptionalString, readStringValue } from "@openclaw/normalization-core";
 import type { SidebarLayout, SidebarPanel, SidebarSlotId } from "./sidebar-layout-types.ts";
 
 const DEFAULT_WIDTH = 480;
@@ -44,8 +44,7 @@ function clampHeight(height: number): number {
   return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, height));
 }
 
-function uniqueId(value: unknown, fallback: string, used: Set<string>): string {
-  const base = typeof value === "string" && value.trim() ? value.trim() : fallback;
+function uniqueId(base: string, used: Set<string>): string {
   let id = base;
   let suffix = 2;
   while (used.has(id)) {
@@ -63,8 +62,7 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
   const usedPanelIds = new Set<string>();
   const usedSlots = new Set<SidebarSlotId>();
   const panels: SidebarPanel[] = [];
-  const requestedMainId =
-    typeof value.mainPanelId === "string" ? value.mainPanelId.trim() : undefined;
+  const requestedMainId = readStringValue(value.mainPanelId)?.trim();
   let mainPanelId: string | undefined;
   let activePanelId = "";
   let width = DEFAULT_WIDTH;
@@ -77,9 +75,8 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
     ) {
       continue;
     }
-    columnId ??= (typeof rawColumn.id === "string" ? rawColumn.id.trim() : "") || "column";
-    const requestedActiveId =
-      typeof rawColumn.activePanelId === "string" ? rawColumn.activePanelId.trim() : "";
+    columnId ??= normalizeOptionalString(rawColumn.id) ?? "column";
+    const requestedActiveId = normalizeOptionalString(rawColumn.activePanelId) ?? "";
     let columnActivePanelId: string | undefined;
     for (const rawPanel of rawColumn.panels) {
       if (!isRecord(rawPanel)) {
@@ -89,8 +86,8 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
       if (!slot || usedSlots.has(slot)) {
         continue;
       }
-      const rawPanelId = typeof rawPanel.id === "string" ? rawPanel.id.trim() : "";
-      const panelId = uniqueId(rawPanel.id, slot, usedPanelIds);
+      const rawPanelId = normalizeOptionalString(rawPanel.id) ?? "";
+      const panelId = uniqueId(rawPanelId || slot, usedPanelIds);
       const sourceId = rawPanelId || (rawPanel.slot === "chat" ? "chat" : slot);
       if (sourceId === requestedActiveId) {
         columnActivePanelId ??= panelId;
@@ -120,19 +117,18 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
   if (mainPanelId || conversation || requestedMainId !== undefined || value.expanded === true) {
     if (!conversation) {
       conversation = {
-        id: uniqueId("conversation", "conversation", usedPanelIds),
+        id: uniqueId("conversation", usedPanelIds),
         slot: "conversation",
       };
       panels.push(conversation);
     }
     mainPanelId ??= conversation.id;
-    if (!panels.some((panel) => panel.id === activePanelId && panel.id !== mainPanelId)) {
-      activePanelId =
-        conversation.id !== mainPanelId
-          ? conversation.id
-          : (panels.find((panel) => panel.id !== mainPanelId)?.id ?? "");
-    }
   }
+  const activeSidePanel =
+    panels.find((panel) => panel.id === activePanelId && panel.id !== mainPanelId) ??
+    (conversation && conversation.id !== mainPanelId
+      ? conversation
+      : panels.find((panel) => panel.id !== mainPanelId));
   const columns =
     columnId || panels.length > 0 || value.open === true
       ? [
@@ -140,11 +136,7 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
             id: columnId ?? "side-panel-column",
             side: "right" as const,
             panels,
-            activePanelId: panels.some(
-              (panel) => panel.id === activePanelId && panel.id !== mainPanelId,
-            )
-              ? activePanelId
-              : (panels.find((panel) => panel.id !== mainPanelId)?.id ?? ""),
+            activePanelId: activeSidePanel?.id ?? "",
             height,
             width,
           },
@@ -159,7 +151,7 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
     ...(value.expanded === true &&
     value.expandedSide === true &&
     value.open !== false &&
-    panels.some((panel) => panel.id === activePanelId && panel.id !== mainPanelId)
+    activeSidePanel
       ? { expandedSide: true }
       : {}),
   };

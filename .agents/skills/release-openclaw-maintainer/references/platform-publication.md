@@ -40,6 +40,37 @@ The appcast helper finds `generate_appcast` on PATH or in SwiftPM output.
 Verify zip, DMG and dSYM zip assets, short version, numeric build, and stable
 feed before declaring macOS complete.
 
+## Linux
+
+Regular stable publication automatically dispatches `Linux App Release Request`
+from current `main` after GitHub activation, through both `OpenClaw Release
+Publish` and `OpenClaw Release Button`. The request selects the immutable stable
+tag and leaves `desktop-test-bundles=false`. A successful request is pending
+publication, not proof that the Linux app shipped; follow its `Linux App Release`
+builder and verify the AppImage, `.deb`, signed `latest.json`, and
+`SHA256SUMS.linux-app.txt` before reporting Linux complete.
+
+The website resolves desktop download assets at build time. After Linux assets
+publish, rebuild `openclaw.ai` through its existing deployment owner and verify
+the deployed Apps card shows the intended version and both download URLs resolve
+to that tag's assets. Published GitHub assets alone do not complete the website
+download handoff.
+
+For independent recovery, dispatch `Linux App Release Request` from `main` with
+the same `tag`. A default Linux-only retry reuses verified complete assets;
+partial assets require targeted recovery, never rebuilding or clobbering
+published bytes. Inspect an unconfirmed request before redispatching it.
+
+The stable updater endpoint stays at `releases/latest/download/latest.json`.
+Before a new latest release becomes visible, the publisher preserves the
+previous usable Linux manifest with its original version, signature, and asset
+URL. Linux publication then advances the current latest release's manifest
+without replacing a newer Linux version. Finalization and manifest writes share
+the publication queue; Linux builds use a separate queue. Verify the endpoint
+after publication, including when a newer Gateway release appeared during the
+Linux build. Native publication failures remain independent of npm and GitHub
+activation.
+
 ## Windows Hub
 
 The optional parent inputs `windows_node_tag` and

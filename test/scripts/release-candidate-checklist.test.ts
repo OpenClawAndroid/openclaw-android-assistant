@@ -17,9 +17,16 @@ import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { runInNewContext } from "node:vm";
+import { expectDefined } from "@openclaw/normalization-core";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import {
+  normalizePublicationIntent,
+  publicationIntentInputs,
+  publicationSourceContract,
+} from "../../scripts/full-release-publication-contract.mjs";
+import { parsePluginReleaseSelection } from "../../scripts/lib/plugin-npm-release.ts";
 import { splitChangelog } from "../../scripts/lib/release-changelog.mjs";
 import { releaseBranchForTag } from "../../scripts/lib/release-context.mjs";
 import { classifyReleaseTrain, parseReleaseVersion } from "../../scripts/lib/release-version.mjs";
@@ -96,6 +103,33 @@ async function withGithubApiTimeoutEnv<T>(value: string, fn: () => Promise<T>): 
 }
 
 describe("release candidate checklist", () => {
+  it("requires an explicit prepared route and preserves historical normal state semantics", () => {
+    const normal = parseArgs(["--tag", "v2026.9.1", "--publish-workflow-ref", publishWorkflowRef]);
+    expect(normal.publicationRoute).toBe("normal");
+    const prepared = parseArgs([
+      "--tag",
+      "v2026.9.1",
+      "--publish-workflow-ref",
+      publishWorkflowRef,
+      "--publication-route",
+      "prepared",
+    ]);
+    expect(prepared.publicationRoute).toBe("prepared");
+    const identity = { targetSha: "a".repeat(40), toolingSha: "b".repeat(40) };
+    const saved = buildReleaseCandidateState(normal, identity);
+    expect(() =>
+      reconcileReleaseCandidateState(saved, buildReleaseCandidateState(prepared, identity)),
+    ).toThrow("publicationRoute");
+    const { publicationRoute: _route, ...historical } = saved;
+    expect(reconcileReleaseCandidateState(historical, saved).publicationRoute).toBe("normal");
+    expect(() =>
+      reconcileReleaseCandidateState(historical, buildReleaseCandidateState(prepared, identity)),
+    ).toThrow("publicationRoute");
+    expect(() => parseArgs(["--tag", "v2026.9.1", "--publication-route", "prepared"])).toThrow(
+      "protected tooling",
+    );
+  });
+
   it("reads cumulative frozen shipped records after split prose changes", () => {
     const target = "a".repeat(40);
     const section = (version: string, number: number) =>
@@ -140,6 +174,7 @@ describe("release candidate checklist", () => {
     distTag?: string;
     routingError?: string;
     stopAtRegistry?: boolean;
+    publicationRoute?: string;
   }>([
     { tag: "v2026.9.1", pin: "2026.9.1", expected: "passed", failedRegistry: "" },
     { tag: "v2026.9.1", pin: "2026.7.4", expected: "warning", failedRegistry: "" },
@@ -198,8 +233,16 @@ describe("release candidate checklist", () => {
       launch: "npm-only" as const,
       distTag,
     })),
+    {
+      tag: "v2026.9.1",
+      pin: "2026.9.1",
+      expected: "passed",
+      launch: "npm-only",
+      distTag: "latest",
+      publicationRoute: "prepared",
+    },
   ])(
-    "preflights registries ($failedRegistry) before validation and records Android evidence for $tag ($pin; $launch; $distTag)",
+    "preflights registries ($failedRegistry) before validation and records Android evidence for $tag ($pin; $launch; $distTag; $publicationRoute)",
     async ({
       tag,
       pin,
@@ -209,6 +252,7 @@ describe("release candidate checklist", () => {
       distTag,
       routingError,
       stopAtRegistry,
+      publicationRoute = "normal",
     }) => {
       const { root: targetRoot, git } = candidateGitFixture({
         "package.json": JSON.stringify({ version: tag.slice(1) }),
@@ -224,6 +268,8 @@ describe("release candidate checklist", () => {
       const options = parseArgs([
         "--tag",
         tag,
+        "--publication-route",
+        publicationRoute,
         ...(!launch || launch === "reuse" || launch === "skip"
           ? ["--full-release-run", "111", "--npm-preflight-run", "222"]
           : []),
@@ -248,6 +294,8 @@ describe("release candidate checklist", () => {
       const main = source.match(/^async function main\(\)[\s\S]*?^\}/mu)?.[0];
       const android =
         source.match(/^function checkCandidateAndroidVersion\([\s\S]*?^\}/mu)?.[0] ?? "";
+      const selectPublication =
+        source.match(/^function publicationSelectionForChecklist\([\s\S]*?^\}/mu)?.[0] ?? "";
       const log = vi.fn();
       const stages: string[] = [];
       const writeState = vi.fn();
@@ -277,94 +325,109 @@ describe("release candidate checklist", () => {
         pluginSdkApi: {},
       };
       // Run the real coordinator and evidence writers; unrelated remote release gates are fixtures.
-      const completion = runInNewContext(stripNodeTypeScriptTypes(`${android}\n${main}\nmain();`), {
-        process: { argv: [], cwd: () => targetRoot, env: {} },
-        console: { log, warn: log },
-        TOOLING_ROOT: "/trusted/tooling",
-        TRUSTED_TOOLING_SHA_ENV: "OPENCLAW_RELEASE_CANDIDATE_TRUSTED_TOOLING_SHA",
-        RELEASE_CANDIDATE_STATE_FILE: "release-candidate-state.json",
-        parseArgs: () => options,
-        gitTopLevel: (root: string) => root,
-        gitRevParse: (_ref: string, root: string) => (root === targetRoot ? targetSha : toolingSha),
-        fetchTrustedWorkflowSha: () => toolingSha,
-        // The protected publish tag is verified against live GitHub refs in production.
-        verifyReleaseToolingIdentity: () => ({
-          workflowRef: options.publishWorkflowRef,
-          workflowSha: toolingSha,
-        }),
-        gitTrackedStatus: () => "",
-        assertPlannedReleaseTagIsAbsent: () => {},
-        validateTrustedToolingPin,
-        validateCandidateCheckout,
-        buildReleaseCandidateState,
-        reconcileReleaseCandidateState,
-        writeReleaseCandidateState: writeState,
-        updateReleaseCandidateState: updateState,
-        run: (command: string, args: string[]) =>
-          args[0] === "fetch" ? "" : run(command, args, { cwd: targetRoot, capture: true }),
-        parseReleaseVersion,
-        classifyReleaseTrain,
-        isRecord,
-        requireString: (value: string) => value,
-        releaseNotesVersionForTag: () => "2026.9.1",
-        loadReleaseNotesForTag,
-        validateCandidateReleaseNotes: () => ({ status: "passed" }),
-        validateCandidateChangelogProvenance: () => ({ status: "passed", shippedBaselines: [] }),
-        runLocalGeneratedCheckIfNeeded: generatedChecks,
-        releaseBranchForTag,
-        fullReleaseTrustedWorkflowFields: () => ({}),
-        readFileSync: () => "fixture workflow",
-        dispatchWorkflow: () => {
-          stages.push("dispatch");
-          return "111";
+      const dispatches: Record<string, string>[] = [];
+      const completion = runInNewContext(
+        stripNodeTypeScriptTypes(`${android}\n${selectPublication}\n${main}\nmain();`),
+        {
+          process: { argv: [], cwd: () => targetRoot, env: {} },
+          console: { log, warn: log },
+          TOOLING_ROOT: "/trusted/tooling",
+          TRUSTED_TOOLING_SHA_ENV: "OPENCLAW_RELEASE_CANDIDATE_TRUSTED_TOOLING_SHA",
+          RELEASE_CANDIDATE_STATE_FILE: "release-candidate-state.json",
+          parseArgs: () => options,
+          gitTopLevel: (root: string) => root,
+          gitRevParse: (_ref: string, root: string) =>
+            root === targetRoot ? targetSha : toolingSha,
+          fetchTrustedWorkflowSha: () => toolingSha,
+          // The protected publish tag is verified against live GitHub refs in production.
+          verifyReleaseToolingIdentity: () => ({
+            workflowRef: options.publishWorkflowRef,
+            workflowSha: toolingSha,
+          }),
+          gitTrackedStatus: () => "",
+          assertPlannedReleaseTagIsAbsent: () => {},
+          validateTrustedToolingPin,
+          validateCandidateCheckout,
+          buildReleaseCandidateState,
+          reconcileReleaseCandidateState,
+          writeReleaseCandidateState: writeState,
+          updateReleaseCandidateState: updateState,
+          run: (command: string, args: string[]) =>
+            args[0] === "fetch" ? "" : run(command, args, { cwd: targetRoot, capture: true }),
+          parseReleaseVersion,
+          classifyReleaseTrain,
+          normalizePublicationIntent,
+          publicationIntentInputs,
+          publicationSourceContract,
+          parsePluginReleaseSelection,
+          isRecord,
+          requireString: (value: string) => value,
+          releaseNotesVersionForTag: () => "2026.9.1",
+          loadReleaseNotesForTag,
+          validateCandidateReleaseNotes: () => ({ status: "passed" }),
+          validateCandidateChangelogProvenance: () => ({ status: "passed", shippedBaselines: [] }),
+          runLocalGeneratedCheckIfNeeded: generatedChecks,
+          releaseBranchForTag,
+          fullReleaseTrustedWorkflowFields,
+          readFileSync: () => readFileSync(".github/workflows/full-release-validation.yml", "utf8"),
+          dispatchWorkflow: (
+            _repo: string,
+            _workflow: string,
+            _ref: string,
+            fields: Record<string, string>,
+          ) => {
+            dispatches.push(fields);
+            stages.push("dispatch");
+            return "111";
+          },
+          waitForSuccessfulRun: async (_repo: string, runId: string) => {
+            stages.push("wait");
+            waitedRuns.push(runId);
+            return {
+              run: { headSha: targetSha, runAttempt: 1 },
+              source: { workflowRef: options.workflowRef },
+            };
+          },
+          downloadArtifact: () => {},
+          readJson: (file: string) =>
+            file === statePath
+              ? JSON.parse(readFileSync(file, "utf8"))
+              : file.endsWith("preflight-manifest.json")
+                ? npmManifest
+                : {},
+          validateFullReleaseValidationEvidence: () => ({ source: "direct" }),
+          downloadResolvedArtifact: async () => ({ name: "npm-preflight" }),
+          verifyNpmPreflightProducer: () => ({}),
+          isDeepStrictEqual,
+          sha256: () => "fixture-digest",
+          validatePreflightManifest: () => {},
+          validatePluginSdkApiReleaseEvidence: () => ({ status: "passed" }),
+          validateFullManifest: () => {},
+          preflightCorePackageTarballs,
+          preflightDependencyTarballs,
+          runParallelsIfNeeded: async () => ({ status: "skipped" }),
+          runTelegramIfNeeded: async () => ({ status: "skipped" }),
+          collectPluginPlanWithRetry: async (script: string) => {
+            stages.push(script);
+            if (routingError || stopAtRegistry) {
+              throw new Error(`fixture registry-plan sentinel: ${script}`);
+            }
+            if (failedRegistry && script === `scripts/plugin-${failedRegistry}-release-plan.ts`) {
+              throw new Error(`${failedRegistry} registry unavailable`);
+            }
+            return { all: [] };
+          },
+          buildPublishCommand: publishCommand,
+          formatJsonValue: String,
+          formatShippedBaselineExclusions: () => "",
+          formatPluginPlanSummary: () => [],
+          join,
+          basename,
+          existsSync,
+          mkdirSync,
+          writeFileSync,
         },
-        waitForSuccessfulRun: async (_repo: string, runId: string) => {
-          stages.push("wait");
-          waitedRuns.push(runId);
-          return {
-            run: { headSha: targetSha, runAttempt: 1 },
-            source: { workflowRef: options.workflowRef },
-          };
-        },
-        downloadArtifact: () => {},
-        readJson: (file: string) =>
-          file === statePath
-            ? JSON.parse(readFileSync(file, "utf8"))
-            : file.endsWith("preflight-manifest.json")
-              ? npmManifest
-              : {},
-        validateFullReleaseValidationEvidence: () => ({ source: "direct" }),
-        downloadResolvedArtifact: async () => ({ name: "npm-preflight" }),
-        verifyNpmPreflightProducer: () => ({}),
-        isDeepStrictEqual,
-        sha256: () => "fixture-digest",
-        validatePreflightManifest: () => {},
-        validatePluginSdkApiReleaseEvidence: () => ({ status: "passed" }),
-        validateFullManifest: () => {},
-        preflightCorePackageTarballs,
-        preflightDependencyTarballs,
-        runParallelsIfNeeded: async () => ({ status: "skipped" }),
-        runTelegramIfNeeded: async () => ({ status: "skipped" }),
-        collectPluginPlanWithRetry: async (script: string) => {
-          stages.push(script);
-          if (routingError || stopAtRegistry) {
-            throw new Error(`fixture registry-plan sentinel: ${script}`);
-          }
-          if (failedRegistry && script === `scripts/plugin-${failedRegistry}-release-plan.ts`) {
-            throw new Error(`${failedRegistry} registry unavailable`);
-          }
-          return { all: [] };
-        },
-        buildPublishCommand: publishCommand,
-        formatJsonValue: String,
-        formatShippedBaselineExclusions: () => "",
-        formatPluginPlanSummary: () => [],
-        join,
-        basename,
-        existsSync,
-        mkdirSync,
-        writeFileSync,
-      });
+      );
       if (routingError || stopAtRegistry) {
         await expect(completion).rejects.toThrow(
           launch === "mismatch"
@@ -407,6 +470,31 @@ describe("release candidate checklist", () => {
         return;
       }
       await completion;
+      if (launch === "npm-only") {
+        expect(dispatches).toHaveLength(1);
+        const dispatched = expectDefined(dispatches[0], "FRV dispatch");
+        expect(dispatched).not.toHaveProperty("validation_purpose");
+        expect(dispatched).not.toHaveProperty("publication_selection_json");
+        expect(
+          JSON.parse(expectDefined(dispatched.trusted_workflow_json, "dispatch envelope")),
+        ).toMatchObject({
+          validationPurpose: "publish",
+          publicationSelection: {
+            route: tag.includes("-alpha.") ? "alpha" : publicationRoute,
+            npmDistTag: options.npmDistTag,
+            publishOpenclawNpm: true,
+            pluginPublishScope: "all-publishable",
+            plugins: [],
+          },
+        });
+        const evidence = JSON.parse(
+          readFileSync(join(options.outputDir, "release-candidate-evidence.json"), "utf8"),
+        );
+        expect(evidence.publicationRoute).toBe(publicationRoute);
+        expect(
+          evidence[publicationRoute === "prepared" ? "publishCommand" : "prepareCommand"],
+        ).toBeUndefined();
+      }
       expect(stages.slice(0, 3)).toEqual([
         "scripts/plugin-npm-release-plan.ts",
         "scripts/plugin-clawhub-release-plan.ts",
@@ -421,7 +509,13 @@ describe("release candidate checklist", () => {
         "utf8",
       );
       const output = log.mock.calls.map(([line]) => line).join("\n");
-      expect(evidence.publishCommand).toContain("openclaw-release-publish.yml");
+      expect(
+        evidence[publicationRoute === "prepared" ? "prepareCommand" : "publishCommand"],
+      ).toContain(
+        publicationRoute === "prepared"
+          ? "openclaw-release-prepare.yml"
+          : "openclaw-release-publish.yml",
+      );
       if (!expected) {
         expect(evidence).not.toHaveProperty("androidVersionCheck");
         expect(summary + output).not.toContain("Android version");

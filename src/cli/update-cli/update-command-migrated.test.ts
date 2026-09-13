@@ -14,6 +14,7 @@ import {
   createUpdateRun,
   recordUpdateRunStep,
 } from "../../infra/update-run-ledger.js";
+import * as childCommands from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "../../state/openclaw-agent-db-contract.js";
 import {
@@ -204,9 +205,11 @@ it.each([
   { json: false, legacy: false, parentOwns: false },
   { json: true, legacy: false, parentOwns: true },
   { json: false, legacy: true, parentOwns: true },
+  { json: true, legacy: false, parentOwns: true, checkWorkMs: 31_000, stepBudgetMs: 120_000 },
+  { json: true, legacy: false, parentOwns: true, checkWorkMs: 31_000, stepBudgetMs: 20_000 },
 ])(
-  "fences migrated candidate finalization (json=$json, legacy=$legacy, parentOwns=$parentOwns)",
-  async ({ json, legacy, parentOwns }) => {
+  "fences migrated candidate finalization (json=$json, legacy=$legacy, parentOwns=$parentOwns, check=$checkWorkMs, budget=$stepBudgetMs)",
+  async ({ json, legacy, parentOwns, checkWorkMs, stepBudgetMs }) => {
     const stateDir = await fs.realpath(dirs.make("migrated-update-"));
     const env = {
       ...process.env,
@@ -298,6 +301,19 @@ it.each([
         ),
       );
     const before = legacy ? await family() : undefined;
+    if (checkWorkMs !== undefined) {
+      const nativeCommand = childCommands.runUtf8CommandWithTimeout;
+      vi.spyOn(childCommands, "runUtf8CommandWithTimeout").mockImplementation(
+        async (argv, options): ReturnType<typeof nativeCommand> => {
+          const child = await nativeCommand(argv, options);
+          const allowance = typeof options === "number" ? options : options.timeoutMs;
+          // Keep the native admission/cleanup flow; model cold-start work in this phase only.
+          return argv.at(-1) === "--check" && (allowance ?? Infinity) < checkWorkMs
+            ? { ...child, code: 124, stdout: "", killed: true, termination: "timeout" }
+            : child;
+        },
+      );
+    }
     const work = withUpdateCommandExecutor(run.runId, async (executor) => {
       const executorFence = await executor.enter(root);
       return await continueMigratedUpdateInFreshProcess(
@@ -351,12 +367,18 @@ it.each([
           preUpdatePluginInstallRecords: {},
           startedAt: Date.now(),
           packageUpdateNodeRunner: process.execPath,
-          updateStepTimeoutMs: 1_000,
+          updateStepTimeoutMs: stepBudgetMs ?? 30_000,
           rollbackBlockedReason: "state-migrated-no-rollback",
         },
         progress.pendingSteps,
       );
     });
+    if (checkWorkMs !== undefined && stepBudgetMs !== undefined && stepBudgetMs < checkWorkMs) {
+      await expect(work).rejects.toThrow(/delegation capability could not be inspected/);
+      expect(terminalAtCleanup).toBeUndefined();
+      expect(rollback).not.toHaveBeenCalled();
+      return;
+    }
     if (legacy) {
       await expect(work).rejects.toThrow(/live executor delegation/);
       await expect(fs.access(legacyEffect)).rejects.toMatchObject({ code: "ENOENT" });

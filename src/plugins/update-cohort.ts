@@ -15,10 +15,11 @@ import {
   reconcilePluginPackageUpdateConfig,
 } from "./plugin-package-update.js";
 import type { PluginChannelSyncResult } from "./update-channel.js";
-import type {
-  PluginUpdateIntegrityDriftParams,
-  PluginUpdateLogger,
-  PluginUpdateOutcome,
+import {
+  isPluginInstallRecordUpdateSource,
+  type PluginUpdateIntegrityDriftParams,
+  type PluginUpdateLogger,
+  type PluginUpdateOutcome,
 } from "./update-source.js";
 import { syncPluginsForUpdateChannel, updateNpmInstalledPlugins } from "./update.js";
 
@@ -66,9 +67,11 @@ export async function convergePluginReleaseCohort(params: {
     installRecords: config.plugins?.installs ?? {},
     env: params.env,
   });
-  const installOwners = Object.keys(config.plugins?.installs ?? {}).filter(
-    (id) => !sourceBundledIds.has(id),
-  );
+  const installOwners = Object.entries(config.plugins?.installs ?? {})
+    .filter(
+      ([id, record]) => isPluginInstallRecordUpdateSource(record) && !sourceBundledIds.has(id),
+    )
+    .map(([id]) => id);
   // Without prior package owners there is no retired child policy to reconcile.
   const beforeIndex = installOwners.length
     ? withPluginCache(createPluginCache(), () =>

@@ -361,6 +361,7 @@ function createPlanUpdateBridge(params: {
         phase: normalizeOptionalString(evt.data.phase),
         title: normalizeOptionalString(evt.data.title),
         explanation: normalizeOptionalString(evt.data.explanation),
+        ...(evt.data.explanationFormat === "plain" ? { explanationFormat: "plain" as const } : {}),
         steps: normalizeAgentPlanSteps(evt.data.steps),
         source: normalizeOptionalString(evt.data.source),
       };

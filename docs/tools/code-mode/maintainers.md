@@ -45,7 +45,7 @@ Code mode coverage should prove:
   MCP declarations without a bridge/tool call
 - MCP namespace `$api()` remains available as an inline fallback for schemas
 - MCP namespace calls work for visible MCP tools with one object input, while
-  direct MCP entries are absent from generic `catalog` discovery
+  search handles use the same namespace dispatcher and `catalog.all()` stays native
 - Tool Search control tools are hidden from both the model surface and the
   hidden catalog
 - nested calls preserve approval and hook behavior
@@ -83,9 +83,11 @@ Run these as integration or end-to-end tests when changing the runtime:
    OpenClaw/plugin/client handles without observing exact ids.
 9. In `exec`, call `API.list("mcp")` and `API.read("mcp/<server>.d.ts")` and
    assert the declaration files describe visible MCP tools.
-10. In `exec`, call MCP tools through `MCP.<server>.<tool>({ ...input })` and
-    assert direct MCP entries are absent from `catalog.search()` and
-    `catalog.all()`.
+10. In `exec`, search by task intent across native and MCP tools, inspect the
+    MCP handle's declaration, and call it. Verify normalized name collisions,
+    exact namespaced lookup, bounded remote metadata, and the untrusted output
+    wrapper. Direct `MCP.<server>.<tool>({ ...input })` calls must agree, and
+    `catalog.all()` must remain native after search.
 11. Assert denied tools are absent and cannot be called by guessed id.
 12. Start a nested tool call that resolves after `exec` returns `waiting`.
 13. Call `wait` and assert the restored VM receives the tool result.

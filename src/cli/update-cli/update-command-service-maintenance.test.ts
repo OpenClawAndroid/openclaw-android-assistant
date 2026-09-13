@@ -109,6 +109,43 @@ it.each(["systemd-user-bus-unavailable", "service-manager-access-denied"] as con
     }),
 );
 
+it.each([
+  { state: "failed", tasksCurrent: 2, residual: true },
+  { state: "inactive", tasksCurrent: 1, residual: true },
+  { state: "failed", tasksCurrent: undefined, residual: false },
+  { state: "activating", tasksCurrent: 2, residual: false },
+])("explains a blocked systemd inspection for $state with $tasksCurrent tasks", (scenario) =>
+  withServiceHome(async (home) => {
+    mockProcessPlatform("linux");
+    const service = createMockGatewayService({
+      readCommand: async () => ({
+        programArguments: [process.execPath, path.join(process.cwd(), "openclaw.mjs"), "gateway"],
+        environment: { HOME: home },
+      }),
+      readRuntime: async () => ({
+        status: "unknown",
+        state: scenario.state,
+        systemd: { managerUid: 2001, tasksCurrent: scenario.tasksCurrent },
+      }),
+    });
+    mocks.service.mockReturnValue(service);
+    const result = await maybeStopManagedServiceBeforeMutableUpdate({
+      root: process.cwd(),
+      updateInstallKind: "package",
+      shouldRestart: true,
+      phase: "inspect",
+      jsonMode: true,
+    });
+    expect(result.serviceUpdateVerdict?.kind).toBe("unavailable");
+    expect(result.blockMessage).toContain(
+      scenario.residual
+        ? "processes remain in its systemd service cgroup"
+        : "Gateway service inspection is unavailable",
+    );
+    expect(service.stop).not.toHaveBeenCalled();
+  }),
+);
+
 type NativeOfflineCase = {
   platform: NodeJS.Platform;
   label: string;

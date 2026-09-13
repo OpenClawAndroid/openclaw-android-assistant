@@ -3,14 +3,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { execFileUtf8 } from "./exec-file.js";
 import {
   buildSystemdManagerPropertyOutput,
   buildSystemdUnitPropertyOutput,
 } from "./service.test-helpers.js";
+import { systemdManagerVersionProbe } from "./systemd-user-bus.test-support.js";
 const system = vi.hoisted(() =>
   vi.fn<typeof import("./systemd-system.js").assertNoSystemSystemdOwnership>(),
 );
 const busctl = vi.hoisted(() => vi.fn<typeof import("./systemd-exec.js").execBusctlUser>());
+vi.mock("./exec-file.js", () => ({ execFileUtf8: vi.fn() }));
 vi.mock("./systemd-system.js", async (original) => ({
   ...(await original<typeof import("./systemd-system.js")>()),
   assertNoSystemSystemdOwnership: system,
@@ -25,11 +28,14 @@ afterEach(() => vi.restoreAllMocks());
 it.skipIf(process.platform === "win32")(
   "inspects loaded-only definition authority without loading either manager",
   async () => {
+    vi.mocked(execFileUtf8).mockReset().mockImplementation(systemdManagerVersionProbe);
     const root = await fs.realpath(
       await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-definition-loaded-")),
     );
     const env = {
       HOME: path.join(root, "home"),
+      XDG_RUNTIME_DIR: path.join(root, "runtime"),
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=${root}/bus`,
       OPENCLAW_STATE_DIR: path.join(root, "state"),
       OPENCLAW_SYSTEMD_UNIT: "openclaw-owned",
     };

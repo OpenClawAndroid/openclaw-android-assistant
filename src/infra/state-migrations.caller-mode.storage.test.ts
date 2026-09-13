@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getAgentDir } from "../agents/config.js";
 import { resolveInstallAgentDir } from "../agents/install-agent-dir.js";
 import { readCurrentConfigForResolution } from "../config/io.runtime.js";
+import { retainLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { pluginDoctorContractRegistryLoaderState } from "../plugins/doctor-contract-registry-loader-state.js";
 import { EMPTY_LEGACY_SESSION_SURFACES } from "../plugins/legacy-session-surfaces.types.js";
@@ -86,6 +87,34 @@ afterEach(async () => {
 });
 
 describe("legacy state migration caller storage", () => {
+  it.each([undefined, "missing"])(
+    "keeps retained migration ownership separate from runtime selection with system owner %s",
+    async (systemAgentId) => {
+      await withOpenClawTestState(
+        { label: "retained-install-owner", layout: "split", agentEnv: "clear" },
+        async (state) => {
+          const cfg: OpenClawConfig = {
+            agents: {
+              ownership: "explicit",
+              defaults: systemAgentId ? { systemAgent: { agentId: systemAgentId } } : {},
+              entries: { main: {}, worker: {} },
+            },
+          };
+          retainLegacyDefaultAgentId(cfg, "worker");
+          const resolution = resolveInstallAgentDir(cfg, {
+            env: state.env,
+            homedir: () => state.home,
+          });
+
+          expect(resolution.migrationTarget).toEqual(
+            systemAgentId ? undefined : { dir: state.agentDir("worker"), owner: "worker" },
+          );
+          expect(resolution.optionalDirectory).toBeUndefined();
+        },
+      );
+    },
+  );
+
   it.each(
     [
       { name: "configured main directory", agentId: "main", custom: true, override: "none" },

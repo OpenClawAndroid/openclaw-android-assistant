@@ -3,7 +3,11 @@ import {
   type ErrorShape,
   errorShape,
 } from "../../packages/gateway-protocol/src/index.js";
-import { AgentSelectionRequiredError, listAgentIds } from "../agents/agent-scope.js";
+import {
+  AgentSelectionRequiredError,
+  listAgentIds,
+  tryResolveSoleAgentId,
+} from "../agents/agent-scope.js";
 import { tryResolveLegacyCompatibilityAgentId } from "../config/legacy.default-agent-owner.js";
 import { resolvePersistedSessionStoreOwnerForKey } from "../config/sessions/session-store-owner.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -100,7 +104,7 @@ export function tryResolveSessionCompatibilityOwnerAgentId(
   }
   return persistedStoreOwner.kind === "retired"
     ? undefined
-    : tryResolveLegacyCompatibilityAgentId(cfg);
+    : (tryResolveLegacyCompatibilityAgentId(cfg) ?? tryResolveSoleAgentId(cfg));
 }
 
 // An absent key selects an agent before a session exists; a synthetic main key

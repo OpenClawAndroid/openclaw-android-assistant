@@ -89,6 +89,7 @@ export async function runCodeModeExec(params: {
   const namespaceRuntime = createCodeModeNamespaceRuntime(namespaceCatalog);
   const catalogProjection = createCodeModeCatalogProjection(runtime.all({ includeMcp: false }), {
     reservedNames: namespaceRuntime.descriptors.map((descriptor) => descriptor.globalName),
+    mcpIds: namespaceRuntime.mcpBindings.keys(),
   });
   const apiFiles = createCodeModeApiFilesForRun(namespaceRuntime, swarmEnabled);
   const owner = createCodeModeRunOwner(params.ctx, config);

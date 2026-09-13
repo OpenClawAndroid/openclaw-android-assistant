@@ -1,5 +1,8 @@
 import { writeSync } from "node:fs";
+import os from "node:os";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { resolveAggregateSqliteInspectionTimeoutMs } from "../../infra/sqlite-readonly-worker.js";
+import { readUpdateStateDatabaseSizes } from "../../infra/update-candidate-state.sizes.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
 import { UpdateDoctorError } from "../../infra/update-doctor-result.js";
 import {
@@ -15,26 +18,26 @@ import {
   recordUpdateRunDiagnostic,
   recordUpdateRunStep,
 } from "../../infra/update-run-ledger.js";
-import { UPDATE_RUN_HEARTBEAT_MS } from "../../infra/update-run-timeouts.js";
+import {
+  UPDATE_RUN_HEARTBEAT_MS,
+  UPDATE_RUNNER_TIMEOUT_MS,
+} from "../../infra/update-run-timeouts.js";
 import { defaultRuntime } from "../../runtime.js";
+import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { watchCliExitAfterOutput } from "../one-shot-exit.js";
 import { hasCliProcessScope } from "../runtime-cleanup-scope.js";
 import { getPendingCliDisposers } from "../runtime-cleanup.js";
 import { UpdateFinalizationOutput } from "./update-finalization-output.js";
 import { inspectUpdateFinalizationChildren } from "./update-finalization-processes.js";
 
-// Repair Doctor has no automatic deadline, including its enclosing convergence
-// phase. Other phases remain bounded; an explicit timeout applies to every phase.
-const PHASE_BUDGET_MS = {
-  preflight: 30_000,
-  targetConfigValidation: 30_000,
-  configSnapshot: 30_000,
-  doctor: undefined,
-  plugins: 600_000,
-  targetConfigConvergence: undefined,
-  completionCache: 30_000,
-};
-type Phase = keyof typeof PHASE_BUDGET_MS;
+type Phase =
+  | "preflight"
+  | "targetConfigValidation"
+  | "configSnapshot"
+  | "doctor"
+  | "plugins"
+  | "targetConfigConvergence"
+  | "completionCache";
 type DoctorPhase = "doctor" | "targetConfigConvergence";
 type Outcome = "completed" | "failed" | "warning" | "skipped" | "deferred";
 
@@ -56,6 +59,7 @@ export class UpdateFinalizationLifecycle {
   private deferredExitWatch?: () => void;
   completed = false;
   private active?: { phase: Phase; step: string; startedAtMs: number };
+  private stateBudgetMs: number | undefined;
 
   constructor(
     private readonly json: boolean,
@@ -121,7 +125,14 @@ export class UpdateFinalizationLifecycle {
   budget(phase: Exclude<Phase, DoctorPhase>): number;
   budget(phase: Phase): number | undefined;
   budget(phase: Phase): number | undefined {
-    const budgetMs = this.timeoutMs ?? PHASE_BUDGET_MS[phase];
+    const budgetMs =
+      this.timeoutMs ??
+      (phase === "doctor" || phase === "targetConfigConvergence"
+        ? undefined
+        : phase === "plugins"
+          ? UPDATE_RUNNER_TIMEOUT_MS
+          : (this.stateBudgetMs ??
+            resolveAggregateSqliteInspectionTimeoutMs("update finalization", [])));
     return budgetMs === undefined ? undefined : Math.min(budgetMs, 2_147_483_647);
   }
 
@@ -130,9 +141,22 @@ export class UpdateFinalizationLifecycle {
     run: () => Promise<T>,
     outcome?: (result: T) => Outcome | { outcome: Outcome; failureFacts?: UpdateFailureFact[] },
   ): Promise<T> {
+    // Keep unresponsive source metadata inside the existing bounded worker.
+    this.stateBudgetMs ??=
+      this.timeoutMs ??
+      resolveAggregateSqliteInspectionTimeoutMs(
+        "update finalization",
+        await readUpdateStateDatabaseSizes([resolveOpenClawStateSqlitePath(process.env)], {
+          nodeRunner: process.execPath,
+          sourceEnv: { ...process.env },
+          stagingRoot: os.tmpdir(),
+        }),
+      );
     const startedAt = performance.now();
     const startedAtMs = Date.now();
-    const budgetMs = this.budget(phase);
+    // Serial plugin operations keep their own deadlines; their total is not one step.
+    const budgetMs =
+      phase === "plugins" && this.timeoutMs === undefined ? undefined : this.budget(phase);
     const active = { phase, step: `finalize:${phase}`, startedAtMs };
     this.active = active;
     this.record(active, "in_progress", startedAtMs);

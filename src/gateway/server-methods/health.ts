@@ -11,6 +11,7 @@ import type { ChannelRuntimeSnapshot } from "../server-channel-runtime.types.js"
 import { HEALTH_REFRESH_INTERVAL_MS } from "../server-constants.js";
 import { formatError } from "../server-utils.js";
 import { shouldScheduleBackgroundHealthRefresh } from "../server/health-refresh-admission.js";
+import { readGatewayProcessVitals } from "../server/process-vitals.js";
 import { respondUnavailableOnThrow } from "./response.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -168,15 +169,10 @@ export const healthHandlers: GatewayRequestHandlers = {
       includeChannelSummary: params.includeChannelSummary !== false,
       ...(hostDesktopStatus ? { hostDesktopStatus } : {}),
     });
-    if (context.getEventLoopHealth) {
-      status.eventLoop = context.getEventLoopHealth();
-    }
-    const memory = process.memoryUsage();
-    status.processMemory = {
-      rssBytes: memory.rss,
-      heapUsedBytes: memory.heapUsed,
-      heapTotalBytes: memory.heapTotal,
-    };
-    respond(true, status, undefined);
+    respond(
+      true,
+      { ...status, ...readGatewayProcessVitals(context.getEventLoopHealth) },
+      undefined,
+    );
   },
 };

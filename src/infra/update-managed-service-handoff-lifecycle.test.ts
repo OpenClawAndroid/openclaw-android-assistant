@@ -411,17 +411,22 @@ describe("managed service update handoff", () => {
     expect(state).toMatchObject({ parked: true, stopCompleted: true });
   });
 
-  itUnix(
-    "finalizes through the installed runtime after the updater replaces its module graph",
-    async () => {
-      const { run, log } = await runManagedServiceManagerBoundary("systemd", {
+  itUnix.each([undefined, 65_000])(
+    "finalizes through the installed runtime after the updater replaces its module graph (work=%s)",
+    async (finalizationWorkMs) => {
+      const { run, log, state } = await runManagedServiceManagerBoundary("systemd", {
         controlDisconnect: "transferred",
         ledger: true,
         replaceLedgerWriter: true,
+        finalizationWorkMs,
+        recoveryTimeoutMs: finalizationWorkMs === undefined ? undefined : 120_000,
         updaterExitCode: 0,
         updaterResult: { status: "ok", mode: "npm" },
       });
       expect(run).toMatchObject({ status: "succeeded", phase: "finished" });
+      if (finalizationWorkMs !== undefined) {
+        expect(state.finalizationBudgetMs).toBe(120_000);
+      }
       expect(log).not.toContain("the previous runtime must not finalize the candidate");
       expect(log).toContain("managed update finalize command exited code=0");
     },
@@ -612,6 +617,7 @@ describe("managed service update handoff", () => {
       await import("./update-managed-service-handoff.js");
     const resultPromise = startManagedServiceUpdateHandoff({
       root: MOCK_INSTALL_ROOT,
+      timeoutMs: 30_000,
       restartDrainTimeoutMs: 300_000,
       parentPid: process.pid,
       execPath:
@@ -696,95 +702,104 @@ describe("managed service update handoff", () => {
     });
   });
 
-  it("launches systemd handoffs through a transient user scope", async () => {
-    const { startManagedServiceUpdateHandoff } =
-      await import("./update-managed-service-handoff.js");
-    const { env, systemdRunPath } = await createUserSystemdFixture();
-    const spawnNormally = spawnMock.getMockImplementation()!;
-    spawnMock.mockImplementationOnce((command: string, args: string[], options: unknown) => {
-      const params = JSON.parse(readFileSync(args.at(-1)!, "utf8"));
-      const db = new DatabaseSync(params.updateLeaseDatabasePath, { readOnly: true });
-      try {
-        expect(db.prepare("SELECT COUNT(*) AS count FROM managed_update_handoffs").get()).toEqual({
-          count: 0,
-        });
-      } finally {
-        db.close();
-      }
-      expect(params.updateLeaseDatabaseIdentity.databasePath).toBe(params.updateLeaseDatabasePath);
-      return spawnNormally(command, args, options);
-    });
+  it.each([undefined, 1_800_000])(
+    "launches systemd handoffs preserving explicit timeout %s",
+    async (timeoutMs) => {
+      const { startManagedServiceUpdateHandoff } =
+        await import("./update-managed-service-handoff.js");
+      const { env, systemdRunPath } = await createUserSystemdFixture();
+      const spawnNormally = spawnMock.getMockImplementation()!;
+      spawnMock.mockImplementationOnce((command: string, args: string[], options: unknown) => {
+        const params = JSON.parse(readFileSync(args.at(-1)!, "utf8"));
+        const db = new DatabaseSync(params.updateLeaseDatabasePath, { readOnly: true });
+        try {
+          expect(db.prepare("SELECT COUNT(*) AS count FROM managed_update_handoffs").get()).toEqual(
+            {
+              count: 0,
+            },
+          );
+        } finally {
+          db.close();
+        }
+        expect(params.updateLeaseDatabaseIdentity.databasePath).toBe(
+          params.updateLeaseDatabasePath,
+        );
+        return spawnNormally(command, args, options);
+      });
 
-    const result = await startManagedServiceUpdateHandoff({
-      root: MOCK_INSTALL_ROOT,
-      timeoutMs: 1_800_000,
-      restartDrainTimeoutMs: 300_000,
-      restartDelayMs: 500,
-      parentPid: process.pid,
-      execPath: "/usr/local/bin/node",
-      argv1: "/opt/openclaw/openclaw.mjs",
-      handoffId: "handoff-123",
-      channel: "beta",
-      supervisor: "systemd",
-      env: {
-        ...env,
-        INVOCATION_ID: "gateway-invocation",
-        KEEP_ME: "1",
-      },
-      meta: {
+      const result = await startManagedServiceUpdateHandoff({
+        root: MOCK_INSTALL_ROOT,
+        timeoutMs,
+        recoveryTimeoutMs: 45 * 60_000,
+        restartDrainTimeoutMs: 300_000,
+        restartDelayMs: 500,
+        parentPid: process.pid,
+        execPath: "/usr/local/bin/node",
+        argv1: "/opt/openclaw/openclaw.mjs",
         handoffId: "handoff-123",
-        sessionKey: "agent:test:webchat:dm:user-123",
-        continuationMessage: "continue after restart",
-      },
-    });
+        channel: "beta",
+        supervisor: "systemd",
+        env: {
+          ...env,
+          INVOCATION_ID: "gateway-invocation",
+          KEEP_ME: "1",
+        },
+        meta: {
+          handoffId: "handoff-123",
+          sessionKey: "agent:test:webchat:dm:user-123",
+          continuationMessage: "continue after restart",
+        },
+      });
 
-    expect(result.status).toBe("started");
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    const [command, args, options] = spawnMock.mock.calls[0] as unknown as [
-      string,
-      string[],
-      { env: NodeJS.ProcessEnv; detached?: boolean; cwd?: string },
-    ];
-    expect(command).toBe(systemdRunPath);
-    expect(args.slice(0, 4)).toEqual([
-      "--user",
-      "--scope",
-      "--collect",
-      "--unit=openclaw-update-handoff-123.scope",
-    ]);
-    expect(args.slice(4, 7)).toEqual([
-      "/usr/local/bin/node",
-      expect.stringMatching(/handoff\.cjs$/u),
-      expect.stringMatching(/handoff\.json$/u),
-    ]);
-    tempDirs.add(path.dirname(args[5] ?? result.logPath));
-    const helperParams = JSON.parse(await fs.readFile(args[6] ?? "", "utf-8")) as {
-      commandArgv?: string[];
-      handoffId?: string;
-      serviceRecovery?: unknown;
-    };
-    expect(helperParams.serviceRecovery).toEqual({
-      kind: "systemd",
-      unit: "openclaw-gateway.service",
-    });
-    expect(helperParams.commandArgv).toEqual([
-      "/usr/local/bin/node",
-      "/opt/openclaw/openclaw.mjs",
-      "update",
-      "--yes",
-      "--json",
-      "--channel",
-      "beta",
-      "--timeout",
-      "1800",
-    ]);
-    expect(helperParams.handoffId).toBe("handoff-123");
-    expect(options.detached).toBe(true);
-    expect(options.env.OPENCLAW_SYSTEMD_UNIT).toBe("openclaw-gateway.service");
-    expect(options.env.INVOCATION_ID).toBeUndefined();
-    expect(options.env.KEEP_ME).toBe("1");
-    expect(options.env.OPENCLAW_UPDATE_RUN_HANDOFF).toBe("1");
-  });
+      expect(result.status).toBe("started");
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      const [command, args, options] = spawnMock.mock.calls[0] as unknown as [
+        string,
+        string[],
+        { env: NodeJS.ProcessEnv; detached?: boolean; cwd?: string },
+      ];
+      expect(command).toBe(systemdRunPath);
+      expect(args.slice(0, 4)).toEqual([
+        "--user",
+        "--scope",
+        "--collect",
+        "--unit=openclaw-update-handoff-123.scope",
+      ]);
+      expect(args.slice(4, 7)).toEqual([
+        "/usr/local/bin/node",
+        expect.stringMatching(/handoff\.cjs$/u),
+        expect.stringMatching(/handoff\.json$/u),
+      ]);
+      tempDirs.add(path.dirname(args[5] ?? result.logPath));
+      const helperParams = JSON.parse(await fs.readFile(args[6] ?? "", "utf-8")) as {
+        commandArgv?: string[];
+        handoffId?: string;
+        serviceRecovery?: unknown;
+        recoveryTimeoutMs: number;
+      };
+      expect(helperParams.serviceRecovery).toEqual({
+        kind: "systemd",
+        unit: "openclaw-gateway.service",
+      });
+      expect(helperParams.commandArgv).toEqual([
+        "/usr/local/bin/node",
+        "/opt/openclaw/openclaw.mjs",
+        "update",
+        "--yes",
+        "--json",
+        "--channel",
+        "beta",
+        ...(timeoutMs === undefined ? [] : ["--timeout", "1800"]),
+      ]);
+      expect(helperParams.recoveryTimeoutMs).toBe(45 * 60_000);
+      expect(helperParams.handoffId).toBe("handoff-123");
+      expect(options.detached).toBe(true);
+      expect(options.env.OPENCLAW_SYSTEMD_UNIT).toBe("openclaw-gateway.service");
+      expect(options.env.INVOCATION_ID).toBeUndefined();
+      expect(options.env.KEEP_ME).toBe("1");
+      expect(options.env.OPENCLAW_UPDATE_RUN_HANDOFF).toBe("1");
+    },
+  );
 
   itUnix("parks and restores the exact user-systemd service from its detached helper", async () => {
     const { commands, sentinel, state } = await runManagedServiceManagerBoundary("systemd", {

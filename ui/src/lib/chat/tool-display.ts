@@ -41,6 +41,8 @@ export type EmbedSandboxMode = ControlUiEmbedSandboxMode;
 type ChatToolIconName = string;
 
 const EMOJI_ICON_MAP: Record<string, ChatToolIconName> = {
+  "🧠": "memory",
+  "📓": "memory",
   "🧩": "puzzle",
   "🛠️": "wrench",
   "🧰": "wrench",

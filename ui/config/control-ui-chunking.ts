@@ -102,9 +102,9 @@ export const controlUiCodeSplitting = {
         normalizeModuleId(id).includes("/ui/src/") ? "control-ui-core" : "control-ui-foundation",
       tags: ["$initial"] as ["$initial"],
       priority: 10,
-      // 640 KiB keeps the startup graph together; the previous 576 KiB boundary
-      // split it into two extra requests and added roughly 1 KiB of gzip.
-      maxSize: 640 * 1024,
+      // Keep the boot graph in fewer partitions; the performance checker owns
+      // the compressed-size and request budgets for the emitted chunks.
+      maxSize: 1024 * 1024,
     },
     ...(["shared", "new", "chat"] as const).map((route, index) => {
       const modules = new Set(controlUiBootModules[route]);

@@ -648,7 +648,9 @@ describe("Code Mode catalog and model-visible surface", () => {
     expect(description).toContain("`catalog.search(query)`");
     expect(description).toContain("API.list");
     expect(description).toContain("tools/");
-    expect(description).not.toContain("MCP tools are available only through");
+    expect(description).not.toContain(
+      "MCP tools use the `MCP` namespace or callable `catalog.search` handles",
+    );
     expect(description).not.toContain("MCP namespace globals");
   });
 
@@ -677,7 +679,9 @@ describe("Code Mode catalog and model-visible surface", () => {
 
     const description = compacted.tools[0]?.description ?? "";
     expect(description).toContain("API.list(prefix?)");
-    expect(description).toContain("MCP tools are available only through");
+    expect(description).toContain(
+      "MCP tools use the `MCP` namespace or callable `catalog.search` handles",
+    );
     expect(description).toContain("- fake_noop ");
     expect(description).not.toContain("openclaw:fake-code-mode");
     expect(description).not.toContain("github__create_issue");

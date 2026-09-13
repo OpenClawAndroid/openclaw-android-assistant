@@ -40,18 +40,30 @@ final class GatewayProcessManager {
         let generation: UInt64
     }
 
-    private struct LaunchAgentEnableResult: Sendable {
-        let error: String?
-        let installed: Bool
+    private enum LaunchAgentEnableResult: Sendable {
+        case skipped
+        case installedService
+        case failed(String)
+        case deferred(String)
 
-        static let skipped = LaunchAgentEnableResult(error: nil, installed: false)
-
-        static func failed(_ error: String) -> LaunchAgentEnableResult {
-            LaunchAgentEnableResult(error: error, installed: false)
+        var error: String? {
+            if case let .failed(message) = self {
+                message
+            } else { nil }
         }
 
-        static func installed() -> LaunchAgentEnableResult {
-            LaunchAgentEnableResult(error: nil, installed: true)
+        var installed: Bool {
+            if case .installedService = self {
+                true
+            } else {
+                false
+            }
+        }
+
+        var inspectionFailure: String? {
+            if case let .deferred(message) = self {
+                message
+            } else { nil }
         }
     }
 
@@ -65,6 +77,7 @@ final class GatewayProcessManager {
         let readinessFailure: LaunchAgentReadinessFailure?
         let endpointPIDBeforeProbe: Int32?
         let launchAgentInstalled: Bool
+        let inspectionFailure: String?
     }
 
     private enum GatewayReadinessPurpose {
@@ -87,12 +100,13 @@ final class GatewayProcessManager {
     private enum GatewayReadinessFailure {
         case attachProbe(String)
         case responsiveProbe(String)
+        case serviceInspection(String)
         case timeoutWithRepairEvidence(LaunchAgentReadinessFailure)
         case deadlineWithoutRepairEvidence
 
         var reason: String {
             switch self {
-            case let .attachProbe(reason), let .responsiveProbe(reason): reason
+            case let .attachProbe(reason), let .responsiveProbe(reason), let .serviceInspection(reason): reason
             case .timeoutWithRepairEvidence: "Gateway did not start in time"
             case .deadlineWithoutRepairEvidence: "Gateway did not become ready in time"
             }
@@ -359,9 +373,20 @@ final class GatewayProcessManager {
     private func performLaunchAgentEnable(_ request: LaunchAgentEnableRequest) async -> LaunchAgentEnableResult {
         // App startup and onboarding can request persistence together. One drain owns all installs;
         // a second forced install would kill the first Gateway during startup migrations.
-        let launchAgent = await GatewayLaunchAgentManager.loadedGatewayState(
-            port: request.port,
-            allowUnconfigured: request.allowUnconfigured)
+        let launchAgent: GatewayLaunchAgentManager.LoadedGatewayState?
+        do {
+            launchAgent = try await GatewayLaunchAgentManager.loadedGatewayState(
+                port: request.port,
+                allowUnconfigured: request.allowUnconfigured)
+        } catch {
+            let reason = error.localizedDescription
+            self.appendLog("[gateway] launchd inspection failed: \(reason); waiting for readiness\n")
+            return .deferred(reason)
+        }
+        guard let launchAgent else {
+            self.appendLog("[gateway] launchd status unavailable; deferring installation\n")
+            return .skipped
+        }
         // Pair one launchd snapshot with a current listener read. A PID that starts after the
         // status read cannot look reusable, so the ownership guard preserves it instead of forcing
         // an install; a reusable PID from this same snapshot receives its readiness cycle below.
@@ -412,7 +437,7 @@ final class GatewayProcessManager {
         // and persistence calls coalesce, so the later caller may not receive `installed` itself.
         self.launchAgentInstallGeneration = request.generation
         self.launchAgentFreshInstallGeneration = isReadinessRepair ? nil : request.generation
-        return .installed()
+        return .installedService
     }
 
     private func resolveLaunchAgentReadinessFailure(
@@ -766,7 +791,8 @@ extension GatewayProcessManager {
         port: Int,
         generation: UInt64,
         readinessPID: Int32? = nil,
-        launchAgentInstalled: Bool = false) -> GatewayReadinessContext
+        launchAgentInstalled: Bool = false,
+        inspectionFailure: String? = nil) -> GatewayReadinessContext
     {
         GatewayReadinessContext(
             purpose: purpose,
@@ -777,7 +803,8 @@ extension GatewayProcessManager {
             readinessCandidate: self.launchAgentReadinessCandidate,
             readinessFailure: self.launchAgentReadinessFailure,
             endpointPIDBeforeProbe: self.lastObservedGatewayPID,
-            launchAgentInstalled: launchAgentInstalled)
+            launchAgentInstalled: launchAgentInstalled,
+            inspectionFailure: inspectionFailure)
     }
 
     private func prepareLaunchdGatewayStart(startGeneration: UInt64) async -> GatewayReadinessContext? {
@@ -816,7 +843,8 @@ extension GatewayProcessManager {
             port: port,
             generation: startGeneration,
             readinessPID: readinessPID,
-            launchAgentInstalled: enableResult.installed)
+            launchAgentInstalled: enableResult.installed,
+            inspectionFailure: enableResult.inspectionFailure)
     }
 
     private func enableLaunchdGateway(startGeneration: UInt64) async {
@@ -917,6 +945,7 @@ extension GatewayProcessManager {
             policy: deadlinePolicy,
             latestDisposition: latestRetryDisposition,
             latestError: latestProbeError,
+            responsiveStartupProgressObserved: responsiveStartupProgressObserved,
             readinessPID: readinessPID)
     }
 
@@ -925,6 +954,7 @@ extension GatewayProcessManager {
         policy: GatewayReadinessDeadlinePolicy,
         latestDisposition: GatewayProbeFailureDisposition?,
         latestError: Error?,
+        responsiveStartupProgressObserved: Bool,
         readinessPID: Int32?) async -> GatewayReadinessTerminal
     {
         guard self.isCurrentGatewayReadiness(context) else { return .superseded }
@@ -936,8 +966,14 @@ extension GatewayProcessManager {
         } else {
             false
         }
+        let fallbackFailure = if responsiveStartupProgressObserved {
+            GatewayReadinessFailure.deadlineWithoutRepairEvidence
+        } else {
+            context.inspectionFailure.map(GatewayReadinessFailure.serviceInspection)
+                ?? .deadlineWithoutRepairEvidence
+        }
         guard latestDisposition == .retryWithRepair else {
-            return migration ? .failed(.deadlineWithoutRepairEvidence) : .superseded
+            return migration ? .failed(fallbackFailure) : .superseded
         }
         let failure: LaunchAgentReadinessFailure? = if migration || context.readinessCandidate != nil {
             await self.resolveLaunchAgentReadinessFailure(
@@ -948,7 +984,7 @@ extension GatewayProcessManager {
         }
         guard self.isCurrentGatewayReadiness(context) else { return .superseded }
         guard let failure else {
-            return migration ? .failed(.deadlineWithoutRepairEvidence) : .superseded
+            return migration ? .failed(fallbackFailure) : .superseded
         }
         return .failed(.timeoutWithRepairEvidence(failure))
     }
@@ -1163,7 +1199,7 @@ extension GatewayProcessManager {
             }
             let retainedFailure: LaunchAgentReadinessFailure? = switch terminalFailure {
             case let .timeoutWithRepairEvidence(failure): failure
-            case .attachProbe, .responsiveProbe, .deadlineWithoutRepairEvidence: nil
+            case .attachProbe, .responsiveProbe, .serviceInspection, .deadlineWithoutRepairEvidence: nil
             }
             self.setLaunchAgentReadinessState(candidate: nil, failure: retainedFailure)
             self.status = .failed(terminalFailure.reason)
@@ -1174,6 +1210,9 @@ extension GatewayProcessManager {
             case .responsiveProbe:
                 self.lastFailureReason = terminalFailure.reason
                 self.appendLog("[gateway] responsive health probe failed: \(terminalFailure.reason)\n")
+            case .serviceInspection:
+                self.lastFailureReason = terminalFailure.reason
+                self.appendLog("[gateway] service inspection failed: \(terminalFailure.reason)\n")
             case .timeoutWithRepairEvidence:
                 self.lastFailureReason = if case .launchd = context.purpose {
                     "launchd start timeout"

@@ -1,5 +1,6 @@
 {
   "id": "session-share",
+  "categories": ["inbox-collaboration"],
   "activation": {
     "onStartup": false,
     "onConfigPaths": ["plugins.entries.session-share"]

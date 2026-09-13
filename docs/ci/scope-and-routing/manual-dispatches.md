@@ -20,6 +20,7 @@ gh workflow run ci.yml --ref release/YYYY.M.PATCH
 gh workflow run ci.yml --ref main -f target_ref=<branch-or-sha> -f include_android=true
 VALIDATION_SHA="<full-commit-sha>"
 gh workflow run full-release-validation.yml --ref main \
+  -f trusted_workflow_json='{"trustedWorkflow":null,"validationPurpose":"diagnostic","publicationSelection":null}' \
   -f ref="$VALIDATION_SHA" \
   -f expected_sha="$VALIDATION_SHA"
 ```

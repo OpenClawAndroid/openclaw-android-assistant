@@ -43,6 +43,8 @@ export type UpdateCommandOptions = {
   /** Internal orchestration context, shared across update phases and child processes. */
   run?: {
     runId: string;
+    defaultStepTimeoutMs?: number;
+    activationTimeoutMs?: number;
     env: NodeJS.ProcessEnv;
     /** Prepared before replacement; never load the old authority graph after activation. */
     requesterAuthority?: UpdateRequesterAuthority;

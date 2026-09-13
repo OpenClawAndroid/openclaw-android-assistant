@@ -144,6 +144,9 @@ describeControlUiE2e("session pull request chips", () => {
     });
     await page.goto(`${server.baseUrl}chat`);
     const watchedKey = await waitForWatchedSessionKey(gateway);
+    if (captureUiProof) {
+      await page.screenshot({ path: path.join(stackingProofDir, "before-pr-discovery.png") });
+    }
     await gateway.emitGatewayEvent(CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT, {
       sessions: {
         [watchedKey]: {
@@ -241,6 +244,9 @@ describeControlUiE2e("session pull request chips", () => {
       .locator(".agent-chat__composer-shell")
       .evaluate((node) => node.getBoundingClientRect().top);
     expect(rowBottom).toBeLessThanOrEqual(composerTop);
+    if (captureUiProof) {
+      await page.screenshot({ path: path.join(stackingProofDir, "after-pr-discovery.png") });
+    }
 
     // Dismissal hides the chip for this session without a gateway round trip.
     await mergedChip.locator(".chat-pr__dismiss").click();

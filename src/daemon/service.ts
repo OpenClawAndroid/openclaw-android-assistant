@@ -31,10 +31,7 @@ import {
   uninstallScheduledTask,
 } from "./schtasks.js";
 import { mergeGatewayServiceEnv } from "./service-env-merge.js";
-import {
-  ServiceInspectionError,
-  type ServiceInspectionReason,
-} from "./service-inspection-error.js";
+import { ServiceInspectionError } from "./service-inspection-error.js";
 import { resolveServiceEntrypoint } from "./service-layout.js";
 import {
   withGatewayServiceOperationLock,
@@ -46,6 +43,7 @@ import {
 } from "./service-runtime.js";
 import type {
   GatewayServiceCommandConfig,
+  GatewayServiceCommandInspection,
   GatewayServiceControlArgs,
   GatewayServiceEnv,
   GatewayServiceEnvArgs,
@@ -264,13 +262,20 @@ async function readGatewayServiceStateWithBinding(
   systemdReadBinding?.verify();
   let absent = await service.isAbsent?.({ env: baseEnv, timeoutMs }).catch(() => false);
   systemdReadBinding?.verify();
-  let commandInspectionReason: ServiceInspectionReason | undefined;
+  let commandInspection: GatewayServiceCommandInspection | undefined;
   const command = absent
     ? null
     : args.requireEffective
       ? await service.readCommand(baseEnv, {
           timeoutMs,
           requireEffective: true,
+          ...(!args.requireLoadedCommand
+            ? {
+                onCommandInspection: (inspection: GatewayServiceCommandInspection) => {
+                  commandInspection = inspection;
+                },
+              }
+            : {}),
           ...(systemdReadBinding ? { systemdReadBinding } : {}),
           ...(args.requireLoadedCommand ? { requireLoaded: true } : {}),
           ...(args.loadForInspection ? { loadForInspection: args.loadForInspection } : {}),
@@ -278,8 +283,8 @@ async function readGatewayServiceStateWithBinding(
       : await service
           .readCommand(baseEnv, {
             timeoutMs,
-            onInspectionFailure: (reason) => {
-              commandInspectionReason = reason;
+            onCommandInspection: (inspection) => {
+              commandInspection = inspection;
             },
           })
           .catch(() => null);
@@ -325,6 +330,7 @@ async function readGatewayServiceStateWithBinding(
     service
       .readRuntime(env, {
         timeoutMs,
+        ...(commandInspection ? { commandInspection } : {}),
         ...(systemdReadBinding ? { systemdReadBinding } : {}),
         ...(args.requireEffective && args.requireLoadedCommand ? { requireLoaded: true } : {}),
         ...(args.loadForInspection ? { loadForInspection: args.loadForInspection } : {}),
@@ -346,7 +352,6 @@ async function readGatewayServiceStateWithBinding(
   systemdReadBinding?.verify();
   return {
     inspectionReason:
-      commandInspectionReason ??
       runtime?.inspectionReason ??
       (loadState.status === "unknown" ? loadState.inspectionReason : undefined),
     installed,

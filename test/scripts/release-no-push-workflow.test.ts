@@ -2032,6 +2032,7 @@ describe("release validation no-push transport", () => {
     expect(job(releasePublish, "finalize_github_release").needs).toEqual([
       "publish",
       "publish_docker",
+      "approve_github_release",
     ]);
 
     const identity = step(
@@ -2101,6 +2102,7 @@ describe("release validation no-push transport", () => {
           needs: {
             publish: { result: scenario.npm },
             publish_docker: { result: scenario.docker },
+            approve_github_release: { result: "success" },
             verify_core_npm_registry: { result: "skipped" },
           },
         });

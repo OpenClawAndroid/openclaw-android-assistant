@@ -1388,6 +1388,20 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     }));
   }
 
+  async listCardStatuses(ids: readonly string[]): Promise<Array<{ id: string; status: string }>> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const query = getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+      .selectFrom("workboard_cards")
+      .select(["id", "status"])
+      .where("id", "in", sqliteStringSet(ids));
+    return Array.from(iterateSqliteQuerySync(this.db, query), (row) => ({
+      id: requiredString(row, "id"),
+      status: requiredString(row, "status"),
+    }));
+  }
+
   async listBoardAggregates() {
     const rows = this.db
       .prepare(

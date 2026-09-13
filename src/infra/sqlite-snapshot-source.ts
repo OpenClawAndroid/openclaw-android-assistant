@@ -6,11 +6,13 @@ import {
 } from "./sqlite-private-directory.js";
 import {
   adoptPreparedLocation,
+  removeTempDirectory,
+  removeTempDirectoryAsync,
+} from "./sqlite-readonly-location-cleanup.js";
+import {
   createSqliteSnapshotStagingDirectory,
   prepareSqliteReadOnlyLocationInProcess,
   prepareSqliteReadOnlyLocationSyncInProcess,
-  removeTempDirectory,
-  removeTempDirectoryAsync,
   SQLITE_SNAPSHOT_STAGING_PREFIX,
 } from "./sqlite-readonly-location.js";
 import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";

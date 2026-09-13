@@ -215,9 +215,9 @@ describe("test-projects args", () => {
       config: "test/vitest/vitest.unit-fast.config.ts",
     },
     {
-      title: "routes tasks targets to the tasks config",
+      title: "routes the worker-backed task registry to the infra config",
       target: "src/tasks/task-registry.test.ts",
-      config: "test/vitest/vitest.tasks.config.ts",
+      config: "test/vitest/vitest.infra.config.ts",
     },
     {
       title: "routes logging targets to the logging config",

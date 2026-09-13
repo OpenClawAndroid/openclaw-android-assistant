@@ -161,14 +161,40 @@ vi.mock("./update-command-service-command.js", async (importOriginal) => {
       ),
   };
 });
-vi.mock("../../process/exec.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../process/exec.js")>()),
-  runCommandWithTimeout: mocks.child,
-  runExec: vi.fn(
-    async (_command: string, _args: string[], options: { input: string | Uint8Array }) =>
-      decodeLaunchAgentPlistFixture(options.input),
-  ),
-}));
+vi.mock("../../process/exec.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../process/exec.js")>();
+  const versionProbe = [
+    "busctl",
+    "--user",
+    "--auto-start=no",
+    "get-property",
+    "org.freedesktop.systemd1",
+    "/org/freedesktop/systemd1",
+    "org.freedesktop.systemd1.Manager",
+    "Version",
+  ];
+  return {
+    ...actual,
+    runCommandWithTimeout: (...args: Parameters<typeof actual.runCommandWithTimeout>) => {
+      const [argv] = args;
+      if (argv.length === versionProbe.length && versionProbe.every((arg, i) => argv[i] === arg)) {
+        return Promise.resolve({
+          code: 0,
+          stdout: 's "252.39"',
+          stderr: "",
+          signal: null,
+          killed: false,
+          termination: "exit" as const,
+        });
+      }
+      return mocks.child(...args);
+    },
+    runExec: vi.fn(
+      async (_command: string, _args: string[], options: { input: string | Uint8Array }) =>
+        decodeLaunchAgentPlistFixture(options.input),
+    ),
+  };
+});
 vi.mock("../../infra/gateway-processes.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../infra/gateway-processes.js")>()),
   findVerifiedGatewayListenerPidsOnPortSync: mocks.listenerPids,

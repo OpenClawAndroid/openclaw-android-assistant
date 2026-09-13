@@ -55,9 +55,10 @@ export type NewSessionSubmitBlock =
   | { gate: SilentSubmitGate; reason?: undefined }
   | { gate: ReasonedSubmitGate; reason: string };
 
-// These gates already render a persistent callout on the page; a blocked
+// These gates already render a persistent callout or status on the page; a blocked
 // submit attempt must not duplicate that text as a second notice.
 export const PAGE_RENDERED_GATES: ReadonlySet<string> = new Set([
+  "attachment-reads",
   "outcome-unknown",
   "worktree-name",
 ]);

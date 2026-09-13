@@ -22,6 +22,11 @@ export function strokeIcon(body: SVGTemplateResult): TemplateResult {
 }
 
 export const toolIcons = {
+  memory: strokeIcon(svg`
+    <path d="M18.8 5.6A8.5 8.5 0 1 0 18.8 18.4" />
+    <path d="M15.8 8.7a4.3 4.3 0 1 0 0 6.6" />
+    <circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none" />
+  `),
   shieldCheck: strokeIcon(
     svg`<path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3zM9 12l2 2 4-4" />`,
   ),

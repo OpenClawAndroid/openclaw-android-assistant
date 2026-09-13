@@ -1,12 +1,13 @@
+import type {
+  ChannelProgressDraftCompositorLine,
+  ChannelProgressDraftCompositorSnapshot,
+  ChannelProgressDraftCompositorParams,
+} from "./progress-draft-compositor.types.js";
 import {
   createProgressDraftDiffStatTracker,
   formatChannelProgressDraftDiffStat,
-  type ChannelProgressDraftDiffStat,
 } from "./progress-draft-diffstat.js";
-import {
-  createChannelProgressDraftEventHandlers,
-  type ChannelProgressDraftEventLineBuilder,
-} from "./progress-draft-events.js";
+import { createChannelProgressDraftEventHandlers } from "./progress-draft-events.js";
 import { removeChannelProgressDraftLine } from "./progress-draft-lines.js";
 import {
   formatReasoningProgressDisplayLine,
@@ -32,8 +33,6 @@ import {
   resolveChannelStreamingProgressCommentary,
   resolveChannelStreamingPreviewToolProgress,
   resolveChannelStreamingSuppressDefaultToolProgressMessages,
-  type StreamingCompatEntry,
-  type StreamingMode,
 } from "./streaming.js";
 
 export { createChannelProgressWorkCounter } from "./progress-work-counter.js";
@@ -43,55 +42,12 @@ export { createChannelProgressWorkCounter } from "./progress-work-counter.js";
 // the narrator, deliberately not re-exported through the SDK barrels.
 export const PROGRESS_STATUS_PREAMBLE_FRESH_MS = 20_000;
 
-export type ChannelProgressDraftCompositorLine = string | ChannelProgressDraftLine;
-export type ChannelProgressDraftCompositorSnapshot = Readonly<{
-  lines: readonly ChannelProgressDraftCompositorLine[];
-  label?: string;
-  statusHeadline?: string;
-  plan?: readonly AgentPlanStep[];
-  planExplanation?: string;
-  diffStat?: ChannelProgressDraftDiffStat;
-}>;
+export type {
+  ChannelProgressDraftCompositorLine,
+  ChannelProgressDraftCompositorSnapshot,
+} from "./progress-draft-compositor.types.js";
 
-type ChannelProgressDraftUpdateOptions = {
-  flush?: boolean;
-  lines: readonly ChannelProgressDraftCompositorLine[];
-  snapshot: ChannelProgressDraftCompositorSnapshot;
-};
-
-export function createChannelProgressDraftCompositor(params: {
-  /** @deprecated v2026.9.1 SDK presentation; retain until a breaking SDK release. */
-  presentation?: "summary";
-  entry: StreamingCompatEntry | null | undefined;
-  mode: StreamingMode;
-  active: boolean;
-  seed: string;
-  update: (
-    text: string,
-    options: ChannelProgressDraftUpdateOptions,
-  ) => Promise<boolean | void> | boolean | void;
-  deleteCurrent?: () => Promise<void> | void;
-  tryNativeUpdate?: (text: string) => Promise<boolean> | boolean;
-  /** Publish when structured lines change even if the rendered text does not. */
-  updateOnLineChange?: boolean;
-  /**
-   * Set when the channel renders `update`'s structured `lines` itself, so the
-   * composed text carries only the status block (label, headline, checklist).
-   */
-  rendersRollingLinesNatively?: boolean;
-  formatLine?: (line: string) => string;
-  isEmptyLine?: (line: ChannelProgressDraftCompositorLine | undefined) => boolean;
-  shouldStartNow?: (line: ChannelProgressDraftCompositorLine | undefined) => boolean;
-  reasoningLinePrefix?: string;
-  commentaryLinePrefix?: string;
-  reasoningGate?: boolean;
-  commentaryItalics?: boolean;
-  now?: () => number;
-  setTimeoutFn?: typeof setTimeout;
-  clearTimeoutFn?: typeof clearTimeout;
-  /** Channel-specific formatter policy; event/lifecycle ownership remains in the compositor. */
-  buildProgressEventLine?: ChannelProgressDraftEventLineBuilder;
-}) {
+export function createChannelProgressDraftCompositor(params: ChannelProgressDraftCompositorParams) {
   const now = params.now ?? Date.now;
   const setTimeoutFn = params.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = params.clearTimeoutFn ?? clearTimeout;
@@ -126,6 +82,7 @@ export function createChannelProgressDraftCompositor(params: {
   let lines: ChannelProgressDraftCompositorLine[] = [];
   let renderGeneration = 0;
   let lastRenderedText = "";
+  let lastRenderedStatusFormat: "plain" | undefined;
   let lastRenderedLines = lines;
   let lastRenderedDiffStatKey = "";
   let reasoningRawText = "";
@@ -143,6 +100,7 @@ export function createChannelProgressDraftCompositor(params: {
   let narrationText = "";
   let planSteps: AgentPlanStep[] | undefined;
   let planExplanation = "";
+  let planExplanationFormat: "plain" | undefined;
   let finalReplyStarted = false;
   let finalReplyDelivered = false;
   const diffStatTracker = createProgressDraftDiffStatTracker({
@@ -176,14 +134,23 @@ export function createChannelProgressDraftCompositor(params: {
   const resolveStatusText = () => {
     const preambleIsFresh =
       preambleAt !== undefined && now() - preambleAt < PROGRESS_STATUS_PREAMBLE_FRESH_MS;
-    const effectiveNarration = narrationText || planExplanation;
-    return preambleText && (preambleIsFresh || !effectiveNarration)
-      ? preambleText
-      : effectiveNarration;
+    if (preambleText && (preambleIsFresh || !(narrationText || planExplanation))) {
+      return { text: preambleText };
+    }
+    return narrationText
+      ? { text: narrationText }
+      : { text: planExplanation, format: planExplanationFormat };
   };
 
-  const formatDraftText = (draftLines = lines, options?: { formatted?: boolean }) => {
-    const narration = resolveStatusText() || undefined;
+  const formatDraftText = (
+    draftLines = lines,
+    options?: {
+      formatted?: boolean;
+      onPreparedBlocks?: (blocks: Array<{ text: string; format: "plain" | "markdown" }>) => void;
+    },
+  ) => {
+    const status = resolveStatusText();
+    const narration = status.text || undefined;
     // Channels that render the rolling lines themselves (from `update`'s
     // `lines`) would print them twice if they also appeared in this text.
     const linesRenderedByChannel =
@@ -194,7 +161,10 @@ export function createChannelProgressDraftCompositor(params: {
       lines: linesRenderedByChannel ? [] : draftLines,
       seed: params.seed,
       formatLine: options?.formatted === false ? undefined : params.formatLine,
+      formatPlainText: options?.formatted === false ? (text) => text : params.formatPlainText,
+      onPreparedBlocks: options?.onPreparedBlocks,
       narration,
+      narrationFormat: status.format,
       plan: planSteps,
       diffStat: resolveDiffStat(),
     });
@@ -203,7 +173,8 @@ export function createChannelProgressDraftCompositor(params: {
   const resolveDiffStat = diffStatTracker.resolve;
 
   const getSnapshot = (): ChannelProgressDraftCompositorSnapshot => {
-    const statusHeadline = resolveStatusText();
+    const status = resolveStatusText();
+    const statusHeadline = status.text;
     const diffStat = resolveDiffStat();
     const label = resolveChannelProgressDraftLabel({
       entry: params.entry,
@@ -214,8 +185,10 @@ export function createChannelProgressDraftCompositor(params: {
       lines: lines.map((line) => (typeof line === "string" ? line : { ...line })),
       ...(label ? { label } : {}),
       ...(statusHeadline ? { statusHeadline } : {}),
+      ...(statusHeadline && status.format ? { statusHeadlineFormat: status.format } : {}),
       ...(planSteps ? { plan: planSteps.map((entry) => ({ ...entry })) } : {}),
       ...(planExplanation ? { planExplanation } : {}),
+      ...(planExplanation && planExplanationFormat ? { planExplanationFormat } : {}),
       ...(diffStat ? { diffStat } : {}),
     };
   };
@@ -226,6 +199,7 @@ export function createChannelProgressDraftCompositor(params: {
     lines = [];
     renderGeneration += 1;
     lastRenderedText = "";
+    lastRenderedStatusFormat = undefined;
     lastRenderedLines = lines;
     lastRenderedDiffStatKey = "";
     reasoningRawText = "";
@@ -243,24 +217,44 @@ export function createChannelProgressDraftCompositor(params: {
     clearActivityState(suppressed);
     planSteps = undefined;
     planExplanation = "";
+    planExplanationFormat = undefined;
   };
 
   const publish = async (options?: { flush?: boolean }): Promise<boolean> => {
-    const text = formatDraftText();
+    let blocks: Array<{ text: string; format: "plain" | "markdown" }> = [];
+    const text = formatDraftText(lines, {
+      onPreparedBlocks: (prepared) => {
+        blocks = prepared;
+      },
+    });
+    const statusFormat = resolveStatusText().format;
     const diffStatKey = JSON.stringify(resolveDiffStat() ?? null);
     const structuredStateChanged =
       params.updateOnLineChange === true &&
       (lines !== lastRenderedLines || diffStatKey !== lastRenderedDiffStatKey);
-    if (!text || (text === lastRenderedText && !structuredStateChanged)) {
+    if (
+      !text ||
+      (text === lastRenderedText &&
+        statusFormat === lastRenderedStatusFormat &&
+        !structuredStateChanged)
+    ) {
       return false;
     }
     const generation = renderGeneration;
     const observed = await settleProgressVisibilityCallbackResult(
-      params.update(text, { ...options, lines: [...lines], snapshot: getSnapshot() }),
+      params.update(text, {
+        ...options,
+        lines: [...lines],
+        snapshot: {
+          ...getSnapshot(),
+          ...(blocks.some((block) => block.format === "plain") ? { preparedBlocks: blocks } : {}),
+        },
+      }),
     );
     // A retired publication can finish after its replacement; it no longer owns dedupe state.
     if (observed.visible && generation === renderGeneration) {
       lastRenderedText = text;
+      lastRenderedStatusFormat = statusFormat;
       lastRenderedLines = lines;
       lastRenderedDiffStatKey = diffStatKey;
     }
@@ -332,7 +326,7 @@ export function createChannelProgressDraftCompositor(params: {
     // Labels decorate activity; they must not keep a retracted card alive.
     if (
       lines.length ||
-      resolveStatusText() ||
+      resolveStatusText().text ||
       planSteps?.length ||
       formatChannelProgressDraftDiffStat(resolveDiffStat())
     ) {
@@ -484,7 +478,7 @@ export function createChannelProgressDraftCompositor(params: {
       return Boolean(lastRenderedText) && !finalReplyStarted && !finalReplyDelivered;
     },
     get hasStatusHeadline() {
-      return Boolean(resolveStatusText());
+      return Boolean(resolveStatusText().text);
     },
     get hasPlanProgress() {
       return Boolean(planSteps?.length);
@@ -573,7 +567,7 @@ export function createChannelProgressDraftCompositor(params: {
     },
     async pushPlanProgress(
       steps?: AgentPlanStep[],
-      options?: { explanation?: string },
+      options?: { explanation?: string; explanationFormat?: "plain" },
     ): Promise<boolean> {
       if (!params.active || progressSuppressed || finalReplyStarted || finalReplyDelivered) {
         return false;
@@ -583,6 +577,7 @@ export function createChannelProgressDraftCompositor(params: {
       }
       planSteps = steps && steps.length > 0 ? steps.map((entry) => ({ ...entry })) : undefined;
       planExplanation = options?.explanation?.replace(/\s+/g, " ").trim() ?? "";
+      planExplanationFormat = options?.explanationFormat;
       if (!planSteps && !planExplanation) {
         return await renderAfterRetraction();
       }

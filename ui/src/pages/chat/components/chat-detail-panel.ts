@@ -263,6 +263,8 @@ class ChatDetailPanel extends OpenClawLightDomElement {
           editor.destroy();
           return;
         }
+        // Reload may settle while the editor awaits its language support.
+        editor.setContent(this.currentFileText());
         this.fileEditor = editor;
         this.fileDraftContent = null;
         editor.onDocChanged((nextContent) => {
@@ -462,14 +464,12 @@ class ChatDetailPanel extends OpenClawLightDomElement {
   };
 
   private updateSavedFile(content: FileSidebarContent, nextContent: string, hash: string) {
+    const draftContent = this.currentFileText();
     this.fileSavedContent = nextContent;
     this.fileHash = hash;
-    this.fileDirty = this.fileEditor?.getContent() !== nextContent;
-    const draftContent = this.fileEditor?.getContent();
-    setFileDraft(
-      content,
-      this.fileDirty && draftContent != null ? { content: draftContent, expectedHash: hash } : null,
-    );
+    this.fileDirty = draftContent !== nextContent;
+    this.fileDraftContent = !this.fileEditor && this.fileDirty ? draftContent : null;
+    setFileDraft(content, this.fileDirty ? { content: draftContent, expectedHash: hash } : null);
     this.fileSaveNotice = null;
     this.visibleContent = {
       ...content,
@@ -503,11 +503,9 @@ class ChatDetailPanel extends OpenClawLightDomElement {
 
   private readonly saveFile = () => {
     const content = this.visibleContent;
-    const editor = this.fileEditor;
     if (
       content?.kind !== "file" ||
       !content.edit ||
-      !editor ||
       !this.fileEditing ||
       !this.fileDirty ||
       this.fileSaving
@@ -517,7 +515,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
     const version = this.fileOperationVersion;
     this.fileSaving = true;
     this.fileSaveNotice = null;
-    void this.saveFileContent(content, editor.getContent(), this.fileHash, version)
+    void this.saveFileContent(content, this.currentFileText(), this.fileHash, version)
       .catch((error: unknown) => {
         if (version === this.fileOperationVersion) {
           this.fileSaveNotice = {
@@ -535,14 +533,13 @@ class ChatDetailPanel extends OpenClawLightDomElement {
 
   private readonly reloadFile = () => {
     const content = this.visibleContent;
-    const editor = this.fileEditor;
-    if (content?.kind !== "file" || !content.edit || !editor || this.fileSaving) {
+    if (content?.kind !== "file" || !content.edit || this.fileSaving) {
       return;
     }
     const version = this.fileOperationVersion;
     this.fileSaving = true;
     this.fileReloading = true;
-    editor.setEditable(false);
+    this.fileEditor?.setEditable(false);
     void content.edit
       .fetchLatest()
       .then((latest) => {
@@ -557,6 +554,8 @@ class ChatDetailPanel extends OpenClawLightDomElement {
           return;
         }
         this.fileEditor?.setContent(latest.content);
+        this.fileDraftContent = this.fileEditor ? null : latest.content;
+        this.htmlPreview.discard(latest.content);
         this.updateSavedFile(this.visibleContent, latest.content, latest.hash);
         // A reload can bring back content that no longer qualifies for edit
         // mode (e.g. the agent rewrote the file with mixed line endings);
@@ -587,14 +586,13 @@ class ChatDetailPanel extends OpenClawLightDomElement {
 
   private readonly overwriteFile = () => {
     const content = this.visibleContent;
-    const editor = this.fileEditor;
-    if (content?.kind !== "file" || !content.edit || !editor || this.fileSaving) {
+    if (content?.kind !== "file" || !content.edit || this.fileSaving) {
       return;
     }
     const version = this.fileOperationVersion;
     // Overwrite deliberately replaces whatever is on disk (even content that
     // would fail the edit gates) with the local editor text the user chose.
-    const localContent = editor.getContent();
+    const localContent = this.currentFileText();
     this.fileSaving = true;
     void content.edit
       .fetchLatest()

@@ -448,11 +448,10 @@ export async function runPluginsDoctorCommand(opts: PluginDoctorOptions = {}): P
               error: shortenHomeInString(entry.error ?? "failed to load"),
               source: shortenHomeInString(entry.source),
             })),
-            diagnostics: diags.map((entry) => ({
-              level: entry.level,
-              ...(entry.pluginId ? { pluginId: entry.pluginId } : {}),
-              message: shortenHomeInString(entry.message),
-              ...(entry.source ? { source: shortenHomeInString(entry.source) } : {}),
+            diagnostics: diags.map(({ message, source, ...diagnostic }) => ({
+              ...diagnostic,
+              message: shortenHomeInString(message),
+              ...(source ? { source: shortenHomeInString(source) } : {}),
             })),
             sourceShadowing: shadowed.map((entry) => {
               const active = report.plugins.find((plugin) => plugin.id === entry.pluginId);

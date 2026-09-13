@@ -324,7 +324,31 @@ it.each([
       "/__openclaw__/assistant-media?mediaTicket=text-preview",
     );
     Reflect.set(panel, "embedSandboxMode", "strict");
-    await expect.poll(() => panel.querySelector("iframe")?.srcdoc).toBe(text);
-    expect(panel.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+    await expect
+      .poll(() => {
+        const current = panel.querySelector("iframe");
+        return current !== null && current !== frame;
+      })
+      .toBe(true);
+    const strictFrame = panel.querySelector("iframe")!;
+    expect(strictFrame.hasAttribute("srcdoc")).toBe(false);
+    expect(strictFrame.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms");
+    const post = vi.spyOn(strictFrame.contentWindow!, "postMessage");
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: strictFrame.contentWindow,
+        origin: new URL(strictFrame.src).origin,
+        data: {
+          method: "ui/notifications/sandbox-proxy-ready",
+          params: { sandboxUrl: strictFrame.src },
+        },
+      }),
+    );
+    await expect.poll(() => post.mock.calls.length).toBe(1);
+    expect(post.mock.calls[0]![0].params).toEqual({
+      html: text,
+      renderId: expect.any(String),
+      allowScripts: false,
+    });
   },
 );

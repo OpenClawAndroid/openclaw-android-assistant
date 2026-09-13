@@ -93,6 +93,12 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
   defaultRuntime.log(
     `${label("Service:")} ${accent(service.label)} (${serviceStatus})${diagnosticOnlySuffix}`,
   );
+  const transport = service.runtime?.systemd?.transport;
+  if (opts.deep && transport) {
+    defaultRuntime.log(
+      `${label("Systemd transport:")} ${infoText(`${transport.kind} (${transport.kind === "machine" ? transport.user : transport.address})`)}`,
+    );
+  }
   if (status.logFile) {
     defaultRuntime.log(`${label("File logs:")} ${infoText(shortenHomePath(status.logFile))}`);
   }

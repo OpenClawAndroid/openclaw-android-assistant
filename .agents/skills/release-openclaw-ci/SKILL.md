@@ -312,11 +312,21 @@ Prefer an immutable trusted-main workflow revision, target the exact Code SHA:
 
 ```bash
 TOOLING_SHA="<exact-main-ancestor-sha>"
+PUBLICATION_SELECTION='{"route":"normal","npmDistTag":"latest","publishOpenclawNpm":true,"pluginPublishScope":"all-publishable","plugins":[]}'
 node scripts/full-release-validation-at-sha.mjs \
   --sha <code-sha> \
   --target-ref release/YYYY.M.PATCH \
-  --workflow-sha "$TOOLING_SHA"
+  --workflow-sha "$TOOLING_SHA" \
+  -f validation_purpose=publish \
+  -f publication_selection_json="$PUBLICATION_SELECTION"
 ```
+
+Select `npmDistTag=beta` for beta publication and `route=prepared` only for an
+intended prepared-button consumer. The source-admission result does not qualify
+registry state or authorize publishing. Nonpublish investigations use explicit
+`validation_purpose=diagnostic` without publication selection; recurring main
+qualification uses `main-qualification`, and exact published-package confidence
+uses `postpublish-confidence`. Keep coverage/profile selection independent.
 
 For regular `release/*` validation, never raw-dispatch the workflow without
 `target_context_ref` (the helper's `--target-ref` records it). Canonical
@@ -339,7 +349,8 @@ current release-isolation contract; older workflow revisions fail closed.
 
 For immutable workflow proof on a moving `main`, use
 `pnpm ci:full-release --sha <code-sha> --target-ref
-release/YYYY.M.PATCH --workflow-sha <tooling-sha>`. Its canonical `release-ci/*` ref keeps evidence reuse
+release/YYYY.M.PATCH --workflow-sha <tooling-sha> -f validation_purpose=publish
+-f publication_selection_json="$PUBLICATION_SELECTION"`. Its canonical `release-ci/*` ref keeps evidence reuse
 enabled after proving the workflow commit is still on trusted `main` lineage.
 Pass `-f reuse_evidence=false` only when the operator intentionally needs a
 fresh full run.
@@ -410,6 +421,8 @@ pnpm ci:full-release \
   --sha "$VALIDATION_SHA" \
   --target-ref "$CONTEXT_REF" \
   --workflow-sha "$TOOLING_SHA" \
+  -f validation_purpose=publish \
+  -f publication_selection_json='{"route":"extended-stable","npmDistTag":"extended-stable","publishOpenclawNpm":true,"pluginPublishScope":"all-publishable","plugins":[]}' \
   -f release_profile=stable \
   -f run_release_soak=true \
   -f fail_fast=false \

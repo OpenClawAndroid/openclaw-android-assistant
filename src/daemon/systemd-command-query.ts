@@ -1,8 +1,12 @@
 /** Deadline- and custody-bound effective command queries for the systemd reader. */
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { ServiceInspectionError } from "./service-inspection-error.js";
 import type { GatewayServiceEnv, GatewayServiceReadOptions } from "./service-types.js";
+import { assertGatewayServiceUpdateCurrent } from "./service-update-authority.js";
 import { decodeLegacyBusctlOutput } from "./systemd-busctl-legacy.js";
 import { bindSystemdManagerOwner, execBusctlUser, systemdInspectionError } from "./systemd-exec.js";
+import { openSystemdUserManager } from "./systemd-peer-native.js";
+import { resolveSystemdUserTransport } from "./systemd-user-transport.js";
 
 export async function createSystemdCommandQuery(
   env: GatewayServiceEnv,
@@ -23,10 +27,36 @@ export async function createSystemdCommandQuery(
   ) {
     throw unavailable();
   }
+  const transport = peer
+    ? undefined
+    : await resolveSystemdUserTransport(
+        env,
+        deadlineAt,
+        inspection?.assertReadCurrent ?? inspection?.assertCurrent,
+        opts?.requireLoaded ? "admission" : "inspection",
+      );
+  if (transport?.kind === "private" && opts?.requireLoaded) {
+    throw new ServiceInspectionError("systemd-user-bus-unavailable");
+  }
+  const managerPeer =
+    !opts?.requireLoaded && transport?.kind === "private"
+      ? await openSystemdUserManager(transport.address, deadlineAt).catch(() => {
+          assertGatewayServiceUpdateCurrent();
+          throw new ServiceInspectionError("systemd-user-bus-unavailable");
+        })
+      : undefined;
   let remainingCalls = inspection ? 6 : 3;
   let legacyOutput = false;
   // All manager D-Bus calls share one deadline so wedged reads reach local fallback promptly.
   const query = async (args: string[], signatures: string[]): Promise<unknown[] | null> => {
+    if (managerPeer) {
+      try {
+        return await managerPeer.query(args, signatures, deadlineAt);
+      } catch {
+        assertGatewayServiceUpdateCurrent();
+        throw new ServiceInspectionError("systemd-user-bus-unavailable");
+      }
+    }
     const assertCurrent =
       (args[0] === "call" && args[4] === "LoadUnit" ? undefined : inspection?.assertReadCurrent) ??
       inspection?.assertCurrent;
@@ -80,6 +110,9 @@ export async function createSystemdCommandQuery(
       );
       assertCurrent?.();
     }
+    if (result.termination === "error" && result.errorCode === "ENOENT") {
+      throw new ServiceInspectionError("systemd-busctl-unavailable");
+    }
     if (legacyOutput && (result.termination !== "exit" || performance.now() >= callDeadline)) {
       throw systemdInspectionError(result, unavailable().message);
     }
@@ -123,5 +156,12 @@ export async function createSystemdCommandQuery(
       ? await bindSystemdManagerOwner(query, inspection.managerUid, unavailable)
       : undefined);
   const destination = binding?.destination ?? manager;
-  return { query, binding, destination };
+  return {
+    query,
+    binding,
+    destination,
+    close: async () => {
+      await managerPeer?.close();
+    },
+  };
 }

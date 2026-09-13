@@ -22,6 +22,7 @@ import { isNodeRuntime } from "../../daemon/runtime-binary.js";
 import { resolveNodeRuntimeInfo, resolvePreferredNodePath } from "../../daemon/runtime-paths.js";
 import { readEmbeddedGatewayToken } from "../../daemon/service-audit.js";
 import { mergeGatewayServiceEnv } from "../../daemon/service-env-merge.js";
+import { sanitizeServiceInspectionError } from "../../daemon/service-inspection-error.js";
 import {
   assertServiceDefinitionWritable,
   resolveManagedGatewayServiceCommand,
@@ -183,6 +184,13 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
     return;
   }
   const service = resolveGatewayService();
+  let existingServiceCommand: GatewayServiceCommandConfig | null;
+  try {
+    existingServiceCommand = await service.readCommand(process.env, { requireEffective: true });
+  } catch (error) {
+    fail(sanitizeServiceInspectionError(error).message);
+    return;
+  }
   let loaded;
   try {
     loaded = await service.isLoaded({ env: process.env });
@@ -192,13 +200,6 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
       return;
     }
     loaded = false;
-  }
-  let existingServiceCommand: GatewayServiceCommandConfig | null;
-  try {
-    existingServiceCommand = await service.readCommand(process.env, { requireEffective: true });
-  } catch {
-    fail("SERVICE_DEFINITION_UNKNOWN: Service definition cannot be safely inspected.");
-    return;
   }
   const existingManagedCommand = resolveManagedGatewayServiceCommand(existingServiceCommand);
   const existingServiceEnv = existingManagedCommand?.environment;

@@ -187,6 +187,7 @@ async function runHooksCli(params: {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
 }) {
+  const startedAt = performance.now();
   const child = spawn(
     process.execPath,
     ["--import", "tsx", params.entryPath ?? "src/entry.ts", ...params.args],
@@ -216,24 +217,39 @@ async function runHooksCli(params: {
   }>((resolve, reject) => {
     let timedOut = false;
     let outputObserved = false;
+    let outputAfterMs: number | null = null;
+    let exit: { afterMs: number; code: number | null; signal: NodeJS.Signals | null } | null = null;
+    const processState = () => ({
+      afterMs: Math.round(performance.now() - startedAt),
+      outputAfterMs,
+      exit,
+      exitCode: child.exitCode,
+      signalCode: child.signalCode,
+      stdoutClosed: child.stdout.closed,
+      stderrClosed: child.stderr.closed,
+    });
+    let timeoutState: ReturnType<typeof processState> | undefined;
+    child.once("exit", (code, signal) => {
+      exit = { afterMs: Math.round(performance.now() - startedAt), code, signal };
+    });
+    const onTimeout = () => {
+      timedOut = true;
+      timeoutState ??= processState();
+      child.kill("SIGKILL");
+    };
     // Silent relay success has no stream milestone. Give it an exit deadline
     // while keeping the tighter post-output deadline for leaked handles.
     const initialTimeoutMs = params.completion === "exit" ? exitOnlyTimeoutMs : outputTimeoutMs;
-    let timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, initialTimeoutMs);
+    let timer = setTimeout(onTimeout, initialTimeoutMs);
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
+      outputAfterMs ??= Math.round(performance.now() - startedAt);
       if (params.completion === "exit" || outputObserved) {
         return;
       }
       outputObserved = true;
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGKILL");
-      }, exitAfterOutputTimeoutMs);
+      timer = setTimeout(onTimeout, exitAfterOutputTimeoutMs);
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
@@ -250,10 +266,14 @@ async function runHooksCli(params: {
         const timeoutMessage =
           params.completion === "exit"
             ? `${params.label} did not exit within ${exitOnlyTimeoutMs}ms`
-            : outputObserved
+            : timeoutState?.outputAfterMs != null
               ? `${params.label} did not exit within ${exitAfterOutputTimeoutMs}ms after emitting output`
               : `${params.label} did not emit output within ${outputTimeoutMs}ms`;
-        reject(new Error(`${timeoutMessage}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+        reject(
+          new Error(
+            `${timeoutMessage}\nprocess: ${JSON.stringify({ beforeKill: timeoutState, atClose: processState() })}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+          ),
+        );
         return;
       }
       resolve({ code, signal, stderr, stdout });

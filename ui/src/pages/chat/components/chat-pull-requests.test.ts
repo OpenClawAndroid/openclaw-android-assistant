@@ -9,7 +9,6 @@ import type {
 import type { GitHubPublicationView } from "../../../lib/sessions/github-publication-controller.ts";
 import {
   chatPullRequestId,
-  createPullRequestBranch,
   dismissChatPullRequest,
   listDismissedChatPullRequests,
   renderChatPullRequests,
@@ -65,32 +64,6 @@ function sessionBranch(overrides: Partial<ControlUiSessionBranch> = {}): Control
     ...overrides,
   };
 }
-
-describe("createPullRequestBranch", () => {
-  it("passes the branch through when no live PR exists", () => {
-    const branch = sessionBranch();
-    expect(createPullRequestBranch([], branch)).toBe(branch);
-    expect(createPullRequestBranch([pullRequest({ state: "merged" })], branch)).toBe(branch);
-    expect(createPullRequestBranch([pullRequest({ state: "closed" })], branch)).toBe(branch);
-  });
-
-  it("hides the row while an open or draft PR exists, even a dismissed one", () => {
-    expect(createPullRequestBranch([pullRequest()], sessionBranch())).toBeUndefined();
-    expect(
-      createPullRequestBranch([pullRequest({ state: "draft" })], sessionBranch()),
-    ).toBeUndefined();
-  });
-
-  it("does not second-guess diff counts; the gateway owns branch emptiness", () => {
-    expect(
-      createPullRequestBranch([], sessionBranch({ additions: 0, deletions: 0 })),
-    ).toBeDefined();
-    expect(
-      createPullRequestBranch([], sessionBranch({ additions: undefined, deletions: undefined })),
-    ).toBeDefined();
-    expect(createPullRequestBranch([], undefined)).toBeUndefined();
-  });
-});
 
 describe("renderChatPullRequests", () => {
   let container: HTMLDivElement;

@@ -117,6 +117,7 @@ export class WorkboardStoreRuntime {
           }
           return result;
         }),
+      listCardStatuses: (ids) => this.runOperation(() => store.listCardStatuses(ids)),
       listBoardAggregates: () => this.runOperation(() => store.listBoardAggregates()),
       listStatsAggregates: (boardId) => this.runOperation(() => store.listStatsAggregates(boardId)),
       hasCards: (boardId) => this.runOperation(() => store.hasCards(boardId)),

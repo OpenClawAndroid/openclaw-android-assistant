@@ -76,7 +76,7 @@ type ControlUiSessionPullRequestChecks = {
   running: number;
 };
 
-/** One GitHub pull request whose head is the session's working branch. */
+/** A working-branch PR or a same-repository PR linked in recent assistant replies. */
 export type ControlUiSessionPullRequest = {
   number: number;
   /**

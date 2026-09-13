@@ -160,13 +160,13 @@ pub fn status(cli: &OpenClawCli) -> Result<GatewaySnapshot, String> {
         .runtime
         .as_ref()
         .and_then(|runtime| runtime.status.as_deref())
-        .unwrap_or("stopped");
+        .unwrap_or("unknown");
     let running = runtime_status == "running";
     let (phase, status) = if reachable {
         ("connected", "Connected")
     } else if !installed {
         ("notInstalled", "Not installed")
-    } else if running {
+    } else if runtime_status != "stopped" {
         ("reconnecting", "Unavailable")
     } else {
         ("stopped", "Stopped")
@@ -210,7 +210,7 @@ pub fn ensure_ready(cli: &OpenClawCli) -> Result<ReadyGateway, String> {
         run_service_command(cli, "install")?;
         snapshot = status(cli)?;
     }
-    if !snapshot.running {
+    if snapshot.phase == "stopped" {
         run_service_command(cli, "start")?;
     }
 

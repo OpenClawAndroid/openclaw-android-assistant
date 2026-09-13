@@ -56,7 +56,7 @@ The shared plugin catch-all, QA and provider suites use native Vitest sharding, 
 
 Precise and fallback plugin envelopes share the same packing owner and a 240-second aggregate estimated budget per job, including multiple envelopes of the same config. Members retain compatible runner/dist requirements and run one at a time; total cost bounds packing rather than a pair limit. Each envelope retains its original child process, environment, native shard arguments and include scope, including process-bounded Codex, Matrix and Telegram work. Runtime-preparing envelopes remain separate. Co-location preserves each original file/process bound and native shard partition; a physical job may contain several such envelopes. Workers, timeouts and serial stop-on-failure behavior stay unchanged. Costs retain the larger complete-family rate from [run 33676780376](https://github.com/openclaw/openclaw/actions/runs/33676780376) and [run 33747183683](https://github.com/openclaw/openclaw/actions/runs/33747183683), rounded up per counting file without lowering prior floors. Both cohorts used two CPUs and two workers; counting inputs include the config-owned exclusions, and runtime preparation is charged separately. Repacking the retained 78 envelopes with these rates projects 30 jobs instead of 32. The largest sum of matching observed child spans is 340.128 seconds. This is a forecast across different source revisions, not measured combined-job latency; native CI must verify elapsed time and cleanup within the eight-minute end-to-end objective.
 
-Eligible Blacksmith and hybrid compact bins with multiple ordinary groups request the existing 32-vCPU runner and two child-process slots. They admit 360 predicted aggregate seconds; compatible small groups can fill that budget without the ten-group cutoff retained by serial jobs. Runtime consumers in ordinary bins share preparation only with other consumers, keeping no-build groups on their own capacity. Blacksmith serial jobs retain their 200/276-second budgets; hybrid serial jobs retain 210 seconds. Exclusive jobs retain 150 seconds by default. Only complete ordinary hybrid bins of non-build CLI groups may use 250 seconds and share split siblings; every child must still fit 150 seconds. Groups above their existing serial cap stay alone. Exclusive groups, single groups, dist descriptors and jobs with runtime preparation remain serial. Hybrid exclusive and dist bins retain their existing prerequisite sharing. The shard executor admits at most two processes only when the actual host has at least eight available CPUs and 24 GiB of memory; smaller capacity admits one. Each overlapping child keeps two Vitest workers, inner project parallelism remains one, and commands retain their serial file policy. The primary `github` profile stays serial at 210 seconds. Preflight records the actual row count for each source revision; canonical inventory comparisons must preserve every original child plan and test input. Native elapsed-time, memory and cleanup evidence must establish the actual effect.
+Eligible Blacksmith and hybrid compact bins with multiple ordinary groups request the existing 32-vCPU runner and two child-process slots. They admit 360 predicted aggregate seconds; compatible small groups can fill that budget without the ten-group cutoff retained by serial jobs. Initial packing separates runtime consumers from groups that need no build; the measured hybrid placement pass below can use spare ordinary capacity. Blacksmith serial jobs retain their 200/276-second budgets; hybrid serial jobs retain 210 seconds. Exclusive jobs retain 150 seconds by default. Only complete ordinary hybrid bins of non-build CLI groups may use 250 seconds and share split siblings; every child must still fit 150 seconds. Groups above their existing serial cap stay alone. Exclusive groups, single groups, dist descriptors and jobs with runtime preparation remain serial. Hybrid exclusive and dist bins retain their existing prerequisite sharing. The shard executor admits at most two processes only when the actual host has at least eight available CPUs and 24 GiB of memory; smaller capacity admits one. Each overlapping child keeps two Vitest workers, inner project parallelism remains one, and commands retain their serial file policy. The primary `github` profile stays serial at 210 seconds. Preflight records the actual row count for each source revision; canonical inventory comparisons must preserve every original child plan and test input. Native elapsed-time, memory and cleanup evidence must establish the actual effect.
 
 The `github` compact planner can place smaller ordinary groups on an already-required stronger logical runner. Each emitted job retains its strongest capacity owner, serial execution, original child processes and worker limits, the 210-second budget, and the ten-group limit. SDK and plugin runtime consumers are separated from ordinary files before packing; the SDK light project intersects shared include lists with its own inventory. Parent-derived fractional costs are rounded only at the emitted job boundary, so rounding small consumers cannot create a redundant runtime build. The shared packer can exchange groups to fill compatible capacity while rechecking complete replacements. Runtime-only hosted groups may share their strongest prerequisite within the existing 210-second serial budget; the build itself costs 160–166 seconds and is charged once per job. No-build exclusive groups keep their 150-second limit. Stranded tooling tails are sized against remaining compatible capacity before normal admission is reapplied. Exclusive, dist, oversized, and runtime-preparing bins retain their separate constraints.
 
@@ -86,31 +86,49 @@ Canonical-repo CI keeps Blacksmith as the default runner path for pushes and fir
 
 ## Measured shard weights
 
-Complete hybrid main and pull-request runtime plans retain their existing jobs and
-runner allocations while admitting measured runtime groups within 440 seconds, including the
-existing 100-second build allowance. This reserves 40 seconds of the eight-minute
-objective for checkout/setup; it does not change test deadlines or guarantee
-elapsed time. Only non-exclusive ordinary-runtime bins participate. A group can
-move to an already-required equal-or-stronger runner only with its own explicit
-worker limit. Both replacement bins must pass the shared family, group-count and
-budget checks. If no transfer fits, CI retains the complete existing plan and
-reports its over-budget estimate; an optimization cannot suppress test coverage.
-Recipient capacity must preserve the donor job's fixed runner anchor, including
-any earlier promotion of that group. Private-QA, dist, exclusive, hosted,
-and ordinary two-slot policies remain unchanged.
-Precise changed-file plans retain their original placement templates and admission
-floors; a whole-group measurement cannot move a subset onto a different runner.
+Complete hybrid main and pull-request plans retain their existing jobs and runner
+allocations while admitting measured runtime groups within 440 seconds, including
+the existing 100-second build allowance. This reserves 40 seconds of the
+eight-minute objective for checkout/setup; it does not change test deadlines or
+guarantee elapsed time. Only non-exclusive jobs without dist or private-QA
+preparation participate. A whole runtime group can move to an already-required
+equal-or-stronger runner only with its own explicit worker limit.
 
-The refit records separate runtime-placement observations from the emitted group
+The recipient can already prepare a runtime or have spare ordinary capacity. An
+ordinary recipient becomes serial and prepares one runtime; its previously
+parallel groups retain their two-worker allowance through explicit pins. Their
+prepared timing identities remain unchanged, preserving complete parent
+generations. The CI executor applies the smaller of the supplied
+job ceiling and group cap. When transfers have the same maximum estimate, the
+planner prefers the recipient with more remaining time. This can add a runtime
+build while reducing requested process concurrency, without adding a job or
+runner registration. Count that preparation cost when verifying the result.
+
+Both replacement bins must pass the shared family, group-count and budget
+checks. If no transfer fits, CI retains the complete existing plan and reports
+its over-budget estimate; an optimization cannot suppress test coverage.
+Recipient capacity must preserve the donor job's fixed runner anchor, including
+any earlier promotion of that group. Exclusive, private-QA, dist and hosted
+policies remain unchanged. Precise changed-file plans retain their original
+placement templates and admission floors.
+
+The refit stores typed runtime-placement observations from the emitted group
 descriptor, successful complete envelope and runtime-readiness marker. Configs,
-group environment, exact include set and prebuild mode define their identity;
-unrelated sibling repartitioning does not erase them. These observations use the
-same independent-run sampling rules but are consumed only after file splitting.
-They cannot reconstruct a parent or create more worker generations. Existing
-parent and exact-child timing keys keep their original meaning. Preparation is
-already included in the envelope; each job's shared runtime build is charged once.
-Unknown groups retain positive fallback costs, and native same-inventory evidence
-must verify latency, actual resources and cleanup before claiming improvement.
+group environment, complete file membership and prebuild mode accompany each
+measurement. An exact matching observation takes precedence. When it is absent,
+the largest compatible observation whose files are all still present supplies an
+advisory floor. This retains known work after a file is added without summing
+overlapping observations, borrowing another environment's cost, or interpreting
+directory/glob selectors as complete files. A later exact measurement can lower
+the estimate after an optimization.
+
+These observations use the same independent-run sampling rules and apply only
+after file splitting. They do not reconstruct a full parent or change the test
+partition. Existing parent and exact-child timing keys retain their meaning.
+Wrapper preparation is already included in each observation; the separate shared
+runtime build is charged once per job. Unknown groups retain positive fallback
+costs. Native evidence with the same inventory must verify latency, actual
+resources and cleanup before claiming improvement.
 
 `config/ci-test-timings.json` records CI measurements for UI and Gateway E2E files
 and compact Node groups. UI and compact packers prefer these weights over their in-source cold-start
@@ -173,7 +191,7 @@ release observations, including run IDs, attempts, workflow SHAs, creation dates
 parsed profiles and timing-job counts.
 
 Fewer than two independent main compact contributors fails the invocation.
-It also fails if no compact key meets the existing independent-run sampling rules.
+It also fails if neither a compact key nor a runtime-placement observation meets the existing independent-run sampling rules.
 Retained baseline weights and release measurements cannot satisfy these checks.
 Both failures leave the timing file unchanged.
 Measurements come only from successful UI E2E, Gateway E2E, and compact jobs; compact groups

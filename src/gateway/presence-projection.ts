@@ -23,7 +23,7 @@ export function createPresenceRecipientProjection(params: {
     const keys = [...new Set(params.presence.flatMap((row) => row.watchedSessions ?? []))];
     const prepared = prepareGatewaySessionStoreTargetsReadOnly({
       cfg: params.cfg,
-      projection: "full",
+      projection: "list",
       targets: keys.map((sessionKey) => {
         const parsed = parseAgentSessionKey(sessionKey);
         // Viewer declarations qualify sentinels; their stored keys remain global/unknown.

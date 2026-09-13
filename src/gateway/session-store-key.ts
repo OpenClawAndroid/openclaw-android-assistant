@@ -8,7 +8,6 @@ import {
   listAgentIds,
   resolveSessionAgentId,
 } from "../agents/agent-scope.js";
-import { tryResolveLegacyCompatibilityAgentId } from "../config/legacy.default-agent-owner.js";
 import {
   canonicalizeMainSessionAlias,
   resolveAgentMainSessionKey,
@@ -23,6 +22,7 @@ import {
   type ParsedAgentSessionKey,
 } from "../routing/session-key.js";
 import { normalizeSessionKeyPreservingOpaquePeerIds } from "../sessions/session-key-utils.js";
+import { tryResolveSessionCompatibilityOwnerAgentId } from "./session-request-agent.js";
 
 /** Canonicalize an opaque session key into the agent-scoped store namespace. */
 export function canonicalizeSessionKeyForAgent(agentId: string, key: string): string {
@@ -39,19 +39,16 @@ export function canonicalizeSessionKeyForAgent(agentId: string, key: string): st
 // Logical unscoped keys must honor the durable fixed-store owner. The physical-store
 // compatibility fallback is intentionally not used here because it can name a retired agent.
 function resolveLogicalSessionStoreAgentId(cfg: OpenClawConfig, sessionKey: string): string {
-  const persistedOwner = resolvePersistedSessionStoreOwnerForKey(cfg, sessionKey);
-  if (persistedOwner.kind === "configured") {
-    return persistedOwner.agentId;
+  const agentId = tryResolveSessionCompatibilityOwnerAgentId(cfg, sessionKey);
+  if (agentId) {
+    return agentId;
   }
+  const persistedOwner = resolvePersistedSessionStoreOwnerForKey(cfg, sessionKey);
   if (persistedOwner.kind === "retired") {
     throw new AgentSelectionRequiredError(listAgentIds(cfg), {
       surface: `session key "${sessionKey}"`,
       hint: `Its recorded owner "${persistedOwner.agentId}" is no longer configured. Select a configured agent explicitly.`,
     });
-  }
-  const compatibilityAgentId = tryResolveLegacyCompatibilityAgentId(cfg);
-  if (compatibilityAgentId) {
-    return normalizeAgentId(compatibilityAgentId);
   }
   throw new AgentSelectionRequiredError(listAgentIds(cfg), {
     surface: `session key "${sessionKey}"`,

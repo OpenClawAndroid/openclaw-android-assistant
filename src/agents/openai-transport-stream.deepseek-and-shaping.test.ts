@@ -58,19 +58,16 @@ describe("openai transport stream", () => {
 
   it("omits Responses reasoning params when model compat disables reasoning effort", () => {
     const params = buildOpenAIResponsesParams(
-      {
+      makeResponsesModel({
         id: "grok-4.20-0309-reasoning",
         name: "Grok 4.20 0309 (Reasoning)",
-        api: "openai-responses",
         provider: "xai",
         baseUrl: "https://api.x.ai/v1",
-        reasoning: true,
         input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 1_000_000,
         maxTokens: 30_000,
         compat: { supportsReasoningEffort: false },
-      } as unknown as Model<"openai-responses">,
+      }),
       {
         systemPrompt: "system",
         messages: [],
@@ -87,22 +84,19 @@ describe("openai transport stream", () => {
 
   it("preserves xAI Grok 4.3 default reasoning by omitting default none", () => {
     const params = buildOpenAIResponsesParams(
-      {
+      makeResponsesModel({
         id: "grok-4.3",
         name: "Grok 4.3",
-        api: "openai-responses",
         provider: "xai",
         baseUrl: "https://api.x.ai/v1",
-        reasoning: true,
         input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 1_000_000,
         maxTokens: 128_000,
         compat: {
           supportsReasoningEffort: true,
           supportedReasoningEfforts: ["none", "low", "medium", "high"],
         },
-      } as unknown as Model<"openai-responses">,
+      }),
       {
         systemPrompt: "system",
         messages: [],
@@ -117,22 +111,19 @@ describe("openai transport stream", () => {
 
   it("passes explicit xAI Grok 4.3 reasoning effort through", () => {
     const params = buildOpenAIResponsesParams(
-      {
+      makeResponsesModel({
         id: "grok-4.3",
         name: "Grok 4.3",
-        api: "openai-responses",
         provider: "xai",
         baseUrl: "https://api.x.ai/v1",
-        reasoning: true,
         input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 1_000_000,
         maxTokens: 128_000,
         compat: {
           supportsReasoningEffort: true,
           supportedReasoningEfforts: ["none", "low", "medium", "high"],
         },
-      } as unknown as Model<"openai-responses">,
+      }),
       {
         systemPrompt: "system",
         messages: [],

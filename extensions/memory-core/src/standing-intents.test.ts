@@ -493,13 +493,39 @@ describe("standing intents", () => {
     });
     const prefix = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
 
-    const matches = await matchStandingIntents({
-      agentId: "main",
-      prompt: `${prefix} deployment needle`,
-      nowMs: 1_000,
+    // Reopen so cached statements from setup cannot bypass the execution counter.
+    closeOpenClawAgentDatabasesForTest();
+    const db = openOpenClawAgentDatabase({ agentId: "main" }).db;
+    const prepare = db.prepare.bind(db);
+    let reads = 0;
+    const prepareSpy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
+      const statement = prepare(sql);
+      statement.get = new Proxy(statement.get.bind(statement), {
+        apply(get, receiver, args) {
+          reads += 1;
+          return Reflect.apply(get, receiver, args);
+        },
+      });
+      statement.iterate = new Proxy(statement.iterate.bind(statement), {
+        apply(iterate, receiver, args) {
+          reads += 1;
+          return Reflect.apply(iterate, receiver, args);
+        },
+      });
+      return statement;
     });
+    try {
+      const matches = await matchStandingIntents({
+        agentId: "main",
+        prompt: `${prefix} deployment needle`,
+        nowMs: 1_000,
+      });
 
-    expect(matches.map((intent) => intent.id)).toStrictEqual([active.id]);
+      expect(matches.map((intent) => intent.id)).toStrictEqual([active.id]);
+      expect(reads).toBeLessThanOrEqual(4);
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it("does not consume fire budgets for intents that do not fit hidden context", async () => {

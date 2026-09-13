@@ -1,3 +1,11 @@
+export const UPDATE_ACTIVATION_TIMEOUT_REASON = "update-activation-timeout";
+
+export function formatUpdateActivationTimeoutGuidance(
+  command: (value: string) => string = (value) => value,
+): string {
+  return `Inspect \`${command("openclaw update status")}\` and \`${command("openclaw doctor")}\`. Wait for the owning updater and its child processes to stop before running \`${command("openclaw update repair")}\`. The timeout does not make rollback or removal of retained update state safe.`;
+}
+
 export const UPDATE_INSTALL_SKIP_GUIDANCE: Readonly<Record<string, string>> = {
   "container-image-install":
     "Pull or build the target Docker/container image, then redeploy it with the same state/config mounts. No package changes or Gateway restart were attempted.",

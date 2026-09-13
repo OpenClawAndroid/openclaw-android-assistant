@@ -158,6 +158,56 @@ describe("project registry", () => {
     expect(listProjectRegistry(cfg, options).map((project) => project.id)).not.toContain(first.id);
   });
 
+  it.each(["entries", "list"] as const)(
+    "bounds %s roster reads while observing workspace edits on the next listing",
+    (shape) => {
+      const root = tempDirs.make("openclaw-project-roster-");
+      const options = { path: path.join(root, "state.sqlite") };
+      const agents = Array.from({ length: 64 }, (_, index) => ({
+        id: `agent-${String(index).padStart(2, "0")}`,
+        workspace: path.join(root, `workspace-${String(index).padStart(2, "0")}`),
+      }));
+      const entries = Object.fromEntries(
+        agents.map((agent) => [agent.id, { workspace: agent.workspace }]),
+      );
+      let reads = 0;
+      for (const agent of agents) {
+        const id = agent.id;
+        const entry = entries[id]!;
+        Object.defineProperty(
+          shape === "entries" ? entries : agent,
+          shape === "entries" ? id : "id",
+          {
+            enumerable: true,
+            get: () => {
+              reads += 1;
+              return shape === "entries" ? entry : id;
+            },
+          },
+        );
+      }
+      const cfg: OpenClawConfig = {
+        agents: shape === "entries" ? { entries } : { list: agents },
+      };
+
+      const before = listProjectRegistry(cfg, options);
+      // Listing every workspace must not re-read each preceding agent for every point lookup.
+      expect(reads).toBeLessThanOrEqual(agents.length * 4);
+      expect(before.map((project) => project.id)).toEqual(
+        agents.map((agent) => `workspace:${agent.id}`),
+      );
+      const editedId = agents[0]!.id;
+      const edited = shape === "entries" ? entries[editedId]! : agents[0]!;
+      const previousWorkspace = edited.workspace;
+      edited.workspace = path.join(root, "changed");
+      const after = listProjectRegistry(cfg, options);
+      expect(after.find((project) => project.id === `workspace:${editedId}`)?.repoRoot).toBe(
+        edited.workspace,
+      );
+      expect(before[0]?.repoRoot).toBe(previousWorkspace);
+    },
+  );
+
   it("rejects paths outside a git checkout", async () => {
     const root = tempDirs.make("openclaw-project-non-git-");
     await expect(

@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   readRecoveryStepInputs,
@@ -13,6 +14,10 @@ import {
   validateRecoveryRun,
   verifyStablePublishRecovery,
 } from "../../scripts/lib/stable-publish-recovery.mjs";
+import { verifyStableMainCloseout } from "../../scripts/lib/stable-release-closeout.mjs";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+
+const linuxTempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const tempDirs: string[] = [];
 afterEach(() => {
@@ -27,6 +32,305 @@ function runCli(...args: string[]) {
     encoding: "utf8",
   });
 }
+
+type LinuxAsset = { name: string; digest: string; state: string; size: number; bytes?: string };
+const linuxRepository = "openclaw/openclaw";
+
+function linuxAsset(name: string, bytes: string): LinuxAsset {
+  return {
+    name,
+    bytes,
+    size: Buffer.byteLength(bytes),
+    state: "uploaded",
+    digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+  };
+}
+
+function linuxPublication(version: string) {
+  const appimage = `OpenClaw-${version}-amd64.AppImage`;
+  const deb = `OpenClaw-${version}-amd64.deb`;
+  const selector = linuxAsset(
+    "latest.json",
+    JSON.stringify({
+      version,
+      platforms: {
+        "linux-x86_64": {
+          signature: Buffer.from("signed Linux AppImage").toString("base64"),
+          url: `https://github.com/${linuxRepository}/releases/download/v${version}/${appimage}`,
+        },
+      },
+    }),
+  );
+  return {
+    tagName: `v${version}`,
+    isDraft: false,
+    isPrerelease: false,
+    assets: [
+      { name: appimage, digest: `sha256:${"1".repeat(64)}`, state: "uploaded", size: 100 },
+      { name: deb, digest: `sha256:${"2".repeat(64)}`, state: "uploaded", size: 100 },
+      linuxAsset(
+        "SHA256SUMS.linux-app.txt",
+        `${"1".repeat(64)}  ./${appimage}\n${"2".repeat(64)}  ./${deb}\n`,
+      ),
+      selector,
+    ],
+  };
+}
+
+function linuxCloseoutFixture(carried = false, tag = "v2026.9.4") {
+  const dir = linuxTempDirs.make("openclaw-linux-closeout-");
+  const version = tag.slice(1);
+  const packageVersion = version.replace(/-[1-9]\d*$/u, "");
+  const changelog = `# Changelog\n\n## ${packageVersion}\n\n- Released.\n`;
+  const date = new Date().toISOString().slice(0, 10);
+  const baseParams = {
+    tag,
+    mainPackageJson: { version: packageVersion },
+    tagPackageJson: { version: packageVersion },
+    mainChangelog: changelog,
+    tagChangelog: changelog,
+    mainAppcast: "<rss>older app release</rss>",
+    releaseTagSha: "a".repeat(40),
+    mainSha: "a".repeat(40),
+    fullReleaseValidationRunId: "11",
+    fullReleaseValidationRunAttempt: "2",
+    releasePublishRunId: "12",
+    rollbackDrillId: "synthetic-drill",
+    rollbackDrillDate: date,
+    nowMs: Date.now(),
+  };
+  for (const name of ["main", "tag"]) {
+    const root = path.join(dir, name);
+    mkdirSync(root);
+    writeFileSync(path.join(root, "package.json"), JSON.stringify({ version: packageVersion }));
+    writeFileSync(path.join(root, "CHANGELOG.md"), changelog);
+    writeFileSync(path.join(root, "appcast.xml"), baseParams.mainAppcast);
+  }
+  const original = linuxPublication("2026.9.3");
+  const evidence = linuxAsset(
+    `openclaw-${version}-postpublish-evidence.json`,
+    "immutable evidence",
+  );
+  const carrier = { tagName: tag, isDraft: false, isPrerelease: false, assets: [evidence] };
+  if (carried) {
+    carrier.assets.push(
+      expectDefined(
+        original.assets.find((asset) => asset.name === "latest.json"),
+        "original Linux selector",
+      ),
+    );
+  }
+  const releasePath = path.join(dir, "release.json");
+  const remotePath = path.join(dir, "remote.json");
+  const outputPath = path.join(dir, "closeout.json");
+  const originalPath = path.join(dir, "original.json");
+  const bin = path.join(dir, "bin");
+  mkdirSync(bin);
+  writeFileSync(
+    path.join(bin, "git"),
+    `#!/usr/bin/env node
+if (process.argv[2] !== '-C' || process.argv[4] !== 'rev-parse') throw new Error('Unexpected git operation');
+process.stdout.write('${"a".repeat(40)}\\n');
+`,
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    path.join(bin, "gh"),
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const releases = JSON.parse(fs.readFileSync(process.env.LINUX_CLOSEOUT_REMOTE, 'utf8'));
+const release = releases[args[2]];
+if (args[0] !== 'release' || !release) throw new Error('Unexpected GitHub operation');
+if (args[1] === 'view') {
+  process.stdout.write(JSON.stringify({...release, assets: release.assets.map(({bytes, ...asset}) => asset)}));
+} else if (args[1] === 'download') {
+  const name = args[args.indexOf('--pattern') + 1];
+  if (!['latest.json', 'SHA256SUMS.linux-app.txt'].includes(name)) throw new Error('Binary download forbidden');
+  const asset = release.assets.find(asset => asset.name === name);
+  if (!asset || typeof asset.bytes !== 'string') throw new Error('Missing asset');
+  process.stdout.write(asset.bytes);
+} else throw new Error('GitHub writes forbidden');
+`,
+    { mode: 0o755 },
+  );
+  const metadata = () => ({
+    ...carrier,
+    assets: carrier.assets.map(({ bytes: _bytes, ...asset }) => asset),
+  });
+  const args = [
+    "--tag",
+    tag,
+    "--main-dir",
+    path.join(dir, "main"),
+    "--tag-dir",
+    path.join(dir, "tag"),
+    "--release-json",
+    releasePath,
+    "--full-release-validation-run-id",
+    "11",
+    "--full-release-validation-run-attempt",
+    "2",
+    "--release-publish-run-id",
+    "12",
+    "--rollback-drill-id",
+    "synthetic-drill",
+    "--rollback-drill-date",
+    date,
+    "--output",
+    outputPath,
+  ];
+  return {
+    carrier,
+    evidence,
+    originalPath,
+    outputPath,
+    publishLinux() {
+      carrier.assets = [evidence, ...linuxPublication(version).assets];
+    },
+    params() {
+      return { ...baseParams, release: metadata() };
+    },
+    run(replay = false) {
+      writeFileSync(releasePath, JSON.stringify(metadata()));
+      writeFileSync(remotePath, JSON.stringify({ [original.tagName]: original, [tag]: carrier }));
+      return spawnSync(
+        process.execPath,
+        [
+          "scripts/verify-stable-main-closeout.mjs",
+          ...args,
+          ...(replay ? ["--existing-manifest", originalPath] : []),
+        ],
+        {
+          cwd: path.resolve("."),
+          encoding: "utf8",
+          timeout: 20_000,
+          env: {
+            PATH: `${bin}:${process.env.PATH}`,
+            GITHUB_REPOSITORY: linuxRepository,
+            LINUX_CLOSEOUT_REMOTE: remotePath,
+          },
+        },
+      );
+    },
+  };
+}
+
+describe("stable closeout Linux publication", () => {
+  it.each([
+    { carried: false, tag: "v2026.9.4" },
+    { carried: true, tag: "v2026.9.4" },
+    { carried: true, tag: "v2026.9.4-1" },
+  ])(
+    "preserves receipt bytes after late Linux assets and selector (carried=$carried, $tag)",
+    ({ carried, tag }) => {
+      const fixture = linuxCloseoutFixture(carried, tag);
+      const initial = fixture.run();
+      expect(initial.status, initial.stderr).toBe(0);
+      const bytes = readFileSync(fixture.outputPath, "utf8");
+      writeFileSync(fixture.originalPath, bytes);
+      expect(JSON.parse(bytes).appPlatforms).toEqual({
+        macos: "pending",
+        android: "pending",
+        windows: "pending",
+      });
+      fixture.publishLinux();
+      const replay = fixture.run(true);
+      expect(replay.status, replay.stderr).toBe(0);
+      expect(readFileSync(fixture.outputPath, "utf8")).toBe(bytes);
+      fixture.evidence.digest = `sha256:${"d".repeat(64)}`;
+      const changed = fixture.run(true);
+      expect(changed.status).toBe(1);
+      expect(changed.stderr).toContain(
+        `Recorded release asset changed or disappeared: ${fixture.evidence.name}`,
+      );
+    },
+  );
+
+  it("does not treat recorded Linux bundles as mutable updater selectors", () => {
+    const fixture = linuxCloseoutFixture();
+    fixture.publishLinux();
+    const initial = fixture.run();
+    expect(initial.status, initial.stderr).toBe(0);
+    writeFileSync(fixture.originalPath, readFileSync(fixture.outputPath));
+    const bundle = expectDefined(
+      fixture.carrier.assets.find((asset) => asset.name.endsWith(".AppImage")),
+      "published AppImage",
+    );
+    bundle.digest = `sha256:${"d".repeat(64)}`;
+    const replay = fixture.run(true);
+    expect(replay.status).toBe(1);
+    expect(replay.stderr).toContain(
+      `Recorded release asset changed or disappeared: ${bundle.name}`,
+    );
+  });
+
+  it("requires source checksum proof and a matching current selector digest", () => {
+    const fixture = linuxCloseoutFixture();
+    const initial = fixture.run();
+    expect(initial.status, initial.stderr).toBe(0);
+    writeFileSync(fixture.originalPath, readFileSync(fixture.outputPath));
+    fixture.publishLinux();
+    const selector = expectDefined(
+      fixture.carrier.assets.find((asset) => asset.name === "latest.json"),
+      "current selector",
+    );
+    const digest = selector.digest;
+    selector.digest = `sha256:${"d".repeat(64)}`;
+    const wrongDigest = fixture.run(true);
+    expect(wrongDigest.status).toBe(1);
+    expect(wrongDigest.stderr).toContain("carrier asset digest");
+    selector.digest = digest;
+    fixture.carrier.assets = fixture.carrier.assets.filter(
+      (asset) => asset.name !== "SHA256SUMS.linux-app.txt",
+    );
+    const missingChecksums = fixture.run(true);
+    expect(missingChecksums.status).toBe(1);
+    expect(missingChecksums.stderr).toContain("partial or inconsistent");
+  });
+
+  it("rejects missing or mismatched validated selector observations without rewriting a receipt", () => {
+    const fixture = linuxCloseoutFixture();
+    const initial = fixture.run();
+    expect(initial.status, initial.stderr).toBe(0);
+    const bytes = readFileSync(fixture.outputPath, "utf8");
+    const existingManifest = JSON.parse(bytes);
+    fixture.publishLinux();
+    const selector = expectDefined(
+      fixture.carrier.assets.find((asset) => asset.name === "latest.json"),
+      "current selector",
+    );
+    const observation = {
+      carrierTag: "v2026.9.4",
+      manifestSha256: selector.digest.slice(7),
+      sourceVersion: "2026.9.4",
+    };
+    for (const linuxUpdaterObservation of [
+      undefined,
+      { ...observation, carrierTag: "v2026.9.3" },
+      { ...observation, manifestSha256: "d".repeat(64) },
+      { ...observation, sourceVersion: "2026.9.5" },
+      { ...observation, sourceVersion: undefined },
+    ]) {
+      const result = verifyStableMainCloseout({
+        ...fixture.params(),
+        existingManifest,
+        linuxUpdaterObservation,
+      });
+      expect(result.manifest).toBeNull();
+      expect(result.errors).toContain(
+        "New or changed Linux updater selector requires a validated observation bound to this carrier and asset digest.",
+      );
+    }
+    const verifiedReplay = verifyStableMainCloseout({
+      ...fixture.params(),
+      existingManifest,
+      linuxUpdaterObservation: observation,
+    });
+    expect(verifiedReplay.errors).toEqual([]);
+    expect(`${JSON.stringify(verifiedReplay.manifest, null, 2)}\n`).toBe(bytes);
+  });
+});
 
 describe("verify-stable-main-closeout", () => {
   it("rejects option-shaped values before checking required arguments", () => {

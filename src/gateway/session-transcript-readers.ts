@@ -20,6 +20,7 @@ import {
   readSessionTranscriptHistoryEventLookup,
   readSessionTranscriptHistoryEventPage,
   readSessionTranscriptHistoryEvents,
+  type SessionTranscriptMessageByIdOptions,
 } from "../config/sessions/session-accessor.sqlite-history-events.js";
 import { readRestoredSessionTranscript } from "../config/sessions/session-cold-storage-read.js";
 import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
@@ -73,6 +74,7 @@ type ReadSessionMessageByIdResult = {
   seq?: number;
   oversized: boolean;
   found: boolean;
+  serializedBytes?: number;
 };
 
 export type ResolvedTranscriptReadTarget = {
@@ -274,11 +276,11 @@ export async function readSessionMessagesWithSourceAsync(
 export async function readSessionMessageByIdAsync(
   scope: SessionTranscriptReadScope,
   messageId: string,
-  opts?: { allowResetArchiveFallback?: boolean },
+  opts?: SessionTranscriptMessageByIdOptions & { allowResetArchiveFallback?: boolean },
 ): Promise<ReadSessionMessageByIdResult> {
   const target = resolveTranscriptReadTarget(scope);
   const foundEvent = await readRestoredSessionTranscript(toTranscriptReadScope(target), () =>
-    readSessionTranscriptHistoryEventById(toTranscriptReadScope(target), messageId),
+    readSessionTranscriptHistoryEventById(toTranscriptReadScope(target), messageId, opts),
   );
   if (foundEvent) {
     return {
@@ -290,9 +292,12 @@ export async function readSessionMessageByIdAsync(
       ),
       oversized: false,
       seq: foundEvent.seq,
+      ...(foundEvent.serializedBytes !== undefined
+        ? { serializedBytes: foundEvent.serializedBytes }
+        : {}),
     };
   }
-  if (opts?.allowResetArchiveFallback === true) {
+  if (opts?.allowResetArchiveFallback === true && !opts.currentOnly) {
     return await archivedTranscriptReader(target).readById(messageId, {
       ...opts,
       resetArchiveOnly: true,

@@ -93,7 +93,6 @@ describe("dispatchReplyFromConfig", () => {
           cfg,
           dispatcher,
           replyResolver,
-          usePublishedModelRuntime: true,
           replyOptions: { abortSignal: abort.signal },
         });
         expect(result.queuedFinal).toBe(!aborted);
@@ -170,7 +169,6 @@ describe("dispatchReplyFromConfig", () => {
         cfg,
         dispatcher,
         replyResolver,
-        usePublishedModelRuntime: true,
       });
     } finally {
       preparedLookup.mockRestore();
@@ -237,7 +235,6 @@ describe("dispatchReplyFromConfig", () => {
         cfg,
         dispatcher: createDispatcher(),
         replyResolver,
-        usePublishedModelRuntime: true,
       });
       expect(preparedLookup).toHaveBeenCalledTimes(2);
       expect(preparedLookup).toHaveBeenNthCalledWith(1, { agentId: "main" });

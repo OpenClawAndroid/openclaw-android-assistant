@@ -227,30 +227,15 @@ export async function handleAcpSetModeAction(
   params: HandleCommandsParams,
   restTokens: string[],
 ): Promise<CommandHandlerResult> {
-  return await withSingleTargetValue({
-    commandParams: params,
-    restTokens,
+  return await handleSingleRuntimeOptionAction(params, restTokens, {
     usage: ACP_SET_MODE_USAGE,
-    run: async ({ target, value }) =>
-      await withAcpCommandErrorBoundary({
-        run: async () => {
-          const runtimeMode = validateRuntimeModeInput(value);
-          const options = await getAcpSessionManager().setSessionRuntimeMode({
-            cfg: params.cfg,
-            ...target,
-            runtimeMode,
-          });
-          return {
-            runtimeMode,
-            options,
-          };
-        },
-        fallbackCode: "ACP_TURN_FAILED",
-        fallbackMessage: "Could not update ACP runtime mode.",
-        onSuccess: ({ runtimeMode, options }) =>
-          commandReply(
-            `✅ Updated ACP runtime mode for ${target.sessionKey}: ${runtimeMode}. Effective options: ${formatRuntimeOptionsText(options)}`,
-          ),
+    optionLabel: "runtime mode",
+    parseValue: validateRuntimeModeInput,
+    update: async (target, value) =>
+      await getAcpSessionManager().setSessionRuntimeMode({
+        cfg: params.cfg,
+        ...target,
+        runtimeMode: value,
       }),
   });
 }

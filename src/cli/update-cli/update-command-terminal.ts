@@ -12,7 +12,8 @@ import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { exitCliAfterOutput } from "../one-shot-exit.js";
 import { printResult } from "./progress.js";
-import type { UpdateCommandOptions } from "./shared.js";
+import { parseUpdateTimeoutMs, type UpdateCommandOptions } from "./shared.js";
+import { UpdateActivationTimeoutError } from "./update-command-activation.js";
 import type { FinishUpdateParams } from "./update-command-finish-types.js";
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
 import {
@@ -50,6 +51,7 @@ export function hasDeferredUpdateCommandTerminalResult(run: Run): boolean {
 /** Enclose the real executor so its final checks and release precede terminal output. */
 export async function withUpdateCommandTerminalResult<T>(
   operation: (registerRun: (run: Run) => void) => Promise<T>,
+  opts: Pick<UpdateCommandOptions, "json"> = {},
 ): Promise<T> {
   const owner: { publish?: Publisher } = {};
   let run: Run | undefined;
@@ -72,13 +74,39 @@ export async function withUpdateCommandTerminalResult<T>(
       terminalOwners.delete(run);
     }
   }
+  const activationTimeout =
+    "error" in outcome
+      ? collectNestedErrorCandidates(outcome.error).find(
+          (error): error is UpdateActivationTimeoutError =>
+            error instanceof UpdateActivationTimeoutError,
+        )
+      : undefined;
+  if (run && activationTimeout && !owner.publish) {
+    const admittedRun = run;
+    owner.publish = async (failure) => {
+      const params = { opts: { ...opts, run: admittedRun }, root: activationTimeout.root };
+      const { result } = await resolveSettledUpdateCommandResult(
+        params,
+        {
+          status: "error",
+          mode: "unknown",
+          root: activationTimeout.root,
+          steps: [],
+          durationMs: activationTimeout.timeoutMs,
+        },
+        failure,
+      );
+      return publishUpdateCommandTerminalResult(params, result, { rolledBack: false });
+    };
+  }
   if (owner.publish) {
     const result = await owner.publish("error" in outcome ? outcome.error : undefined);
     if ("error" in outcome) {
       const failure = outcome.error;
       if (
         failure instanceof UpdateCommandPendingRecoveryFailure ||
-        failure instanceof UpdateCommandRecoveryPendingError
+        failure instanceof UpdateCommandRecoveryPendingError ||
+        activationTimeout
       ) {
         // Publication does not restore authority for outer failure triage.
         throw new UpdateCommandFinalizedRecoveryFailure(result);
@@ -113,11 +141,14 @@ export async function resolveSettledUpdateCommandResult(
     failure !== undefined &&
     (!(failure instanceof UpdateCommandFailure) ||
       failure instanceof UpdateCommandPendingRecoveryFailure);
+  const activationTimeout = collectNestedErrorCandidates(failure).find(
+    (error): error is UpdateActivationTimeoutError => error instanceof UpdateActivationTimeoutError,
+  );
   const result: UpdateRunResult = settlementFailed
     ? {
         ...pendingResult,
         status: "error",
-        reason: "update-executor-settlement-failed",
+        reason: activationTimeout?.reason ?? "update-executor-settlement-failed",
         steps: [
           ...pendingResult.steps,
           {
@@ -126,7 +157,7 @@ export async function resolveSettledUpdateCommandResult(
             cwd: pendingResult.root ?? params.root,
             durationMs: 0,
             exitCode: 1,
-            stderrTail: formatErrorMessage(failure),
+            stderrTail: activationTimeout?.message ?? formatErrorMessage(failure),
           },
         ],
       }
@@ -245,7 +276,7 @@ export async function reportPreMutationUpdateResult(
     ...(params.opts.dryRun !== true && params.status !== "skipped"
       ? {
           recovery: await (params.installKind === "git"
-            ? readCurrentGitUpdateRecovery(params.root)
+            ? readCurrentGitUpdateRecovery(params.root, parseUpdateTimeoutMs(params.opts.timeout))
             : verifyPackageUpdateRecovery(params.root)),
         }
       : {}),

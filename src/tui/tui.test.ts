@@ -373,12 +373,14 @@ describe("resolveInitialTuiAgentId", () => {
 
   it("falls back to a retained legacy owner", () => {
     const retained = retainLegacyDefaultAgentId(structuredClone(cfg), "ops");
+    delete retained.agents!.ownership;
 
     expect(resolveInitialTuiAgentId({ cfg: retained, cwd: "/var/tmp/unrelated" })).toBe("ops");
   });
 
   it("keeps an ownerless explicit fleet selection-required", () => {
-    expect(() => resolveInitialTuiAgentId({ cfg, cwd: "/var/tmp/unrelated" })).toThrow(
+    const retained = retainLegacyDefaultAgentId(structuredClone(cfg), "ops");
+    expect(() => resolveInitialTuiAgentId({ cfg: retained, cwd: "/var/tmp/unrelated" })).toThrow(
       "Multiple agents are configured, but TUI startup has no explicit owner. Pass an agent-scoped --session key (e.g., 'openclaw tui --session agent:agentname:main').",
     );
   });

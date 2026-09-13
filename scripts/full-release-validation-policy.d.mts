@@ -28,6 +28,8 @@ export interface ReleaseChild extends ReleaseRecord {
   runId: string;
 }
 export interface ReleaseExecutionPlan extends ReleaseRecord {
+  sourceAdmissionContract?: "1";
+  sourceAdmission?: import("./full-release-publication-contract.mjs").PublicationSourceFact | null;
   children: ReleaseChild[];
   evidenceReuse: ReleaseRecord;
   gates: ReleaseRecord[];

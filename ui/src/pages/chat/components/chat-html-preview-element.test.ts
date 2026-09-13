@@ -146,9 +146,17 @@ describe("ordinary HTML preview transport", () => {
     await view.updateComplete;
     const strict = await frameFor(view);
     expect(strict).not.toBe(frame);
-    expect(strict.getAttribute("sandbox")).toBe("");
-    expect(strict.srcdoc).toBe(source);
-    expect(strict.hasAttribute("src")).toBe(false);
+    expect(strict.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms");
+    expect(strict.hasAttribute("srcdoc")).toBe(false);
+    expect(strict.src).toBe(frame.src);
+    const strictPost = vi.spyOn(strict.contentWindow!, "postMessage");
+    message(strict, ready(strict));
+    await expect.poll(() => strictPost.mock.calls.length).toBe(1);
+    expect(strictPost.mock.calls[0]![0].params).toEqual({
+      html: source,
+      renderId: expect.any(String),
+      allowScripts: false,
+    });
     frame.dispatchEvent(new Event("error"));
     await view.updateComplete;
     expect(view.querySelector("iframe")).toBe(strict);

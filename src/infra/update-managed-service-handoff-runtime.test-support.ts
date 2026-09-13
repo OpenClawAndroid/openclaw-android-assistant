@@ -100,9 +100,52 @@ export async function prepareManagedServiceSpawn(
   root: string,
   scriptPath: string,
   childEnv: NodeJS.ProcessEnv,
-  options?: Pick<ManagedServiceBoundaryOptions, "repair" | "beforeParkNotice">,
+  options?: Pick<
+    ManagedServiceBoundaryOptions,
+    "repair" | "beforeParkNotice" | "finalizationWorkMs"
+  >,
 ) {
   let env = options?.repair ? await prepareManagedRepairSpawnEnv(root, childEnv) : childEnv;
+  if (options?.finalizationWorkMs !== undefined) {
+    const preloadPath = path.join(root, "finalization-clock-preload.cjs");
+    const statePath = path.join(root, "manager-state.json");
+    const modulePath = path.join(root, "recovery-health.mjs");
+    // Model cold finalizer startup only in the helper; its native child and lease stay real.
+    await fs.writeFile(
+      preloadPath,
+      `if (process.argv[1] === ${JSON.stringify(scriptPath)}) {
+      const fs = require("node:fs");
+      const children = require("node:child_process");
+      const spawn = children.spawn;
+      const setTimeout = global.setTimeout;
+      let finalizer;
+      children.spawn = (command, args, options) => {
+        const child = spawn(command, args, options);
+        try {
+          let payload = JSON.parse(args.at(-1));
+          if (Array.isArray(payload) && payload[0] !== ${JSON.stringify(modulePath)})
+            payload = JSON.parse(payload.at(-1));
+          if (Array.isArray(payload) && payload[0] === ${JSON.stringify(modulePath)}) {
+            finalizer = child;
+            child.once("close", () => { if (finalizer === child) finalizer = undefined; });
+          }
+        } catch {}
+        return child;
+      };
+      global.setTimeout = (callback, delay, ...args) => {
+        if (finalizer && typeof delay === "number" && delay >= 1000) {
+          finalizer = undefined;
+          const state = JSON.parse(fs.readFileSync(${JSON.stringify(statePath)}, "utf8"));
+          state.finalizationBudgetMs = delay;
+          fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify(state));
+          return setTimeout(callback, delay < ${options.finalizationWorkMs} ? 0 : delay, ...args);
+        }
+        return setTimeout(callback, delay, ...args);
+      };
+    }`,
+    );
+    env = { ...env, NODE_OPTIONS: `${env.NODE_OPTIONS ?? ""} --require ${preloadPath}`.trim() };
+  }
   const deadlinePath = path.join(root, "notice-deadline.json");
   const releasePath = path.join(root, "notice-deadline-release");
   if (options?.beforeParkNotice === "stalled") {

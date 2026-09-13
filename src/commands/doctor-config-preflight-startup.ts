@@ -155,7 +155,7 @@ async function assertStartupStateMigrationReady(params: {
     await import("../state/openclaw-agent-db-registry.js");
   const targets = resolveAllAgentSessionStoreCandidateTargetsSync(params.cfg, {
     env: params.env,
-    registeredDatabases: inspectOpenClawRegisteredAgentDatabases({
+    registeredDatabases: await inspectOpenClawRegisteredAgentDatabases({
       env: params.env,
       includeIncompatibleSchemaVersions: true,
     }),

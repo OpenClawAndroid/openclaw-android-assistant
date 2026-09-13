@@ -416,6 +416,68 @@ describe("projects vitest config", () => {
     expect(testConfig.pool).toBe("threads");
     expect(testConfig.isolate).toBe(false);
     expect(normalizeConfigPath(testConfig.runner)).toBe("test/non-isolated-runner.ts");
+    const session = requireTestConfig(contractChannelSessionConfig);
+    expect(session.pool).toBe("forks");
+    expect(session.isolate).toBe(testConfig.isolate);
+    expect(session.runner).toBe(testConfig.runner);
+    expect(session.setupFiles).toEqual(testConfig.setupFiles);
+    expect(session.maxWorkers).toBe(testConfig.maxWorkers);
+  });
+
+  it.each([
+    undefined,
+    "src/channels/plugins/contracts/session-binding.registry-backed.contract.test.ts",
+    "src/channels/plugins/contracts/session-key-artifact.contract.test.ts",
+    "src/tasks/task-registry.test.ts",
+  ])("preserves public channel contract command coverage with include filter %s", (filter) => {
+    const includeFile = filter
+      ? patternFiles.writePatternFile("command-include.json", [filter])
+      : undefined;
+    const result = spawnNodeEvalSync(
+      `
+        import assert from "node:assert/strict";
+        import { globSync, readFileSync } from "node:fs";
+        import path from "node:path";
+        import { parseCLI, resolveConfig } from "vitest/node";
+        import { createVitestRunSpecs } from "./scripts/test-projects.test-support.mts";
+        const command = JSON.parse(readFileSync("package.json", "utf8")).scripts["test:contracts:channels"];
+        const argv = command.split(/\\s+/u);
+        const wrapper = argv.indexOf("scripts/test-projects.mts");
+        assert.notEqual(wrapper, -1);
+        const specs = createVitestRunSpecs(argv.slice(wrapper + 1));
+        const matches = [];
+        for (const spec of specs) {
+          assert.equal(spec.includeFilePath, null);
+          const { options } = parseCLI(["vitest", ...spec.pnpmArgs.slice(spec.pnpmArgs.indexOf("run"))]);
+          const resolved = await resolveConfig(options);
+          for (const { projectConfig } of resolved.test.resolvedProjects) {
+            for (const file of globSync(projectConfig.include, { cwd: projectConfig.dir, exclude: projectConfig.exclude })) {
+              const relative = path.relative(process.cwd(), path.resolve(projectConfig.dir, file)).replaceAll("\\\\", "/");
+              matches.push(relative);
+              if (relative.endsWith("/session-binding.registry-backed.contract.test.ts")) {
+                assert.equal(projectConfig.pool, "forks");
+                assert.equal(projectConfig.maxWorkers, 1);
+              }
+            }
+          }
+        }
+        const includeFile = process.env.OPENCLAW_VITEST_INCLUDE_FILE;
+        const filters = includeFile ? JSON.parse(readFileSync(includeFile, "utf8")) : null;
+        const expected = globSync("src/channels/plugins/contracts/**/*.test.ts")
+          .map(file => file.replaceAll("\\\\", "/"))
+          .filter(file => !filters || filters.some(filter => path.matchesGlob(file, filter)));
+        assert.deepEqual(matches.toSorted(), expected.toSorted());
+        assert.equal(new Set(matches).size, matches.length);
+      `,
+      {
+        imports: ["tsx"],
+        env: { ...process.env, GITHUB_ACTIONS: "true", OPENCLAW_VITEST_INCLUDE_FILE: includeFile },
+        timeout: DEFAULT_VITEST_TEST_TIMEOUT_MS,
+      },
+    );
+    expect(result.error, result.stderr).toBeUndefined();
+    expect(result.signal, result.stderr).toBeNull();
+    expect(result.status, result.stderr).toBe(0);
   });
 
   it("gives contract project configs unique names", () => {

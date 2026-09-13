@@ -9,37 +9,47 @@ import { loadTranscriptEvents, replaceSessionEntry } from "./session-accessor.js
 import { persistSessionTranscriptTurn } from "./session-accessor.transcript-turn.js";
 
 describe("transcript turn logical ownership", () => {
-  it("rejects a bare-key write for an ownerless explicit fleet", async () => {
-    await withTempHome(async (home) => {
-      const storePath = path.join(home, "sessions.json");
-      const cfg = {
-        agents: { ownership: "explicit", entries: { ops: {}, research: {} } },
-        session: { store: storePath },
-      } satisfies OpenClawConfig;
-
-      await expect(
-        persistSessionTranscriptTurn(
+  it.each([undefined, "ops"])(
+    "rejects a bare-key write without a designation (provenance: %s)",
+    async (retainedOwner) => {
+      await withTempHome(async (home) => {
+        const storePath = path.join(home, "sessions.json");
+        const cfg = retainLegacyDefaultAgentId(
           {
-            sessionId: "ownerless-transcript-session",
-            sessionKey: "main",
-            storePath,
-          },
-          {
-            config: cfg,
-            messages: [{ message: { role: "user", content: "must not be attributed" } }],
-            updateMode: "none",
-          },
-        ),
-      ).rejects.toBeInstanceOf(AgentSelectionRequiredError);
-    });
-  });
+            agents: { ownership: "explicit", entries: { ops: {}, research: {} } },
+            session: { store: storePath },
+          } satisfies OpenClawConfig,
+          retainedOwner,
+        );
 
-  it("attributes a bare-key write to the retained compatibility owner", async () => {
+        await expect(
+          persistSessionTranscriptTurn(
+            {
+              sessionId: "ownerless-transcript-session",
+              sessionKey: "main",
+              storePath,
+            },
+            {
+              config: cfg,
+              messages: [{ message: { role: "user", content: "must not be attributed" } }],
+              updateMode: "none",
+            },
+          ),
+        ).rejects.toBeInstanceOf(AgentSelectionRequiredError);
+      });
+    },
+  );
+
+  it("attributes a bare-key write to the recorded default owner", async () => {
     await withTempHome(async (home) => {
       const storePath = path.join(home, "sessions.json");
       const cfg = retainLegacyDefaultAgentId(
         {
-          agents: { ownership: "explicit", entries: { ops: {}, research: {} } },
+          agents: {
+            ownership: "explicit",
+            defaults: { systemAgent: { agentId: "ops" } },
+            entries: { ops: {}, research: {} },
+          },
           session: { store: storePath },
         },
         "ops",

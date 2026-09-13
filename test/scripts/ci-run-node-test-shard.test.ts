@@ -25,6 +25,7 @@ import {
 } from "../../scripts/ci-run-node-test-shard.mts";
 import { encodeNodeTestGroups } from "../../scripts/lib/ci-node-test-groups-codec.mts";
 import { refitTestTimings } from "../../scripts/lib/ci-test-timings-refit.mts";
+import { resolveLocalVitestScheduling } from "../../scripts/lib/vitest-local-scheduling.mts";
 import * as groupOwner from "../../scripts/vitest-process-group.mts";
 import { createDeferred } from "../helpers/promise.js";
 
@@ -165,6 +166,46 @@ describe("scripts/ci-run-node-test-shard.mts", () => {
     );
     expect(bare.OPENCLAW_VITEST_INCLUDE_FILE).toBeUndefined();
   });
+
+  it.each([
+    { job: "1", group: "2", expected: 1 },
+    { job: "1", group: "", expected: 1 },
+    { job: "1", group: "  ", expected: 1 },
+    { job: "2", group: "2", expected: 2 },
+    { job: "3", group: "2", expected: 2 },
+    { job: "4", group: "2", expected: 2 },
+    { job: "6", group: "2", expected: 2 },
+    { job: "6", group: "1", expected: 1 },
+    { job: undefined, group: "2", expected: 2 },
+    { job: "6", group: undefined, expected: 6 },
+    { job: "1", group: undefined, expected: 1, target: true },
+  ])(
+    "intersects inherited worker ceiling $job with group cap $group (target=$target)",
+    ({ job, group, expected, target }) => {
+      const childEnv = buildChildEnv(
+        target
+          ? { kind: "target", name: "one", target: "one.test.ts" }
+          : {
+              kind: "group",
+              name: "one",
+              plan: {
+                configs: ["one.config.ts"],
+                env: { OPENCLAW_VITEST_MAX_WORKERS: group, EXTRA: "group" },
+              },
+            },
+        { CI: "true", OPENCLAW_VITEST_MAX_WORKERS: job, EXTRA: "job" },
+        makeScratchDir(),
+        0,
+      );
+      expect(childEnv.OPENCLAW_VITEST_MAX_WORKERS).toBe(String(expected));
+      expect(childEnv.EXTRA).toBe(target ? "job" : "group");
+      expect(resolveLocalVitestScheduling(childEnv, { cpuCount: Number(job) || 8 })).toEqual({
+        maxWorkers: expected,
+        fileParallelism: expected > 1,
+        throttledBySystem: false,
+      });
+    },
+  );
 
   it.each([
     { key: "NODE_OPTIONS", shared: true },

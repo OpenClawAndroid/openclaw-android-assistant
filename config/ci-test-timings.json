@@ -144,20 +144,144 @@
       "core-unit-src-security-2": 116,
       "core-unit-src-security-3": 158,
       "core-unit-src-security-support": 24,
-      "core-unit-support": 52,
-      "runtime-placement#2b1c0b8d48d8b50414fd067c349b2f47d081f400": 13,
-      "runtime-placement#2c4f0f682816a7ffb3ee8014fa8e16aa03a06ab4": 14,
-      "runtime-placement#5356616168e63778076bc126ea579625afa09dc8": 201,
-      "runtime-placement#75f68d733e4d254c846ecc193d2b1d729b44511b": 41,
-      "runtime-placement#7cc54c89f2c576111cfe9f8937c1e9f3c8876a7d": 12,
-      "runtime-placement#8096f17bd1f37f16ce0520c79b25fd55adb24bb4": 10,
-      "runtime-placement#964c8a634d056041fe627995ffe302457739a77d": 54,
-      "runtime-placement#9dc07ef8e9c6e5f9b68095a12c495d8ff00d7fd0": 265,
-      "runtime-placement#ac5a9db3ba50321154aeb563325047ee1fc5e62c": 79,
-      "runtime-placement#d8077c092e8ae6a94b867b0a5aec3ffe38662939": 43,
-      "runtime-placement#dedf4dae6cad3774bfcc936841002adf0fa2e5aa": 12
+      "core-unit-support": 52
     },
     "github": {}
+  },
+  "runtimePlacementTimings": {
+    "blacksmith": [
+      {
+        "configs": [
+          "test/vitest/vitest.agents-core.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/agents/prepared-model-catalog-worker.integration.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 41
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.agents-core.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/agents/runtime-plugins.context-engine.integration.test.ts",
+          "src/agents/simple-completion-runtime.plugin-scope.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 12
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.commands.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/commands/doctor-config-preflight.process.test.ts",
+          "src/commands/doctor-config-preflight.refusal.process.test.ts",
+          "src/commands/doctor-config-preflight.v17-atomicity.process.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 79
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.commands.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/commands/doctor-plugin-install-config.process.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 43
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.gateway-server.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/gateway/server-sidecar-retention.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 14
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.gateway-server.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/gateway/server.config-patch.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 54
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.infra.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/infra/update-candidate-canary.integration.test.ts",
+          "src/infra/update-managed-service-handoff-lifecycle.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 265
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.plugin-sdk-light.config.ts",
+          "test/vitest/vitest.plugin-sdk.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/plugin-sdk/channel-entry-contract.lifecycle.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 10
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.runtime-config.config.ts"
+        ],
+        "env": {
+          "OPENCLAW_VITEST_MAX_WORKERS": "2"
+        },
+        "includePatterns": [
+          "src/config/config-startup-corpus.test.ts",
+          "src/config/state-startup-corpus.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 201
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.unit-fast.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/plugins/setup-registry.migrations.test.ts",
+          "src/plugins/source-checkout-runtime.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 12
+      },
+      {
+        "configs": [
+          "test/vitest/vitest.unit-src.config.ts"
+        ],
+        "env": {},
+        "includePatterns": [
+          "src/node-host/linux-node-plugin.integration.test.ts"
+        ],
+        "pretestBuildMode": "runtime",
+        "seconds": 13
+      }
+    ],
+    "github": []
   },
   "repoE2eFileSeconds": {
     "extensions/browser/src/browser/client-fetch.attach-only.e2e.test.ts": 1,

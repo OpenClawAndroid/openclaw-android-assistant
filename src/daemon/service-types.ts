@@ -113,13 +113,18 @@ export type SystemdServiceReadBinding = {
   close: () => Promise<void>;
 };
 
+export type GatewayServiceCommandInspection =
+  | { kind: "absent" | "present" }
+  | { kind: "unavailable"; error: unknown };
+
 /** Bounded service inspection; strict reads reject unverified commands/environments and return null only for proven absence. */
 export type GatewayServiceReadOptions = {
   systemdReadBinding?: SystemdServiceReadBinding;
   timeoutMs?: number;
   requireEffective?: boolean;
-  /** Report failed effective inspection even when a read-only caller accepts the local definition. */
-  onInspectionFailure?: (reason: ServiceInspectionReason) => void;
+  /** Carry the command reader's verdict into runtime inspection without repeating it. */
+  commandInspection?: GatewayServiceCommandInspection;
+  onCommandInspection?: (inspection: GatewayServiceCommandInspection) => void;
   /** Command inspection must not load an unloaded native unit. */
   requireLoaded?: boolean;
   loadForInspection?: GatewayServiceUnitInspection;
@@ -166,13 +171,14 @@ export type ServiceDefinitionMutationCapability =
       kind: "sealed" | "unknown";
       reason: keyof typeof SERVICE_DEFINITION_REASONS;
       artifact?: ServiceDefinitionMutationArtifact;
+      path?: string;
     };
 
 export function assertServiceDefinitionWritable(capability: ServiceDefinitionMutationCapability) {
   if (capability.kind === "writable") {
     return;
   }
-  // Only allowlisted facts reach callers: paths, native errors, and extra fields can contain secrets.
+  // Native errors and extra fields can contain secrets; only recorded artifact paths are diagnostic.
   const reason = Object.hasOwn(SERVICE_DEFINITION_REASONS, capability.reason)
     ? capability.reason
     : "inspection-failed";
@@ -183,7 +189,10 @@ export function assertServiceDefinitionWritable(capability: ServiceDefinitionMut
   // Update recovery recognizes these prefixes to preserve a protected definition.
   const code =
     capability.kind === "sealed" ? "SERVICE_DEFINITION_SEALED" : "SERVICE_DEFINITION_UNKNOWN";
-  throw new Error(`${code}: [${reason}] The ${artifact} ${SERVICE_DEFINITION_REASONS[reason]}`);
+  const location = capability.path ? ` ${JSON.stringify(capability.path)}` : "";
+  throw new Error(
+    `${code}: [${reason}] The ${artifact}${location} ${SERVICE_DEFINITION_REASONS[reason]}`,
+  );
 }
 
 export type GatewayServiceCommandSnapshot = {

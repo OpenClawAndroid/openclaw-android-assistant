@@ -4,6 +4,15 @@ import { mockProcessPlatform } from "../test-utils/vitest-spies.js";
 import { readGatewayServiceState, resolveGatewayService, type GatewayService } from "./service.js";
 import { createMockGatewayService, mockSystemAccountHome } from "./service.test-helpers.js";
 
+const serviceEnv = (scenario: string) => ({
+  HOME: `/openclaw-service-proof/${scenario}`,
+  XDG_RUNTIME_DIR: `/openclaw-service-proof/${scenario}/runtime`,
+  DBUS_SESSION_BUS_ADDRESS: `unix:path=/openclaw-service-proof/${scenario}/bus`,
+  USER: "service",
+  LOGNAME: "service",
+  SUDO_USER: undefined,
+});
+
 beforeEach(() => {
   mockSystemAccountHome();
 });
@@ -12,6 +21,60 @@ afterEach(() => {
 });
 
 describe("readGatewayServiceState absence", () => {
+  it("does not require a user bus to inspect a running system service", async () => {
+    mockProcessPlatform("linux");
+    const missing = () => Object.assign(new Error("missing"), { code: "ENOENT" });
+    vi.spyOn(fs, "readFile").mockRejectedValue(missing());
+    vi.spyOn(fs, "access").mockImplementation(async (file) => {
+      if (file !== "/etc/systemd/system/openclaw-gateway.service") {
+        throw missing();
+      }
+    });
+    vi.spyOn(fs, "readdir").mockResolvedValue([]);
+    vi.spyOn(await import("./exec-file.js"), "execFileUtf8").mockImplementation(
+      async (command) => ({
+        code: command === "busctl" ? 1 : 0,
+        termination: "exit",
+        stdout: command === "busctl" ? "" : "LoadState=loaded\nActiveState=active\nMainPID=42\n",
+        stderr: command === "busctl" ? "Failed to connect to bus: No such file or directory" : "",
+      }),
+    );
+    const state = await readGatewayServiceState(resolveGatewayService(), {
+      env: serviceEnv("running-system-service"),
+    });
+    expect(state.runtime).toMatchObject({ status: "running", pid: 42 });
+    expect(state.inspectionReason).toBeUndefined();
+  });
+
+  it.each([
+    ["user bus", "systemd-user-bus-unavailable"],
+    ["busctl", "systemd-busctl-unavailable"],
+  ])(
+    "reports missing %s instead of recommending an impossible fresh install",
+    async (missingPiece, reason) => {
+      mockProcessPlatform("linux");
+      const missing = () => Object.assign(new Error("missing"), { code: "ENOENT" });
+      vi.spyOn(fs, "readFile").mockRejectedValue(missing());
+      vi.spyOn(fs, "access").mockRejectedValue(missing());
+      vi.spyOn(fs, "readdir").mockResolvedValue([]);
+      const run = vi.spyOn(await import("./exec-file.js"), "execFileUtf8");
+      run.mockImplementation(async (command) => ({
+        code: command === "busctl" ? 1 : 0,
+        termination: command === "busctl" && missingPiece === "busctl" ? "error" : "exit",
+        errorCode: command === "busctl" && missingPiece === "busctl" ? "ENOENT" : undefined,
+        stdout:
+          command === "busctl" ? "" : "LoadState=not-found\nActiveState=inactive\nSubState=dead\n",
+        stderr: command === "busctl" ? "Failed to connect to bus: No such file or directory" : "",
+      }));
+      const state = await readGatewayServiceState(resolveGatewayService(), {
+        env: serviceEnv(reason),
+      });
+      expect(state.inspectionReason).toBe(reason);
+      expect(state.runtime?.missingUnit).not.toBe(true);
+      expect(state.runtime?.status).toBe("unknown");
+    },
+  );
+
   it.each(["current", "revoked", "expired"])(
     "preserves the admitted binding and deadline through an absent projection (%s)",
     async (condition) => {
@@ -98,7 +161,7 @@ describe("readGatewayServiceState absence", () => {
         throw missing();
       });
       const run = vi.spyOn(await import("./exec-file.js"), "execFileUtf8");
-      run.mockImplementation(async (_command, args) => {
+      run.mockImplementation(async (command, args) => {
         const system = args.includes("--system");
         const success = (type: string, data: unknown) => ({
           code: 0,
@@ -114,6 +177,19 @@ describe("readGatewayServiceState absence", () => {
         });
         if (condition === (system ? "system-unavailable" : "user-unavailable")) {
           return failure("Failed to connect to bus: No such file or directory");
+        }
+        if (args.includes("Version")) {
+          expect(command).toBe("busctl");
+          expect(args).toEqual([
+            "--user",
+            "--auto-start=no",
+            "get-property",
+            "org.freedesktop.systemd1",
+            "/org/freedesktop/systemd1",
+            "org.freedesktop.systemd1.Manager",
+            "Version",
+          ]);
+          return { code: 0, termination: "exit", stdout: 's "252.39"', stderr: "" };
         }
         if (args.includes("GetNameOwner")) {
           return success("s", [":1.2"]);
@@ -132,7 +208,7 @@ describe("readGatewayServiceState absence", () => {
         return failure("Unexpected native query");
       });
       const result = readGatewayServiceState(resolveGatewayService(), {
-        env: { HOME: "/openclaw-service-proof", DBUS_SESSION_BUS_ADDRESS: "unix:path=/proof/bus" },
+        env: serviceEnv(condition),
         requireEffective: true,
         requireLoadedCommand: true,
       });

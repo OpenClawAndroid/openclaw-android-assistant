@@ -81,7 +81,6 @@ it.each([
     "OPENCLAW_SERVICE_KIND",
     "OPENCLAW_LAUNCHD_LABEL",
     "OPENCLAW_SYSTEMD_UNIT",
-    "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
     "SUDO_USER",
   ]) {
@@ -89,6 +88,7 @@ it.each([
   }
   vi.stubEnv("HOME", home);
   vi.stubEnv("USERPROFILE", home);
+  vi.stubEnv("XDG_RUNTIME_DIR", path.join(home, "runtime"));
   vi.stubEnv("USER", "svc");
   if (scenario.platform === "linux") {
     const unitDir = path.join(home, ".config/systemd/user");

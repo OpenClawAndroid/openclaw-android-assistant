@@ -178,11 +178,33 @@ describe("format-datetime", () => {
   });
 
   describe("calendar days", () => {
-    it("formats event instants with the offset active in the requested timezone", () => {
+    it("keeps calendar formatters bound to their requested timezone", () => {
       const formatViennaDay = createTimeZoneDayKeyFormatter("Europe/Vienna");
+      const afterTransition = new Date("2026-03-29T22:30:00.000Z");
 
       expect(formatViennaDay(new Date("2026-03-28T22:30:00.000Z"))).toBe("2026-03-28");
-      expect(formatViennaDay(new Date("2026-03-29T22:30:00.000Z"))).toBe("2026-03-30");
+      expect(formatViennaDay(afterTransition)).toBe("2026-03-30");
+      const formatUtcDay = createTimeZoneDayKeyFormatter("UTC");
+      expect(formatUtcDay(afterTransition)).toBe("2026-03-29");
+      expect(formatViennaDay(afterTransition)).toBe("2026-03-30");
+      withEnv({ TZ: "America/New_York" }, () => {
+        expect(createTimeZoneDayKeyFormatter("Europe/Vienna")(afterTransition)).toBe("2026-03-30");
+      });
+    });
+
+    it("honors constructor failures and formats again after restoration", () => {
+      const date = new Date("2024-01-01T00:30:00.000Z");
+      expect(createTimeZoneDayKeyFormatter("UTC")(date)).toBe("2024-01-01");
+      const failure = new Error("test formatter unavailable");
+      const constructor = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function () {
+        throw failure;
+      });
+      try {
+        expect(() => createTimeZoneDayKeyFormatter("UTC")).toThrow(failure);
+      } finally {
+        constructor.mockRestore();
+      }
+      expect(createTimeZoneDayKeyFormatter("UTC")(date)).toBe("2024-01-01");
     });
 
     it("resolves calendar boundaries across a DST-short day", () => {

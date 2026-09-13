@@ -27,6 +27,7 @@ const GATEWAY_RUN_BOOLEAN_FLAGS = new Set([
   "--ambient-channels",
   "--dev-ambient-channels",
   "--reset",
+  "--update-canary",
   "--force",
   "--verbose",
   "--cli-backend-logs",

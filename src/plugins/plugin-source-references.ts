@@ -1,6 +1,6 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { parse, type AnyNode } from "acorn";
+import { parse, type AnyNode, type Program } from "acorn";
 import type { createJiti } from "jiti";
 
 export function capturedPluginModuleUrl(
@@ -117,6 +117,116 @@ function isCurrentFileRequire(call: RequireReferencePath): boolean {
   );
 }
 
+// These imports and native anchors need Jiti's binding-aware prepass or rewritten callee names.
+const TRANSFORMED_REFERENCE_NAMES = new Set([
+  "createRequire",
+  "URL",
+  "readFile",
+  "readFileSync",
+  "createReadStream",
+  "join",
+  "resolve",
+  "require",
+  "jitiImport",
+  "jitiESMResolve",
+  "__dirname",
+]);
+
+function parseNativePluginJavaScript(source: string, sourceText: string): Program | undefined {
+  if (!/\.[cm]?js$/.test(source)) {
+    return undefined;
+  }
+  let tree: Program;
+  try {
+    tree = parse(sourceText, {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      allowAwaitOutsideFunction: true,
+    });
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return undefined;
+    }
+    throw error;
+  }
+  const needsTransform = (node: AnyNode, exportedDeclaration = false): boolean => {
+    if (node.type === "MetaProperty") {
+      return true;
+    }
+    // Jiti moves declarations around resource disposal blocks, changing reference order.
+    if (
+      node.type === "VariableDeclaration" &&
+      (node.kind === "using" || node.kind === "await using")
+    ) {
+      return true;
+    }
+    // Jiti moves module-binding loop assignments into the body or removes their targets.
+    if (
+      (node.type === "ForInStatement" || node.type === "ForOfStatement") &&
+      node.left.type !== "VariableDeclaration"
+    ) {
+      return true;
+    }
+    // Jiti rejects reserved exports before visiting references, including declaration bindings.
+    const exported =
+      node.type === "ExportSpecifier" || node.type === "ExportAllDeclaration"
+        ? node.exported
+        : undefined;
+    if (
+      (exported?.type === "Identifier" ? exported.name : staticString(exported)) === "__esModule" ||
+      (exportedDeclaration && node.type === "Identifier" && node.name === "__esModule")
+    ) {
+      return true;
+    }
+    // Jiti renames local require/__dirname bindings before the reference visitor runs.
+    if (node.type === "Identifier" && (node.name === "require" || node.name === "__dirname")) {
+      return true;
+    }
+    if (
+      node.type === "ImportExpression" &&
+      (node.source.type !== "Literal" ||
+        typeof node.source.value !== "string" ||
+        node.options != null)
+    ) {
+      return true;
+    }
+    if (node.type === "ImportDeclaration") {
+      if (node.source.value === "module" || node.source.value === "node:module") {
+        return true;
+      }
+      for (const specifier of node.specifiers) {
+        const imported =
+          specifier.type === "ImportSpecifier"
+            ? specifier.imported.type === "Identifier"
+              ? specifier.imported.name
+              : staticString(specifier.imported)
+            : undefined;
+        if (
+          TRANSFORMED_REFERENCE_NAMES.has(specifier.local.name) ||
+          (imported !== undefined && TRANSFORMED_REFERENCE_NAMES.has(imported))
+        ) {
+          return true;
+        }
+      }
+    }
+    return Object.values(node)
+      .flat()
+      .some(
+        (child) =>
+          child &&
+          typeof child === "object" &&
+          "type" in child &&
+          needsTransform(
+            // SAFETY: Children belong to the Acorn tree, as in the reference visitor below.
+            child as AnyNode,
+            exportedDeclaration ||
+              (node.type === "ExportNamedDeclaration" && child === node.declaration),
+          ),
+      );
+  };
+  return needsTransform(tree) ? undefined : tree;
+}
+
 /** Visit literal module and explicit asset inputs without evaluating plugin code. */
 export function visitPluginSourceReferences(
   source: string,
@@ -135,53 +245,90 @@ export function visitPluginSourceReferences(
       visitReference(path.join(".", ...parts), "asset");
     }
   };
-  const code = resolver.transform({
-    source: sourceText,
-    filename: source,
-    ts: /\.[cm]?tsx?$/.test(source),
-    async: true,
-    babel: {
-      plugins: [
-        {
-          pre(file: {
-            path: {
-              traverse(visitor: { CallExpression(call: RequireReferencePath): void }): void;
-            };
-          }) {
-            file.path.traverse({
-              CallExpression(call) {
-                const args = call.get("arguments");
-                // Jiti replaces this anchor with a string; capture its meaning before rewriting.
-                if (unwrapReferenceArgument(args[0])?.matchesPattern("import.meta.dirname")) {
-                  const callee = call.get("callee");
-                  const member =
-                    callee.node?.type === "MemberExpression" ? callee.get("property") : callee;
-                  const name =
-                    ["join", "resolve"].find((method) =>
-                      ["path", "node:path"].some((moduleName) =>
-                        callee.referencesImport(moduleName, method),
-                      ),
-                    ) ??
-                    member.node?.name ??
-                    "";
-                  visitDirectoryAsset(
-                    name,
-                    args.slice(1).map((arg) => staticString(unwrapReferenceArgument(arg)?.node)),
-                  );
-                }
-                const argument = unwrapReferenceArgument(args.length === 1 ? args[0] : undefined);
-                const specifier = staticString(argument?.node);
-                if (specifier !== undefined && isCurrentFileRequire(call)) {
-                  visitReference(specifier, "require");
-                }
+  const tree =
+    parseNativePluginJavaScript(source, sourceText) ??
+    parse(
+      resolver.transform({
+        source: sourceText,
+        filename: source,
+        ts: /\.[cm]?tsx?$/.test(source),
+        async: true,
+        babel: {
+          plugins: [
+            {
+              pre(file: {
+                path: {
+                  traverse(visitor: { CallExpression(call: RequireReferencePath): void }): void;
+                };
+              }) {
+                file.path.traverse({
+                  CallExpression(call) {
+                    const args = call.get("arguments");
+                    // Jiti replaces this anchor with a string; capture its meaning before rewriting.
+                    if (unwrapReferenceArgument(args[0])?.matchesPattern("import.meta.dirname")) {
+                      const callee = call.get("callee");
+                      const member =
+                        callee.node?.type === "MemberExpression" ? callee.get("property") : callee;
+                      const name =
+                        ["join", "resolve"].find((method) =>
+                          ["path", "node:path"].some((moduleName) =>
+                            callee.referencesImport(moduleName, method),
+                          ),
+                        ) ??
+                        member.node?.name ??
+                        "";
+                      visitDirectoryAsset(
+                        name,
+                        args
+                          .slice(1)
+                          .map((arg) => staticString(unwrapReferenceArgument(arg)?.node)),
+                      );
+                    }
+                    const argument = unwrapReferenceArgument(
+                      args.length === 1 ? args[0] : undefined,
+                    );
+                    const specifier = staticString(argument?.node);
+                    if (specifier !== undefined && isCurrentFileRequire(call)) {
+                      visitReference(specifier, "require");
+                    }
+                  },
+                });
               },
-            });
-          },
+            },
+          ],
         },
-      ],
-    },
-  });
+      }),
+      {
+        ecmaVersion: "latest",
+        allowAwaitOutsideFunction: true,
+        allowReturnOutsideFunction: true,
+      },
+    );
+  const staticImports = new Set<string>();
+  for (const statement of tree.body) {
+    if (
+      (statement.type === "ImportDeclaration" ||
+        statement.type === "ExportNamedDeclaration" ||
+        statement.type === "ExportAllDeclaration") &&
+      statement.source
+    ) {
+      const reference = staticString(statement.source);
+      if (reference !== undefined) {
+        staticImports.add(reference);
+      }
+    }
+  }
+  // Jiti hoists and deduplicates static module sources before the executable body.
+  for (const reference of staticImports) {
+    visitReference(reference, "import");
+  }
   const visit = (node: AnyNode) => {
+    if (node.type === "ImportExpression") {
+      const reference = staticString(node.source);
+      if (reference !== undefined) {
+        visitReference(reference, "import");
+      }
+    }
     if (node.type === "CallExpression" || node.type === "NewExpression") {
       const { callee: call, arguments: args } = node;
       // Jiti emits named-import calls as (0, binding); their last expression is the callee.
@@ -222,11 +369,5 @@ export function visitPluginSourceReferences(
       }
     }
   };
-  visit(
-    parse(code, {
-      ecmaVersion: "latest",
-      allowAwaitOutsideFunction: true,
-      allowReturnOutsideFunction: true,
-    }),
-  );
+  visit(tree);
 }

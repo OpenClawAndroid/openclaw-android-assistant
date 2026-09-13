@@ -29,6 +29,7 @@ export type ChatRunControlsProps = {
   connected: boolean;
   draft: string;
   hasAttachments?: boolean;
+  preparingAttachments?: boolean;
   isBusy: boolean;
   followUpMode?: ControlUiFollowUpMode;
   alternateFollowUpMode?: ChatFollowUpMode;
@@ -593,14 +594,16 @@ export function renderChatPrimaryActions(props: ChatRunControlsProps) {
   // same slot shows stop while empty, then becomes the follow-up action as soon
   // as the operator composes content; two competing primary buttons never render.
   const sendAction = html`
-    <openclaw-tooltip .content=${sendStatus ?? activeRunActionTooltip}>
+    <openclaw-tooltip
+      .content=${props.preparingAttachments ? t("chat.composer.preparingAttachments") : (sendStatus ?? activeRunActionTooltip)}
+    >
       <button
         class="chat-send-btn chat-send-btn--send${props.sending ? " chat-send-btn--sending" : ""}"
         @pointerdown=${props.onPrimaryActionPointerDown}
         @click=${send}
         ?disabled=${!props.canSend || props.sending || Boolean(sendDisabledReason) || !hasComposedContent}
         aria-label=${sendStatus ?? activeRunActionDescription}
-        aria-busy=${sendBusy ? "true" : "false"}
+        aria-busy=${sendBusy || props.preparingAttachments ? "true" : "false"}
       >
         ${sendBusy ? html`<span class="btn__spinner" aria-hidden="true"></span>` : icons.arrowUp}
         <span class="agent-chat__control-label">${activeRunActionLabel}</span>

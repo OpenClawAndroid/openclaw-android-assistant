@@ -35,6 +35,6 @@ export type MutableUpdateExecutionParams = {
   invocationCwd?: string;
   legacyConfigPlan?: LegacyConfigUpdatePlan;
   recoveryState: UpdateCommandRecoveryState;
-  prepareMutableUpdate: (env?: NodeJS.ProcessEnv) => Promise<void>;
+  prepareMutableUpdate: (env?: NodeJS.ProcessEnv, activationTimeoutMs?: number) => Promise<void>;
   onActivation?: () => void;
 };

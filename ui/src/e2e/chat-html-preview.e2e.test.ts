@@ -156,11 +156,14 @@ suite.define(() => {
               const panel = page.locator("openclaw-chat-detail-panel:visible");
               const outer = panel.locator(".chat-html-preview__frame");
               await outer.waitFor();
-              const document =
-                mode === "strict"
-                  ? outer.contentFrame()
-                  : outer.contentFrame().frameLocator("iframe");
+              const document = outer.contentFrame().frameLocator("iframe");
+              expect(await outer.contentFrame().locator("iframe").getAttribute("sandbox")).toBe(
+                mode === "strict" ? "" : "allow-scripts allow-forms",
+              );
               await document.getByRole("heading", { name: "Local HTML page" }).waitFor();
+              await panel
+                .locator("openclaw-chat-html-preview [role=status]")
+                .waitFor({ state: "hidden" });
               expect(
                 await document.locator("h1").evaluate((heading) => getComputedStyle(heading).color),
               ).toBe("rgb(12, 34, 56)");
@@ -199,10 +202,7 @@ suite.define(() => {
                 .getByRole("button", { name: "Open attachment.htm in the side panel", exact: true })
                 .click();
               await outer.waitFor();
-              const attachmentDocument =
-                mode === "strict"
-                  ? outer.contentFrame()
-                  : outer.contentFrame().frameLocator("iframe");
+              const attachmentDocument = outer.contentFrame().frameLocator("iframe");
               await attachmentDocument.getByRole("heading", { name: "Local HTML page" }).waitFor();
               const attachmentFrame = await outer.elementHandle();
               await panel.getByRole("button", { name: "Source", exact: true }).click();

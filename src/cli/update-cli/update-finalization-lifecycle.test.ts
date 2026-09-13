@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
@@ -10,6 +12,7 @@ import {
 import { defaultRuntime } from "../../runtime.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { withCliProcessScope } from "../runtime-cleanup-scope.js";
 import { UpdateFinalizationLifecycle } from "./update-finalization-lifecycle.js";
 
@@ -42,8 +45,15 @@ it.each(["doctor", "targetConfigConvergence"] as const)(
       throw new Error("Finalization did not create its update run.");
     }
     const work = createDeferredCore();
+    const entered = createDeferredCore();
     const timerCount = vi.getTimerCount();
-    const running = withCliProcessScope(() => lifecycle.run(phase, () => work.promise));
+    const running = withCliProcessScope(() =>
+      lifecycle.run(phase, () => {
+        entered.resolve();
+        return work.promise;
+      }),
+    );
+    await entered.promise;
 
     await vi.advanceTimersByTimeAsync(240_000);
     expect(stopChildren).not.toHaveBeenCalled();
@@ -57,15 +67,15 @@ it.each(["doctor", "targetConfigConvergence"] as const)(
   },
 );
 
-it("preserves other phase defaults and explicit operator budgets", () => {
+it("uses generous state and plugin budgets while preserving explicit operator budgets", () => {
   const defaults = new UpdateFinalizationLifecycle(false, undefined, () => {});
   const explicit = new UpdateFinalizationLifecycle(false, 5_000, () => {});
   for (const [phase, budget] of [
-    ["preflight", 30_000],
-    ["targetConfigValidation", 30_000],
-    ["configSnapshot", 30_000],
-    ["plugins", 600_000],
-    ["completionCache", 30_000],
+    ["preflight", 300_000],
+    ["targetConfigValidation", 300_000],
+    ["configSnapshot", 300_000],
+    ["plugins", 1_200_000],
+    ["completionCache", 300_000],
     ["doctor", undefined],
     ["targetConfigConvergence", undefined],
   ] as const) {
@@ -73,6 +83,69 @@ it("preserves other phase defaults and explicit operator budgets", () => {
     expect(explicit.budget(phase)).toBe(5_000);
   }
 });
+
+it("sizes finalization state without blocking the parent on database metadata", async () => {
+  const database = resolveOpenClawStateSqlitePath(process.env);
+  fs.mkdirSync(path.dirname(database), { recursive: true });
+  fs.writeFileSync(database, "");
+  fs.truncateSync(database, 2 * 1024 ** 3);
+  const parentStat = vi.spyOn(fs, "statSync");
+  const lifecycle = new UpdateFinalizationLifecycle(false, undefined, () => {});
+  await lifecycle.run("preflight", async () => undefined);
+  expect(lifecycle.budget("preflight")).toBe(2_860_000);
+  expect(
+    parentStat.mock.calls.filter(([file]) =>
+      [database, `${database}-wal`, `${database}-shm`, `${database}-journal`].includes(
+        String(file),
+      ),
+    ),
+  ).toEqual([]);
+});
+
+it.each([
+  ["preflight", 30_001],
+  ["targetConfigValidation", 30_001],
+  ["configSnapshot", 30_001],
+  ["completionCache", 30_001],
+  ["plugins", 600_001],
+] as const)(
+  "allows %s to finish beyond its former aggregate deadline",
+  async (phase, elapsedMs) => {
+    const databasePath = resolveOpenClawStateSqlitePath(process.env);
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+    for (const file of [databasePath, `${databasePath}-wal`]) {
+      fs.writeFileSync(file, "");
+      fs.truncateSync(file, 1024 ** 3);
+    }
+    const stopChildren = vi.fn();
+    vi.spyOn(defaultRuntime, "exit").mockImplementation(() => {
+      throw new Error("Finalization exited before the measured work completed");
+    });
+    const lifecycle = new UpdateFinalizationLifecycle(false, undefined, stopChildren);
+    const work = createDeferredCore();
+    const entered = createDeferredCore();
+    const running = withCliProcessScope(() =>
+      lifecycle.run(phase, () => {
+        entered.resolve();
+        return work.promise;
+      }),
+    );
+    await entered.promise;
+    try {
+      await vi.advanceTimersByTimeAsync(elapsedMs);
+      expect(stopChildren).not.toHaveBeenCalled();
+    } finally {
+      work.resolve();
+      await running;
+    }
+    if (phase !== "plugins") {
+      expect(lifecycle.budget(phase)).toBe(2_860_000);
+    }
+    expect(lifecycle.phaseTimings).toContainEqual(
+      expect.objectContaining({ phase, outcome: "completed" }),
+    );
+  },
+);
 
 it.each([false, true])(
   "renews a long finalization phase and releases its heartbeat (failure=%s)",

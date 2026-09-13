@@ -9,6 +9,12 @@ read_when:
 Explicit SQLite maintenance runs offline, with the Gateway stopped. This page covers
 shared-state compaction and the targeted session SQLite modes.
 
+On Linux, a stopped Gateway service can still have child processes in its systemd
+cgroup. Doctor and update maintenance remain blocked until those processes exit.
+Inspect the service status and journal, and have the process owner stop the
+remaining children before retrying. A root-owned child may require administrator
+help even when the Gateway itself runs as a user service.
+
 ## Shared state SQLite compaction
 
 See [Database schemas](/reference/database-schemas) for schema versioning, integrity checks, and downgrade recovery.

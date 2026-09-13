@@ -3,9 +3,11 @@ import { generateKeyPairSync } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MSTeamsConfig } from "../runtime-api.js";
+import * as delegatedState from "./delegated-state.js";
 import { setMSTeamsRuntime } from "./runtime.js";
 import { loadMSTeamsSdkWithAuth } from "./sdk.js";
 import { msteamsRuntimeStub } from "./test-support/runtime.js";
@@ -421,6 +423,7 @@ describe("resolveDelegatedAccessToken", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     restoreEnv();
     resetPluginStateStoreForTests();
     if (stateDir) {
@@ -429,11 +432,11 @@ describe("resolveDelegatedAccessToken", () => {
     }
   });
 
-  function writeDelegatedTokens(expiresAt: number) {
+  async function writeDelegatedTokens(expiresAt: number) {
     if (!stateDir) {
       throw new Error("missing stateDir");
     }
-    saveDelegatedTokens({
+    await saveDelegatedTokens({
       accessToken: "stale-access",
       refreshToken: "refresh-token",
       expiresAt,
@@ -441,10 +444,11 @@ describe("resolveDelegatedAccessToken", () => {
     });
   }
 
-  it("roundtrips delegated tokens through plugin-state SQLite without a sidecar", () => {
-    writeDelegatedTokens(Date.now() + 60_000);
+  it("roundtrips delegated tokens through reopened plugin-state SQLite without a sidecar", async () => {
+    await writeDelegatedTokens(Date.now() + 60_000);
+    resetPluginStateStoreForTests();
 
-    expect(loadDelegatedTokens()).toMatchObject({
+    expect(await loadDelegatedTokens()).toMatchObject({
       accessToken: "stale-access",
       refreshToken: "refresh-token",
     });
@@ -453,7 +457,7 @@ describe("resolveDelegatedAccessToken", () => {
   });
 
   it("reuses a valid delegated access token before expiry", async () => {
-    writeDelegatedTokens(Date.now() + 60_000);
+    await writeDelegatedTokens(Date.now() + 60_000);
 
     await expect(
       resolveDelegatedAccessToken({
@@ -466,7 +470,7 @@ describe("resolveDelegatedAccessToken", () => {
   });
 
   it("does not reuse delegated tokens with invalid Date-range expiry", async () => {
-    writeDelegatedTokens(Number.MAX_VALUE);
+    await writeDelegatedTokens(Number.MAX_VALUE);
     oauthTokenMocks.refreshMSTeamsDelegatedTokens.mockRejectedValueOnce(new Error("expired"));
 
     await expect(
@@ -477,6 +481,70 @@ describe("resolveDelegatedAccessToken", () => {
       }),
     ).resolves.toBeUndefined();
     expect(oauthTokenMocks.refreshMSTeamsDelegatedTokens).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])(
+    "waits for refreshed token persistence (write fails: %s)",
+    async (failWrite) => {
+      await writeDelegatedTokens(Date.now() - 1);
+      const refreshed = {
+        accessToken: "refreshed-access",
+        refreshToken: "refreshed-refresh",
+        expiresAt: Date.now() + 60_000,
+        scopes: ["User.Read"],
+      };
+      oauthTokenMocks.refreshMSTeamsDelegatedTokens.mockResolvedValueOnce(refreshed);
+      const writing = createDeferred<void>();
+      const releaseWrite = createDeferred<void>();
+      const saveTokens = delegatedState.saveMSTeamsDelegatedTokens;
+      vi.spyOn(delegatedState, "saveMSTeamsDelegatedTokens").mockImplementationOnce(
+        async (tokens) => {
+          writing.resolve();
+          await releaseWrite.promise;
+          if (failWrite) {
+            throw new Error("synthetic storage failure");
+          }
+          await saveTokens(tokens);
+        },
+      );
+      let completed = false;
+      const result = resolveDelegatedAccessToken({
+        tenantId: "tenant",
+        clientId: "client",
+        clientSecret: "secret",
+      }).then((value) => {
+        completed = true;
+        return value;
+      });
+
+      try {
+        await writing.promise;
+        await Promise.resolve();
+        expect(completed).toBe(false);
+      } finally {
+        releaseWrite.resolve();
+        await result;
+      }
+      expect(await result).toBe(failWrite ? undefined : refreshed.accessToken);
+      resetPluginStateStoreForTests();
+      expect((await loadDelegatedTokens())?.accessToken).toBe(
+        failWrite ? "stale-access" : refreshed.accessToken,
+      );
+    },
+  );
+
+  it("propagates a delegated token read failure without attempting refresh", async () => {
+    const error = new Error("synthetic storage read failure");
+    vi.spyOn(delegatedState, "loadMSTeamsDelegatedTokens").mockRejectedValueOnce(error);
+
+    await expect(
+      resolveDelegatedAccessToken({
+        tenantId: "tenant",
+        clientId: "client",
+        clientSecret: "secret",
+      }),
+    ).rejects.toBe(error);
+    expect(oauthTokenMocks.refreshMSTeamsDelegatedTokens).not.toHaveBeenCalled();
   });
 });
 

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
+import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import JSON5 from "json5";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -16,9 +17,11 @@ import {
   parseOpenClawSchemaVersions,
   type OpenClawSchemaVersions,
 } from "../state/openclaw-schema-versions.js";
+import { scheduleAbsoluteDeadline } from "../utils/absolute-deadline.js";
 import { hasErrnoCode } from "./errors.js";
 import { readPackageVersion } from "./package-json.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
+import { resolveSqliteInspectionBudget } from "./sqlite-readonly-worker.js";
 import {
   prepareUpdateCandidateRehearsal,
   type UpdateCandidateRehearsal,
@@ -134,18 +137,6 @@ export async function validateUpdateCandidateCanary(params: {
   onStep?: (step: UpdateStepResult) => void;
 }): Promise<CanaryResult> {
   const started = Date.now();
-  const budget = Math.max(1, params.timeoutMs ?? 300_000);
-  let deadline = started + budget;
-  let workDeadline = deadline - Math.min(2_000, Math.floor(budget / 10));
-  const remaining = () => {
-    params.signal?.throwIfAborted();
-    params.assertCurrent?.();
-    const milliseconds = workDeadline - Date.now();
-    if (milliseconds <= 0) {
-      throw new Error("Candidate validation deadline exceeded");
-    }
-    return milliseconds;
-  };
   let rehearsal = params.rehearsal;
   const sourceEnv = params.env ?? process.env;
   const logTail: string[] = [];
@@ -323,8 +314,6 @@ export async function validateUpdateCandidateCanary(params: {
     // Copying private state has its own size/progress budget; preserve the
     // runtime validation budget after large snapshots finish.
     const snapshotDuration = Date.now() - snapshotStarted;
-    deadline += snapshotDuration;
-    workDeadline += snapshotDuration;
     const snapshotStep: UpdateStepResult = {
       name: "candidate snapshot",
       command: "candidate snapshot",
@@ -372,6 +361,28 @@ export async function validateUpdateCandidateCanary(params: {
         args: ["--check"],
       },
     ];
+    // Each fresh process may inspect the private state again, including the Gateway.
+    const processBudget = resolveSqliteInspectionBudget(
+      "candidate validation",
+      copiedStateDir,
+      rehearsal.snapshotCapacity.sqliteBytes + (rehearsal.snapshotCapacity.pluginBytes ?? 0),
+    ).timeoutMs;
+    const budget = Math.max(
+      1,
+      params.timeoutMs ??
+        resolveTimerTimeoutMs(processBudget * (commands.length + 1), processBudget),
+    );
+    const deadline = started + snapshotDuration + budget;
+    const workDeadline = deadline - Math.min(2_000, Math.floor(budget / 10));
+    const remaining = () => {
+      params.signal?.throwIfAborted();
+      params.assertCurrent?.();
+      const milliseconds = workDeadline - Date.now();
+      if (milliseconds <= 0) {
+        throw new Error("Candidate validation deadline exceeded");
+      }
+      return milliseconds;
+    };
     for (const command of commands) {
       phase = command.phase;
       env.OPENCLAW_UPDATE_IN_PROGRESS = phase === "doctor" ? "1" : "0";
@@ -560,6 +571,8 @@ export async function validateUpdateCandidateCanary(params: {
       "--port",
       String(port),
     ]);
+    const probeDeadline = new AbortController();
+    const cancelProbeDeadline = scheduleAbsoluteDeadline(workDeadline, () => probeDeadline.abort());
     try {
       for (const endpoint of ["startupz", "readyz"] as const) {
         phase = endpoint === "startupz" ? "startup" : "readiness";
@@ -571,11 +584,12 @@ export async function validateUpdateCandidateCanary(params: {
           try {
             const response = await fetch(`http://127.0.0.1:${port}/${endpoint}`, {
               signal: AbortSignal.any([
-                AbortSignal.timeout(Math.min(1_000, remaining())),
+                probeDeadline.signal,
                 ...(params.signal ? [params.signal] : []),
               ]),
             });
             const payload: unknown = await response.json();
+            remaining();
             if (
               response.status === 200 &&
               (endpoint === "readyz" || (isRecord(payload) && payload.status === "started"))
@@ -601,6 +615,7 @@ export async function validateUpdateCandidateCanary(params: {
       steps.push(step);
       params.onStep?.(step);
     } finally {
+      cancelProbeDeadline();
       await terminateCanary(running.child, running.closed, deadline);
     }
     return {

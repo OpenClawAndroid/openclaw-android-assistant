@@ -165,7 +165,7 @@ describe("handleUpdateCommand", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("hands off an owner update with session routing and a 20-minute timeout", async () => {
+  it("hands off an owner update with session routing and only a request watchdog", async () => {
     const params = updateCommandParams();
     const order: string[] = [];
     const onAdopted = vi.fn(async () => {
@@ -195,7 +195,6 @@ describe("handleUpdateCommand", () => {
       {
         sessionKey: params.sessionKey,
         note: "/update",
-        timeoutMs: 1_200_000,
         requester: { channel: "telegram", senderId: "owner", accountId: undefined },
       },
       {

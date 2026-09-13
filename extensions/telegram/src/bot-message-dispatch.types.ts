@@ -156,7 +156,7 @@ type TelegramProgressCompositor = {
   pushCommentaryProgress: (text?: string, options?: { itemId?: string }) => Promise<boolean>;
   pushPlanProgress: (
     steps?: AgentPlanStep[],
-    options?: { explanation?: string },
+    options?: { explanation?: string; explanationFormat?: "plain" },
   ) => Promise<boolean>;
   pushPreambleHeadline: (text?: string, options?: { itemId?: string }) => Promise<boolean>;
   pushToolEvent: (payload: CallbackPayload<"onToolStart">) => Promise<boolean>;

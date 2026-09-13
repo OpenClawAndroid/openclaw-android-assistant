@@ -1484,7 +1484,6 @@ describe("dispatchReplyFromConfig", () => {
         dispatcher,
         replyResolver,
         configOverride: overrideCfg,
-        usePublishedModelRuntime: true,
       });
     } finally {
       preparedLookup.mockRestore();
@@ -1554,7 +1553,6 @@ describe("dispatchReplyFromConfig", () => {
       ctx: buildTestCtx({ Provider: "slack", Surface: "slack" }),
       cfg,
       dispatcher: createDispatcher(),
-      usePublishedModelRuntime: true,
       replyResolver: async (_ctx, _opts, cfgArg) => {
         receivedCfg = cfgArg;
         return { text: "hi" };
@@ -1623,7 +1621,6 @@ describe("dispatchReplyFromConfig", () => {
         cfg,
         dispatcher,
         replyResolver,
-        usePublishedModelRuntime: true,
       });
     } finally {
       preparedLookup.mockRestore();

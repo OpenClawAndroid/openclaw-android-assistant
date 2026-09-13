@@ -105,7 +105,7 @@ export function createCodeModeCatalogBindings(
 /** Execution owns guest copies and routing maps; prompt construction needs only bindings. */
 export function createCodeModeCatalogProjection(
   entries: readonly CompactCatalogEntry[],
-  options?: { reservedNames?: Iterable<string> },
+  options?: { reservedNames?: Iterable<string>; mcpIds?: Iterable<string> },
 ) {
   const bindings = createCodeModeCatalogBindings(entries, options);
   return {
@@ -113,6 +113,7 @@ export function createCodeModeCatalogProjection(
     guestBindings: bindings.map(({ id: _id, ...binding }) => binding),
     byCallableName: new Map(bindings.map((binding) => [binding.callableName, binding])),
     byId: new Map(bindings.map((binding) => [binding.id, binding])),
+    searchableIds: new Set([...bindings.map((binding) => binding.id), ...(options?.mcpIds ?? [])]),
   };
 }
 

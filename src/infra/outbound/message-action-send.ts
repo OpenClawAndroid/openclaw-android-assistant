@@ -40,7 +40,7 @@ import {
   executeGatewayAction,
 } from "./message-action-execution.js";
 import { stageGatewayWorkspaceMedia } from "./message-action-gateway-media.js";
-import { collectAttachmentSources, normalizeSandboxMediaList } from "./message-action-params.js";
+import { collectAttachmentSources, normalizeSandboxMediaSource } from "./message-action-params.js";
 import {
   applySendLocationToActionParams,
   applySendPayloadPartsToActionParams,
@@ -178,14 +178,11 @@ export async function buildMessagePayload(params: {
 
   const normalizedMedia = await Promise.all(
     mediaEntries.map(async (entry) => {
-      const normalizedUrl = (
-        await normalizeSandboxMediaList({
-          values: [entry.url],
-          sandboxRoot: input.sandboxRoot,
-          sandboxContainerWorkdir: input.sandboxContainerWorkdir,
-        })
-      )[0];
-      entry.url = normalizedUrl ?? entry.url;
+      entry.url = await normalizeSandboxMediaSource({
+        value: entry.url,
+        sandboxRoot: input.sandboxRoot,
+        sandboxContainerWorkdir: input.sandboxContainerWorkdir,
+      });
       return entry;
     }),
   );

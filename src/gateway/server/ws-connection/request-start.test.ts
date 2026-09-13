@@ -4,11 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import { MAX_PAYLOAD_BYTES, MAX_PREAUTH_PAYLOAD_BYTES } from "../../server-constants.js";
-import {
-  prepareGatewayReceiverHandoff,
-  raiseGatewayReceiverPayloadLimit,
-  scheduleGatewayRequestStart,
-} from "./request-start.js";
+import { prepareGatewayReceiverHandoff, raiseGatewayReceiverPayloadLimit } from "../ws-receiver.js";
+import { scheduleGatewayRequestStart } from "./request-start.js";
 
 const permissions: Promise<void>[] = [];
 function requestStart(bytes = 1): Promise<void> {
@@ -138,9 +135,11 @@ describe("authenticated receiver payload limits", () => {
   it("raises the receiver limit only after connect", () => {
     const socket = receiverSocket();
     const handoff = prepareGatewayReceiverHandoff(socket, "operator");
-    expect(handoff).not.toBeNull();
+    expect(handoff.ok).toBe(true);
     expect(payloadLimit(socket)).toBe(MAX_PREAUTH_PAYLOAD_BYTES);
-    handoff?.();
+    if (handoff.ok) {
+      handoff.value();
+    }
     expect(payloadLimit(socket)).toBe(MAX_PAYLOAD_BYTES);
   });
 
@@ -152,7 +151,10 @@ describe("authenticated receiver payload limits", () => {
 
   it("refuses the handoff when the receiver limit cannot be raised", () => {
     const socket = receiverSocket(true);
-    expect(prepareGatewayReceiverHandoff(socket, "operator")).toBeNull();
+    expect(prepareGatewayReceiverHandoff(socket, "operator")).toMatchObject({
+      ok: false,
+      error: { cause: "unsupported-websocket-receiver" },
+    });
     expect(raiseGatewayReceiverPayloadLimit(socket, 1_024)).toBe(false);
     expect(payloadLimit(socket)).toBe(MAX_PREAUTH_PAYLOAD_BYTES);
   });

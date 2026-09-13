@@ -299,7 +299,7 @@ suite.define(() => {
       await previewButton.press("Enter");
       await dialog.waitFor({ state: "visible" });
       await page.keyboard.press("Escape");
-      await page.getByRole("button", { name: "Remove attachment" }).click();
+      await page.getByRole("button", { name: "Remove favicon-32.png" }).click();
       await expect.poll(() => attachment.count()).toBe(0);
       await captureUiProof(suite, page, "new-session-picked-image-removed.png");
     });

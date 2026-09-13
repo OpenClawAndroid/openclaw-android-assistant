@@ -40,7 +40,7 @@ describe("Code Mode MCP namespace", () => {
     resetCodeModeTestState();
   });
 
-  it("exposes MCP tools only through the MCP namespace", async () => {
+  it("discovers MCP tools while retaining namespaced invocation", async () => {
     const { config, catalogRef, tools: codeModeTools } = createCodeModeHarness();
     const githubCreate = materializedMcpTool({
       name: "github__create_issue",
@@ -123,7 +123,14 @@ describe("Code Mode MCP namespace", () => {
         },
       },
       leakedInternalDetails: false,
-      searchHits: [],
+      searchHits: [
+        expect.objectContaining({
+          source: "mcp",
+          callableName: "MCP.github.createIssue",
+          toolName: "create_issue",
+          apiPath: "mcp/github.d.ts",
+        }),
+      ],
       catalogSize: 0,
       hasMcp: true,
       apiSchemaTitle: "object",
@@ -285,7 +292,7 @@ describe("Code Mode MCP namespace", () => {
         const api = await MCP.docs.$api();
         return {
           success: await MCP.docs.structuredResult(),
-          failure: await MCP.docs.resolvedFailure(),
+          failure: await (await catalog.search("MCP.docs.resolvedFailure", { limit: 1 }))[0](),
           resources: await MCP.docs.resources.list(),
           resource: await MCP.docs.resources.read({ uri: "memo://one" }),
           prompts: await MCP.docs.prompts.list(),

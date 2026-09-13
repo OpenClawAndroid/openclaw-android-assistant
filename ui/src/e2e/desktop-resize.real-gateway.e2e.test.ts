@@ -31,10 +31,14 @@ type DesktopProofPhase = Exclude<
   ReturnType<typeof desktopProofTestReport>["files"][number]["assertions"][number]["phase"],
   "unknown"
 >;
+type DesktopViewerResizeFailure = NonNullable<
+  ReturnType<typeof desktopProofTestReport>["files"][number]["assertions"][number]["viewerResize"]
+>;
 
 declare module "vitest" {
   interface TaskMeta {
     desktopProofPhase?: DesktopProofPhase;
+    desktopViewerResizeFailure?: DesktopViewerResizeFailure;
   }
 }
 
@@ -589,7 +593,67 @@ suite.define(() => {
           await expect
             .poll(() => guest!.run(["cat", "/tmp/openclaw-desktop-resize-input"]))
             .toBe("controller");
-          await expect.poll(() => framebuffer(canvas)).toEqual(await guest.geometry());
+          const viewerExpected = await guest.geometry();
+          let lastFramebuffer: Awaited<ReturnType<typeof framebuffer>> | null = null;
+          try {
+            await expect
+              .poll(async () => {
+                const current = await framebuffer(canvas);
+                lastFramebuffer = current;
+                return current;
+              })
+              .toEqual(viewerExpected);
+          } catch (error) {
+            const diagnostic: DesktopViewerResizeFailure = {
+              expected: viewerExpected,
+              lastFramebuffer,
+              snapshotStatus: "unavailable",
+              pageClosed: page.isClosed(),
+              canvasCount: null,
+              snapshotFramebuffer: null,
+              socketCount: null,
+              latestReadyState: null,
+            };
+            // Retain known facts even if the one read-only browser snapshot cannot settle.
+            context.task.meta.desktopViewerResizeFailure = diagnostic;
+            let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              const snapshot = await Promise.race([
+                canvas.evaluateAll((canvases) => {
+                  const surface = canvases.length === 1 ? canvases[0] : null;
+                  const sockets: unknown = Reflect.get(window, "desktopProofSockets");
+                  const latest: unknown = Array.isArray(sockets) ? sockets.at(-1) : null;
+                  const readyState = latest instanceof WebSocket ? latest.readyState : null;
+                  return {
+                    canvasCount: canvases.length,
+                    snapshotFramebuffer:
+                      surface instanceof HTMLCanvasElement
+                        ? { width: surface.width, height: surface.height }
+                        : null,
+                    socketCount: Array.isArray(sockets) ? sockets.length : null,
+                    latestReadyState:
+                      readyState === 0 || readyState === 1 || readyState === 2 || readyState === 3
+                        ? readyState
+                        : null,
+                  };
+                }),
+                new Promise<null>((resolve) => {
+                  snapshotTimer = setTimeout(() => resolve(null), 1_000);
+                }),
+              ]);
+              if (snapshot) {
+                Object.assign(diagnostic, snapshot, { snapshotStatus: "available" });
+              } else {
+                diagnostic.snapshotStatus = "timed-out";
+              }
+            } catch {
+              // Keep the unavailable snapshot, never replace the framebuffer assertion error.
+            } finally {
+              clearTimeout(snapshotTimer);
+              diagnostic.pageClosed = page.isClosed();
+            }
+            throw error;
+          }
           await expect
             .poll(() =>
               page.evaluate(() => {

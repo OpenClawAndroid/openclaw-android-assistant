@@ -57,8 +57,10 @@ The baseline package fingerprint is best effort. If its bounded scan times out,
 the update records a warning and continues with the retained package copy.
 Rollback then verifies the restored directory identity, package version, and
 affected launchers, and records that full fingerprint verification was unavailable.
-A timeout alone does not fail the update or rollback; detected changes to the
-retained copy still refuse restoration.
+A baseline scan timeout alone does not fail the update or rollback; detected
+changes to the retained copy still refuse restoration. Once a complete baseline
+fingerprint is available, recovery checks must match it. These checks use the
+caller's per-step allowance without a separate thirty-second scan cap.
 
 Interrupting a fresh local update before activation records a failed,
 `interrupted` history entry while its installation owner is still held.
@@ -110,12 +112,21 @@ open or migrate shared state, so the old Gateway can keep serving while its
 database schema is older than the candidate's. The installed updater runs first;
 this repair takes effect when the candidate it probes contains the fix.
 
+The invoking updater supplies the capability probe's per-step time budget. The
+probe does not impose a separate startup deadline.
+
 Snapshot preparation budgets time for the SQLite database and journal bytes,
 including copying and verification passes, with a five-minute startup floor.
 It uses the larger of that allowance and the configured per-step timeout.
 The deadline extends while private files continue changing. A stalled snapshot
 reports its size and applied budget. Snapshot time does not consume the separate
-runtime validation budget, which also honors the configured per-step timeout.
+runtime validation budget. By default, that budget scales with measured database
+and plugin bytes, allowing each validation process to inspect the private state.
+An explicit per-step timeout replaces that derived runtime allowance.
+Automatic and chat updates leave that runtime allowance derived from state.
+Their request and recovery watchdogs do not become candidate validation deadlines.
+Startup and readiness responses share that validation deadline, including reading
+the response body.
 
 Before copying, the updater measures the shared and agent SQLite database
 families and the installed plugin payloads and dependency trees that the
@@ -157,11 +168,21 @@ TMPDIR=/var/tmp openclaw update --yes
 Subsequent updates use the new updater's measured destination selection.
 
 Schema checks also use private SQLite copies so inspection does not create or
-modify WAL sidecars beside live databases. Each schema inspection has a
-30-second deadline; if compatibility cannot be verified, rollback is refused.
+modify WAL sidecars beside live databases. Inspection budgets include database
+and journal sizes, cold startup, and repeated IO passes for every discovered
+store. Metadata checks remain cancellable. Copy progress renews the watchdog,
+and larger caller allowances are preserved. Workers stop before their private
+staging is removed; cleanup failures preserve the original error. If compatibility
+cannot be verified, rollback is refused.
+
+Before stopping the previous Gateway, the updater waits for affirmative readiness.
+Its observation window uses the canary's measured startup time with headroom for
+slow hardware, or the explicit per-step timeout. A transient readiness miss does
+not discard the previous generation's rollback eligibility. Native service and
+Gateway boot identities must still match through the final observation.
 
 The canary binds a free loopback port and must report `/startupz` as `started`,
-then `/readyz` as ready within the configured per-step timeout. Plugin-resolution
+then `/readyz` as ready within the runtime validation allowance. Plugin-resolution
 errors attributed to a named plugin are recorded without rejecting the candidate.
 An invalid plugin inventory, an unattributed registry error, or failure to meet
 the required core startup or readiness checks still fails validation. Failure
@@ -285,6 +306,11 @@ If schema state cannot be verified, rollback is refused with
 `rollback-state-unverified`; unknown state never counts as schema-neutral.
 
 ### Restart handoff
+
+Service-manager commands and helper acknowledgements share the activation or
+recovery allowance. Slow inspection or teardown does not impose a separate
+five- or thirty-second command cutoff. Service installation also forwards one
+caller budget through staging, sealing, and load; the parent owns cancellation.
 
 When an agent runs `openclaw update` inside a systemd user service or macOS
 LaunchAgent Gateway, the CLI hands the update to the same managed-service helper

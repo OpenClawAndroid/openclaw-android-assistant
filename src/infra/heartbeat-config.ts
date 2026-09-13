@@ -4,6 +4,7 @@ import {
   listAgentEntries,
   listAgentIds,
   resolveAgentConfig,
+  withAgentRosterFactsBatch,
 } from "../agents/agent-scope-config.js";
 import { DEFAULT_HEARTBEAT_EVERY } from "../auto-reply/heartbeat.js";
 import { parseDurationMs } from "../cli/parse-duration.js";
@@ -55,28 +56,30 @@ export function resolveHeartbeatIntervalMs(
 }
 
 export function resolveHeartbeatAgents(cfg: OpenClawConfig): HeartbeatAgent[] {
-  const explicitAgents = listAgentEntries(cfg).filter((entry) => entry.heartbeat);
-  if (explicitAgents.length > 0) {
-    return explicitAgents
-      .map((entry) => {
-        const agentId = normalizeAgentId(entry.id);
-        return { agentId, heartbeat: resolveHeartbeatConfig(cfg, agentId) };
-      })
-      .filter((agent) => agent.agentId);
-  }
-  const configuredAgentId = normalizeOptionalString(cfg.agents?.defaults?.heartbeat?.agentId);
-  if (configuredAgentId) {
-    const agentId = normalizeAgentId(configuredAgentId);
-    return [{ agentId, heartbeat: resolveHeartbeatConfig(cfg, agentId) }];
-  }
-  if (cfg.agents?.defaults?.heartbeat) {
-    return listAgentIds(cfg).map((agentId) => ({
-      agentId,
-      heartbeat: resolveHeartbeatConfig(cfg, agentId),
-    }));
-  }
-  const agentId = tryResolveAmbientHeartbeatAgentId(cfg);
-  return agentId ? [{ agentId, heartbeat: resolveHeartbeatConfig(cfg, agentId) }] : [];
+  return withAgentRosterFactsBatch(cfg, () => {
+    const explicitAgents = listAgentEntries(cfg).filter((entry) => entry.heartbeat);
+    if (explicitAgents.length > 0) {
+      return explicitAgents
+        .map((entry) => {
+          const agentId = normalizeAgentId(entry.id);
+          return { agentId, heartbeat: resolveHeartbeatConfig(cfg, agentId) };
+        })
+        .filter((agent) => agent.agentId);
+    }
+    const configuredAgentId = normalizeOptionalString(cfg.agents?.defaults?.heartbeat?.agentId);
+    if (configuredAgentId) {
+      const agentId = normalizeAgentId(configuredAgentId);
+      return [{ agentId, heartbeat: resolveHeartbeatConfig(cfg, agentId) }];
+    }
+    if (cfg.agents?.defaults?.heartbeat) {
+      return listAgentIds(cfg).map((agentId) => ({
+        agentId,
+        heartbeat: resolveHeartbeatConfig(cfg, agentId),
+      }));
+    }
+    const agentId = tryResolveAmbientHeartbeatAgentId(cfg);
+    return agentId ? [{ agentId, heartbeat: resolveHeartbeatConfig(cfg, agentId) }] : [];
+  });
 }
 
 export function isHeartbeatOwnerUnresolved(cfg: OpenClawConfig): boolean {

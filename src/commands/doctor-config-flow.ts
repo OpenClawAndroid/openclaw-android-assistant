@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
 /** Main doctor config flow: preflight, migrations, previews, repairs, and final write decision. */
-import path from "node:path";
 import { note } from "../../packages/terminal-core/src/note.js";
 import {
   listAgentEntries,
@@ -20,13 +19,14 @@ import { CONFIG_PATH } from "../config/paths.js";
 import { inspectShippedPluginInstallConfigRecords } from "../config/plugin-install-config-migration.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway } from "../gateway/call.js";
-import { isPathInside } from "../infra/path-guards.js";
 import { withoutPluginInstallRecords } from "../plugins/installed-plugin-index-records.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { createPluginCapabilityConsentPrompter } from "../wizard/plugin-capability-consent.js";
 import {
+  noteDoctorHookConfigWarnings,
   noteImplicitFallbackClobberWarnings,
   noteMcpOriginWarning,
+  noteMissingDefaultAgentOwner,
   noteOpencodeProviderOverrides,
   noteSandboxOriginProxyWarning,
 } from "./doctor-config-analysis.js";
@@ -52,48 +52,6 @@ import { containsAuthoredInclude } from "./doctor/shared/include-migration-owner
 import { normalizeCompatibilityConfigValues } from "./doctor/shared/legacy-config-core-migrate.js";
 import type { DoctorPluginMetadataSnapshotState } from "./doctor/shared/plugin-metadata-snapshot-scope.js";
 import { shouldSkipLegacyUpdateDoctorConfigWrite } from "./doctor/shared/update-phase.js";
-
-function collectInvalidHookTransformsDirWarnings(
-  cfg: OpenClawConfig,
-  configPath: string,
-): string[] {
-  const transformsDir = cfg.hooks?.transformsDir?.trim();
-  if (!transformsDir) {
-    return [];
-  }
-  const configDir = path.dirname(configPath);
-  const transformsRoot = path.join(configDir, "hooks", "transforms");
-  const resolved = path.isAbsolute(transformsDir)
-    ? path.resolve(transformsDir)
-    : path.resolve(transformsRoot, transformsDir);
-  if (isPathInside(transformsRoot, resolved)) {
-    return [];
-  }
-  return [
-    `- hooks.transformsDir: ${transformsDir} is outside ${transformsRoot}. Hook transform modules must live under ${transformsRoot}; move custom transforms there or remove hooks.transformsDir.`,
-  ];
-}
-
-function collectUnsupportedInternalHookEntryWarnings(cfg: OpenClawConfig): string[] {
-  const unsupportedKeysByEntry = Object.entries(cfg.hooks?.internal?.entries ?? {})
-    .filter(([, entry]) => entry && typeof entry === "object" && !Array.isArray(entry))
-    .map(([hookKey, entry]) => {
-      const unsupportedKeys = ["handler", "module", "extraDirs", "installs"].filter((key) =>
-        Object.hasOwn(entry, key),
-      );
-      return { hookKey, unsupportedKeys };
-    })
-    .filter(({ unsupportedKeys }) => unsupportedKeys.length > 0);
-
-  if (unsupportedKeysByEntry.length === 0) {
-    return [];
-  }
-
-  return unsupportedKeysByEntry.map(
-    ({ hookKey, unsupportedKeys }) =>
-      `- hooks.internal.entries.${hookKey}: unsupported loader key${unsupportedKeys.length === 1 ? "" : "s"} ${unsupportedKeys.join(", ")} will not load hook modules. Use bootstrap-extra-files for session bootstrap content, or create a managed/workspace hook directory with HOOK.md + handler.js. Doctor cannot rewrite this automatically because per-hook entry keys are open-ended hook configuration.`,
-  );
-}
 
 // Repair-mode "Doctor changes" panels queue until the final candidate passes the
 // same validation the atomic writer enforces: printing "Doctor changes" and then
@@ -405,19 +363,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
     emitWarnings: true,
   });
 
-  const hookTransformsDirWarnings = collectInvalidHookTransformsDirWarnings(
-    state.cfg,
-    snapshot.path,
-  );
-  if (hookTransformsDirWarnings.length > 0) {
-    note(sanitizeDoctorNote(hookTransformsDirWarnings.join("\n")), "Doctor warnings");
-  }
-  const unsupportedInternalHookEntryWarnings = collectUnsupportedInternalHookEntryWarnings(
-    state.cfg,
-  );
-  if (unsupportedInternalHookEntryWarnings.length > 0) {
-    note(sanitizeDoctorNote(unsupportedInternalHookEntryWarnings.join("\n")), "Doctor warnings");
-  }
+  noteDoctorHookConfigWarnings(state.cfg, snapshot.path);
 
   // Parsed config supplies invalid-key evidence only; migrations still mutate the
   // include/env-resolved candidate so doctor never writes unresolved source values.
@@ -704,6 +650,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   noteImplicitFallbackClobberWarnings(cfg);
   noteSandboxOriginProxyWarning(cfg);
   noteMcpOriginWarning(cfg);
+  noteMissingDefaultAgentOwner(cfg);
 
   const migrationResult = await finalizeMigrationResult({
     cfg,

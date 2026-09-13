@@ -125,6 +125,29 @@ async function seedLastKnownGood(
 }
 
 describe("runDoctorConfigPreflight", () => {
+  it("reports an activation timeout without reopening its finished history", async () => {
+    await withDoctorConfigPreflightHome(async (home) => {
+      await writeOpenClawConfig(home, { gateway: { mode: "local" } });
+      const run = createUpdateRun({ trigger: "cli" });
+      const finished = finishUpdateRun(run.runId, {
+        status: "failed",
+        reason: "update-activation-timeout",
+      });
+
+      await runDoctorConfigPreflight({ migrateState: false, migrateLegacyConfig: false });
+
+      expect(noteMock).toHaveBeenCalledWith(
+        expect.stringContaining("update-activation-timeout"),
+        "Update history",
+      );
+      const output = noteMock.mock.calls.flat().join("\n");
+      expect(output).toContain("openclaw update status");
+      expect(output).toContain("Wait for the owning updater and its child processes to stop");
+      expect(output).toContain("openclaw update repair");
+      expect(getUpdateRun(run.runId)).toEqual(finished);
+    });
+  });
+
   it("surfaces recorded cleanup warnings from a successful update", async () => {
     await withDoctorConfigPreflightHome(async (home) => {
       await writeOpenClawConfig(home, { gateway: { mode: "local" } });

@@ -2302,6 +2302,18 @@
   }
 }
 
+.chat-attachments-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.chat-attachments-status:has(.btn__spinner) {
+  padding: var(--chat-composer-editor-inset-block) var(--chat-composer-editor-inset-inline);
+}
+
 .chat-attachments-preview {
   display: flex;
   gap: calc(var(--chat-composer-editor-inset-block) * 3);

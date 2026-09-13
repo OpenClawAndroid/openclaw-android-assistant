@@ -247,3 +247,148 @@ describe("Workboard card-scoped notification reads", () => {
     }
   });
 });
+
+describe("Workboard dependency status reads", () => {
+  it("prepares a card with fifty parents without hydrating each parent's tree", async () => {
+    const { store, stores } = createWorkboardSqliteTestHarness();
+    const parents = [];
+    for (let index = 0; index < 50; index++) {
+      parents.push(
+        await store.create({
+          title: `Parent ${index}`,
+          status: "done",
+          notes: "Parent payload".repeat(100),
+        }),
+      );
+    }
+    const child = await store.create({ title: "Ready child", status: "ready" });
+    const linked = {
+      ...child,
+      metadata: {
+        ...child.metadata,
+        links: parents.map((parent, index) => ({
+          id: `parent-${index}`,
+          type: "parent" as const,
+          targetCardId: parent.id,
+          createdAt: 1,
+        })),
+      },
+    };
+    await stores.cards.register(child.id, { version: 1, card: linked });
+    const expected = await store.get(child.id);
+    let queries = 0;
+    let fetchedRows = 0;
+    const restore = observeReads((sql, rows) => {
+      if (/^select\b/iu.test(sql) && /\bfrom "?workboard_/iu.test(sql)) {
+        queries++;
+        fetchedRows += rows.length;
+      }
+    });
+    try {
+      await expect(store.prepareStart(child.id)).resolves.toEqual(expected);
+    } finally {
+      restore();
+    }
+    expect(queries).toBeLessThanOrEqual(14);
+    expect(fetchedRows).toBeLessThanOrEqual(102);
+  });
+
+  it("checks dependency statuses without decoding unrelated cards or parent payloads", async () => {
+    const { store, dbPath } = createWorkboardSqliteTestHarness();
+    const parent = await store.create({ title: "Done parent", status: "done" });
+    const child = await store.create({ title: "Child", parents: [parent.id] });
+    const unrelated = await store.create({ title: "Unrelated", boardId: "other" });
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw
+        .prepare("UPDATE workboard_cards SET automation_json = '{invalid' WHERE id IN (?, ?)")
+        .run(parent.id, unrelated.id);
+      await expect(store.prepareStart(child.id)).resolves.toMatchObject({
+        id: child.id,
+        status: "ready",
+      });
+      await expect(store.move(child.id, "done", child.position)).resolves.toMatchObject({
+        id: child.id,
+        status: "done",
+      });
+      await expect(store.get(parent.id)).rejects.toThrow(SyntaxError);
+      await expect(store.get(unrelated.id)).rejects.toThrow(SyntaxError);
+      await expect(store.list()).rejects.toThrow(SyntaxError);
+      raw
+        .prepare("UPDATE workboard_cards SET automation_json = '{invalid' WHERE id = ?")
+        .run(child.id);
+      await expect(store.prepareStart(child.id)).rejects.toThrow(SyntaxError);
+    } finally {
+      raw.close();
+    }
+  });
+
+  it.each([false, true])(
+    "preserves repeated parent IDs and lookup trimming (spaced: %s)",
+    async (spaced) => {
+      const { store, stores } = createWorkboardSqliteTestHarness();
+      const parent = await store.create({ title: "Done parent", status: "done" });
+      const child = await store.create({ title: "Ready child", status: "ready" });
+      await stores.cards.register(child.id, {
+        version: 1,
+        card: {
+          ...child,
+          metadata: {
+            ...child.metadata,
+            links: [parent.id, spaced ? ` ${parent.id} ` : parent.id].map(
+              (targetCardId, index) => ({
+                id: `parent-${index}`,
+                type: "parent",
+                targetCardId,
+                createdAt: 1,
+              }),
+            ),
+          },
+        },
+      });
+      await expect(store.prepareStart(child.id)).resolves.toMatchObject({
+        id: child.id,
+        status: "ready",
+      });
+      if (spaced) {
+        await expect(store.move(child.id, "done", child.position)).rejects.toThrow(
+          "card dependencies are not done.",
+        );
+      } else {
+        await expect(store.move(child.id, "done", child.position)).resolves.toMatchObject({
+          status: "done",
+        });
+      }
+    },
+  );
+
+  it("retains missing, unknown and invalid parent status holds", async () => {
+    const { store, stores, dbPath } = createWorkboardSqliteTestHarness();
+    const parent = await store.create({ title: "Parent", status: "done" });
+    const child = await store.create({ title: "Child", parents: [parent.id] });
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw
+        .prepare("UPDATE workboard_cards SET status = 'future-status' WHERE id = ?")
+        .run(parent.id);
+      await expect(store.prepareStart(child.id)).resolves.toMatchObject({ status: "todo" });
+      await expect(store.move(child.id, "ready", child.position)).rejects.toThrow(
+        "card dependencies are not done.",
+      );
+      raw.prepare("UPDATE workboard_cards SET status = '' WHERE id = ?").run(parent.id);
+      await expect(store.prepareStart(child.id)).rejects.toThrow(
+        "workboard sqlite row missing status",
+      );
+      await expect(store.move(child.id, "ready", child.position)).rejects.toThrow(
+        "workboard sqlite row missing status",
+      );
+      await stores.cards.delete(parent.id);
+      await expect(store.prepareStart(child.id)).resolves.toMatchObject({ status: "todo" });
+      await expect(store.move(child.id, "ready", child.position)).rejects.toThrow(
+        "card dependencies are not done.",
+      );
+    } finally {
+      raw.close();
+    }
+  });
+});

@@ -72,10 +72,8 @@ describe("PDF document extractor", () => {
           },
         ],
       });
-    const extractor = { extract: extractPdfContent };
-
     const input = request({ buffer: Buffer.from("!%PDF-1.4?").subarray(1, -1) });
-    const result = await extractor.extract(input);
+    const result = await extractPdfContent(input);
 
     if (!result) {
       throw new Error("Expected PDF extraction result");
@@ -111,9 +109,7 @@ describe("PDF document extractor", () => {
 
   it("skips image fallback when enough text is extracted", async () => {
     pdfDocument.extract.mockResolvedValueOnce({ text: "enough text", images: [] });
-    const extractor = { extract: extractPdfContent };
-
-    const result = await extractor.extract(request({ minTextChars: 5 }));
+    const result = await extractPdfContent(request({ minTextChars: 5 }));
 
     expect(result).toEqual({ text: "enough text", images: [] });
     expect(pdfDocument.extract).toHaveBeenCalledTimes(1);
@@ -122,9 +118,7 @@ describe("PDF document extractor", () => {
 
   it("opens encrypted PDFs with the request password", async () => {
     pdfDocument.extract.mockResolvedValueOnce({ text: "enough text", images: [] });
-    const extractor = { extract: extractPdfContent };
-
-    await extractor.extract(request({ password: "secret" }));
+    await extractPdfContent(request({ password: "secret" }));
 
     expect(openPdfMock).toHaveBeenCalledWith(expect.any(Uint8Array), { password: "secret" });
     expect(pdfDocument.destroy).toHaveBeenCalledTimes(1);
@@ -134,9 +128,7 @@ describe("PDF document extractor", () => {
     openPdfMock.mockRejectedValueOnce(
       Object.assign(new Error("bad password"), { code: "password" }),
     );
-    const extractor = { extract: extractPdfContent };
-
-    await expect(extractor.extract(request({ password: "wrong" }))).rejects.toThrow(
+    await expect(extractPdfContent(request({ password: "wrong" }))).rejects.toThrow(
       "PDF requires a password or password is incorrect.",
     );
     expect(pdfDocument.destroy).not.toHaveBeenCalled();
@@ -147,9 +139,7 @@ describe("PDF document extractor", () => {
       .mockResolvedValueOnce({ text: "", images: [] })
       .mockResolvedValueOnce({ text: "", images: [] })
       .mockResolvedValueOnce({ text: "", images: [] });
-    const extractor = { extract: extractPdfContent };
-
-    const result = await extractor.extract(request({ pageNumbers: [3, 2, 0, 1], maxPages: 2 }));
+    const result = await extractPdfContent(request({ pageNumbers: [3, 2, 0, 1], maxPages: 2 }));
 
     expect(result).toEqual({ text: "", images: [] });
     expect(pdfDocument.extract).toHaveBeenNthCalledWith(
@@ -169,15 +159,13 @@ describe("PDF document extractor", () => {
   it("rejects selected pages outside the PDF page count before extraction", async () => {
     pdfDocument.pageCount = 1;
     pdfDocument.extract.mockResolvedValueOnce({ text: "", images: [] });
-    const extractor = { extract: extractPdfContent };
-
-    await expect(extractor.extract(request({ pageNumbers: [2] }))).rejects.toThrow(
+    await expect(extractPdfContent(request({ pageNumbers: [2] }))).rejects.toThrow(
       "No requested PDF pages exist in this 1-page document.",
     );
     expect(pdfDocument.extract).not.toHaveBeenCalled();
     expect(pdfDocument.destroy).toHaveBeenCalledTimes(1);
 
-    await expect(extractor.extract(request({ pageNumbers: [] }))).resolves.toEqual({
+    await expect(extractPdfContent(request({ pageNumbers: [] }))).resolves.toEqual({
       text: "",
       images: [],
     });
@@ -190,9 +178,7 @@ describe("PDF document extractor", () => {
     pdfDocument.extract
       .mockResolvedValueOnce({ text: "short", images: [] })
       .mockRejectedValueOnce(failure);
-    const extractor = { extract: extractPdfContent };
-
-    const result = await extractor.extract(request({ onImageExtractionError }));
+    const result = await extractPdfContent(request({ onImageExtractionError }));
 
     expect(result).toEqual({ text: "short", images: [] });
     expect(onImageExtractionError).toHaveBeenCalledWith(failure);

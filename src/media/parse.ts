@@ -532,16 +532,6 @@ export function splitMediaFromOutput(
         }
       }
 
-      if (!hasValidMedia && !unwrapped && /\s/.test(payloadValue)) {
-        const spacedFallback = cleanCandidate(payloadValue);
-        if (isValidMedia(spacedFallback, { allowSpaces: true, allowBareFilename: true })) {
-          media.splice(mediaStartIndex, media.length - mediaStartIndex, spacedFallback);
-          hasValidMedia = true;
-          foundMediaToken = true;
-          invalidParts.length = 0;
-        }
-      }
-
       if (!hasValidMedia) {
         const fallback = cleanCandidate(payloadValue);
         if (isValidMedia(fallback, { allowSpaces: true, allowBareFilename: true })) {

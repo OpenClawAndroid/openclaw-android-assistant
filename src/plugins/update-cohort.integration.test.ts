@@ -1,22 +1,113 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { loadInstalledPluginIndex } from "./installed-plugin-index.js";
 import { createPluginCache, withPluginCache } from "./plugin-cache.js";
-import { cleanupTrackedTempDirs, makeTrackedTempDir } from "./test-helpers/fs-fixtures.js";
 import { convergePluginReleaseCohort } from "./update-cohort.js";
 
 describe("plugin release cohort real synchronization", () => {
-  const tempDirs: string[] = [];
-  afterEach(() => cleanupTrackedTempDirs(tempDirs));
+  const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+  it.each([
+    { channel: "stable", explicit: true, source: "path" },
+    { channel: "dev", explicit: true, source: "path" },
+    { channel: "dev", explicit: false, source: "path" },
+    { channel: "stable", explicit: true, source: "npm" },
+  ] as const)(
+    "preserves package ownership boundaries for $source on $channel (explicit link: $explicit)",
+    async ({ channel, explicit, source }) => {
+      const root = fs.realpathSync(tempDirs.make("openclaw-cohort-linked-"));
+      const bundledRoot = path.join(root, "bundled");
+      const bundledPath = path.join(bundledRoot, "llm-task");
+      const linkedPath = path.join(root, "linked-task");
+      for (const directory of [bundledPath, linkedPath]) {
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(
+          path.join(directory, "package.json"),
+          JSON.stringify({
+            name: "@example/llm-task",
+            version: "1.0.0",
+            openclaw: { extensions: ["./index.js"] },
+          }),
+        );
+        fs.writeFileSync(
+          path.join(directory, "openclaw.plugin.json"),
+          JSON.stringify({ id: "llm-task", configSchema: { type: "object" } }),
+        );
+        fs.writeFileSync(path.join(directory, "index.js"), "module.exports = {};\n");
+      }
+      const record: PluginInstallRecord = {
+        source,
+        spec: "@example/llm-task",
+        sourcePath: linkedPath,
+        // Retained package metadata disagrees with the explicitly selected source.
+        installPath: bundledPath,
+      };
+      const config: OpenClawConfig = {
+        plugins: {
+          installs: { "llm-task": record },
+          load: { paths: explicit ? [linkedPath] : [] },
+          entries: { "llm-task": { enabled: true } },
+        },
+      };
+      const env = {
+        HOME: root,
+        OPENCLAW_STATE_DIR: path.join(root, "state"),
+        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledRoot,
+      };
+      await withEnvAsync(env, async () => {
+        const converge = () =>
+          withPluginCache(createPluginCache(), () =>
+            convergePluginReleaseCohort({ config, channel, timeoutMs: 60_000, env }),
+          );
+        if (source === "npm") {
+          await expect(converge()).rejects.toThrow(
+            'Plugin "llm-task" has no authoritative package-owner metadata',
+          );
+          return;
+        }
+        const result = await converge();
+        expect(result.sync.summary.errors).toEqual([]);
+        expect(result.remainingMissingPayloads).toEqual([]);
+        expect(result.config.plugins?.installs?.["llm-task"]).toEqual(
+          explicit
+            ? record
+            : {
+                ...record,
+                sourcePath: bundledPath,
+                version: undefined,
+                installedAt: expect.any(String),
+              },
+        );
+        expect(result.config.plugins?.load?.paths).toEqual([explicit ? linkedPath : bundledPath]);
+        expect(result.sync.summary.switchedToBundled).toEqual(explicit ? [] : ["llm-task"]);
+        expect(result.sync.summary.warnings).toEqual(
+          explicit ? [expect.stringContaining(`"llm-task" at ${linkedPath}`)] : [],
+        );
+        const selected = withPluginCache(createPluginCache(), () =>
+          loadInstalledPluginIndex({
+            config: result.config,
+            installRecords: result.config.plugins?.installs ?? {},
+            env,
+          }),
+        ).plugins.find((plugin) => plugin.pluginId === "llm-task");
+        expect(selected?.rootDir).toBe(explicit ? linkedPath : bundledPath);
+        expect(fs.readFileSync(path.join(linkedPath, "index.js"), "utf8")).toBe(
+          "module.exports = {};\n",
+        );
+      });
+    },
+  );
   it.each(["none", "missing", "installed"] as const)(
     "keeps current payloads after a dev switch when a failing npm sibling is %s",
     async (sibling) => {
       const hasSibling = sibling !== "none";
-      const root = fs.realpathSync(makeTrackedTempDir("openclaw-cohort-dev", tempDirs));
+      const root = fs.realpathSync(tempDirs.make("openclaw-cohort-dev"));
       const bundledRoot = path.join(root, "bundled");
       const bundledPath = path.join(bundledRoot, "cohort");
       const oldPath = path.join(root, "removed-npm-package");

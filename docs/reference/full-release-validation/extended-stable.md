@@ -22,6 +22,8 @@ pnpm ci:full-release \
   --sha "$VALIDATION_SHA" \
   --target-ref "$CONTEXT_REF" \
   --workflow-sha "$TOOLING_SHA" \
+  -f validation_purpose=publish \
+  -f publication_selection_json='{"route":"extended-stable","npmDistTag":"extended-stable","publishOpenclawNpm":true,"pluginPublishScope":"all-publishable","plugins":[]}' \
   -f release_profile=stable \
   -f run_release_soak=true \
   -f fail_fast=false \
@@ -66,7 +68,7 @@ validation. See [Releasing](/reference/RELEASING) for the publication sequence.
 The conceptual phases map to current inputs:
 
 - `beta-publish`: `release_profile=beta`, `run_release_soak=false`
-- `postpublish-confidence`: exact published package plus
+- `postpublish-confidence`: `validation_purpose=postpublish-confidence`, no publication selection, exact published package plus
   `run_release_soak=true` or explicit focused groups
 - `stable-publish`: `release_profile=stable`
 

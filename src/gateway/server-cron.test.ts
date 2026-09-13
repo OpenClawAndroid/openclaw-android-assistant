@@ -927,6 +927,7 @@ describe("buildGatewayCronService", () => {
         cron: { store: path.join(tmpDir, "cron.json") },
         agents: {
           ownership: "explicit",
+          defaults: { systemAgent: { agentId: "ops" } },
           entries: { ops: {}, research: {} },
         },
       } as OpenClawConfig,

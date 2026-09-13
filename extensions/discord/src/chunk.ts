@@ -171,17 +171,19 @@ function chunkDiscordText(text: string, opts: ChunkDiscordTextOpts = {}): string
       const candidate = { start, end };
       // An original closing fence consumes the reservation; do not reserve a second closer.
       const closesBlock = openFence && !ranges.fenceAt(end);
+      let candidateText = raw(candidate);
       const exceeds = closesBlock
         ? !fits(candidate)
-        : raw(candidate).length > charLimit ||
-          countLines(raw(candidate)) > lineLimit ||
+        : candidateText.length > charLimit ||
+          countLines(candidateText) > lineLimit ||
           (ranges.overlaps(start, end) && !fits(candidate));
       if (current && exceeds) {
         current = flush(current);
         candidate.start =
           current?.start ?? (ranges.joins(consumed, segmentStart) ? consumed : segmentStart);
+        candidateText = raw(candidate);
       }
-      current = raw(candidate) ? candidate : undefined;
+      current = candidateText ? candidate : undefined;
       segmentStart = end;
     }
     lineStart += line.length + 1;

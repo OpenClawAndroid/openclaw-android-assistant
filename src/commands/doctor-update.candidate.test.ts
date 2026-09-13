@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { PreManagedServiceStop } from "../cli/update-cli/update-command-service-context-types.js";
+import { resolveStableNodePath } from "../infra/stable-node-path.js";
 import {
   createManagedHandoffLeaseStore,
   resolveManagedUpdateLeaseDatabasePath,
@@ -194,8 +195,9 @@ it.each([
       }
       return response;
     });
+    const stableNodePath = await resolveStableNodePath(process.execPath);
     const runCommand: CommandRunner = async (argv, options) => {
-      if (argv[0] === "git" || argv[0] === process.execPath) {
+      if (argv[0] === "git" || argv[0] === process.execPath || argv[0] === stableNodePath) {
         return actualExec.runCommandWithTimeout(argv, options);
       }
       if (argv[0] === "pnpm") {
@@ -258,7 +260,10 @@ it.each([
       expect(mocks.triageCommand).not.toHaveBeenCalled();
     } else if (!native) {
       expect(events.map((event) => event.phase)).toEqual(["config", "prepare"]);
-      expect(outcome).toEqual({ updated: true, handled: true });
+      expect(
+        outcome,
+        mocks.completeUpdateCommandRun.mock.calls.at(-1)?.[0].steps.at(-1)?.stderrTail ?? undefined,
+      ).toEqual({ updated: true, handled: true });
       expect(mocks.completeUpdateCommandRun).toHaveBeenCalledWith(
         expect.objectContaining({ status: "ok" }),
         originalRun,

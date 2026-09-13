@@ -636,6 +636,8 @@ export function renderChatComposer(props: ChatComposerProps) {
     connected: props.connected,
     draft: visibleDraft,
     hasAttachments: !props.suggestionComposer && Boolean(props.attachments?.length),
+    preparingAttachments:
+      (props.getPendingAttachmentReads?.() ?? props.pendingAttachmentReads ?? 0) > 0,
     isBusy,
     followUpMode: props.followUpMode,
     alternateFollowUpMode,

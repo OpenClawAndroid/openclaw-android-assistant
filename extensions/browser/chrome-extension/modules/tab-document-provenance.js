@@ -13,7 +13,7 @@ export function createTabDocumentProvenance({ access }) {
   function lifecycle(tabId) {
     let value = lifetimes.get(tabId);
     if (!value) {
-      value = { root: 0, attachment: 0 };
+      value = { root: 0, attachment: 0, rootUrl: undefined };
       lifetimes.set(tabId, value);
     }
     return value;
@@ -118,6 +118,7 @@ export function createTabDocumentProvenance({ access }) {
     const frameUrl = root ? frameDocumentUrl(event.params.frame) : undefined;
     if (root) {
       lifecycle(event.tabId).root += 1;
+      lifecycle(event.tabId).rootUrl = frameUrl;
       access.recordRootCommit(event.tabId, frameUrl);
     }
     if (document) {
@@ -143,10 +144,22 @@ export function createTabDocumentProvenance({ access }) {
   return {
     get: (tabId) => documents.get(tabId),
     rootRevision: (tabId) => lifecycle(tabId).root,
+    resolveTabUpdate: (tabId, tab, change) => {
+      const rootUrl = lifetimes.get(tabId)?.rootUrl;
+      // Chrome can deliver its initial loading snapshot after the native commit.
+      return change.status === "loading" &&
+        change.url === undefined &&
+        tab?.url === "about:blank" &&
+        typeof rootUrl === "string" &&
+        tab.pendingUrl === rootUrl
+        ? { ...tab, url: rootUrl }
+        : tab;
+    },
     observeTab,
     revokeDocument,
     retireAttachment: (tabId) => {
       lifecycle(tabId).attachment += 1;
+      lifecycle(tabId).rootUrl = undefined;
       if (documents.has(tabId)) {
         access.invalidateTab(tabId);
       }

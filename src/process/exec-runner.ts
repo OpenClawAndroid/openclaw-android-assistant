@@ -35,7 +35,11 @@ import {
   TIMEOUT_EXIT_CODE,
   type SpawnResult,
 } from "./exec-result.js";
-import { COMMAND_PROCESS_TREE_KILL_GRACE_MS, spawnCommandWithInvocation } from "./exec-spawn.js";
+import {
+  COMMAND_PROCESS_TREE_KILL_GRACE_MS,
+  resolveCommandProcessSignal,
+  spawnCommandWithInvocation,
+} from "./exec-spawn.js";
 import { createCommandTerminationController } from "./exec-termination.js";
 
 const WINDOWS_CLOSE_STATE_SETTLE_TIMEOUT_MS = 250;
@@ -130,11 +134,11 @@ async function runCommandWithOutputEncoding(
     baseEnv,
     env,
     noOutputTimeoutMs,
-    signal,
     killProcessTree,
     killSignal,
     killGraceMs,
   } = options;
+  const signal = resolveCommandProcessSignal(options.signal);
   const resolvedTimeoutMs =
     typeof timeoutMs === "number" ? resolveTimerTimeoutMs(timeoutMs, 1) : undefined;
   if (options.requireProcessTreeExtinction && !killProcessTree) {
@@ -206,6 +210,7 @@ async function runCommandWithOutputEncoding(
   const { child, invocation } = spawnCommandWithInvocation(argv, {
     buffer: false,
     cancelSignal: cancelController.signal,
+    inheritScopeCancellation: false,
     cwd,
     detached: Boolean(killProcessTree && process.platform !== "win32"),
     encoding: "buffer",

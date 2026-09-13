@@ -12,14 +12,14 @@ export type ReleasePlanIntent =
   | "main-qualification";
 export type MainQualificationValidationIntent = "main-daily" | "main-weekly";
 type RunGh = (args: string[]) => string;
-type ReleasePlanSourceBase = {
+export type ReleaseInventorySource = {
   repoRoot?: string;
   candidateSha: string;
-  candidateRef: string;
   toolingSha: string;
   toolingFullRef: string;
   runGh?: RunGh;
 };
+type ReleasePlanSourceBase = ReleaseInventorySource & { candidateRef: string };
 export type ReleasePlanSource =
   | (ReleasePlanSourceBase & {
       intent: "main-qualification";
@@ -50,6 +50,12 @@ type ReleasePlan = {
   };
 };
 type ReleasePlanLock = Record<"schema" | "digest", string> & { plan: ReleasePlan };
+export type VerifiedReleaseInventory = {
+  candidateSha: string;
+  tooling: ReleasePlan["tooling"];
+  version: string;
+  inventory: ReleasePlan["inventory"];
+};
 
 const REPOSITORY = "openclaw/openclaw";
 const EXECUTION_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -147,6 +153,7 @@ type YamlEntry =
 type SerializableSource = Omit<ReleasePlanSourceBase, "runGh"> & Record<string, unknown>;
 type ProducerRequest =
   | { operation: "produce" | "produce-lock"; params: SerializableSource }
+  | { operation: "produce-inventory"; params: Omit<ReleaseInventorySource, "runGh"> }
   | { operation: "verify-lock"; lockJson: string; params: SerializableSource };
 
 const CHILD_RUNNER = String.raw`
@@ -281,10 +288,23 @@ function defaultRunGh(args: string[]) {
   });
 }
 
-function verifyRemoteTooling(params: ReleasePlanSource, runGh: RunGh) {
+function verifyRemoteTooling(
+  params: ReleaseInventorySource | ReleasePlanSource,
+  runGh: RunGh,
+  inventoryOnly: boolean,
+) {
   const sha = requireSha(params.toolingSha, "tooling SHA");
   const tagRef = params.toolingFullRef.replace(/^refs\/tags\//u, "");
   const protectedMatch = PROTECTED_TAG_PATTERN.exec(tagRef);
+  // Acquisition is not admission: the verified child owns canonical branch policy.
+  // Preserve its literal GET argv while rejecting reserved and traversal operands.
+  const inventoryBranch =
+    inventoryOnly &&
+    params.toolingFullRef !== "refs/heads/main" &&
+    /^refs\/heads\/[A-Za-z0-9._/-]{1,256}$/u.test(params.toolingFullRef) &&
+    params.toolingFullRef.trim() === params.toolingFullRef &&
+    !params.toolingFullRef.includes("..") &&
+    params.toolingFullRef.split("/").every((part) => part !== "" && part !== ".");
   let args: string[], failure: string;
   if (protectedMatch) {
     if (protectedMatch[1] !== sha.slice(0, 12)) {
@@ -303,6 +323,14 @@ function verifyRemoteTooling(params: ReleasePlanSource, runGh: RunGh) {
       "{status}",
     ];
     failure = "main release tooling ancestry could not be verified";
+  } else if (inventoryBranch) {
+    args = [
+      "api",
+      `repos/${REPOSITORY}/git/ref/heads/${params.toolingFullRef.slice("refs/heads/".length)}`,
+      "--method",
+      "GET",
+    ];
+    failure = "inventory release tooling branch is missing or unreadable";
   } else {
     throw new Error("release tooling identity must be trusted main or an exact protected tag");
   }
@@ -318,19 +346,30 @@ function verifyRemoteTooling(params: ReleasePlanSource, runGh: RunGh) {
     object?: { type?: unknown; sha?: unknown };
   };
   if (
-    protectedMatch &&
+    (protectedMatch || inventoryBranch) &&
     (response.ref !== params.toolingFullRef ||
       response.object?.type !== "commit" ||
       response.object.sha !== sha)
   ) {
     throw new Error(
-      "protected release tooling tag is missing, moved, annotated, or bound to the wrong SHA",
+      `${inventoryBranch ? "inventory release tooling branch" : "protected release tooling tag"} is missing, moved, annotated, or bound to the wrong SHA`,
     );
   }
-  if (!protectedMatch && response.status !== "ahead" && response.status !== "identical") {
+  if (
+    !protectedMatch &&
+    !inventoryBranch &&
+    response.status !== "ahead" &&
+    response.status !== "identical"
+  ) {
     throw new Error("main release tooling SHA is not reachable from current main");
   }
-  if (params.intent !== "diagnostic" && params.intent !== "main-qualification" && !protectedMatch) {
+  if (
+    !inventoryOnly &&
+    "intent" in params &&
+    params.intent !== "diagnostic" &&
+    params.intent !== "main-qualification" &&
+    !protectedMatch
+  ) {
     throw new Error(`${params.intent} tooling must use a release-publish tag bound to its SHA`);
   }
   return [[JSON.stringify(args), raw]] as Array<[string, string]>;
@@ -514,10 +553,17 @@ function retainYamlPackage() {
 const serializableParams = ({ runGh: _runGh, ...source }: ReleasePlanSource) =>
   source as SerializableSource;
 
-function runOperation(request: ProducerRequest, params: ReleasePlanSource) {
+function runOperation(
+  request: ProducerRequest,
+  params: ReleaseInventorySource | ReleasePlanSource,
+) {
   const repoRoot = resolve(params.repoRoot ?? ".");
   const runGh = params.runGh ?? defaultRunGh;
-  const identityResponses = verifyRemoteTooling(params, runGh);
+  const identityResponses = verifyRemoteTooling(
+    params,
+    runGh,
+    request.operation === "produce-inventory",
+  );
   const toolingSha = requireSha(params.toolingSha, "tooling SHA");
   const executionHead = gitBytes(EXECUTION_ROOT, ["rev-parse", "HEAD"]).toString("utf8").trim();
   if (executionHead !== toolingSha) {
@@ -573,6 +619,19 @@ export function produceReleasePlan(params: ReleasePlanSource): ReleasePlan {
     { operation: "produce", params: serializableParams(params) },
     params,
   ) as ReleasePlan;
+}
+
+export function produceVerifiedReleaseInventory(
+  params: ReleaseInventorySource,
+): VerifiedReleaseInventory {
+  const { repoRoot, candidateSha, toolingSha, toolingFullRef } = params;
+  return runOperation(
+    {
+      operation: "produce-inventory",
+      params: { repoRoot, candidateSha, toolingSha, toolingFullRef },
+    },
+    params,
+  ) as VerifiedReleaseInventory;
 }
 
 export function verifyReleasePlanLock(lockJson: string, params: ReleasePlanSource) {

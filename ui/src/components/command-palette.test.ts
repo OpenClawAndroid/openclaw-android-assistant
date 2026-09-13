@@ -296,6 +296,7 @@ describe("CommandPalette lifecycle", () => {
     );
     await palette.updateComplete;
 
+    expect(palette.querySelector('[role="listbox"]')?.getAttribute("aria-busy")).toBe("false");
     const metadataItem = findPaletteOption(palette, "Needle planning");
     expect(metadataItem?.textContent).toContain("Needle planning");
     metadataItem?.click();
@@ -369,6 +370,7 @@ describe("CommandPalette lifecycle", () => {
       );
       await palette.updateComplete;
 
+      expect(palette.querySelector('[role="listbox"]')?.getAttribute("aria-busy")).toBe("false");
       expect(palette.textContent).toContain(notice);
       expect(palette.textContent).toContain("Needle planning");
       expect(palette.textContent).toContain("Unrelated title");
@@ -598,6 +600,8 @@ describe("CommandPalette lifecycle", () => {
     await vi.advanceTimersByTimeAsync(50);
 
     expect(list).not.toHaveBeenCalled();
+    expect(palette.querySelector('[role="listbox"]')?.getAttribute("aria-busy")).toBe("false");
+    expect(palette.textContent).not.toContain("Searching sessions");
   });
 
   it.each(["click", "keyboard"])(

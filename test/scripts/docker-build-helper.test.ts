@@ -8370,13 +8370,17 @@ done
     });
     const { readSystemdServiceExecStart } =
       await import("../../src/daemon/systemd-service-files.js");
+    const loadedEnv = {
+      HOME: home,
+      PATH: `${binDir}:${process.env.PATH}`,
+      OPENCLAW_SYSTEMD_UNIT: serviceName,
+      XDG_RUNTIME_DIR: join(home, "runtime"),
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(home, "runtime", "bus")}`,
+    };
     expect(
       // The production 5s deadline budgets for native busctl; the Node shim's cold
       // spawn can exceed its per-call slice under load, so widen it here.
-      await readSystemdServiceExecStart(
-        { HOME: home, PATH: `${binDir}:${process.env.PATH}`, OPENCLAW_SYSTEMD_UNIT: serviceName },
-        { requireEffective: true, timeoutMs: 30_000 },
-      ),
+      await readSystemdServiceExecStart(loadedEnv, { requireEffective: true, timeoutMs: 30_000 }),
     ).toMatchObject({
       programArguments,
       workingDirectory: "/opt/openclaw git",
@@ -8386,13 +8390,6 @@ done
     });
 
     const definition = readFileSync(unitPath, "utf8");
-    const loadedEnv = {
-      HOME: home,
-      PATH: `${binDir}:${process.env.PATH}`,
-      OPENCLAW_SYSTEMD_UNIT: serviceName,
-      XDG_RUNTIME_DIR: join(home, "runtime"),
-      DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(home, "runtime", "bus")}`,
-    };
     const loadedCommand = await readSystemdServiceExecStart(loadedEnv, {
       requireEffective: true,
       requireLoaded: true,
@@ -8497,6 +8494,8 @@ done
       HOME: home,
       PATH: `${binDir}:${process.env.PATH}`,
       OPENCLAW_SYSTEMD_UNIT: "openclaw-gateway-fixture",
+      XDG_RUNTIME_DIR: join(home, "runtime"),
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(home, "runtime", "bus")}`,
     };
     const { readSystemdServiceExecStart } =
       await import("../../src/daemon/systemd-service-files.js");
@@ -8516,6 +8515,17 @@ done
     ];
     const invoke = (args: string[]) =>
       spawnSync(join(binDir, "busctl"), args, { env, encoding: "utf8" });
+    const managerVersion = invoke([
+      "--user",
+      "--auto-start=no",
+      "get-property",
+      "org.freedesktop.systemd1",
+      "/org/freedesktop/systemd1",
+      "org.freedesktop.systemd1.Manager",
+      "Version",
+    ]);
+    expect(managerVersion.status, managerVersion.stderr).toBe(0);
+    expect(managerVersion.stdout.trim()).toBe('s "252.39-1~deb12u2"');
     const missing = invoke(loadArgs);
     expect(missing.status).toBe(1);
     expect(missing.stderr.trim()).toBe(`Call failed: Unit ${serviceName} not found.`);

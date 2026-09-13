@@ -387,6 +387,7 @@ vi.mock("../logging/subsystem.js", () => ({
   createSubsystemLogger: () => {
     const logger = {
       child: () => logger,
+      isEnabled: () => false,
       debug: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),

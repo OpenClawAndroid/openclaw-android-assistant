@@ -446,6 +446,28 @@ describe("runDaemonInstall integration", () => {
     },
   );
 
+  it("names an unreadable Linux unit without changing config or replacing it", async () => {
+    const unit = path.join(accountHome, ".config/systemd/user/openclaw-gateway.service");
+    const readFile = fs.readFile.bind(fs);
+    vi.spyOn(fs, "readFile").mockImplementation(async (...args) => {
+      if (args[0] === unit) {
+        throw Object.assign(new Error("private-native-error-canary"), { code: "EACCES" });
+      }
+      return readFile(...args);
+    });
+    serviceMock.readCommand.mockImplementation(readSystemdServiceExecStart);
+    serviceMock.isLoaded.mockRejectedValue(new Error("Failed to get unit file state"));
+    const before = await snapshotConfig();
+    await expect(runDaemonInstall({ json: true, force: true })).rejects.toThrow("__exit__:1");
+    const output = runtimeLogs.join("\n");
+    expect(output).toContain(JSON.stringify(unit).slice(1, -1));
+    expect(output).toContain("unreadable");
+    expect(output).not.toContain("private-native-error-canary");
+    expect(await snapshotConfig()).toEqual(before);
+    expect(serviceMock.install).not.toHaveBeenCalled();
+    expect(serviceMock.isLoaded).not.toHaveBeenCalled();
+  });
+
   it.each(["fragment", "drop-in"])(
     "blocks a root-owned manager %s before config or token writes",
     async (kind) => {

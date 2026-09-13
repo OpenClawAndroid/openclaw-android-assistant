@@ -22,6 +22,7 @@ import type {
 import { isAgentPlanProgressToolName } from "../session-cards/progress-card-channel-summary.js";
 import { DEFAULT_PROGRESS_DRAFT_LABELS, selectProgressLabel } from "../shared/progress-labels.js";
 import { compactProgressText } from "../shared/text-truncate.js";
+import { escapeMarkdownText } from "../shared/text/escape-markdown.js";
 import { asBoolean } from "../utils/boolean.js";
 import {
   formatChannelProgressDraftDiffStat,
@@ -1406,10 +1407,15 @@ type ChannelProgressDraftTextParams = {
   random?: () => number;
   /** Optional formatter applied after line compaction. */
   formatLine?: (line: string) => string;
+  /** Literal transport encoding, applied after compaction to prepared plain text. */
+  formatPlainText?: (text: string) => string;
+  /** Exposes the same ordered blocks to native renderers without parsing composed text. */
+  onPreparedBlocks?: (blocks: Array<{ text: string; format: "plain" | "markdown" }>) => void;
   /** Prefix used for plain progress lines that lack their own icon. */
   bullet?: string;
   /** Status headline rendered above the plan and activity rows. */
   narration?: string;
+  narrationFormat?: "plain";
   /** Latest full plan snapshot, rendered independently from rolling tool lines. */
   plan?: readonly AgentPlanStep[];
   diffStat?: ChannelProgressDraftDiffStat;
@@ -1450,7 +1456,11 @@ function formatProgressDraftText(
   });
   // The status headline sits above the rolling lines instead of replacing them:
   // a headline-only draft reads as "the agent is quiet" even while tools run.
-  const statusHeadline = narration ? formatLine(narration) : "";
+  const statusHeadline = narration
+    ? params.narrationFormat === "plain"
+      ? (params.formatPlainText ?? escapeMarkdownText)(narration)
+      : formatLine(narration)
+    : "";
   const bullet = params.bullet ?? "•";
   const toolLineBudget = planLines.length > 0 ? Math.max(0, maxLines - planLines.length) : maxLines;
   // Attention owns capacity before plans and routine progress consume the window.
@@ -1500,6 +1510,20 @@ function formatProgressDraftText(
     ...planLines,
     ...(diffStat ? [formatLine(compactChannelProgressDraftLine(diffStat, maxLineChars))] : []),
   ].join("\n");
+  const blocks: Array<{ text: string; format: "plain" | "markdown" }> = [];
+  if (labelBlock) {
+    blocks.push({ text: labelBlock, format: "markdown" });
+  }
+  if (statusHeadline) {
+    blocks.push({
+      text: params.narrationFormat === "plain" ? narration : statusHeadline,
+      format: params.narrationFormat === "plain" ? "plain" : "markdown",
+    });
+  }
+  if (rollingBlock) {
+    blocks.push({ text: rollingBlock, format: "markdown" });
+  }
+  params.onPreparedBlocks?.(blocks);
   return [labelBlock, statusHeadline, rollingBlock].filter(Boolean).join("\n\n");
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

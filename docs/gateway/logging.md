@@ -62,6 +62,15 @@ their structured file-log record, with cause and error-code details when
 available. Long summaries are truncated. The record retains its write timing
 and store fields.
 
+### SQLite snapshot cleanup
+
+Failed removal of a temporary read-only SQLite snapshot is recorded once by its
+cleanup owner in the structured file log, with the owned path, removal operation,
+and filesystem error code when available. These diagnostics do not write to
+subprocess stdout or stderr, so a successful read keeps its result and a failed
+update retains its original error detail. Existing required-cleanup failures
+remain errors.
+
 ### Slow agent database opens
 
 A completed physical agent-database open taking at least one second emits

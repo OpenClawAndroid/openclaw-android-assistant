@@ -47,7 +47,38 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("container update recovery reporting", () => {
+describe("update recovery reporting", () => {
+  it("persists activation timeout guidance for the owning profile", () => {
+    const state = dirs.make("activation-timeout-report-");
+    const env = {
+      OPENCLAW_STATE_DIR: state,
+      OPENCLAW_CONFIG_PATH: path.join(state, "openclaw.json"),
+      OPENCLAW_PROFILE: "work",
+    };
+    const run = { runId: createUpdateRun({ trigger: "cli" }, { env }).runId, env };
+    const output = vi.spyOn(defaultRuntime, "writeJson").mockImplementation(() => {});
+
+    publishUpdateCommandTerminalResult(
+      { opts: { json: true, run }, coreAlreadyCurrent: false },
+      failure({ reason: "update-activation-timeout", steps: [] }),
+      { rolledBack: false },
+    );
+
+    const stored = getUpdateRun(run.runId, { env });
+    expect(stored).toMatchObject({
+      status: "failed",
+      phase: "finished",
+      reason: "update-activation-timeout",
+    });
+    const action = stored?.origin.nextAction;
+    expect(action).toContain("openclaw --profile work update status");
+    expect(action).toContain("openclaw --profile work doctor");
+    expect(action).toContain("Wait for the owning updater and its child processes to stop");
+    expect(action).toContain("openclaw --profile work update repair");
+    expect(output.mock.calls[0]?.[0]).toMatchObject({ run: { origin: { nextAction: action } } });
+    expect(stored && renderUpdateRunReport(stored).markdown).toContain(action);
+  });
+
   it.each([
     ["npm", false, true],
     ["npm", true, true],

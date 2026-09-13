@@ -96,11 +96,31 @@ export async function syncPluginsForUpdateChannel(params: {
   const loadHelpers = buildLoadPathHelpers(next.plugins?.load?.paths ?? [], env);
   let installs = next.plugins?.installs ?? {};
   let changed = false;
+  const retainedLinks = new Set<string>();
+  for (const [pluginId, record] of Object.entries(installs)) {
+    const bundledInfo = bundled.get(pluginId);
+    if (record.source !== "path" || !bundledInfo) {
+      continue;
+    }
+    const linkedPath = loadHelpers.paths.find(
+      (loadPath) =>
+        !userPathsEqual(loadPath, bundledInfo.localPath, env) &&
+        (userPathsEqual(loadPath, record.sourcePath, env) ||
+          userPathsEqual(loadPath, record.installPath, env)),
+    );
+    if (!linkedPath) {
+      continue;
+    }
+    retainedLinks.add(pluginId);
+    const warning = `Retained linked plugin "${pluginId}" at ${linkedPath}; update this plugin at its source.`;
+    summary.warnings.push(warning);
+    logger.warn?.(warning);
+  }
 
   if (params.channel === "dev") {
     for (const [pluginId, record] of Object.entries(installs)) {
       const bundledInfo = bundled.get(pluginId);
-      if (!bundledInfo) {
+      if (!bundledInfo || retainedLinks.has(pluginId)) {
         continue;
       }
 
@@ -372,7 +392,7 @@ export async function syncPluginsForUpdateChannel(params: {
 
     for (const [pluginId, record] of Object.entries(installs)) {
       const bundledInfo = bundled.get(pluginId);
-      if (!bundledInfo) {
+      if (!bundledInfo || retainedLinks.has(pluginId)) {
         continue;
       }
 
@@ -390,11 +410,7 @@ export async function syncPluginsForUpdateChannel(params: {
       // Keep explicit bundled installs on release channels. Replacing them with
       // npm installs can reintroduce duplicate-id shadowing and packaging drift.
       loadHelpers.addPath(bundledInfo.localPath);
-      const alreadyBundled =
-        record.source === "path" &&
-        userPathsEqual(record.sourcePath, bundledInfo.localPath, env) &&
-        userPathsEqual(record.installPath, bundledInfo.localPath, env);
-      if (alreadyBundled) {
+      if (userPathsEqual(record.installPath, bundledInfo.localPath, env)) {
         continue;
       }
 

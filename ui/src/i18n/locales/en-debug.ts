@@ -5,7 +5,8 @@ import { en } from "./en.ts";
 const enDebug = {
   debug: {
     snapshotsTitle: "Snapshots",
-    snapshotsSubtitle: "Status, health, and heartbeat data.",
+    snapshotsSubtitle:
+      "Refresh to update status and health snapshots. Heartbeat data updates live.",
     refreshingSnapshots: "Refreshing Gateway diagnostics.",
     offlineSnapshots: "Connect to the Gateway to refresh diagnostics.",
     status: "Status",
@@ -27,7 +28,7 @@ const enDebug = {
     selectMethod: "Select a method…",
     paramsJson: "Params (JSON)",
     modelsTitle: "Models",
-    modelsSubtitle: "Catalog from models.list.",
+    modelsSubtitle: "Model catalog captured by the latest diagnostic refresh.",
     eventLogTitle: "Event Log",
     eventLogSubtitle: "Latest gateway events.",
     noEvents: "No events yet.",

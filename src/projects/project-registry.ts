@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { Selectable } from "kysely";
+import { withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import { listAgentIds, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { insideGitCheckout, runGit } from "../agents/worktrees/git.js";
 import { slugifyWorktreeTitle } from "../agents/worktrees/name.js";
@@ -285,7 +286,9 @@ export function listProjectRegistry(
   const stored = executeSqliteQuerySync(sqlite, kysely.selectFrom("projects").selectAll()).rows.map(
     rowToProject,
   );
-  const workspaces = listAgentIds(cfg).map((agentId) => workspaceProject(cfg, agentId));
+  const workspaces = withAgentRosterFactsBatch(cfg, () =>
+    listAgentIds(cfg).map((agentId) => workspaceProject(cfg, agentId)),
+  );
   return [...workspaces, ...stored].toSorted(compareProjects);
 }
 

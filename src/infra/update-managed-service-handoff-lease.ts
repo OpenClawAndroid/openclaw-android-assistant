@@ -87,11 +87,11 @@ export function createManagedHandoffLeaseStore(
   const isPidAlive = (pid: number) => !isPidDefinitelyDead(pid);
 
   function readProcessStartIdentity(pid: number): string | null {
-    const start = getFileLockProcessStartTime(
-      pid,
-      { ...serviceManagerEnv, LC_ALL: "C", TZ: "UTC" },
-      1000,
-    );
+    const start = getFileLockProcessStartTime(pid, {
+      ...serviceManagerEnv,
+      LC_ALL: "C",
+      TZ: "UTC",
+    });
     return start === null ? null : String(start);
   }
 

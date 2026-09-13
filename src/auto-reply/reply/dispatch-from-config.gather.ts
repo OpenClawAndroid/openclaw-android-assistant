@@ -410,15 +410,18 @@ export async function gatherDispatchRequest(
     : sessionAgentId;
   let preparedReplyDispatchRuntime: PreparedReplyDispatchRuntime | undefined;
   try {
-    preparedReplyDispatchRuntime = params.usePublishedModelRuntime
-      ? await traceReplyPhase("reply.load_prepared_dispatch_runtime", async () => {
-          const { loadPublishedGatewayReplyDispatchRuntime } = await loadPreparedModelRuntime();
-          return await loadPublishedGatewayReplyDispatchRuntime({
-            agentId: preparedReplyDispatchAgentId,
-            abortSignal: params.replyOptions?.abortSignal,
-          });
-        })
-      : undefined;
+    // Channel monitors can retain an older config across hot reloads. The Gateway
+    // publication owns admission; outside its lifecycle this returns undefined.
+    preparedReplyDispatchRuntime = await traceReplyPhase(
+      "reply.load_prepared_dispatch_runtime",
+      async () => {
+        const { loadPublishedGatewayReplyDispatchRuntime } = await loadPreparedModelRuntime();
+        return await loadPublishedGatewayReplyDispatchRuntime({
+          agentId: preparedReplyDispatchAgentId,
+          abortSignal: params.replyOptions?.abortSignal,
+        });
+      },
+    );
   } catch (error) {
     if (params.replyOptions?.abortSignal?.aborted && isAbortError(error)) {
       return finishReplyOperationAborted();

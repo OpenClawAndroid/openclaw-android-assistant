@@ -1,13 +1,16 @@
 // Doctor config analysis tests cover schema analysis, model fallback values, and issue generation.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfiguredModelFallbacks } from "../agents/model-selection-resolve.js";
+import { retainLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { OpenClawSchema } from "../config/zod-schema.js";
 import {
   formatConfigKeyPath,
+  noteDoctorHookConfigWarnings,
   noteImplicitFallbackClobberWarnings,
   noteMcpOriginWarning,
+  noteMissingDefaultAgentOwner,
   noteOpencodeProviderOverrides,
   noteSandboxOriginProxyWarning,
   resolveConfigPathTarget,
@@ -26,6 +29,50 @@ function collectImplicitFallbackClobberWarnings(cfg: OpenClawConfig): string[] {
 }
 
 describe("doctor config analysis helpers", () => {
+  it("warns when hooks transformsDir points outside the hook transforms root", () => {
+    noteMock.mockClear();
+    noteDoctorHookConfigWarnings(
+      {
+        hooks: {
+          enabled: true,
+          token: "hook-secret",
+          transformsDir: "/virtual/.openclaw/workspace/skills/linear-webhook",
+          mappings: [
+            {
+              match: { path: "linear" },
+              action: "agent",
+              messageTemplate: "Linear event",
+              transform: { module: "./openclaw-linear-transform.js" },
+            },
+          ],
+        },
+      },
+      "/virtual/.openclaw/openclaw.json",
+    );
+
+    expect(noteMock).toHaveBeenCalledExactlyOnceWith(expect.any(String), "Doctor warnings");
+    const warning = String(noteMock.mock.calls[0]?.[0]);
+    expect(warning).toContain("hooks.transformsDir:");
+    expect(warning).toContain("/virtual/.openclaw/workspace/skills/linear-webhook");
+    expect(warning).toContain("/virtual/.openclaw/hooks/transforms");
+    expect(warning).toContain("move custom transforms there or remove hooks.transformsDir");
+  });
+
+  it("requires a durable default designation despite retained migration provenance", () => {
+    noteMock.mockClear();
+    const cfg = retainLegacyDefaultAgentId(
+      { agents: { ownership: "explicit", entries: { ops: {}, research: {} } } },
+      "ops",
+    );
+
+    noteMissingDefaultAgentOwner(cfg);
+
+    expect(noteMock).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("openclaw config set agents.defaults.systemAgent.agentId <id>"),
+      "Agent ownership",
+    );
+  });
+
   it("describes OpenCode overrides against the plugin-provided catalog", () => {
     noteMock.mockClear();
 

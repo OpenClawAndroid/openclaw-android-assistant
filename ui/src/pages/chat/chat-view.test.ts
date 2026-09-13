@@ -6181,6 +6181,10 @@ describe("chat attachment picker", () => {
 
       expect(readers).toHaveLength(1);
       expect(reads.pendingReads).toBe(1);
+      const status = container.querySelector(".chat-attachments-status");
+      expect(status?.textContent).toContain("Preparing attachments");
+      expect(status?.getAttribute("role")).toBe("status");
+      expect(status?.classList.contains("sr-only")).toBe(false);
       expect(getComposerTextarea(container).disabled).toBe(false);
       const send = requireElement(
         container,
@@ -6188,6 +6192,8 @@ describe("chat attachment picker", () => {
         "send button",
       ) as HTMLButtonElement;
       expect(send.disabled).toBe(true);
+      expect(send.getAttribute("aria-busy")).toBe("true");
+      expect(send.closest("openclaw-tooltip")?.content).toBe("Preparing attachments…");
       getComposerTextarea(container).dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
@@ -6210,6 +6216,8 @@ describe("chat attachment picker", () => {
         "ready send button",
       ) as HTMLButtonElement;
       expect(readySend.disabled).toBe(false);
+      expect(readySend.getAttribute("aria-busy")).toBe("false");
+      expect(container.querySelector(".chat-attachments-status")?.textContent?.trim()).toBe("");
       readySend.click();
       expect(onSend).toHaveBeenCalledOnce();
     },
@@ -6652,7 +6660,7 @@ describe("chat attachment picker", () => {
     const container = renderChatView({ attachments: [attachment], onAttachmentsChange });
     const removeButton = requireElement(
       container,
-      '[aria-label="Remove attachment"]',
+      '[aria-label="Remove pasted-image.png"]',
       "remove attachment button",
     ) as HTMLButtonElement;
 
@@ -6780,7 +6788,7 @@ describe("chat attachment picker", () => {
 
     requireElement(
       container,
-      '[aria-label="Remove attachment"]',
+      '[aria-label="Remove ordinary.png"]',
       "ordinary attachment remove button",
     ).dispatchEvent(new MouseEvent("click", { bubbles: true }));
 

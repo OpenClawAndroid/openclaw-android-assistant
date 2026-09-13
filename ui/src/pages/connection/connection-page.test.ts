@@ -9,7 +9,6 @@ import type {
   ApplicationGateway,
   ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
-import type { GatewayStatusSnapshot } from "../../components/gateway-vitals.ts";
 import {
   createApplicationContextProvider,
   createApplicationGateway,
@@ -20,31 +19,36 @@ import { settleLitElement } from "../../test-helpers/lit-settle.ts";
 import { ConnectionPage } from "./connection-page.ts";
 import { supportsSystemInfo } from "./system-info.ts";
 
-const gatewayActivity: GatewayStatusSnapshot = {
-  eventLoop: { utilization: 0.42, cpuCoreRatio: 0.24, delayP99Ms: 12, delayMaxMs: 87 },
+const gatewayActivity = {
+  eventLoop: {
+    utilization: 0.42,
+    cpuCoreRatio: 0.24,
+    delayP99Ms: 12,
+    delayMaxMs: 87,
+    degraded: false,
+    degradedSinceMs: null,
+    reasons: [],
+    intervalMs: 1_000,
+  },
   processMemory: {
     rssBytes: 432 * 1_048_576,
     heapUsedBytes: 210 * 1_048_576,
     heapTotalBytes: 256 * 1_048_576,
   },
-};
+} satisfies Pick<SystemInfoResult, "eventLoop" | "processMemory">;
+const gatewaySystemInfo = { ...deviceSystemInfo, ...gatewayActivity } satisfies SystemInfoResult;
 
 function source(
   client: GatewayBrowserClient,
   pingRequest: (...args: Parameters<GatewayBrowserClient["request"]>) => Promise<unknown> = vi
     .fn()
     .mockResolvedValue(null),
-  statusRequest: (...args: Parameters<GatewayBrowserClient["request"]>) => Promise<unknown> = vi
-    .fn()
-    .mockResolvedValue(gatewayActivity),
 ) {
   const request = client.request.bind(client);
   client.request = ((method, ...args) =>
     method === "last-heartbeat"
       ? pingRequest(method, ...args)
-      : method === "status"
-        ? statusRequest(method, ...args)
-        : request(method, ...args)) as GatewayBrowserClient["request"];
+      : request(method, ...args)) as GatewayBrowserClient["request"];
   return createApplicationGateway({
     client,
     phase: "connected",
@@ -180,11 +184,11 @@ describe("ConnectionPage ping", () => {
       vi.spyOn(performance, "now").mockImplementation(() => now);
       const stale = deferred<null>();
       const fresh = deferred<null>();
-      const staleStatus = deferred<GatewayStatusSnapshot>();
-      const freshStatus = deferred<GatewayStatusSnapshot>();
-      const statusRequest = vi
+      const staleStatus = deferred<SystemInfoResult>();
+      const freshStatus = deferred<SystemInfoResult>();
+      const systemInfoRequest = vi
         .fn()
-        .mockResolvedValueOnce(gatewayActivity)
+        .mockResolvedValueOnce(gatewaySystemInfo)
         .mockReturnValueOnce(staleStatus.promise)
         .mockReturnValueOnce(freshStatus.promise);
       const pingRequest = vi
@@ -195,8 +199,8 @@ describe("ConnectionPage ping", () => {
         })
         .mockReturnValueOnce(stale.promise)
         .mockReturnValueOnce(fresh.promise);
-      const client = pingClient();
-      const first = source(client, pingRequest, statusRequest);
+      const client = { request: systemInfoRequest } as unknown as GatewayBrowserClient;
+      const first = source(client, pingRequest);
       const { page, context, provider } = await mount(first.gateway);
       expect(pingStat(page, "Avg ping")).toBe("20.0 ms");
       const activity = () => page.querySelector(".connection-activity")?.textContent;
@@ -211,26 +215,33 @@ describe("ConnectionPage ping", () => {
       } else if (change === "source") {
         provider.setContext({
           ...context,
-          gateway: source(client, pingRequest, statusRequest).gateway,
+          gateway: source(client, pingRequest).gateway,
         });
       } else {
         first.publish({
           ...first.gateway.snapshot,
-          client: source(pingClient(), pingRequest, statusRequest).gateway.snapshot.client,
+          client: source(
+            { request: systemInfoRequest } as unknown as GatewayBrowserClient,
+            pingRequest,
+          ).gateway.snapshot.client,
         });
       }
       await settleLitElement(page);
       expect(pingRequest.mock.calls[1]?.[2].signal.aborted).toBe(true);
+      expect(systemInfoRequest.mock.calls[1]?.[2].signal.aborted).toBe(true);
       now += 500;
       stale.resolve(null);
-      staleStatus.resolve(gatewayActivity);
+      staleStatus.resolve(gatewaySystemInfo);
       await settleLitElement(page);
       expect(pingStat(page, "Avg ping")).toBe("—");
       expect(activity()).not.toContain("432 MB");
       expect(page.querySelector(".connection-ping")?.textContent).toContain("Measuring ping…");
       now += 10;
       fresh.resolve(null);
-      freshStatus.resolve({ eventLoop: { cpuCoreRatio: 0.7, delayP99Ms: 5 } });
+      freshStatus.resolve({
+        ...deviceSystemInfo,
+        eventLoop: { ...gatewayActivity.eventLoop, cpuCoreRatio: 0.7, delayP99Ms: 5 },
+      });
       await settleLitElement(page);
       expect(pingStat(page, "Avg ping")).toBe("510.0 ms");
       expect(page.querySelector(".connection-ping")?.textContent).toContain("Samples: 1/100");
@@ -238,28 +249,44 @@ describe("ConnectionPage ping", () => {
     },
   );
 
-  it("refreshes shared activity graphs independently of ping and reports failed refreshes", async () => {
+  it("shares one host and activity poll independently of ping and reports failed refreshes", async () => {
     vi.useFakeTimers();
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-    const next = deferred<GatewayStatusSnapshot>();
-    const statusRequest = vi
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    const next = deferred<SystemInfoResult>();
+    const systemInfoRequest = vi
       .fn()
-      .mockResolvedValueOnce(gatewayActivity)
+      .mockResolvedValueOnce(gatewaySystemInfo)
       .mockReturnValueOnce(next.promise)
       .mockRejectedValueOnce(new Error("unavailable"))
-      .mockResolvedValue(gatewayActivity);
-    const { page, provider } = await mount(source(pingClient(), undefined, statusRequest).gateway);
+      .mockResolvedValue(gatewaySystemInfo);
+    const { page, provider } = await mount(
+      source({ request: systemInfoRequest } as unknown as GatewayBrowserClient).gateway,
+    );
     const activity = () => page.querySelector(".connection-activity");
     expect(activity()?.textContent).toContain("432 MB");
     expect(activity()?.textContent).toContain("42%");
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(statusRequest).toHaveBeenCalledTimes(2);
+    expect(systemInfoRequest.mock.calls.map(([method]) => method)).toEqual(["system.info"]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(systemInfoRequest.mock.calls.map(([method]) => method)).toEqual([
+      "system.info",
+      "system.info",
+    ]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(systemInfoRequest).toHaveBeenCalledTimes(2);
     next.resolve({
-      ...gatewayActivity,
-      eventLoop: { cpuCoreRatio: 0.6, delayP99Ms: 50, reasons: ["cpu"] },
+      ...gatewaySystemInfo,
+      machineName: "Fresh host",
+      eventLoop: {
+        ...gatewayActivity.eventLoop,
+        cpuCoreRatio: 0.6,
+        delayP99Ms: 50,
+        reasons: ["cpu"],
+      },
     });
     await settleLitElement(page);
     expect(activity()?.textContent).toContain("60%");
+    expect(page.querySelector(".config-host__name")?.textContent).toContain("Fresh host");
     expect(activity()?.querySelectorAll("polyline")).toHaveLength(3);
     expect(activity()?.querySelector(".gateway-vital--cpu")?.hasAttribute("data-degraded")).toBe(
       true,
@@ -271,9 +298,26 @@ describe("ConnectionPage ping", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await settleLitElement(page);
     expect(activity()?.textContent).not.toContain("Activity refresh failed.");
+    const hidden = deferred<SystemInfoResult>();
+    systemInfoRequest.mockReturnValueOnce(hidden.promise);
+    await vi.advanceTimersByTimeAsync(5_000);
+    visibility = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(systemInfoRequest.mock.calls[4]?.[2].signal.aborted).toBe(true);
+    hidden.resolve({ ...gatewaySystemInfo, machineName: "Hidden stale host" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await settleLitElement(page);
+    expect(systemInfoRequest).toHaveBeenCalledTimes(5);
+    expect(page.querySelector(".config-host__name")?.textContent).not.toContain(
+      "Hidden stale host",
+    );
+    visibility = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settleLitElement(page);
+    expect(systemInfoRequest).toHaveBeenCalledTimes(6);
     provider.remove();
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(statusRequest).toHaveBeenCalledTimes(4);
+    expect(systemInfoRequest).toHaveBeenCalledTimes(6);
   });
 });
 
@@ -579,12 +623,12 @@ describe("ConnectionPage Gateway lifecycle", () => {
       .mockRejectedValueOnce(error)
       .mockResolvedValue(deviceSystemInfo);
     const { page } = await mount(source({ request } as unknown as GatewayBrowserClient).gateway);
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await settleLitElement(page);
     expect(page.querySelector(".config-host__name")?.textContent?.trim() ?? null).toBe(
       retry ? "Gateway" : null,
     );
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(request).toHaveBeenCalledTimes(retry ? 3 : 2);
   });
 

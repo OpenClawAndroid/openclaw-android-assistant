@@ -123,6 +123,7 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
       async entries(boardId) {
         return await delegate.entries(boardId);
       },
+      listCardStatuses: (ids) => delegate.listCardStatuses(ids),
       async listBoardAggregates() {
         return await delegate.listBoardAggregates();
       },

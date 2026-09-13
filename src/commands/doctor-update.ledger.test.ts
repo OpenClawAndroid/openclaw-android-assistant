@@ -7,6 +7,7 @@ import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
 import * as leases from "../infra/update-managed-service-handoff-lease.js";
 import { getUpdateRun } from "../infra/update-run-ledger.js";
+import { UPDATE_RUNNER_TIMEOUT_MS } from "../infra/update-run-timeouts.js";
 import { ExitError } from "../runtime.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { runDoctorUpdateChild } from "./doctor-update.executor.test-support.js";
@@ -40,6 +41,60 @@ beforeEach(() => {
 });
 
 describe("Doctor public caller durable outcome", () => {
+  it("bounds activation after preflight and records its timeout without recovery", async () => {
+    const preflightReady = createDeferred();
+    const activate = createDeferred();
+    const activated = createDeferred();
+    const release = createDeferred();
+    mocks.runGatewayUpdate.mockImplementation(async ({ beforeGitMutation }) => {
+      preflightReady.resolve();
+      await activate.promise;
+      await beforeGitMutation({});
+      activated.resolve();
+      await release.promise;
+      return { status: "ok", mode: "git", root, steps: [], durationMs: 1 };
+    });
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const offer = runOffer({ root, confirm: vi.fn().mockResolvedValue(true) });
+    const settled = offer.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    try {
+      await preflightReady.promise;
+      const run = await mocks.admitUpdateCommandRun.mock.results[0]!.value;
+      await vi.advanceTimersByTimeAsync(UPDATE_RUNNER_TIMEOUT_MS * 2);
+      expect(getUpdateRun(run.runId, { env: run.env })?.status).toBe("running");
+
+      activate.resolve();
+      await activated.promise;
+      await vi.advanceTimersByTimeAsync(UPDATE_RUNNER_TIMEOUT_MS + 1);
+      expect(run.executorFence.assertCurrent).not.toThrow();
+      await vi.advanceTimersByTimeAsync(run.activationTimeoutMs * 2);
+      await vi.waitFor(() => {
+        expect(getUpdateRun(run.runId, { env: run.env })).toMatchObject({
+          phase: "finished",
+          status: "failed",
+          reason: "update-activation-timeout",
+        });
+      });
+      expect(await settled).toMatchObject({
+        error: { result: { reason: "update-activation-timeout" } },
+      });
+      expect(mocks.maybeRestartServiceAfterFailedMutableUpdate).not.toHaveBeenCalled();
+      expect(mocks.triageCommand).not.toHaveBeenCalled();
+      expect(leases.createManagedHandoffLeaseStore().read(root).kind).toBe("current");
+    } finally {
+      activate.resolve();
+      release.resolve();
+      await settled;
+      await vi.waitFor(() => {
+        expect(leases.createManagedHandoffLeaseStore().read(root).kind).toBe("absent");
+      });
+      vi.useRealTimers();
+    }
+  });
+
   it("waits for an outstanding real child before rejecting without terminal history", async () => {
     const ready = createDeferred();
     const returning = createDeferred();

@@ -272,25 +272,27 @@ export function listWatchedSessionUpstreamLinks(
   const grouped = new Map<string, SessionUpstreamLink[]>();
   try {
     const { db } = openOpenClawStateDatabase(options);
-    // Watch cursors own demand. Their key-only join relies on one owning agent per
+    // Watch cursors own demand. Their key-only lookup relies on one owning agent per
     // adopted session key, not one agent per native thread. Agent-qualified keys
     // keep separate adoptions of the same thread distinct.
     const rows = executeSqliteQuerySync(
       db,
       getSessionUpstreamKysely(db)
         .selectFrom("session_upstream_links as links")
-        .innerJoin(
-          "session_watch_cursors as cursors",
-          "cursors.target_session_key",
-          "links.session_key",
-        )
         .selectAll("links")
-        .distinct()
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom("session_watch_cursors as cursors")
+              .select("cursors.target_session_key")
+              .whereRef("cursors.target_session_key", "=", "links.session_key"),
+          ),
+        )
         .orderBy("links.catalog_id", "asc")
         .orderBy("links.session_key", "asc"),
     ).rows;
     const links = rows.map(rowToSessionUpstreamLink);
-    // Fail closed on the single-agent-per-key invariant: the key-only cursor join
+    // Fail closed on the single-agent-per-key invariant: the key-only cursor lookup
     // cannot disambiguate multiple agents sharing the exact same adopted key.
     // Drop every link for that key rather than probe an arbitrary agent's upstream.
     const keyCounts = new Map<string, number>();

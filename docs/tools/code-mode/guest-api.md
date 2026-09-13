@@ -80,14 +80,15 @@ type ToolCatalogMetadata = {
   toolName: string;
   label?: string;
   description: string;
-  source: "openclaw" | "client";
+  source: "openclaw" | "client" | "mcp";
+  apiPath?: string;
   input?: string;
   output?: string;
 };
 
 type ToolCatalogHandle = ((input?: unknown) => Promise<unknown>) &
   ToolCatalogMetadata & {
-    describe(): Promise<ToolCatalogDescription>;
+    describe(): Promise<ToolCatalogDescription | McpCatalogDescription>;
     toJSON(): ToolCatalogMetadata;
   };
 ```
@@ -106,8 +107,22 @@ or plugin `outputSchema`. MCP and client output-schema claims are not promoted
 into this trusted catalog hint.
 
 Plugin tools use `source: "openclaw"`; there is no separate `"plugin"` source
-value. MCP entries are excluded from generic catalog discovery and remain
-available only through `MCP`.
+value. Search includes visible MCP tools using the same ranking and total result
+limit as native tools. An MCP handle has `source: "mcp"`, a fully qualified
+`callableName` such as `MCP.accounting.listInvoices`, the original MCP
+`toolName`, and an `apiPath` such as `mcp/accounting.d.ts`. Its remote description
+is limited to 512 UTF-16 code units without splitting surrogate pairs; input and
+output hints remain absent. Returning or emitting MCP discovery metadata uses
+the normal untrusted-content wrapper, even if no MCP tool is called.
+
+MCP handles invoke the existing namespace path with one object argument, including
+its input defaults, policy checks, approvals, and native MCP result projection.
+Their `describe()` returns the exact tool's `$api(method, { schema: true })`
+header and schemas. A normalized method name takes precedence over a colliding
+original tool name when selecting a `$api` declaration. Use `API.read(handle.apiPath)` for the entire server's
+TypeScript declaration. Search also accepts the fully qualified `callableName`.
+`catalog.all()` continues to list only native and client handles; searching does
+not add remote tools to that list or to the trusted quick index.
 
 Full schema is loaded only on demand:
 
@@ -116,6 +131,20 @@ type ToolCatalogDescription = Omit<ToolCatalogMetadata, "toolName"> & {
   name: string;
   parameters: unknown;
   outputSchema?: unknown;
+};
+```
+
+MCP description shape:
+
+```typescript
+type McpCatalogDescription = {
+  kind: "mcp_api";
+  scope: "tool";
+  server: { identifier: string; serverName: string };
+  header: string;
+  tools: unknown[];
+  schemas: Record<string, unknown>;
+  note: string;
 };
 ```
 
@@ -165,8 +194,9 @@ const schema = await search.describe();
 const hits = await search({ query: "OpenClaw code mode" });
 ```
 
-Calling a global or catalog handle returns the normal tool's JSON `details`
-value directly. Exact catalog ids and raw `{ tool, result }` envelopes are not
+Calling a native global or native catalog handle returns the normal tool's JSON `details`
+value directly. MCP handles retain the native MCP result (`content`, optional
+`structuredContent`, and optional `isError`). Exact catalog ids and raw `{ tool, result }` envelopes are not
 guest-visible.
 
 The `ls`, `find`, and `grep` tools include their bounded listing or search text

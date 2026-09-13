@@ -3383,6 +3383,56 @@ describe("capability cli", () => {
     expect(outputs[0]?.kind).toBe("audio.transcription");
   });
 
+  it.each([
+    { root: "infer", json: true },
+    { root: "infer", json: false },
+    { root: "capability", json: true },
+    { root: "capability", json: false },
+  ])("reports actual audio attribution for $root with json=$json", async ({ root, json }) => {
+    const result = {
+      text: "meeting notes",
+      provider: "fixture-asr",
+      model: "fixture-actual-model",
+    };
+    mocks.transcribeAudioFile.mockResolvedValueOnce(result);
+
+    await runCap(
+      root,
+      "audio",
+      "transcribe",
+      "--file",
+      "memo.m4a",
+      "--model",
+      "openai/whisper-1",
+      ...(json ? ["--json"] : []),
+    );
+
+    if (json) {
+      expect(firstJsonOutput()).toEqual({
+        ok: true,
+        capability: "audio.transcribe",
+        transport: "local",
+        provider: result.provider,
+        model: result.model,
+        attempts: [],
+        outputs: [
+          { path: path.resolve("memo.m4a"), text: result.text, kind: "audio.transcription" },
+        ],
+      });
+    } else {
+      expect(mocks.runtime.log.mock.calls.at(-1)?.[0]).toBe(
+        [
+          "audio.transcribe via local",
+          "provider: fixture-asr",
+          "model: fixture-actual-model",
+          "outputs: 1",
+          path.resolve("memo.m4a"),
+          result.text,
+        ].join("\n"),
+      );
+    }
+  });
+
   it("resolves command SecretRefs before local audio transcription", async () => {
     const rawConfig = { models: { providers: { openai: { apiKey: "raw-ref" } } } };
     const resolvedConfig = { models: { providers: { openai: { apiKey: "resolved-key" } } } };

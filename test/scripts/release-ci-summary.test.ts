@@ -9,10 +9,18 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildFullReleaseCandidateRequest } from "../../scripts/full-release-candidate-contract.mjs";
 import {
+  createPublicationSourceFact,
+  publicationDispatchEnvelope,
+  publicationIntentInputs,
+  publicationSourceRequest,
+  publicationSourceJson,
+} from "../../scripts/full-release-publication-contract.mjs";
+import {
   buildReleaseExecutionPlanArtifact,
   composeReleaseAttemptJobs,
   MAX_RELEASE_ARTIFACT_BYTES,
   releaseCompositeJobsSha256,
+  releaseExecutionPlanSha256,
   type ReleaseExecutionPlan,
 } from "../../scripts/full-release-validation-policy.mjs";
 import {
@@ -187,6 +195,18 @@ describe("GitHub API commands", () => {
         parent: fixture.parentRun,
         parentView: fixture.parentView,
         rate: { resources: { core: { limit: 5000, remaining: 4999, reset: 2_000_000_000 } } },
+        workflow: {
+          type: "file",
+          encoding: "base64",
+          path: ".github/workflows/full-release-validation.yml",
+          content: Buffer.from("name: Full Release Validation\n").toString("base64"),
+          size: Buffer.byteLength("name: Full Release Validation\n"),
+          sha: createHash("sha1")
+            .update(
+              `blob ${Buffer.byteLength("name: Full Release Validation\n")}\0name: Full Release Validation\n`,
+            )
+            .digest("hex"),
+        },
       }),
     );
     writeFileSync(
@@ -201,6 +221,7 @@ let output;
 if (args[0] === "run" && args[1] === "view") output = fixtures.parentView;
 else if (args[0] === "auth" && args[1] === "token") output = "wrapper-only-token";
 else if (endpoint === "rate_limit") output = fixtures.rate;
+else if (endpoint === "repos/openclaw/openclaw/contents/.github/workflows/full-release-validation.yml?ref=${workflowSha}") output = fixtures.workflow;
 else if (endpoint === "repos/openclaw/openclaw/actions/runs/${runId}") output = fixtures.parent;
 else if (endpoint.startsWith("repos/openclaw/openclaw/actions/runs/${runId}/artifacts?")) output = fixtures.artifactList;
 else if (endpoint === "repos/openclaw/openclaw/actions/artifacts/${artifactId}") output = fixtures.artifact;
@@ -798,6 +819,7 @@ function trustedMainPackageFixture({
     };
   };
   const client = {
+    getWorkflowSource: (_sha: string) => "name: Full Release Validation\n",
     compareCommitLineage: compareCommits,
     compareCommits,
     getJobLog(jobId: number) {
@@ -1522,6 +1544,109 @@ describe("release CI summary child correlation", () => {
     expectDefined(fixture.runs[0], "CI run").status = "in_progress";
     await expect(validateReleaseRunEvidence(options, fixture.client)).rejects.toThrow();
   });
+
+  it.each(["complete", "deleted-manifest", "deleted-plan", "changed-plan"])(
+    "verifies source admission against the immutable workflow and plan: %s",
+    async (mutation) => {
+      const fixture = trustedMainNpmFixture();
+      const inputs = fixture.manifest.validationInputs;
+      const sourceAdmission = createPublicationSourceFact(
+        publicationSourceRequest({
+          PUBLICATION_INPUTS_JSON: JSON.stringify({
+            ref: fixture.targetSha,
+            trusted_workflow_json: publicationDispatchEnvelope(null, {
+              validationPurpose: "publish",
+              publicationSelection: {
+                route: "normal",
+                npmDistTag: "beta",
+                publishOpenclawNpm: true,
+                pluginPublishScope: "all-publishable",
+                plugins: [],
+              },
+            }),
+            release_profile: "beta",
+            rerun_group: "all",
+            provider: inputs.provider,
+            mode: inputs.mode,
+            npm_telegram_provider_mode: inputs.npmTelegramProviderMode,
+            skip_package_telegram_e2e: inputs.skipPackageTelegramE2e,
+          }),
+          PUBLICATION_TARGET_CONTEXT: inputs.targetContextRef,
+          PUBLICATION_COVERAGE_POLICY: inputs.coveragePolicy,
+          PUBLICATION_TOOLING_JSON: JSON.stringify({
+            fullRef: "refs/heads/main",
+            sha: fixture.workflowSha,
+          }),
+          PUBLICATION_TARGET_SHA: fixture.targetSha,
+          GITHUB_REPOSITORY: "openclaw/openclaw",
+          GITHUB_REF: "refs/heads/main",
+          GITHUB_SHA: fixture.workflowSha,
+          GITHUB_RUN_ID: fixture.runId,
+          GITHUB_RUN_ATTEMPT: "1",
+        }),
+        { packages: [], platforms: [] },
+        {
+          version: expectDefined(inputs.targetVersion, "target version"),
+          packages: [{ name: "openclaw", version: inputs.targetVersion, targets: ["npm"] }],
+          platforms: [],
+        },
+      );
+      Object.assign(fixture.executionPlan, { sourceAdmissionContract: "1", sourceAdmission });
+      fixture.executionPlan.sha256 = releaseExecutionPlanSha256(fixture.executionPlan);
+      const manifest = Object.assign(fixture.manifest, {
+        sourceAdmissionContract: "1",
+        sourceAdmission,
+        trustedWorkflow: fixture.executionPlan.trustedWorkflow,
+        executionPlanSha256: fixture.executionPlan.sha256,
+      });
+      Object.assign(inputs, publicationIntentInputs(sourceAdmission));
+      const client = {
+        ...fixture.client,
+        getWorkflowSource: vi.fn((sha: string) => {
+          expect(sha).toBe(fixture.workflowSha);
+          return 'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n';
+        }),
+      };
+      if (mutation === "deleted-manifest") {
+        Reflect.deleteProperty(manifest, "sourceAdmission");
+        Reflect.deleteProperty(manifest, "sourceAdmissionContract");
+        Reflect.deleteProperty(inputs, "validationPurpose");
+        Reflect.deleteProperty(inputs, "publicationSelectionJson");
+      } else if (mutation === "deleted-plan") {
+        delete fixture.executionPlan.sourceAdmission;
+        delete fixture.executionPlan.sourceAdmissionContract;
+        fixture.executionPlan.sha256 = releaseExecutionPlanSha256(fixture.executionPlan);
+        manifest.executionPlanSha256 = fixture.executionPlan.sha256;
+      } else if (mutation === "changed-plan") {
+        const { digest: _digest, ...changed } = sourceAdmission;
+        changed.publicationSelection = {
+          ...expectDefined(sourceAdmission.publicationSelection, "publication selection"),
+          route: "prepared",
+        };
+        fixture.executionPlan.sourceAdmission = {
+          ...changed,
+          digest: createHash("sha256").update(publicationSourceJson(changed)).digest("hex"),
+        };
+        fixture.executionPlan.sha256 = releaseExecutionPlanSha256(fixture.executionPlan);
+        manifest.executionPlanSha256 = fixture.executionPlan.sha256;
+      }
+      const result = validateReleaseRunEvidence(
+        {
+          runId: fixture.runId,
+          verifierSourceContent: readFileSync(SCRIPT),
+          verifierSourceSha: "c".repeat(40),
+        },
+        client,
+      );
+      if (mutation === "complete") {
+        expect((await result).children).toHaveLength(5);
+        expect(client.getWorkflowSource).toHaveBeenCalledTimes(1);
+        expect(client.loadExecutionPlan).toHaveBeenCalledTimes(1);
+      } else {
+        await expect(result).rejects.toThrow(/source admission/u);
+      }
+    },
+  );
 
   it("retains blocking product performance in sealed npm stable evidence", async () => {
     const fixture = trustedMainNpmFixture("stable");

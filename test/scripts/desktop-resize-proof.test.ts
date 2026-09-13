@@ -26,7 +26,10 @@ const merge = "c".repeat(40);
 const tree = "d".repeat(40);
 const size = { width: 1200, height: 850 };
 const assets = { "index-fixture.js": "e".repeat(64) };
-const rawTestReport = (message = "AssertionError: private-token") => ({
+const rawTestReport = (
+  message = "AssertionError: private-token",
+  metadata: Record<string, unknown> = {},
+) => ({
   success: true,
   numTotalTests: 1,
   numFailedTests: 1,
@@ -43,13 +46,23 @@ const rawTestReport = (message = "AssertionError: private-token") => ({
           fullName: "private-title",
           status: "failed",
           location: { line: 120, column: 3 },
-          meta: { desktopProofPhase: "node-admission", password: "private-token" },
+          meta: { desktopProofPhase: "node-admission", password: "private-token", ...metadata },
           failureMessages: [message],
         },
       ],
     },
   ],
 });
+const viewerFailure = {
+  expected: size,
+  lastFramebuffer: { width: 900, height: 500 },
+  snapshotStatus: "available",
+  pageClosed: false,
+  canvasCount: 1,
+  snapshotFramebuffer: { width: 900, height: 500 },
+  socketCount: 2,
+  latestReadyState: 1,
+};
 const proof = (carrier: "node" | "ssh" = "node") => ({
   carrier,
   gateway: { execution: "built-process", readiness: "readyz", minimal: false },
@@ -214,6 +227,100 @@ describe("desktop proof identity and public evidence", () => {
   ])("classifies only the emitted timeout contract: %s", (message, category) => {
     const result = desktopProofTestReport(rawTestReport(message));
     expect(result.files[0]?.assertions[0]?.failures[0]?.category).toBe(category);
+  });
+
+  it.each([
+    { label: "mismatch", override: {} },
+    {
+      label: "missing canvas",
+      override: { canvasCount: 0, lastFramebuffer: null, snapshotFramebuffer: null },
+    },
+    { label: "multiple canvases", override: { canvasCount: 2, snapshotFramebuffer: null } },
+    {
+      label: "zero framebuffer",
+      override: {
+        lastFramebuffer: { width: 0, height: 0 },
+        snapshotFramebuffer: { width: 0, height: 0 },
+      },
+    },
+    {
+      label: "unavailable snapshot",
+      override: {
+        snapshotStatus: "unavailable",
+        pageClosed: true,
+        canvasCount: null,
+        snapshotFramebuffer: null,
+        socketCount: null,
+        latestReadyState: null,
+      },
+    },
+    {
+      label: "timed-out snapshot",
+      override: {
+        snapshotStatus: "timed-out",
+        canvasCount: null,
+        snapshotFramebuffer: null,
+        socketCount: null,
+        latestReadyState: null,
+      },
+    },
+  ])("retains bounded viewer failure diagnostics: $label", async ({ override }) => {
+    const diagnostics = { ...viewerFailure, ...override };
+    const root = dirs.make("desktop-viewer-report-");
+    const file = path.join(root, "report.json");
+    await writeFile(
+      file,
+      JSON.stringify(
+        rawTestReport(undefined, {
+          desktopViewerResizeFailure: {
+            ...diagnostics,
+            expected: { ...diagnostics.expected, privateText: "private-token" },
+            html: "private-dom",
+            socketUrl: "https://example.invalid/private-token",
+            error: "private-error",
+          },
+        }),
+      ),
+    );
+    const report = await readDesktopProofTestReport(file);
+    expect(report.files[0]?.assertions[0]).toMatchObject({ viewerResize: diagnostics });
+    expect(JSON.stringify(report)).not.toMatch(/private|token|password|html|socketUrl|https/u);
+  });
+
+  it.each([
+    { snapshotStatus: "private-token" },
+    { pageClosed: 0 },
+    { canvasCount: -1 },
+    { canvasCount: 10_001 },
+    { socketCount: Number.NaN },
+    { latestReadyState: 4 },
+    { expected: { width: Infinity, height: 850 } },
+    { lastFramebuffer: { width: 0.5, height: 0 } },
+    { snapshotFramebuffer: { width: 8193, height: 0 } },
+  ])("rejects invalid viewer diagnostic bounds: %j", (override) => {
+    expect(() =>
+      desktopProofTestReport(
+        rawTestReport(undefined, {
+          desktopViewerResizeFailure: { ...viewerFailure, ...override },
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it("leaves successful reporter output unchanged even with failure metadata", () => {
+    const report = rawTestReport(undefined, { desktopViewerResizeFailure: viewerFailure });
+    report.numFailedTests = 0;
+    report.numFailedTestSuites = 0;
+    report.testResults[0]!.status = "passed";
+    report.testResults[0]!.assertionResults[0]!.status = "passed";
+    report.testResults[0]!.assertionResults[0]!.failureMessages = [];
+    expect(desktopProofTestReport(report).files[0]?.assertions[0]).toEqual({
+      index: 0,
+      status: "passed",
+      phase: "node-admission",
+      declarationLocation: { line: 120, column: 3 },
+      failures: [],
+    });
   });
 
   it("rejects unknown report files and excessive counts, and ignores unknown metadata phases", () => {

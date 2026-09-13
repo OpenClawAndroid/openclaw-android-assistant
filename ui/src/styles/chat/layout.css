@@ -311,9 +311,12 @@ openclaw-chat-page {
    item, never to the surface: only the icon, heading and a low-opacity edge
    carry tone while the card keeps the composer's own surface and geometry. */
 :is(.chat-composer-neighbor-card, .session-suggestion, .chat-pr.chat-pr) {
-  padding: 10px 12px;
   border-radius: calc(16px * var(--openclaw-corner-radius-scale));
   corner-shape: superellipse(1.5);
+}
+
+:is(.chat-composer-neighbor-card, .session-suggestion) {
+  padding: 10px 12px;
 }
 
 .chat-composer-neighbor-card {
@@ -2154,6 +2157,7 @@ openclaw-chat-video-player {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  padding: 4px 12px;
   border: 1px solid var(--border);
   background: var(--panel);
   font-size: 13px;
@@ -2245,6 +2249,14 @@ openclaw-chat-video-player {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+}
+
+.chat-pr__meta .chat-icon-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 3px;
 }
 
 .chat-pr__diff {
@@ -2408,8 +2420,8 @@ button.chat-pr__diff {
 .chat-pr__create {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 3px 10px;
+  min-height: 24px;
+  padding: 1px 10px;
   border: 0;
   border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--muted) 10%, transparent);

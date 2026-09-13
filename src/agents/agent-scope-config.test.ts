@@ -1,5 +1,6 @@
 // Agent scope tests cover which per-agent fields may flatten into runtime defaults.
 import { describe, expect, it, vi } from "vitest";
+import { retainLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
 import { migratePersistedImplicitMainRoster } from "../config/legacy.roster.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -15,7 +16,9 @@ import {
   resolveDefaultAgentId,
   resolveSoleAgentId,
   tryResolveAmbientOwnerAgentId,
+  tryResolveAgentOperationAgentId,
   tryResolveDefaultAgentId,
+  tryResolveLegacyCompatibilityAgentId,
   tryResolveSoleAgentId,
 } from "./agent-scope-config.js";
 
@@ -131,6 +134,14 @@ describe("agent roster resolution", () => {
       expected: "solo",
     },
     {
+      name: "sole explicit agent without a default designation",
+      config: retainLegacyDefaultAgentId(
+        { agents: { ownership: "explicit", entries: { solo: {} } } },
+        "solo",
+      ),
+      expected: "solo",
+    },
+    {
       name: "explicit requested agent before every configured owner",
       config: {
         agents: {
@@ -156,6 +167,7 @@ describe("agent roster resolution", () => {
       agents: { ownership: "explicit" as const, entries: { ops: {}, research: {} } },
     } satisfies OpenClawConfig;
 
+    retainLegacyDefaultAgentId(ownerlessFleet, "ops");
     expect(tryResolveAmbientOwnerAgentId(ownerlessFleet)).toBeUndefined();
     expect(() => resolveAmbientOwnerAgentId(ownerlessFleet)).toThrow(AgentSelectionRequiredError);
     expect(() =>
@@ -212,6 +224,62 @@ describe("agent roster resolution", () => {
 
     expect(cfg.agents?.entries?.ops?.default).toBeUndefined();
     expect(resolveAgentOperationAgentId(cfg)).toBe("ops");
+  });
+
+  it("uses the recorded explicit owner ahead of migration provenance and retired markers", () => {
+    const migrated = migratePersistedImplicitMainRoster({
+      agents: {
+        defaults: { systemAgent: { agentId: "research" } },
+        entries: { ops: { default: true }, research: {} },
+      },
+    }).config as OpenClawConfig;
+    migrated.agents!.ownership = "explicit";
+    for (const config of [migrated, structuredClone(migrated)]) {
+      expect(tryResolveLegacyCompatibilityAgentId(config)).toBe("research");
+      expect(resolveAgentOperationAgentId(config)).toBe("research");
+      expect(resolveAmbientOwnerAgentId(config)).toBe("research");
+      expect(tryResolveDefaultAgentId(config)).toBeUndefined();
+    }
+  });
+
+  it.each([undefined, "", "deleted"])(
+    "does not infer an explicit fleet owner from a retired marker with designation %s",
+    (agentId) => {
+      const config: OpenClawConfig = {
+        agents: {
+          ownership: "explicit",
+          defaults: { systemAgent: { agentId } },
+          entries: { ops: { default: true }, research: {} },
+        },
+      };
+      retainLegacyDefaultAgentId(config, "ops");
+      expect(tryResolveLegacyCompatibilityAgentId(config)).toBeUndefined();
+      expect(tryResolveAgentOperationAgentId(config)).toBeUndefined();
+    },
+  );
+
+  it.each([undefined, "explicit"] as const)(
+    "requires explicit ownership for a designated operation owner (%s)",
+    (ownership) => {
+      const config: OpenClawConfig = {
+        agents: {
+          ownership,
+          defaults: { systemAgent: { agentId: "research" } },
+          entries: { ops: {}, research: {} },
+        },
+      };
+      expect(tryResolveAgentOperationAgentId(config)).toBe(
+        ownership === "explicit" ? "research" : undefined,
+      );
+    },
+  );
+
+  it("does not designate a sole explicit agent from migration provenance", () => {
+    const config = retainLegacyDefaultAgentId(
+      { agents: { ownership: "explicit", entries: { ops: {} } } },
+      "ops",
+    );
+    expect(tryResolveLegacyCompatibilityAgentId(config)).toBeUndefined();
   });
 
   it("prefers a per-agent toolProgressDetail over the roster default", () => {

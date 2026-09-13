@@ -118,12 +118,14 @@ function makeClient(
     sessionCapsCeiling?: string[];
     sessionCommandsCeiling?: string[];
     socket?: GatewayWsClient["socket"];
+    webSocket?: GatewayWsClient["webSocket"];
   } = {},
 ): GatewayWsClient {
   return {
     connId,
     usesSharedGatewayAuth: false,
     socket: opts.socket ?? (createTestNodeSocket(sent) as unknown as GatewayWsClient["socket"]),
+    webSocket: opts.webSocket,
     connect: {
       minProtocol: 1,
       maxProtocol: 1,
@@ -225,7 +227,7 @@ function makeConnectivitySocket(emitPong: boolean) {
       queueMicrotask(() => socket.emit("pong"));
     }
   };
-  return socket as unknown as GatewayWsClient["socket"];
+  return socket as unknown as GatewayWsClient["socket"] & NonNullable<GatewayWsClient["webSocket"]>;
 }
 
 function registerNode(registry: NodeRegistry, opts: Parameters<typeof makeClient>[3] = {}) {
@@ -1714,10 +1716,12 @@ describe("gateway/node-registry", () => {
 
   it("checks node websocket connectivity with ping/pong", async () => {
     const registry = createTestNodeRegistry();
+    const socket = makeConnectivitySocket(true);
     registerNodeSession(
       registry,
       makeClient("conn-1", "node-1", [], {
-        socket: makeConnectivitySocket(true),
+        socket,
+        webSocket: socket,
       }),
       {},
     );
@@ -1729,7 +1733,7 @@ describe("gateway/node-registry", () => {
     const registry = createTestNodeRegistry();
     const socket = makeConnectivitySocket(true);
     const ping = vi.spyOn(socket, "ping");
-    const client = makeClient("conn-invalidated", "node-1", [], { socket });
+    const client = makeClient("conn-invalidated", "node-1", [], { socket, webSocket: socket });
     registerNodeSession(registry, client, {});
     client.invalidated = true;
 
@@ -1743,12 +1747,17 @@ describe("gateway/node-registry", () => {
   it("does not report an old websocket as connected after its node reconnects", async () => {
     const registry = createTestNodeRegistry();
     const oldSocket = makeConnectivitySocket(false);
-    registerNodeSession(registry, makeClient("conn-old", "node-1", [], { socket: oldSocket }), {});
+    registerNodeSession(
+      registry,
+      makeClient("conn-old", "node-1", [], { socket: oldSocket, webSocket: oldSocket }),
+      {},
+    );
 
     const connectivity = registry.checkConnectivity("node-1", 50);
+    const newSocket = makeConnectivitySocket(true);
     const replacement = registerNodeSession(
       registry,
-      makeClient("conn-new", "node-1", [], { socket: makeConnectivitySocket(true) }),
+      makeClient("conn-new", "node-1", [], { socket: newSocket, webSocket: newSocket }),
       {},
     );
     (oldSocket as unknown as EventEmitter).emit("pong");
@@ -1778,9 +1787,10 @@ describe("gateway/node-registry", () => {
     );
 
     const connectivity = registry.checkConnectivity("node-1", 50);
+    const newSocket = makeConnectivitySocket(true);
     const replacement = registerNodeSession(
       registry,
-      makeClient("conn-new", "node-1", [], { socket: makeConnectivitySocket(true) }),
+      makeClient("conn-new", "node-1", [], { socket: newSocket, webSocket: newSocket }),
       {},
     );
     resolveProbe?.({ ok: true });
@@ -1808,7 +1818,11 @@ describe("gateway/node-registry", () => {
     };
     let frames: string[] = [];
     let socket = makeTrackedSocket(frames);
-    registerNodeSession(registry, makeClient("conn-0", "node-1", frames, { socket }), {});
+    registerNodeSession(
+      registry,
+      makeClient("conn-0", "node-1", frames, { socket, webSocket: socket }),
+      {},
+    );
 
     for (let attempt = 1; attempt <= 50; attempt += 1) {
       const previousSocket = socket;
@@ -1828,7 +1842,7 @@ describe("gateway/node-registry", () => {
       socket = makeTrackedSocket(frames);
       const replacement = registerNodeSession(
         registry,
-        makeClient(`conn-${attempt}`, "node-1", frames, { socket }),
+        makeClient(`conn-${attempt}`, "node-1", frames, { socket, webSocket: socket }),
         {},
       );
       (previousSocket as unknown as EventEmitter).emit("pong");
@@ -1861,10 +1875,12 @@ describe("gateway/node-registry", () => {
 
   it("reports stale node websocket connectivity before invoke timeout", async () => {
     const registry = createTestNodeRegistry();
+    const socket = makeConnectivitySocket(false);
     registerNodeSession(
       registry,
       makeClient("conn-1", "node-1", [], {
-        socket: makeConnectivitySocket(false),
+        socket,
+        webSocket: socket,
       }),
       {},
     );

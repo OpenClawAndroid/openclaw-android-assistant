@@ -487,7 +487,7 @@ export async function updateGitInstall(params: {
       root: params.root,
       reason: "npm lifecycle policy preflight",
       recovery: await (params.installKind === "git"
-        ? readCurrentGitUpdateRecovery(params.root)
+        ? readCurrentGitUpdateRecovery(params.root, effectiveTimeout)
         : verifyPackageUpdateRecovery(params.root)),
       steps: [],
       durationMs: Date.now() - params.startedAt,
@@ -585,7 +585,7 @@ export async function updateGitInstall(params: {
         root: params.root,
         reason: cloneStep.name,
         recovery: await (params.installKind === "git"
-          ? readCurrentGitUpdateRecovery(params.root)
+          ? readCurrentGitUpdateRecovery(params.root, effectiveTimeout)
           : verifyPackageUpdateRecovery(params.root)),
         steps: [cloneStep],
         durationMs: Date.now() - params.startedAt,

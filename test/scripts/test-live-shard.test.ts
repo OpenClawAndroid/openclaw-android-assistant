@@ -557,6 +557,7 @@ describe("scripts/test-live-shard", () => {
 
   it("allows GPT-Live files to be skipped until their shared opt-in is enabled", () => {
     const gptLiveFiles = [
+      "extensions/openai/realtime-meeting.live.test.ts",
       "extensions/openai/realtime-quicksilver-gateway-bridge.live.test.ts",
       "extensions/openai/realtime-quicksilver.live.test.ts",
       "extensions/openai/realtime-talk-defaults.live.test.ts",

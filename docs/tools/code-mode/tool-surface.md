@@ -236,9 +236,11 @@ because their structured results cannot cross the QuickJS bridge.
 
 MCP entries stay in the run-scoped catalog so policy, approvals, hooks,
 telemetry, transcript projection, and exact tool ids remain shared with
-normal tool execution. Generic guest `catalog.search(...)` and `catalog.all()`
-omit MCP entries. The generated `MCP.<server>.<tool>({ ...input })` namespace
-resolves to its host-only entry and dispatches through the same executor path.
+normal tool execution. `catalog.search(...)` searches native and MCP capabilities
+together and returns callable handles. MCP matches identify their final
+`MCP.<server>.<tool>` path and declaration file; invoking a handle uses that
+same namespace dispatcher. `catalog.all()` lists only native and client handles.
+Remote descriptions and schemas stay out of the trusted quick index.
 
 ## Tool Search interaction
 
@@ -251,9 +253,9 @@ When Code Mode engages through forced `true` or `"auto"` activation:
   or `tool_call` as model-visible tools.
 - The same cataloging idea moves inside the guest runtime.
 - The guest runtime receives bare async globals plus callable search/describe
-  handles for non-MCP tools.
-- MCP calls use the generated `MCP` namespace and its `$api()` headers instead
-  of generic catalog discovery.
+  handles for native tools, plus on-demand MCP search handles.
+- MCP calls use the generated `MCP` namespace, directly or through a search
+  handle; handle `describe()` requests the exact `$api()` header and schema.
 - Nested calls dispatch through the same OpenClaw executor path that Tool
   Search uses.
 

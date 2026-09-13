@@ -70,6 +70,52 @@ suite.define(() => {
             hasText: "Inspect the workspace guide",
           })
           .waitFor();
+        await gateway.emitGatewayEvent("agent", {
+          runId,
+          sessionKey,
+          seq: 2,
+          ts: Date.now(),
+          stream: "tool",
+          data: {
+            phase: "start",
+            toolCallId: "live-child",
+            parentToolCallId: "live-check",
+            name: "exec",
+            args: { command: "printf '\n--- workspace ---\n'\nls" },
+          },
+        });
+        const activity = page.locator(".chat-activity-group", {
+          hasText: "Inspect the workspace guide",
+        });
+        const summary = activity.locator(":scope > .chat-activity-group__summary");
+        await summary.waitFor();
+        expect(await summary.textContent()).toContain("Inspect the workspace guide");
+        expect(await summary.textContent()).not.toContain("printf");
+        await summary.click();
+        const operation = activity.locator(".chat-tool-row", {
+          hasText: "Inspect the workspace guide",
+        });
+        expect(await activity.locator(".chat-tool-row").count()).toBe(1);
+        await operation.click();
+        await activity.locator(".chat-tool-children .chat-tool-row--running").waitFor();
+        await gateway.emitGatewayEvent("agent", {
+          runId,
+          sessionKey,
+          seq: 3,
+          ts: Date.now(),
+          stream: "tool",
+          data: {
+            phase: "result",
+            toolCallId: "live-child",
+            parentToolCallId: "live-check",
+            name: "exec",
+            result: { content: [{ type: "text", text: "README.md" }] },
+          },
+        });
+        await expect
+          .poll(() => activity.locator(".chat-tool-children .chat-tool-row--running").count())
+          .toBe(0);
+        expect(await operation.getAttribute("aria-expanded")).toBe("true");
         expect(await gateway.getRequests("chat.toolTitles")).toHaveLength(0);
       },
     );

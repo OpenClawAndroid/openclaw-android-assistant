@@ -17,6 +17,7 @@ import {
   UpdateCommandFailure,
 } from "../cli/update-cli/update-command-result.js";
 import { createWindowsTaskAutoStartGuard } from "../cli/update-cli/update-command-service-maintenance.js";
+import { withUpdateCommandTerminalResult } from "../cli/update-cli/update-command-terminal.js";
 import { createWindowsTaskAutoStartRecovery } from "../cli/update-cli/update-command-windows-task.js";
 import { defaultRuntime } from "../runtime.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "../state/openclaw-agent-db-contract.js";
@@ -28,6 +29,7 @@ import {
   recordUpdateDoctorConfigWriteRefusal,
   writeUpdatePostInstallDoctorResult,
 } from "./update-doctor-result.js";
+import { resolveUpdateFinalizationTimeoutMs } from "./update-finalization-budget.js";
 import {
   createManagedUpdateRequesterAuthority,
   UpdateRequesterRevokedError,
@@ -72,14 +74,25 @@ async function finalizeMigratedUpdate(): Promise<void> {
       "Full-state checkpoint recovery is deferred; retained state was left unchanged.",
     );
   }
-  if (input.executor) {
-    await withDelegatedUpdateCommandExecutor(
-      input.executor,
-      input.params.opts.run?.runId ?? "",
-      input.params.result.root ?? input.params.root,
-      async (fence) => finalizeInput(input, fence),
-    );
-  } else {
+  const activationTimeoutMs =
+    input.params.opts.run?.activationTimeoutMs ??
+    (await resolveUpdateFinalizationTimeoutMs(input.params.updateStepTimeoutMs, {
+      env: input.params.ownedManagedUpdateEnv ?? input.params.opts.run?.env,
+      databases: input.params.schemaVersions,
+      pluginCount: Object.keys(input.params.preUpdatePluginInstallRecords).length,
+    }));
+  const finalized = await withUpdateCommandTerminalResult(async (registerRun) => {
+    if (input.executor) {
+      return await withDelegatedUpdateCommandExecutor(
+        input.executor,
+        input.params.opts.run?.runId ?? "",
+        input.params.result.root ?? input.params.root,
+        async (fence) => finalizeInput(input, fence, registerRun),
+        {
+          activationTimeoutMs,
+        },
+      );
+    }
     // The shipped v2026.9.3 producer overrides these selectors for worker
     // scratch, but retains its pre-override environment in the private input.
     // Restore only this one-shot worker's selectors before resolving the normal
@@ -98,11 +111,26 @@ async function finalizeMigratedUpdate(): Promise<void> {
     }
     // Acquire before adopting the run or making effects. Missing newer grants
     // still cannot bypass a live original or descendant in that same domain.
-    await withUpdateCommandExecutor(input.params.opts.run?.runId ?? "", async (executor) => {
-      const fence = await executor.enter(input.params.result.root ?? input.params.root);
-      await finalizeInput(input, fence);
+    return await withUpdateCommandExecutor(input.params.opts.run?.runId ?? "", async (executor) => {
+      const fence = await executor.enter(input.params.result.root ?? input.params.root, {
+        activationTimeoutMs,
+      });
+      return await finalizeInput(input, fence, registerRun);
     });
+  }, input.params.opts);
+  const terminal = getUpdateRun(finalized.run.runId, { env: finalized.run.env });
+  if (!terminal || terminal.status === "running") {
+    throw new Error("Candidate finalization left the update run nonterminal.");
   }
+  const response: MigratedUpdateFinalizationResult = {
+    result: finalized.result,
+    exitCode: finalized.exitCode,
+    terminalRunId: terminal.runId,
+    executorDelegation: "pid-start-v1",
+    automaticTriage: finalized.automaticTriage,
+  };
+  // Private response publication follows executor settlement and terminal history.
+  await fs.writeFile(input.resultPath, JSON.stringify(response), { mode: 0o600 });
 }
 
 async function runDelegatedDoctor(input: UpdateDoctorInput): Promise<void> {
@@ -118,7 +146,6 @@ async function runDelegatedDoctor(input: UpdateDoctorInput): Promise<void> {
       const requester = input.requester
         ? await createManagedUpdateRequesterAuthority(input.requester)
         : undefined;
-      const { runDoctorHealthFlow } = await import("../flows/doctor-health.js");
       const assertCurrent = () => {
         try {
           fence.assertCurrent();
@@ -152,6 +179,8 @@ async function runDelegatedDoctor(input: UpdateDoctorInput): Promise<void> {
         process.exitCode = 1;
         return;
       }
+      const { runDoctorHealthFlow } = await import("../flows/doctor-health.js");
+      assertCurrent();
       await runDoctorHealthFlow(
         {
           ...defaultRuntime,
@@ -168,8 +197,9 @@ async function runDelegatedDoctor(input: UpdateDoctorInput): Promise<void> {
 
 async function finalizeInput(
   input: MigratedUpdateFinalizationInput,
-  executorFence?: UpdateRecoveryFence,
-): Promise<void> {
+  executorFence: UpdateRecoveryFence,
+  registerRun: (run: NonNullable<UpdateCommandOptions["run"]>) => void,
+) {
   const transferredRun = input.params.opts.run;
   if (
     !transferredRun ||
@@ -197,7 +227,8 @@ async function finalizeInput(
         }
       : {}),
   };
-  executorFence?.assertCurrent();
+  executorFence.assertCurrent();
+  registerRun(run);
   for (const step of input.bufferedSteps) {
     executorFence?.assertCurrent();
     recordUpdateRunStep(run.runId, step, { env: run.env });
@@ -231,6 +262,7 @@ async function finalizeInput(
   try {
     result = await finishUpdate({
       ...input.params,
+      result: { ...input.params.result, runId: run.runId },
       opts: { ...input.params.opts, run },
       ...(stopped
         ? { preManagedServiceStop: { ...stopped, windowsTaskAutoStartRecovery: windowsRecovery } }
@@ -246,21 +278,8 @@ async function finalizeInput(
   } finally {
     await windowsRecovery?.complete(result?.status === "ok");
   }
-  executorFence?.assertCurrent();
-  const terminal = getUpdateRun(run.runId, { env: run.env });
-  if (!terminal || terminal.status === "running") {
-    throw new Error("Candidate finalization left the update run nonterminal.");
-  }
-  const response: MigratedUpdateFinalizationResult = {
-    result,
-    exitCode,
-    terminalRunId: terminal.runId,
-    ...(executorFence ? { executorDelegation: "pid-start-v1" as const } : {}),
-    automaticTriage,
-  };
-  executorFence?.assertCurrent();
-  await fs.writeFile(input.resultPath, JSON.stringify(response), { mode: 0o600 });
-  executorFence?.assertCurrent();
+  executorFence.assertCurrent();
+  return { run, result, exitCode, automaticTriage };
 }
 
 void (async () => {

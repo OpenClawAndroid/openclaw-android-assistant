@@ -2129,7 +2129,7 @@ describe("gateway run option collisions", () => {
     expect(runtimeErrors.join("\n")).toContain("newer");
     expect(runtimeErrors.join("\n")).toContain("restore your pre-update backup");
     expect(runtimeErrors.join("\n")).toMatch(
-      /Stop the service.*then restore your pre-update backup.*then start it again/s,
+      /Stop the service.*then restore your pre-update backup created with openclaw backup create, then start it again/s,
     );
     expect(triageAfterFailure).not.toHaveBeenCalled();
     expect(startGatewayServer).toHaveBeenCalledTimes(phase === "server" ? 1 : 0);

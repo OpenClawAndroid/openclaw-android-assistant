@@ -140,7 +140,9 @@ internal class WearRealtimeTalkClient(
         snapshot
       } catch (err: Throwable) {
         closeChannel(resources)
-        activatedAttempt?.let(::closeLocal)
+        // A failed start owes Voice the same audio error a failed restart publishes.
+        // Cancellation cannot reach here: nothing suspends between activate and return.
+        activatedAttempt?.let { closeLocal(it, failed = true) }
         if (channelOpened) {
           // Finish ambiguous-start cleanup before another attempt can acquire
           // the lifecycle lock and create a replacement relay for this Watch.

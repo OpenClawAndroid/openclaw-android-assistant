@@ -15,6 +15,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { validateFullReleaseCandidateRequest } from "./full-release-candidate-contract.mjs";
 import {
+  publicationSourceReuseIdentity,
+  validatePublicationSourceBinding,
+} from "./full-release-publication-contract.mjs";
+import {
   affectedActiveRunIds,
   buildReleaseExecutionPlan,
   buildReleaseExecutionPlanArtifact,
@@ -427,6 +431,15 @@ async function validateReuse(executionPlan, signal) {
     }
     validateReleaseTelegramWaiverBinding(executionPlan, evidence.manifest.validationInputs);
     validateReleaseCoveragePolicyBinding(executionPlan, evidence.manifest.validationInputs);
+    const source = validatePublicationSourceBinding(evidence.manifest, {
+      sourceAdmissionContract: executionPlan.sourceAdmissionContract,
+    });
+    if (
+      JSON.stringify(publicationSourceReuseIdentity(source)) !==
+      JSON.stringify(publicationSourceReuseIdentity(executionPlan.sourceAdmission))
+    ) {
+      throw new Error("reused source admission differs from the requested publication source");
+    }
     return {
       blockers: [],
       children: hydrateReusedPlan(plan, evidence),
@@ -527,6 +540,7 @@ function readArtifact(path, label) {
 
 function verifyMode() {
   const expected = {
+    sourceAdmissionContract: process.env.FULL_RELEASE_SOURCE_ADMISSION_CONTRACT || undefined,
     maxParentRunAttempt: positiveInteger(process.env.GITHUB_RUN_ATTEMPT, "parent run attempt"),
     parentRunId: requiredString(process.env.GITHUB_RUN_ID, "parent run ID"),
     repository: requiredString(process.env.GITHUB_REPOSITORY, "GitHub repository"),
@@ -551,6 +565,8 @@ function verifyMode() {
 
 function planExpected() {
   return {
+    sourceAdmissionContract: process.env.FULL_RELEASE_SOURCE_ADMISSION_CONTRACT || undefined,
+    targetContextRef: process.env.TARGET_CONTEXT_REF || undefined,
     coveragePolicy: process.env.COVERAGE_POLICY || undefined,
     telegramWaiver: process.env.TELEGRAM_WAIVER ?? "",
     ...(process.env.TARGET_VERSION ? { targetVersion: process.env.TARGET_VERSION } : {}),
@@ -655,6 +671,8 @@ async function planMode() {
   let finished = false;
   let plan = buildReleaseExecutionPlanArtifact({
     attemptEvidenceVersion,
+    sourceAdmissionContract: planInputs.sourceAdmissionContract,
+    sourceAdmission: planInputs.sourceAdmission,
     candidate,
     coveragePolicy: planInputs.coveragePolicy,
     children: built.children,
@@ -674,6 +692,8 @@ async function planMode() {
     abortController.abort(new Error("execution plan collection cancelled"));
     plan = buildReleaseExecutionPlanArtifact({
       attemptEvidenceVersion,
+      sourceAdmissionContract: plan.sourceAdmissionContract,
+      sourceAdmission: plan.sourceAdmission,
       blockers: plan.blockers,
       candidate: plan.candidate,
       coveragePolicy: plan.coveragePolicy,
@@ -712,6 +732,8 @@ async function planMode() {
   }
   plan = buildReleaseExecutionPlanArtifact({
     attemptEvidenceVersion,
+    sourceAdmissionContract: planInputs.sourceAdmissionContract,
+    sourceAdmission: planInputs.sourceAdmission,
     blockers: reuse.blockers,
     candidate,
     coveragePolicy: planInputs.coveragePolicy,
@@ -751,6 +773,7 @@ async function collectMode(mode) {
       "execution plan",
     ),
     {
+      sourceAdmissionContract: process.env.FULL_RELEASE_SOURCE_ADMISSION_CONTRACT || undefined,
       parentRunId: expected.parentRunId,
       repository: expected.repository,
       releaseProfile,
@@ -964,6 +987,7 @@ function readStateCandidates(root, prefix, runId, maxParentRunAttempt, filename)
 
 async function validateManifestMode() {
   const expected = {
+    sourceAdmissionContract: process.env.FULL_RELEASE_SOURCE_ADMISSION_CONTRACT || undefined,
     maxParentRunAttempt: positiveInteger(process.env.GITHUB_RUN_ATTEMPT, "parent run attempt"),
     parentRunId: requiredString(process.env.GITHUB_RUN_ID, "parent run ID"),
     repository: requiredString(process.env.GITHUB_REPOSITORY, "GitHub repository"),
@@ -1001,6 +1025,7 @@ async function validateManifestMode() {
   const rawManifest = readArtifact(manifestPath, "release validation manifest");
   const { validateParentManifest } = await import("./release-ci-summary.mjs");
   const manifest = validateParentManifest(rawManifest, {
+    sourceAdmissionContract: expected.sourceAdmissionContract,
     candidateBinding: executionPlan.candidate ?? null,
     repository: expected.repository,
     runAttempt: positiveInteger(process.env.GITHUB_RUN_ATTEMPT, "parent run attempt"),
@@ -1008,6 +1033,14 @@ async function validateManifestMode() {
     workflowRef: executionPlan.workflowRef,
     workflowSha: executionPlan.workflowSha,
   });
+  if (
+    JSON.stringify(rawManifest.sourceAdmission) !== JSON.stringify(executionPlan.sourceAdmission) ||
+    rawManifest.sourceAdmissionContract !== executionPlan.sourceAdmissionContract ||
+    (executionPlan.sourceAdmissionContract &&
+      JSON.stringify(rawManifest.trustedWorkflow) !== JSON.stringify(executionPlan.trustedWorkflow))
+  ) {
+    throw new Error("release manifest source admission differs from its immutable plan");
+  }
   validateReleaseTelegramWaiverBinding(executionPlan, manifest.validationInputs);
   validateReleaseCoveragePolicyBinding(executionPlan, manifest.validationInputs);
   const expectedChildRunIds = Object.fromEntries(
@@ -1073,6 +1106,7 @@ async function validateManifestMode() {
 
 function selectMode() {
   const expected = {
+    sourceAdmissionContract: process.env.FULL_RELEASE_SOURCE_ADMISSION_CONTRACT || undefined,
     maxParentRunAttempt: positiveInteger(
       process.env.GITHUB_RUN_ATTEMPT,
       "current parent run attempt",

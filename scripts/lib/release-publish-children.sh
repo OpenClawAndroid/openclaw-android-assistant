@@ -148,9 +148,9 @@ dispatch_workflow_at_ref() {
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2026-03-10" \
     "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
-    --input -)"
-  run_id="$(printf '%s' "$dispatch_response" | jq -er '.workflow_run_id')"
-  run_url="$(printf '%s' "$dispatch_response" | jq -er '.html_url')"
+    --input -)" || return 1
+  run_id="$(printf '%s' "$dispatch_response" | jq -er '.workflow_run_id | tostring | select(test("^[1-9][0-9]*$"))')" || return 1
+  run_url="$(printf '%s' "$dispatch_response" | jq -er '.html_url | select(type == "string" and length > 0)')" || return 1
   verify_child_run_sha "$workflow" "$run_id" "$expected_sha" || return 1
 
   echo "Dispatched ${workflow} from ${workflow_ref} at ${expected_sha}: ${run_url}" >&2
@@ -879,6 +879,50 @@ verify_android_release_asset_contract() {
     --source-ref "refs/tags/${RELEASE_TAG}" \
     --deny-self-hosted-runners || return 1
   echo "- Android APK asset contract: verified" >> "${GITHUB_STEP_SUMMARY}"
+}
+
+dispatch_linux_release_assets() {
+  local release_train release_json workflow_sha request_run_id publication_state
+  release_train="$(node --input-type=module - "${BASH_SOURCE[0]%/*}/release-version.mjs" "${RELEASE_TAG}" <<'NODE'
+import { pathToFileURL } from "node:url";
+const { parseReleaseVersion, classifyReleaseTrain } = await import(pathToFileURL(process.argv[2]).href);
+const tag = process.argv[3];
+const parsed = tag.startsWith("v") ? parseReleaseVersion(tag.slice(1)) : null;
+console.log(parsed && tag === `v${parsed.version}` ? classifyReleaseTrain(parsed) : "invalid");
+NODE
+  )" || return 1
+  if [[ "${release_train}" != "stable" || "${RELEASE_NPM_DIST_TAG}" == "extended-stable" ]]; then
+    return 0
+  fi
+  jq -n --arg tag "$RELEASE_TAG" '{tag: $tag, state: "dispatch-unconfirmed"}' \
+    > "$RUNNER_TEMP/linux-dispatch.json"
+  release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease)" || return 1
+  if ! jq -e '.isDraft == false and .isPrerelease == false' <<< "$release_json" >/dev/null; then
+    echo "Linux release requests require a published stable GitHub release." >&2
+    return 1
+  fi
+  verify_release_tag_target || return 1
+  publication_state="$(node "${BASH_SOURCE[0]%/*}/../linux-updater-manifest.mjs" status \
+    --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" \
+    --output "$RUNNER_TEMP/linux-release-completion")" || return 1
+  if [[ "$(jq -er '.state' <<< "$publication_state")" == published &&
+        "$(jq -r '.needsUpdaterPublication' <<< "$publication_state")" != true ]]; then
+    jq -n --arg tag "$RELEASE_TAG" '{tag: $tag, state: "published-assets-reused"}' \
+      > "$RUNNER_TEMP/linux-dispatch.json"
+    echo "- Linux: existing same-tag AppImage, Debian package, signed updater manifest, and checksums verified; no build requested." >> "$GITHUB_STEP_SUMMARY"
+    return 0
+  fi
+  workflow_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+    --jq '.object.sha | select(test("^[a-f0-9]{40}$"))')" || return 1
+  verify_release_tag_target || return 1
+  # The request belongs to current main; its existing workflow_run builder
+  # validates the title, exact main SHA, release ancestry, and signing trust.
+  request_run_id="$(dispatch_workflow_at_ref main "$workflow_sha" linux-app-release-request.yml \
+    -f tag="$RELEASE_TAG" -f desktop-test-bundles=false)" || return 1
+  jq -n --arg tag "$RELEASE_TAG" --arg requestRunId "$request_run_id" --arg workflowSha "$workflow_sha" \
+    '{tag: $tag, state: "request-dispatched", requestRunId: $requestRunId, workflowSha: $workflowSha}' \
+    > "$RUNNER_TEMP/linux-dispatch.json"
+  echo "- Linux: request dispatched; release processing is pending and verified existing bundles will be reused. Request: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${request_run_id}; publication: https://github.com/${GITHUB_REPOSITORY}/actions/workflows/linux-app-release.yml" >> "$GITHUB_STEP_SUMMARY"
 }
 
 promote_windows_release_assets() {

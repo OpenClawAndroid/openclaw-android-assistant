@@ -129,7 +129,18 @@ function prepareChildEnv(entry: ShardPlan, baseEnv: NodeJS.ProcessEnv): NodeJS.P
     }
     for (const [key, value] of Object.entries(entry.plan.env ?? {})) {
       if (typeof value === "string") {
-        childEnv[key] = value;
+        const inherited = baseEnv[key]?.trim();
+        // Pins may lower the admitted job budget, never raise it. Compiler
+        // preparation and test children must inherit the same intersection.
+        childEnv[key] =
+          key === "OPENCLAW_VITEST_MAX_WORKERS" && inherited
+            ? String(
+                Math.min(
+                  parsePositiveInt(inherited, key),
+                  parsePositiveInt(value.trim() || inherited, key),
+                ),
+              )
+            : value;
       }
     }
   }

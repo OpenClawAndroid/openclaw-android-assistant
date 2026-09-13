@@ -32,21 +32,12 @@ import {
   type UpdateChannel,
   UPDATE_EFFECTIVE_CHANNEL_ENV,
 } from "./update-channels.js";
+import { resolveUpdateFinalizationTimeoutMs } from "./update-finalization-budget.js";
 import {
   buildPostCoreHandoffEnv,
   type PreUpdateConfigRestoreInput,
 } from "./update-post-core-context.js";
 import type { UpdateRunResult } from "./update-runner.js";
-
-// Whole-process backstop for the finalizer. `update finalize` runs several timed
-// steps (doctor + plugin update/convergence), each bounded by its own per-step
-// `--timeout`. The outer process kill must therefore be larger than a single
-// per-step bound, or a valid multi-step run would be killed and falsely reported
-// as `post-core-plugin-finalize-failed` (blocking the restart). We use a generous
-// floor and, when a larger per-step timeout is requested, scale the outer bound
-// above it rather than reusing the per-step value as the whole-process kill.
-const FINALIZE_PROCESS_TIMEOUT_FLOOR_MS = 30 * 60_000;
-const FINALIZE_PROCESS_STEP_BUDGET_MULTIPLIER = 6;
 
 export async function readPreUpdateConfigForPostCoreFinalize(): Promise<
   PreUpdateConfigRestoreInput | undefined
@@ -198,10 +189,11 @@ export async function runPostCoreFinalizeAfterGatewayUpdate(params: {
   // version so plugins reconcile against the new core, not the running process.
   const compatHostVersion = result.after?.version ?? undefined;
   // Outer whole-process backstop, decoupled from the per-step `--timeout` above.
-  const processTimeoutMs = Math.max(
-    FINALIZE_PROCESS_TIMEOUT_FLOOR_MS,
-    (perStepTimeoutMs ?? 0) * FINALIZE_PROCESS_STEP_BUDGET_MULTIPLIER,
-  );
+  const processTimeoutMs = await resolveUpdateFinalizationTimeoutMs(perStepTimeoutMs, {
+    env: params.env,
+    pluginCount: Object.keys(params.preUpdateConfig?.sourceConfig.plugins?.entries ?? {}).length,
+    nodeRunner: nodePath,
+  });
 
   let sourceConfigDir: string | undefined;
   try {

@@ -10,6 +10,8 @@ minimumReleaseAgeStrict: true
 
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
+  # Reviewed Opus WASM stack repair; remove after 2026-09-21.
+  - "libopus-wasm@0.4.0"
   # Reviewed proxy DNS/TLS controls; remove after 2026-09-15 10:08 UTC.
   - "@openclaw/proxyline@0.3.12"
   - "@openai/codex"

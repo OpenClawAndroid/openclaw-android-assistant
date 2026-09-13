@@ -22,7 +22,7 @@ import {
   type OpenClawStateDatabaseOptions,
 } from "./openclaw-state-db.js";
 import { isUserModelAuthProfileId, parseUserModelAuthProfileId } from "./user-model-account-id.js";
-import { selectResolvedUserProfileById } from "./user-profiles-internal.js";
+import { selectResolvedUserProfile, userProfilesDb } from "./user-profiles-internal.js";
 
 const credentialSchema = inlineAuthProfileCredentialSchema.refine(
   (credential) => credential.copyToAgents !== true,
@@ -84,7 +84,11 @@ function resolveOwner(db: DatabaseSync, profileId: string): string | undefined {
   if (!tableExists(db, "user_profiles")) {
     return undefined;
   }
-  const profile = selectResolvedUserProfileById(db, profileId);
+  const profile = selectResolvedUserProfile(
+    db,
+    profileId,
+    userProfilesDb(db).selectFrom("user_profiles").select(["id", "merged_into"]),
+  );
   // Profile display reads may return a stranded tombstone; it cannot own secrets.
   return profile && !profile.merged_into ? profile.id : undefined;
 }

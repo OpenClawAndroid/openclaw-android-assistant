@@ -90,7 +90,7 @@ describe("backup SQLite ownership", () => {
         closeOpenClawAgentDatabasesForTest();
         unregisterOpenClawAgentDatabase(registration);
         closeOpenClawStateDatabase();
-        expect(inspectOpenClawRegisteredAgentDatabases({ env: state.env })).toEqual([]);
+        expect(await inspectOpenClawRegisteredAgentDatabases({ env: state.env })).toEqual([]);
         const globalPath = resolveOpenClawStateSqlitePath(state.env);
         const output = state.path("registered-agent.tar.gz");
         const capture = sqliteSnapshot.createVerifiedSqliteSnapshot;

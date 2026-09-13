@@ -3,6 +3,7 @@ import type { Static } from "typebox";
 import { Type } from "typebox";
 import { closedObject } from "./closed-object.js";
 import { NonEmptyString, SecretInputSchema } from "./primitives.js";
+import { GatewayEventLoopHealthSchema } from "./runtime-vitals.js";
 
 /**
  * Channel and Talk protocol schemas.
@@ -677,20 +678,8 @@ const ChannelUiMetaSchema = closedObject({
 
 /** Event-loop health snapshot included with channel status responses. */
 const ChannelEventLoopHealthSchema = closedObject({
-  degraded: Type.Boolean(),
-  degradedSinceMs: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
-  reasons: Type.Array(
-    Type.Union([
-      Type.Literal("event_loop_delay"),
-      Type.Literal("event_loop_utilization"),
-      Type.Literal("cpu"),
-    ]),
-  ),
+  ...GatewayEventLoopHealthSchema.properties,
   intervalMs: Type.Integer({ minimum: 0 }),
-  delayP99Ms: Type.Number({ minimum: 0 }),
-  delayMaxMs: Type.Number({ minimum: 0 }),
-  utilization: Type.Number({ minimum: 0 }),
-  cpuCoreRatio: Type.Number({ minimum: 0 }),
 });
 
 /** Full channel status result for dashboard and operator diagnostics. */

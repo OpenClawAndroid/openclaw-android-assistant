@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { adoptPreparedLocation } from "./sqlite-readonly-location.js";
+import { adoptPreparedLocation } from "./sqlite-readonly-location-cleanup.js";
 import { readSqliteSchemaHeaderFromSnapshotAsync } from "./sqlite-schema-header.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {

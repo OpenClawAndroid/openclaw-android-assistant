@@ -30,11 +30,43 @@ as the **Tooling SHA/ref**, then run:
 
 ```bash
 TOOLING_SHA="<recorded-full-main-ancestor-sha>"
+PUBLICATION_SELECTION='{"route":"normal","npmDistTag":"latest","publishOpenclawNpm":true,"pluginPublishScope":"all-publishable","plugins":[]}'
 pnpm ci:full-release \
   --sha <code-sha> \
   --target-ref release/YYYY.M.PATCH \
-  --workflow-sha "$TOOLING_SHA"
+  --workflow-sha "$TOOLING_SHA" \
+  -f validation_purpose=publish \
+  -f publication_selection_json="$PUBLICATION_SELECTION"
 ```
+
+This example selects normal final-release publication. Select `npmDistTag=beta`
+for a beta, or `route=prepared` when the intended consumer is the prepared release
+button. Core publication requires `all-publishable` plugins. Plugin-only normal
+publication can set `publishOpenclawNpm=false`, `pluginPublishScope=selected`,
+and explicit canonical package names in `plugins`.
+
+Every fresh run requires an explicit `validation_purpose`. `publish` verifies
+complete committed source metadata before projecting the requested publication
+selection and before resolution can release any selected producer. Its retained
+source-admission fact is **source-only**, not registry eligibility, product-test
+success, or publication authority. `diagnostic`, `main-qualification`, and
+`postpublish-confidence` omit `publication_selection_json` and record publication
+source admission as not applicable. Coverage is selected independently.
+
+The SHA-pinned helper packs its semantic `-f validation_purpose` and
+`-f publication_selection_json` arguments into the existing
+`trusted_workflow_json` input. Raw workflow dispatch uses this closed envelope:
+`{"trustedWorkflow":{"ref":"main","fullRef":"refs/heads/main","sha":"<tooling-sha>"},"validationPurpose":"diagnostic","publicationSelection":null}`.
+For the existing direct branch route, `trustedWorkflow:null` lets the identity
+owner infer the executing identity; purpose is always explicit. Child workflows
+still receive only the resolved identity tuple. Existing request artifacts reopen
+without converting their inputs or witness digests.
+
+`pnpm release:candidate` defaults to the normal publication route. Choose
+`--publication-route prepared` before its first dispatch for the prepared button;
+merely supplying a protected tooling ref does not select that route. Saved state
+binds the choice and rejects contradictory resumes. Historical state without a
+route retains normal recovery semantics and gains no source-admission claim.
 
 Record the candidate SHA/ref and Tooling SHA/ref once for the release and reuse
 them for later Code-SHA, Release-SHA, and focused reruns. Main lineage
@@ -71,7 +103,8 @@ retention expiry or cleanup for the local artifact; remove it only through
 deliberate operator cleanup. Losing or deleting it never proves non-execution.
 Independent requests and copies on other hosts are not globally deduplicated.
 
-New requests require `FULL_RELEASE_DISPATCH_WITNESS_CONTRACT=1` in the pinned
+New requests require `FULL_RELEASE_SOURCE_ADMISSION_CONTRACT=1` and
+`FULL_RELEASE_DISPATCH_WITNESS_CONTRACT=1` in the pinned
 workflow. Older frozen tooling fails before remote creation instead of starting
 work whose inputs cannot be proven. The helper never upgrades the Tooling SHA.
 Use `frv status` for already-running frozen validations; choosing different

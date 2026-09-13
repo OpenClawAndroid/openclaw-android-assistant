@@ -69,6 +69,7 @@ export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
     ownerId: string,
     now: number,
   ): Promise<WorkboardOwnerClaimResult>;
+  listCardStatuses(ids: readonly string[]): Promise<Array<{ id: string; status: string }>>;
   listBoardAggregates(): Promise<WorkboardBoardCardAggregate[]>;
   listStatsAggregates(boardId?: string): Promise<WorkboardCardStatsAggregate[]>;
   hasCards(boardId: string): Promise<boolean>;

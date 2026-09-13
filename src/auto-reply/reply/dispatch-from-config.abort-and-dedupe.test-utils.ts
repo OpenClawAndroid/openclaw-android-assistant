@@ -189,7 +189,6 @@ describe("dispatchReplyFromConfig", () => {
         cfg: { ...emptyConfig, diagnostics: { enabled: true } },
         dispatcher: createDispatcher(),
         replyOptions: { abortSignal: abort.signal },
-        usePublishedModelRuntime: true,
       }),
     );
     try {
@@ -1171,7 +1170,6 @@ describe("dispatchReplyFromConfig", () => {
         cfg,
         dispatcher,
         replyResolver,
-        usePublishedModelRuntime: true,
       });
     } finally {
       preparedLoader.mockRestore();

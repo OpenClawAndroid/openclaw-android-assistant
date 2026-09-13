@@ -57,6 +57,49 @@ function reportInteger(value: unknown, maximum: number) {
   return Number(value);
 }
 
+function nullableFramebuffer(value: unknown) {
+  if (value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw new Error("Invalid desktop framebuffer diagnostic");
+  }
+  return {
+    width: reportInteger(value.width, 8192),
+    height: reportInteger(value.height, 8192),
+  };
+}
+
+function desktopViewerResizeFailure(value: unknown) {
+  if (!isRecord(value) || typeof value.pageClosed !== "boolean") {
+    throw new Error("Invalid desktop viewer diagnostic");
+  }
+  const snapshotStatus = (["available", "unavailable", "timed-out"] as const).find(
+    (status) => status === value.snapshotStatus,
+  );
+  const latestReadyState = value.latestReadyState;
+  if (
+    !snapshotStatus ||
+    (latestReadyState !== null &&
+      latestReadyState !== 0 &&
+      latestReadyState !== 1 &&
+      latestReadyState !== 2 &&
+      latestReadyState !== 3)
+  ) {
+    throw new Error("Invalid desktop viewer snapshot state");
+  }
+  return {
+    expected: geometry(value.expected),
+    lastFramebuffer: nullableFramebuffer(value.lastFramebuffer),
+    snapshotStatus,
+    pageClosed: value.pageClosed,
+    canvasCount: value.canvasCount === null ? null : reportInteger(value.canvasCount, 10_000),
+    snapshotFramebuffer: nullableFramebuffer(value.snapshotFramebuffer),
+    socketCount: value.socketCount === null ? null : reportInteger(value.socketCount, 10_000),
+    latestReadyState,
+  };
+}
+
 function publicTestFailure(value: unknown) {
   if (typeof value !== "string" || value.length > 64 * 1024) {
     throw new Error("Invalid desktop test failure");
@@ -138,6 +181,9 @@ export function desktopProofTestReport(value: unknown) {
                 }
               : null,
             failures: test.failureMessages.map(publicTestFailure),
+            ...(test.status === "failed" && meta.desktopViewerResizeFailure !== undefined
+              ? { viewerResize: desktopViewerResizeFailure(meta.desktopViewerResizeFailure) }
+              : {}),
           };
         }),
       };

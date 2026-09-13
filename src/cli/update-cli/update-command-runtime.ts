@@ -30,7 +30,11 @@ export async function completeSourceUpdateRuntime(params: {
   beforePersistentEffect?: () => void | Promise<void>;
 }): Promise<{ changed: boolean }> {
   params.lease.assertOwned();
-  if ((await resolveUpdateInstallKind(params.root, { signal: params.lease.signal })) !== "git") {
+  const installKind = await resolveUpdateInstallKind(params.root, {
+    signal: params.lease.signal,
+    timeoutMs: params.timeoutMs,
+  });
+  if (installKind !== "git") {
     params.lease.assertOwned();
     return { changed: false };
   }

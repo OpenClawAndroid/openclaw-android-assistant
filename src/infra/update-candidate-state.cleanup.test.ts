@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { waitForDead, waitForPidFile } from "../../test/helpers/process-wait.js";
 import * as commands from "../process/exec.js";
 import { runCommandBuffered } from "../process/exec.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerArgv, resolveRuntimeWorkerUrl } from "./runtime-worker-url.js";
@@ -204,6 +205,9 @@ it.each(
           exitCode: result.code,
           stderrTail: result.stderr.toString(),
         });
+        expect(recorded?.detail).toMatch(
+          /^Exit code: 1; (?:Caused by: )?no such column: "path".* \| ERR_SQLITE_ERROR$/u,
+        );
         expect(recorded?.detail).toContain("ERR_SQLITE_ERROR");
         expect(recorded?.detail).toContain('no such column: "path"');
         expect(recorded?.detail?.length).toBeLessThanOrEqual(300);
@@ -288,62 +292,111 @@ function inspectionResult(
   };
 }
 
-it.each([false, true])("budgets the discovered registry inventory (legacy=%s)", async (legacy) => {
-  const stateDir = path.join(root, "inspection-budget");
-  const shared = path.join(stateDir, "state", "openclaw.sqlite");
-  const external = path.join(root, "registry-only", "agent.sqlite");
-  await fs.mkdir(path.dirname(shared), { recursive: true });
-  await fs.mkdir(path.dirname(external), { recursive: true });
-  const database = openNodeSqliteDatabase(shared);
-  database.exec("PRAGMA user_version = 3; CREATE TABLE agent_databases (path TEXT);");
-  database.prepare("INSERT INTO agent_databases VALUES (?)").run(external);
-  database.close();
-  await fs.writeFile(external, "");
-  await fs.truncate(external, 3_489_660_928);
-  await fs.writeFile(`${external}-wal`, "");
-  await fs.truncate(`${external}-wal`, 64 * 1024 * 1024);
-  const sharedVersion = { path: shared, userVersion: 3, contentVersion: 3 };
-  const discovery = {
-    files: [
-      [shared, { spellings: [shared] }],
-      [external, { spellings: [external] }],
-    ],
-    sharedVersion,
-  };
-  const calls: Array<Parameters<typeof runCommandBuffered>> = [];
-  const run = commands.runCommandBuffered;
-  vi.spyOn(commands, "runCommandBuffered").mockImplementation(async (argv, options) => {
-    if (argv.includes("--eval")) {
-      return run(argv, options);
-    }
-    calls.push([argv, options]);
-    if (legacy && calls.length === 1) {
-      return inspectionResult(null, "Unknown update state inspection mode");
-    }
-    if (legacy && calls.length === 2) {
-      const location = path.join(String(options?.env?.XDG_CACHE_HOME), "database.sqlite");
-      fsSync.copyFileSync(shared, location);
-      return inspectionResult({ ok: true, location });
-    }
-    if (!legacy && calls.length === 1) {
-      return inspectionResult(discovery);
-    }
-    return inspectionResult([sharedVersion, { path: external, userVersion: 7 }]);
-  });
+it.each([false, true].flatMap((legacy) => [false, true].map((expires) => ({ legacy, expires }))))(
+  "budgets the discovered registry inventory (legacy=$legacy, expires=$expires)",
+  async ({ legacy, expires }) => {
+    const stateDir = path.join(root, "inspection-budget");
+    const shared = path.join(stateDir, "state", "openclaw.sqlite");
+    const external = path.join(root, "registry-only", "agent.sqlite");
+    await fs.mkdir(path.dirname(shared), { recursive: true });
+    await fs.mkdir(path.dirname(external), { recursive: true });
+    const database = openNodeSqliteDatabase(shared);
+    database.exec("PRAGMA user_version = 3; CREATE TABLE agent_databases (path TEXT);");
+    database.prepare("INSERT INTO agent_databases VALUES (?)").run(external);
+    database.close();
+    await fs.writeFile(external, "");
+    await fs.truncate(external, 3_489_660_928);
+    await fs.writeFile(`${external}-wal`, "");
+    await fs.truncate(`${external}-wal`, 64 * 1024 * 1024);
+    const sharedVersion = { path: shared, userVersion: 3, contentVersion: 3 };
+    const discovery = {
+      files: [
+        [shared, { spellings: [shared] }],
+        [external, { spellings: [external] }],
+      ],
+      sharedVersion,
+    };
+    const calls: Array<Parameters<typeof runCommandBuffered>> = [];
+    const inspecting = createDeferredCore<AbortSignal>();
+    const release = createDeferredCore();
+    const run = commands.runCommandBuffered;
+    vi.spyOn(commands, "runCommandBuffered").mockImplementation(async (argv, options) => {
+      if (argv.includes("--eval")) {
+        return run(argv, options);
+      }
+      calls.push([argv, options]);
+      if (legacy && calls.length === 1) {
+        return inspectionResult(null, "Unknown update state inspection mode");
+      }
+      if (legacy && calls.length === 2) {
+        const location = path.join(String(options?.env?.XDG_CACHE_HOME), "database.sqlite");
+        fsSync.copyFileSync(shared, location);
+        return inspectionResult({ ok: true, location });
+      }
+      if (!legacy && calls.length === 1) {
+        return inspectionResult(discovery);
+      }
+      if (!options?.signal) {
+        throw new Error("Schema inspection has no owner watchdog signal");
+      }
+      inspecting.resolve(options.signal);
+      await release.promise;
+      return inspectionResult([sharedVersion, { path: external, userVersion: 7 }]);
+    });
 
-  await expect(readUpdateStateSchemaVersions({ stateDir, config: {} })).resolves.toContainEqual({
-    path: external,
-    userVersion: 7,
-  });
-  expect(calls).toHaveLength(legacy ? 3 : 2);
-  expect(calls[0]?.[1]?.timeoutMs).toBe(31_000);
-  // 134 seconds for the database plus 2 for its WAL; legacy also recopies shared.
-  expect(calls.at(-1)?.[1]?.timeoutMs).toBe(legacy ? 167_000 : 136_000);
-  for (const [, options] of calls) {
-    expect(options).toMatchObject({ killGraceMs: 500 });
-    expect(fsSync.existsSync(String(options?.env?.XDG_CACHE_HOME))).toBe(false);
-  }
-});
+    const now = Date.now.bind(Date);
+    let elapsed = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now() + elapsed);
+    const operation = readUpdateStateSchemaVersions({ stateDir, config: {} });
+    const outcome = operation.then(
+      (versions) => ({ versions }),
+      (error: unknown) => ({ error }),
+    );
+    try {
+      const signal = await Promise.race([
+        inspecting.promise,
+        operation.then(() => {
+          throw new Error("Schema inspection completed before its held worker response");
+        }),
+      ]);
+      // Modern inspection needs the external WAL bytes; legacy also needs shared's startup floor.
+      elapsed = legacy ? 4_700_000 : 4_500_000;
+      expect(signal.aborted).toBe(false);
+      if (expires) {
+        const aborted = new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        elapsed += 400_000;
+        await aborted;
+        expect(signal.aborted).toBe(true);
+      }
+      const stagingRoot = String(calls.at(-1)?.[1]?.env?.XDG_CACHE_HOME);
+      expect(fsSync.existsSync(stagingRoot)).toBe(true);
+      release.resolve();
+      if (expires) {
+        expect(await outcome).toMatchObject({
+          error: {
+            message: expect.stringContaining(
+              `made no progress for ${legacy ? 4_841 : 4_540} seconds`,
+            ),
+          },
+        });
+      } else {
+        await expect(operation).resolves.toContainEqual({ path: external, userVersion: 7 });
+      }
+      expect(calls).toHaveLength(legacy ? 3 : 2);
+      for (const [, options] of calls) {
+        expect(options).toMatchObject({ killGraceMs: 500 });
+        expect(options?.timeoutMs).toBeUndefined();
+        expect(fsSync.existsSync(String(options?.env?.XDG_CACHE_HOME))).toBe(false);
+      }
+    } finally {
+      release.resolve();
+      vi.useRealTimers();
+      await outcome;
+    }
+  },
+);
 
 it("rejects a versions array as a discovery response", async () => {
   const run = commands.runCommandBuffered;
@@ -375,13 +428,13 @@ it.runIf(process.platform !== "win32")(
       `#!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+// Metadata probes use the real core program; only the schema worker should hang.
+if (process.argv.includes("--eval")) {
+  process.exit(spawnSync(process.execPath, process.argv.slice(2), { stdio: "inherit" }).status ?? 1);
+}
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
-// This fixture has no source databases; only the schema worker should hang.
-if (process.argv.includes("--eval")) {
-  console.log("[]");
-  process.exit(0);
-}
 const { stagingRoot } = JSON.parse(input);
 fs.mkdirSync(path.join(stagingRoot, "partial"), { recursive: true });
 fs.writeFileSync(path.join(stagingRoot, "partial", "database.sqlite"), "partial");
@@ -403,8 +456,9 @@ setInterval(() => {}, 60_000);
         signal: controller.signal,
       });
       const pid = await waitForPidFile(pidPath, 5_000);
-      controller.abort(new Error("test cancellation"));
-      await expect(operation).rejects.toThrow(/signal SIGKILL/u);
+      const cancellation = new Error("test cancellation");
+      controller.abort(cancellation);
+      await expect(operation).rejects.toBe(cancellation);
       await waitForDead(pid, 5_000);
       const stagingRoot = await fs.readFile(stagingPath, "utf8");
       await expect(fs.stat(stagingRoot)).rejects.toMatchObject({ code: "ENOENT" });

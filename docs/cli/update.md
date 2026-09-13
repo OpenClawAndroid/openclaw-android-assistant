@@ -153,12 +153,18 @@ deferred-install activation checks.
 
 ## Options
 
-Updater-managed `openclaw update finalize` runs repair Doctor without an automatic
-wall-clock deadline, including post-plugin repair. It waits for completion,
-failure, or manual cancellation. An explicit `--timeout <seconds>` still limits
-each finalization phase and its child commands. Post-plugin config validation and
-readiness checks keep their separate three-minute defaults; other finalization
-phase limits are unchanged.
+Updater-managed `openclaw update finalize` runs repair Doctor without a separate
+per-Doctor deadline, including post-plugin repair. The enclosing activation deadline
+still applies. An explicit `--timeout <seconds>` limits each finalization phase and
+its child commands. Admission and config phases scale with shared SQLite state.
+Post-plugin config validation and readiness checks use the measured shared and
+agent database sizes after Doctor finishes, including WAL files. Serial plugin
+operations retain individual deadlines within the enclosing activation budget. That
+budget uses the measured database sizes, observed candidate startup, plugin count,
+and the caller's step allowance. Migrated finalization receives the same allowance;
+it does not choose a separate default. Expiry reports `update-activation-timeout`
+and retains ownership until writers settle; it does not authorize rollback or restart.
+Use `openclaw update status` and Doctor for recovery guidance.
 
 | Flag                                             | Description                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

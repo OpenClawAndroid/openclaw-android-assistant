@@ -603,7 +603,11 @@ async function dispatchSlackMessageWithSetup(
           if (payload.phase !== "update") {
             return false;
           }
-          return await progress.pushPlanProgress(payload.steps, payload.explanation);
+          return await progress.pushPlanProgress(
+            payload.steps,
+            payload.explanation,
+            payload.explanationFormat,
+          );
         },
         onApprovalEvent: async (payload) => {
           return await progress.progressDraft.pushApprovalEvent(payload);

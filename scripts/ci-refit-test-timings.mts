@@ -265,9 +265,10 @@ async function main() {
   const mainContributors = new Set([...blacksmith, ...github]);
   if (
     mainContributors.size < 2 ||
-    Object.values(fresh.timings.compactGroupSeconds).every(
+    (Object.values(fresh.timings.compactGroupSeconds).every(
       (profile) => Object.keys(profile).length === 0,
-    )
+    ) &&
+      Object.values(fresh.timings.runtimePlacementTimings).every((profile) => profile.length === 0))
   ) {
     throw new Error(
       `Found ${mainContributors.size} independent main compact contributors. Need at least two and a newly eligible compact measurement in the frozen UTC window; retry after successful main CI. No timing file written.`,

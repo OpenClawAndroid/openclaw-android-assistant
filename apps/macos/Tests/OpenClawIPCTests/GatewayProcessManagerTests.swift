@@ -103,7 +103,7 @@ struct GatewayProcessManagerTests {
         mode: String = "local",
         port: Int? = nil,
         homeDirectory: URL? = nil,
-        statusPayload: String? = nil,
+        statusPayload: String? = #"{"ok":true,"service":{"loaded":false}}"#,
         statusPayloads: [String]? = nil,
         commandDelayNanoseconds: UInt64 = 0,
         commandHook: (@Sendable ([String]) async -> Void)? = nil,
@@ -548,6 +548,129 @@ struct GatewayProcessManagerTests {
 
             #expect(GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot().isEmpty)
         }
+    }
+
+    @Test(arguments: [
+        (
+            """
+            {"service":{"loaded":null,"loadState":{"status":"unknown"},
+            "runtime":{"status":"unknown"}}}
+            """,
+            false),
+        (
+            """
+            {"service":{"loaded":true,"loadState":{"status":"loaded"},
+            "runtime":{"status":"unknown","inspectionFailure":{
+              "code":"service-runtime-inspection-failed","detail":"launchctl print failed"}}}}
+            """,
+            false),
+        (#"{"ok":false,"error":"Gateway service inspection failed."}"#, false),
+        (
+            """
+            {"service":{"loaded":false,"loadState":{"status":"not-loaded"},
+            "runtime":{"status":"unknown","missingUnit":true}}}
+            """,
+            true),
+    ])
+    func `persistence ensure distinguishes unknown inspection from a missing service`(
+        statusPayload: String,
+        shouldInstall: Bool) async throws
+    {
+        let port = try self.availableGatewayPort()
+        // Queue status alone so an erroneous install still receives the fixture's success response.
+        try await self.withLaunchAgentEnvironment(port: port, statusPayloads: [statusPayload]) {
+            try #require(GatewayEnvironment.gatewayPort() == port)
+            let manager = self.manager
+            manager.setTestingDesiredActive(true)
+
+            let installed = await manager.ensureLaunchAgentEnabledIfNeeded()
+
+            var expectedCalls = [["status", "--json", "--no-probe"]]
+            if shouldInstall {
+                expectedCalls.append(["install", "--force", "--port", String(port), "--runtime", "node"])
+            }
+            #expect(GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot() == expectedCalls)
+            #expect(installed == shouldInstall)
+        }
+    }
+
+    @Test(arguments: ["unresolved", "healthy", "responsive-error"])
+    func `startup readiness preserves the most specific failure`(_ outcome: String) async throws {
+        let port = try self.availableGatewayPort()
+        let url = try #require(URL(string: "ws://example.invalid"))
+        let inspectedService = Mutex(false)
+        let inspectionError = "launchctl inspection failed"
+        let guidance = "openclaw gateway status --deep"
+        let healthError = "fixture health rejected"
+        let statusPayload = """
+        {"ok":false,"error":"\(inspectionError)","hints":["\(guidance)"]}
+        """
+
+        try await self.withLaunchAgentEnvironment(
+            port: port,
+            statusPayload: statusPayload,
+            commandHook: { arguments in
+                if arguments.first == "status" {
+                    inspectedService.withLock { $0 = true }
+                }
+            }) {
+                try #require(GatewayEnvironment.gatewayPort() == port)
+                let session = GatewayTestWebSocketSession {
+                    GatewayTestWebSocketTask(sendHook: { task, message, sendIndex in
+                        guard sendIndex > 0,
+                              let id = GatewayWebSocketTestSupport.requestID(from: message)
+                        else { return }
+                        if outcome == "responsive-error",
+                           GatewayWebSocketTestSupport.requestMethod(from: message) == "health"
+                        {
+                            task.emitReceiveSuccess(.data(Data("""
+                            {"type":"res","id":"\(id)","ok":false,
+                            "error":{"code":"INVALID_REQUEST","message":"\(healthError)"}}
+                            """.utf8)))
+                        } else {
+                            task.emitReceiveSuccess(.data(GatewayWebSocketTestSupport.okResponseData(id: id)))
+                        }
+                    })
+                }
+                let connection = GatewayConnection(
+                    configProvider: {
+                        // Keep the initial attach unavailable until startup inspects the service.
+                        guard inspectedService.withLock({ $0 }), outcome != "unresolved" else {
+                            throw URLError(.cannotConnectToHost)
+                        }
+                        return (url: url, token: nil, password: nil)
+                    },
+                    sessionBox: WebSocketSessionBox(session: session))
+                let manager = GatewayProcessManager()
+                manager.setTestingConnection(connection)
+                manager.setTestingSkipControlChannelRefresh(true)
+                manager.setTestingDesiredActive(true)
+                defer { manager.setTestingDesiredActive(false) }
+
+                manager.startIfNeeded()
+                await manager.waitForStartupAttempt()
+                await connection.shutdown()
+
+                let calls = GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot()
+                #expect(!calls.isEmpty)
+                #expect(calls.allSatisfy { $0 == ["status", "--json", "--no-probe"] })
+                if outcome == "healthy" {
+                    guard case .running = manager.status else {
+                        Issue.record("expected healthy startup after the deferred service inspection")
+                        return
+                    }
+                    #expect(manager.lastFailureReason == nil)
+                } else {
+                    guard case let .failed(reason) = manager.status else {
+                        Issue.record("expected terminal startup failure")
+                        return
+                    }
+                    let expected = outcome == "unresolved" ? inspectionError : healthError
+                    #expect(reason.contains(expected))
+                    #expect(manager.lastFailureReason == reason)
+                    #expect(reason.contains(guidance) == (outcome == "unresolved"))
+                }
+            }
     }
 
     @Test func `newer inactive lifecycle retains the pending disable`() async throws {

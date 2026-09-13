@@ -1,6 +1,10 @@
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { UPDATE_RUN_PHASES } from "../../packages/gateway-protocol/src/update-run-vocabulary.js";
-import { UPDATE_INSTALL_SKIP_GUIDANCE } from "../shared/update-outcome.js";
+import {
+  formatUpdateActivationTimeoutGuidance,
+  UPDATE_ACTIVATION_TIMEOUT_REASON,
+  UPDATE_INSTALL_SKIP_GUIDANCE,
+} from "../shared/update-outcome.js";
 import { formatDurationPrecise } from "./format-time/format-duration.ts";
 import type { RestartSentinelPayload } from "./restart-sentinel-store.js";
 import { formatUpdateDoctorConfigWriteRefusal } from "./update-doctor-config.js";
@@ -75,6 +79,9 @@ function recoveryHints(run: ReportInput, nextAction?: string): string[] {
   }
   if (run.reason === LEGACY_UPDATE_RUN_EXPIRED_REASON) {
     return [LEGACY_UPDATE_RUN_ADVISORY];
+  }
+  if (run.reason === UPDATE_ACTIVATION_TIMEOUT_REASON) {
+    return nextAction ? [] : [formatUpdateActivationTimeoutGuidance()];
   }
   const hints: string[] = [];
   if (run.reason === "preflight-insufficient-space") {

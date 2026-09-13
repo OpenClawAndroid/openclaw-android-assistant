@@ -31,6 +31,7 @@ export type ManagedServiceBoundaryOptions = ManagedServiceManagerBoundaryOptions
     | "fail-commit-ack";
   revokeWhileValidating?: boolean;
   replaceLedgerWriter?: boolean;
+  finalizationWorkMs?: number;
   beforeParkNotice?: "acknowledged" | "stalled" | "rejected";
   repair?: ManagedRepairBoundary;
 };

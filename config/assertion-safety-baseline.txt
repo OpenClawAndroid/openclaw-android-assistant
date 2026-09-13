@@ -2686,7 +2686,7 @@ src/gateway/node-command-policy.ts	2
 src/gateway/node-invoke-system-run-approval.ts	1
 src/gateway/node-pairing-ssh-verify.ts	1
 src/gateway/node-registry-private.ts	1
-src/gateway/node-registry.ts	5
+src/gateway/node-registry.ts	4
 src/gateway/openai-agent-run-usage.ts	1
 src/gateway/openai-http.ts	27
 src/gateway/openresponses-http.ts	3
@@ -2813,7 +2813,7 @@ src/gateway/server.auth.modes.suite.ts	1
 src/gateway/server/http-listen.ts	1
 src/gateway/server/plugins-http/route-capability.ts	1
 src/gateway/server/ws-connection-diagnostics.ts	3
-src/gateway/server/ws-connection.ts	3
+src/gateway/server/ws-connection.ts	1
 src/gateway/server/ws-connection/authenticated-request-dispatch.ts	1
 src/gateway/server/ws-connection/connect-device-metadata.ts	1
 src/gateway/server/ws-connection/connect-node-session.ts	1
@@ -2859,7 +2859,6 @@ src/gateway/worker-environments/service-validation.ts	3
 src/gateway/worker-environments/service.ts	1
 src/gateway/worker-environments/state.ts	1
 src/gateway/worker-environments/store.ts	9
-src/gateway/worker-environments/transcript-commit.ts	6
 src/gateway/worker-environments/worker-session-tool-executor.ts	1
 src/gateway/worker-environments/worker-turn-admission.ts	3
 src/gateway/worker-environments/workspace-accepted-publication.ts	1
@@ -3829,7 +3828,6 @@ ui/src/pages/config/view-appearance.ts	1
 ui/src/pages/config/view-diff.ts	6
 ui/src/pages/config/view-schema.ts	2
 ui/src/pages/config/view.ts	5
-ui/src/pages/connection/connection-page.ts	1
 ui/src/pages/connection/view.ts	3
 ui/src/pages/cron/view-runs.ts	3
 ui/src/pages/cron/view.ts	9

@@ -3,6 +3,10 @@ import {
   validateFullReleaseCandidateBinding,
   validateFullReleaseCandidateRequest,
 } from "./full-release-candidate-contract.mjs";
+import {
+  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT,
+  validatePublicationSourceBinding,
+} from "./full-release-publication-contract.mjs";
 import { hasRequiredLinuxCrossOsSuites } from "./lib/cross-os-release-checks/suite-filter.mjs";
 import { changelogEntryPath, isReleaseChangelogPath } from "./lib/release-changelog.mjs";
 import { classifyReleaseTrain, parseReleaseVersion } from "./lib/release-version.mjs";
@@ -909,6 +913,9 @@ function releaseExecutionPlanShape(payload) {
       ...basePlanKeys,
       ...(Object.hasOwn(payload, "telegramWaiver") ? ["targetVersion", "telegramWaiver"] : []),
       ...(Object.hasOwn(payload, "coveragePolicy") ? ["targetVersion", "coveragePolicy"] : []),
+      ...(Object.hasOwn(payload, "sourceAdmissionContract")
+        ? ["sourceAdmissionContract", "sourceAdmission"]
+        : []),
     ]),
   ].toSorted((left, right) => left.localeCompare(right));
   const expectedChildKeys = hasAttemptEvidence
@@ -927,6 +934,12 @@ function releaseExecutionPlanShape(payload) {
 }
 
 function executionPlanDigestPayload(plan) {
+  const source = Object.hasOwn(plan, "sourceAdmissionContract")
+    ? {
+        sourceAdmissionContract: plan.sourceAdmissionContract,
+        sourceAdmission: plan.sourceAdmission,
+      }
+    : {};
   const waiver = Object.hasOwn(plan, "telegramWaiver")
     ? { targetVersion: plan.targetVersion, telegramWaiver: plan.telegramWaiver }
     : {};
@@ -935,6 +948,7 @@ function executionPlanDigestPayload(plan) {
     : {};
   if (!Object.hasOwn(plan, "attemptEvidenceVersion")) {
     return {
+      ...source,
       ...waiver,
       blockers: plan.blockers,
       children: plan.children,
@@ -954,6 +968,7 @@ function executionPlanDigestPayload(plan) {
     };
   }
   return {
+    ...source,
     ...waiver,
     ...coverage,
     attemptEvidenceVersion: plan.attemptEvidenceVersion,
@@ -994,6 +1009,8 @@ export function buildReleaseExecutionPlanArtifact({
   gates,
   releaseProfile,
   rerunGroup,
+  sourceAdmissionContract,
+  sourceAdmission,
   targetVersion,
   telegramWaiver,
   trustedWorkflow,
@@ -1048,6 +1065,7 @@ export function buildReleaseExecutionPlanArtifact({
     }
   }
   const basePlan = {
+    ...(sourceAdmissionContract !== undefined ? { sourceAdmissionContract, sourceAdmission } : {}),
     ...(waiver ? { telegramWaiver: waiver, targetVersion } : {}),
     ...(coveragePolicy !== undefined ? { coveragePolicy, targetVersion } : {}),
     version: 1,
@@ -1066,6 +1084,7 @@ export function buildReleaseExecutionPlanArtifact({
     blockers: normalizeIssues(blockers, "release_blocker"),
     errors: normalizeIssues(errors, "orchestration_error"),
   };
+  validatePlanSourceAdmission(basePlan, expected);
   if (!attemptAware) {
     if (coveragePolicy !== undefined) {
       throw new Error("release coverage policy requires a phase-three execution plan");
@@ -1083,6 +1102,26 @@ export function buildReleaseExecutionPlanArtifact({
   };
   validateCandidatePlanBinding(plan, expected.candidateRequest);
   return { ...plan, sha256: releaseExecutionPlanSha256(plan) };
+}
+
+function validatePlanSourceAdmission(plan, expected) {
+  // Failed resolution still seals an honest failure plan, never successful source evidence.
+  if (
+    plan.sourceAdmissionContract === FULL_RELEASE_SOURCE_ADMISSION_CONTRACT &&
+    plan.sourceAdmission === null &&
+    plan.gates.some(
+      (gate) => gate.name === "Resolve target ref" && gate.required && gate.result !== "success",
+    )
+  ) {
+    if (
+      expected.sourceAdmissionContract !== undefined &&
+      expected.sourceAdmissionContract !== plan.sourceAdmissionContract
+    ) {
+      throw new Error("source admission contract mismatch");
+    }
+    return;
+  }
+  validatePublicationSourceBinding(plan, expected);
 }
 
 function validateCandidatePlanBinding(plan, expectedCandidateRequest) {
@@ -1125,6 +1164,7 @@ export function validateReleaseExecutionPlanArtifact(payload, expected = {}) {
     throw new Error("release execution plan artifact is invalid");
   }
   const shape = releaseExecutionPlanShape(payload);
+  validatePlanSourceAdmission(payload, expected);
   const sha256 = releaseExecutionPlanSha256(payload);
   if (payload.sha256 !== sha256) {
     throw new Error("release execution plan artifact digest is invalid");

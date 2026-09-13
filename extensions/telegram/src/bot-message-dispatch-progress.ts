@@ -277,6 +277,7 @@ export async function handlePlanUpdate(
   return payload.phase === "update" && canPushToolProgress(turn)
     ? await turn.progressCompositor.pushPlanProgress(payload.steps, {
         explanation: payload.explanation,
+        explanationFormat: payload.explanationFormat,
       })
     : false;
 }

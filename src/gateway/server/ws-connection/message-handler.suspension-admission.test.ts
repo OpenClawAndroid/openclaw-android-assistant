@@ -101,6 +101,7 @@ function attachHarness(params: { deferSocketSend?: boolean; startupPending?: boo
 
   attachGatewayWsMessageHandler({
     socket,
+    prepareAuthenticatedReceive: () => ({ ok: true, value: vi.fn() }),
     connectionWork,
     bootId: "suspension-admission-test-boot",
     upgradeReq: {

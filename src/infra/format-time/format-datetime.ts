@@ -17,14 +17,33 @@ export function resolveTimezone(value: string): string | undefined {
   }
 }
 
+let timeZoneDayKeyFormatter:
+  | {
+      timeZone: string;
+      dateTimeFormatConstructor: typeof Intl.DateTimeFormat;
+      formatter: Intl.DateTimeFormat;
+    }
+  | undefined;
+
 /** Build a stable YYYY-MM-DD formatter for instants in one IANA timezone. */
 export function createTimeZoneDayKeyFormatter(timeZone: string): (date: Date) => string {
-  const formatter = new Intl.DateTimeFormat("en-US-u-ca-iso8601-nu-latn", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  const DateTimeFormat = Intl.DateTimeFormat;
+  const cached = timeZoneDayKeyFormatter;
+  // Default zones capture host state; only the latest explicit zone is retained.
+  const formatter =
+    typeof timeZone === "string" &&
+    cached?.timeZone === timeZone &&
+    cached.dateTimeFormatConstructor === DateTimeFormat
+      ? cached.formatter
+      : new DateTimeFormat("en-US-u-ca-iso8601-nu-latn", {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+  if (typeof timeZone === "string" && formatter !== cached?.formatter) {
+    timeZoneDayKeyFormatter = { timeZone, dateTimeFormatConstructor: DateTimeFormat, formatter };
+  }
   return (date) => {
     const parts = formatter.formatToParts(date);
     const pick = (type: "year" | "month" | "day") =>

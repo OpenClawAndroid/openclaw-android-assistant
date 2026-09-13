@@ -84,6 +84,8 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
     const installedEnvironmentPath = path.join(installedStateDir, "gateway.systemd.env");
     const wrapperPath = path.join(root, "openclaw-fixture");
     const systemUnits = path.join(root, "system-units");
+    const runtimeDir = path.join(root, "runtime");
+    const busAddress = `unix:path=${runtimeDir}/bus`;
     await fs.mkdir(installedStateDir, { recursive: true, mode: 0o700 });
     await fs.mkdir(path.dirname(unitPath), { recursive: true, mode: 0o755 });
     await fs.mkdir(systemUnits, { mode: 0o755 });
@@ -186,11 +188,27 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
         stderr: "",
       };
     });
-    edges.command.mockImplementation(async (argv) => {
+    edges.command.mockImplementation(async (argv, options) => {
       const [binary, ...args] = argv;
       let stdout: string;
       let code = 0;
-      if (binary === "busctl") {
+      if (
+        binary === "busctl" &&
+        isDeepStrictEqual(args, [
+          "--user",
+          "--auto-start=no",
+          "get-property",
+          "org.freedesktop.systemd1",
+          "/org/freedesktop/systemd1",
+          "org.freedesktop.systemd1.Manager",
+          "Version",
+        ])
+      ) {
+        expect(options).toMatchObject({
+          baseEnv: { XDG_RUNTIME_DIR: runtimeDir, DBUS_SESSION_BUS_ADDRESS: busAddress },
+        });
+        stdout = 's "252.39-1~deb12u2"\n';
+      } else if (binary === "busctl") {
         stdout = args.includes("LoadUnit")
           ? JSON.stringify({ type: "o", data: ["/org/freedesktop/systemd1/unit/fixture"] })
           : args.includes("org.freedesktop.systemd1.Unit")
@@ -257,6 +275,11 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
       {
         HOME: home,
         USERPROFILE: home,
+        USER: "doctor-fixture",
+        LOGNAME: "doctor-fixture",
+        SUDO_USER: undefined,
+        XDG_RUNTIME_DIR: runtimeDir,
+        DBUS_SESSION_BUS_ADDRESS: busAddress,
         OPENCLAW_HOME: undefined,
         OPENCLAW_STATE_DIR: stateDir,
         OPENCLAW_CONFIG_PATH: configPath,

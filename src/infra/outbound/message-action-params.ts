@@ -597,35 +597,22 @@ export async function normalizeSandboxMediaParams(params: {
   }
 }
 
-/** Normalizes a list of media hints against an optional sandbox root. */
-export async function normalizeSandboxMediaList(params: {
-  values: string[];
+/** Normalizes a media hint against an optional sandbox root. */
+export async function normalizeSandboxMediaSource(params: {
+  value: string;
   sandboxRoot?: string;
   sandboxContainerWorkdir?: string;
-}): Promise<string[]> {
+}): Promise<string> {
   const sandboxRoot = params.sandboxRoot?.trim();
-  const normalized: string[] = [];
-  const seen = new Set<string>();
-  for (const value of params.values) {
-    const raw = value?.trim();
-    if (!raw) {
-      continue;
-    }
-    assertMediaNotDataUrl(raw);
-    const resolved = sandboxRoot
-      ? await resolveSandboxedMediaSource({
-          media: raw,
-          sandboxRoot,
-          containerWorkdir: params.sandboxContainerWorkdir,
-        })
-      : raw;
-    if (seen.has(resolved)) {
-      continue;
-    }
-    seen.add(resolved);
-    normalized.push(resolved);
-  }
-  return normalized;
+  const raw = params.value.trim();
+  assertMediaNotDataUrl(raw);
+  return sandboxRoot
+    ? await resolveSandboxedMediaSource({
+        media: raw,
+        sandboxRoot,
+        containerWorkdir: params.sandboxContainerWorkdir,
+      })
+    : raw;
 }
 
 async function hydrateAttachmentActionPayload(params: {

@@ -164,9 +164,6 @@ export function readAcpSessionMetaBatch(params: {
   for (const item of params.entries) {
     const rawSessionKey = item.sessionKey.trim();
     const sessionKey = buildAcpDatabaseSessionKey(rawSessionKey, item.agentId);
-    if (!sessionKey) {
-      continue;
-    }
     if (item.entry?.acp) {
       result.set(item.entry, item.entry.acp);
       continue;

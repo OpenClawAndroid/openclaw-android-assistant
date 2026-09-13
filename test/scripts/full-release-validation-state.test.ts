@@ -8,6 +8,13 @@ import {
   buildFullReleaseCandidateRequest,
 } from "../../scripts/full-release-candidate-contract.mjs";
 import {
+  createPublicationSourceFact,
+  publicationDispatchEnvelope,
+  publicationIntentInputs,
+  publicationSourceRequest,
+  type PublicationSourceRequest,
+} from "../../scripts/full-release-publication-contract.mjs";
+import {
   composeReleaseAttemptJobs,
   isReleaseGhArtifactMissingError,
   MAX_RELEASE_ARTIFACT_BYTES,
@@ -207,7 +214,49 @@ function reusedEvidenceChildren() {
   }));
 }
 
-function runPlanSubprocess(overrides: Record<string, unknown>) {
+function sourceFact(overrides: Partial<PublicationSourceRequest> = {}) {
+  const request = {
+    ...publicationSourceRequest({
+      PUBLICATION_INPUTS_JSON: JSON.stringify({
+        ref: TARGET_SHA,
+        release_profile: "stable",
+        rerun_group: "all",
+        trusted_workflow_json: publicationDispatchEnvelope(null, {
+          validationPurpose: "publish",
+          publicationSelection: {
+            route: "normal",
+            npmDistTag: "latest",
+            publishOpenclawNpm: true,
+            pluginPublishScope: "all-publishable",
+            plugins: [],
+          },
+        }),
+      }),
+      PUBLICATION_TARGET_CONTEXT: "release/2026.9.9",
+      PUBLICATION_TOOLING_JSON: JSON.stringify(TRUSTED_MAIN),
+      PUBLICATION_TARGET_SHA: TARGET_SHA,
+      GITHUB_REPOSITORY: "openclaw/openclaw",
+      GITHUB_REF: "refs/heads/release-ci/tooling",
+      GITHUB_SHA: SHA,
+      GITHUB_RUN_ID: "77",
+      GITHUB_RUN_ATTEMPT: "1",
+    }),
+    ...overrides,
+  };
+  return createPublicationSourceFact(
+    request,
+    request.validationPurpose === "publish" ? { packages: [], platforms: [] } : null,
+    request.validationPurpose === "publish"
+      ? {
+          version: "2026.9.9",
+          packages: [{ name: "openclaw", version: "2026.9.9", targets: ["npm"] }],
+          platforms: [],
+        }
+      : null,
+  );
+}
+
+function runPlanSubprocess(overrides: Record<string, unknown>, env: Record<string, string> = {}) {
   const root = tempDirs.make("frv-candidate-plan-");
   const output = join(root, "full-release-execution-plan.json");
   const planInputs = {
@@ -239,6 +288,7 @@ function runPlanSubprocess(overrides: Record<string, unknown>) {
       RELEASE_PROFILE: "stable",
       RERUN_GROUP: planInputs.rerunGroup,
       TARGET_SHA,
+      ...env,
     },
     timeout: 10_000,
   });
@@ -246,6 +296,52 @@ function runPlanSubprocess(overrides: Record<string, unknown>) {
 }
 
 describe("full release execution plan", () => {
+  it("seals and restores source admission without reevaluation and rejects deleted support", () => {
+    const sourceAdmission = sourceFact();
+    const { output, result } = runPlanSubprocess(
+      {
+        sourceAdmissionContract: "1",
+        sourceAdmission,
+      },
+      { FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1" },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const bytes = readFileSync(output, "utf8");
+    const sealed = JSON.parse(bytes);
+    expect(sealed.sourceAdmission).toEqual(sourceAdmission);
+    const restore = () =>
+      spawnSync(process.execPath, [SCRIPT, "plan"], {
+        encoding: "utf8",
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1",
+          FULL_RELEASE_EXECUTION_PLAN_PATH: output,
+          FULL_RELEASE_RESTORE_PLAN: "true",
+          FULL_RELEASE_PLAN_INPUTS_JSON: "must-not-be-read",
+          CANDIDATE_REQUEST_JSON: JSON.stringify(canonicalCandidateRequest()),
+          GITHUB_REF_NAME: "release-ci/tooling",
+          GITHUB_REPOSITORY: "openclaw/openclaw",
+          GITHUB_RUN_ATTEMPT: "2",
+          GITHUB_RUN_ID: "77",
+          GITHUB_SHA: SHA,
+          RELEASE_PROFILE: "stable",
+          RERUN_GROUP: "all",
+          TARGET_SHA,
+        },
+      });
+    const restored = restore();
+    expect(restored.status, restored.stderr).toBe(0);
+    expect(readFileSync(output, "utf8")).toBe(bytes);
+    delete sealed.sourceAdmissionContract;
+    delete sealed.sourceAdmission;
+    sealed.sha256 = releaseExecutionPlanSha256(sealed);
+    writeFileSync(output, JSON.stringify(sealed));
+    const missing = restore();
+    expect(missing.status).toBe(2);
+    expect(missing.stderr).toContain("source admission contract missing");
+  });
+
   const betaCoverage = {
     coveragePolicy: "npm-beta-v1",
     releaseProfile: "beta",
@@ -2899,6 +2995,15 @@ describe("collector subprocess", () => {
         sha: SHA,
       },
     },
+    ...["exact-source", "notes-source", "wrong-purpose", "wrong-selection"].map((name) => ({
+      changedPaths: name === "notes-source" ? ["CHANGELOG.md"] : [],
+      evidenceSha: name === "notes-source" ? "c".repeat(40) : TARGET_SHA,
+      name,
+      policy:
+        name === "notes-source" ? "changelog-only-release-v1" : "exact-target-full-validation-v1",
+      trustedWorkflow: TRUSTED_MAIN,
+      source: true,
+    })),
   ])("seals and revalidates the complete $name reuse tuple", (reuse) => {
     const root = mkdtempSync(join(tmpdir(), "frv-plan-reuse-"));
     const output = join(root, "full-release-execution-plan.json");
@@ -2925,7 +3030,40 @@ console.log(JSON.stringify({
 }));
 `,
     );
+    const sourceAdmission = "source" in reuse ? sourceFact() : undefined;
+    const rootSource = sourceAdmission
+      ? sourceFact({
+          runId: "99",
+          candidateSha: reuse.evidenceSha,
+          ...(reuse.name === "wrong-purpose"
+            ? { validationPurpose: "diagnostic", publicationSelection: null }
+            : {}),
+          ...(reuse.name === "wrong-selection"
+            ? {
+                publicationSelection: {
+                  ...sourceAdmission.publicationSelection!,
+                  route: "prepared",
+                },
+              }
+            : {}),
+        })
+      : undefined;
+    const sourceManifest = rootSource
+      ? {
+          ...evidenceManifest(),
+          targetSha: reuse.evidenceSha,
+          sourceAdmissionContract: "1",
+          sourceAdmission: rootSource,
+          trustedWorkflow: TRUSTED_MAIN,
+          validationInputs: {
+            ...publicationIntentInputs(rootSource),
+            targetContextRef: "release/2026.9.9",
+            allowUnreleasedChangelog: "false",
+          },
+        }
+      : evidenceManifest();
     const planInputs = {
+      ...(sourceAdmission ? { sourceAdmissionContract: "1", sourceAdmission } : {}),
       candidateRequestInput: canonicalCandidateRequest(),
       children: {},
       dockerPreflightResult: "skipped",
@@ -2961,7 +3099,7 @@ console.log(JSON.stringify({
           "--trusted-workflow-sha": reuse.trustedWorkflow.sha,
           "--validate-run": "99",
         }),
-        FRV_EVIDENCE_MANIFEST: JSON.stringify(evidenceManifest()),
+        FRV_EVIDENCE_MANIFEST: JSON.stringify(sourceManifest),
         FRV_REUSED_CHILDREN: JSON.stringify(reusedEvidenceChildren()),
         FRV_VALIDATOR_ARGS: validatorArgs,
         FULL_RELEASE_EXECUTION_PLAN_PATH: output,
@@ -2979,6 +3117,19 @@ console.log(JSON.stringify({
       encoding: "utf8",
       timeout: 10_000,
     });
+    if (reuse.name.startsWith("wrong-")) {
+      expect(result.status).toBe(2);
+      expect(JSON.parse(readFileSync(output, "utf8"))).toMatchObject({
+        sourceAdmission,
+        blockers: [
+          expect.objectContaining({
+            kind: "reused_evidence_invalid",
+            message: "reused source admission differs from the requested publication source",
+          }),
+        ],
+      });
+      return;
+    }
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(readFileSync(output, "utf8"))).toMatchObject({
       children: [
@@ -2996,7 +3147,7 @@ console.log(JSON.stringify({
         rootRunId: "99",
         runUrl: "https://example.invalid/runs/99",
         selectedRunId: "99",
-        sourceManifest: evidenceManifest(),
+        sourceManifest,
       },
       trustedWorkflow: reuse.trustedWorkflow,
     });
@@ -3603,62 +3754,72 @@ printf '%s\\n' '{"id":101,"event":"workflow_dispatch","path":".github/workflows/
     ).toThrow(/release execution plan (artifact binding|child identity) is invalid/u);
   });
 
-  it("writes the execution plan immediately when SIGTERM interrupts a stalled reuse API", async () => {
-    const root = mkdtempSync(join(tmpdir(), "frv-plan-signal-"));
-    const gh = join(root, "gh");
-    const ghReady = join(root, "gh-ready");
-    const output = join(root, "full-release-execution-plan.json");
-    writeFileSync(gh, '#!/bin/sh\nprintf ready > "$FRV_GH_READY"\nsleep 30\n');
-    chmodSync(gh, 0o755);
-    const childProcess = spawn(process.execPath, [SCRIPT, "plan"], {
-      env: {
-        ...process.env,
-        EVIDENCE_CHANGED_PATHS: "[]",
-        FRV_GH_READY: ghReady,
-        FULL_RELEASE_EXECUTION_PLAN_PATH: output,
-        FULL_RELEASE_PLAN_INPUTS_JSON: JSON.stringify({
-          candidateRequestInput: canonicalCandidateRequest(),
-          children: { normalCi: { result: "skipped", runAttempt: "", runId: "" } },
-          dockerPreflightResult: "skipped",
-          evidenceChangedPaths: [],
-          evidencePolicy: "exact-target-full-validation-v1",
-          evidenceReuse: true,
-          evidenceRootRunId: "99",
-          evidenceRunId: "99",
-          evidenceRunUrl: "https://example.invalid/runs/99",
-          evidenceSha: TARGET_SHA,
-          parentRunAttempt: 1,
-          parentRunId: "77",
-          candidateBindingResult: "skipped",
-          rerunGroup: "ci",
-          resolveTargetResult: "success",
-          trustedWorkflow: TRUSTED_MAIN,
-          workflowRef: "release-ci/tooling",
-          workflowSha: SHA,
-        }),
-        GITHUB_REF_NAME: "release-ci/tooling",
-        GITHUB_REPOSITORY: "openclaw/openclaw",
-        GITHUB_RUN_ATTEMPT: "1",
-        GITHUB_RUN_ID: "77",
-        GITHUB_SHA: SHA,
-        PATH: `${root}:${process.env.PATH}`,
-        RELEASE_PROFILE: "stable",
-        RERUN_GROUP: "ci",
-        TARGET_SHA,
-      },
-      stdio: "ignore",
-    });
-    await waitForFile(ghReady, 5_000);
-    const exitPromise = waitForChildClose(childProcess);
-    const started = Date.now();
-    expect(childProcess.kill("SIGTERM")).toBe(true);
-    await expect(exitPromise).resolves.toEqual({ code: 1, signal: null });
-    expect(Date.now() - started).toBeLessThan(2_000);
-    expect(JSON.parse(readFileSync(output, "utf8"))).toMatchObject({
-      errors: [expect.objectContaining({ kind: "collector_cancelled" })],
-      parentRunAttempt: 1,
-    });
-  });
+  it.each([false, true])(
+    "writes the execution plan immediately when SIGTERM interrupts a stalled reuse API (source=%s)",
+    async (source) => {
+      const root = mkdtempSync(join(tmpdir(), "frv-plan-signal-"));
+      const gh = join(root, "gh");
+      const ghReady = join(root, "gh-ready");
+      const output = join(root, "full-release-execution-plan.json");
+      const sourceAdmission = source
+        ? sourceFact({
+            coverage: { ...sourceFact().coverage, rerun_group: "ci" },
+          })
+        : undefined;
+      writeFileSync(gh, '#!/bin/sh\nprintf ready > "$FRV_GH_READY"\nsleep 30\n');
+      chmodSync(gh, 0o755);
+      const childProcess = spawn(process.execPath, [SCRIPT, "plan"], {
+        env: {
+          ...process.env,
+          EVIDENCE_CHANGED_PATHS: "[]",
+          FRV_GH_READY: ghReady,
+          FULL_RELEASE_EXECUTION_PLAN_PATH: output,
+          FULL_RELEASE_PLAN_INPUTS_JSON: JSON.stringify({
+            ...(sourceAdmission ? { sourceAdmissionContract: "1", sourceAdmission } : {}),
+            candidateRequestInput: canonicalCandidateRequest(),
+            children: { normalCi: { result: "skipped", runAttempt: "", runId: "" } },
+            dockerPreflightResult: "skipped",
+            evidenceChangedPaths: [],
+            evidencePolicy: "exact-target-full-validation-v1",
+            evidenceReuse: true,
+            evidenceRootRunId: "99",
+            evidenceRunId: "99",
+            evidenceRunUrl: "https://example.invalid/runs/99",
+            evidenceSha: TARGET_SHA,
+            parentRunAttempt: 1,
+            parentRunId: "77",
+            candidateBindingResult: "skipped",
+            rerunGroup: "ci",
+            resolveTargetResult: "success",
+            trustedWorkflow: TRUSTED_MAIN,
+            workflowRef: "release-ci/tooling",
+            workflowSha: SHA,
+          }),
+          GITHUB_REF_NAME: "release-ci/tooling",
+          GITHUB_REPOSITORY: "openclaw/openclaw",
+          GITHUB_RUN_ATTEMPT: "1",
+          GITHUB_RUN_ID: "77",
+          GITHUB_SHA: SHA,
+          PATH: `${root}:${process.env.PATH}`,
+          RELEASE_PROFILE: "stable",
+          RERUN_GROUP: "ci",
+          TARGET_SHA,
+        },
+        stdio: "ignore",
+      });
+      await waitForFile(ghReady, 5_000);
+      const exitPromise = waitForChildClose(childProcess);
+      const started = Date.now();
+      expect(childProcess.kill("SIGTERM")).toBe(true);
+      await expect(exitPromise).resolves.toEqual({ code: 1, signal: null });
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(JSON.parse(readFileSync(output, "utf8"))).toMatchObject({
+        ...(source ? { sourceAdmissionContract: "1", sourceAdmission } : {}),
+        errors: [expect.objectContaining({ kind: "collector_cancelled" })],
+        parentRunAttempt: 1,
+      });
+    },
+  );
 
   it("records target resolution failure even when no target SHA exists", () => {
     const root = mkdtempSync(join(tmpdir(), "frv-state-target-failure-"));

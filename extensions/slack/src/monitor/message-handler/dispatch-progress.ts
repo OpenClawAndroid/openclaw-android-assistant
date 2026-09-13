@@ -16,6 +16,7 @@ import { formatSlackError } from "../../errors.js";
 import { SLACK_EDIT_TEXT_MAX_BYTES, SLACK_TEXT_LIMIT } from "../../limits.js";
 import {
   buildSlackProgressStreamChunks,
+  buildSlackProgressTextBlocks,
   reconcileSlackNativeTaskChunks,
   EMPTY_SLACK_NATIVE_STREAM_SNAPSHOT,
   type SlackNativeStreamSnapshot,
@@ -201,7 +202,14 @@ export function createSlackProgressRuntime(runtimeParams: {
     if (!candidate) {
       return false;
     }
-    const title = normalizeProgressText(resolveNativeProgressTitle(progressDraft.getSnapshot()));
+    const snapshot = progressDraft.getSnapshot();
+    const title = normalizeProgressText(
+      combineProgressHeadlineAndExplanation(
+        explicitProgressTitle ??
+          (snapshot.statusHeadlineFormat === "plain" ? undefined : snapshot.statusHeadline),
+        snapshot.planExplanationFormat === "plain" ? undefined : snapshot.planExplanation,
+      ),
+    );
     return title.length > 0 && title.includes(candidate);
   };
 
@@ -368,7 +376,9 @@ export function createSlackProgressRuntime(runtimeParams: {
               text: previewText,
               blocks: progressCard.resolvePresentation(snapshot, "working"),
             }
-          : previewText,
+          : snapshot.preparedBlocks
+            ? { text: previewText, blocks: buildSlackProgressTextBlocks(snapshot.preparedBlocks) }
+            : previewText,
       );
       if (options?.flush) {
         await draftStream.flush();
@@ -477,11 +487,15 @@ export function createSlackProgressRuntime(runtimeParams: {
     delivery.streamFailed = false;
   };
 
-  const pushPlanProgress = async (steps?: AgentPlanStep[], explanation?: string) => {
+  const pushPlanProgress = async (
+    steps?: AgentPlanStep[],
+    explanation?: string,
+    explanationFormat?: "plain",
+  ) => {
     if (isProgressMode && slackProgressStyle === "compact") {
       return false;
     }
-    return await progressDraft.pushPlanProgress(steps, { explanation });
+    return await progressDraft.pushPlanProgress(steps, { explanation, explanationFormat });
   };
 
   const updateDraftFromPartial = (text?: string) => {

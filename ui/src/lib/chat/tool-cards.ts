@@ -218,13 +218,7 @@ function serializeToolInput(args: unknown): string | undefined {
   try {
     return JSON.stringify(args, null, 2);
   } catch {
-    if (typeof args === "number" || typeof args === "boolean" || typeof args === "bigint") {
-      return String(args);
-    }
-    if (typeof args === "symbol") {
-      return args.description ? `Symbol(${args.description})` : "Symbol()";
-    }
-    return Object.prototype.toString.call(args);
+    return typeof args === "bigint" ? String(args) : Object.prototype.toString.call(args);
   }
 }
 

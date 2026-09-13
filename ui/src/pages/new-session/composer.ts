@@ -15,6 +15,7 @@ import {
   createChatAttachmentDropHandlers,
   handleChatAttachmentPaste,
   renderAttachmentPreview,
+  renderAttachmentReadStatus,
   renderChatAttachmentInputs,
 } from "../chat/components/chat-attachments.ts";
 import {
@@ -118,12 +119,12 @@ function renderStartControl(options: NewSessionComposerOptions) {
       }"
       ?disabled=${!options.canSubmit && !reasonedBlock}
       aria-disabled=${String(!options.canSubmit)}
-      aria-busy=${String(options.submitting)}
+      aria-busy=${String(options.submitting || options.pendingAttachmentReads > 0)}
       aria-label=${startLabel}
       @click=${() => submitNewSession(options)}
     >
       ${
-        options.submitting
+        options.submitting || options.pendingAttachmentReads > 0
           ? icons.loader
           : options.nativeTerminal
             ? icons.squareTerminal
@@ -570,6 +571,7 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
         ${mentionMenu.render(mentionMenuHost, options.requestUpdate)}
         ${options.nativeTerminal ? nothing : renderChatAttachmentInputs(attachmentProps)}
         ${renderAttachmentPreview(attachmentProps)}
+        ${renderAttachmentReadStatus(options.pendingAttachmentReads)}
         ${renderSelectedHumanMentions(options.message, options.mentions, () =>
           options.onInput(options.message, []),
         )}
@@ -697,11 +699,6 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
             </div>
           </div>
         </div>
-        ${
-          options.pendingAttachmentReads > 0
-            ? html`<span class="sr-only" role="status">${t("newSession.readingAttachment")}</span>`
-            : nothing
-        }
       </div>
       ${
         options.blockedSubmitNotice

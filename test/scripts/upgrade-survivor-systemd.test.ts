@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readLoadedSystemdServiceRuntime } from "../../src/daemon/systemd-loaded-runtime.js";
 import { readSystemdServiceRuntime } from "../../src/daemon/systemd-runtime.js";
 import {
@@ -46,8 +46,13 @@ function fixture(customPaths = true, registry?: string, managerSetup = "") {
         timeout: 40_000,
       },
     );
-  const installed = shell(`${managerSetup}\ninstall_update_restart_systemctl_shim`);
+  const installed = shell(
+    `${managerSetup}\ninstall_update_restart_systemctl_shim\nprintf '%s\\n' "\${XDG_RUNTIME_DIR:-}" "\${DBUS_SESSION_BUS_ADDRESS:-}"`,
+  );
   expect(installed.status, installed.stderr).toBe(0);
+  const [runtimeDir, busAddress] = installed.stdout.trimEnd().split("\n");
+  env.XDG_RUNTIME_DIR = runtimeDir || undefined;
+  env.DBUS_SESSION_BUS_ADDRESS = busAddress || undefined;
   const systemctl = (...args: string[]) =>
     spawnSync(join(home, "bin/systemctl"), ["--user", ...args], {
       env,
@@ -60,6 +65,28 @@ function fixture(customPaths = true, registry?: string, managerSetup = "") {
 }
 
 describe.skipIf(process.platform === "win32")("survivor manager fixture", () => {
+  it("publishes its manager route for a root session without bus variables", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const uid = vi.spyOn(process, "geteuid").mockReturnValue(0);
+    try {
+      const { home, env } = fixture();
+      expect(await readSystemdServiceRuntime(env)).toMatchObject({
+        status: "stopped",
+        missingUnit: true,
+        systemd: {
+          transport: {
+            kind: "session-bus",
+            address: `unix:path=${join(home, "bin/runtime/bus")}`,
+            runtimeDir: join(home, "bin/runtime"),
+          },
+        },
+      });
+    } finally {
+      uid.mockRestore();
+      platform.mockRestore();
+    }
+  });
+
   it("keeps self-upgrade target channels enabled despite historical source suppression", async () => {
     const lane = readFileSync(
       resolve("scripts/e2e/lib/upgrade-survivor/update-run-package-self-upgrade.sh"),
@@ -95,6 +122,21 @@ setInterval(() => {}, 1000);
 
   it("distinguishes confirmed absence from unsupported inspection and reads the generated service", async () => {
     const { home, env, systemctl, unit, paths } = fixture();
+    const managerVersion = spawnSync(
+      join(home, "bin/busctl"),
+      [
+        "--user",
+        "--auto-start=no",
+        "get-property",
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+        "Version",
+      ],
+      { env, encoding: "utf8" },
+    );
+    expect(managerVersion.status, managerVersion.stderr).toBe(0);
+    expect(managerVersion.stdout.trim()).toBe('s "252.39-1~deb12u2"');
     // First install must reach the same effective reader used by the guarded writer.
     expect(await readLoadedSystemdServiceRuntime(env)).toMatchObject({ status: "unknown" });
     expect(existsSync(`${unit}.loaded-unit`)).toBe(false);
@@ -247,7 +289,7 @@ setInterval(() => {}, 1000);
     writeFileSync(
       program,
       `import fs from "node:fs";
-fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({pid:process.pid, argv:process.argv.slice(2), cwd:process.cwd(), value:process.env.FIXTURE_VALUE, state:process.env.OPENCLAW_STATE_DIR, update:process.env.OPENCLAW_UPDATE_IN_PROGRESS, npmRegistry:process.env.NPM_CONFIG_REGISTRY, npmLowerRegistry:process.env.npm_config_registry, bunRegistry:process.env.BUN_CONFIG_REGISTRY, skipChannels:process.env.OPENCLAW_SKIP_CHANNELS, skipProviders:process.env.OPENCLAW_SKIP_PROVIDERS, disableBonjour:process.env.OPENCLAW_DISABLE_BONJOUR}) + "\\n");
+fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({pid:process.pid, argv:process.argv.slice(2), cwd:process.cwd(), value:process.env.FIXTURE_VALUE, state:process.env.OPENCLAW_STATE_DIR, update:process.env.OPENCLAW_UPDATE_IN_PROGRESS, npmRegistry:process.env.NPM_CONFIG_REGISTRY, npmLowerRegistry:process.env.npm_config_registry, bunRegistry:process.env.BUN_CONFIG_REGISTRY, skipChannels:process.env.OPENCLAW_SKIP_CHANNELS, skipProviders:process.env.OPENCLAW_SKIP_PROVIDERS, disableBonjour:process.env.OPENCLAW_DISABLE_BONJOUR, runtimeDir:process.env.XDG_RUNTIME_DIR, busAddress:process.env.DBUS_SESSION_BUS_ADDRESS}) + "\\n");
 process.on("SIGTERM", () => process.exit(0));
 setInterval(() => {}, 1000);
 `,
@@ -312,7 +354,12 @@ raise SystemExit(code if code >= 0 else 128 - code)
           record,
         ],
         {
-          env: { ...env, OPENCLAW_UPDATE_IN_PROGRESS: "1" },
+          env: {
+            ...env,
+            OPENCLAW_UPDATE_IN_PROGRESS: "1",
+            XDG_RUNTIME_DIR: undefined,
+            DBUS_SESSION_BUS_ADDRESS: "unix:path=/fixture/stale-bus",
+          },
           encoding: "utf8",
           timeout: 40_000,
         },
@@ -338,6 +385,8 @@ raise SystemExit(code if code >= 0 else 128 - code)
         skipChannels: "1",
         skipProviders: "1",
         disableBonjour: "1",
+        runtimeDir: env.XDG_RUNTIME_DIR,
+        busAddress: env.DBUS_SESSION_BUS_ADDRESS,
       });
       const previousPid = readFileSync(paths.pid, "utf8").trim();
       expect(await readSystemdServiceRuntime(env)).toMatchObject({
@@ -364,6 +413,8 @@ raise SystemExit(code if code >= 0 else 128 - code)
         skipChannels: "1",
         skipProviders: "1",
         disableBonjour: "1",
+        runtimeDir: env.XDG_RUNTIME_DIR,
+        busAddress: env.DBUS_SESSION_BUS_ADDRESS,
       });
       const proof = assertion();
       expect(proof.status, proof.stderr).toBe(0);

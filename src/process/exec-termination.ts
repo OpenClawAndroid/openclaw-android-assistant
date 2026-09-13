@@ -3,7 +3,11 @@ import process from "node:process";
 import { getWindowsSystem32ExePath } from "../infra/windows-install-roots.js";
 import { getFileLockProcessStartTime } from "../shared/pid-alive.js";
 import { isChildProcessTreeAlive } from "./child-process-tree.js";
-import { COMMAND_PROCESS_TREE_KILL_GRACE_MS, spawnCommand } from "./exec-spawn.js";
+import {
+  COMMAND_PROCESS_TREE_KILL_GRACE_MS,
+  runOutsideCommandProcessScope,
+  spawnCommand,
+} from "./exec-spawn.js";
 import { killProcessTree as terminateProcessTree } from "./kill-tree.js";
 
 const WINDOWS_TASKKILL_TIMEOUT_MS = 5_000;
@@ -40,14 +44,16 @@ export function createCommandTerminationController(params: {
     !params.isChildExited() && params.child.exitCode == null && params.child.signalCode == null;
   const spawnTaskkill = async (args: string[]) => {
     try {
-      await spawnCommand([getWindowsSystem32ExePath("taskkill.exe"), ...args], {
-        baseEnv: params.baseEnv,
-        env: params.env,
-        forceKillAfterDelay: COMMAND_PROCESS_TREE_KILL_GRACE_MS,
-        reject: false,
-        stdio: "ignore",
-        timeout: WINDOWS_TASKKILL_TIMEOUT_MS,
-      });
+      await runOutsideCommandProcessScope(() =>
+        spawnCommand([getWindowsSystem32ExePath("taskkill.exe"), ...args], {
+          baseEnv: params.baseEnv,
+          env: params.env,
+          forceKillAfterDelay: COMMAND_PROCESS_TREE_KILL_GRACE_MS,
+          reject: false,
+          stdio: "ignore",
+          timeout: WINDOWS_TASKKILL_TIMEOUT_MS,
+        }),
+      );
     } catch {
       // Best-effort Windows cleanup still joins every attempted helper.
     }

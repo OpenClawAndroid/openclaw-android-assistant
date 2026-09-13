@@ -4,6 +4,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import {
+  createPublicationSourceFact,
+  publicationDispatchEnvelope,
+  publicationIntentInputs,
+  publicationSourceRequest,
+  validatePublicationSourceBinding,
+} from "../../scripts/full-release-publication-contract.mjs";
 import { tryReadReleaseDecision } from "../../scripts/full-release-validation-at-sha.mts";
 import {
   buildReleaseStateArtifact,
@@ -254,9 +261,14 @@ describe("full release artifact contract", () => {
     },
   );
 
-  it.each([false, true])(
-    "writes all matrix evidence with reuse=%s without argv size limits",
-    (reuse) => {
+  it.each([
+    { reuse: false, source: false },
+    { reuse: true, source: false },
+    { reuse: false, source: true },
+    { reuse: true, source: true },
+  ])(
+    "writes all matrix evidence with reuse=$reuse source=$source without argv size limits",
+    ({ reuse, source }) => {
       const workflow = parse(readFileSync(".github/workflows/full-release-validation.yml", "utf8"));
       const writer = workflow.jobs.summary.steps.find(
         (entry: { name: string }) => entry.name === "Write release validation manifest",
@@ -290,15 +302,75 @@ describe("full release artifact contract", () => {
         ]),
       );
       expect(Buffer.byteLength(JSON.stringify(expectedChildren))).toBeGreaterThan(128 * 1024);
+      const request = publicationSourceRequest({
+        PUBLICATION_INPUTS_JSON: JSON.stringify({
+          ref: SHA,
+          release_profile: "full",
+          rerun_group: "all",
+          provider: "openai",
+          trusted_workflow_json: publicationDispatchEnvelope(null, {
+            validationPurpose: "publish",
+            publicationSelection: {
+              route: "normal",
+              npmDistTag: "latest",
+              publishOpenclawNpm: true,
+              pluginPublishScope: "all-publishable",
+              plugins: [],
+            },
+          }),
+        }),
+        PUBLICATION_TOOLING_JSON: JSON.stringify({
+          fullRef: "refs/heads/main",
+          sha: "d".repeat(40),
+        }),
+        PUBLICATION_TARGET_CONTEXT: "release/2026.9.9",
+        PUBLICATION_TARGET_SHA: SHA,
+        GITHUB_REPOSITORY: "openclaw/openclaw",
+        GITHUB_REF: "refs/heads/release-ci/test",
+        GITHUB_SHA: "d".repeat(40),
+        GITHUB_RUN_ID: "124",
+        GITHUB_RUN_ATTEMPT: "1",
+      });
+      const inventory = { packages: [], platforms: [] };
+      const projection = {
+        version: "2026.9.9",
+        packages: [{ name: "openclaw", version: "2026.9.9", targets: ["npm"] }],
+        platforms: [],
+      };
+      const sourceAdmission = createPublicationSourceFact(request, inventory, projection);
+      const oldSource = createPublicationSourceFact(
+        {
+          ...request,
+          runId: "98",
+          candidateSha: "c".repeat(40),
+        },
+        inventory,
+        projection,
+      );
+      const trustedWorkflow = { fullRef: "refs/heads/main", ref: "main", sha: "d".repeat(40) };
       const sourceManifest = {
-        releaseProfile: "stable",
+        ...(source
+          ? { sourceAdmissionContract: "1", sourceAdmission: oldSource, trustedWorkflow }
+          : {}),
+        releaseProfile: source ? "full" : "stable",
+        rerunGroup: "all",
         runReleaseSoak: "true",
         childRuns: { normalCi: "1000" },
-        validationInputs: { provider: "openai" },
+        validationInputs: {
+          provider: "openai",
+          ...(source
+            ? {
+                ...publicationIntentInputs(oldSource),
+                targetContextRef: "release/2026.9.9",
+                allowUnreleasedChangelog: "false",
+              }
+            : {}),
+        },
         controls: { stableSoakRequired: true },
         childEvidence: expectedChildren,
       };
       const plan = {
+        ...(source ? { sourceAdmissionContract: "1", sourceAdmission, trustedWorkflow } : {}),
         targetSha: SHA,
         sha256: "b".repeat(64),
         parentRunAttempt: 1,
@@ -320,7 +392,7 @@ describe("full release artifact contract", () => {
       const dir = tempDirs.make("full-release-manifest-");
       const planPath = join(dir, "plan.json");
       const drainPath = join(dir, "drain.json");
-      writeFileSync(planPath, JSON.stringify(plan));
+      writeFileSync(planPath, serializeReleaseArtifact(plan));
       writeFileSync(drainPath, serializeReleaseArtifact(drain));
       const result = spawnSync("bash", ["-c", writer.run], {
         encoding: "utf8",
@@ -335,6 +407,13 @@ describe("full release artifact contract", () => {
           GITHUB_REF: "refs/heads/release-ci/test",
           GITHUB_REF_TYPE: "branch",
           TARGET_REF: SHA,
+          ...(source
+            ? {
+                TARGET_CONTEXT_REF: "release/2026.9.9",
+                PROVIDER: "openai",
+                ALLOW_UNRELEASED_CHANGELOG: "false",
+              }
+            : {}),
           RELEASE_PROFILE: "full",
           RERUN_GROUP: "all",
           RUN_RELEASE_SOAK: "true",
@@ -349,6 +428,18 @@ describe("full release artifact contract", () => {
       );
       expect(Buffer.byteLength(bytes)).toBeLessThan(MAX_RELEASE_ARTIFACT_BYTES);
       const manifest = JSON.parse(bytes);
+      if (source) {
+        expect(
+          validatePublicationSourceBinding(manifest, { sourceAdmissionContract: "1" }),
+        ).toEqual(sourceAdmission);
+        expect(manifest.sourceAdmission).not.toEqual(oldSource);
+        expect(sourceManifest.sourceAdmission).toEqual(oldSource);
+        expect(manifest.validationInputs.publicationSelectionJson).toBe(
+          publicationIntentInputs(sourceAdmission).publicationSelectionJson,
+        );
+      } else {
+        expect(manifest).not.toHaveProperty("sourceAdmission");
+      }
       expect(manifest.childEvidence).toEqual(expectedChildren);
       expect(manifest).toMatchObject({
         version: 4,
@@ -361,7 +452,7 @@ describe("full release artifact contract", () => {
       });
       if (reuse) {
         expect(manifest).toMatchObject({
-          releaseProfile: "stable",
+          releaseProfile: source ? "full" : "stable",
           runReleaseSoak: "true",
           childRuns: sourceManifest.childRuns,
           validationInputs: sourceManifest.validationInputs,

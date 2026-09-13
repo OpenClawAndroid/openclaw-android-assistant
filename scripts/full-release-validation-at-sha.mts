@@ -30,6 +30,12 @@ import { isDeepStrictEqual } from "node:util";
 import { parse as parseYaml } from "yaml";
 import { isRecord as isJsonRecord } from "../packages/normalization-core/src/record-coerce.ts";
 import {
+  decodePublicationDispatchEnvelope,
+  normalizePublicationIntent,
+  publicationDispatchEnvelope,
+  publicationIntentInputs,
+} from "./full-release-publication-contract.mjs";
+import {
   classifyReleaseGhTransportError,
   formatReleaseStateOutcome,
   isReleaseGhArtifactMissingError,
@@ -837,8 +843,23 @@ function validateDispatchRecord(value: unknown): asserts value is DispatchRecord
   );
   if (request.inputs.trusted_workflow_json) {
     requireDispatch(
+      typeof request.inputs.trusted_workflow_json === "string",
+      "Invalid retained tooling input",
+    );
+    const supplied = JSON.parse(request.inputs.trusted_workflow_json);
+    const enveloped = isJsonRecord(supplied) && Object.hasOwn(supplied, "trustedWorkflow");
+    const identity = enveloped
+      ? decodePublicationDispatchEnvelope(request.inputs.trusted_workflow_json).trustedWorkflow
+      : supplied;
+    requireDispatch(
+      !enveloped ||
+        (!Object.hasOwn(request.inputs, "validation_purpose") &&
+          !Object.hasOwn(request.inputs, "publication_selection_json")),
+      "Retained dispatch contains conflicting source intent representations",
+    );
+    requireDispatch(
       typeof request.inputs.trusted_workflow_json === "string" &&
-        isDeepStrictEqual(JSON.parse(request.inputs.trusted_workflow_json), {
+        isDeepStrictEqual(identity, {
           fullRef:
             request.trustedWorkflowRef === "main"
               ? "refs/heads/main"
@@ -960,6 +981,10 @@ function resolveDispatchSelection(workflowSha: string, overrides: Record<string,
     `Tooling SHA ${workflowSha} does not support FULL_RELEASE_DISPATCH_WITNESS_CONTRACT=1; no remote refs or run were created. Keep the frozen Tooling SHA. Existing runs use frv status; a new request needs separately approved witness-capable tooling.`,
   );
   requireDispatch(
+    workflow.env.FULL_RELEASE_SOURCE_ADMISSION_CONTRACT === "1",
+    `Tooling SHA ${workflowSha} does not support source admission; no remote refs or run were created. Keep the frozen tooling SHA. Reopen existing requests read-only; new tooling requires separate approval.`,
+  );
+  requireDispatch(
     isJsonRecord(workflow.on) &&
       isJsonRecord(workflow.on.workflow_dispatch) &&
       isJsonRecord(workflow.on.workflow_dispatch.inputs),
@@ -967,7 +992,16 @@ function resolveDispatchSelection(workflowSha: string, overrides: Record<string,
   );
   const definitions = workflow.on.workflow_dispatch.inputs;
   requireDispatch(
-    Object.keys(overrides).every((key) => Object.hasOwn(definitions, key)),
+    Object.keys(definitions).length <= 25,
+    "Pinned workflow exceeds 25 dispatch inputs",
+  );
+  const { validation_purpose, publication_selection_json, ...wireOverrides } = overrides;
+  wireOverrides.trusted_workflow_json = publicationDispatchEnvelope(
+    JSON.parse(overrides.trusted_workflow_json || "null"),
+    normalizePublicationIntent(validation_purpose, publication_selection_json),
+  );
+  requireDispatch(
+    Object.keys(wireOverrides).every((key) => Object.hasOwn(definitions, key)),
     "Undeclared workflow input",
   );
   const inputs: DispatchInputs = {};
@@ -978,7 +1012,7 @@ function resolveDispatchSelection(workflowSha: string, overrides: Record<string,
       "Invalid workflow input definition",
     );
     const raw: unknown =
-      overrides[key] ?? definition.default ?? (definition.type === "boolean" ? false : "");
+      wireOverrides[key] ?? definition.default ?? (definition.type === "boolean" ? false : "");
     const text = String(raw);
     let value: string | number | boolean = text;
     if (definition.type === "boolean") {
@@ -1005,6 +1039,7 @@ function resolveDispatchSelection(workflowSha: string, overrides: Record<string,
     inputs[key] = value;
     wireInputs[key] = String(value);
   }
+  decodePublicationDispatchEnvelope(inputs.trusted_workflow_json);
   return {
     inputs,
     wireInputs,
@@ -1289,13 +1324,30 @@ async function reconcileDispatch(record: DispatchRecord): Promise<DispatchRun> {
 async function reopenDispatch(path: string, args: ReturnType<typeof parseArgs>, argv: string[]) {
   const record = readDispatchRecord(path);
   const request = record.request;
+  let retainedInputs = request.wireInputs;
+  let retainedIntent: ReturnType<typeof publicationIntentInputs> | undefined;
+  const rawIdentity = request.wireInputs.trusted_workflow_json;
+  if (rawIdentity && Object.hasOwn(JSON.parse(rawIdentity), "trustedWorkflow")) {
+    retainedIntent = publicationIntentInputs(decodePublicationDispatchEnvelope(rawIdentity));
+    retainedInputs = {
+      ...retainedInputs,
+      validation_purpose: retainedIntent.validationPurpose,
+      publication_selection_json: retainedIntent.publicationSelectionJson,
+    };
+  }
   requireDispatch(
     (!args.sha || args.sha === request.targetSha) &&
       (!args.workflowSha || args.workflowSha === request.workflowSha) &&
       (!args.targetRef || args.targetRef === request.targetContextRef) &&
       (!argv.includes("--trusted-workflow-ref") ||
         args.trustedWorkflowRef === request.trustedWorkflowRef) &&
-      args.specifiedInputs.every((key) => args.inputs[key] === request.wireInputs[key]),
+      args.specifiedInputs.every((key) =>
+        key === "publication_selection_json" && retainedIntent
+          ? publicationIntentInputs(
+              normalizePublicationIntent(retainedIntent.validationPurpose, args.inputs[key]),
+            ).publicationSelectionJson === retainedIntent.publicationSelectionJson
+          : args.inputs[key] === retainedInputs[key],
+      ),
     "Reopen arguments conflict with the retained request",
   );
   try {

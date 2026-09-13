@@ -101,6 +101,7 @@ function stripNullBytes(s: string): string {
 
 type AgentRosterFacts = {
   compatibilityAgentId?: { value: string | undefined };
+  legacyDataOwnerAgentId?: { value: string | undefined };
   entryByNormalizedId?: Map<string, { clone: boolean; entry: AgentEntry }>;
 };
 
@@ -262,17 +263,38 @@ function tryResolveRawLegacyDefaultAgentId(cfg: OpenClawConfig): string | undefi
   return marked.length === 1 ? normalizeAgentId(marked[0]!.id) : undefined;
 }
 
-/** Resolves sole/raw legacy owners plus the retained in-process migration owner. */
-export function tryResolveLegacyCompatibilityAgentId(cfg: OpenClawConfig): string | undefined {
+/** Preserves legacy data locators independently of the configured runtime owner. */
+export function tryResolveLegacyDataOwnerAgentId(cfg: OpenClawConfig): string | undefined {
   const facts = readAgentRosterFacts(cfg);
-  if (facts?.compatibilityAgentId) {
-    return facts.compatibilityAgentId.value;
+  if (facts?.legacyDataOwnerAgentId) {
+    return facts.legacyDataOwnerAgentId.value;
   }
   const retainedAgentId = getRetainedLegacyDefaultAgentId(cfg);
   const value =
     retainedAgentId && listAgentIds(cfg).includes(retainedAgentId)
       ? retainedAgentId
       : tryResolveDefaultAgentId(cfg);
+  if (facts) {
+    facts.legacyDataOwnerAgentId = { value };
+  }
+  return value;
+}
+
+/** Resolves the recorded default after migration, or a sole/raw legacy owner. */
+export function tryResolveLegacyCompatibilityAgentId(cfg: OpenClawConfig): string | undefined {
+  const facts = readAgentRosterFacts(cfg);
+  if (facts?.compatibilityAgentId) {
+    return facts.compatibilityAgentId.value;
+  }
+  let value: string | undefined;
+  if (cfg.agents?.ownership === "explicit") {
+    // Migration's systemAgent.agentId is the durable default; provenance cannot designate one.
+    const recorded = normalizeOptionalString(cfg.agents.defaults?.systemAgent?.agentId);
+    const agentId = recorded ? normalizeAgentId(recorded) : undefined;
+    value = agentId && listAgentIds(cfg).includes(agentId) ? agentId : undefined;
+  } else {
+    value = tryResolveLegacyDataOwnerAgentId(cfg);
+  }
   if (facts) {
     facts.compatibilityAgentId = { value };
   }
@@ -290,7 +312,7 @@ export function tryResolveAmbientOwnerAgentId(
   // The documented system-agent owner is explicit config, so it precedes a stripped legacy marker.
   return explicitAgentId
     ? normalizeAgentId(explicitAgentId)
-    : tryResolveLegacyCompatibilityAgentId(cfg);
+    : (tryResolveLegacyCompatibilityAgentId(cfg) ?? tryResolveSoleAgentId(cfg));
 }
 
 /** Ambient owner for surfaces that must fail loudly rather than act on the wrong agent. */
@@ -302,15 +324,15 @@ export function resolveAmbientOwnerAgentId(
   return tryResolveAmbientOwnerAgentId(cfg, requestedAgentId) ?? resolveSoleAgentId(cfg, context);
 }
 
-/** Returns a CLI operation owner while preserving legacy defaults outside explicit fleets. */
+/** Returns an operation owner while preserving legacy defaults outside explicit fleets. */
 export function tryResolveAgentOperationAgentId(
   cfg: OpenClawConfig,
   requestedAgentId?: string,
 ): string | undefined {
-  if (requestedAgentId !== undefined || cfg.agents?.ownership === "explicit") {
+  if (requestedAgentId !== undefined) {
     return tryResolveAmbientOwnerAgentId(cfg, requestedAgentId);
   }
-  return tryResolveLegacyCompatibilityAgentId(cfg);
+  return tryResolveLegacyCompatibilityAgentId(cfg) ?? tryResolveSoleAgentId(cfg);
 }
 
 /** Resolves a CLI operation owner, requiring selection when no owner is configured. */
@@ -483,10 +505,6 @@ export function resolveAgentContextLimits(
   return resolveAgentConfig(cfg, agentId)?.contextLimits ?? defaults;
 }
 
-function tryResolveInheritedWorkspaceAgentId(cfg: OpenClawConfig): string | undefined {
-  return tryResolveLegacyCompatibilityAgentId(cfg);
-}
-
 export function resolveAgentWorkspaceDir(
   cfg: OpenClawConfig,
   agentId: string,
@@ -498,7 +516,7 @@ export function resolveAgentWorkspaceDir(
     return stripNullBytes(resolveUserPath(configured, env));
   }
   // Read-time migration removes default:true before write-time workspace pinning can run.
-  const inheritedWorkspaceAgentId = tryResolveInheritedWorkspaceAgentId(cfg);
+  const inheritedWorkspaceAgentId = tryResolveLegacyDataOwnerAgentId(cfg);
   const fallback = cfg.agents?.defaults?.workspace?.trim();
   if (inheritedWorkspaceAgentId && id === inheritedWorkspaceAgentId) {
     if (fallback) {
@@ -592,7 +610,7 @@ export function tryResolveConfiguredAgentWorkspaceDir(
   cfg: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  const inheritedWorkspaceAgentId = tryResolveInheritedWorkspaceAgentId(cfg);
+  const inheritedWorkspaceAgentId = tryResolveLegacyDataOwnerAgentId(cfg);
   if (inheritedWorkspaceAgentId) {
     return resolveAgentWorkspaceDir(cfg, inheritedWorkspaceAgentId, env);
   }

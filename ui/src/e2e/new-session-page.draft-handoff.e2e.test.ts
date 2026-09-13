@@ -58,7 +58,7 @@ suite.define(() => {
       await newSessionB.getByRole("button", { name: `Open image ${staleFileName}` }).waitFor();
 
       await messageB.fill(durableText);
-      await newSessionB.getByRole("button", { name: "Remove attachment" }).click();
+      await newSessionB.getByRole("button", { name: `Remove ${staleFileName}` }).click();
       await newSessionB
         .locator(".agent-chat__photo-input")
         .setInputFiles(path.join(process.cwd(), "ui/public/apple-touch-icon.png"));

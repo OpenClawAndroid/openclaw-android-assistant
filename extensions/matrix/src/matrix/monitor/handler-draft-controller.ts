@@ -111,6 +111,7 @@ export async function createMatrixDraftController(params: {
         }
         return await progressDraft.pushPlanProgress(payload.steps, {
           explanation: payload.explanation,
+          explanationFormat: payload.explanationFormat,
         });
       },
       onApprovalEvent: async (payload) => {

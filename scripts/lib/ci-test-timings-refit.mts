@@ -1,7 +1,12 @@
 import { stripVTControlCharacters } from "node:util";
 import { decodeNodeTestGroups } from "./ci-node-test-groups-codec.mts";
-import type { CiTestTimings } from "./ci-test-timings-schema.mts";
-import { parseCompactSplitTimingKey, runtimePlacementTimingKey } from "./vitest-shard-metadata.mts";
+import {
+  isRuntimePlacementTiming,
+  runtimePlacementTimingIdentity,
+  type CiTestTimings,
+  type RuntimePlacementTiming,
+} from "./ci-test-timings-schema.mts";
+import { parseCompactSplitTimingKey } from "./vitest-shard-metadata.mts";
 
 export type CiTimingRun = {
   id: number;
@@ -126,6 +131,8 @@ function readCompactLog(
   text: string,
   labels: string[],
   samples: { blacksmith: Samples; github: Samples },
+  runtimeSamples: { blacksmith: Samples; github: Samples },
+  runtimeDescriptors: Map<string, RuntimePlacementTiming>,
 ) {
   const profile = labels.some((label) => label.startsWith("blacksmith-")) ? "blacksmith" : "github";
   const starts = new Map<string, number>();
@@ -166,16 +173,35 @@ function readCompactLog(
       // concurrent, and admission must use the wrapper span it actually ran.
       recordSample(samples[profile], key, (Date.parse(timestamp) - started) / 1000);
       const matches = descriptors.filter((group) => (group.timing_key ?? group.shard_name) === key);
-      const placementKey =
-        matches.length === 1
-          ? runtimePlacementTimingKey({ ...matches[0]!, pretestBuildMode: runtimeModes.get(key) })
-          : undefined;
-      if (placementKey) {
-        recordSample(samples[profile], placementKey, (Date.parse(timestamp) - started) / 1000);
+      if (matches.length === 1) {
+        const group = matches[0]!;
+        const observation = {
+          configs: group.configs,
+          env: Object.fromEntries(
+            Object.entries(group.env ?? {}).toSorted(([a], [b]) => a.localeCompare(b)),
+          ),
+          includePatterns: group.includePatterns.toSorted(),
+          pretestBuildMode: runtimeModes.get(key),
+          seconds: Math.max(1, Math.round((Date.parse(timestamp) - started) / 1000)),
+        };
+        if (isRuntimePlacementTiming(observation)) {
+          const identity = runtimePlacementTimingIdentity(observation);
+          runtimeDescriptors.set(identity, observation);
+          recordSample(runtimeSamples[profile], identity, (Date.parse(timestamp) - started) / 1000);
+        }
       }
     }
     starts.delete(key);
   }
+}
+
+function runtimePlacementSecondsMap(observations: readonly RuntimePlacementTiming[] = []) {
+  return Object.fromEntries(
+    observations.map((observation) => [
+      runtimePlacementTimingIdentity(observation),
+      observation.seconds,
+    ]),
+  );
 }
 
 function recordCompleteParentSamples(samples: Samples, observedParents: Set<string>) {
@@ -254,23 +280,48 @@ export function refitTestTimings(runs: CiTimingRun[], previous?: CiTestTimings) 
   };
   const overhead: number[] = [];
   const observedParents = { blacksmith: new Set<string>(), github: new Set<string>() };
+  const runtimeSamples = {
+    blacksmith: new Map<string, number[]>(),
+    github: new Map<string, number[]>(),
+  };
+  const runtimeDescriptors = new Map<string, RuntimePlacementTiming>(
+    Object.values(previous?.runtimePlacementTimings ?? {})
+      .flat()
+      .map((observation) => [runtimePlacementTimingIdentity(observation), observation]),
+  );
+  const uniqueRuns = new Map<number, CiTimingRun>();
   for (const run of runs) {
+    const retained = uniqueRuns.get(run.id);
+    if (retained) {
+      retained.logs.push(...run.logs);
+    } else {
+      uniqueRuns.set(run.id, { ...run, logs: [...run.logs] });
+    }
+  }
+  for (const run of uniqueRuns.values()) {
     const current = {
       uiE2e: new Map<string, number[]>(),
       repoE2e: new Map<string, number[]>(),
       blacksmith: new Map<string, number[]>(),
       github: new Map<string, number[]>(),
     };
+    const currentRuntime = {
+      blacksmith: new Map<string, number[]>(),
+      github: new Map<string, number[]>(),
+    };
     for (const log of run.logs) {
       const text = stripVTControlCharacters(log.text);
       if (log.kind === "compact") {
-        readCompactLog(text, log.labels, current);
+        readCompactLog(text, log.labels, current, currentRuntime, runtimeDescriptors);
       } else {
         readE2eLog(text, current[log.kind], log.kind === "uiE2e" ? overhead : undefined);
       }
     }
     for (const profile of ["blacksmith", "github"] as const) {
       recordCompleteParentSamples(current[profile], observedParents[profile]);
+      for (const [identity, values] of currentRuntime[profile]) {
+        recordSample(runtimeSamples[profile], identity, median(values));
+      }
     }
     // Retries or duplicate reporter lines in one run must not satisfy the two-run minimum.
     for (const profile of ["uiE2e", "repoE2e", "blacksmith", "github"] as const) {
@@ -291,6 +342,17 @@ export function refitTestTimings(runs: CiTimingRun[], previous?: CiTestTimings) 
     measuredOverhead === undefined ||
     (oldOverhead !== undefined && Math.abs(measuredOverhead - oldOverhead) <= oldOverhead * 0.15);
   const runIds = [...new Set(runs.map((run) => run.id))].toSorted((a, b) => a - b);
+  function refitRuntime(profile: "blacksmith" | "github"): RuntimePlacementTiming[] {
+    return Object.entries(
+      refitMap(
+        runtimeSamples[profile],
+        runtimePlacementSecondsMap(previous?.runtimePlacementTimings[profile]),
+        contributingRuns[profile].size,
+      ),
+    ).map(([identity, measuredSeconds]) =>
+      Object.assign({}, runtimeDescriptors.get(identity)!, { seconds: measuredSeconds }),
+    );
+  }
   const timings: CiTestTimings = {
     compactGroupSeconds: {
       blacksmith: refitMap(
@@ -311,6 +373,10 @@ export function refitTestTimings(runs: CiTimingRun[], previous?: CiTestTimings) 
       previous?.repoE2eFileSeconds,
       contributingRuns.repoE2e.size,
     ),
+    runtimePlacementTimings: {
+      blacksmith: refitRuntime("blacksmith"),
+      github: refitRuntime("github"),
+    },
     source: `median of ${runIds.length} successful CI and release-check runs: ${runIds.join(", ")}`,
     uiE2e: {
       fileSeconds: refitMap(
@@ -333,6 +399,13 @@ export function refitTestTimings(runs: CiTimingRun[], previous?: CiTestTimings) 
   };
   const changes: { key: string; old: number | undefined; next: number | undefined }[] = [];
   const comparedMaps: [string, Record<string, number>, Record<string, number> | undefined][] = [
+    ...(["blacksmith", "github"] as const).map(
+      (profile): [string, Record<string, number>, Record<string, number>] => [
+        `runtimePlacementTimings.${profile}`,
+        runtimePlacementSecondsMap(timings.runtimePlacementTimings[profile]),
+        runtimePlacementSecondsMap(previous?.runtimePlacementTimings[profile]),
+      ],
+    ),
     [
       "compactGroupSeconds.blacksmith",
       timings.compactGroupSeconds.blacksmith,

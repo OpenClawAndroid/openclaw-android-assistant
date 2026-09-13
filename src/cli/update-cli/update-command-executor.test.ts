@@ -8,6 +8,7 @@ import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest"
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { resolveServiceManagerEnv } from "../../daemon/service-process-env.js";
+import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import * as tempRoot from "../../infra/tmp-openclaw-dir.js";
 import { CONTROL_PLANE_UPDATE_SENTINEL_META_ENV } from "../../infra/update-control-plane-sentinel.js";
 import {
@@ -20,7 +21,8 @@ import { stageManagedHandoffRuntime } from "../../infra/update-managed-service-h
 import type { UpdateRecoveryFence } from "../../infra/update-run-recovery.js";
 import { isChildProcessTreeAlive } from "../../process/child-process-tree.js";
 import { runUtf8CommandWithTimeout } from "../../process/exec.js";
-import { waitForPidToExit } from "../../test-utils/process-tree.js";
+import { killPidIfAlive, waitForPidToExit } from "../../test-utils/process-tree.js";
+import { updateExecutorNativeEntrypoints } from "./update-command-executor-native-runtime.test-support.js";
 import {
   captureUpdateCommandExecutorAuthority,
   releaseUpdateCommandPreflightForHandoff,
@@ -369,8 +371,12 @@ describe("candidate executor delegation", () => {
       plugins: { enabled: false },
     });
     fs.writeFileSync(configPath, original);
-    const workerUrl = new URL("../../infra/update-migrated-finalize.worker.ts", import.meta.url);
-    const resultUrl = new URL("../../infra/update-doctor-result.ts", import.meta.url);
+    const workerUrl = resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.migratedFinalize);
+    const resultUrl = resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.doctorResult);
+    // Prepare the worker before its deadline; watch mode still loads live source.
+    const sourceImportArgs = workerUrl.pathname.endsWith(".ts")
+      ? ["--import", path.resolve("scripts/tsx.mjs")]
+      : [];
     const childProgram = `
       import fs from "node:fs";
       import {createUpdatePostInstallDoctorResultPath, UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV} from ${JSON.stringify(resultUrl.href)};
@@ -390,14 +396,7 @@ describe("candidate executor delegation", () => {
       const fence = await executor.enter(root);
       const result = await withUpdateCommandExecutorChild(fence, root, (grant, beforeInput) =>
         runUtf8CommandWithTimeout(
-          [
-            process.execPath,
-            "--import",
-            path.resolve("scripts/tsx.mjs"),
-            "--input-type=module",
-            "-e",
-            childProgram,
-          ],
+          [process.execPath, ...sourceImportArgs, "--input-type=module", "-e", childProgram],
           {
             input: JSON.stringify({
               executor: grant,
@@ -415,7 +414,7 @@ describe("candidate executor delegation", () => {
           },
         ),
       );
-      expect(result.code).toBe(1);
+      expect(result.code, result.stderr).toBe(1);
       expect(result.stdout, result.stderr).toContain('"reason":"requester-revoked"');
       expect(JSON.parse(result.stdout)).toMatchObject({
         status: "error",
@@ -595,8 +594,8 @@ describe("candidate executor delegation", () => {
         );
       } finally {
         if (descendant) {
-          process.kill(descendant, "SIGTERM");
-          await waitForPidToExit(descendant);
+          killPidIfAlive(descendant);
+          expect(await waitForPidToExit(descendant)).toBe(true);
         }
       }
     },

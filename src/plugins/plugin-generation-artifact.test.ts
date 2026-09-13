@@ -8,6 +8,7 @@ import { createJiti } from "jiti";
 import { afterEach, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { capturePluginGenerationArtifact } from "./plugin-generation-artifact.js";
+import { inspectPluginSourceDependencies } from "./plugin-generation-source-inspection.js";
 
 // Artifact tests evaluate captured bytes independently; managed Node execution has binder suites.
 function createArtifactLoader(artifact: ReturnType<typeof capturePluginGenerationArtifact>) {
@@ -202,6 +203,87 @@ it.each(["require", "import"] as const)(
     await expect(capture()().read()).resolves.toBe("installed");
   },
 );
+
+it.each([
+  [
+    "local require",
+    `export const read = async (require) => [require('./label.json'), (await import('./peer.js')).value];`,
+    "./label.json",
+  ],
+  [
+    "local dirname",
+    `import path from 'node:path';
+     const __dirname = 'synthetic';
+     export const read = async () => [path.join(__dirname, 'label.json'), (await import('./peer.js')).value];`,
+    path.join("synthetic", "label.json"),
+  ],
+])("freezes dynamic imports without capturing labels from %s", async (_name, sourceText, label) => {
+  const source = temp.make("plugin-local-binding-");
+  const entry = path.join(source, "entry.mjs");
+  const peer = path.join(source, "peer.js");
+  const unrelated = path.join(source, "label.json");
+  fs.writeFileSync(entry, sourceText);
+  fs.writeFileSync(peer, 'export const value = "before";');
+  fs.writeFileSync(unrelated, '{"private":"unrelated"}');
+  const artifact = capturePluginGenerationArtifact(source, entry);
+  cleanups.push(artifact.dispose);
+  expect(artifact.hasSource(unrelated)).toBe(false);
+  expect(fs.existsSync(path.join(artifact.rootDir, "label.json"))).toBe(false);
+  expect(artifact.hasSource(peer)).toBe(true);
+  fs.writeFileSync(peer, 'export const value = "after";');
+  const plugin = createArtifactLoader(artifact)(artifact.resolve(entry)) as {
+    read(label: (value: string) => string): Promise<string[]>;
+  };
+  await expect(plugin.read((value) => value)).resolves.toEqual([label, "before"]);
+  expect(artifact.assertSourceCurrent).toThrow();
+});
+
+it.each([
+  ...["using", "await using"].map((declaration) => ({
+    name: `${declaration} declarations`,
+    sourceText: `${declaration} resource = null;
+      const first = import('./a.js');
+      export function later() { return import('./b.js'); }`,
+    references: ["./b.js", "./a.js"],
+  })),
+  {
+    name: "exported loop assignments",
+    sourceText: `export let value;
+      for ([value = import('./a.js')] of [[import('./b.js')]]) {}`,
+    references: ["./b.js", "./a.js"],
+  },
+  {
+    name: "imported loop assignments",
+    sourceText: `import { value } from './value.js';
+      for ([value = import('./a.js')] of [[import('./b.js')]]) {}`,
+    references: ["./value.js", "./b.js"],
+  },
+  {
+    name: "reserved export declarations",
+    sourceText: "export const { flag: __esModule } = {}; import('./a.js');",
+    references: [],
+  },
+  {
+    name: "reserved export aliases",
+    sourceText: "export { value as '__esModule' } from './value.js'; import('./a.js');",
+    references: [],
+  },
+])("preserves transformed references when inspecting $name", ({ sourceText, references }) => {
+  const source = temp.make("plugin-reference-inspection-");
+  const entry = path.join(source, "entry.mjs");
+  fs.writeFileSync(entry, sourceText);
+  for (const name of ["a.js", "b.js", "value.js"]) {
+    fs.writeFileSync(path.join(source, name), "export const value = 'fixture';");
+  }
+  const inspection = inspectPluginSourceDependencies([{ rootDir: source, entryFile: entry }]);
+  expect(inspection.references).toEqual(
+    references.map((specifier) => ({
+      source: entry,
+      specifier,
+      target: path.join(source, specifier),
+    })),
+  );
+});
 
 it.each([false, true])(
   "keeps authored absolute references on the native source graph (selective: %s)",

@@ -42,3 +42,12 @@ paths:
   .github/workflows/docker-channel-promote.yml:
     ignore:
       - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/linux-app-release.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/openclaw-release-publish.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/openclaw-release-promote.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

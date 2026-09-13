@@ -264,6 +264,34 @@ afterEach(() => {
 });
 
 describe("update status abandoned-run reporting", () => {
+  it.each([true, false])(
+    "reports an activation timeout without abandonment (JSON: %s)",
+    async (json) => {
+      const created = createUpdateRun({ trigger: "cli" });
+      recordUpdateRunPhase(created.runId, "activating");
+      const finished = finishUpdateRun(created.runId, {
+        status: "failed",
+        reason: "update-activation-timeout",
+      });
+
+      await updateStatusCommand({ json });
+
+      if (json) {
+        expect(runtime.writeJson.mock.lastCall?.[0]).toMatchObject({ lastRun: finished });
+        expect(runtime.writeJson.mock.lastCall?.[0]).not.toHaveProperty("activeRun");
+        expect(runtime.writeJson.mock.lastCall?.[0]).not.toHaveProperty("abandonedRun");
+      } else {
+        const output = runtime.log.mock.calls.flat().join("\n");
+        expect(output).toContain("update-activation-timeout");
+        expect(output).toContain("openclaw doctor");
+        expect(output).toContain("Wait for the owning updater and its child processes to stop");
+        expect(output).toContain("openclaw update repair");
+        expect(output).not.toContain("Abandoned update detected");
+      }
+      expect(getUpdateRun(created.runId)).toEqual(finished);
+    },
+  );
+
   it.each(["json", "text", "status"])(
     "preserves readable history when reconciliation is refused through %s",
     async (surface) => {

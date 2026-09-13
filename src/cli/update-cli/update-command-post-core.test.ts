@@ -43,6 +43,7 @@ describe("continuePostCoreUpdateInFreshProcess", () => {
       const root = await withTempDir();
       const settledPath = path.join(root, "settled");
       const pidPath = path.join(root, "writer.pid");
+      const argvPath = path.join(root, "argv.json");
       const pluginUpdate: PostCorePluginUpdateResult = {
         status: "ok",
         changed: true,
@@ -71,6 +72,7 @@ process.once("SIGTERM", () => {
   }, 150);
 });
 await fs.writeFile(${JSON.stringify(pidPath)}, String(process.pid));
+await fs.writeFile(${JSON.stringify(argvPath)}, JSON.stringify(process.argv.slice(2)));
 await fs.writeFile(process.env.OPENCLAW_UPDATE_POST_CORE_RESULT_PATH, ${JSON.stringify(JSON.stringify(pluginUpdate))});
 `,
       );
@@ -83,7 +85,7 @@ await fs.writeFile(process.env.OPENCLAW_UPDATE_POST_CORE_RESULT_PATH, ${JSON.str
           root,
           channel: "stable",
           requestedChannel: null,
-          opts: { json: true, yes: true },
+          opts: { json: true, yes: true, timeout: cooperative ? undefined : "3600" },
           pluginInstallRecords: {},
           updateStartedAtMs: Date.now(),
           timeoutMs: 5000,
@@ -103,6 +105,13 @@ await fs.writeFile(process.env.OPENCLAW_UPDATE_POST_CORE_RESULT_PATH, ${JSON.str
         expect(await waitForPidToExit(pid)).toBe(true);
       }
       expect(result).toEqual({ resumed: true, pluginUpdate });
+      expect(JSON.parse(await fs.readFile(argvPath, "utf8"))).toEqual([
+        "update",
+        "--json",
+        "--yes",
+        "--timeout",
+        cooperative ? "5" : "3600",
+      ]);
       expect(aliveAtReturn).toBe(false);
       expect(settledAtReturn).toBe(cooperative ? "settled" : undefined);
     },

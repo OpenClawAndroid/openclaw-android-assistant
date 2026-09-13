@@ -316,9 +316,8 @@ export async function continuePostCoreUpdateInFreshProcess(params: {
   if (params.opts.acceptCapabilities) {
     argv.push("--accept-capabilities");
   }
-  if (params.opts.timeout) {
-    argv.push("--timeout", params.opts.timeout);
-  }
+  // This child only finalizes plugins; it must retain the owning step allowance.
+  argv.push("--timeout", params.opts.timeout ?? String(Math.ceil(params.timeoutMs / 1000)));
   const resultDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-post-core-"));
   const resultPath = path.join(resultDir, "plugins.json");
   const installRecordsPath = path.join(resultDir, "plugin-install-records.json");

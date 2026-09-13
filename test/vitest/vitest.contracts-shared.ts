@@ -29,7 +29,7 @@ export function createContractsVitestConfig(
   includePatterns: string[],
   env: Record<string, string | undefined> = process.env,
   argv: string[] = process.argv,
-  options: { name?: string } = {},
+  options: { name?: string; pool?: "forks" | "threads" } = {},
 ) {
   const cliIncludePatterns = narrowIncludePatternsForCli(includePatterns, argv);
   const envIncludePatterns = intersectIncludePatterns(
@@ -41,6 +41,7 @@ export function createContractsVitestConfig(
     test: {
       ...baseTest,
       name: options.name ?? "contracts",
+      pool: options.pool ?? baseTest.pool,
       isolate: false,
       runner: nonIsolatedRunnerPath,
       setupFiles: baseTest.setupFiles ?? [],

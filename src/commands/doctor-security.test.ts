@@ -814,72 +814,91 @@ describe("noteSecurityWarnings gateway exposure", () => {
     expect(message).toContain("Run: openclaw security audit --deep");
   });
 
-  it("keeps intentional Discord open groupPolicy below the update lint error threshold", async () => {
-    const { loadBundledPluginFacade } =
-      await import("../test-utils/bundled-plugin-public-surface.js");
-    const { resolveDiscordAccount, discordPlugin } = await loadBundledPluginFacade<{
-      discordPlugin: ChannelPlugin;
-      resolveDiscordAccount: (params: {
-        cfg: OpenClawConfig;
-        accountId?: string | null;
-      }) => unknown;
-    }>({ pluginId: "discord", artifactBasename: "api.js" });
-    const { createCoreHealthChecks } = await import("../flows/doctor-core-checks.js");
-    const { exitCodeFromFindings } = await import("../flows/doctor-lint-flow.js");
+  it.each([
+    { channel: "discord", label: "Discord" },
+    { channel: "feishu", label: "Feishu" },
+  ])(
+    "keeps intentional $label open groupPolicy advisory in Doctor and update lint",
+    async ({ channel, label }) => {
+      const { loadBundledPluginFacade } =
+        await import("../test-utils/bundled-plugin-public-surface.js");
+      const channelPlugin =
+        channel === "discord"
+          ? (
+              await loadBundledPluginFacade<{ discordPlugin: ChannelPlugin }>({
+                pluginId: "discord",
+                artifactBasename: "api.js",
+              })
+            ).discordPlugin
+          : (
+              await loadBundledPluginFacade<{ feishuPlugin: ChannelPlugin }>({
+                pluginId: "feishu",
+                artifactBasename: "api.js",
+              })
+            ).feishuPlugin;
+      const { createCoreHealthChecks } = await import("../flows/doctor-core-checks.js");
+      const { exitCodeFromFindings } = await import("../flows/doctor-lint-flow.js");
 
-    pluginRegistry.list = [
-      {
-        id: "discord",
-        meta: { label: "Discord" },
-        config: {
-          listAccountIds: () => ["default"],
-          resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) =>
-            resolveDiscordAccount({ cfg, accountId }),
-          isEnabled: () => true,
-          isConfigured: () => true,
+      pluginRegistry.list = [
+        {
+          id: channel,
+          meta: { label },
+          config: {
+            listAccountIds: () => ["default"],
+            resolveAccount: channelPlugin.config.resolveAccount,
+            isEnabled: () => true,
+            isConfigured: () => true,
+          },
+          security: {
+            collectWarnings: channelPlugin.security?.collectWarnings,
+          },
         },
-        security: {
-          collectWarnings: discordPlugin.security?.collectWarnings,
+      ];
+
+      const cfg: OpenClawConfig = {
+        channels: {
+          [channel]: {
+            groupPolicy: "open",
+            ...(channel === "feishu" ? { appId: "cli_test", appSecret: "test-secret" } : {}),
+          },
         },
-      },
-    ];
+      };
 
-    const cfg = {
-      channels: {
-        discord: {
-          groupPolicy: "open",
-        },
-      },
-    } as OpenClawConfig;
+      const plainFindings = await noteSecurityWarnings(cfg);
 
-    const securityCheck = createCoreHealthChecks().find(
-      (check) => check.id === "core/doctor/security",
-    );
-    expect(securityCheck).toBeDefined();
+      const securityCheck = createCoreHealthChecks().find(
+        (check) => check.id === "core/doctor/security",
+      );
+      expect(securityCheck).toBeDefined();
 
-    const healthFindings = await securityCheck!.detect({
-      mode: "lint",
-      runtime: { log() {}, error() {}, exit() {} },
-      cfg,
-    });
+      const healthFindings = await securityCheck!.detect({
+        mode: "lint",
+        runtime: { log() {}, error() {}, exit() {} },
+        cfg,
+      });
+      expect(exitCodeFromFindings(healthFindings, "error")).toBe(0);
+      expect(
+        plainFindings.filter((finding) => finding.detail.includes('groupPolicy="open"')),
+      ).toEqual([expect.objectContaining({ severity: "warn" })]);
+      expect(lastMessage()).toContain("openclaw security audit --deep");
 
-    const openGroupFindings = healthFindings.filter((finding) =>
-      finding.message.includes('groupPolicy="open"'),
-    );
-    expect(openGroupFindings).toEqual([
-      expect.objectContaining({
-        checkId: "core/doctor/security",
-        severity: "warning",
-        message: expect.stringContaining("Discord security warning"),
-      }),
-    ]);
-    expect(openGroupFindings.some((finding) => finding.severity === "error")).toBe(false);
+      const openGroupFindings = healthFindings.filter((finding) =>
+        finding.message.includes('groupPolicy="open"'),
+      );
+      expect(openGroupFindings).toEqual([
+        expect.objectContaining({
+          checkId: "core/doctor/security",
+          severity: "warning",
+          message: expect.stringContaining(`${label} security warning`),
+        }),
+      ]);
+      expect(openGroupFindings.some((finding) => finding.severity === "error")).toBe(false);
 
-    // Candidate update lint uses --severity-min error; the advisory must remain visible under warning.
-    expect(exitCodeFromFindings(openGroupFindings, "error")).toBe(0);
-    expect(exitCodeFromFindings(openGroupFindings, "warning")).toBe(1);
-    expect(exitCodeFromFindings(healthFindings, "error")).toBe(0);
-  });
+      // Candidate update lint uses --severity-min error; the advisory must remain visible under warning.
+      expect(exitCodeFromFindings(openGroupFindings, "error")).toBe(0);
+      expect(exitCodeFromFindings(openGroupFindings, "warning")).toBe(1);
+    },
+  );
 
   it("skips heartbeat directPolicy warning when delivery is internal-only or explicit", async () => {
     const cfg = {

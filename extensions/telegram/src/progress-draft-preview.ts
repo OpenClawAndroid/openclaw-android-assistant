@@ -31,8 +31,12 @@ function isTelegramProgressPriorityLine(line: ChannelProgressDraftCompositorLine
 // Each row has one content decision; both Telegram transports use that row.
 type ProgressText = { html: string; rich: RichText };
 
-function literalProgressText(text: string, style?: "bold" | "italic"): ProgressText {
+function literalProgressText(text: string, style?: "bold" | "italic" | "code"): ProgressText {
   const escaped = escapeTelegramHtml(text);
+  if (style === "code") {
+    // Telegram also detects bare URLs in HTML text; code entities keep prepared notes inert.
+    return { html: `<code>${escaped}</code>`, rich: { type: "code", text } };
+  }
   return style === "bold"
     ? { html: `<b>${escaped}</b>`, rich: boldRichText(text) }
     : style === "italic"
@@ -122,11 +126,11 @@ export function renderTelegramProgressDraftPreview(
     addParagraph(literalProgressText(compactChannelProgressDraftLine(label, maxLineChars), "bold"));
   }
   if (snapshot.statusHeadline) {
-    const status = markdownProgressText(
-      compactChannelProgressDraftLine(snapshot.statusHeadline, maxLineChars),
-    );
+    const text = compactChannelProgressDraftLine(snapshot.statusHeadline, maxLineChars);
+    const plain = snapshot.statusHeadlineFormat === "plain";
+    const status = plain ? literalProgressText(text, "code") : markdownProgressText(text);
     addParagraph(
-      label
+      label || plain
         ? status
         : {
             html: `<b>${status.html}</b>`,

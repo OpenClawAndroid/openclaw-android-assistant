@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
+
 import { expectDefined } from "@openclaw/normalization-core";
+import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import type { ChatAttachment } from "../../../lib/chat/chat-types.ts";
 import * as payloads from "../attachment-payload-store.ts";
 import {
   chatAttachmentFromDataUrl,
   ChatAttachmentReadLifecycle,
   handleChatAttachmentPaste,
+  renderAttachmentPreview,
 } from "./chat-attachments.ts";
 
 it("admits same-name image payloads with independent identities", () => {
@@ -278,5 +282,53 @@ describe("chat attachment read failures", () => {
     });
     await toastHost.updateComplete;
     expect(toastHost.querySelector(".app-toast")).toBeNull();
+  });
+});
+
+describe("attachment removal names", () => {
+  it("names full filenames and removes only the activated ID, including duplicate names", () => {
+    const names = [
+      "budget.csv",
+      "notes.txt",
+      "notes.txt",
+      undefined,
+      "   ",
+      "تقرير-الميزانية.txt",
+      "long-".repeat(50) + "report.txt",
+    ];
+    let attachments: ChatAttachment[] = names.map((fileName, index) => ({
+      id: "named-" + index,
+      mimeType: "text/plain",
+      fileName,
+    }));
+    const originals = [...attachments];
+    const container = document.createElement("div");
+    const released = vi.spyOn(payloads, "releaseChatAttachmentPayload");
+    const redraw = () =>
+      render(
+        renderAttachmentPreview({
+          attachments,
+          getAttachments: () => attachments,
+          onAttachmentsChange: (next) => {
+            attachments = next;
+            redraw();
+          },
+        }),
+        container,
+      );
+    redraw();
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".chat-attachment-remove")];
+    const labels = names.map((name) => (name?.trim() ? "Remove " + name : "Remove attachment"));
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(labels);
+    expect(
+      buttons.map((button) => (button.parentElement as HTMLElement & { content: string }).content),
+    ).toEqual(labels);
+    buttons[2]?.click();
+    expect(attachments.map(({ id }) => id)).toEqual(
+      originals.filter((_, index) => index !== 2).map(({ id }) => id),
+    );
+    expect(released).toHaveBeenCalledExactlyOnceWith("named-2");
+    render(null, container);
+    released.mockRestore();
   });
 });

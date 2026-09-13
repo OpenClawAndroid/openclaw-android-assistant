@@ -315,23 +315,6 @@ export function resolveThinkingProfile(params: {
   return profile;
 }
 
-function supportsThinkingLevel(
-  provider: string | null | undefined,
-  model: string | null | undefined,
-  level: ThinkLevel,
-  catalog?: ThinkingCatalogEntry[],
-  agentRuntime?: string | null,
-  configuredReasoning?: boolean,
-): boolean {
-  return resolveThinkingProfile({
-    provider,
-    model,
-    catalog,
-    agentRuntime,
-    configuredReasoning,
-  }).levels.some((entry) => entry.id === level);
-}
-
 /** List thinking level ids supported by provider/model. */
 export function listThinkingLevels(
   provider?: string | null,
@@ -414,14 +397,14 @@ export function isThinkingLevelSupported(params: {
   agentRuntime?: string | null;
   configuredReasoning?: boolean;
 }): boolean {
-  return supportsThinkingLevel(
-    params.provider,
-    params.model,
-    params.level,
-    params.catalog,
-    params.agentRuntime,
-    params.configuredReasoning,
-  );
+  const { provider, model, level, catalog, agentRuntime, configuredReasoning } = params;
+  return resolveThinkingProfile({
+    provider,
+    model,
+    catalog,
+    agentRuntime,
+    configuredReasoning,
+  }).levels.some((entry) => entry.id === level);
 }
 
 function resolveSupportedThinkingLevelFromProfile(

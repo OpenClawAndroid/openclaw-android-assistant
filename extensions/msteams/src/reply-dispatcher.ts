@@ -640,6 +640,7 @@ export function createMSTeamsReplyDispatcher(params: {
           }
           await streamController.pushPlanProgress(normalizeAgentPlanSteps(payload.steps), {
             explanation: typeof payload.explanation === "string" ? payload.explanation : undefined,
+            explanationFormat: payload.explanationFormat === "plain" ? "plain" : undefined,
           });
           return false;
         },

@@ -169,18 +169,8 @@ export const DEBUG_OVERLAY_SECTIONS: readonly DebugOverlaySectionDescriptor[] = 
   defineDebugOverlaySection({
     id: "status",
     titleKey: "debug.overlay.status",
-    load: async (context, signal) => {
-      const [value, systemInfo] = await Promise.all([
-        context.client.request<DebugOverlayStatusSnapshot>("status", {}, { signal }),
-        context.client.request<SystemInfoResult>("system.info", {}, { signal }).catch(() => null),
-      ]);
-      return {
-        eventLoop: value.eventLoop,
-        processMemory: value.processMemory,
-        disks: systemInfo?.disks,
-        uptimeMs: systemInfo?.uptimeMs,
-      } satisfies DebugOverlayStatusSnapshot;
-    },
+    load: (context, signal) =>
+      context.client.request<SystemInfoResult>("system.info", {}, { signal }),
     render: renderStatus,
   }),
   defineDebugOverlaySection({

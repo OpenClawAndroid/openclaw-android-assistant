@@ -60,7 +60,7 @@ export async function updateGitCheckout(params: {
       mode: "git",
       root: gitRoot,
       reason: "unsupported_git_channel",
-      recovery: await readCurrentGitUpdateRecovery(gitRoot),
+      recovery: await readCurrentGitUpdateRecovery(gitRoot, timeoutMs),
       steps: [],
       durationMs: Date.now() - startedAt,
     };

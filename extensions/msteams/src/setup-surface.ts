@@ -311,7 +311,7 @@ export const msteamsSetupWizard: ChannelSetupWizard = {
           progress.stop();
           throw err;
         }
-        saveDelegatedTokens(tokens);
+        await saveDelegatedTokens(tokens);
         progress.stop(t("wizard.msteams.delegatedAuthConfigured"));
       }
     }

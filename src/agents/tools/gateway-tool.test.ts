@@ -128,7 +128,7 @@ describe("gateway update action", () => {
   });
 
   it.each([undefined, 0, "topic-42"])(
-    "uses trusted chat routing and ignores model overrides (thread %s)",
+    "uses trusted chat routing without an update deadline (thread %s)",
     async (threadId) => {
       dispatchMock.mockResolvedValue({
         ok: true,
@@ -180,7 +180,6 @@ describe("gateway update action", () => {
             threadId,
           },
           note: "Requested update",
-          timeoutMs: 1_200_000,
         },
         {
           signal,

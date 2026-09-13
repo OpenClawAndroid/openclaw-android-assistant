@@ -316,6 +316,8 @@ export type GetReplyOptions = {
     phase?: string;
     title?: string;
     explanation?: string;
+    /** Prepared literal text; unmarked explanations retain authored Markdown. */
+    explanationFormat?: "plain";
     steps?: AgentPlanStep[];
     source?: string;
   }) => Promise<ProgressCallbackResult> | ProgressCallbackResult;

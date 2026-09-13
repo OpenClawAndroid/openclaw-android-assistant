@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { formatErrorMessage } from "../infra/errors.js";
 import { NODE_FS_LIST_DIR_COMMAND } from "../infra/node-commands.js";
 import { createLazyRuntimeNamedExport } from "../shared/lazy-runtime.js";
@@ -230,21 +231,44 @@ export async function runBridgeRequest(params: {
           throw new ToolInputError("search query must be a string.");
         }
         const options = isRecord(values[1]) ? values[1] : undefined;
-        const matches = await params.runtime.search(query, {
-          limit: typeof options?.limit === "number" ? options.limit : undefined,
-          includeMcp: false,
-          allowedIds: catalogProjection.byId,
-        });
         const exact = query.trim().toLowerCase();
-        const exactBinding = catalogProjection.bindings.find(
-          (binding) =>
-            binding.name.toLowerCase() === exact || binding.callableName.toLowerCase() === exact,
-        );
+        const mcpBindings = params.namespaceRuntime.mcpBindings;
+        const mcpRoutes = [...mcpBindings];
+        const exactMcpId = (mcpRoutes.find(
+          ([, binding]) => binding.callableName === query.trim(),
+        ) ?? mcpRoutes.find(([, binding]) => binding.callableName.toLowerCase() === exact))?.[0];
+        const exactBinding = exactMcpId
+          ? undefined
+          : catalogProjection.bindings.find(
+              (binding) =>
+                binding.name.toLowerCase() === exact ||
+                binding.callableName.toLowerCase() === exact,
+            );
+        const matches = await params.runtime.search(exactBinding?.id ?? exactMcpId ?? query, {
+          limit: typeof options?.limit === "number" ? options.limit : undefined,
+          allowedIds: catalogProjection.searchableIds,
+        });
         value = exactBinding
           ? [exactBinding.callableName]
-          : matches.flatMap((entry) => {
+          : matches.map((entry) => {
               const binding = catalogProjection.byId.get(entry.id);
-              return binding ? [binding.callableName] : [];
+              if (binding) {
+                return binding.callableName;
+              }
+              const mcp = mcpBindings.get(entry.id);
+              if (!mcp) {
+                throw new ToolInputError("Search result has no callable namespace route.");
+              }
+              params.runtime.observeNetworkContent(params.parentToolCallId);
+              return {
+                callableName: mcp.callableName,
+                namespaceId: mcp.namespaceId,
+                path: mcp.path,
+                apiPath: mcp.apiPath,
+                name: entry.mcp?.toolName ?? entry.name,
+                source: "mcp",
+                description: truncateUtf16Safe(entry.description, 512),
+              };
             });
         break;
       }

@@ -352,13 +352,13 @@
   display: none;
 }
 
+openclaw-chat-detail-panel,
 .side-panel__panel
   > :is(
     .chat,
     .chat-workspace-rail,
     .chat-tasks-rail,
     .chat-task-detail,
-    openclaw-chat-detail-panel,
     openclaw-chat-session-rail,
     openclaw-session-discussion,
     openclaw-terminal-panel,

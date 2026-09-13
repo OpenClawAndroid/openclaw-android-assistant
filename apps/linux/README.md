@@ -8,6 +8,8 @@ Reading tabs share a private browser session, isolated from the dashboard's nati
 
 The tray's **Stop Gateway** and **Restart Gateway** actions request graceful shutdown. Running work can delay completion; **Start Gateway** brings a stopped local Gateway back online.
 
+After a connection drops, the companion keeps reconnecting while the service state is unknown. **Start Gateway** remains available only for a confirmed stopped service.
+
 Published AMD64 AppImages are built on Ubuntu 22.04 and require glibc 2.35 or
 newer plus a `libstdc++` that provides `GLIBCXX_3.4.30`. Ubuntu 22.04 and
 Debian 12 meet that ABI floor. RHEL 9 and Rocky Linux 9 ship glibc 2.34, so
@@ -195,6 +197,11 @@ the additional sign-in options.
 
 The companion checks the latest GitHub release shortly after launch and from **Check for Updates** in the tray menu. AppImage installs download and verify the signed update in place, then wait for **Restart to update**. Package-managed installs such as `.deb` stay owned by the system package manager and link to the release download page instead of replacing installed files. The macOS and Windows test builds use a separate opt-in desktop-test update channel; macOS self-updates like the AppImage build, while Windows downloads the update first and runs its installer only after **Restart to update**.
 
+While a newer Gateway release waits for its Linux app, the latest release keeps
+the previous published Linux updater manifest. Its original version, signature,
+and download URL stay intact. Successful Linux publication advances that
+manifest without letting an older build replace a newer available update.
+
 ## Quick Chat widgets
 
 Quick Chat advertises the Gateway `inline-widgets` capability and renders hosted `show_widget` results in isolated child WebViews. The parent Quick Chat WebView is the only one granted Tauri commands; widget WebViews match no capability and therefore have no IPC access. Quick Chat accepts only assistant-message widget previews under the capability-scoped `/__openclaw__/canvas/documents/` route, blocks navigation away from the original document, uses nonpersistent WebViews, and keeps stable widget instances while switching among multiple previews. Connections that require a custom Gateway TLS leaf pin remain text-only because the platform WebView cannot bind that pin. Like the other native clients, Quick Chat does not expose the Control UI `sendPrompt` bridge.
@@ -270,7 +277,14 @@ validation does not publish a release.
 
 ## Releases
 
-Manually dispatch `Linux App Release Request` from `main`. Provide the existing
+Regular stable publication automatically requests Linux bundles after the
+GitHub release becomes visible. `OpenClaw Release Publish` and `OpenClaw Release
+Button` both use the same Linux release owner; the request can finish before
+the build, signing, and publication do. Their summaries report Linux as pending
+until its own assets verify. Beta and alpha prereleases, and extended-stable
+publication, do not request Linux bundles.
+
+For independent recovery, manually dispatch `Linux App Release Request` from `main`. Provide the existing
 stable release tag in `tag`; prerelease tags are rejected because their semver
 suffix breaks Debian upgrade ordering. Enable the optional
 `desktop-test-bundles` input only when unsigned macOS and Windows test bundles
@@ -281,3 +295,14 @@ the validated release tag SHA and attaches the bundles to that tag's GitHub
 release with a `SHA256SUMS.linux-app.txt` checksum file. The tag commit must be
 reachable from `main` or its matching `release/YYYY.M.PATCH` branch; numeric
 correction tags use the base version's release branch.
+
+Linux release requests run one at a time. Default Linux-only retries verify and
+reuse an existing complete AppImage, Debian package, signed updater manifest,
+and checksum set. Partial or mismatched existing assets require targeted
+publication recovery; the workflow does not rebuild or overwrite them. An
+optional desktop-test run also refuses to replace published Linux bytes, so
+recover missing desktop assets separately when Linux has already published.
+
+The website selects desktop assets at build time. After publication, rebuild
+`openclaw.ai` through its existing deployment owner and verify the deployed Apps
+card's Linux version and both download links.

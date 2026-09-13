@@ -1008,8 +1008,8 @@ importers:
         specifier: 0.38.55
         version: 0.38.55
       libopus-wasm:
-        specifier: 0.2.0
-        version: 0.2.0
+        specifier: 0.4.0
+        version: 0.4.0
       mdast-util-from-markdown:
         specifier: 2.0.3
         version: 2.0.3(supports-color@10.2.2)
@@ -1713,8 +1713,8 @@ importers:
   extensions/openai:
     dependencies:
       libopus-wasm:
-        specifier: 0.2.0
-        version: 0.2.0
+        specifier: 0.4.0
+        version: 0.4.0
       werift:
         specifier: 0.24.4
         version: 0.24.4(supports-color@10.2.2)
@@ -7791,9 +7791,9 @@ packages:
   libmime@5.4.3:
     resolution: {integrity: sha512-di9BoDabBUMqjeD/wGj+hHpSgdqAph5ui7w6OdY6NpzU6O6VFLQsMOg9tqCjm/zf9OHzAM9EZxSOF7uIb8O8Hw==}
 
-  libopus-wasm@0.2.0:
-    resolution: {integrity: sha512-x/2Gu1/C6L3IICY09zyfp984AWiOYjn53u4WfdY3yh+3KTzMN8Xkm77q3lenWMVIk5SnSzjGEkQT+VQMFHLBHQ==}
-    engines: {node: '>=20'}
+  libopus-wasm@0.4.0:
+    resolution: {integrity: sha512-k7XznZMcDSgIl7uHdiCdIPaPfVLslf3C90jcJIEiC5OLK2Qy+M2CMmeAokDca6bbYRnSCVZ9/sUEOSfDrX60Qw==}
+    engines: {node: '>=22'}
 
   libphonenumber-js@1.13.12:
     resolution: {integrity: sha512-uLVeV1c9OTk6qkdqnj+mpMD+ZdnZ0szVyWu58HwMmpwkHA1gCEkyjd3veZQXDnuw9KEwSRjcc9B1pS9XKIN1fA==}
@@ -15364,7 +15364,7 @@ snapshots:
       libbase64: 1.3.0
       libqp: 2.1.1
 
-  libopus-wasm@0.2.0: {}
+  libopus-wasm@0.4.0: {}
 
   libphonenumber-js@1.13.12: {}
 

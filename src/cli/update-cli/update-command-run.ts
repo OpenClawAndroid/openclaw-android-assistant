@@ -30,6 +30,7 @@ import {
   UPDATE_DEV_TARGET_REF_ENV,
 } from "../../infra/update-dev-target.js";
 import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
+import { cleanupStaleManagedServiceUpdateHandoffs } from "../../infra/update-managed-service-handoff-cleanup.js";
 import {
   POST_CORE_UPDATE_CHANNEL_ENV,
   POST_CORE_UPDATE_ENV,
@@ -52,9 +53,15 @@ import {
 } from "../../infra/update-run-ledger.js";
 import type { UpdateRunRecord, UpdateRunStep } from "../../infra/update-run-record.js";
 import { assertUpdateRecoveryAdmission } from "../../infra/update-run-recovery-admission.js";
-import { inspectUpdateRecoveries, loadUpdateRecovery } from "../../infra/update-run-recovery.js";
+import {
+  inspectUpdateRecoveries,
+  loadUpdateRecovery,
+  type UpdateRecoveryFence,
+} from "../../infra/update-run-recovery.js";
 import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
+import { AUTO_UPDATE_STEP_TIMEOUT_MS } from "../../infra/update-run-timeouts.js";
 import type { UpdateRunResult, UpdateStepProgress } from "../../infra/update-runner.js";
+import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { assertOpenClawStateWriteAllowedAtPath } from "../../state/openclaw-state-ownership.js";
@@ -72,6 +79,7 @@ import {
 import { UpdateCommandPendingRecoveryFailure } from "./update-command-result.js";
 import {
   resolveOwnedManagedUpdateEnv,
+  withOwnedManagedUpdateEnv,
   resolveServiceRefreshEnv,
 } from "./update-command-service-env.js";
 import {
@@ -231,7 +239,12 @@ export async function admitUpdateCommandRun(params: {
   const requesterAuthority = requester
     ? await createManagedUpdateRequesterAuthority(requester, env)
     : undefined;
-  const run = { runId: record.runId, env, ...(requesterAuthority ? { requesterAuthority } : {}) };
+  const run = {
+    runId: record.runId,
+    defaultStepTimeoutMs: record.trigger === "campaign" ? AUTO_UPDATE_STEP_TIMEOUT_MS : undefined,
+    env,
+    ...(requesterAuthority ? { requesterAuthority } : {}),
+  };
   if (
     !env[UPDATE_RUN_ID_ENV] &&
     env.OPENCLAW_UPDATE_RUN_HANDOFF !== "1" &&
@@ -517,7 +530,7 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
   // The shim can move during preparation; the loaded module owns the executing generation.
   const executingRoot = resolveOpenClawPackageRootSync({ moduleUrl: import.meta.url });
   const discoveredRoot = await resolveUpdateRoot();
-  const installKind = await resolveUpdateInstallKind(discoveredRoot);
+  const installKind = await resolveUpdateInstallKind(discoveredRoot, { timeoutMs });
   // A post-core marker cannot bypass pending recovery without the live original
   // owner. Check both roots before config/autostart preparation or history.
   assertUpdatePackageActivationAdmission(discoveredRoot, {
@@ -574,4 +587,25 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
     installKind,
     servicePlan,
   };
+}
+
+/** Prepare mutable runtime state only under the admitted installation owner. */
+export async function prepareMutableUpdateRuntime(
+  env: NodeJS.ProcessEnv | undefined,
+  fence: UpdateRecoveryFence,
+) {
+  return await withOwnedManagedUpdateEnv(env, async () => {
+    fence.assertCurrent();
+    await cleanupStaleManagedServiceUpdateHandoffs().catch(() => undefined);
+    fence.assertCurrent();
+    await assertOpenClawStateWriteAllowedAtPath({
+      databasePath: resolveOpenClawStateSqlitePath(process.env),
+    });
+    fence.assertCurrent();
+    await disableCurrentOpenClawUpdateLaunchdJob().catch(() => undefined);
+    fence.assertCurrent();
+    const records = await loadInstalledPluginIndexInstallRecords();
+    fence.assertCurrent();
+    return records;
+  });
 }

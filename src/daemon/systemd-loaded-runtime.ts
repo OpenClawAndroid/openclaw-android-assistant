@@ -13,6 +13,7 @@ import type {
 } from "./service-types.js";
 import { execBusctlUser, systemdInspectionError } from "./systemd-exec.js";
 import { resolveSystemdServiceName } from "./systemd-service-files.js";
+import { readSystemdUserTransport } from "./systemd-user-transport.js";
 
 const MANAGER = "org.freedesktop.systemd1";
 const BUS = "org.freedesktop.DBus";
@@ -254,6 +255,7 @@ export async function readLoadedSystemdServiceRuntime(
         exitCode
       ],
       systemd: {
+        transport: await readSystemdUserTransport(env),
         unit: id,
         managerUid,
         result,

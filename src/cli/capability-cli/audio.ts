@@ -34,14 +34,12 @@ async function runAudioTranscribe(params: {
   });
   const agentId = resolveCapabilityProviderAgentId(cfg, params.agent, "infer audio transcribe");
   await prepareLocalCapabilityAccountSecrets({ cfg, agentId });
-  const agentDir = resolveAgentDir(cfg, agentId);
-  const activeModel = requireProviderModelOverride(params.model);
   const result = await transcribeAudioFile({
+    agentDir: resolveAgentDir(cfg, agentId),
+    activeModel: requireProviderModelOverride(params.model),
     filePath: path.resolve(params.file),
     cfg,
-    agentDir,
     language: params.language,
-    activeModel,
     prompt: params.prompt,
   });
   if (!result.text) {
@@ -56,6 +54,8 @@ async function runAudioTranscribe(params: {
     ok: true,
     capability: "audio.transcribe",
     transport: "local" as const,
+    provider: result.provider,
+    model: result.model,
     attempts: [],
     outputs: [{ path: path.resolve(params.file), text: result.text, kind: "audio.transcription" }],
   } satisfies CapabilityEnvelope;

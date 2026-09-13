@@ -64,7 +64,7 @@ A complete recovery point must cover these together:
   including databases at configured paths outside the default layout.
 - The workspaces, credentials, and retained originals needed by that installation.
 
-Use `openclaw backup` for a verified, WAL-aware archive. Never copy only the
+Use `openclaw backup create --verify` for a verified, WAL-aware archive. Never copy only the
 main `.sqlite` file from a live WAL database: committed data can still be in
 `-wal`. Restore the verified consolidated database offline; do not mix it with
 `-wal` or `-shm` files from another database generation. See [Backup](/cli/backup)

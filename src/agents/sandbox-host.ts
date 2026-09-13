@@ -254,9 +254,9 @@ function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
   try { void window.top.document; throw new Error("MCP App sandbox isolation failed"); } catch (error) {
     if (error instanceof Error && error.message === "MCP App sandbox isolation failed") throw error;
   }
-  const createInner = () => {
+  const createInner = (allowScripts = true) => {
     const frame = document.createElement("iframe");
-    frame.setAttribute("sandbox", "allow-scripts allow-forms");
+    frame.setAttribute("sandbox", allowScripts ? "allow-scripts allow-forms" : "");
     return frame;
   };
   let inner = createInner();
@@ -290,7 +290,7 @@ function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
           const guardedHtml = guardDocument(params.html);
           // Replace the browsing context so a superseded document cannot race
           // the new wrapper's first private bridge-port offer.
-          const nextInner = createInner();
+          const nextInner = createInner(params.allowScripts !== false);
           nextInner.addEventListener("load", () => {
             if (inner !== nextInner || typeof params.renderId !== "string") return;
             window.parent.postMessage({

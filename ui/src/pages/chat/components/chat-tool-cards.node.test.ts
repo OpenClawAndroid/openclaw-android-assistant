@@ -389,6 +389,23 @@ describe("tool-card extraction", () => {
     expect(cards[0]?.outputText).toBeUndefined();
   });
 
+  it.each([
+    { name: "number", args: 42, expected: "42" },
+    { name: "boolean", args: false, expected: "false" },
+    { name: "nonfinite number", args: Number.NaN, expected: "null" },
+    { name: "bigint", args: 42n, expected: "42" },
+    { name: "symbol", args: Symbol("input"), expected: undefined },
+    { name: "boxed symbol", args: Object(Symbol("input")), expected: "{}" },
+    { name: "boxed bigint", args: Object(42n), expected: "[object BigInt]" },
+  ])("preserves $name tool input display", ({ args, expected }) => {
+    const [card] = extractToolCards({
+      role: "assistant",
+      content: [{ type: "toolcall", id: "input-display", name: "example", arguments: args }],
+    });
+    expect(card).toBeDefined();
+    expect(card?.inputText).toBe(expected);
+  });
+
   it("preserves tool-call input payloads from tool_use blocks", () => {
     const cards = extractToolCards({
       role: "assistant",

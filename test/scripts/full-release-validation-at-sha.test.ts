@@ -45,15 +45,7 @@ const CURRENT_WORKFLOW_SOURCE = readFileSync(
 const CONTRACT_ONE_WORKFLOW_SOURCE = CURRENT_WORKFLOW_SOURCE.replace(
   'RELEASE_ISOLATION_TOOLING_CONTRACT: "2"',
   'RELEASE_ISOLATION_TOOLING_CONTRACT: "1"',
-).replace(
-  `      trusted_workflow_json:
-        description: Trusted release tooling identity JSON
-        required: false
-        default: ""
-        type: string
-`,
-  "",
-);
+).replace('  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n', "");
 const LEGACY_WORKFLOW_SOURCE = `name: Full Release Validation
 on:
   workflow_dispatch:
@@ -118,6 +110,7 @@ function createDispatchFixture(
     releaseRef?: string;
     workflowSource?: string;
     targetSource?: Record<string, string>;
+    omitPurpose?: boolean;
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), "openclaw-release-dispatch-"));
@@ -661,6 +654,11 @@ if (args[0] === "api" && method === "POST" && endpoint.endsWith("/git/refs")) {
       testNodeExecPath,
       [
         SCRIPT_PATH,
+        ...(!recoveryOnly &&
+        !options.omitPurpose &&
+        !extraArgs.some((arg) => arg.startsWith("validation_purpose="))
+          ? ["-f", "validation_purpose=diagnostic"]
+          : []),
         ...(recoveryOnly
           ? []
           : [
@@ -786,6 +784,179 @@ function ghField(args: string[], name: string): string {
 }
 
 describe("full-release-validation-at-sha", () => {
+  it("keeps explicit source intent within the 25 hosted dispatch input slots", () => {
+    const workflow = parseYaml(CURRENT_WORKFLOW_SOURCE);
+    const inputs = workflow.on.workflow_dispatch.inputs;
+    expect(Object.keys(inputs)).toHaveLength(25);
+    expect(inputs).toHaveProperty("trusted_workflow_json");
+    expect(inputs).not.toHaveProperty("validation_purpose");
+    expect(inputs).not.toHaveProperty("publication_selection_json");
+  });
+
+  it("rejects a missing purpose before remote creation on supporting tooling", () => {
+    const fixture = createDispatchFixture({ omitPurpose: true });
+    try {
+      const result = fixture.run(["--workflow-sha", fixture.workflowSha]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/validation_purpose/u);
+      expect(
+        fixture.readCalls(fixture.ghCallsPath).filter((args) => ghApiMethod(args) === "POST"),
+      ).toEqual([]);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("retains explicit publication wire values and reopens the same request read-only", () => {
+    const fixture = createDispatchFixture();
+    const selection = JSON.stringify(
+      {
+        route: "normal",
+        npmDistTag: "latest",
+        publishOpenclawNpm: true,
+        plugins: [],
+        pluginPublishScope: "all-publishable",
+      },
+      null,
+      1,
+    );
+    try {
+      const result = fixture.run([
+        "--workflow-sha",
+        fixture.workflowSha,
+        "-f",
+        "validation_purpose=publish",
+        "-f",
+        `publication_selection_json=${selection}`,
+      ]);
+      expect(result.status, result.stderr).toBe(0);
+      const record = JSON.parse(readFileSync(fixture.requestPath(), "utf8"));
+      const wire = record.request.wireInputs.trusted_workflow_json;
+      expect(JSON.parse(wire)).toEqual({
+        trustedWorkflow: {
+          ref: "main",
+          fullRef: "refs/heads/main",
+          sha: fixture.workflowSha,
+        },
+        validationPurpose: "publish",
+        publicationSelection: JSON.parse(selection),
+      });
+      expect(record.request.inputs.trusted_workflow_json).toBe(wire);
+      expect(fixture.readPayload().body.inputs.trusted_workflow_json).toBe(wire);
+      expect(record.request.inputs).not.toHaveProperty("validation_purpose");
+      expect(record.request.wireInputs).not.toHaveProperty("publication_selection_json");
+      const before = readFileSync(fixture.requestPath());
+      const callsBefore = fixture.readCalls(fixture.ghCallsPath).length;
+      const reopened = fixture.run(
+        [
+          "--request-file",
+          fixture.requestPath(),
+          "-f",
+          "validation_purpose=publish",
+          "-f",
+          `publication_selection_json=${JSON.stringify(JSON.parse(selection))}`,
+        ],
+        true,
+      );
+      expect(reopened.status, reopened.stderr).toBe(0);
+      expect(readFileSync(fixture.requestPath())).toEqual(before);
+      expect(
+        fixture
+          .readCalls(fixture.ghCallsPath)
+          .slice(callsBefore)
+          .filter((args) => ghApiMethod(args) !== "GET"),
+      ).toEqual([]);
+      const mismatch = fixture.run(
+        ["--request-file", fixture.requestPath(), "-f", "validation_purpose=diagnostic"],
+        true,
+      );
+      expect(mismatch.status).toBe(1);
+      expect(mismatch.stderr).toContain("conflict with the retained request");
+      expect(readFileSync(fixture.requestPath())).toEqual(before);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("reopens the original selected-plugin spelling after dispatch canonicalizes order and duplicates", () => {
+    const fixture = createDispatchFixture();
+    const original = JSON.stringify({
+      route: "normal",
+      npmDistTag: "latest",
+      publishOpenclawNpm: false,
+      pluginPublishScope: "selected",
+      plugins: ["@openclaw/z", "@openclaw/a", "@openclaw/z"],
+    });
+    try {
+      const request = [
+        "--request-file",
+        join(fixture.checkout, "request.json"),
+        "-f",
+        "validation_purpose=publish",
+        "-f",
+        `publication_selection_json=${original}`,
+      ];
+      const first = fixture.run(["--workflow-sha", fixture.workflowSha, ...request]);
+      expect(first.status, first.stderr).toBe(0);
+      const path = join(fixture.checkout, "request.json");
+      const before = readFileSync(path);
+      const record = JSON.parse(before.toString());
+      expect(
+        JSON.parse(record.request.wireInputs.trusted_workflow_json).publicationSelection.plugins,
+      ).toEqual(["@openclaw/a", "@openclaw/z"]);
+      const callsBefore = fixture.readCalls(fixture.ghCallsPath).length;
+      const reopened = fixture.run(request, true);
+      expect(reopened.status, reopened.stderr).toBe(0);
+      expect(readFileSync(path)).toEqual(before);
+      expect(
+        fixture
+          .readCalls(fixture.ghCallsPath)
+          .slice(callsBefore)
+          .every((args) => ghApiMethod(args) === "GET"),
+      ).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("reopens historical identity-only retained inputs without adding source intent or rewriting bytes", () => {
+    const fixture = createDispatchFixture();
+    try {
+      const result = fixture.run(["--workflow-sha", fixture.workflowSha]);
+      expect(result.status, result.stderr).toBe(0);
+      const record = JSON.parse(readFileSync(fixture.requestPath(), "utf8"));
+      const envelope = JSON.parse(record.request.wireInputs.trusted_workflow_json);
+      const legacyIdentity = JSON.stringify(envelope.trustedWorkflow, null, 1);
+      record.request.inputs.trusted_workflow_json = legacyIdentity;
+      record.request.wireInputs.trusted_workflow_json = legacyIdentity;
+      writeFileSync(fixture.requestPath(), JSON.stringify(record) + "\n");
+      const accepted = JSON.parse(readFileSync(fixture.acceptedRunPath, "utf8"));
+      accepted.inputs.trusted_workflow_json = legacyIdentity;
+      writeFileSync(fixture.acceptedRunPath, JSON.stringify(accepted));
+      const before = readFileSync(fixture.requestPath());
+      const digestBefore = dispatchInputsDigest(record.request.inputs);
+      const callsBefore = fixture.readCalls(fixture.ghCallsPath).length;
+      const reopened = fixture.run(["--reconcile-request", fixture.requestPath()], true);
+      expect(reopened.status, reopened.stderr).toBe(0);
+      expect(readFileSync(fixture.requestPath())).toEqual(before);
+      expect(dispatchInputsDigest(JSON.parse(before.toString()).request.inputs)).toBe(digestBefore);
+      expect(
+        fixture
+          .readCalls(fixture.ghCallsPath)
+          .slice(callsBefore)
+          .every((args) => ghApiMethod(args) === "GET"),
+      ).toBe(true);
+      const relabeled = fixture.run(
+        ["--request-file", fixture.requestPath(), "-f", "validation_purpose=diagnostic"],
+        true,
+      );
+      expect(relabeled.status).toBe(1);
+      expect(readFileSync(fixture.requestPath())).toEqual(before);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it("normalizes GitHub witness inputs without depending on omitted blanks, order, or Boolean representation", () => {
     expect(dispatchInputsDigest({ text: "a=b\n$()", count: 3, flag: false, empty: "" })).toBe(
       dispatchInputsDigest({ empty: "", flag: "false", count: "3", text: "a=b\n$()" }),
@@ -2338,7 +2509,7 @@ describe("full-release-validation-at-sha", () => {
           target_context_ref: releaseRef,
           allow_unreleased_changelog: "false",
         });
-        expect(JSON.parse(dispatchInputs.trusted_workflow_json ?? "{}")).toEqual({
+        expect(JSON.parse(dispatchInputs.trusted_workflow_json ?? "{}").trustedWorkflow).toEqual({
           ref: "main",
           fullRef: "refs/heads/main",
           sha: fixture.workflowSha,
@@ -2450,9 +2621,11 @@ describe("full-release-validation-at-sha", () => {
         dispatch_release_evidence: "false",
       });
       expect(inputs.ref).not.toBe(contextRef);
-      expect(inputs.trusted_workflow_json).toBe(
-        JSON.stringify({ fullRef: "refs/heads/main", ref: "main", sha: fixture.workflowSha }),
-      );
+      expect(JSON.parse(inputs.trusted_workflow_json ?? "{}").trustedWorkflow).toEqual({
+        fullRef: "refs/heads/main",
+        ref: "main",
+        sha: fixture.workflowSha,
+      });
     } finally {
       fixture.cleanup();
     }
@@ -2852,7 +3025,7 @@ describe("full-release-validation-at-sha", () => {
         `refs/tags/${fixture.trustedWorkflowTag}`,
       ]);
       const trustedIdentity = fixture.readPayload().body.inputs.trusted_workflow_json;
-      expect(JSON.parse(trustedIdentity ?? "{}")).toEqual({
+      expect(JSON.parse(trustedIdentity ?? "{}").trustedWorkflow).toEqual({
         ref: fixture.trustedWorkflowTag,
         fullRef: `refs/tags/${fixture.trustedWorkflowTag}`,
         sha: fixture.workflowSha,
@@ -2862,7 +3035,7 @@ describe("full-release-validation-at-sha", () => {
     }
   });
 
-  it("disables evidence reuse and omits the contract 2 input for contract 1 tooling", () => {
+  it("rejects a fresh request on pre-source contract 1 tooling without upgrading its frozen SHA", () => {
     const fixture = createDispatchFixture({ workflowSource: CONTRACT_ONE_WORKFLOW_SOURCE });
     try {
       const result = fixture.run([
@@ -2871,10 +3044,11 @@ describe("full-release-validation-at-sha", () => {
         "--trusted-workflow-ref",
         fixture.trustedWorkflowTag,
       ]);
-      expect(result.status, result.stderr).toBe(0);
-      const inputs = fixture.readPayload().body.inputs;
-      expect(inputs).not.toHaveProperty("trusted_workflow_json");
-      expect(inputs.reuse_evidence).toBe("false");
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toContain("does not support source admission");
+      expect(
+        fixture.readCalls(fixture.ghCallsPath).filter((args) => ghApiMethod(args) !== "GET"),
+      ).toEqual([]);
     } finally {
       fixture.cleanup();
     }

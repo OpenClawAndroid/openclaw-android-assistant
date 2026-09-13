@@ -90,12 +90,24 @@ export async function openSystemdBroker(address: string, deadline: number) {
   return await openSystemdConnection(address, deadline);
 }
 
+/** Ordinary local reads authenticate the connected manager without a session broker. */
+export async function openSystemdUserManager(address: string, deadline: number) {
+  const uid = process.geteuid?.();
+  if (process.platform !== "linux" || uid === undefined) {
+    throw unavailable();
+  }
+  return await openSystemdConnection(address, deadline, undefined, uid);
+}
+
 async function openSystemdConnection(
   address: string,
   deadline: number,
   expected?: SystemdPeerIdentity,
+  managerUid?: number,
 ) {
   assertGatewayServiceUpdateCurrent();
+  const privatePeer = expected !== undefined || managerUid !== undefined;
+  let identity = expected;
   const native = (api ??= loadApi());
   const output: Pointer[] = [null];
   checked(native.newBus(output));
@@ -121,8 +133,8 @@ async function openSystemdConnection(
     assertGatewayServiceUpdateCurrent();
     if (
       closed ||
-      (expected &&
-        (!isPidAlive(expected.pid) || getProcessStartTime(expected.pid) !== expected.startTime))
+      (identity &&
+        (!isPidAlive(identity.pid) || getProcessStartTime(identity.pid) !== identity.startTime))
     ) {
       throw unavailable();
     }
@@ -130,21 +142,28 @@ async function openSystemdConnection(
   // Only call while owning the native queue (or before admission is published).
   const verifyConnection = () => {
     verify();
-    if (!expected) {
+    if (!privatePeer) {
       return;
     }
     const credentials: Pointer[] = [null];
     // No AUGMENT: these are kernel credentials of THIS connected private peer.
     checked(native.credentials(bus, 17, credentials)); // PID | EUID, stable sd-bus ABI.
     try {
-      const pid = [0],
-        uid = [0];
+      const pid: [number] = [0];
+      const uid: [number] = [0];
       checked(native.pid(credentials[0], pid));
       checked(native.uid(credentials[0], uid));
+      if (!identity) {
+        const startTime = getProcessStartTime(pid[0]);
+        if (uid[0] !== managerUid || pid[0] <= 0 || !isPidAlive(pid[0]) || startTime === null) {
+          throw unavailable();
+        }
+        identity = { uid: uid[0], pid: pid[0], startTime };
+      }
       if (
-        pid[0] !== expected.pid ||
-        uid[0] !== expected.uid ||
-        getProcessStartTime(expected.pid) !== expected.startTime
+        pid[0] !== identity.pid ||
+        uid[0] !== identity.uid ||
+        getProcessStartTime(identity.pid) !== identity.startTime
       ) {
         throw unavailable();
       }
@@ -154,7 +173,7 @@ async function openSystemdConnection(
   };
   try {
     checked(native.address(bus, address));
-    checked(native.client(bus, expected ? 0 : 1));
+    checked(native.client(bus, privatePeer ? 0 : 1));
     remaining(deadline);
     await invoke(native.start, bus);
     // Drive only authentication. No property read or service activation precedes credentials.
@@ -268,7 +287,7 @@ async function openSystemdConnection(
           await invoke(
             native.property,
             bus,
-            expected ? null : args[1],
+            privatePeer ? null : args[1],
             args[2],
             args[3],
             args[index + 4],
@@ -292,7 +311,9 @@ async function openSystemdConnection(
         reply: Pointer[] = [null];
       const error = Buffer.alloc(native.errorSize);
       try {
-        checked(native.newCall(bus, message, expected ? null : args[1], args[2], args[3], args[4]));
+        checked(
+          native.newCall(bus, message, privatePeer ? null : args[1], args[2], args[3], args[4]),
+        );
         checked(native.autoStart(message[0], 0));
         if (args[5] === "s" && args.length === 7) {
           checked(native.append(message[0], 115, args[6]));
@@ -308,7 +329,8 @@ async function openSystemdConnection(
             (["GetUnit", "LoadUnit"].includes(member) &&
               native.errorHasName(error, "org.freedesktop.systemd1.NoSuchUnit")) ||
             (args[4] === "GetUnitFileState" &&
-              (native.errorHasName(error, "org.freedesktop.systemd1.NoSuchUnitFile") ||
+              (native.errorHasName(error, "org.freedesktop.systemd1.NoSuchUnit") ||
+                native.errorHasName(error, "org.freedesktop.systemd1.NoSuchUnitFile") ||
                 native.errorHasName(error, "org.freedesktop.DBus.Error.FileNotFound")))
           ) {
             return null;

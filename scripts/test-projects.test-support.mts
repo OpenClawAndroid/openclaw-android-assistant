@@ -28,6 +28,13 @@ import {
   channelSessionContractPatterns,
   channelSurfaceContractPatterns,
 } from "../test/vitest/vitest.contracts-paths.mjs";
+import {
+  DATABASE_WORKER_WATCH_OWNER_ENV_KEY,
+  DATABASE_WORKER_WATCH_TESTS_ENV_KEY,
+  databaseWorkerCoreFormerFastKinds,
+  databaseWorkerCoreTestFiles,
+  isDatabaseWorkerCoreTestFile,
+} from "../test/vitest/vitest.database-worker-core-paths.mjs";
 import { codexExtensionTestRoots } from "../test/vitest/vitest.extension-codex-paths.mjs";
 import { databaseWorkerExtensionTestFiles } from "../test/vitest/vitest.extension-database-workers-paths.mjs";
 import { matrixExtensionTestRoots } from "../test/vitest/vitest.extension-matrix-paths.mjs";
@@ -112,6 +119,8 @@ import {
 
 type VitestRunPlan = {
   config: string;
+  databaseWorkerWatchOwner?: string;
+  databaseWorkerWatchTests?: string[];
   forwardedArgs: string[];
   timingTargets?: string[];
   includePatterns: string[] | null;
@@ -706,6 +715,8 @@ const MERMAID_RENDERER_TEST_TARGETS = [
 ];
 const SOURCE_TEST_TARGETS = new Map([
   ...PRECISE_SOURCE_TEST_TARGETS,
+  ["src/plugin-sdk/memory-host-events.ts", ["src/plugin-sdk/memory-host-events.test.ts"]],
+  ["src/plugin-sdk/persistent-dedupe.ts", ["src/plugin-sdk/memory-host-events.test.ts"]],
   [
     "extensions/browser/src/browser/chrome-mcp-options.ts",
     [
@@ -3545,7 +3556,7 @@ export function resolveChangedTestTargetPlanForArgs(
   });
 }
 
-function classifyTarget(arg: string, cwd: string) {
+function classifyTarget(arg: string, cwd: string, beforeDatabaseWorkerOwnership = false) {
   const relative = toRepoRelativeTarget(arg, cwd);
   if (databaseWorkerExtensionTestFiles.includes(relative)) {
     return "extensionDatabaseWorkers";
@@ -3556,6 +3567,14 @@ function classifyTarget(arg: string, cwd: string) {
   }
   if (gatewayPluginTestFiles.includes(relative)) {
     return "gatewayMethods";
+  }
+  if (beforeDatabaseWorkerOwnership) {
+    const formerFastKind = databaseWorkerCoreFormerFastKinds.get(relative);
+    if (formerFastKind) {
+      return formerFastKind;
+    }
+  } else if (isDatabaseWorkerCoreTestFile(relative)) {
+    return "infra";
   }
   if (isAgentsCoreIsolatedTestFile(relative)) {
     return agentVitestProjectOwners.coreIsolated.kind;
@@ -3928,6 +3947,17 @@ export function buildVitestRunPlans(
     kind: classifyTarget(targetArg, cwd),
   }));
   const explicitConfigTargets = classifiedTargets.map(({ relative }) => relative);
+  const impliedDatabaseWorkerTargets = databaseWorkerCoreTestFiles.filter((file) =>
+    [...requestedTargetArgs, ...activeTargetArgs].some((targetArg) => {
+      const relative = toRepoRelativeTarget(targetArg, cwd);
+      return (
+        (isTestFileTarget(relative) ||
+          isGlobTarget(relative) ||
+          isExistingDirectoryTarget(targetArg, cwd)) &&
+        includePatternMatchesAnyFile(toScopedIncludePattern(targetArg, cwd), [file])
+      );
+    }),
+  );
   const hasPackageFileTarget = classifiedTargets.some(
     ({ kind, relative }) =>
       kind === "packageContract" && relative !== PACKAGE_CONTRACT_VITEST_CONFIG,
@@ -3986,6 +4016,15 @@ export function buildVitestRunPlans(
         : [targetArg]),
     );
     groupedTargets.set(kind, current);
+  }
+  if (impliedDatabaseWorkerTargets.length > 0) {
+    const current = groupedTargets.get("infra") ?? [];
+    for (const target of impliedDatabaseWorkerTargets) {
+      if (!current.includes(target)) {
+        current.push(target);
+      }
+    }
+    groupedTargets.set("infra", current);
   }
   const toolingTargets = groupedTargets.get("tooling") ?? [];
   if (
@@ -4068,7 +4107,32 @@ export function buildVitestRunPlans(
     groupedTargets.set("cliProcess", current);
   }
 
-  if (watchMode && groupedTargets.size > 1) {
+  const previousWatchKinds = watchMode
+    ? new Set(classifiedTargets.map(({ targetArg }) => classifyTarget(targetArg, cwd, true)))
+    : new Set<string>();
+  if (watchMode && (groupedTargets.size > 1 || previousWatchKinds.size > 1)) {
+    if (impliedDatabaseWorkerTargets.length > 0 && previousWatchKinds.size === 1) {
+      const previousKind = [...previousWatchKinds][0]!;
+      const wholeOwner = classifiedTargets.some(({ targetArg }) =>
+        shouldUseWholeConfigTarget(previousKind, targetArg, cwd),
+      );
+      return [
+        {
+          config: "test/vitest/vitest.database-worker-watch.config.ts",
+          databaseWorkerWatchOwner: VITEST_CONFIG_BY_KIND[previousKind] ?? DEFAULT_VITEST_CONFIG,
+          databaseWorkerWatchTests: wholeOwner
+            ? databaseWorkerCoreTestFiles.filter(
+                (file) => classifyTarget(file, cwd, true) === previousKind,
+              )
+            : impliedDatabaseWorkerTargets,
+          forwardedArgs: nonTargetArgs,
+          includePatterns: wholeOwner
+            ? null
+            : uniqueOrdered(activeTargetArgs.map((target) => toScopedIncludePattern(target, cwd))),
+          watchMode: true,
+        },
+      ];
+    }
     throw new Error(
       "watch mode with mixed test suites is not supported; target one suite at a time or use a dedicated suite command",
     );
@@ -4525,12 +4589,21 @@ export function createVitestRunSpecs(
     return {
       config: plan.config,
       timingTargets: plan.timingTargets,
-      env: includeFilePath
-        ? {
-            ...baseEnv,
-            [INCLUDE_FILE_ENV_KEY]: includeFilePath,
-          }
-        : baseEnv,
+      env:
+        includeFilePath || plan.databaseWorkerWatchOwner
+          ? {
+              ...baseEnv,
+              ...(includeFilePath ? { [INCLUDE_FILE_ENV_KEY]: includeFilePath } : {}),
+              ...(plan.databaseWorkerWatchOwner
+                ? {
+                    [DATABASE_WORKER_WATCH_OWNER_ENV_KEY]: plan.databaseWorkerWatchOwner,
+                    [DATABASE_WORKER_WATCH_TESTS_ENV_KEY]: JSON.stringify(
+                      plan.databaseWorkerWatchTests,
+                    ),
+                  }
+                : {}),
+            }
+          : baseEnv,
       includeFilePath,
       includePatterns: plan.includePatterns,
       pnpmArgs: createVitestArgs(plan),

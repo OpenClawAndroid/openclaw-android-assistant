@@ -55,7 +55,8 @@ const mocks = vi.hoisted(() => ({
   triageCommand: vi.fn<typeof import("./triage.js").triageCommand>(),
 }));
 
-vi.mock("../cli/update-cli/progress.js", () => ({
+vi.mock("../cli/update-cli/progress.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../cli/update-cli/progress.js")>()),
   createUpdateProgress: mocks.createUpdateProgress,
 }));
 

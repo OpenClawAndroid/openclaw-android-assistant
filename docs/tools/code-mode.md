@@ -82,8 +82,9 @@ job. Open the page that matches your task.
   handles. A handle exposes bounded metadata and `describe()`, but never the
   exact internal catalog id. Calls use the same execution path as normal agent
   turns (policy, approvals, hooks, telemetry all still apply).
-- MCP tools are grouped under the `MCP` namespace. In Code Mode this is the
-  only supported way to call them.
+- MCP tools are grouped under the `MCP` namespace and discoverable by task
+  through `catalog.search(...)`. MCP search handles call the same namespace
+  path and point to its exact declarations.
 - `wait` resumes a suspended Code Mode run when nested tool calls are still
   pending.
 

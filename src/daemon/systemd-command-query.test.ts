@@ -4,17 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 
 const busctl = vi.hoisted(() => vi.fn());
+vi.mock("./exec-file.js", () => ({ execFileUtf8: vi.fn() }));
 vi.mock("./systemd-exec.js", async (original) => ({
   ...(await original<typeof import("./systemd-exec.js")>()),
   execBusctlUser: busctl,
   bindSystemdManagerOwner: vi.fn(),
-  systemdInspectionError: (_result: unknown, message: string) => new Error(message),
+}));
+vi.mock("./systemd-peer-native.js", async (original) => ({
+  ...(await original<typeof import("./systemd-peer-native.js")>()),
+  openSystemdUserManager: vi.fn(),
 }));
 
+import { execFileUtf8 } from "./exec-file.js";
 import { createSystemdCommandQuery } from "./systemd-command-query.js";
+import { openSystemdUserManager } from "./systemd-peer-native.js";
 import { readSystemdServiceExecStart } from "./systemd-service-files.js";
+import {
+  systemdManagerVersionProbe,
+  systemdOperatorBusFixtures,
+} from "./systemd-user-bus.test-support.js";
 
-const queryEnv = { XDG_RUNTIME_DIR: "/run/user/1234" };
+const dirs = useAutoCleanupTempDirTracker(afterEach);
+let queryEnv: { HOME: string; XDG_RUNTIME_DIR: string; DBUS_SESSION_BUS_ADDRESS: string };
 const unitName = "openclaw-gateway.service";
 const callArgs = ["call", "org.test", "/unitName", "org.test.Manager", "LoadUnit", "s", unitName];
 const unavailable = () => new Error("inspection unavailable");
@@ -25,13 +36,100 @@ const query = async (options?: Parameters<typeof createSystemdCommandQuery>[2]) 
 const success = (stdout: string) => ({ code: 0, termination: "exit" as const, stdout, stderr: "" });
 const failure = (stderr: string) => ({ ...success(""), code: 1, stderr });
 const unsupported = failure("busctl: unrecognized option '--json=short'");
+let versionProbeResult = success('s "252.39"');
 
 beforeEach(() => {
   busctl.mockReset();
+  const home = dirs.make("openclaw-command-query-");
+  queryEnv = {
+    HOME: home,
+    XDG_RUNTIME_DIR: path.join(home, "runtime"),
+    DBUS_SESSION_BUS_ADDRESS: `unix:path=${home}/bus`,
+  };
+  versionProbeResult = success('s "252.39"');
+  vi.mocked(execFileUtf8)
+    .mockReset()
+    .mockImplementation(async (command, args) => {
+      await systemdManagerVersionProbe(command, args);
+      return versionProbeResult;
+    });
+  vi.mocked(openSystemdUserManager).mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
 
+describe("ordinary private-manager inspection", () => {
+  it.each(["absent", "disconnected"])(
+    "closes the captured private connection when %s",
+    async (result) => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      vi.spyOn(process, "geteuid").mockReturnValue(1000);
+      const home = dirs.make("openclaw-private-manager-");
+      const runtime = path.join(home, "runtime");
+      const socket = path.posix.join(runtime, "systemd/private");
+      await fs.mkdir(path.dirname(socket), { recursive: true });
+      await fs.writeFile(socket, "");
+      versionProbeResult = failure(systemdOperatorBusFixtures.stale.getUnitFileState);
+      const closeDiscovery = vi.fn(async () => {});
+      const close = vi.fn(async () => {});
+      vi.mocked(openSystemdUserManager)
+        .mockResolvedValueOnce({
+          close: closeDiscovery,
+          verify: () => {},
+          query: async (args, signatures) => {
+            expect(args).toEqual([
+              "get-property",
+              "org.freedesktop.systemd1",
+              "/org/freedesktop/systemd1",
+              "org.freedesktop.systemd1.Manager",
+              "Version",
+            ]);
+            expect(signatures).toEqual(["s"]);
+            return ["252.39"];
+          },
+        })
+        .mockResolvedValue({
+          close,
+          verify: () => {},
+          query: async () => {
+            if (result === "disconnected") {
+              throw new Error("native-error-secret-canary");
+            }
+            return null;
+          },
+        });
+      busctl.mockResolvedValue(failure(systemdOperatorBusFixtures.stale.getUnitFileState));
+      const inspected = readSystemdServiceExecStart(
+        {
+          HOME: home,
+          XDG_RUNTIME_DIR: runtime,
+          DBUS_SESSION_BUS_ADDRESS: systemdOperatorBusFixtures.stale.address,
+        },
+        { requireEffective: true },
+      );
+      if (result === "absent") {
+        await expect(inspected).resolves.toBeNull();
+      } else {
+        await expect(inspected).rejects.toMatchObject({ reason: "systemd-user-bus-unavailable" });
+      }
+      expect(closeDiscovery).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+      expect(busctl).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("systemd command query legacy compatibility", () => {
+  it("distinguishes the operator's manager exit transcript from an absent unit", async () => {
+    const args = [...callArgs];
+    args[4] = "GetUnitFileState";
+    busctl.mockResolvedValue(failure(systemdOperatorBusFixtures.stale.getUnitFileState));
+    await expect((await reader()).query(args, ["s"])).rejects.toMatchObject({
+      reason: "systemd-user-bus-unavailable",
+    });
+    busctl.mockResolvedValue(failure(systemdOperatorBusFixtures.runtime.getUnitFileState));
+    await expect((await reader()).query(args, ["s"])).resolves.toBeNull();
+  });
+
   it("retains legacy mode only for this reader", async () => {
     busctl.mockResolvedValueOnce(unsupported).mockResolvedValue(success('o "/unitName"'));
     const legacy = await reader();
@@ -109,7 +207,6 @@ describe("systemd command query legacy compatibility", () => {
 });
 
 describe("effective service inspection through legacy busctl", () => {
-  const dirs = useAutoCleanupTempDirTracker(afterEach);
   let env: Record<string, string>;
   let unit: string;
   let dropIn: string;
@@ -120,7 +217,12 @@ describe("effective service inspection through legacy busctl", () => {
 
   beforeEach(async () => {
     const home = await fs.realpath(dirs.make("openclaw-systemd-legacy-"));
-    env = { HOME: home, OPENCLAW_SYSTEMD_UNIT: "openclaw-legacy" };
+    env = {
+      HOME: home,
+      XDG_RUNTIME_DIR: path.join(home, "runtime"),
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=${home}/bus`,
+      OPENCLAW_SYSTEMD_UNIT: "openclaw-legacy",
+    };
     unit = path.join(home, ".config/systemd/user/openclaw-legacy.service");
     dropIn = `${unit}.d/override.conf`;
     requiredFile = path.join(home, "required.env");

@@ -121,13 +121,6 @@ describe("loadControlUiSessionPullRequests", () => {
           checksUrl: "https://github.com/openclaw/openclaw/pull/103469/checks",
         },
       ],
-      branch: {
-        owner: "openclaw",
-        repo: "openclaw",
-        branch: context.branch,
-        createUrl:
-          "https://github.com/openclaw/openclaw/pull/new/claude/browser-tabs-tighter-header",
-      },
       rateLimited: false,
     });
   });
@@ -819,30 +812,39 @@ describe("loadControlUiSessionPullRequests", () => {
   });
 
   it("keeps the proven PR list as state-only chips when detail fetches are rate limited", async () => {
-    // Cold cache: the pulls list succeeds, then quota dies on the per-PR
-    // detail fetch. The open PR must survive so the UI does not offer a
-    // duplicate Create PR row.
+    // A cached empty branch discovers a new PR before quota dies on detail fetches.
     const rateLimitedResponse = () =>
       new Response(JSON.stringify({ message: "rate limited" }), {
         status: 403,
         headers: { "Content-Type": "application/json", "x-ratelimit-remaining": "0" },
       });
+    let hasPull = false;
     const routes = [
       {
         match: "/pulls?head=",
-        response: () => githubJson([pullListItem({ user: { login: "octocat" } })]),
+        response: () => githubJson(hasPull ? [pullListItem({ user: { login: "octocat" } })] : []),
       },
       { match: "/pulls/103469", response: rateLimitedResponse },
       { match: "/check-runs", response: rateLimitedResponse },
+      { match: "/repos/openclaw/openclaw", response: () => githubJson({ fork: false }) },
     ];
     const fetchImpl = routedFetch(routes);
 
-    const result = await loadControlUiSessionPullRequests(
+    const beforePublication = await loadControlUiSessionPullRequests(
       { sessionKey: "agent:main:main" },
+      { fetchImpl, resolveGitContext },
+    );
+    expect(beforePublication.pullRequests).toEqual([]);
+    expect(beforePublication.branch).toBeDefined();
+    hasPull = true;
+
+    const result = await loadControlUiSessionPullRequests(
+      { sessionKey: "agent:main:main", refresh: true },
       { fetchImpl, resolveGitContext },
     );
 
     expect(result.rateLimited).toBe(true);
+    expect(result.branch).toBeUndefined();
     expect(result.pullRequests).toEqual([
       {
         number: 103469,

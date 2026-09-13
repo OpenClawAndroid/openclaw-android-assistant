@@ -521,6 +521,92 @@ describe("normalizeCronJobCreate", () => {
   });
 });
 describe("normalizeCronJobPatch", () => {
+  it.each([
+    { label: "omitted fields", input: {}, expected: {} },
+    {
+      label: "blank text",
+      input: { message: " \t ", text: " \n " },
+      expected: { message: "", text: "" },
+    },
+    {
+      label: "trimmed text",
+      input: { message: " message ", text: " text " },
+      expected: { message: "message", text: "text" },
+    },
+    {
+      label: "explicit clears",
+      input: { model: null, thinking: null, fallbacks: null, toolsAllow: null },
+      expected: { model: null, thinking: null, fallbacks: null, toolsAllow: null },
+    },
+    {
+      label: "undefined fields",
+      input: { message: undefined, text: undefined, model: undefined, thinking: undefined },
+      expected: { message: undefined, text: undefined },
+    },
+    {
+      label: "malformed overrides",
+      input: {
+        message: 7,
+        text: null,
+        model: {},
+        thinking: false,
+        fallbacks: [7],
+        toolsAllow: "read",
+      },
+      expected: { message: 7, text: null },
+    },
+    {
+      label: "trimmed overrides and mixed lists",
+      input: {
+        model: " model-a ",
+        thinking: " high ",
+        fallbacks: [" model-b ", "", 7, "model-b"],
+        toolsAllow: [" read ", false, " exec "],
+      },
+      expected: {
+        model: "model-a",
+        thinking: "high",
+        fallbacks: ["model-b", "model-b"],
+        toolsAllow: ["read", "exec"],
+      },
+    },
+    {
+      label: "positive numbers floored independently of timeouts",
+      input: {
+        outputMaxBytes: 2.9,
+        toolBudget: 0.5,
+        timeoutSeconds: 0,
+        noOutputTimeoutSeconds: 0.5,
+      },
+      expected: {
+        outputMaxBytes: 2,
+        toolBudget: 0,
+        timeoutSeconds: 0,
+        noOutputTimeoutSeconds: 0.5,
+      },
+    },
+    { label: "numeric strings", input: { outputMaxBytes: "2", toolBudget: "3" }, expected: {} },
+    { label: "nonpositive numbers", input: { outputMaxBytes: 0, toolBudget: -1 }, expected: {} },
+    {
+      label: "nonfinite numbers",
+      input: { outputMaxBytes: Infinity, toolBudget: Number.NaN },
+      expected: {},
+    },
+    { label: "null limits", input: { outputMaxBytes: null, toolBudget: null }, expected: {} },
+    {
+      label: "removed blank hints",
+      input: { text: " report ", model: " ", thinking: " " },
+      expected: { text: "report" },
+    },
+    {
+      label: "retained clear hints",
+      input: { text: " report ", thinking: null },
+      expected: { kind: "agentTurn", message: "report", thinking: null },
+    },
+  ])("normalizes payload $label", ({ input, expected }) => {
+    expect(normalizePatch({ payload: input }).payload).toStrictEqual(expected);
+  });
+
   it("normalizes agentTurn model-only payload patches", () => {
     const { payload } = patchAgent({ model: "anthropic/claude-sonnet-4-6" });
     expect(payload.kind).toBe("agentTurn");

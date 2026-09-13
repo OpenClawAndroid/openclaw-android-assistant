@@ -522,6 +522,7 @@ export async function dispatchMattermostInboundTurn(
               const boundarySettled = enterBlockPreviewActivity("tool");
               const progressSettled = progressDraft.pushPlanProgress(payloadValue.steps, {
                 explanation: payloadValue.explanation,
+                explanationFormat: payloadValue.explanationFormat,
               });
               previewBoundaryController.noteUpdate();
               const [, visible] = await Promise.all([boundarySettled, progressSettled]);

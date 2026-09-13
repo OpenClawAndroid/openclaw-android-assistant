@@ -20,6 +20,7 @@ import {
 import {
   AgentSelectionRequiredError,
   listAgentIds,
+  tryResolveAgentOperationAgentId,
   tryResolveSoleAgentId,
 } from "../agents/agent-scope-config.js";
 import { measureAgentStartup } from "../agents/startup-timing.js";
@@ -36,7 +37,6 @@ import {
 import {
   inheritLegacyDefaultAgentId,
   tryGetLegacyDefaultAgentId,
-  tryResolveLegacyCompatibilityAgentId,
 } from "../config/legacy.default-agent-owner.js";
 import { migratePersistedImplicitMainRoster } from "../config/legacy.roster.js";
 import { resolvePersistedSessionStoreOwnerForKey } from "../config/sessions/session-store-owner.js";
@@ -169,7 +169,7 @@ function resolveImplicitCliAgentId(cfg: OpenClawConfig, remote?: RemoteGatewayRo
     ? remote.selectionRequired
       ? undefined
       : remote.defaultId
-    : tryResolveLegacyCompatibilityAgentId(selectionCfg);
+    : tryResolveAgentOperationAgentId(selectionCfg);
   if (selected) {
     return selected;
   }

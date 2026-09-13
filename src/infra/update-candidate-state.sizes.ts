@@ -1,4 +1,5 @@
 import os from "node:os";
+import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { z } from "zod";
 import { runCommandBuffered } from "../process/exec.js";
 import { resolveAggregateSqliteInspectionTimeoutMs } from "./sqlite-readonly-worker.js";
@@ -19,7 +20,7 @@ const inventorySource = `
         if (error.code !== "ENOENT") result.push({ path: file });
         continue;
       }
-      for (const suffix of ["-wal", "-journal"]) {
+      for (const suffix of ["-wal", "-shm", "-journal"]) {
         try { size += fs.statSync(file + suffix, { bigint: true }).size; }
         catch (error) {
           if (error.code !== "ENOENT") { size = undefined; break; }
@@ -41,10 +42,15 @@ export async function readUpdateStateDatabaseSizes(
     nodeRunner: string;
     sourceEnv: NodeJS.ProcessEnv;
     stagingRoot: string;
+    timeoutMs?: number;
     signal?: AbortSignal;
   },
 ): Promise<Array<{ path: string; sizeBytes: bigint | undefined }>> {
   // Until sizes are known, use the existing per-source startup/shutdown budget.
+  const budget = resolveAggregateSqliteInspectionTimeoutMs(
+    "state schema inventory",
+    files.map((file) => ({ path: file, sizeBytes: undefined })),
+  );
   const result = await runCommandBuffered(
     [options.nodeRunner, "--input-type=commonjs", "--eval", inventorySource],
     {
@@ -53,14 +59,12 @@ export async function readUpdateStateDatabaseSizes(
       baseEnv: options.sourceEnv,
       env: { XDG_CACHE_HOME: options.stagingRoot },
       signal: options.signal,
-      timeoutMs: resolveAggregateSqliteInspectionTimeoutMs(
-        "state schema inventory",
-        files.map((file) => ({ path: file, sizeBytes: undefined })),
-      ),
+      timeoutMs: resolveTimerTimeoutMs(Math.max(options.timeoutMs ?? 0, budget), budget),
       killGraceMs: 500,
       maxOutputBytes: { stdout: 1024 * 1024, stderr: 20_000 },
     },
   );
+  options.signal?.throwIfAborted();
   if (result.code !== 0) {
     throw new Error(
       `State schema inventory failed (${result.termination}, signal ${result.signal}): ${result.stderr.toString("utf8")}`,

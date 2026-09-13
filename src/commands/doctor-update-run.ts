@@ -1,7 +1,9 @@
 import { note } from "../../packages/terminal-core/src/note.js";
 import { staleUpdateRunGuidance } from "../infra/update-run-activity.js";
 import { listUpdateRunsAsync } from "../infra/update-run-reader.js";
+import { renderUpdateRunReport } from "../infra/update-run-report.js";
 import { updateRunWarningMessages } from "../infra/update-run-step.js";
+import { UPDATE_ACTIVATION_TIMEOUT_REASON } from "../shared/update-outcome.js";
 
 /** Startup and proven-pristine preflights do not need a public ledger snapshot. */
 export async function noteStaleUpdateRuns(options: {
@@ -19,6 +21,9 @@ export async function noteStaleUpdateRuns(options: {
   }
   const [latest] = await listUpdateRunsAsync({ limit: 1 });
   if (latest) {
+    if (latest.status === "failed" && latest.reason === UPDATE_ACTIVATION_TIMEOUT_REASON) {
+      note(`Update ${latest.runId}: ${renderUpdateRunReport(latest).markdown}`, "Update history");
+    }
     const warnings = updateRunWarningMessages(latest.steps);
     if (warnings.length) {
       note(

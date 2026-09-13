@@ -173,7 +173,6 @@ export function createGatewayTool(options?: {
             sessionKey: caller?.sessionKey,
             deliveryContext,
             note: readToolStringParam(params, "note"),
-            timeoutMs: DEFAULT_UPDATE_TIMEOUT_MS,
           },
           {
             // An explicit binding prevents the standalone client's remote fallback.

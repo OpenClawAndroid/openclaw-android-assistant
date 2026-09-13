@@ -8,6 +8,7 @@ import { withTestDir } from "../test-helpers/temp-dir.js";
 import { swapStagedPackageInstall, type PackageUpdateTransaction } from "./package-update-swap.js";
 import { createPackageSwapFixture } from "./package-update-swap.test-support.js";
 import { updateRunStepsFromResultStep } from "./update-run-step.js";
+import { UPDATE_RUNNER_TIMEOUT_MS } from "./update-run-timeouts.js";
 
 afterEach(() => {
   setLoggerOverride(null);
@@ -33,7 +34,8 @@ describe("package verification bounds", () => {
   it.each([
     { timeoutMs: 55_000, elapsedMs: 31_000, incomplete: false },
     { timeoutMs: 55_000, elapsedMs: 55_001, incomplete: true },
-    { timeoutMs: 1_800_000, elapsedMs: 300_001, incomplete: true },
+    { timeoutMs: 1_800_000, elapsedMs: 300_001, incomplete: false },
+    { timeoutMs: 1_800_000, elapsedMs: 1_800_001, incomplete: true },
     { timeoutMs: 200, elapsedMs: 201, incomplete: true },
   ])(
     "bounds a $elapsedMs ms baseline scan by a $timeoutMs ms caller budget",
@@ -69,43 +71,58 @@ describe("package verification bounds", () => {
     },
   );
 
-  it.each(["retained", "restored"] as const)(
-    "keeps a slow %s scan bounded after a long-budget baseline",
-    async (phase) => {
+  it.each([
+    { phase: "retained", corrupt: false, timeoutMs: undefined, restored: true },
+    { phase: "retained", corrupt: false, timeoutMs: 120_000, restored: true },
+    { phase: "restored", corrupt: false, timeoutMs: 120_000, restored: true },
+    { phase: "retained", corrupt: true, timeoutMs: 120_000, restored: false },
+    { phase: "retained", corrupt: false, timeoutMs: 20_000, restored: false },
+  ])(
+    "uses the caller budget for $phase verification (corrupt=$corrupt, budget=$timeoutMs)",
+    async ({ phase, corrupt, timeoutMs, restored }) => {
       await withTestDir({ prefix: "openclaw-recovery-budget-" }, async (base) => {
-        const { params, packageRoot } = await createPackageSwapFixture(base);
-        let transaction: PackageUpdateTransaction | undefined;
-        const result = await swapStagedPackageInstall({
+        const { params, packageRoot, launcher } = await createPackageSwapFixture(base);
+        const runtime = path.join(packageRoot, "dist", "index.js");
+        const original = await fs.readFile(runtime, "utf8");
+        const transactions: PackageUpdateTransaction[] = [];
+        const activated = await swapStagedPackageInstall({
           ...params,
-          timeoutMs: 1_800_000,
-          onTransaction: (value) => {
-            transaction = value;
-          },
+          timeoutMs,
+          onTransaction: (transaction) => transactions.push(transaction),
         });
-        expect(result.status).toBe("committed");
+        expect(activated.status).toBe("committed");
+        expect(activated.step.advisory).toBeUndefined();
+        const transaction = transactions[0];
         if (!transaction) {
-          throw new Error("Missing package transaction");
+          throw new Error("Missing retained package transaction");
         }
-        let now = Date.now();
-        vi.spyOn(Date, "now").mockImplementation(() => now);
-        const target = phase === "retained" ? transaction.backupRoot : packageRoot;
-        const lstat = fs.lstat.bind(fs);
-        let delayed = false;
-        vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
-          const stat = await lstat(...args);
-          if (!delayed && String(args[0]) === path.join(target, "dist", "index.js")) {
-            delayed = true;
-            now += 30_001;
+        const retained = path.join(transaction.backupRoot, "dist", "index.js");
+        if (corrupt) {
+          const before = await fs.stat(retained);
+          await fs.writeFile(retained, "changed runtime; unchanged package version");
+          expect((await fs.stat(retained)).ino).toBe(before.ino);
+        }
+        const target = phase === "retained" ? retained : runtime;
+        const now = Date.now.bind(Date);
+        const open = fs.open.bind(fs);
+        let elapsed = 0;
+        vi.spyOn(Date, "now").mockImplementation(() => now() + elapsed);
+        vi.spyOn(fs, "open").mockImplementation(async (...args) => {
+          if (elapsed === 0 && String(args[0]) === target) {
+            elapsed = 31_000;
           }
-          return stat;
+          return open(...args);
         });
-        const restored = await transaction.rollback(() => {});
-        expect(delayed).toBe(true);
-        expect(restored.exitCode).toBe(1);
-        expect(restored.stderrTail).toContain("Package rollback verification timed out");
-        await expect(
-          fs.readFile(path.join(packageRoot, "package.json"), "utf8"),
-        ).resolves.toContain(phase === "retained" ? '"version":"2.0.0"' : '"version":"1.0.0"');
+        const result = await transaction.rollback(() => {});
+        expect(elapsed).toBe(31_000);
+        expect(result.exitCode, result.stderrTail ?? "").toBe(restored ? 0 : 1);
+        if (restored) {
+          expect(await fs.readFile(runtime, "utf8")).toBe(original);
+          expect(await fs.readFile(launcher, "utf8")).toBe("old launcher\n");
+        } else {
+          expect(await fs.readFile(launcher, "utf8")).toBe("candidate launcher\n");
+          await expect(fs.stat(transaction.backupRoot)).resolves.toBeDefined();
+        }
       });
     },
   );
@@ -266,7 +283,11 @@ describe("package verification bounds", () => {
       ]);
       expect(new Set(finished.map((record) => record.readerId)).size).toBe(4);
       for (const record of finished) {
-        expect(record).toMatchObject({ outcome: "completed", budgetMs: 30_000, pendingIo: 0 });
+        expect(record).toMatchObject({
+          outcome: "completed",
+          budgetMs: UPDATE_RUNNER_TIMEOUT_MS,
+          pendingIo: 0,
+        });
         expect(record.timeoutObservedAtMonotonicMs).toBeUndefined();
         expect(Number(record.elapsedMs)).toBeGreaterThan(0);
       }

@@ -309,6 +309,7 @@ export class CodexAppServerEventProjector extends CodexTurnProjection {
       const projected: JsonObject = {
         plan: update.steps,
         ...(update.explanation ? { explanation: update.explanation } : {}),
+        ...(update.explanationFormat ? { explanationFormat: update.explanationFormat } : {}),
       };
       await this.reasoningProjection.handleTurnPlanUpdated(projected, "openclaw");
     }

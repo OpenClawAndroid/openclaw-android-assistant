@@ -23,6 +23,19 @@ type TerminalProjectionRun = {
   acceptedFinalMessageIdentities?: readonly string[];
 };
 
+/** Tool-bearing assistant rows are continuations even without a tool stop reason. */
+export function isSessionProjectionToolContinuation(message: unknown): boolean {
+  const record = readRecord(message);
+  return (
+    record?.stopReason === "toolUse" ||
+    (Array.isArray(record?.content) &&
+      record.content.some((block) => {
+        const type = readRecord(block)?.type;
+        return type === "toolCall" || type === "toolUse" || type === "functionCall";
+      }))
+  );
+}
+
 function readPersistedFinalIdentity(message: unknown): string | null {
   const identity = readSessionMessageIdentity(message);
   if (identity?.externalSource) {

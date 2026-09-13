@@ -93,7 +93,9 @@ describe("board widget sandbox CSP", () => {
 
     expect(csp?.blockDescendantFrames).toBe(true);
     for (const { html: proxy } of [buildSandboxHostDocument(csp), buildSandboxHostDocument()]) {
-      expect(proxy).toContain('frame.setAttribute("sandbox", "allow-scripts allow-forms")');
+      expect(proxy).toContain(
+        'frame.setAttribute("sandbox", allowScripts ? "allow-scripts allow-forms" : "")',
+      );
       expect(proxy).not.toContain("allow-popups");
     }
   });

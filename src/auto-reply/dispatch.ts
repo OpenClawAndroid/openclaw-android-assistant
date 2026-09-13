@@ -253,7 +253,6 @@ export async function dispatchInboundMessage(params: {
             replyOptions: replyOptionsWithRunState,
             replyResolver: params.replyResolver,
             onSessionMetadataChanges: params.onSessionMetadataChanges,
-            usePublishedModelRuntime: true,
           };
           return (await dispatchGroupThread(request, dispatch)) ?? (await dispatch(request));
         },
