@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { trackSqliteStatementExecutions } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import { clearNodeSqliteKyselyCacheForDatabase } from "../../infra/kysely-sync.js";
 import { openNodeSqliteDatabase } from "../../infra/node-sqlite.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
@@ -207,37 +208,65 @@ it.each(["incoming", "stored"])(
   },
 );
 
-it.each([false, true])(
-  "keeps a contiguous usage tail with newest oversized=%s",
-  async (oversized) => {
-    await withOpenClawTestState({ label: "usage-tail-budget" }, async (state) => {
-      const scope = {
-        agentId: "main",
-        env: state.env,
-        sessionId: "usage-tail",
-        sessionKey: "agent:main:usage-tail",
-      };
+it.each(
+  [
+    { name: "usage", read: readRecentSessionTranscriptMessageEvents },
+    { name: "history", read: readRecentSessionTranscriptHistoryEvents },
+  ].flatMap((reader) =>
+    [false, true].map((oversized) => ({ name: reader.name, read: reader.read, oversized })),
+  ),
+)("bounds $name tail sizing with newest oversized=$oversized", async ({ read, oversized }) => {
+  await withOpenClawTestState({ label: "usage-tail-budget" }, async (state) => {
+    const scope = {
+      agentId: "main",
+      env: state.env,
+      sessionId: "usage-tail",
+      sessionKey: "agent:main:usage-tail",
+    };
+    await persistSessionTranscriptTurn(scope, {
+      messages: [
+        ...Array.from({ length: 1_000 }, (_, index) => `old-${index}`),
+        "large",
+        "new",
+      ].map((eventId, index, ids) => ({
+        eventId,
+        parentId: ids[index - 1] ?? null,
+        message: {
+          role: "assistant",
+          content:
+            eventId === "large" || (oversized && eventId === "new") ? "🦞".repeat(1024) : eventId,
+        },
+      })),
+      touchSessionEntry: false,
+    });
+    const options = { maxBytes: 1024, maxLines: 1_000, maxMessages: 1_000 };
+    read(scope, options);
+    const { db } = openOpenClawAgentDatabase({ agentId: scope.agentId, env: scope.env });
+    const counter = trackSqliteStatementExecutions(db, ["metadata"], (sql) =>
+      sql.includes("session_transcript_active_events") &&
+      sql.includes("message_position") &&
+      sql.includes("serialized_bytes")
+        ? "metadata"
+        : null,
+    );
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const page = read(scope, options);
+        expect(page.totalMessages).toBe(1_002);
+        expect(page.events).toEqual([
+          expect.objectContaining({ event: expect.objectContaining({ id: "new" }) }),
+        ]);
+      }
+      // Each read sizes the newest event and its rejecting predecessor, then releases
+      // its SQLite iterator so the same connection can commit the next transcript write.
+      expect(counter.rowCounts.metadata).toBeLessThanOrEqual(6);
       await persistSessionTranscriptTurn(scope, {
-        messages: ["old", "large", "new"].map((eventId, index, ids) => ({
-          eventId,
-          parentId: ids[index - 1] ?? null,
-          message: {
-            role: "assistant",
-            content:
-              eventId === "large" || (oversized && eventId === "new") ? "🦞".repeat(1024) : eventId,
-          },
-        })),
+        messages: [transcriptMessage("next", "new", { role: "user", content: "next" })],
         touchSessionEntry: false,
       });
-      const page = readRecentSessionTranscriptMessageEvents(scope, {
-        maxBytes: 1024,
-        maxLines: 10,
-        maxMessages: 10,
-      });
-      expect(page.totalMessages).toBe(3);
-      expect(page.events).toEqual([
-        expect.objectContaining({ event: expect.objectContaining({ id: "new" }) }),
-      ]);
-    });
-  },
-);
+      expect(read(scope, options).events.at(-1)?.event).toMatchObject({ id: "next" });
+    } finally {
+      counter.restore();
+    }
+  });
+});

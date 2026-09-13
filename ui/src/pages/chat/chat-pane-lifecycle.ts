@@ -65,6 +65,7 @@ import {
   applyChatAgentOwnerTransition,
   applySelectedChatAgent,
   refreshPageChat,
+  refreshChatMetadata,
   retireChatMetadataRequests,
 } from "./chat-state-refresh.ts";
 import { resetChatViewState } from "./chat-view-state.ts";
@@ -328,6 +329,17 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       chatState.createRenderLifecycle(),
       this,
       this.chatMessagesBySession,
+    );
+    pageState.chatMetadataIsPresented = () =>
+      this.presented && document.visibilityState !== "hidden";
+    const refreshPresentedMetadata = () => {
+      if (pageState.chatMetadataIsPresented?.()) {
+        void refreshChatMetadata(pageState, { automatic: true });
+      }
+    };
+    document.addEventListener("visibilitychange", refreshPresentedMetadata);
+    chatState.addCleanup(() =>
+      document.removeEventListener("visibilitychange", refreshPresentedMetadata),
     );
     const paneAgentId = parseAgentSessionKey(this.sessionKey)?.agentId ?? this.agentId;
     if (paneAgentId) {

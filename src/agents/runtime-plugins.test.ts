@@ -154,6 +154,37 @@ describe("agent runtime plugin registries", () => {
     );
   });
 
+  it.each([false, true])(
+    "keeps catalog registries exact with broader reusable scope=%s",
+    (broader) => {
+      const reusableRegistry = createEmptyPluginRegistry();
+      reusableRegistry.plugins.push(createPluginRecord({ id: "catalog-provider" }));
+      if (broader) {
+        reusableRegistry.plugins.push(createPluginRecord({ id: "memory-core" }));
+      }
+      const primaryRegistry = createEmptyPluginRegistry();
+      primaryRegistry.plugins.push(createPluginRecord({ id: "catalog-provider" }));
+      hoisted.getActivePluginRegistry.mockReturnValue(createEmptyPluginRegistry());
+      hoisted.loadPluginRegistryHandle.mockReturnValue(primaryRegistry);
+      hoisted.resolveAgentRuntimePluginLoadPlan.mockReturnValue({
+        config: {},
+        pluginIds: ["catalog-provider"],
+      });
+
+      const registry = loadAgentRuntimePluginRegistryHandle({
+        config: {},
+        basePluginIds: ["catalog-provider"],
+        reusableRegistry,
+        purpose: "model-catalog",
+      });
+
+      expect(registry).toBe(broader ? primaryRegistry : reusableRegistry);
+      expect(hoisted.loadPluginRegistryHandle).toHaveBeenCalledTimes(broader ? 1 : 0);
+      expect(hoisted.adoptRuntimeContextEngineRegistrations).not.toHaveBeenCalled();
+      expect(hoisted.adoptRuntimeWidgetPresenterRegistrations).not.toHaveBeenCalled();
+    },
+  );
+
   it("uses harness runtimes prepared by the lifecycle batch", () => {
     const configuredHarnessRuntimes = ["codex"];
 

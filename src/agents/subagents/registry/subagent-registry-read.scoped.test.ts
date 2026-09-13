@@ -90,7 +90,7 @@ describe("subagent registry scoped reads", () => {
     mod = await import("./subagent-registry-read.js");
   });
 
-  it("uses the child snapshot for latest and display lookups without full hydration", () => {
+  it("uses scoped snapshots for latest lookup and compact display without full hydration", () => {
     const childSessionKey = "agent:main:subagent:child";
     const older = createRun({ runId: "older", childSessionKey, generation: 1, createdAt: 200 });
     const latest = createRun({ runId: "latest", childSessionKey, generation: 2, createdAt: 100 });
@@ -100,21 +100,31 @@ describe("subagent registry scoped reads", () => {
         [latest.runId, latest],
       ]),
     );
+    mocks.getSubagentSessionListRunsSnapshotForRead.mockReturnValue(
+      new Map([
+        [older.runId, older],
+        [latest.runId, latest],
+      ]),
+    );
 
     expect(mod.getLatestSubagentRunByChildSessionKey(childSessionKey)).toEqual(latest);
-    expect(mod.getSessionDisplaySubagentRunByChildSessionKey(childSessionKey)).toEqual(latest);
-    expect(mocks.getSubagentRunsSnapshotForChildSession).toHaveBeenCalledTimes(2);
+    expect(mod.buildSubagentSessionListReadIndex().getDisplaySubagentRun(childSessionKey)).toEqual(
+      latest,
+    );
+    expect(mocks.getSubagentRunsSnapshotForChildSession).toHaveBeenCalledOnce();
     expect(mocks.getSubagentRunsSnapshotForRead).not.toHaveBeenCalled();
   });
 
-  it("prefers the latest indexed live generation without loading persisted rows", () => {
+  it("keeps the latest raw live generation authoritative in compact display", () => {
     const childSessionKey = "agent:main:subagent:child";
     const older = createRun({ runId: "older", childSessionKey, generation: 1, createdAt: 200 });
     const latest = createRun({ runId: "latest", childSessionKey, generation: 2, createdAt: 100 });
-    mocks.getSubagentRunsForChildSession.mockReturnValue([older, latest]);
+    mocks.liveRuns.set(older.runId, older);
+    mocks.liveRuns.set(latest.runId, latest);
 
-    expect(mod.getSessionDisplaySubagentRunByChildSessionKey(childSessionKey)).toBe(latest);
-    expect(mocks.getSubagentRunsForChildSession).toHaveBeenCalledWith(childSessionKey);
+    expect(mod.buildSubagentSessionListReadIndex().getDisplaySubagentRun(childSessionKey)).toBe(
+      latest,
+    );
     expect(mocks.getSubagentRunsSnapshotForChildSession).not.toHaveBeenCalled();
   });
 
@@ -278,6 +288,7 @@ describe("subagent registry scoped reads", () => {
     mocks.getSubagentRunsSnapshotForRead.mockReturnValue(snapshot);
     mocks.getSubagentRunsSnapshotForChildSession.mockReturnValue(childSnapshot);
     mocks.getSubagentRunsSnapshotForController.mockReturnValue(controllerSnapshot);
+    mocks.getSubagentSessionListRunsSnapshotForRead.mockReturnValue(snapshot);
 
     const requester = resolveRequesterForChildSessionFromRuns(childSnapshot, reusedChild);
     const cases = [
@@ -335,7 +346,7 @@ describe("subagent registry scoped reads", () => {
       },
       {
         name: "display run with live-memory precedence",
-        actual: mod.getSessionDisplaySubagentRunByChildSessionKey(reusedChild),
+        actual: mod.buildSubagentSessionListReadIndex(now).getDisplaySubagentRun(reusedChild),
         expected:
           getLatestSubagentRunByChildSessionKeyFromRuns([freshTerminal], reusedChild) ??
           getSubagentRunByChildSessionKeyFromRuns(childSnapshot, reusedChild),

@@ -33,12 +33,8 @@ import {
   normalizeThinkingOptionValue,
   resolveChatThinkingSelectState,
 } from "../../lib/chat/thinking.ts";
-import {
-  formatDurationCompact,
-  formatMs,
-  formatRelativeTimestamp,
-  formatCompactTokenCount,
-} from "../../lib/format.ts";
+import { formatDurationCompact } from "../../lib/format-duration.ts";
+import { formatMs, formatRelativeTimestamp, formatCompactTokenCount } from "../../lib/format.ts";
 import { handleContextMenuEvent } from "../../lib/keyboard-shortcuts.ts";
 import { shouldHandleNavigationClick } from "../../lib/navigation-click.ts";
 import { presenceViewerLabel } from "../../lib/presence-users.ts";

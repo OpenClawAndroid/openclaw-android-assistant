@@ -1,6 +1,7 @@
 import { reasoningTagTextPolicy } from "@openclaw/ai/internal/openai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { findSourceImportBackedges } from "../../test/helpers/source-import-closure.js";
+import { bindModelCompletionOwner } from "../llm/model-runtime-binding.js";
 import type { Model } from "../llm/types.js";
 
 const mocks = vi.hoisted(() => ({
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../llm/stream.js", () => ({ completeSimple: mocks.complete }));
+vi.mock("./ai-transport-runtime-host.js", () => ({}));
 vi.mock("@openclaw/ai/transports", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@openclaw/ai/transports")>()),
   prepareModelForSimpleCompletion: mocks.prepareModel,
@@ -58,6 +60,29 @@ describe("prepared completion import boundary", () => {
 });
 
 describe("completeWithPreparedSimpleCompletionModel", () => {
+  it("stops before transport preparation when its owner retires during host initialization", async () => {
+    const retired = new Error("Completion owner retired.");
+    let current = true;
+    const model = bindModelCompletionOwner(baseModel, {
+      run: (run) => run(),
+      assertCurrent: () => {
+        if (!current) {
+          throw retired;
+        }
+      },
+    });
+    const completion = completeWithPreparedSimpleCompletionModel({
+      model,
+      auth: { apiKey: "test-key", source: "test", mode: "api-key" },
+      context,
+    });
+    current = false;
+
+    await expect(completion).rejects.toBe(retired);
+    expect(mocks.prepareModel).not.toHaveBeenCalled();
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
+
   it.each([
     "openai-completions",
     "openai-responses",
@@ -214,6 +239,22 @@ describe("completeWithPreparedSimpleCompletionModel", () => {
       },
     ]);
   });
+
+  it.each([undefined, "default", "priority"] as const)(
+    "passes service tier %s to simple completions",
+    async (serviceTier) => {
+      await completeWithPreparedSimpleCompletionModel({
+        model: baseModel,
+        auth: { apiKey: "test", source: "test", mode: "api-key" },
+        context,
+        options: serviceTier ? { serviceTier } : {},
+      });
+      expect(completionRequests()[0]?.options).toEqual({
+        apiKey: "test",
+        ...(serviceTier ? { serviceTier } : {}),
+      });
+    },
+  );
 
   it("carries strict visibility internally without adding a wire option", async () => {
     await completeWithPreparedSimpleCompletionModel({

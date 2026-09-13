@@ -352,6 +352,65 @@ describe("standing intents", () => {
     ).toHaveLength(1);
   });
 
+  it("rearms a cooled cohort without per-intent writes", async () => {
+    const created: Awaited<ReturnType<typeof createStandingIntent>>[] = [];
+    for (let index = 0; index < 32; index += 1) {
+      created.push(
+        await createStandingIntent({
+          agentId: "main",
+          description: `Review reminder ${index}.`,
+          triggerKeywords: ["cohort review"],
+          cooldownSeconds: 60,
+          maxFires: 3,
+          nowMs: 1_000 + index,
+        }),
+      );
+    }
+    for (let index = 0; index < Math.ceil(created.length / 3); index += 1) {
+      await matchStandingIntents({ agentId: "main", prompt: "cohort review", nowMs: 2_000 });
+    }
+    for (const intent of created) {
+      intent.status = "fired";
+      intent.fireCount = 1;
+      intent.lastFiredAt = 2_000;
+    }
+    expect(await listStandingIntents({ agentId: "main", nowMs: 61_999 })).toEqual(created);
+
+    // Reopen so fixture setup cannot leave cached statements outside the observer.
+    closeOpenClawAgentDatabasesForTest();
+    const db = openOpenClawAgentDatabase({ agentId: "main" }).db;
+    const prepare = db.prepare.bind(db);
+    let writes = 0;
+    const prepareSpy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
+      const statement = prepare(sql);
+      statement.run = new Proxy(statement.run.bind(statement), {
+        apply(run, receiver, args) {
+          writes += 1;
+          return Reflect.apply(run, receiver, args);
+        },
+      });
+      return statement;
+    });
+    try {
+      for (const intent of created) {
+        intent.status = "armed";
+      }
+      expect(await listStandingIntents({ agentId: "main", nowMs: 62_000 })).toEqual(created);
+      expect(writes).toBeLessThanOrEqual(2);
+    } finally {
+      prepareSpy.mockRestore();
+    }
+    const expectedMatches = created.slice(0, 3);
+    for (const intent of expectedMatches) {
+      intent.status = "fired";
+      intent.fireCount = 2;
+      intent.lastFiredAt = 62_001;
+    }
+    expect(
+      await matchStandingIntents({ agentId: "main", prompt: "cohort review", nowMs: 62_001 }),
+    ).toEqual(expectedMatches);
+  });
+
   it("keeps provider, conversation, sender, and account identities namespaced", async () => {
     await createStandingIntent({
       agentId: "main",

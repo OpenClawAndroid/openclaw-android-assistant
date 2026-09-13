@@ -47,6 +47,7 @@ export type ChatPageHost = ChatHost &
   PullRequestRefreshHost &
   SessionWorkspaceHost &
   BackgroundTasksHost & {
+    chatMetadataIsPresented?: () => boolean;
     chatSubmissions: ApplicationContext["chatSubmissions"];
     password: string;
     onboarding: boolean;

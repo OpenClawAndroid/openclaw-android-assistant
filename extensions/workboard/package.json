@@ -36,6 +36,11 @@
       "buildOutputs": [
         "openclaw.plugin.json"
       ]
+    },
+    "build": {
+      "workerEntries": [
+        "./src/sqlite-store.worker.ts"
+      ]
     }
   }
 }

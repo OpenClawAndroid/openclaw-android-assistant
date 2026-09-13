@@ -1,7 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { t } from "../i18n/index.ts";
 import { registerDebugEnglish } from "../i18n/locales/en-debug.ts";
-import { formatDurationCompact } from "../lib/format.ts";
+import { formatDurationCompact } from "../lib/format-duration.ts";
 import "./sparkline-tile.ts";
 import type { SparklineSample } from "./sparkline-tile.ts";
 

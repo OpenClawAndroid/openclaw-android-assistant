@@ -55,19 +55,22 @@ enum CleanChatComposerMetrics {
 }
 
 struct CompactChatAttachmentLabel: View {
+    var controlSize: CGFloat = CleanChatComposerMetrics.controlTouchSize
+
     var body: some View {
         Image(systemName: "plus")
             .font(OpenClawChatTypography.display(size: 20, weight: .semibold, relativeTo: .body))
             .foregroundStyle(.secondary)
             .frame(
-                width: CleanChatComposerMetrics.controlTouchSize,
-                height: CleanChatComposerMetrics.controlTouchSize)
+                width: self.controlSize,
+                height: self.controlSize)
             .contentShape(Rectangle())
     }
 }
 
 struct CleanChatContextUsageLabel: View {
     let usage: OpenClawChatContextUsage
+    var controlSize: CGFloat = CleanChatComposerMetrics.controlTouchSize
 
     var body: some View {
         ZStack {
@@ -80,8 +83,8 @@ struct CleanChatContextUsageLabel: View {
         }
         .frame(width: 18, height: 18)
         .frame(
-            width: CleanChatComposerMetrics.controlTouchSize,
-            height: CleanChatComposerMetrics.controlTouchSize)
+            width: self.controlSize,
+            height: self.controlSize)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Context usage")
@@ -297,6 +300,7 @@ struct OpenClawChatMicButton: View {
     let isRealtimeTalkActive: Bool
     let isComposerEnabled: Bool
     let isAttachmentInputEnabled: Bool
+    var controlSize: CGFloat = CleanChatComposerMetrics.controlTouchSize
     let onCancelDictation: @MainActor () -> Void
     let onStartDictation: @MainActor () -> Void
 
@@ -345,7 +349,7 @@ struct OpenClawChatMicButton: View {
         return Image(systemName: showsStop ? "stop.fill" : "mic")
             .font(OpenClawChatTypography.display(size: 17, weight: .medium, relativeTo: .body))
             .foregroundStyle(showsStop ? OpenClawChatTheme.accent : .secondary)
-            .frame(width: 44, height: 44)
+            .frame(width: self.controlSize, height: self.controlSize)
             .contentShape(Rectangle())
     }
 

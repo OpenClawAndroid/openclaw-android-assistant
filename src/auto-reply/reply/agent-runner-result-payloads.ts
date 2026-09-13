@@ -22,7 +22,11 @@ import {
 } from "../../infra/diagnostic-trace-context.js";
 import { isSubagentSessionKey } from "../../routing/session-key.js";
 import { estimateAggregateUsageCost } from "../../utils/usage-format.js";
-import { buildFallbackClearedNotice, buildFallbackNotice } from "../fallback-state.js";
+import {
+  buildFallbackClearedNotice,
+  buildFallbackNotice,
+  buildProviderPolicyRetryNotice,
+} from "../fallback-state.js";
 import {
   getReplyPayloadMetadata,
   isReplyPayloadStatusNotice,
@@ -336,16 +340,33 @@ export async function prepareReplyAgentPayloads(state: {
     opts?.onAgentRunTerminalOutcome?.("failed");
     return returnPreparedFallbackPayload(silentFallbackFailurePayload);
   };
+  const providerPolicyRetry = runResult.meta?.executionTrace?.providerPolicyRetry;
+  const successfulProviderPolicyRetry =
+    isInteractive &&
+    !isHeartbeat &&
+    context.execution.status === "ok" &&
+    runResult.meta?.aborted !== true &&
+    providerPolicyRetry?.category === "cyber"
+      ? providerPolicyRetry
+      : undefined;
+  const providerPolicyRetrySucceeded = successfulProviderPolicyRetry !== undefined;
   const fallbackNoticeChanged =
     !fallbackExhausted &&
     !preserveUserFacingSessionState &&
     (fallbackTransition.fallbackTransitioned || fallbackTransition.fallbackCleared);
-  const fallbackNoticeChatType = fallbackNoticeChanged
-    ? normalizeChatType(sessionCtx.ChatType)
-    : undefined;
+  const fallbackNoticeChatType =
+    fallbackNoticeChanged && !providerPolicyRetrySucceeded
+      ? normalizeChatType(sessionCtx.ChatType)
+      : undefined;
   const shouldDeliverFallbackNotice =
     fallbackNoticeChatType !== "group" && fallbackNoticeChatType !== "channel";
-  let fallbackNoticeText: string | null = null;
+  let fallbackNoticeText: string | null = successfulProviderPolicyRetry
+    ? buildProviderPolicyRetryNotice({
+        provider: successfulProviderPolicyRetry.provider,
+        model: successfulProviderPolicyRetry.model,
+        cfg,
+      })
+    : null;
   if (fallbackNoticeChanged && fallbackTransition.fallbackTransitioned) {
     emitAgentEvent({
       runId,
@@ -362,7 +383,7 @@ export async function prepareReplyAgentPayloads(state: {
         attempts: fallbackAttempts,
       },
     });
-    if (shouldDeliverFallbackNotice) {
+    if (shouldDeliverFallbackNotice && !providerPolicyRetrySucceeded) {
       fallbackNoticeText = buildFallbackNotice({
         selectedProvider,
         selectedModel,
@@ -387,7 +408,7 @@ export async function prepareReplyAgentPayloads(state: {
         previousActiveModel: fallbackTransition.previousState.activeModel,
       },
     });
-    if (shouldDeliverFallbackNotice) {
+    if (shouldDeliverFallbackNotice && !providerPolicyRetrySucceeded) {
       fallbackNoticeText = buildFallbackClearedNotice({
         selectedProvider,
         selectedModel,

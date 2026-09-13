@@ -601,8 +601,7 @@ private struct ChatMessageBody: View {
                 arguments: nil,
                 details: self.message.details,
                 resultText: self.primaryText,
-                isError: self.message.isError ?? false,
-                isPending: false,
+                state: self.message.isError == true ? .failed : .finished,
                 liveDiffStat: nil)]
         }
         guard self.message.role.lowercased() == "assistant" else { return [] }
@@ -1122,8 +1121,7 @@ struct ChatPendingToolsBubble: View {
                 arguments: call.args,
                 details: nil,
                 resultText: nil,
-                isError: false,
-                isPending: true,
+                state: .running,
                 liveDiffStat: call.diffStat)
         }
     }

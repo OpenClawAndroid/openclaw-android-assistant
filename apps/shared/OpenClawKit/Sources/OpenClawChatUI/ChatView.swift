@@ -138,6 +138,7 @@ public struct OpenClawChatView: View {
     @State private var isAtLiveEdge = true
     @State private var isUserScrolling = false
     @State private var isKeyboardVisible = false
+    @State private var hoveredMessageID: UUID?
     @State private var restoresLiveEdgeAfterKeyboardShows = false
     @State private var expandedUserMessageIDs: Set<UUID> = []
     @State private var searchMessageID: UUID?
@@ -681,11 +682,15 @@ public struct OpenClawChatView: View {
                 HStack(spacing: 12) {
                     self.copyMessageButton(for: msg)
                         .help("Copy message")
+                        .modifier(ChatHoverAction(revealed: self.hoveredMessageID == msg.id))
                     self.replyMessageButton(for: msg)
                         .help("Reply")
+                        .modifier(ChatHoverAction(revealed: self.hoveredMessageID == msg.id))
                     self.listenMessageButton(for: msg)
+                        .modifier(ChatHoverAction(revealed: self.hoveredMessageID == msg.id))
                     self.messageActionsMenu(for: msg)
                         .help("Message actions")
+                        .modifier(ChatHoverAction(revealed: self.hoveredMessageID == msg.id))
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -698,6 +703,13 @@ public struct OpenClawChatView: View {
             #endif
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+        .onHover { hovering in
+            if hovering {
+                self.hoveredMessageID = msg.id
+            } else if self.hoveredMessageID == msg.id {
+                self.hoveredMessageID = nil
+            }
+        }
         #if os(iOS)
         if isUser {
             row.contextMenu { self.messageMenuActions(for: msg) }
@@ -880,7 +892,10 @@ public struct OpenClawChatView: View {
     }
 
     private var activeErrorText: String? {
-        let activeError = self.viewModel.composerModelAvailabilityMessage ?? self.viewModel.errorText
+        let showsContextualSignIn = self.isDesktopLayout && self.composerChrome == .clean
+        let activeError = showsContextualSignIn
+            ? self.viewModel.errorText
+            : self.viewModel.composerModelAvailabilityMessage ?? self.viewModel.errorText
         guard let text = activeError?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !text.isEmpty
@@ -1166,12 +1181,9 @@ extension OpenClawChatView {
             }
 
             let toolText = self.toolResultText(from: message)
-            if toolText.isEmpty {
-                continue
-            }
-
             var content = last.content
-            // Tool-result diff metadata arrives on the message, but the UI renders the merged block.
+            // Preserve empty results too: receiving a result owns the outcome,
+            // independently of whether it contains display text.
             content.append(
                 OpenClawChatMessageContent(
                     type: "tool_result",
@@ -1223,7 +1235,7 @@ extension OpenClawChatView {
         }
 
         if self.isToolResultMessage(message) {
-            return self.displayOptions.contains(.toolActivity) && !primaryText.isEmpty
+            return self.displayOptions.contains(.toolActivity)
         }
 
         if !primaryText.isEmpty {

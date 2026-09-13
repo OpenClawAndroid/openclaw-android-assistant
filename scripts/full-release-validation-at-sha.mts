@@ -996,9 +996,15 @@ function resolveDispatchSelection(workflowSha: string, overrides: Record<string,
     "Pinned workflow exceeds 25 dispatch inputs",
   );
   const { validation_purpose, publication_selection_json, ...wireOverrides } = overrides;
+  const intent = normalizePublicationIntent(validation_purpose, publication_selection_json);
+  requireDispatch(
+    intent.validationPurpose !== "publish" ||
+      workflow.env.FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT === "1",
+    `Tooling SHA ${workflowSha} does not support registry admission for fresh publish requests; no remote refs or run were created. Keep the frozen tooling SHA. Reopen existing requests read-only; new tooling requires separate approval.`,
+  );
   wireOverrides.trusted_workflow_json = publicationDispatchEnvelope(
     JSON.parse(overrides.trusted_workflow_json || "null"),
-    normalizePublicationIntent(validation_purpose, publication_selection_json),
+    intent,
   );
   requireDispatch(
     Object.keys(wireOverrides).every((key) => Object.hasOwn(definitions, key)),

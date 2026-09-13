@@ -1,9 +1,12 @@
+import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import type {
   ChatMetadataParams,
   CommandsListResult,
 } from "../../../../packages/gateway-protocol/src/index.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { ModelCatalogResult } from "../../api/types.ts";
 import { invalidateModelCatalogCache } from "../model-catalog-cache.ts";
+import type { UiSessionDefaultsHost } from "../sessions/session-key.ts";
 
 export type ChatMetadataResult = CommandsListResult;
 
@@ -26,61 +29,65 @@ export type ChatMetadataRequest = {
   setStartupRetryDeadline: (deadlineAt?: number) => void;
   start: () => void;
 };
+export type ChatMetadataRefresh = {
+  catalog: Promise<ModelCatalogResult | undefined>;
+  completed: Promise<void>;
+  isCurrent: () => boolean;
+};
+export type ChatMetadataRefreshRecord = ChatMetadataRefresh & {
+  phase: "waiting" | "admitted" | "inactive";
+  revision: number;
+  catalogRevision: number;
+  metadataRequired: boolean;
+  revalidateMetadata?: () => boolean;
+  start: () => void;
+};
 export type ChatMetadataEntry = {
   scope: ChatMetadataParams;
   result?: ChatMetadataResult;
   activeRequest?: ChatMetadataRequest;
   queuedRequest?: ChatMetadataRequest;
   writer?: object;
-  listeners: Set<(update: ChatMetadataUpdate) => void>;
+  refreshRevision: number;
+  catalogRevision: number;
+  refresh?: ChatMetadataRefreshRecord;
+  listeners: Map<(update: ChatMetadataUpdate) => void, () => boolean>;
   release: () => void;
 };
 
 export const chatMetadataCache = new WeakMap<
   GatewayBrowserClient,
-  Map<string, ChatMetadataEntry>
->();
-
-export function notifyChatMetadataListeners(
-  entry: ChatMetadataEntry,
-  update: ChatMetadataUpdate,
-): void {
-  for (const listener of Array.from(entry.listeners)) {
-    try {
-      listener(update);
-    } catch (error) {
-      console.error("[chat-metadata] listener error:", error);
-    }
+  {
+    entries: Map<string, ChatMetadataEntry>;
+    invalidate: (scope?: ChatMetadataParams, sessionDefaults?: UiSessionDefaultsHost) => void;
+    invalidateSession: (
+      source: Record<string, unknown> | null,
+      sessionDefaults: UiSessionDefaultsHost,
+    ) => void;
   }
-}
+>();
 
 export function invalidateChatMetadataStore(
   client: GatewayBrowserClient,
   scope?: ChatMetadataParams,
+  sessionDefaults?: UiSessionDefaultsHost,
 ): void {
   // Catalog readers share this lifecycle; retire their copies before metadata listeners reload.
-  invalidateModelCatalogCache(client, scope);
-  const entries = chatMetadataCache.get(client)?.values();
-  if (!entries) {
-    return;
-  }
-  const invalidated = Array.from(entries).filter(
-    (entry) =>
-      (!scope?.agentId || entry.scope.agentId === scope.agentId) &&
-      (!scope?.sessionKey || entry.scope.sessionKey === scope.sessionKey) &&
-      (!scope?.authProfileId || entry.scope.authProfileId === scope.authProfileId),
+  invalidateModelCatalogCache(
+    client,
+    sessionDefaults && scope?.sessionKey ? { agentId: scope.agentId, sessionsOnly: true } : scope,
   );
-  // Retire every affected writer before subscribers can synchronously start replacements.
-  for (const entry of invalidated) {
-    entry.result = undefined;
-    entry.writer = undefined;
-  }
-  for (const entry of invalidated) {
-    notifyChatMetadataListeners(entry, {
-      type: "invalidated",
-      // Session mutations own roster reconciliation; global catalog changes also change session facts.
-      refreshSessionFacts: !scope?.sessionKey,
-    });
-    entry.release();
-  }
+  chatMetadataCache.get(client)?.invalidate(scope, sessionDefaults);
+}
+
+export function invalidateChatMetadataForSessionEvent(
+  client: GatewayBrowserClient,
+  payload: unknown,
+  sessionDefaults: UiSessionDefaultsHost,
+): void {
+  const source = asNullableRecord(payload);
+  const agentId = typeof source?.agentId === "string" ? source.agentId : undefined;
+  // Session aliases are resolved by the Gateway; retire saved model projections for this agent.
+  invalidateModelCatalogCache(client, { agentId, sessionsOnly: true });
+  chatMetadataCache.get(client)?.invalidateSession(source, sessionDefaults);
 }

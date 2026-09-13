@@ -7,6 +7,7 @@ import { createConfigIO } from "../config/io.factory.js";
 import { containsConfigIncludeDirective } from "../config/io.read-helpers.js";
 import type { ReadConfigFileSnapshotForWriteResult } from "../config/io.types.js";
 import { withOpenClawStateDatabaseReadSnapshot } from "../state/openclaw-state-db-readonly.js";
+import { openLocalFileSafely } from "./fs-safe.js";
 
 type CapturedConfigFile = {
   sourcePath: string;
@@ -144,15 +145,13 @@ export async function resolveBackupConfigCapture({
 
 async function readCapturedConfig(file: CapturedConfigFile): Promise<Buffer> {
   try {
-    const handle = await fs.open(file.sourcePath, "r");
+    const opened = await openLocalFileSafely({ filePath: file.sourcePath });
+    const { handle, stat } = opened;
     try {
-      const stat = await handle.stat();
       if (
-        !stat.isFile() ||
         stat.dev !== file.dev ||
         stat.ino !== file.ino ||
-        (await fs.realpath(file.sourcePath)) !== file.canonicalPath ||
-        !(await fs.lstat(file.sourcePath)).isFile()
+        opened.realPath !== file.canonicalPath
       ) {
         throw new Error("file identity changed");
       }

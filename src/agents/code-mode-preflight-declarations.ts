@@ -18,7 +18,15 @@ declare const catalog: { search(query: string, options?: {limit?: number}): Prom
 type CodeModeApiFile = {path: string; description?: string; bytes: number; content: string};
 declare const API: { list(prefix?: string): Promise<{files: Array<{path: string; description?: string; bytes?: number}>}>; read(path: string): Promise<CodeModeApiFile> };
 declare const skills: { list(): Promise<unknown>; read(name: string): Promise<string> };
-declare const nodes: unknown;
+declare const nodes: {
+  list(): Promise<Array<{ id: string; name: string; platform?: string; connected: boolean; commands: string[] }>>;
+  get(idOrName: string): Promise<{
+    readonly id: string;
+    readonly name: string;
+    readonly invoke: (command: string, params?: unknown) => Promise<unknown>;
+    readonly listDir?: (path: string) => Promise<unknown>;
+  }>;
+};
 declare const namespaces: unknown;
 `;
 

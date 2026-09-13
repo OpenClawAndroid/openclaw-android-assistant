@@ -231,7 +231,7 @@ impl GatewayDiscovery {
     }
 }
 
-fn gateway_window_label(url: &Url) -> String {
+pub(crate) fn gateway_window_label(url: &Url) -> String {
     let host = url
         .host_str()
         .unwrap_or_default()
@@ -475,13 +475,31 @@ pub fn connect_discovered_gateway(
             .map_err(|error| format!("Could not focus Gateway window: {error}"))?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+    crate::window_chrome::grant(&app, &label, &url)?;
+    let chrome = crate::window_chrome::initialization_script(Some(&url), false);
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+        .initialization_script(chrome)
+        .on_page_load(|window, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                if let Some(view) = window.app_handle().get_webview(window.label()) {
+                    crate::window_chrome::loading(&view);
+                }
+            }
+        })
         .title(format!("{name} — OpenClaw"))
         .inner_size(1080.0, 720.0)
         .min_inner_size(720.0, 520.0)
         .center()
         .build()
         .map_err(|error| format!("Could not open Gateway window: {error}"))?;
+    crate::window_chrome::install(&window.as_ref().window())
+        .map_err(|error| format!("Could not enable window chrome: {error}"))?;
+    if let Some(view) = app.get_webview(window.label()) {
+        #[cfg(target_os = "macos")]
+        crate::window_chrome_macos::install_webview(&view)
+            .map_err(|error| format!("Could not enable window dragging: {error}"))?;
+        crate::window_chrome::observe_history(&view);
+    }
     Ok(())
 }
 

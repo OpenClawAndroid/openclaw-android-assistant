@@ -6237,11 +6237,3 @@ td.data-table-key-col {
   display: block;
   line-height: 0;
 }
-
-.plugin-ui-recovery {
-  position: fixed;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: max(12px, env(safe-area-inset-bottom));
-  z-index: 110;
-  box-shadow: var(--shadow-md);
-}

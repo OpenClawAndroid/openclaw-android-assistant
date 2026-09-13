@@ -116,6 +116,7 @@ export const uiE2eSerialTestFiles = [
 // New files stay bundled unless they own every UI server they use.
 const uiE2eStandaloneTestFiles = [
   "ui/src/e2e/board-fixture.e2e.test.ts",
+  "ui/src/e2e/control-ui-build-publication.e2e.test.ts",
   "ui/src/e2e/control-ui-retained-assets.e2e.test.ts",
   "ui/src/e2e/service-worker-update.e2e.test.ts",
 ];

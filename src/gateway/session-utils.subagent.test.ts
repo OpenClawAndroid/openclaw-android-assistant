@@ -15,7 +15,8 @@ import {
   resetSubagentRegistryForTests,
 } from "../agents/subagents/registry/subagent-registry.test-helpers.js";
 import type { OpenClawConfig } from "../config/config.js";
-import type { SessionEntry } from "../config/sessions.js";
+import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../config/config.js";
+import { resolveSessionStorePathCore, type SessionEntry } from "../config/sessions.js";
 import { canPrewarmCombinedSessionStoresForGateway } from "../config/sessions/combined-store-gateway.js";
 import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import { resetAgentEventsForTest } from "../infra/agent-events.js";
@@ -30,6 +31,7 @@ import { withEnvAsync } from "../test-utils/env.js";
 import { listSessionFixture } from "./session-list.test-support.js";
 import {
   loadCombinedSessionStoreForGatewayCore,
+  loadGatewaySessionLifecycleSnapshot,
   resolveGatewayModelSupportsImages,
 } from "./session-utils.js";
 
@@ -61,6 +63,79 @@ describe("session list subagent metadata", () => {
     session: { mainKey: "main" },
     agents: { list: [{ id: "main", default: true }] },
   } as OpenClawConfig;
+
+  test("projects lifecycle ownership and lineage without parsing retained task payloads", async () => {
+    await withStateDirEnv("openclaw-lifecycle-registry-projection-", async () => {
+      await withEnvAsync({ OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" }, async () => {
+        const now = Date.now();
+        const parentKey = "agent:main:main";
+        const childKey = "agent:main:subagent:lifecycle-child";
+        const navigationKey = "agent:main:dashboard:navigation-parent";
+        const storePath = resolveSessionStorePathCore(undefined, { agentId: "main" });
+        setRuntimeConfigSnapshot(cfg, cfg);
+        try {
+          await seedSessionEntry(storePath, parentKey, { sessionId: "parent", updatedAt: now });
+          await seedSessionEntry(storePath, childKey, {
+            sessionId: "child",
+            updatedAt: now,
+            parentSessionKey: navigationKey,
+            spawnedBy: "agent:main:subagent:old-controller",
+          });
+          const runs = new Map<string, SubagentRunFixture>();
+          for (let index = 0; index < 20; index += 1) {
+            const runId = `retained-${index}`;
+            runs.set(runId, {
+              runId,
+              childSessionKey: `agent:main:subagent:${runId}`,
+              requesterSessionKey: parentKey,
+              requesterDisplayKey: "main",
+              task: `retained-task-payload:${"x".repeat(16_384)}`,
+              cleanup: "keep",
+              createdAt: now - 10_000,
+              startedAt: now - 9_000,
+              endedAt: now - 8_000,
+              outcome: { status: "ok" },
+            });
+          }
+          saveSubagentRegistryToSqlite(canonicalSubagentRunFixtures(runs));
+          addSubagentRunForTests({
+            runId: "live-child",
+            childSessionKey: childKey,
+            controllerSessionKey: parentKey,
+            requesterSessionKey: parentKey,
+            requesterDisplayKey: "main",
+            task: "live child",
+            cleanup: "keep",
+            createdAt: now - 100,
+            startedAt: now - 50,
+          });
+          registerAgentRunContext("live-child", { sessionKey: childKey });
+          subagentRegistryState.clearSubagentRunsReadCacheForTest();
+          const parse = vi.spyOn(JSON, "parse");
+          try {
+            const parent = loadGatewaySessionLifecycleSnapshot(parentKey, { now }).row;
+            const child = loadGatewaySessionLifecycleSnapshot(childKey, { now }).row;
+            expect(parent).toMatchObject({ hasActiveSubagentRun: true, childSessions: [childKey] });
+            expect(child).toMatchObject({
+              subagentRunState: "active",
+              hasActiveSubagentRun: true,
+              controlOwnerSessionKey: parentKey,
+              parentSessionKey: navigationKey,
+            });
+            expect(parent).not.toHaveProperty("swarm");
+            expect(child).not.toHaveProperty("swarm");
+            expect(
+              parse.mock.calls.some(([value]) => value.includes("retained-task-payload:")),
+            ).toBe(false);
+          } finally {
+            parse.mockRestore();
+          }
+        } finally {
+          resetConfigRuntimeState();
+        }
+      });
+    });
+  });
 
   test("searches channel-derived display names before row enrichment", async () => {
     const result = await listSessionFixture({

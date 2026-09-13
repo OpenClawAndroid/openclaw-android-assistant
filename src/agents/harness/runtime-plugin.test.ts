@@ -601,6 +601,39 @@ describe("harness runtime plugins", () => {
     expect(plan.config?.plugins?.entries?.["custom-context-engine"]).toEqual({ enabled: true });
   });
 
+  it.each([
+    { basePluginIds: [], allowed: ["catalog-provider"], expected: [] },
+    {
+      basePluginIds: ["catalog-provider"],
+      allowed: ["catalog-provider"],
+      expected: ["catalog-provider"],
+    },
+    { basePluginIds: ["memory-core"], allowed: ["memory-core"], expected: ["memory-core"] },
+    { basePluginIds: ["catalog-provider"], allowed: ["other-provider"], expected: [] },
+  ])(
+    "keeps catalog scope $basePluginIds within allowlist $allowed",
+    ({ basePluginIds, allowed, expected }) => {
+      const config: OpenClawConfig = {
+        plugins: {
+          allow: [...allowed, "memory-lancedb", "custom-context-engine", "codex"],
+          slots: { memory: "memory-lancedb", contextEngine: "custom-context-engine" },
+        },
+      };
+      const plan = resolveAgentRuntimePluginLoadPlan({
+        metadataSnapshot: createMemoryPlanMetadataSnapshot(),
+        config,
+        workspaceDir: "/tmp/workspace",
+        basePluginIds,
+        selections: [{ provider: "openai", modelId: "gpt-5.5", runtime: "codex" }],
+        purpose: "model-catalog",
+      });
+
+      expect(plan.pluginIds).toEqual(expected);
+      expect(plan.config?.plugins?.entries).toBeUndefined();
+      expect(plan.config?.plugins?.slots).toEqual(config.plugins?.slots);
+    },
+  );
+
   const memorySelectionCases: Array<{
     name: string;
     config: OpenClawConfig;

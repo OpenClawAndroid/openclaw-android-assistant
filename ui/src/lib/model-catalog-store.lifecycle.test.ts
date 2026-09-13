@@ -8,9 +8,12 @@ import {
   clearModelCatalogCache,
   invalidateModelCatalogCache,
   publishModelCatalogResult,
-  subscribeModelCatalogCache,
 } from "./model-catalog-cache.ts";
-import { loadModelCatalog, peekModelCatalog } from "./model-catalog-store.ts";
+import {
+  loadModelCatalog,
+  peekModelCatalog,
+  subscribeModelCatalogCache,
+} from "./model-catalog-store.ts";
 
 const scope = { agentId: "main", sessionKey: "agent:main:catalog" };
 const stale = { models: [{ id: "stale", provider: "test", name: "Stale" }] };

@@ -5,9 +5,15 @@ import {
   makeAgentAssistantMessage,
   makeAgentUserMessage,
 } from "../../agents/test-helpers/agent-message-fixtures.js";
-import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
+import {
+  patchSessionEntryCore,
+  upsertSessionEntryCore,
+} from "../../config/sessions/session-accessor.js";
 import { WorkerTaskPool } from "../../infra/worker-task-pool.js";
 import { createUserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
+import { createDeferredCore } from "../../shared/deferred.js";
+import { coordinateWorkerPlacementDispatch } from "./placement-dispatch-coordinator.js";
+import { createCoordinatorTestService } from "./placement-dispatch-coordinator.test-support.js";
 import { projectWorkerSessionTurnClaim } from "./placement-record.js";
 import { WorkerRunnerUnavailableError, type WorkerTurnTunnelHandle } from "./tunnel-contract.js";
 import { releaseClaimIfOwned } from "./worker-turn-admission.js";
@@ -20,14 +26,18 @@ import {
   cleanupWorkerTurnLauncherTest,
   createWorkerSessionTurnPlacementProvider,
   credential,
+  database,
+  dispatchInitialWorkerPlacement,
   measureLaunchTurn,
   placements,
+  root,
   seedActivePlacement,
   sessionTarget,
   setupWorkerTurnLauncherTest,
   turn,
   unusedEnvironments,
   type WorkerTurnEnvironmentService,
+  type WorkerTurnLauncherOptions,
 } from "./worker-turn-launcher.test-support.js";
 
 function visible(messages: readonly unknown[]) {
@@ -85,8 +95,14 @@ function request(runId: string): SessionPlacementTurnParams {
   return { ...turn(runId), prompt: "current request", transcriptPrompt: "current request" };
 }
 
-async function launchProbe(input: SessionPlacementTurnParams, assertRunCurrent?: () => void) {
-  seedActivePlacement();
+async function launchProbe(
+  input: SessionPlacementTurnParams,
+  assertRunCurrent?: () => void,
+  waitForInitialPlacement?: WorkerTurnLauncherOptions["waitForInitialPlacement"],
+) {
+  if (!waitForInitialPlacement) {
+    seedActivePlacement();
+  }
   const deliberateStop = new WorkerRunnerUnavailableError();
   let credentialCalls = 0;
   let tunnelCalls = 0;
@@ -129,7 +145,11 @@ async function launchProbe(input: SessionPlacementTurnParams, assertRunCurrent?:
     stopTunnel: async () => {},
     destroy: unexpected,
   };
-  const provider = createWorkerSessionTurnPlacementProvider({ environments, placements });
+  const provider = createWorkerSessionTurnPlacementProvider({
+    environments,
+    placements,
+    ...(waitForInitialPlacement ? { waitForInitialPlacement } : {}),
+  });
   hasUnjoinedOwner = true;
   const pending = provider
     .executeTurn(
@@ -318,6 +338,85 @@ describe("worker detached model-context branch parity", () => {
     const after = SessionManager.open(sessionTarget);
     expect(after.getLeafId()).toBe(currentId);
     expect(after.getAppendParentId()).toBe(sideId);
+  });
+
+  it("retains the initial-setup writer fence across the asynchronous context read", async () => {
+    seedPrevious();
+    const paused = createDeferredCore();
+    const finishSetup = createDeferredCore();
+    const dispatch = coordinateWorkerPlacementDispatch(
+      createCoordinatorTestService({
+        dispatch: async (_request, report) =>
+          await dispatchInitialWorkerPlacement({
+            database,
+            placements,
+            identity: { ...sessionTarget, executionMode: "worker-turn" },
+            workspace: root,
+            onTransition: async (placement) => {
+              report?.(placement);
+              if (placement.state === "syncing") {
+                paused.resolve();
+                await finishSetup.promise;
+              }
+            },
+          }),
+      }),
+      (_request, run) => run(),
+    );
+    const setup = dispatch.dispatch({
+      ...sessionTarget,
+      executionMode: "worker-turn",
+      profileId: "development",
+    });
+    void setup.catch(() => undefined);
+    const callerCurrent = vi.fn();
+    const waitForInitialPlacement = vi.fn(dispatch.waitForInitialPlacement);
+    try {
+      await paused.promise;
+      const observed = await withAsyncReadHook(
+        {
+          after: async () => {
+            await setup;
+            const placement = placements.get(SESSION_ID);
+            const claim = placement && projectWorkerSessionTurnClaim(placement);
+            if (placement?.state !== "active" || !claim) {
+              throw new Error("initial setup did not admit the worker turn");
+            }
+            expect(placements.validateTurnClaim(claim)).toBe(true);
+            await patchSessionEntryCore(sessionTarget, () => ({
+              activeWriterRunId: "replacement-writer",
+            }));
+            expect(placements.get(SESSION_ID)).toEqual(placement);
+            expect(placements.validateTurnClaim(claim)).toBe(true);
+          },
+        },
+        () => {
+          const pending = launchProbe(
+            {
+              ...request("writer-after-initial-setup"),
+              suppressNextUserMessagePersistence: true,
+            },
+            callerCurrent,
+            waitForInitialPlacement,
+          );
+          finishSetup.resolve();
+          return pending;
+        },
+      );
+      expect(waitForInitialPlacement).toHaveBeenCalledOnce();
+      expect(callerCurrent).toHaveBeenCalled();
+      expect(observed.calls).toBe(1);
+      expect(observed.result.credentialCalls).toBe(0);
+      expect(observed.result.tunnelCalls).toBe(0);
+      expect(observed.result.launch).toBeUndefined();
+      expect(observed.result.outcome).toMatchObject({
+        kind: "rejected",
+        error: { name: "AbortError", message: "Session changed while waiting for worker setup" },
+      });
+    } finally {
+      finishSetup.resolve();
+      await setup;
+    }
   });
 
   it.each(["cancel", "claim", "caller", "session"] as const)(

@@ -45,7 +45,7 @@ const historyMessages = [
 
 function scenario(
   options: {
-    custodian?: boolean;
+    home?: boolean;
     operatorScopes?: string[];
   } = {},
 ): ControlUiMockGatewayScenario {
@@ -53,7 +53,7 @@ function scenario(
     featureMethods: [
       "device.scopes.requestUpgrade",
       "device.scopes.waitUpgrade",
-      ...(options.custodian ? ["openclaw.chat"] : []),
+      ...(options.home ? ["chat.history", "chat.send"] : []),
     ],
     historyMessages,
     methodResponses: {
@@ -234,7 +234,7 @@ suite.define(() => {
   it.each([
     {
       beforeExpandProof: "right-docked",
-      custodian: false,
+      home: false,
       deviceLess: false,
       direction: "ltr",
       expectedControl: ".sidebar-brand__search",
@@ -246,7 +246,7 @@ suite.define(() => {
     },
     {
       beforeExpandProof: undefined,
-      custodian: false,
+      home: false,
       deviceLess: false,
       direction: "ltr",
       expectedControl: ".shell-chrome-controls__search",
@@ -258,19 +258,19 @@ suite.define(() => {
     },
     {
       beforeExpandProof: undefined,
-      custodian: true,
+      home: true,
       deviceLess: false,
       direction: "ltr",
-      expectedControl: ".shell-chrome-controls__custodian",
-      name: "collapsed navigation with custodian and attention",
+      expectedControl: ".shell-chrome-controls__home",
+      name: "collapsed navigation with Home and attention",
       navCollapsed: true,
       operatorScopes: undefined,
-      proof: "collapsed-nav-custodian-attention",
+      proof: "collapsed-nav-home-attention",
       themeMode: "dark" as const,
     },
     {
       beforeExpandProof: undefined,
-      custodian: false,
+      home: false,
       deviceLess: true,
       direction: "rtl",
       expectedControl: ".sidebar-attention--floating .sidebar-issues-button",
@@ -296,7 +296,7 @@ suite.define(() => {
         await installMockGateway(
           page,
           scenario({
-            custodian: testCase.custodian,
+            home: testCase.home,
             operatorScopes: testCase.operatorScopes,
           }),
         );

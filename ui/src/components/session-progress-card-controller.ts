@@ -13,6 +13,7 @@ type SessionProgressCardControllerOptions = {
 
 /** Keeps one view on the gateway-scoped durable progress-card snapshot. */
 export class SessionProgressCardController implements ReactiveController {
+  private connected = false;
   private store: SessionProgressCardStore | null = null;
   private stopUpdates: (() => void) | null = null;
   private target: ProgressCardGetParams | undefined;
@@ -47,11 +48,20 @@ export class SessionProgressCardController implements ReactiveController {
       ? (this.store?.dismiss(this.target, card) ?? Promise.resolve(false))
       : Promise.resolve(false);
 
-  hostUpdate(): void {
+  hostConnected(): void {
+    this.connected = true;
     this.synchronize();
   }
 
+  hostUpdate(): void {
+    // A queued Lit update can run after disconnect; do not reacquire the released store.
+    if (this.connected) {
+      this.synchronize();
+    }
+  }
+
   hostDisconnected(): void {
+    this.connected = false;
     this.release();
   }
 

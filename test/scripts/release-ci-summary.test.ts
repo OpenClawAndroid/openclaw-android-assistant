@@ -1,17 +1,31 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 import { crc32 } from "node:zlib";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parse } from "yaml";
+import { preflightContinuation } from "../../scripts/frv.mjs";
 import { buildFullReleaseCandidateRequest } from "../../scripts/full-release-candidate-contract.mjs";
 import {
+  createPublicationAdmission,
+  createPublicationObservations,
   createPublicationSourceFact,
   publicationDispatchEnvelope,
   publicationIntentInputs,
+  publicationObservationJson,
   publicationSourceRequest,
   publicationSourceJson,
 } from "../../scripts/full-release-publication-contract.mjs";
@@ -53,6 +67,7 @@ import {
   validateRequestedEvidenceReuse,
   validateTrustedProducerIdentity,
 } from "../../scripts/release-ci-summary.mjs";
+import { authenticateFullReleaseValidationEvidence } from "../../scripts/validate-full-release-validation-evidence.mjs";
 import { fullReleaseCandidateBindingFixture } from "../helpers/full-release-candidate.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -60,6 +75,810 @@ const SCRIPT = "scripts/release-ci-summary.mjs";
 const MANIFEST_ARTIFACT_ENTRY = "full-release-validation-manifest.json";
 const hasUnzip = spawnSync("unzip", ["-v"], { stdio: "ignore" }).status === 0;
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+function publicationRestoreFixture(fullCoverage = false, route: "normal" | "prepared" = "normal") {
+  const fixture = trustedMainNpmFixture();
+  const source = createPublicationSourceFact(
+    publicationSourceRequest({
+      PUBLICATION_INPUTS_JSON: JSON.stringify({
+        ref: fixture.targetSha,
+        release_profile: "beta",
+        rerun_group: "all",
+        skip_package_telegram_e2e: true,
+        ...(fullCoverage
+          ? {
+              provider: fixture.manifest.validationInputs.provider,
+              mode: fixture.manifest.validationInputs.mode,
+              npm_telegram_provider_mode: fixture.manifest.validationInputs.npmTelegramProviderMode,
+            }
+          : {}),
+        trusted_workflow_json: publicationDispatchEnvelope(null, {
+          validationPurpose: "publish",
+          publicationSelection: {
+            route,
+            npmDistTag: "beta",
+            publishOpenclawNpm: true,
+            pluginPublishScope: "all-publishable",
+            plugins: [],
+          },
+        }),
+      }),
+      PUBLICATION_TOOLING_JSON: JSON.stringify({
+        fullRef: "refs/heads/main",
+        sha: fixture.workflowSha,
+      }),
+      PUBLICATION_COVERAGE_POLICY: "npm-beta-v1",
+      PUBLICATION_TARGET_CONTEXT: "release/2026.8.28",
+      PUBLICATION_TARGET_SHA: fixture.targetSha,
+      GITHUB_REPOSITORY: "openclaw/openclaw",
+      GITHUB_REF: "refs/heads/main",
+      GITHUB_SHA: fixture.workflowSha,
+      GITHUB_RUN_ID: fixture.runId,
+      GITHUB_RUN_ATTEMPT: "1",
+    }),
+    { packages: [], platforms: [] },
+    {
+      version: "2026.8.28-beta.1",
+      packages: [{ name: "openclaw", version: "2026.8.28-beta.1", targets: ["npm"] }],
+      platforms: [],
+    },
+  );
+  const time = "2026-08-28T12:00:00.000Z";
+  const observations = createPublicationObservations(source, {
+    sourceDigest: source.digest,
+    prerequisitesCompletedAt: time,
+    collectionStartedAt: time,
+    collectionCompletedAt: time,
+    npm: [
+      {
+        name: "openclaw",
+        version: "2026.8.28-beta.1",
+        required: true,
+        observedAt: time,
+        outcome: "observed",
+        state: {
+          packageExists: true,
+          hasVersionHistory: true,
+          selectedVersionExists: false,
+          latestVersion: null,
+        },
+      },
+    ],
+    clawhub: [],
+    pendingAuthority: [],
+    plans: {
+      npm: { all: [], candidates: [], skippedPublished: [], warnings: [] },
+      clawhub: {
+        all: [],
+        candidates: [],
+        skippedPublished: [],
+        bootstrapCandidates: [],
+        missingTrustedPublisher: [],
+        warnings: [],
+      },
+    },
+  });
+  const admission = createPublicationAdmission(
+    source,
+    observations,
+    {
+      id: "444",
+      name: `full-release-publication-observations-${fixture.runId}-1`,
+      digest: `sha256:${"c".repeat(64)}`,
+      sizeInBytes: 4096,
+    },
+    time,
+  );
+  const plan = Object.assign(fixture.executionPlan, {
+    sourceAdmissionContract: "1",
+    sourceAdmission: source,
+    publicationAdmissionContract: "1",
+    publicationAdmission: admission,
+  });
+  plan.sha256 = releaseExecutionPlanSha256(plan);
+  return { ...fixture, plan, source, admission, request: { ...source, runAttempt: 2 } };
+}
+
+describe("original publication admission reader", () => {
+  it.each([
+    "complete",
+    "changed-admission",
+    "skipped-original-upload",
+    "core-normal",
+    "core-prepared",
+    "wrong-channel",
+    "wrong-target",
+    "wrong-attempt",
+    "wrong-route",
+    "continuation",
+    "continuation-mutated",
+  ])("authenticates B in the complete strict summary: %s", async (fault) => {
+    const fixture = publicationRestoreFixture(
+      true,
+      fault === "core-prepared" ? "prepared" : "normal",
+    );
+    Object.assign(fixture.manifest, {
+      sourceAdmissionContract: "1",
+      sourceAdmission: fixture.source,
+      publicationAdmissionContract: "1",
+      publicationAdmission: structuredClone(fixture.admission),
+      trustedWorkflow: fixture.plan.trustedWorkflow,
+      executionPlanSha256: fixture.plan.sha256,
+    });
+    Object.assign(fixture.manifest.validationInputs, publicationIntentInputs(fixture.source));
+    delete fixture.manifest.evidenceReuse;
+    const parent = {
+      ...fixture.parentRun,
+      name: "Full Release Validation",
+      display_title: "Full Release Validation",
+      repository: { full_name: "openclaw/openclaw" },
+      head_repository: { full_name: "openclaw/openclaw" },
+    };
+    const originalJobs = [
+      {
+        id: 901,
+        name: "Resolve target ref",
+        run_attempt: 1,
+        status: "completed",
+        conclusion: "success",
+        steps: [{ name: "Finalize publication admission", conclusion: "success" }],
+      },
+      {
+        name: "Seal release execution plan",
+        run_attempt: 1,
+        status: "completed",
+        conclusion: "success",
+        steps: [
+          {
+            name: "Seal immutable release execution plan",
+            number: 5,
+            status: "completed",
+            conclusion: "success",
+            started_at: "2026-08-28T12:01:00.000Z",
+            completed_at: "2026-08-28T12:01:01.000Z",
+          },
+          {
+            name: "Upload immutable release execution plan",
+            number: 6,
+            status: "completed",
+            conclusion: fault === "skipped-original-upload" ? "skipped" : "success",
+            started_at: "2026-08-28T12:01:01.000Z",
+            completed_at: "2026-08-28T12:01:03.000Z",
+          },
+        ],
+      },
+    ];
+    const retained = {
+      plan: fixture.plan,
+      artifact: {
+        created_at: "2026-08-28T12:01:02.000Z",
+        workflow_run: { head_sha: fixture.workflowSha, head_branch: "main" },
+      },
+    };
+    const client = {
+      ...fixture.client,
+      getJobLog: async (id: number) => fixture.client.getJobLog(id),
+      getRun: async (id: string) => fixture.client.getRun(id),
+      getParentJobs: async (id: string) => fixture.client.getParentJobs(id),
+      getWorkflowSource: vi.fn(
+        () =>
+          'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n',
+      ),
+      getRunAttempt: vi.fn((runId: string, attempt: number) => {
+        expect(attempt).toBe(1);
+        return runId === fixture.runId ? parent : fixture.client.getRun(runId);
+      }),
+      getArtifact: () => {
+        throw new Error("unexpected artifact lookup after fixture archive load");
+      },
+      getRunAttemptJobs: vi.fn(async (runId: string) =>
+        runId === fixture.runId ? originalJobs : fixture.client.getRunAttemptJobs(runId),
+      ),
+      loadExecutionPlanEvidence: vi.fn(() => retained),
+    };
+    if (fault === "changed-admission") {
+      const changed = structuredClone(fixture.admission);
+      const row = expectDefined(changed.observations.npm[0], "required root observation");
+      if (row.outcome !== "observed") {
+        throw new Error("fixture root observation unavailable");
+      }
+      row.state.latestVersion = "2026.8.27";
+      changed.binding.observationsDigest = `sha256:${createHash("sha256").update(publicationObservationJson(changed.observations)).digest("hex")}`;
+      Object.assign(fixture.manifest, { publicationAdmission: changed });
+    }
+    const strictOptions = {
+      runId: fixture.runId,
+      verifierSourceContent: readFileSync(SCRIPT),
+      verifierSourceSha: "c".repeat(40),
+    };
+    const consumerCase = !["complete", "changed-admission", "skipped-original-upload"].includes(
+      fault,
+    );
+    if (fault.startsWith("continuation")) {
+      const observed = structuredClone(fixture.plan);
+      if (fault === "continuation-mutated") {
+        const admission = expectDefined(observed.publicationAdmission, "admission");
+        const row = expectDefined(admission.observations.npm[0], "root observation");
+        if (row.outcome !== "observed") {
+          throw new Error("fixture root observation unavailable");
+        }
+        row.state.latestVersion = "2026.8.27";
+        admission.binding.observationsDigest = `sha256:${createHash("sha256").update(publicationObservationJson(admission.observations)).digest("hex")}`;
+        observed.sha256 = releaseExecutionPlanSha256(observed);
+      }
+      const result = preflightContinuation(observed, fixture.runId, {
+        getReleaseEvidenceClient: () => client,
+        getParentJobs: async () => [
+          ...originalJobs,
+          ...fixture.client.getParentJobs(fixture.runId),
+        ],
+        getRunAttempt: async (id: string) =>
+          id === fixture.runId ? parent : fixture.client.getRun(id),
+        getJobLog: async (id: number) =>
+          id === 901
+            ? `RERUN_GROUP: all\nFAIL_FAST: false\nTARGET_SHA: ${fixture.targetSha}`
+            : fixture.client.getJobLog(id),
+      });
+      if (fault === "continuation") {
+        await expect(result).resolves.toBeDefined();
+      } else {
+        await expect(result).rejects.toThrow(
+          "continuation differs from the authenticated original publication plan",
+        );
+      }
+      expect(client.loadExecutionPlanEvidence).toHaveBeenCalledTimes(1);
+      return;
+    }
+    const result = consumerCase
+      ? authenticateFullReleaseValidationEvidence(
+          {
+            run: parent,
+            expectedRepository: "openclaw/openclaw",
+            expectedRunId: fixture.runId,
+            expectedRunAttempt: fault === "wrong-attempt" ? 2 : 1,
+            expectedTargetSha: fault === "wrong-target" ? "d".repeat(40) : fixture.targetSha,
+            expectedReleaseTag: "v2026.8.28-beta.1",
+            isTrustedMainAncestor: () => true,
+            verifierSourceContent: strictOptions.verifierSourceContent,
+            verifierSourceSha: strictOptions.verifierSourceSha,
+            ...(fault === "wrong-route"
+              ? {
+                  expectedPublicationSelection: {
+                    ...expectDefined(fixture.source.publicationSelection, "publication selection"),
+                    route: "prepared" as const,
+                  },
+                }
+              : {
+                  expectedCoreNpmPublication: {
+                    npmDistTag: fault === "wrong-channel" ? "latest" : "beta",
+                  },
+                }),
+          },
+          client,
+        )
+      : validateReleaseRunEvidence(strictOptions, client);
+    if (["complete", "core-normal", "core-prepared"].includes(fault)) {
+      const value = await result;
+      const verified = "evidence" in value ? value.evidence : value;
+      expect(verified.children).toHaveLength(5);
+      expect(verified.current.manifest.publicationAdmission).toEqual(fixture.admission);
+      expect(client.loadExecutionPlanEvidence).toHaveBeenCalledTimes(1);
+      expect(client.getWorkflowSource).toHaveBeenCalledTimes(1);
+    } else {
+      await expect(result).rejects.toThrow(
+        /publication|consumer|targetSha mismatch|differently selected|attempt differs/iu,
+      );
+    }
+  });
+
+  it.each([
+    "complete",
+    "workflow-restore",
+    "workflow-restore-failed-resolution",
+    "workflow-plan-restore",
+    "workflow-plan-mutated",
+    "workflow-plan-prewrite",
+    "interrupted-sealer",
+    "missing-sealer",
+    "duplicate-sealer",
+    "later-sealer",
+    "skipped-seal",
+    "failed-upload",
+    "skipped-upload",
+    "late-artifact",
+    "upload-before-seal",
+    "wrong-repository",
+    "wrong-attempt",
+    "wrong-workflow",
+    "wrong-sha",
+    "failed-resolution",
+    "deleted-capability",
+    "deleted-admission",
+    "missing-plan",
+    "duplicate-plan",
+    "incomplete-list",
+    "wrong-archive-digest",
+    "extra-entry",
+    "symlink-entry",
+    "changed-selection",
+  ])("authenticates retained attempt one before any new observations: %s", (fault) => {
+    const fixture = publicationRestoreFixture();
+    const root = tempDirs.make("publication-original-reader-");
+    const request = join(root, "request.json");
+    const fixturesPath = join(root, "fixtures.json");
+    const archivePath = join(root, "plan.zip");
+    const callsPath = join(root, "calls.jsonl");
+    const gh = join(root, "gh");
+    const workflowPath = ".github/workflows/full-release-validation.yml";
+    const workflowBytes = Buffer.from(
+      'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n' +
+        (fault === "deleted-capability"
+          ? ""
+          : '  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n'),
+    );
+    if (fault === "deleted-admission") {
+      Reflect.deleteProperty(fixture.plan, "publicationAdmissionContract");
+      Reflect.deleteProperty(fixture.plan, "publicationAdmission");
+      fixture.plan.sha256 = releaseExecutionPlanSha256(fixture.plan);
+    }
+    if (fault === "changed-selection") {
+      fixture.request.publicationSelection = {
+        ...expectDefined(fixture.request.publicationSelection, "publication selection"),
+        route: "prepared",
+      };
+    }
+    if (fault === "interrupted-sealer") {
+      const pendingGh = gh;
+      const ready = join(root, "pending-gh-ready");
+      const settled = join(root, "pending-gh-settled");
+      const written = join(root, "interrupted-plan.json");
+      const outputsPath = join(root, "interrupted-outputs");
+      const admissionPath = join(root, "source-admission.json");
+      writeFileSync(
+        admissionPath,
+        JSON.stringify({
+          sourceAdmissionContract: "1",
+          sourceAdmission: fixture.source,
+          publicationAdmissionContract: "1",
+          publicationAdmission: fixture.admission,
+        }),
+      );
+      writeFileSync(
+        pendingGh,
+        `#!${process.execPath}
+require("node:fs").writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+const parent = process.ppid;
+process.once("exit", () => require("node:fs").writeFileSync(${JSON.stringify(settled)}, "settled"));
+setInterval(() => { if (process.ppid !== parent) process.exit(0); }, 10);
+setTimeout(() => {}, 30000);
+`,
+        { mode: 0o755 },
+      );
+      const inputs = {
+        childPhaseVersion: 3,
+        sourceAdmissionContract: "1",
+        sourceAdmission: fixture.source,
+        parentRunId: fixture.runId,
+        parentRunAttempt: 1,
+        workflowRef: "main",
+        workflowSha: fixture.workflowSha,
+        rerunGroup: "all",
+        coveragePolicy: fixture.plan.coveragePolicy,
+        targetVersion: fixture.source.projection!.version,
+        resolveTargetResult: "success",
+        candidateAcquisitionResult: "skipped",
+        candidateRequestInput: fixture.plan.candidateRequest,
+        trustedWorkflow: fixture.plan.trustedWorkflow,
+        evidenceReuse: true,
+        evidenceRunId: "99",
+        evidenceRootRunId: "99",
+        evidencePolicy: "exact-target-full-validation-v1",
+        evidenceSha: fixture.targetSha,
+        evidenceRunUrl: "https://example.invalid/runs/99",
+        evidenceChangedPaths: [],
+      };
+      const interrupted = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
+const child = spawn(process.execPath, [${JSON.stringify(resolve("scripts/full-release-validation-state.mjs"))}, "plan"], { env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
+const closed = new Promise(resolve => child.once("close", (code, signal) => resolve({ code, signal })));
+const timeout = setTimeout(() => child.kill("SIGKILL"), 8000);
+try {
+  while (!existsSync(${JSON.stringify(ready)}) && child.exitCode === null) await delay(10);
+  if (!existsSync(${JSON.stringify(ready)})) {
+    await closed;
+    throw new Error("reuse did not reach controlled gh: " + (existsSync(${JSON.stringify(written)}) ? readFileSync(${JSON.stringify(written)}, "utf8") : "no checkpoint"));
+  }
+  child.kill("SIGTERM");
+  const result = await closed;
+  if (result.code !== 1 || result.signal !== null) throw new Error("interruption did not write and exit 1");
+  const settlementDeadline = Date.now() + 2000;
+  while (!existsSync(${JSON.stringify(settled)}) && Date.now() < settlementDeadline) await delay(10);
+  if (!existsSync(${JSON.stringify(settled)})) throw new Error("controlled gh did not settle after owner interruption");
+} finally { clearTimeout(timeout); }
+`,
+        ],
+        {
+          encoding: "utf8",
+          timeout: 12_000,
+          env: {
+            PATH: `${root}:${process.env.PATH ?? ""}`,
+            OPENCLAW_GH_BIN: pendingGh,
+            GH_TOKEN: "synthetic-evidence-token",
+            FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1",
+            FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1",
+            FULL_RELEASE_EXECUTION_PLAN_PATH: written,
+            PUBLICATION_ADMISSION_PATH: admissionPath,
+            FULL_RELEASE_PLAN_INPUTS_JSON: JSON.stringify(inputs),
+            GITHUB_OUTPUT: outputsPath,
+            GITHUB_REPOSITORY: "openclaw/openclaw",
+            GITHUB_RUN_ID: fixture.runId,
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_REF_NAME: "main",
+            GITHUB_SHA: fixture.workflowSha,
+            TARGET_SHA: fixture.targetSha,
+            RELEASE_PROFILE: "beta",
+            RERUN_GROUP: "all",
+          },
+        },
+      );
+      expect(interrupted.status, interrupted.stderr).toBe(0);
+      Object.assign(fixture.plan, JSON.parse(readFileSync(written, "utf8")));
+      expect(fixture.plan.errors).toContainEqual(
+        expect.objectContaining({ kind: "collector_cancelled" }),
+      );
+      expect(fixture.plan.publicationAdmission).toEqual(fixture.admission);
+      const workflow = parse(readFileSync(".github/workflows/full-release-validation.yml", "utf8"));
+      const upload = workflow.jobs.release_execution_plan.steps.find(
+        (step: { name: string }) => step.name === "Upload immutable release execution plan",
+      );
+      const outputs = Object.fromEntries(
+        readFileSync(outputsPath, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => line.split("=")),
+      );
+      expect(outputs.sha256).toBe(fixture.plan.sha256);
+      expect(outputs.source_parent_attempt).toBe("1");
+      expect(
+        runInNewContext(
+          String(upload.if)
+            .replace(/^\$\{\{|\}\}$/gu, "")
+            .trim(),
+          {
+            always: () => true,
+            github: { run_attempt: 1 },
+            steps: { plan: { outputs } },
+          },
+        ),
+      ).toBe(true);
+      expect(upload.with.overwrite).toBe(false);
+    }
+    const entry = "full-release-execution-plan.json";
+    const archive = makeStoredZip({
+      [entry]: JSON.stringify(fixture.plan) + "\n",
+      ...(fault === "extra-entry" ? { "unexpected.json": "{}" } : {}),
+    });
+    if (fault === "symlink-entry") {
+      const central = archive.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+      archive[central + 5] = 3;
+      archive.writeUInt32LE((0o120777 << 16) >>> 0, central + 38);
+    }
+    const artifact = {
+      id: 456,
+      name: `full-release-execution-plan-${fixture.runId}`,
+      size_in_bytes: archive.length,
+      digest: `sha256:${fault === "wrong-archive-digest" ? "a".repeat(64) : createHash("sha256").update(archive).digest("hex")}`,
+      expired: false,
+      created_at:
+        fault === "late-artifact" ? "2026-08-29T12:01:02.000Z" : "2026-08-28T12:01:02.000Z",
+      workflow_run: {
+        id: Number(fixture.runId),
+        head_branch: "main",
+        head_sha: fixture.workflowSha,
+      },
+    };
+    const artifacts =
+      fault === "missing-plan"
+        ? []
+        : fault === "duplicate-plan"
+          ? [artifact, { ...artifact, id: 457 }]
+          : [artifact];
+    const fixtures = {
+      parent: {
+        id: Number(fixture.runId),
+        repository: {
+          full_name: fault === "wrong-repository" ? "other/repo" : "openclaw/openclaw",
+        },
+        head_repository: { full_name: "openclaw/openclaw" },
+        path: fault === "wrong-workflow" ? ".github/workflows/ci.yml" : workflowPath,
+        event: "workflow_dispatch",
+        run_attempt: fault === "wrong-attempt" ? 2 : 1,
+        head_sha: fault === "wrong-sha" ? "f".repeat(40) : fixture.workflowSha,
+        head_branch: "main",
+      },
+      workflow: {
+        type: "file",
+        encoding: "base64",
+        path: workflowPath,
+        size: workflowBytes.length,
+        sha: createHash("sha1")
+          .update(`blob ${workflowBytes.length}\0`)
+          .update(workflowBytes)
+          .digest("hex"),
+        content: workflowBytes.toString("base64"),
+      },
+      jobs: {
+        total_count: fault === "missing-sealer" ? 1 : fault === "duplicate-sealer" ? 3 : 2,
+        jobs: [
+          {
+            id: 999,
+            name: "Resolve target ref",
+            run_attempt: 1,
+            status: "completed",
+            conclusion: fault.endsWith("failed-resolution") ? "failure" : "success",
+            steps: [{ name: "Finalize publication admission", conclusion: "success" }],
+          },
+          ...(fault === "missing-sealer"
+            ? []
+            : Array.from({ length: fault === "duplicate-sealer" ? 2 : 1 }, (_, index) => ({
+                id: 1000 + index,
+                name: "Seal release execution plan",
+                run_attempt: fault === "later-sealer" ? 2 : 1,
+                status: "completed",
+                conclusion: fault === "interrupted-sealer" ? "failure" : "success",
+                steps: [
+                  {
+                    name: "Seal immutable release execution plan",
+                    number: 5,
+                    status: "completed",
+                    conclusion:
+                      fault === "skipped-seal"
+                        ? "skipped"
+                        : fault === "interrupted-sealer"
+                          ? "failure"
+                          : "success",
+                    started_at: "2026-08-28T12:01:00.000Z",
+                    completed_at: "2026-08-28T12:01:01.000Z",
+                  },
+                  {
+                    name: "Upload immutable release execution plan",
+                    number: fault === "upload-before-seal" ? 4 : 6,
+                    status: "completed",
+                    conclusion:
+                      fault === "failed-upload"
+                        ? "failure"
+                        : fault === "skipped-upload"
+                          ? "skipped"
+                          : "success",
+                    started_at: "2026-08-28T12:01:01.000Z",
+                    completed_at: "2026-08-28T12:01:03.000Z",
+                  },
+                ],
+              }))),
+        ],
+      },
+      listing: { total_count: fault === "incomplete-list" ? 2 : artifacts.length, artifacts },
+      artifact,
+    };
+    writeFileSync(request, JSON.stringify(fixture.request));
+    writeFileSync(fixturesPath, JSON.stringify(fixtures));
+    writeFileSync(archivePath, archive);
+    writeFileSync(
+      gh,
+      `#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2), endpoint = args[1];
+fs.appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args) + "\\n");
+if (args[0] !== "api") throw new Error("unexpected non-read");
+const fixture = JSON.parse(fs.readFileSync(${JSON.stringify(fixturesPath)}, "utf8"));
+let value;
+if (endpoint === "repos/openclaw/openclaw/actions/runs/${fixture.runId}/attempts/1") value = fixture.parent;
+else if (endpoint.startsWith("repos/openclaw/openclaw/actions/runs/${fixture.runId}/attempts/1/jobs?")) value = fixture.jobs;
+else if (endpoint === "repos/openclaw/openclaw/contents/${workflowPath}?ref=${fixture.workflowSha}") value = fixture.workflow;
+else if (endpoint.startsWith("repos/openclaw/openclaw/actions/runs/${fixture.runId}/artifacts?")) value = fixture.listing;
+else if (endpoint === "repos/openclaw/openclaw/actions/artifacts/456") value = fixture.artifact;
+else if (endpoint === "repos/openclaw/openclaw/actions/artifacts/456/zip") {
+  process.stdout.write(fs.readFileSync(${JSON.stringify(archivePath)})); process.exit(0);
+} else throw new Error("unplanned evidence request");
+process.stdout.write(JSON.stringify(value));
+`,
+      { mode: 0o755 },
+    );
+    const workflowRestore = fault.startsWith("workflow-restore");
+    const planRestore = fault.startsWith("workflow-plan");
+    const cachedPlanPath = join(root, "cached-plan.json");
+    const originalPlanBytes = JSON.stringify(fixture.plan) + "\n";
+    if (planRestore) {
+      const cached = structuredClone(fixture.plan);
+      if (fault === "workflow-plan-mutated") {
+        // A self-consistent cache is still not authority over the authenticated original.
+        const row = fixture.admission.observations.npm[0]!;
+        const changedAdmission = structuredClone(fixture.admission);
+        const changed = changedAdmission.observations.npm[0]!;
+        expect(row.outcome).toBe("observed");
+        if (changed.outcome === "observed") {
+          changed.state.latestVersion = "2026.8.27";
+        }
+        changedAdmission.binding.observationsDigest = `sha256:${createHash("sha256").update(publicationObservationJson(changedAdmission.observations)).digest("hex")}`;
+        cached.publicationAdmission = changedAdmission;
+        cached.sha256 = releaseExecutionPlanSha256(cached);
+      }
+      writeFileSync(
+        cachedPlanPath,
+        fault === "workflow-plan-mutated" ? JSON.stringify(cached) + "\n" : originalPlanBytes,
+      );
+    }
+    let restoreCommand: string | undefined;
+    if (workflowRestore) {
+      writeFileSync(join(root, "publication-source-request.json"), JSON.stringify(fixture.request));
+      const workflow = parse(readFileSync(".github/workflows/full-release-validation.yml", "utf8"));
+      restoreCommand = workflow.jobs.resolve_target.steps.find(
+        (step: { name: string }) => step.name === "Admit publication source",
+      ).run;
+    }
+    const result = spawnSync(
+      workflowRestore ? "bash" : process.execPath,
+      planRestore
+        ? [resolve("scripts/full-release-validation-state.mjs"), "plan"]
+        : workflowRestore
+          ? ["-c", expectDefined(restoreCommand, "actual admission command")]
+          : [
+              "--input-type=module",
+              "--eval",
+              `
+import { readFileSync } from "node:fs";
+import { restoreOriginalPublicationAdmission } from ${JSON.stringify(pathToFileURL(resolve(SCRIPT)).href)};
+const request = JSON.parse(readFileSync(${JSON.stringify(request)}, "utf8"));
+const restored = await restoreOriginalPublicationAdmission({ request });
+process.stdout.write(JSON.stringify(restored));
+`,
+            ],
+      {
+        encoding: "utf8",
+        env: {
+          PATH: `${root}:${process.env.PATH ?? ""}`,
+          OPENCLAW_GH_BIN: gh,
+          GH_TOKEN: "synthetic-evidence-token",
+          GITHUB_RUN_ATTEMPT: fault === "workflow-plan-prewrite" ? "1" : "2",
+          RUNNER_TEMP: root,
+          GITHUB_OUTPUT: join(root, "outputs"),
+          PUBLICATION_REQUIRED: "true",
+          // A new observation path cannot run without this unavailable target.
+          PUBLICATION_TARGET_ROOT: join(root, "unavailable-candidate"),
+          ...(planRestore
+            ? {
+                FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1",
+                FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1",
+                FULL_RELEASE_EXECUTION_PLAN_PATH: cachedPlanPath,
+                FULL_RELEASE_RESTORE_PLAN: fault === "workflow-plan-prewrite" ? "false" : "true",
+                FULL_RELEASE_PLAN_INPUTS_JSON: "must-not-be-read",
+                SOURCE_ADMISSION_JSON: JSON.stringify(fixture.source),
+                CANDIDATE_REQUEST_JSON: JSON.stringify(fixture.plan.candidateRequest),
+                GITHUB_REPOSITORY: "openclaw/openclaw",
+                GITHUB_RUN_ID: fixture.runId,
+                GITHUB_SHA: fixture.workflowSha,
+                GITHUB_REF_NAME: "main",
+                RELEASE_PROFILE: fixture.source.coverage.release_profile,
+                RERUN_GROUP: fixture.source.coverage.rerun_group,
+                TARGET_SHA: fixture.targetSha,
+                TARGET_VERSION: fixture.source.projection!.version,
+                TARGET_CONTEXT_REF: fixture.source.targetContextRef,
+                COVERAGE_POLICY: fixture.source.coverage.coverage_policy,
+              }
+            : {}),
+        },
+        timeout: 10_000,
+      },
+    );
+    const calls = existsSync(callsPath) ? readFileSync(callsPath, "utf8") : "";
+    expect(calls).not.toContain("registry.npmjs.org");
+    expect(calls).not.toContain("clawhub.ai");
+    expect(calls).not.toContain("auth");
+    expect(calls).not.toContain("/444");
+    if (fault === "workflow-plan-restore") {
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(cachedPlanPath, "utf8")).toBe(originalPlanBytes);
+      expect(calls.trim().split("\n")).toHaveLength(6);
+    } else if (
+      fault === "complete" ||
+      fault === "workflow-restore" ||
+      fault === "interrupted-sealer"
+    ) {
+      expect(result.status, result.stderr).toBe(0);
+      const restored = workflowRestore
+        ? {
+            source: JSON.parse(
+              readFileSync(join(root, "publication-source-admission.json"), "utf8"),
+            ),
+            admission: JSON.parse(readFileSync(join(root, "publication-admission.json"), "utf8"))
+              .publicationAdmission,
+            plan: fixture.plan,
+          }
+        : JSON.parse(result.stdout);
+      expect(restored.source).toEqual(fixture.source);
+      expect(restored.admission).toEqual(fixture.admission);
+      expect(restored.plan.sha256).toBe(fixture.plan.sha256);
+      expect(calls.trim().split("\n")).toHaveLength(6);
+      expect(existsSync(join(root, "publication-observations.json"))).toBe(false);
+    } else {
+      expect(result.status, result.stderr).not.toBe(0);
+      expect(result.stdout).toBe("");
+      expect(existsSync(join(root, "publication-admission.json"))).toBe(false);
+      if (fault === "workflow-plan-mutated") {
+        expect(result.stderr).toContain("differs from its authenticated original");
+      }
+    }
+    if (planRestore) {
+      const workflow = parse(readFileSync(".github/workflows/full-release-validation.yml", "utf8"));
+      const upload = workflow.jobs.release_execution_plan.steps.find(
+        (step: { name: string }) => step.name === "Upload immutable release execution plan",
+      );
+      const outputs = existsSync(join(root, "outputs"))
+        ? Object.fromEntries(
+            readFileSync(join(root, "outputs"), "utf8")
+              .trim()
+              .split("\n")
+              .map((line) => line.split("=")),
+          )
+        : {};
+      const condition = String(upload.if)
+        .replace(/^\$\{\{|\}\}$/gu, "")
+        .trim();
+      const uploadSelected = runInNewContext(condition, {
+        always: () => true,
+        github: { run_attempt: fault === "workflow-plan-prewrite" ? 1 : 2 },
+        steps: { plan: { outputs: { sha256: "", source_parent_attempt: "", ...outputs } } },
+      });
+      if (uploadSelected && upload.with.overwrite === true) {
+        const replacement = makeStoredZip({ [entry]: readFileSync(cachedPlanPath, "utf8") });
+        fixtures.artifact = {
+          ...artifact,
+          size_in_bytes: replacement.length,
+          digest: `sha256:${createHash("sha256").update(replacement).digest("hex")}`,
+          created_at: "2026-08-29T12:01:02.000Z",
+        };
+        fixtures.listing.artifacts = [fixtures.artifact];
+        writeFileSync(fixturesPath, JSON.stringify(fixtures));
+        writeFileSync(archivePath, replacement);
+      }
+      const subsequent = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+import { restoreOriginalPublicationAdmission } from ${JSON.stringify(pathToFileURL(resolve(SCRIPT)).href)};
+const restored = await restoreOriginalPublicationAdmission({ request: ${JSON.stringify(fixture.request)} });
+process.stdout.write(JSON.stringify(restored.plan));
+`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            PATH: `${root}:${process.env.PATH ?? ""}`,
+            OPENCLAW_GH_BIN: gh,
+            GH_TOKEN: "synthetic-evidence-token",
+          },
+          timeout: 10_000,
+        },
+      );
+      expect.soft(uploadSelected).toBe(false);
+      expect.soft(subsequent.status, subsequent.stderr).toBe(0);
+      if (subsequent.status === 0) {
+        expect(JSON.parse(subsequent.stdout)).toEqual(fixture.plan);
+      }
+      expect(readFileSync(archivePath)).toEqual(archive);
+    }
+  });
+});
 
 describe("GitHub API commands", () => {
   it("delegates authentication to gh for REST and artifact requests", () => {
@@ -1545,7 +2364,7 @@ describe("release CI summary child correlation", () => {
     await expect(validateReleaseRunEvidence(options, fixture.client)).rejects.toThrow();
   });
 
-  it.each(["complete", "deleted-manifest", "deleted-plan", "changed-plan"])(
+  it.each(["complete", "deleted-manifest", "deleted-plan", "changed-plan", "deleted-publication"])(
     "verifies source admission against the immutable workflow and plan: %s",
     async (mutation) => {
       const fixture = trustedMainNpmFixture();
@@ -1604,7 +2423,12 @@ describe("release CI summary child correlation", () => {
         ...fixture.client,
         getWorkflowSource: vi.fn((sha: string) => {
           expect(sha).toBe(fixture.workflowSha);
-          return 'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n';
+          return (
+            'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n' +
+            (mutation === "deleted-publication"
+              ? '  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n'
+              : "")
+          );
         }),
       };
       if (mutation === "deleted-manifest") {
@@ -1643,7 +2467,7 @@ describe("release CI summary child correlation", () => {
         expect(client.getWorkflowSource).toHaveBeenCalledTimes(1);
         expect(client.loadExecutionPlan).toHaveBeenCalledTimes(1);
       } else {
-        await expect(result).rejects.toThrow(/source admission/u);
+        await expect(result).rejects.toThrow(/source admission|publication/u);
       }
     },
   );

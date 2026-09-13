@@ -597,6 +597,15 @@ export async function runEmbeddedAgentEntry<T extends EmbeddedAgentRunResult>(
       requestedProvider: params.selection.provider,
       requestedModel: params.selection.model,
       fallbackAttempts: fallbackResult.attempts,
+      ...(policyEscalated
+        ? {
+            providerPolicyRetry: {
+              category: "cyber",
+              provider: fallbackResult.provider,
+              model: fallbackResult.model,
+            } as const,
+          }
+        : {}),
     });
     const settledResult = {
       ...fallbackResult,

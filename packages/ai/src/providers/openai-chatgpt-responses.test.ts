@@ -372,6 +372,28 @@ describe("streamOpenAICodexResponses transport", () => {
     expect(connections).toBe(2);
   });
 
+  it.each([undefined, "default", "priority"] as const)(
+    "sends service tier %s from ChatGPT simple completions",
+    async (serviceTier) => {
+      let capturedPayload: unknown;
+      await streamSimpleOpenAICodexResponses(model, context, {
+        apiKey: createJwt({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-1" } }),
+        serviceTier,
+        transport: "sse",
+        onPayload: (payload) => {
+          capturedPayload = payload;
+          throw new Error("stop after payload");
+        },
+      }).result();
+      expect(capturedPayload).toBeDefined();
+      if (serviceTier) {
+        expect(capturedPayload).toMatchObject({ service_tier: serviceTier });
+      } else {
+        expect(capturedPayload).not.toHaveProperty("service_tier");
+      }
+    },
+  );
+
   it.each([
     { id: "gpt-5.6-sol", withCatalog: true },
     { id: "gpt-5.6-sol", withCatalog: false },

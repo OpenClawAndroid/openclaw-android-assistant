@@ -25,6 +25,7 @@ import type {
   AssistantMessage,
   Model,
   ModelThinkingLevel,
+  SimpleStreamOptions,
   ThinkingLevel as SimpleCompletionThinkingLevel,
 } from "../llm/types.js";
 import type { ResolvedProviderAuth } from "./model-auth.js";
@@ -35,6 +36,7 @@ type SimpleCompletionModelOptions = {
   sessionId?: string;
   maxTokens?: number;
   temperature?: number;
+  serviceTier?: SimpleStreamOptions["serviceTier"];
   reasoning?: ThinkLevel | SimpleCompletionThinkingLevel;
   strictReasoningTags?: boolean;
   signal?: AbortSignal;
@@ -68,6 +70,10 @@ export async function completeWithPreparedSimpleCompletionModel(
 }
 
 async function completePreparedModel(params: PreparedCompletionParams): Promise<AssistantMessage> {
+  // Direct SDK calls prepare transport hooks before entering the stream facade.
+  await import("./ai-transport-runtime-host.js");
+  params.assertCurrent?.();
+  params.options?.signal?.throwIfAborted();
   const runtime = getModelLlmRuntime(params.model);
   let completionModel =
     getModelCompletionTransport(params.model) ??

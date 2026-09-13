@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
+import path from "node:path";
 import type { Page } from "playwright";
 import { expect, it } from "vitest";
+import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import {
   controlUiBundledSettingsStorageKey,
@@ -13,7 +15,11 @@ import {
   createControlUiE2eSuite,
   holdModuleResponse,
 } from "./control-ui-e2e-suite.test-support.ts";
-import { installDesktopClientFake, installScriptedRfbServer } from "./desktop-rfb-test-support.ts";
+import {
+  createRfbRawFrame,
+  installDesktopClientFake,
+  installScriptedRfbServer,
+} from "./desktop-rfb-test-support.ts";
 
 const suite = createControlUiE2eSuite({
   name: "chat sidebar cold-open invariant",
@@ -276,10 +282,13 @@ async function seedHiddenBoardSlot(page: Page) {
   );
 }
 
-async function seedRetainedDesktopSlot(page: Page) {
+async function seedRetainedDesktopSlot(
+  page: Page,
+  activePanel: "workspace" | "conversation" = "workspace",
+) {
   const settingsKey = controlUiBundledSettingsStorageKey(suite.server.baseUrl);
   await page.addInitScript(
-    ({ key, sessionKey }) => {
+    ({ key, sessionKey, activePanel: seededActivePanel }) => {
       localStorage.setItem(
         key,
         JSON.stringify({
@@ -292,13 +301,17 @@ async function seedRetainedDesktopSlot(page: Page) {
                   side: "right",
                   panels: [
                     { id: "workspace", slot: "workspace" },
+                    ...(seededActivePanel === "conversation"
+                      ? [{ id: "conversation", slot: "conversation" }]
+                      : []),
                     { id: "desktop", slot: "desktop" },
                   ],
-                  activePanelId: "workspace",
+                  activePanelId: seededActivePanel,
                   height: 360,
                   width: 480,
                 },
               ],
+              ...(seededActivePanel === "conversation" ? { mainPanelId: "workspace" } : {}),
               dock: "right",
               open: true,
               expanded: false,
@@ -311,7 +324,7 @@ async function seedRetainedDesktopSlot(page: Page) {
         JSON.stringify({ open: true, dock: "right", height: 420, width: 560 }),
       );
     },
-    { key: settingsKey, sessionKey: RETAINED_DESKTOP_SESSION_KEY },
+    { key: settingsKey, sessionKey: RETAINED_DESKTOP_SESSION_KEY, activePanel },
   );
 }
 
@@ -356,10 +369,15 @@ function retainedDesktopScenario(): ControlUiMockGatewayScenario {
       },
       "environments.status": retainedDesktopEnvironment,
       "desktop.observe": {
-        transport: "rfb",
-        wsPath: "/desktop/observe?token=retained",
-        expiresAtMs: 60_000,
-        control: false,
+        cases: [false, true].map((control) => ({
+          match: { control },
+          response: {
+            transport: "rfb",
+            wsPath: "/desktop/observe?token=retained",
+            expiresAtMs: 60_000,
+            control,
+          },
+        })),
       },
     },
   };
@@ -592,6 +610,10 @@ suite.define(() => {
       await clickSidebarTab(page, "Desktop");
       const target = await gateway.waitForRequest("environments.status");
       expect(target.params).toEqual({ environmentId: retainedDesktopEnvironment.id });
+      const loading = desktop.getByRole("status", { name: "Connecting to desktop…", exact: true });
+      await loading.getByText("Connecting to desktop…", { exact: true }).waitFor();
+      expect(await loading.count()).toBe(1);
+      expect(await desktop.locator(".skeleton").count()).toBe(0);
       await clickSidebarTab(page, "Files");
       await gateway.resolveDeferred("environments.status", retainedDesktopEnvironment);
       await page.evaluate(() => Promise.resolve());
@@ -605,10 +627,156 @@ suite.define(() => {
         .poll(async () => (await gateway.getRequests("environments.status")).length)
         .toBe(2);
       await expect.poll(() => desktop.getAttribute("data-connect-count")).toBe("1");
+      await loading.getByText("Connecting to desktop…", { exact: true }).waitFor();
+      expect(await loading.count()).toBe(1);
+      expect(await desktop.locator(".skeleton").count()).toBe(0);
       expect(await gateway.getRequests("environments.list")).toHaveLength(0);
     } finally {
       await suite.closeBrowserContext(context);
     }
+  });
+
+  it("reuses the Desktop connection across quick Chat switches and releases it after 30 seconds", async () => {
+    await suite.withPage({ serviceWorkers: "block" }, async ({ page }) => {
+      const artifactDir = createControlUiE2eArtifactDir("desktop-tab-retention");
+      await page.clock.install();
+      await seedRetainedDesktopSlot(page, "conversation");
+      const gateway = await installMockGateway(page, retainedDesktopScenario());
+      await page.goto(controlUiSessionUrl(suite.server.baseUrl, RETAINED_DESKTOP_SESSION_KEY));
+      await waitForControlUiGatewayReady(page);
+      const rfb = await installScriptedRfbServer(page);
+      await gateway.deferNext("environments.status");
+      await clickSidebarTab(page, "Desktop");
+      const desktop = page.locator("openclaw-desktop-panel");
+      await gateway.waitForRequest("environments.status");
+      await desktop.getByText("Connecting to desktop…", { exact: true }).waitFor();
+      await page.screenshot({ path: path.join(artifactDir, "unified-loading.png") });
+      await gateway.resolveDeferred("environments.status", retainedDesktopEnvironment);
+      const canvas = desktop.locator("canvas");
+      await canvas.waitFor({ state: "visible" });
+      await expect.poll(rfb.events).toEqual(["authenticated:1"]);
+      await rfb.send([createRfbRawFrame()]);
+      await expect
+        .poll(() =>
+          canvas.evaluate((element) =>
+            Array.from(
+              (element as HTMLCanvasElement).getContext("2d")!.getImageData(4, 4, 1, 1).data,
+            ),
+          ),
+        )
+        .toEqual([24, 180, 160, 255]);
+      await page.screenshot({ path: path.join(artifactDir, "connected.png") });
+      const originalCanvas = await canvas.elementHandle();
+      const inventoryCount = (await gateway.getRequests("environments.status")).length;
+      const observeCount = (await gateway.getRequests("desktop.observe")).length;
+
+      await clickSidebarTab(page, "Chat");
+      await canvas.waitFor({ state: "hidden" });
+      await page.clock.fastForward(20_000);
+      expect(await rfb.events()).toEqual(["authenticated:1"]);
+      await clickSidebarTab(page, "Desktop");
+      await canvas.waitFor({ state: "visible" });
+      expect(
+        await canvas.evaluate((element, previous) => element === previous, originalCanvas),
+      ).toBe(true);
+      expect(await desktop.getByRole("status", { name: "Connecting to desktop…" }).count()).toBe(0);
+      expect(await gateway.getRequests("environments.status")).toHaveLength(inventoryCount);
+      expect(await gateway.getRequests("desktop.observe")).toHaveLength(observeCount);
+
+      // Returning cancels the old deadline; it cannot close a visible desktop later.
+      await page.clock.fastForward(30_001);
+      expect(await rfb.events()).toEqual(["authenticated:1"]);
+      expect(await canvas.isVisible()).toBe(true);
+      await clickSidebarTab(page, "Chat");
+      await canvas.waitFor({ state: "hidden" });
+      await page.clock.fastForward(30_001);
+      await expect.poll(rfb.events).toEqual(["authenticated:1", "closed:1"]);
+      expect(await canvas.count()).toBe(0);
+      expect(await gateway.getRequests("desktop.observe")).toHaveLength(observeCount);
+
+      await clickSidebarTab(page, "Desktop");
+      await canvas.waitFor({ state: "visible" });
+      await expect.poll(rfb.events).toEqual(["authenticated:1", "closed:1", "authenticated:2"]);
+      expect(await gateway.getRequests("environments.status")).toHaveLength(inventoryCount + 1);
+      expect(await gateway.getRequests("desktop.observe")).toHaveLength(observeCount + 1);
+
+      await desktop.getByRole("button", { name: "Disconnect", exact: true }).click();
+      await expect.poll(rfb.events).toContain("closed:2");
+      await desktop.getByRole("button", { name: "Reconnect", exact: true }).waitFor();
+      await clickSidebarTab(page, "Chat");
+      await clickSidebarTab(page, "Desktop");
+      await desktop.getByRole("button", { name: "Reconnect", exact: true }).waitFor();
+      expect(await gateway.getRequests("desktop.observe")).toHaveLength(observeCount + 1);
+      expect(await canvas.count()).toBe(0);
+
+      await desktop.getByRole("button", { name: "Reconnect", exact: true }).click();
+      await expect.poll(rfb.events).toContain("authenticated:3");
+      await page.getByRole("button", { name: "Close Desktop", exact: true }).click();
+      await expect.poll(rfb.events).toContain("closed:3");
+      expect(await canvas.count()).toBe(0);
+    });
+  });
+
+  it("preserves keyboard state across tab switches and retires an unfinished drag", async () => {
+    await suite.withPage({ serviceWorkers: "block" }, async ({ page }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+      });
+      await seedRetainedDesktopSlot(page, "conversation");
+      const gateway = await installMockGateway(page, retainedDesktopScenario());
+      await page.goto(controlUiSessionUrl(suite.server.baseUrl, RETAINED_DESKTOP_SESSION_KEY));
+      await waitForControlUiGatewayReady(page);
+      const rfb = await installScriptedRfbServer(page);
+      await clickSidebarTab(page, "Desktop");
+      const desktop = page.locator("openclaw-desktop-panel");
+      await expect.poll(rfb.events).toEqual(["authenticated:1"]);
+      await desktop.getByRole("button", { name: "Take control", exact: true }).click();
+      await expect.poll(rfb.events).toEqual(["authenticated:1", "authenticated:2", "closed:1"]);
+      const canvas = desktop.locator("canvas");
+      await canvas.click();
+      // macOS sends a single state-change keydown when CapsLock is enabled.
+      await canvas.dispatchEvent("keydown", { key: "CapsLock", code: "CapsLock" });
+      const capsLock = [
+        { down: true, keysym: 0xffe5 },
+        { down: false, keysym: 0xffe5 },
+      ];
+      await page.keyboard.down("Shift");
+      await page.keyboard.down("ArrowLeft");
+      const pressed = [
+        { down: true, keysym: 0xffe1 },
+        { down: true, keysym: 0xff51 },
+      ];
+      await expect.poll(rfb.keyEvents).toEqual([...capsLock, ...pressed]);
+      await clickSidebarTab(page, "Chat");
+      await canvas.waitFor({ state: "hidden" });
+      const released = [
+        ...capsLock,
+        ...pressed,
+        ...pressed.map(({ keysym }) => ({ down: false, keysym })),
+      ];
+      await expect.poll(rfb.keyEvents).toEqual(released);
+      await page.keyboard.up("ArrowLeft");
+      await page.keyboard.up("Shift");
+      await clickSidebarTab(page, "Desktop");
+      await canvas.click();
+      await page.keyboard.press("x");
+      await expect
+        .poll(rfb.keyEvents)
+        .toEqual([...released, { down: true, keysym: 120 }, { down: false, keysym: 120 }]);
+      expect(await gateway.getRequests("desktop.observe")).toHaveLength(2);
+      expect(await rfb.events()).toEqual(["authenticated:1", "authenticated:2", "closed:1"]);
+
+      await page.mouse.down();
+      await page
+        .locator(".side-panel__header .tabstrip-tab")
+        .filter({ hasText: "Chat" })
+        .press("Enter");
+      await expect.poll(rfb.events).toContain("closed:2");
+      expect(await canvas.count()).toBe(0);
+      await page.mouse.up();
+      await clickSidebarTab(page, "Desktop");
+      await expect.poll(rfb.events).toContain("authenticated:3");
+    });
   });
 
   it("keeps a visible Desktop connected when another split pane takes focus", async () => {
@@ -618,6 +786,7 @@ suite.define(() => {
     });
     try {
       const page = await context.newPage();
+      await page.clock.install();
       await installMockGateway(page, retainedDesktopScenario());
       await page.goto(controlUiSessionUrl(suite.server.baseUrl, RETAINED_DESKTOP_SESSION_KEY));
       await waitForControlUiGatewayReady(page);
@@ -650,15 +819,20 @@ suite.define(() => {
       expect(await desktop.locator("canvas").isVisible()).toBe(true);
       expect(await rfb.events()).not.toContain("closed:1");
 
+      const firstCanvas = panes.first().locator("openclaw-desktop-panel canvas");
       await panes.first().locator(".side-panel__minimize").click();
+      await firstCanvas.waitFor({ state: "hidden" });
+      expect(await firstCanvas.count()).toBe(1);
+      expect(await rfb.events()).not.toContain("closed:1");
+      await page.clock.fastForward(30_001);
       await expect.poll(() => rfb.events()).toContain("closed:1");
-      expect(await desktop.locator("canvas").count()).toBe(0);
+      expect(await firstCanvas.count()).toBe(0);
     } finally {
       await suite.closeBrowserContext(context);
     }
   });
 
-  it("tears down retained Desktop work on presentation loss", async () => {
+  it("tears down unfinished Desktop work on presentation loss", async () => {
     const context = await suite.newBrowserContext({ serviceWorkers: "block" });
     try {
       const page = await context.newPage();

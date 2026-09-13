@@ -205,6 +205,8 @@ describe("production lint suppressions", () => {
         // Keep explicit removal markers beside temporary upstream Bun workarounds.
         "scripts/e2e/parallels/host-command.ts|no-warning-comments|1",
         "scripts/lib/plain-gh.mjs|no-warning-comments|1",
+        // IPC worker, action, and matcher failures retain their original rejection values.
+        "scripts/lib/sqlite-reliability-process.ts|typescript/prefer-promise-reject-errors|1",
         "src/agents/agent-bundle-mcp-runtime.ts|unicorn/prefer-add-event-listener|1",
         "src/agents/agent-tools.abort.ts|typescript/prefer-promise-reject-errors|1",
         // Cleanup stays in AggregateError.errors; the initiating failure remains cause for classification and remediation.
@@ -226,6 +228,7 @@ describe("production lint suppressions", () => {
         "src/cli/test-runtime-capture.ts|typescript/no-unnecessary-type-parameters|1",
         // Cleanup is retained in AggregateError.errors; extraction remains the primary cause.
         "src/commands/backup-restore.ts|preserve-caught-error|1",
+        "src/config/sessions/session-accessor.sqlite-worker-request.ts|no-warning-comments|1",
         // Intl.Collator.compare is a getter returning a bound function.
         "src/cron/service/list-page-sort.ts|typescript/unbound-method|1",
         // Both list callers sort their own freshly filtered arrays.
@@ -268,6 +271,7 @@ describe("production lint suppressions", () => {
         "src/plugins/trusted-tool-policy.ts|typescript/no-unnecessary-type-parameters|1",
         // The queue ring reserves sparse capacity and reads only its occupied slots.
         "src/process/command-queue.state.ts|unicorn/no-new-array|1",
+        "src/secrets/egress-proxy/proxy-server.ts|no-warning-comments|1",
         // Raw PowerShell errors carry the -EncodedCommand argv; only the sanitized cause may escape.
         "src/secrets/private-plan-file.ts|preserve-caught-error|1",
         "src/state/config-machine-state.ts|typescript/no-unnecessary-type-parameters|2",

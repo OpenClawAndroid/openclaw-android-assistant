@@ -60,7 +60,10 @@ export const EXTERNAL_AUTH_PATH_ENV = "OPENCLAW_WORKER_EXTERNAL_AUTH_PATH";
 export const UNRELATED_PLUGIN_ID = "worker-catalog-unrelated";
 export const UNRELATED_PLUGIN_WORKER_MARKER_ENV = "OPENCLAW_WORKER_UNRELATED_PLUGIN_MARKER";
 
-export function writeUnrelatedFixturePlugin(root: string): string {
+export function writeUnrelatedFixturePlugin(
+  root: string,
+  kind?: "memory" | "context-engine",
+): string {
   const pluginDir = path.join(root, "unrelated-plugin");
   fs.mkdirSync(pluginDir, { recursive: true });
   const pluginFile = path.join(pluginDir, "index.cjs");
@@ -79,6 +82,7 @@ module.exports = { id: ${JSON.stringify(UNRELATED_PLUGIN_ID)}, register() {} };
     path.join(pluginDir, "openclaw.plugin.json"),
     JSON.stringify({
       id: UNRELATED_PLUGIN_ID,
+      ...(kind ? { kind } : {}),
       configSchema: { type: "object", additionalProperties: false, properties: {} },
     }),
     "utf8",

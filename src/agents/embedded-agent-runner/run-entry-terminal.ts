@@ -69,6 +69,11 @@ export function mergeRunEntryExecutionTrace<T extends EmbeddedAgentRunResult>(pa
   requestedProvider: string;
   requestedModel: string;
   fallbackAttempts: FallbackAttempt[];
+  providerPolicyRetry?: {
+    category: "cyber";
+    provider: string;
+    model: string;
+  };
 }): T {
   const currentTrace = params.result.meta.executionTrace;
   const winnerProvider =
@@ -129,6 +134,7 @@ export function mergeRunEntryExecutionTrace<T extends EmbeddedAgentRunResult>(pa
         winnerModel,
         attempts: attempts.length > 0 ? attempts : undefined,
         fallbackUsed: currentTrace?.fallbackUsed === true || outerAttempts.length > 0,
+        ...(params.providerPolicyRetry ? { providerPolicyRetry: params.providerPolicyRetry } : {}),
       },
     },
   };

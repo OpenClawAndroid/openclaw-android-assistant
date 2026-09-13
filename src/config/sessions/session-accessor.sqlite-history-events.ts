@@ -51,7 +51,7 @@ import {
   assertVisibleMessageRangeJson,
   hasUnindexedVisibleMessages,
   iterateVisibleMessageRange,
-  readVisibleMessageMetadata,
+  iterateVisibleMessageMetadata,
   readVisibleMessageRange,
   resolveVisibleMessagePositions,
 } from "./session-accessor.sqlite-reset-window.js";
@@ -162,38 +162,43 @@ function resolveRecentHistoryStart(
   // No result can include more than maxMessages events, so older metadata would
   // only add synchronous work before the backward scan stops.
   const metadataStart = Math.max(messageStart, messageEnd - maxMessages);
-  const messageBytes = new Map(
-    readVisibleMessageMetadata(projection, metadataStart, messageEnd).map((row) => [
-      row.logicalPosition,
-      row.serialized_bytes,
-    ]),
-  );
+  const metadata = iterateVisibleMessageMetadata(projection, metadataStart, messageEnd, "desc");
+  let nextMetadata: ReturnType<typeof metadata.next> | undefined;
   let messageIndex = messageEnd - 1;
   let selectedStart = boundedEnd;
   let selectedCount = 0;
   let bytes = 0;
-  for (
-    let displayPosition = boundedEnd - 1;
-    displayPosition >= boundedStart;
-    displayPosition -= 1
-  ) {
-    if (selectedCount >= maxMessages) {
-      break;
+  try {
+    for (
+      let displayPosition = boundedEnd - 1;
+      displayPosition >= boundedStart;
+      displayPosition -= 1
+    ) {
+      if (selectedCount >= maxMessages) {
+        break;
+      }
+      const boundary = boundaries.get(displayPosition);
+      let serializedBytes = boundary?.serializedBytes;
+      if (!boundary) {
+        nextMetadata ??= metadata.next();
+        if (!nextMetadata.done && nextMetadata.value.logicalPosition === messageIndex) {
+          serializedBytes = nextMetadata.value.serialized_bytes;
+          nextMetadata = undefined;
+        }
+        messageIndex -= 1;
+      }
+      if (serializedBytes === undefined) {
+        continue;
+      }
+      if ((!allowOversizedFirst || selectedCount > 0) && bytes + serializedBytes > maxBytes) {
+        break;
+      }
+      selectedStart = displayPosition;
+      selectedCount += 1;
+      bytes += serializedBytes;
     }
-    const boundary = boundaries.get(displayPosition);
-    const logicalPosition = boundary ? undefined : messageIndex--;
-    const serializedBytes =
-      boundary?.serializedBytes ??
-      (logicalPosition === undefined ? undefined : messageBytes.get(logicalPosition));
-    if (serializedBytes === undefined) {
-      continue;
-    }
-    if ((!allowOversizedFirst || selectedCount > 0) && bytes + serializedBytes > maxBytes) {
-      break;
-    }
-    selectedStart = displayPosition;
-    selectedCount += 1;
-    bytes += serializedBytes;
+  } finally {
+    metadata.return?.();
   }
   return selectedStart;
 }

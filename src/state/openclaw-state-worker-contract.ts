@@ -7,6 +7,7 @@ import type {
   TaskFlowRegistryUpdateResult,
 } from "../tasks/task-flow-registry.store.types.js";
 import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
+import type { TaskRegistryStatusSnapshot } from "../tasks/task-registry.store.status.js";
 import type {
   TaskRegistryMutationScope,
   TaskRegistryStoreSnapshot,
@@ -33,6 +34,10 @@ type TaskFlowReadQuery = {
 
 /** Commands share one physical shared-state actor; bindings belong to commands, not open input. */
 export type OpenClawStateWorkerOperations = UserPreferenceWorkerOperations & {
+  "tasks.statusSummary": {
+    input: { now: number; preserveSourceArtifacts: boolean };
+    output: TaskRegistryStatusSnapshot | undefined;
+  };
   "flows.runTask": { input: ManagedTaskInFlowInput; output: RunTaskInFlowResult };
   "tasks.mutationSnapshot": { input: TaskRegistryMutationScope; output: TaskRegistryStoreSnapshot };
   "flows.createManaged": {

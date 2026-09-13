@@ -418,7 +418,10 @@ export function renderGroupedMessage(
     toolMessageLabel,
   );
   const toolMessageIcon = singleToolDisplay
-    ? renderToolIcon(singleToolDisplay.icon, opts.pluginToolIcons?.get(singleToolDisplay.name))
+    ? renderToolIcon(singleToolDisplay.icon, {
+        toolName: singleToolDisplay.name,
+        pluginToolIcons: opts.pluginToolIcons,
+      })
     : icons.zap;
   const assistantViewContent =
     sourceRole === "assistant" && assistantViewBlocks.length > 0

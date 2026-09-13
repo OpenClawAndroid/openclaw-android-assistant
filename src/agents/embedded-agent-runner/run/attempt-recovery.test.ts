@@ -26,12 +26,17 @@ type TransportDropScenario = {
   content?: AssistantMessage["content"];
   diagnostics?: AssistantMessage["diagnostics"];
   activeCount?: number;
+  asyncStarted?: boolean;
   codeModeSuspended?: boolean;
+  didSendDeterministicApprovalPrompt?: boolean;
   failedToolCallId?: string;
+  missingToolResult?: boolean;
   lastToolError?: Parameters<typeof makeEmbeddedRunnerAttempt>[0]["lastToolError"];
+  pluginHarnessOwnsTransport?: boolean;
   retryAvailable?: boolean;
   replaySafe?: boolean;
   terminal?: Parameters<typeof makeEmbeddedRunnerAttempt>[0]["terminal"];
+  terminate?: boolean;
   yieldDetected?: boolean;
 };
 
@@ -55,8 +60,10 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
     content: toolCalls.map((id) => ({ type: "toolCall", id, name: "exec", arguments: {} })),
   });
   const erroredAssistant = buildEmbeddedRunnerAssistant({
-    stopReason: "error",
-    errorMessage: scenario.errorMessage ?? "WebSocket error",
+    stopReason: scenario.terminal?.kind === "timeout" ? "aborted" : "error",
+    errorMessage:
+      scenario.errorMessage ??
+      (scenario.terminal?.kind === "timeout" ? "LLM request timed out." : "WebSocket error"),
     errorBody: scenario.errorBody,
     errorCode: scenario.errorCode,
     errorType: scenario.errorType,
@@ -75,12 +82,14 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
   const messagesSnapshot = [
     { role: "user", content: "why is it unauthorized?" },
     toolAssistant,
-    ...toolCalls.map((id) => ({
-      role: "toolResult",
-      toolCallId: id,
-      toolName: "exec",
-      isError: id === scenario.failedToolCallId,
-    })),
+    ...toolCalls
+      .filter((id) => !scenario.missingToolResult || id !== "call_2")
+      .map((id) => ({
+        role: "toolResult",
+        toolCallId: id,
+        toolName: "exec",
+        isError: id === scenario.failedToolCallId,
+      })),
     erroredAssistant,
   ] as never;
   const attempt = makeEmbeddedRunnerAttempt({
@@ -89,6 +98,8 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
       toolCallId,
       toolName: "exec",
       replaySafe: false,
+      ...(scenario.asyncStarted ? { asyncStarted: true } : {}),
+      ...(scenario.terminate ? { terminate: true } : {}),
       ...(scenario.codeModeSuspended ? { codeModeSuspended: true } : {}),
     })) as never,
     lastAssistant: erroredAssistant,
@@ -97,6 +108,7 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
       ? { currentAttemptCompletedAssistant: scenario.completedAssistant }
       : {}),
     lastToolError: scenario.lastToolError,
+    didSendDeterministicApprovalPrompt: scenario.didSendDeterministicApprovalPrompt,
     itemLifecycle: {
       startedCount: toolCalls.length,
       completedCount: toolCalls.length,
@@ -127,7 +139,7 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
     profileFailureStore: { version: 1, profiles: {} },
     getLastProfileId: () => undefined,
     getSessionId: () => "session:transport-drop",
-    harnessOwnsTransport: () => false,
+    harnessOwnsTransport: () => scenario.pluginHarnessOwnsTransport ?? false,
     getRuntimeAuthOwnerId: () => "embedded",
     getApiKeyInfo: () => null,
     advanceAuthProfile: vi.fn(async () => false),
@@ -161,7 +173,7 @@ async function recoverAfterTransportDrop(scenario: TransportDropScenario = {}) {
           agentHarness: { id: "openclaw" },
           outerContextTokenMeta: {},
           contextTokenBudget: scenario.compactionEnabled ? 200_000 : undefined,
-          pluginHarnessOwnsTransport: false,
+          pluginHarnessOwnsTransport: scenario.pluginHarnessOwnsTransport ?? false,
         }),
       },
       normalizedAttempt: {
@@ -449,6 +461,59 @@ describe("recoverEmbeddedRunAttempt", () => {
     expect(continueFromCurrentTranscript).toHaveBeenCalledWith({
       includeToolFailureInstruction: true,
     });
+  });
+
+  it.each([false, true])(
+    "continues a settled write batch after an idle timeout (tool failed: %s)",
+    async (toolFailed) => {
+      const { recovery, continueFromCurrentTranscript, failoverRetryController } =
+        await recoverAfterTransportDrop({
+          terminal: { kind: "timeout", phase: "prompt", source: "idle", aborted: true },
+          ...(toolFailed
+            ? {
+                failedToolCallId: "call_2",
+                lastToolError: { toolName: "exec", error: "command failed" },
+              }
+            : {}),
+        });
+
+      expect(recovery).toMatchObject({ action: "retry", lastRetryFailoverReason: "timeout" });
+      expect(continueFromCurrentTranscript).toHaveBeenCalledExactlyOnceWith({
+        includeToolFailureInstruction: toolFailed,
+      });
+      expect(failoverRetryController.advanceAuthProfile).not.toHaveBeenCalled();
+      expect(failoverRetryController.maybeMarkAuthProfileFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<[string, TransportDropScenario]>([
+    ["a tool result is missing", { missingToolResult: true }],
+    ["a lifecycle item remains active", { activeCount: 1 }],
+    ["asynchronous tool work remains", { asyncStarted: true }],
+    ["a tool intentionally ended the turn", { terminate: true }],
+    ["approval is pending", { didSendDeterministicApprovalPrompt: true }],
+    ["the harness owns transport recovery", { pluginHarnessOwnsTransport: true }],
+    ["the attempt yielded", { yieldDetected: true }],
+    ["the retry budget is exhausted", { retryAvailable: false }],
+    [
+      "compaction timed out",
+      { terminal: { kind: "timeout", phase: "compaction", source: "idle" } },
+    ],
+    [
+      "tool execution timed out",
+      { terminal: { kind: "timeout", phase: "tool_execution", source: "idle" } },
+    ],
+    [
+      "the run deadline expired",
+      { terminal: { kind: "timeout", phase: "prompt", source: "run_budget" } },
+    ],
+  ])("does not continue an idle timeout when %s", async (_label, scenario) => {
+    const { recovery, continueFromCurrentTranscript } = await recoverAfterTransportDrop({
+      terminal: { kind: "timeout", phase: "prompt", source: "idle" },
+      ...scenario,
+    });
+    expect(recovery).toEqual({ action: "proceed" });
+    expect(continueFromCurrentTranscript).not.toHaveBeenCalled();
   });
 
   it.each([0, 1])(

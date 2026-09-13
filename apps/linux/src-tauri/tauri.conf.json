@@ -48,6 +48,7 @@
             "allow-bootstrap",
             "allow-build-info",
             "allow-check-for-updates",
+            "allow-close-connection-settings",
             "allow-connect-discovered-gateway",
             "allow-connect-remote-gateway",
             "allow-discover-gateways",
@@ -56,11 +57,20 @@
             "allow-open-release-page",
             "allow-relaunch",
             "allow-updater-ready",
+            "allow-window-chrome-request",
             "core:event:allow-listen",
             "core:event:allow-unlisten",
             "process:allow-restart",
             "updater:default"
           ]
+        },
+        {
+          "identifier": "local-companion-drag",
+          "description": "Local setup screens use native window dragging on Linux and Windows.",
+          "local": true,
+          "platforms": ["linux", "windows"],
+          "webviews": ["main"],
+          "permissions": ["allow-window-chrome-drag"]
         },
         {
           "identifier": "quickchat",

@@ -10,6 +10,7 @@ import type { AgentsListResult, GatewaySessionRow, SessionsListResult } from "..
 import { invalidateChatMetadataStore } from "../../lib/chat/chat-metadata-cache.ts";
 import {
   beginChatMetadataPublication,
+  peekChatMetadata,
   subscribeChatMetadata,
 } from "../../lib/chat/chat-metadata-store.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
@@ -518,45 +519,76 @@ describe("refreshChat", () => {
     expect(host.request).not.toHaveBeenCalledWith("commands.list", expect.anything());
   });
 
-  it("commits startup history before immediately hydrating missing metadata", async () => {
-    const metadata = createDeferred<unknown>();
-    const message = {
-      role: "assistant",
-      content: [{ type: "text", text: "Transcript paints before metadata" }],
-    };
-    const host = makeChatHost({
-      hello: gatewayHelloForMethods(["chat.metadata", "chat.startup"], []),
-      requestHandlers: {
-        "chat.startup": async () => ({ messages: [message] }),
-        "chat.metadata": () => metadata.promise,
-        "models.list": () => metadata.promise,
-      },
-    });
+  it.each(["metadata", "catalog"] as const)(
+    "commits startup history before immediately hydrating missing metadata (%s settles first)",
+    async (first) => {
+      const startup = createDeferred<unknown>();
+      const metadata = createDeferred<unknown>();
+      const catalog = createDeferred<unknown>();
+      const message = {
+        role: "assistant",
+        content: [{ type: "text", text: "Transcript paints before metadata" }],
+      };
+      const host = makeChatHost({
+        hello: gatewayHelloForMethods(["chat.metadata", "chat.startup"], []),
+        requestHandlers: {
+          "chat.startup": () => startup.promise,
+          "chat.metadata": () => metadata.promise,
+          "models.list": () => catalog.promise,
+        },
+      });
 
-    await expect(
-      refreshPageChat(asChatPageHost(host), {
+      const refresh = refreshPageChat(asChatPageHost(host), {
         awaitHistory: true,
         deferBranches: true,
         startup: true,
-      }),
-    ).resolves.toBeUndefined();
+      });
+      const reobserved = refreshChatMetadata(asChatPageHost(host), { automatic: true });
+      startup.resolve({ messages: [message] });
+      await expect(refresh).resolves.toBeUndefined();
+      const joined = refreshChatMetadata(asChatPageHost(host), { automatic: true });
 
-    expect(host.chatMessages).toEqual([message]);
-    expect(host.request).toHaveBeenCalledWith("chat.metadata", {
-      agentId: "main",
-      sessionKey: host.sessionKey,
-    });
-    expect(asChatPageHost(host).chatModelsLoading).toBe(true);
+      expect(host.chatMessages).toEqual([message]);
+      expect(host.request).toHaveBeenCalledWith("chat.metadata", {
+        agentId: "main",
+        sessionKey: host.sessionKey,
+      });
+      expect(asChatPageHost(host).chatModelsLoading).toBe(true);
 
-    const model = {
-      available: true,
-      id: "hydrated-model",
-      name: "Hydrated Model",
-      provider: "openai",
-    };
-    metadata.resolve({ commands: [], models: [model] });
-    await waitForFast(() => expect(host.chatModelCatalog).toEqual([model]));
-  });
+      const model = {
+        available: true,
+        id: "hydrated-model",
+        name: "Hydrated Model",
+        provider: "openai",
+      };
+      if (first === "metadata") {
+        metadata.resolve({ commands: [] });
+        await waitForFast(() =>
+          expect(
+            peekChatMetadata(expectDefined(host.client, "chat client"), {
+              agentId: "main",
+              sessionKey: host.sessionKey,
+            }),
+          ).toEqual({ commands: [] }),
+        );
+        expect(asChatPageHost(host).chatModelsLoading).toBe(true);
+        expect(host.chatModelCatalog).toEqual([]);
+      }
+      catalog.resolve({ models: [model] });
+      await waitForFast(() => {
+        expect(host.chatModelCatalog).toEqual([model]);
+        expect(asChatPageHost(host).chatModelsLoading).toBe(false);
+      });
+      metadata.resolve({ commands: [] });
+      await Promise.all([reobserved, joined]);
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.metadata")).toHaveLength(
+        1,
+      );
+      expect(host.request.mock.calls.filter(([method]) => method === "models.list")).toHaveLength(
+        1,
+      );
+    },
+  );
 
   it("keeps current models interactive while the direct catalog revalidates", async () => {
     const startup = createDeferred<unknown>();

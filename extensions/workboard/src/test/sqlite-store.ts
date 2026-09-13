@@ -6,10 +6,13 @@ import type { PersistedWorkboardCard, WorkboardCardStore } from "../persistence-
 import { createWorkboardSqliteStores } from "../sqlite-store.js";
 import { WorkboardStore } from "../store.js";
 
+const workerModuleUrl = new URL("../sqlite-store.worker.ts", import.meta.url);
+
 type WorkboardSqliteTestOptions = {
+  createStores?: (dbPath: string) => ReturnType<typeof createWorkboardSqliteStores>;
   beforeCardWrite?: (key: string, value: PersistedWorkboardCard) => void | Promise<void>;
   beforeCardLookup?: (key: string) => void | Promise<void>;
-  onStoreClose?: () => void;
+  onStoreClose?: () => void | Promise<void>;
 };
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -63,18 +66,14 @@ export function createWorkboardSqliteTestHarness(options: WorkboardSqliteTestOpt
   const dbPath = path.join(dir, "workboard.sqlite");
   let sqlite: ReturnType<typeof createWorkboardSqliteStores>;
   try {
-    sqlite = createWorkboardSqliteStores({ dbPath });
+    sqlite = options.createStores
+      ? options.createStores(dbPath)
+      : createWorkboardSqliteStores({ dbPath, workerModuleUrl });
   } catch (error) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw error;
   }
-  let databaseClosed = false;
-  const closeDatabase = () => {
-    if (!databaseClosed) {
-      databaseClosed = true;
-      sqlite.close();
-    }
-  };
+  const closeDatabase = () => sqlite.close();
   const stores = {
     ...sqlite,
     cards:
@@ -86,9 +85,9 @@ export function createWorkboardSqliteTestHarness(options: WorkboardSqliteTestOpt
   let storeCloseObserved = false;
   const store = new WorkboardStore(stores.cards, {
     ...stores,
-    close: () => {
+    close: async () => {
       storeCloseObserved = true;
-      (options.onStoreClose ?? closeDatabase)();
+      await (options.onStoreClose ?? closeDatabase)();
     },
   });
   cleanups.push(async () => {
@@ -98,7 +97,7 @@ export function createWorkboardSqliteTestHarness(options: WorkboardSqliteTestOpt
       }
     } finally {
       try {
-        closeDatabase();
+        await closeDatabase();
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
@@ -112,6 +111,6 @@ export function createWorkboardSqliteTestStore(options: WorkboardSqliteTestOptio
 }
 
 export function sqliteTestAuxStores(stores: ReturnType<typeof createWorkboardSqliteStores>) {
-  const { boards, subscriptions, attachments } = stores;
-  return { boards, subscriptions, attachments };
+  const { boards, subscriptions, attachments, ready } = stores;
+  return { boards, subscriptions, attachments, ready };
 }

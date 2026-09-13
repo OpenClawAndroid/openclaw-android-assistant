@@ -1,5 +1,6 @@
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
+import { createKernelStores } from "./test/sqlite-kernel.js";
 import { createWorkboardSqliteTestHarness } from "./test/sqlite-store.js";
 
 function observeReads(onRows: (sql: string, rows: Record<string, unknown>[]) => void) {
@@ -42,7 +43,7 @@ function observeReads(onRows: (sql: string, rows: Record<string, unknown>[]) => 
 
 describe("Workboard board-scoped SQLite hydration", () => {
   it("reads only the requested board while preserving complete cards and order", async () => {
-    const { store } = createWorkboardSqliteTestHarness();
+    const { store } = createWorkboardSqliteTestHarness({ createStores: createKernelStores });
     const later = await store.create({ title: "Later", boardId: "ops", labels: ["one", "two"] });
     await store.addComment(later.id, { body: "Retain this comment" });
     const earlier = await store.create({ title: "Earlier", boardId: "ops", position: 0 });
@@ -64,7 +65,9 @@ describe("Workboard board-scoped SQLite hydration", () => {
       restore();
     }
     // Two card rows, their three events, two labels and one comment.
+    expect(fetchedRows).toBeGreaterThan(0);
     expect(fetchedRows).toBeLessThanOrEqual(8);
+    expect(queries).toBeGreaterThan(0);
     expect(queries).toBeLessThanOrEqual(13);
     await expect(store.list({ boardId: "missing" })).resolves.toEqual([]);
     await expect(store.list({ boardId: "default" })).resolves.toEqual([
@@ -102,7 +105,9 @@ describe("Workboard board-scoped SQLite hydration", () => {
   });
 
   it("hydrates captured card IDs even if another connection moves the card after selection", async () => {
-    const { store, dbPath } = createWorkboardSqliteTestHarness();
+    const { store, dbPath } = createWorkboardSqliteTestHarness({
+      createStores: createKernelStores,
+    });
     const created = await store.create({ title: "Moving card", boardId: "ops", labels: ["keep"] });
     const expected = await store.addComment(created.id, { body: "Keep across the move" });
     const raw = new DatabaseSync(dbPath);
@@ -141,7 +146,7 @@ describe("Workboard board-scoped SQLite hydration", () => {
 
 describe("Workboard card-scoped notification reads", () => {
   it("bounds fetched rows and preserves card scope, missing cards, and cursor advancement", async () => {
-    const { store } = createWorkboardSqliteTestHarness();
+    const { store } = createWorkboardSqliteTestHarness({ createStores: createKernelStores });
     const selected = await store.create({
       title: "Selected notifications",
       boardId: "ops",
@@ -191,6 +196,7 @@ describe("Workboard card-scoped notification reads", () => {
     } finally {
       restore();
     }
+    expect(fetchedRows).toBeGreaterThan(0);
     expect(
       fetchedRows,
       "card notification reads must not hydrate unrelated cards",
@@ -250,7 +256,9 @@ describe("Workboard card-scoped notification reads", () => {
 
 describe("Workboard dependency status reads", () => {
   it("prepares a card with fifty parents without hydrating each parent's tree", async () => {
-    const { store, stores } = createWorkboardSqliteTestHarness();
+    const { store, stores } = createWorkboardSqliteTestHarness({
+      createStores: createKernelStores,
+    });
     const parents = [];
     for (let index = 0; index < 50; index++) {
       parents.push(
@@ -291,6 +299,8 @@ describe("Workboard dependency status reads", () => {
     }
     expect(queries).toBeLessThanOrEqual(14);
     expect(fetchedRows).toBeLessThanOrEqual(102);
+    expect(queries).toBeGreaterThan(0);
+    expect(fetchedRows).toBeGreaterThan(0);
   });
 
   it("checks dependency statuses without decoding unrelated cards or parent payloads", async () => {

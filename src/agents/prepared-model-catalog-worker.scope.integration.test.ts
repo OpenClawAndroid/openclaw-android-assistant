@@ -34,10 +34,15 @@ const { makeTempDir, retireAfterTest, waitForMarker, waitForWorkers } =
 
 describe("prepared model catalog worker plugin scope", () => {
   it.each([
-    { first: "full", asyncSyntheticAuth: false, syntheticAuthAvailable: true },
-    { first: "scoped", asyncSyntheticAuth: true, syntheticAuthAvailable: false },
-    { first: "held", asyncSyntheticAuth: true, syntheticAuthAvailable: false },
-  ])("keeps models.list scoped with $first catalog discovery first", async (selection) => {
+    { first: "full", slot: "memory", asyncSyntheticAuth: false, syntheticAuthAvailable: true },
+    {
+      first: "scoped",
+      slot: "contextEngine",
+      asyncSyntheticAuth: true,
+      syntheticAuthAvailable: false,
+    },
+    { first: "held", slot: "none", asyncSyntheticAuth: true, syntheticAuthAvailable: false },
+  ])("keeps models.list scoped with $first discovery and $slot selected", async (selection) => {
     const root = makeTempDir("openclaw-model-catalog-scope-worker-");
     const stateDir = path.join(root, "state");
     const agentDir = path.join(stateDir, "agents", "main", "agent");
@@ -48,7 +53,14 @@ describe("prepared model catalog worker plugin scope", () => {
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     const pluginFile = writeFixturePlugin({ root, spinMs: 0, ...selection });
-    const unrelatedPluginFile = writeUnrelatedFixturePlugin(root);
+    const unrelatedPluginFile = writeUnrelatedFixturePlugin(
+      root,
+      selection.slot === "memory"
+        ? "memory"
+        : selection.slot === "contextEngine"
+          ? "context-engine"
+          : undefined,
+    );
     const config = {
       agents: {
         defaults: {
@@ -81,6 +93,11 @@ describe("prepared model catalog worker plugin scope", () => {
       },
       plugins: {
         allow: [PLUGIN_ID, UNRELATED_PLUGIN_ID],
+        ...(selection.slot === "memory"
+          ? { slots: { memory: UNRELATED_PLUGIN_ID } }
+          : selection.slot === "contextEngine"
+            ? { slots: { contextEngine: UNRELATED_PLUGIN_ID } }
+            : {}),
         load: { paths: [pluginFile, unrelatedPluginFile] },
         entries: {
           [PLUGIN_ID]: { enabled: true },

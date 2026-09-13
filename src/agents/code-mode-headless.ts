@@ -293,6 +293,7 @@ export async function runCodeModeScriptHeadless(params: {
         ...createPendingBridgeStates(newRequests, {
           config,
           inbox: owner.inbox,
+          results: owner.results,
           runtime,
           catalogProjection,
           namespaceRuntime,

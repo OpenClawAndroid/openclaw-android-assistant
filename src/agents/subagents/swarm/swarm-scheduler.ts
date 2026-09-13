@@ -59,6 +59,8 @@ function bindSwarmLaunchWork<Args extends unknown[], Result>(
 
 const lanes = new Map<string, SwarmGroupLane>();
 const pendingRemovals = new Set<QueuedSwarmRun>();
+// Releasing capacity does not settle an admission or its failure cleanup.
+const pendingLaunches = new Set<QueuedSwarmRun>();
 const runLocations = new Map<
   string,
   | { lane: SwarmGroupLane; state: "active"; item?: QueuedSwarmRun }
@@ -169,7 +171,10 @@ function pumpLane(lane: SwarmGroupLane) {
       lane.queue.shift();
       const completion = createDeferredCore();
       next.pendingLaunch = completion.promise;
-      void startQueuedRun(lane, next, next.launch).then(completion.resolve, completion.reject);
+      pendingLaunches.add(next);
+      void startQueuedRun(lane, next, next.launch)
+        .finally(() => pendingLaunches.delete(next))
+        .then(completion.resolve, completion.reject);
     }
   });
 }
@@ -327,7 +332,7 @@ export function removeQueuedSwarmRun(runId: string): boolean {
 
 /** Retire this Gateway's launch resources while leaving durable queued rows available for restart. */
 export async function closeSwarmScheduler(lifecycleOwner?: object): Promise<void> {
-  const items = new Set(pendingRemovals);
+  const items = new Set([...pendingRemovals, ...pendingLaunches]);
   for (const location of runLocations.values()) {
     if (location.item?.launch) {
       items.add(location.item);
@@ -393,6 +398,7 @@ const testing = {
     lanes.clear();
     runLocations.clear();
     pendingRemovals.clear();
+    pendingLaunches.clear();
   },
 };
 

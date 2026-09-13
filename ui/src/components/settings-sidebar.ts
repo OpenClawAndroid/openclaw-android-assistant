@@ -20,6 +20,7 @@ import { pathForRoute, type RouteId } from "../app-route-paths.ts";
 import type { ApplicationNavigationOptions } from "../app/context.ts";
 import type { ApplicationGatewaySnapshot } from "../app/gateway.ts";
 import type { NativeDeviceSettingsCapability } from "../app/native-device-settings.ts";
+import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts";
 import type { UpdateProgress } from "../app/update-confirmation.ts";
 import type { ApplicationStatusBanner } from "../app/update-overlay-helpers.ts";
 import { t } from "../i18n/index.ts";
@@ -341,7 +342,7 @@ export function renderSettingsSidebar(props: SettingsSidebarProps) {
   }
   return html`
     <aside class="settings-sidebar">
-      <header class="settings-sidebar__header">
+      <header class="settings-sidebar__header" @mousedown=${beginNativeWindowDragFromTopInset}>
         <button type="button" class="settings-sidebar__back" @click=${() => props.onExit()}>
           <span class="settings-sidebar__back-icon" aria-hidden="true">${icons.arrowLeft}</span>
           ${t("nav.exitSettings")}

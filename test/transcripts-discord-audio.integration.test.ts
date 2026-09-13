@@ -102,17 +102,25 @@ defineDiscordVoiceTests(
         );
         await manager.join({ guildId: "g1", channelId: "1001" });
         const entry = getSessionEntry(manager);
+        const dispatched = createDeferred<void>();
+        agentCommandMock.mockImplementation(async () => {
+          dispatched.resolve();
+          return { payloads: [] };
+        });
         if (dispatch === "control") {
-          controlRealtimeVoiceAgentRunMock.mockResolvedValue({
-            ok: true,
-            mode: "cancel",
-            sessionKey: entry.route.sessionKey,
-            active: true,
-            aborted: true,
-            message: "Cancelled",
-            speak: false,
-            show: true,
-            suppress: true,
+          controlRealtimeVoiceAgentRunMock.mockImplementation(async () => {
+            dispatched.resolve();
+            return {
+              ok: true,
+              mode: "cancel",
+              sessionKey: entry.route.sessionKey,
+              active: true,
+              aborted: true,
+              message: "Cancelled",
+              speak: false,
+              show: true,
+              suppress: true,
+            };
           });
         }
         const stream = new PassThrough({ objectMode: true });
@@ -197,6 +205,10 @@ defineDiscordVoiceTests(
             await expect(fs.stat(wavPath)).rejects.toMatchObject({ code: "ENOENT" });
           }
           const completeText = opening === "fallback" ? `${prefix}\n${suffix}` : suffix;
+          if (!oversized) {
+            // Recording completion does not join the independent conversation queue.
+            await dispatched.promise;
+          }
           if (oversized) {
             expect(agentCommandMock).not.toHaveBeenCalled();
             expect(controlRealtimeVoiceAgentRunMock).not.toHaveBeenCalled();

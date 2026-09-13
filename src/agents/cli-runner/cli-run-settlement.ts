@@ -14,6 +14,7 @@ import {
   resolveCliRuntimeOwnerFingerprint,
 } from "../cli-auth-epoch.js";
 import type { CliOutput, CliTerminalInterruption } from "../cli-output-contracts.js";
+import { shouldClearInterruptedCliSessionBinding } from "../cli-session.js";
 import { claudeCliSessionTranscriptHasContent as claudeCliSessionTranscriptHasContentImpl } from "../command/attempt-execution.helpers.js";
 import type { EmbeddedAgentRunResult } from "../embedded-agent-runner.js";
 import { resolveExplicitFinalSourceReplyDeliveryEvidence } from "../embedded-agent-runner/delivery-evidence.js";
@@ -24,6 +25,7 @@ import { coerceToFailoverError, isFailoverError } from "../failover-error.js";
 import { recordAgentCleanupFailure } from "../run-cleanup-timeout.js";
 import { CliAuthProfilePreparationError } from "./auth-profile-preparation-error.js";
 import { runCliCleanup } from "./cleanup.js";
+import { resolveCliSessionId } from "./cli-run-recovery.js";
 import { hashCliReseedPrompt } from "./reseed-envelope.js";
 import type { ClaudeCliRunDiagnosticLifecycle } from "./run-diagnostics.js";
 import type { PreparedCliRunContext, RunCliAgentParams } from "./types.js";
@@ -497,16 +499,18 @@ export function buildCliRunResult(params: {
     toolTrustedLocalMedia: output.toolTrustedLocalMedia,
     sourceReplyDeliveryMode: runParams.sourceReplyDeliveryMode,
   });
-  const unflushedCliSessionId =
-    !sessionBindingDisabled && effectiveCliSessionId && bindingFlushOk === false
-      ? effectiveCliSessionId
-      : undefined;
+  const unflushed = !sessionBindingDisabled && effectiveCliSessionId && bindingFlushOk === false;
   const terminalInterruption = output.terminalInterruption;
-  // An interrupted process cannot preserve its now-invalid native session binding.
+  // Cancellation preserves established continuity, but an unfinished replacement
+  // still needs cleanup even when managed sessions skip the transcript probe.
   const cliSessionBindingCleared =
-    terminalInterruption !== undefined ||
     sessionBindingDisabled ||
-    unflushedCliSessionId !== undefined;
+    unflushed ||
+    shouldClearInterruptedCliSessionBinding({
+      interrupted: terminalInterruption !== undefined,
+      bindingReplacedDuringRun:
+        effectiveCliSessionId !== resolveCliSessionId(context.reusableCliSession),
+    });
   const persistedCliSessionId = cliSessionBindingCleared ? undefined : effectiveCliSessionId;
   const createdReseedReceipt =
     persistedCliSessionId &&
@@ -530,7 +534,7 @@ export function buildCliRunResult(params: {
       : undefined;
   const reseedReceipt = createdReseedReceipt ?? preservedReseedReceipt;
   const agentSessionId =
-    terminalInterruption || unflushedCliSessionId
+    terminalInterruption || unflushed
       ? ""
       : sessionBindingDisabled
         ? (runParams.sessionId ?? "")

@@ -10,6 +10,7 @@ import {
   getSubagentRunsSnapshotForChildSession,
   getSubagentRunsSnapshotForController,
   getSubagentRunsSnapshotForRead,
+  getSubagentRunsSnapshotForRunIds,
   onSubagentRegistryPersisted,
   persistSubagentRunsToDisk,
   persistSubagentRunsToDiskOrThrow,
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     vi.fn<(childSessionKey: string) => SubagentRunRecord[]>(),
   loadSubagentRunsForControllerFromSqlite:
     vi.fn<(controllerSessionKey: string) => SubagentRunRecord[]>(),
+  loadSubagentRunsByRunIdsFromSqlite: vi.fn<(runIds: readonly string[]) => SubagentRunRecord[]>(),
   loadSubagentRegistryFromSqlite: vi.fn<() => Map<string, SubagentRunRecord>>(),
   loadSubagentSessionListRunsFromSqlite: vi.fn<() => Map<string, SubagentRunReadRecord>>(),
   saveSubagentRegistryChangesToSqlite:
@@ -33,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./subagent-registry.store.sqlite.js", () => ({
   loadSubagentRunsForChildSessionFromSqlite: mocks.loadSubagentRunsForChildSessionFromSqlite,
   loadSubagentRunsForControllerFromSqlite: mocks.loadSubagentRunsForControllerFromSqlite,
+  loadSubagentRunsByRunIdsFromSqlite: mocks.loadSubagentRunsByRunIdsFromSqlite,
   loadSubagentRegistryFromSqlite: mocks.loadSubagentRegistryFromSqlite,
   loadSubagentSessionListRunsFromSqlite: mocks.loadSubagentSessionListRunsFromSqlite,
   saveSubagentRegistryChangesToSqlite: mocks.saveSubagentRegistryChangesToSqlite,
@@ -62,6 +65,7 @@ describe("subagent registry state read cache", () => {
     clearSubagentRunsReadCacheForTest();
     mocks.loadSubagentRunsForChildSessionFromSqlite.mockReset();
     mocks.loadSubagentRunsForControllerFromSqlite.mockReset();
+    mocks.loadSubagentRunsByRunIdsFromSqlite.mockReset();
     mocks.loadSubagentRegistryFromSqlite.mockReset();
     mocks.loadSubagentSessionListRunsFromSqlite.mockReset();
     mocks.saveSubagentRegistryChangesToSqlite.mockReset();
@@ -133,6 +137,7 @@ describe("subagent registry state read cache", () => {
   it("refreshes session-list projections from authoritative writes", () => {
     const savedRun = createRun("run-saved");
     savedRun.model = "openai/gpt-5.6";
+    savedRun.swarmRunId = "stable-collector";
     savedRun.execution.outcome = { status: "ok", error: "not projected" };
     mocks.saveSubagentRegistryToSqlite.mockImplementationOnce(() => {
       throw new Error("disk unavailable");
@@ -144,6 +149,7 @@ describe("subagent registry state read cache", () => {
     expect(projected).toMatchObject({
       runId: savedRun.runId,
       model: savedRun.model,
+      swarmRunId: "stable-collector",
       execution: { outcome: { status: "ok" } },
     });
     expect(projected?.execution.outcome).not.toHaveProperty("error");
@@ -289,26 +295,24 @@ describe("subagent registry state read cache", () => {
     );
   });
 
-  it("filters before merging while keeping live identity changes authoritative", () => {
+  it("shares the compact read cache while hydrating only known physical run ids", () => {
     const selected = { ...createRun("selected"), swarmRunId: "collector" };
     const unrelated = createRun("unrelated");
-    mocks.loadSubagentRegistryFromSqlite.mockReturnValue(
+    mocks.loadSubagentSessionListRunsFromSqlite.mockReturnValue(
       new Map([
         [selected.runId, selected],
         [unrelated.runId, unrelated],
       ]),
     );
-    const include = (entry: SubagentRunRecord) => entry.swarmRunId === "collector";
-    expect([...getSubagentRunsSnapshotForRead(new Map(), include).keys()]).toEqual(["selected"]);
+    mocks.loadSubagentRunsByRunIdsFromSqlite.mockReturnValue([selected]);
+    getSubagentSessionListRunsSnapshotForRead(new Map());
 
-    const moved = { ...selected, swarmRunId: "replacement" };
-    expect(getSubagentRunsSnapshotForRead(new Map([[moved.runId, moved]]), include)).toEqual(
-      new Map(),
-    );
-    expect([...getSubagentRunsSnapshotForRead(new Map()).keys()]).toEqual([
+    expect([...getSubagentRunsSnapshotForRunIds(new Map(), ["collector"]).keys()]).toEqual([
       "selected",
-      "unrelated",
     ]);
+    expect(mocks.loadSubagentRunsByRunIdsFromSqlite).toHaveBeenCalledExactlyOnceWith(["selected"]);
+    expect(mocks.loadSubagentSessionListRunsFromSqlite).toHaveBeenCalledOnce();
+    expect(mocks.loadSubagentRegistryFromSqlite).not.toHaveBeenCalled();
   });
 
   it("preserves the fresh authoritative write snapshot before returning to scoped SQL", () => {

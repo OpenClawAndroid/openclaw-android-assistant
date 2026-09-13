@@ -40,6 +40,14 @@ provider or plugin runtime ownership. Kernels and their transaction callbacks
 remain synchronous. The asynchronous task and flow read facade runs these read
 kernels in the shared-state worker.
 
+Routine status reads stream task audit metadata through the same shared worker
+and return fixed-size history aggregates plus candidates for live reconciliation.
+They do not decode retained task payloads or restore delivery-state maps. Reads
+use one snapshot and bypass secondary indexes so stale indexes cannot hide rows.
+Only pending reads coalesce; completed results are not cached. Physical integrity
+verification remains with full registry restoration and Doctor, while known
+database failures and quarantine still refuse summary reads.
+
 Gateway user-preference RPCs and Talk appearance reads resolve merged profile IDs
 and access preferences in the shared-state worker. Preference writes keep profile
 resolution, quota validation, and mutation in one synchronous write transaction;

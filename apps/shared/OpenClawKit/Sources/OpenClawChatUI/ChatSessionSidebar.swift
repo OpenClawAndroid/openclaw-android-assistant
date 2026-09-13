@@ -6,6 +6,10 @@ extension ChatSessionSidebarModel.Node {
     fileprivate var outlineChildren: [Self]? {
         self.children.isEmpty ? nil : self.children
     }
+
+    fileprivate var previewSessions: [OpenClawChatSessionEntry] {
+        [self.session] + self.children.flatMap(\.previewSessions)
+    }
 }
 
 @MainActor
@@ -20,9 +24,16 @@ struct ChatSessionSidebar: View {
     @State private var groupLoadFailed = false
     @State private var inspectedSession: OpenClawChatSessionEntry?
     @State private var isPresentingNewSessionOptions = false
+    @State private var previews = ChatSessionSidebarPreviews()
     @AppStorage("openclaw.chat.collapsedSessionGroups") private var collapsedSessionGroups = ""
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            self.sidebar(now: context.date)
+        }
+    }
+
+    private func sidebar(now: Date) -> some View {
         let sections = ChatSessionSidebarModel.sections(
             sessions: self.viewModel.sessions,
             currentSessionKey: self.viewModel.sessionKey,
@@ -32,20 +43,24 @@ struct ChatSessionSidebar: View {
             query: self.query,
             sessionRoutingContract: self.viewModel.agentCatalog?.sessionRoutingContract ??
                 self.viewModel.sessionRoutingContract)
-        List(selection: self.selectionBinding) {
+        let previewRequest = ChatSessionSidebarPreviews.Request(
+            viewModel: self.viewModel,
+            sessions: sections.flatMap(\.nodes).flatMap(\.previewSessions))
+        return List(selection: self.selectionBinding) {
             self.newThreadButton
                 .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 16, trailing: 0))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .selectionDisabled()
-            self.agentsSection
+            self.agentsSection(now: now)
+            self.threadsHeading
             ForEach(sections) { section in
                 if section.id.hasPrefix("group:"), let title = section.title {
                     Section {
                         if !self.isGroupCollapsed(title) || !self.query
                             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         {
-                            self.rows(section.nodes)
+                            self.rows(section.nodes, now: now, previewRequest: previewRequest)
                         }
                     } header: {
                         Button {
@@ -61,14 +76,14 @@ struct ChatSessionSidebar: View {
                     }
                 } else if let title = section.title {
                     Section {
-                        self.rows(section.nodes)
+                        self.rows(section.nodes, now: now, previewRequest: previewRequest)
                     } header: {
                         Text(LocalizedStringKey(title))
                             .font(OpenClawChatTypography.caption)
                     }
                 } else {
                     Section {
-                        self.rows(section.nodes)
+                        self.rows(section.nodes, now: now, previewRequest: previewRequest)
                     } header: {
                         Text("Recent")
                             .font(OpenClawChatTypography.caption)
@@ -86,11 +101,19 @@ struct ChatSessionSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .listItemTint(.monochrome)
         .searchable(
             text: self.$query,
             placement: .sidebar,
             prompt: String(localized: "Search threads"))
         .safeAreaInset(edge: .bottom, spacing: 0) { self.connectionFooter }
+        .task(id: previewRequest) {
+            let model = self.viewModel
+            let cache = model.transcriptCache
+            await model.pendingCacheWriteTask?.value
+            guard !Task.isCancelled, ObjectIdentifier(self.viewModel) == previewRequest.modelID else { return }
+            await self.previews.refresh(previewRequest, cache: cache)
+        }
         .task(id: self.groupRefreshID) {
             self.viewModel.refreshSessions(limit: 200)
             do {
@@ -203,11 +226,13 @@ struct ChatSessionSidebar: View {
         .disabled(self.viewModel.isCreatingSession)
     }
 
-    private var agentsSection: some View {
+    private func agentsSection(now: Date) -> some View {
         Section {
             ForEach(self.viewModel.agentChoices) { agent in
-                self.agentRow(agent)
+                self.agentRow(agent, now: now)
                     .selectionDisabled()
+                    .listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4))
+                    .listRowBackground(Color.clear)
             }
             if let error = self.viewModel.agentsErrorText {
                 VStack(alignment: .leading, spacing: 6) {
@@ -241,33 +266,89 @@ struct ChatSessionSidebar: View {
         }
     }
 
-    private func agentRow(_ agent: OpenClawChatAgentChoice) -> some View {
+    private var threadsHeading: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Threads")
+                .font(OpenClawChatTypography.body(size: 12, weight: .semibold, relativeTo: .body))
+            Spacer(minLength: 8)
+            Text(verbatim: self.viewModel.selectedAgent?.displayName ?? self.viewModel.selectedAgentID ?? "")
+                .font(OpenClawChatTypography.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.top, 14)
+        .padding(.bottom, 2)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .selectionDisabled()
+        .accessibilityElement(children: .combine)
+    }
+
+    private func agentRow(_ agent: OpenClawChatAgentChoice, now: Date) -> some View {
         let isSelected = agent.id.lowercased() == self.viewModel.selectedAgentID
+        let summary = ChatSessionSidebarModel.agentSummary(
+            for: agent.id, sessions: self.viewModel.sessions, now: now.timeIntervalSince1970 * 1000)
         return Button {
             self.viewModel.switchAgent(to: agent.id)
         } label: {
-            HStack(spacing: 10) {
-                ChatSidebarAgentAvatar(agent: agent)
-                Text(verbatim: agent.displayName)
-                    .font(OpenClawChatTypography.body(
-                        size: 13,
-                        weight: isSelected ? .semibold : .regular,
-                        relativeTo: .body))
-                    .lineLimit(1)
+            HStack(spacing: 8) {
+                ChatSidebarAgentAvatar(agent: agent, size: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: agent.displayName)
+                        .font(OpenClawChatTypography.body(
+                            size: 13,
+                            weight: isSelected ? .medium : .regular,
+                            relativeTo: .body))
+                        .lineLimit(1)
+                    if self.viewModel.healthOK, let summary, let activity = summary.activity {
+                        Label(self.agentSubtitle(summary, activity: activity), systemImage: activity.symbol)
+                            .font(OpenClawChatTypography.body(size: 10, weight: .regular, relativeTo: .caption))
+                            .foregroundStyle(summary.attentionCount > 0 ? OpenClawChatTheme.warning : .secondary)
+                            .lineLimit(1)
+                    }
+                }
                 Spacer(minLength: 0)
-                if isSelected {
+                if let unread = summary?.unreadCount, unread > 0 {
+                    Text(unread, format: .number)
+                        .font(OpenClawChatTypography.body(size: 10, weight: .semibold, relativeTo: .caption))
+                        .monospacedDigit()
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                        .accessibilityLabel(unread == 1
+                            ? String(localized: "1 unread thread")
+                            : String(format: String(localized: "%lld unread threads"), unread))
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(isSelected ? Color.primary.opacity(0.06) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("chat-agent-\(agent.id)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .help(String(format: String(localized: "Open %@"), agent.displayName))
+    }
+
+    private func agentSubtitle(
+        _ summary: ChatSessionSidebarModel.AgentSummary,
+        activity: ChatSessionSidebarModel.Activity) -> String
+    {
+        if summary.attentionCount > 1 {
+            return String(format: String(localized: "%lld need attention"), summary.attentionCount)
+        }
+        if summary.runningCount > 1 {
+            return String(format: String(localized: "%lld working · %@"), summary.runningCount, activity.text)
+        }
+        if summary.queuedCount > 1 {
+            return String(format: String(localized: "%lld queued"), summary.queuedCount)
+        }
+        return activity.text
     }
 
     private var groupRefreshID: String {
@@ -293,20 +374,29 @@ struct ChatSessionSidebar: View {
             set: { if !$0 { self.sessionPendingRename = nil } })
     }
 
-    private func rows(_ nodes: [ChatSessionSidebarModel.Node]) -> some View {
+    private func rows(
+        _ nodes: [ChatSessionSidebarModel.Node],
+        now: Date,
+        previewRequest: ChatSessionSidebarPreviews.Request) -> some View
+    {
         OutlineGroup(nodes, children: \.outlineChildren) { node in
-            self.row(for: node)
+            self.row(for: node, now: now, previewRequest: previewRequest)
         }
     }
 
-    private func row(for node: ChatSessionSidebarModel.Node) -> some View {
+    private func row(
+        for node: ChatSessionSidebarModel.Node,
+        now: Date,
+        previewRequest: ChatSessionSidebarPreviews.Request) -> some View
+    {
         let session = node.session
-        return HStack(spacing: 8) {
+        return HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(ChatSessionSidebarModel.displayName(for: session))
-                    .font(OpenClawChatTypography.body(size: 13, weight: .medium, relativeTo: .body))
+                    .font(OpenClawChatTypography.body(
+                        size: 13, weight: session.unread == true ? .medium : .regular, relativeTo: .body))
                     .lineLimit(1)
-                if let subtitle = self.rowSubtitle(for: session) {
+                if let subtitle = self.rowSubtitle(for: session, now: now, previewRequest: previewRequest) {
                     Text(subtitle)
                         .font(OpenClawChatTypography.caption)
                         .foregroundStyle(.secondary)
@@ -314,7 +404,16 @@ struct ChatSessionSidebar: View {
                 }
             }
             Spacer(minLength: 0)
-            self.badges(for: node)
+            VStack(alignment: .trailing, spacing: 6) {
+                if let timestamp = ChatSessionSidebarModel.activityTimestamp(for: session) {
+                    Text(Date(timeIntervalSince1970: timestamp / 1000), format: .relative(
+                        presentation: .named, unitsStyle: .abbreviated))
+                        .font(OpenClawChatTypography.body(size: 10, weight: .regular, relativeTo: .caption))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 5) { self.badges(for: node) }
+            }
         }
         .padding(.vertical, 4)
         .overlay(alignment: .leading) {
@@ -328,12 +427,12 @@ struct ChatSessionSidebar: View {
 
     @ViewBuilder
     private func badges(for node: ChatSessionSidebarModel.Node) -> some View {
-        if node.badges.queuedCount > 0 {
+        if self.viewModel.healthOK, node.badges.queuedCount > 0 {
             Image(systemName: "hourglass")
                 .foregroundStyle(OpenClawChatTheme.warning)
                 .accessibilityLabel(String(localized: "Thread queued"))
         }
-        if node.badges.runningCount > 0 {
+        if self.viewModel.healthOK, node.badges.runningCount > 0 {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel(String(localized: "Thread running"))
@@ -449,20 +548,28 @@ struct ChatSessionSidebar: View {
             .font(OpenClawChatTypography.body(size: 13, weight: .regular, relativeTo: .body))
     }
 
-    private func rowSubtitle(for session: OpenClawChatSessionEntry) -> String? {
-        var parts: [String] = []
-        if let branch = session.worktree?.branch?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !branch.isEmpty
-        {
-            parts.append(branch)
-        }
-        if let updatedAt = session.updatedAt ?? session.lastActivityAt, updatedAt > 0 {
-            let date = Date(timeIntervalSince1970: updatedAt / 1000)
-            parts.append(date.formatted(.relative(presentation: .named)))
-        }
+    private func rowSubtitle(
+        for session: OpenClawChatSessionEntry,
+        now: Date,
+        previewRequest: ChatSessionSidebarPreviews.Request) -> String?
+    {
+        let activity = ChatSessionSidebarModel.activity(for: session, now: now.timeIntervalSince1970 * 1000)
+        if let activity, activity.kind == .attention { return activity.text }
+        if self.viewModel.healthOK, let activity, [.running, .queued].contains(activity.kind) { return activity.text }
+        if let activity, activity.kind == .failed,
+           session.unread == true || (session.lastReadAt ?? 0) < (session.endedAt ?? session.updatedAt ?? 0)
+        { return activity.text }
+        if self.viewModel.matchesCurrentSessionKey(
+            incoming: session.key, agentId: session.agentId, current: self.viewModel.sessionKey),
+            let current = ChatSessionSidebarModel.messagePreview(from: self.viewModel.messages)
+        { return current }
+        if let preview = self.previews.text(for: session, in: previewRequest) { return preview }
+        let workSubtitle = ChatSessionSidebarModel.workSubtitle(for: session)
+        if !self.viewModel.healthOK, let activity, [.running, .queued].contains(activity.kind) { return workSubtitle }
         return ChatSessionSidebarModel.subtitle(
             for: session,
-            workSubtitle: parts.isEmpty ? nil : parts.joined(separator: " · "))
+            workSubtitle: workSubtitle,
+            now: now.timeIntervalSince1970 * 1000)
     }
 
     private var connectionFooter: some View {

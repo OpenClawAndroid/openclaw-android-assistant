@@ -87,7 +87,6 @@ export function createSlackProgressRuntime(runtimeParams: {
         warn: logVerbose,
       })
     : undefined;
-  let hasStreamedAnswer = false;
   const isProgressMode = slackStreaming.mode === "progress";
   const useNativeProgressStreaming = useStreaming && slackStreaming.mode === "progress";
   const progressDraftActive = Boolean(draftStream) || useNativeProgressStreaming;
@@ -517,7 +516,6 @@ export function createSlackProgressRuntime(runtimeParams: {
         return false;
       }
       draftStream?.update(next.rendered);
-      hasStreamedAnswer = true;
       return false;
     }
 
@@ -527,7 +525,6 @@ export function createSlackProgressRuntime(runtimeParams: {
 
     progressDraft.resetActivity({ suppressed: true });
     draftStream?.update(trimmed);
-    hasStreamedAnswer = true;
     return false;
   };
   const pushReasoningProgress = async (payload?: {
@@ -562,7 +559,6 @@ export function createSlackProgressRuntime(runtimeParams: {
     });
   };
   const resetDraftDeliveryState = () => {
-    hasStreamedAnswer = false;
     appendRenderedText = "";
     appendSourceText = "";
   };
@@ -613,9 +609,8 @@ export function createSlackProgressRuntime(runtimeParams: {
             progressDraft.beginAssistantMessage();
             return;
           }
-          if (hasStreamedAnswer) {
-            draftStream?.forceNewMessage();
-          }
+          // Model boundaries do not accept a provisional preview as a reply.
+          // Keep editing it; the draft owner rotates separately when a human speaks.
           resetDraftDeliveryState();
           progressDraft.beginAssistantMessage();
         };

@@ -9,9 +9,16 @@ import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 const modalLayers = (document.openClawModalLayers ??= new Set<HTMLElement>());
 
 function setModalLayer(modal: HTMLElement, open: boolean) {
+  const wasOpen = modalLayers.size > 0;
   modalLayers.delete(modal);
   if (open) {
     modalLayers.add(modal);
+  }
+  const isOpen = modalLayers.size > 0;
+  if (wasOpen !== isOpen) {
+    window.dispatchEvent(
+      new CustomEvent("openclaw:native-modal-state", { detail: { open: isOpen } }),
+    );
   }
 }
 
@@ -177,6 +184,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     }
     super.connectedCallback();
     if (this.open) {
+      setModalLayer(this, true);
       this.releaseNativeOcclusion ??= acquireNativeOverlayOcclusion();
     }
     void this.updateComplete.then(() => this.syncDialogOpen());

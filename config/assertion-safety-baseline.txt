@@ -1341,7 +1341,6 @@ extensions/workboard/doctor-contract-api.ts	4
 extensions/workboard/src/cli.ts	2
 extensions/workboard/src/command.ts	1
 extensions/workboard/src/gateway-helpers.ts	1
-extensions/workboard/src/sqlite-store.ts	35
 extensions/workboard/src/store-automation.ts	1
 extensions/workboard/src/store-card-helpers.ts	1
 extensions/workboard/src/store-core.ts	2
@@ -1765,7 +1764,7 @@ src/agents/embedded-agent-runner/thinking.ts	25
 src/agents/embedded-agent-runner/tool-call-argument-decoding.ts	5
 src/agents/embedded-agent-runner/tool-result-char-estimator.ts	9
 src/agents/embedded-agent-runner/tool-result-context-guard.ts	13
-src/agents/embedded-agent-runner/tool-result-truncation.ts	16
+src/agents/embedded-agent-runner/tool-result-truncation.ts	15
 src/agents/embedded-agent-runner/tool-schema-runtime.ts	1
 src/agents/embedded-agent-runner/transcript-rewrite.ts	2
 src/agents/embedded-agent-subscribe.handlers.messages.lifecycle.ts	2
@@ -2014,7 +2013,6 @@ src/agents/workspace-legacy-state.ts	2
 src/agents/workspace-state-store.ts	1
 src/agents/workspace.ts	6
 src/agents/worktrees/git.ts	2
-src/agents/worktrees/provisioned-files.ts	1
 src/agents/worktrees/registry.ts	11
 src/agents/worktrees/run-lease.ts	1
 src/audit/execution-identity-admission.ts	3
@@ -2140,7 +2138,7 @@ src/channels/plugins/bundled-setup-policy.ts	2
 src/channels/plugins/bundled.ts	4
 src/channels/plugins/chat-target-prefixes.ts	2
 src/channels/plugins/config-helpers.ts	7
-src/channels/plugins/config-schema.ts	12
+src/channels/plugins/config-schema.ts	11
 src/channels/plugins/config-write-policy-shared.ts	1
 src/channels/plugins/config-writes.ts	1
 src/channels/plugins/configured-binding-match.ts	1
@@ -2445,7 +2443,6 @@ src/commands/sessions-lifecycle.ts	3
 src/commands/setup.ts	1
 src/commands/status-all/channels.ts	2
 src/commands/status-all/gateway.ts	1
-src/commands/status.command.ts	1
 src/commands/status.scan.bootstrap-shared.ts	1
 src/commands/status.scan.shared.ts	1
 src/commands/system-agent-with-inference.ts	2
@@ -2775,7 +2772,7 @@ src/gateway/server-methods/sessions-read.ts	1
 src/gateway/server-methods/sessions-sharing.ts	1
 src/gateway/server-methods/sessions-suggestions.ts	1
 src/gateway/server-methods/skills-workspace-handler.ts	1
-src/gateway/server-methods/skills.ts	8
+src/gateway/server-methods/skills.ts	3
 src/gateway/server-methods/system-agent-chat-params.ts	2
 src/gateway/server-methods/system-changes.ts	9
 src/gateway/server-methods/talk-shared.ts	6
@@ -3241,7 +3238,7 @@ src/plugins/cli-gateway-nodes-runtime.ts	2
 src/plugins/command-registration.ts	3
 src/plugins/computer-use-contract.ts	3
 src/plugins/config-normalization-shared.ts	1
-src/plugins/config-schema.ts	6
+src/plugins/config-schema.ts	5
 src/plugins/contracts/inventory/bundled-capability-metadata.ts	3
 src/plugins/contracts/registry.ts	1
 src/plugins/contracts/tts-contract-suites.ts	19

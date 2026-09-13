@@ -9,6 +9,7 @@ import {
 } from "../../../../src/agents/tool-display-common.js";
 import type { ToolDetailMode } from "../../../../src/agents/tool-display-exec.js";
 import type { ControlUiEmbedSandboxMode } from "../../../../src/gateway/control-ui-bootstrap-contract.js";
+import type { IconName } from "../../components/icons.ts";
 
 const A2UI_PATH = "/__openclaw__/a2ui";
 const CANVAS_HOST_PATH = "/__openclaw__/canvas";
@@ -41,8 +42,6 @@ export type EmbedSandboxMode = ControlUiEmbedSandboxMode;
 type ChatToolIconName = string;
 
 const EMOJI_ICON_MAP: Record<string, ChatToolIconName> = {
-  "🧠": "memory",
-  "📓": "memory",
   "🧩": "puzzle",
   "🛠️": "wrench",
   "🧰": "wrench",
@@ -58,6 +57,27 @@ const EMOJI_ICON_MAP: Record<string, ChatToolIconName> = {
   "🔌": "plug",
   "💬": "messageSquare",
 };
+
+const TOOL_ACTIVITY_ICONS = new Map<string, IconName>([
+  ["browser", "browserTool"],
+  ["canvas", "canvasTool"],
+  ["diffs", "diffsTool"],
+  ["lobster", "claw"],
+  ["file_fetch", "fileFetch"],
+  ["file_write", "fileWrite"],
+  ["dir_list", "directoryList"],
+  ["dir_fetch", "directoryFetch"],
+  ["intent", "intent"],
+  ["memory_search", "memory"],
+  ["memory_get", "memory"],
+  ["memory_recall", "memory"],
+  ["memory_store", "memoryStore"],
+  ["memory_forget", "memoryForget"],
+]);
+
+export function resolveToolActivityIcon(name?: string): IconName | undefined {
+  return TOOL_ACTIVITY_ICONS.get(normalizeLowercaseStringOrEmpty(name));
+}
 
 function iconForEmoji(emoji?: string): ChatToolIconName {
   if (!emoji) {
@@ -115,7 +135,7 @@ export function resolveToolDisplay(params: {
   const name = normalizeToolDisplayName(params.name);
   const key = normalizeLowercaseStringOrEmpty(name);
   const spec = TOOL_MAP[key];
-  const icon = spec?.icon ?? FALLBACK.icon ?? "puzzle";
+  const icon = resolveToolActivityIcon(name) ?? spec?.icon ?? FALLBACK.icon ?? "puzzle";
   const title = spec?.title ?? defaultTitle(name);
   const label = spec?.label ?? title;
   const toolDisplayParts = resolveToolVerbAndDetailForArgs({

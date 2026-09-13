@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   lstatSync,
   mkdtempSync,
@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   createPublicationSourceFact,
@@ -65,6 +65,28 @@ const toolingPaths = new Set([
   "scripts/lib/npm-json-output.mts",
   "packages/normalization-core/src/expect.ts",
   "src/utils/run-with-concurrency.ts",
+  "scripts/full-release-publication-observations.mts",
+  "scripts/lib/plugin-clawhub-release.ts",
+  "scripts/clawhub-prepared-artifact.mjs",
+  "scripts/clawhub-parent-authorization.mjs",
+  "scripts/plugin-publication-artifact.mjs",
+  "scripts/lib/actions-artifact-archive.mjs",
+  "scripts/lib/arg-utils.runtime.mjs",
+  "scripts/tsx.mjs",
+  "scripts/lib/tsx-cli-shim.mjs",
+  "scripts/lib/local-check-runtime.mts",
+  "packages/normalization-core/src/number-coercion.ts",
+  "packages/normalization-core/src/utf16-slice.ts",
+  "packages/ai/src/internal/retry-after.ts",
+  "packages/retry/src/index.ts",
+  "src/infra/clawhub-retry.ts",
+  "src/infra/map-size.ts",
+  "src/infra/retry-after.ts",
+  "src/infra/retry-attempt-errors.ts",
+  "src/infra/retry.ts",
+  "src/infra/secure-random.ts",
+  "src/logging/secret-redaction-registry.ts",
+  "src/shared/regexp.ts",
 ]);
 type Request = ReturnType<
   typeof import("./full-release-publication-contract.mjs").publicationSourceRequest
@@ -266,7 +288,119 @@ function projectSource(
   return { version: plan.version, packages, platforms };
 }
 
-function admitPublicationSource(request: Request, roots: { selected: string; tooling: string }) {
+async function collectVerifiedObservations(
+  scratch: string,
+  snapshot: string,
+  source: ReturnType<typeof createPublicationSourceFact>,
+) {
+  const home = join(scratch, "worker-home");
+  const temporary = join(scratch, "worker-tmp");
+  const cache = join(scratch, "worker-cache");
+  for (const directory of [home, temporary, cache]) {
+    mkdirSync(directory);
+  }
+  const request = join(scratch, "registry-request.json");
+  writeFileSync(
+    request,
+    publicationSourceJson({
+      snapshot,
+      source,
+      prerequisitesCompletedAt: new Date().toISOString(),
+    }),
+    { mode: 0o600 },
+  );
+  return await new Promise<string>((resolveResult, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        pathToFileURL(join(executionRoot, "scripts/tsx.mjs")).href,
+        join(executionRoot, "scripts/full-release-publication-observations.mts"),
+        request,
+      ],
+      {
+        cwd: executionRoot,
+        env: {
+          PATH: [dirname(process.execPath), "/usr/bin", "/bin"].join(delimiter),
+          HOME: home,
+          TMPDIR: temporary,
+          TMP: temporary,
+          TEMP: temporary,
+          XDG_CACHE_HOME: cache,
+          LANG: "C.UTF-8",
+          LC_ALL: "C.UTF-8",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const stdout: Buffer[] = [];
+    let stderr = Buffer.alloc(0);
+    let outputBytes = 0;
+    let failure: Error | undefined;
+    let forceKill: NodeJS.Timeout | undefined;
+    const stop = (error: Error, signal: NodeJS.Signals = "SIGTERM") => {
+      failure ??= error;
+      child.kill(signal);
+      forceKill ??= setTimeout(() => child.kill("SIGKILL"), 5_000);
+    };
+    const interrupt = () =>
+      stop(new Error("Publication observation worker interrupted by SIGINT."), "SIGINT");
+    const terminate = () =>
+      stop(new Error("Publication observation worker interrupted by SIGTERM."));
+    process.on("SIGINT", interrupt);
+    process.on("SIGTERM", terminate);
+    const deadline = setTimeout(
+      () => stop(new Error("Publication observation worker exceeded its collection deadline.")),
+      300_000,
+    );
+    child.stdout.on("data", (bytes: Buffer) => {
+      outputBytes += bytes.length;
+      if (outputBytes > 1024 * 1024) {
+        stop(new Error("Publication observation worker output exceeded byte limit."));
+      } else {
+        stdout.push(bytes);
+      }
+    });
+    child.stderr.on("data", (bytes: Buffer) => {
+      // Planners also log their retained advisory warnings. Drain them without
+      // converting warning volume into an admission failure; keep a bounded tail.
+      stderr = Buffer.concat([stderr, bytes]).subarray(-16 * 1024);
+    });
+    child.once("error", (error) => {
+      failure ??= new Error("Could not start publication observation worker.", { cause: error });
+    });
+    child.once("close", (code) => {
+      clearTimeout(deadline);
+      clearTimeout(forceKill);
+      process.off("SIGINT", interrupt);
+      process.off("SIGTERM", terminate);
+      if (failure || code !== 0) {
+        let message = "Publication observation worker failed before a bounded diagnostic.";
+        try {
+          const diagnostic = JSON.parse(stderr.toString("utf8").trim().split("\n").at(-1) ?? "");
+          if (
+            diagnostic?.stage === "publication-observations" &&
+            typeof diagnostic.error === "string" &&
+            diagnostic.error.length <= 1024
+          ) {
+            message = diagnostic.error;
+          }
+        } catch {
+          // Import/startup failures are not safe public registry diagnostics.
+        }
+        reject(failure ?? new Error(message));
+      } else {
+        resolveResult(Buffer.concat(stdout).toString("utf8"));
+      }
+    });
+  });
+}
+
+async function admitPublicationSource(
+  request: Request,
+  roots: { selected: string; tooling: string },
+  observationsOut?: string,
+) {
   const intent = normalizePublicationIntent(
     request.validationPurpose,
     request.publicationSelection === null
@@ -319,11 +453,16 @@ function admitPublicationSource(request: Request, roots: { selected: string; too
       writeFileSync(destination, localGit(store, ["cat-file", "blob", entry.oid]));
     }
     mkdirSync(join(snapshot, "extensions"), { recursive: true });
-    return createPublicationSourceFact(
+    const source = createPublicationSourceFact(
       request,
       plan.inventory,
       projectSource(request, snapshot, plan),
     );
+    if (observationsOut) {
+      const observations = await collectVerifiedObservations(scratch, snapshot, source);
+      writeFileSync(observationsOut, observations, { mode: 0o600 });
+    }
+    return source;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -340,7 +479,12 @@ if (process.argv[1]) {
 if (invokedAsMain) {
   try {
     const path = process.argv[2];
-    if (!path || !process.env.PUBLICATION_TARGET_ROOT) {
+    const observationsOut = process.argv[3] === "--observations-out" ? process.argv[4] : undefined;
+    if (
+      !path ||
+      !process.env.PUBLICATION_TARGET_ROOT ||
+      (process.argv.length !== 3 && (process.argv.length !== 5 || !observationsOut))
+    ) {
       throw new Error("publication source request and selected root required");
     }
     const bytes = readFileSync(path);
@@ -349,10 +493,14 @@ if (invokedAsMain) {
     }
     process.stdout.write(
       publicationSourceJson(
-        admitPublicationSource(JSON.parse(bytes.toString("utf8")), {
-          selected: process.env.PUBLICATION_TARGET_ROOT,
-          tooling: executionRoot,
-        }),
+        await admitPublicationSource(
+          JSON.parse(bytes.toString("utf8")),
+          {
+            selected: process.env.PUBLICATION_TARGET_ROOT,
+            tooling: executionRoot,
+          },
+          observationsOut,
+        ),
       ) + "\n",
     );
   } catch (error) {

@@ -47,24 +47,10 @@ const subagentRegistryReadMock = vi.hoisted(() => {
   return {
     buildSubagentSessionListReadIndex,
     countActiveDescendantRuns: vi.fn(() => 0),
-    getSessionDisplaySubagentRunByChildSessionKey: vi.fn(
-      (childSessionKey: string) => runsByChildSessionKey.get(childSessionKey) ?? null,
-    ),
     getSubagentSessionRuntimeMs: vi.fn(() => undefined),
     getSubagentSessionStartedAt: vi.fn(() => undefined),
     isSubagentRunLive: vi.fn(() => false),
     isSubagentRunQueued: vi.fn(() => false),
-    listSubagentRunsForController: vi.fn((controllerSessionKey: string) =>
-      [...runsByChildSessionKey.values()].filter((entry) => {
-        const controller =
-          typeof entry.controllerSessionKey === "string"
-            ? entry.controllerSessionKey
-            : typeof entry.requesterSessionKey === "string"
-              ? entry.requesterSessionKey
-              : undefined;
-        return controller === controllerSessionKey;
-      }),
-    ),
     resolveSubagentSessionStatus: vi.fn(() => undefined),
     setSubagentRunsForTest: (runs: Record<string, unknown>[]) => {
       runsByChildSessionKey = new Map(
@@ -211,7 +197,6 @@ function expectChildMovedToNewParent(fixture: MovingChildFixture, now: number): 
   expect(loadGatewaySessionRow(fixture.newParent, { now: now + 50 })?.childSessions).toEqual([
     fixture.child,
   ]);
-  expect(subagentRegistryReadMock.buildSubagentSessionListReadIndex).not.toHaveBeenCalled();
 }
 
 describe("single gateway session row child projections", () => {
@@ -462,7 +447,6 @@ describe("single gateway session row child projections", () => {
         expect(fresh.row?.childSessions).toBeUndefined();
         expect(rowA?.label).toBeUndefined();
         expect(rowA?.childSessions).toEqual(["agent:main:subagent:child-a"]);
-        expect(subagentRegistryReadMock.buildSubagentSessionListReadIndex).not.toHaveBeenCalled();
       },
     );
   });
@@ -586,9 +570,6 @@ describe("single gateway session row child projections", () => {
 
         expect(asyncListed.sessions).toHaveLength(1);
         expect(subagentRegistryReadMock.buildSubagentSessionListReadIndex).toHaveBeenCalledTimes(1);
-        expect(
-          subagentRegistryReadMock.getSessionDisplaySubagentRunByChildSessionKey,
-        ).not.toHaveBeenCalled();
       },
     );
   });

@@ -4,6 +4,7 @@ import { runBridgeRequest } from "./code-mode-bridge.js";
 import { createCodeModeCatalogProjection } from "./code-mode-catalog.js";
 import { createCodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
 import { CodeModeProgramDataInbox } from "./code-mode-program-data.js";
+import { createCodeModeResultsAccess } from "./code-mode-results.js";
 import { resolveCodeModeConfig, toToolSearchConfig } from "./code-mode-runtime.js";
 import {
   applyCodeModeCatalog,
@@ -143,6 +144,7 @@ it("refuses oversized discovery as a catchable bridge error and accepts a narrow
       expect(
         await runBridgeRequest({
           runtime,
+          results: createCodeModeResultsAccess(ctx, limits),
           catalogProjection: createCodeModeCatalogProjection(runtime.all({ includeMcp: false })),
           namespaceRuntime: createCodeModeNamespaceRuntime(),
           parentToolCallId: "search-admission",

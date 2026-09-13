@@ -15,7 +15,7 @@ vi.mock("openclaw/plugin-sdk/plugin-state-runtime", () => ({
   configureSqliteConnectionPragmas,
 }));
 
-import { createWorkboardSqliteStores } from "./sqlite-store.js";
+import { createWorkboardSqliteKernel } from "./sqlite-store-kernel.js";
 
 describe("Workboard SQLite policy", () => {
   beforeEach(() => {
@@ -31,7 +31,7 @@ describe("Workboard SQLite policy", () => {
     });
 
     try {
-      expect(() => createWorkboardSqliteStores({ dbPath })).toThrow(/SSHFS/);
+      expect(() => createWorkboardSqliteKernel(dbPath)).toThrow(/SSHFS/);
       expect(close).toHaveBeenCalledTimes(1);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

@@ -70,12 +70,6 @@ function resolvePairingRecoveryContext(params: {
   };
 }
 
-if (process.env.VITEST || process.env.NODE_ENV === "test") {
-  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.statusCommandTestApi")] = {
-    resolvePairingRecoveryContext,
-  };
-}
-
 function normalizeStatusWrapperPath(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;

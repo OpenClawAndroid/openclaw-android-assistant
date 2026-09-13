@@ -1,5 +1,6 @@
 import { html, nothing } from "lit";
 import { titleForRoute, visibleSettingsNavigationGroups } from "../app-navigation.ts";
+import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts";
 import { t } from "../i18n/index.ts";
 import { icons } from "./icons.ts";
 
@@ -41,7 +42,7 @@ export function renderLazySettingsSidebar(
     </section>`;
   }
   return html`<aside class="settings-sidebar" aria-busy=${failed ? nothing : "true"}>
-    <header class="settings-sidebar__header">
+    <header class="settings-sidebar__header" @mousedown=${beginNativeWindowDragFromTopInset}>
       <button type="button" class="settings-sidebar__back" @click=${props.onExit}>
         <span class="settings-sidebar__back-icon" aria-hidden="true">${icons.arrowLeft}</span>
         ${t("nav.exitSettings")}

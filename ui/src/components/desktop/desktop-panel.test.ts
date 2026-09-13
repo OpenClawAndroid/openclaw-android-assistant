@@ -922,57 +922,6 @@ describe("embedded desktop panel presentation", () => {
     expect(panel.isConnected).toBe(true);
   });
 
-  it("disconnects a hidden retained connection and reactivates at the picker", async () => {
-    const request = vi.fn(async (method: string) => {
-      if (method === "environments.list") {
-        return { environments: [desktopEnvironment] };
-      }
-      return {
-        transport: "rfb",
-        wsPath: "/desktop/observe?token=unit",
-        expiresAtMs: 60_000,
-        control: false,
-      };
-    });
-    const disconnect = vi.fn();
-    const connect = vi.fn(async (options: Parameters<DesktopClient["connect"]>[0]) => {
-      options.onConnect?.();
-      return createConnectionHandle({ disconnect });
-    });
-    const panel = createPanel();
-    panel.client = createGatewayClient(request).client;
-    panel.available = true;
-    panel.embedded = true;
-    panel.presented = true;
-    panel.desktopClientFactory = () => ({ connect });
-    document.body.append(panel);
-
-    await waitForFast(() => {
-      expect(request.mock.calls.filter(([method]) => method === "environments.list")).toHaveLength(
-        1,
-      );
-    });
-    clickPanelButton(panel);
-    await waitForFast(() => expect(connect).toHaveBeenCalledOnce());
-
-    panel.presented = false;
-    await panel.updateComplete;
-
-    expect(disconnect).toHaveBeenCalledOnce();
-    expect(panel.isConnected).toBe(true);
-
-    panel.presented = true;
-    await waitForFast(() => {
-      expect(request.mock.calls.filter(([method]) => method === "environments.list")).toHaveLength(
-        2,
-      );
-    });
-
-    expect(request.mock.calls.filter(([method]) => method === "desktop.observe")).toHaveLength(1);
-    expect(connect).toHaveBeenCalledOnce();
-    expect(panel.renderRoot.querySelector(".desktop-picker")).not.toBeNull();
-  });
-
   it("invalidates a pending observe before it can connect", async () => {
     let resolveObserve: (value: unknown) => void = (_value) => {
       throw new Error("observe request was not started");

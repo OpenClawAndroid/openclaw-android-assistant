@@ -64,6 +64,7 @@ const scopedGatewayMethodsIsolatedTestFiles = [
   "server-methods/agent.test.ts",
   "server-methods/board.runtime-boundaries.test.ts",
   "server-methods/chat.reset-visible-yield.test.ts",
+  "server-methods/health.owner-routing.test.ts",
   "server-methods/system-agent-setup-control-ui.test.ts",
   "server-methods/users-preferences.test.ts",
   "server-methods/usage.test.ts",
@@ -130,7 +131,7 @@ describe("projects vitest config", () => {
     expect(agentConfigs.size).toBe(agentVitestProjectConfigs.length);
   });
 
-  it("keeps module-mocking Gateway tests isolated in every aggregate", () => {
+  it("keeps Gateway tests needing native process state or module isolation in every aggregate", () => {
     const methodsIsolatedProject = "test/vitest/vitest.gateway-methods-isolated.config.ts";
     const serverIsolatedProject = "test/vitest/vitest.gateway-server-isolated.config.ts";
     const agenticShard = fullSuiteVitestShards.find((shard) => shard.name === "agentic");
@@ -145,6 +146,7 @@ describe("projects vitest config", () => {
     expect(agenticShard?.projects).toContain(methodsIsolatedProject);
     expect(agenticShard?.projects).toContain(serverIsolatedProject);
     expect(methodsIsolatedConfig.isolate).toBe(true);
+    expect(methodsIsolatedConfig.pool).toBe("forks");
     expect(normalizeConfigPath(methodsIsolatedConfig.runner)).toBe("test/non-isolated-runner.ts");
     expect(methodsIsolatedConfig.include).toEqual(scopedGatewayMethodsIsolatedTestFiles);
     expect(serverConfig.pool).toBe("forks");
@@ -159,6 +161,9 @@ describe("projects vitest config", () => {
     expect(gatewayFallback.exclude).toContain(overrideFixture);
     expect(methodsConfig.exclude).toContain("src/gateway/server-methods/agent.test.ts");
     expect(methodsConfig.exclude).toContain(
+      "src/gateway/server-methods/health.owner-routing.test.ts",
+    );
+    expect(methodsConfig.exclude).toContain(
       "src/gateway/server-methods/board.runtime-boundaries.test.ts",
     );
     expect(methodsConfig.exclude).toContain(
@@ -168,6 +173,9 @@ describe("projects vitest config", () => {
       "src/gateway/server-methods/system-agent-setup-control-ui.test.ts",
     );
     expect(gatewayFallback.exclude).toContain("src/gateway/server-methods/agent.test.ts");
+    expect(gatewayFallback.exclude).toContain(
+      "src/gateway/server-methods/health.owner-routing.test.ts",
+    );
     expect(gatewayFallback.exclude).toContain(
       "src/gateway/server-methods/board.runtime-boundaries.test.ts",
     );
@@ -580,7 +588,7 @@ describe("projects vitest config", () => {
     expect(testConfig.sequence).toMatchObject({ groupOrder: 1 });
   });
 
-  it.each(["logbook", "team-reports"])(
+  it.each(["logbook", "team-reports", "workboard"])(
     "runs %s database owners in main-thread hosts across focused and full suites",
     (pluginId) => {
       const project = "test/vitest/vitest.extension-database-workers.config.ts";
@@ -600,6 +608,7 @@ describe("projects vitest config", () => {
       expect(testConfig.include).toEqual([
         "logbook/**/*.test.ts",
         "team-reports/**/*.test.ts",
+        "workboard/**/*.test.ts",
         "imessage/src/approval-reactions.persistence.test.ts",
       ]);
       expect(requireTestConfig(createExtensionsVitestConfig({})).exclude).toContain(

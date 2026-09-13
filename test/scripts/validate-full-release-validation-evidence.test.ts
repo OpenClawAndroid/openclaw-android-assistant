@@ -123,87 +123,98 @@ describe("full release validation evidence", () => {
     expect(expectedPublicationSelection).not.toHaveBeenCalled();
   });
 
-  it.each(["publish", "diagnostic", "missing", "selection", "context", "tooling"])(
-    "authenticates new source-admission evidence: %s",
-    (scenario) => {
-      const selection: PublicationSelection = {
-        route: "normal",
-        npmDistTag: "latest",
-        publishOpenclawNpm: true,
-        pluginPublishScope: "all-publishable",
-        plugins: [],
-      };
-      const request = publicationSourceRequest({
-        PUBLICATION_INPUTS_JSON: JSON.stringify({
-          ref: targetSha,
-          trusted_workflow_json: publicationDispatchEnvelope(null, {
-            validationPurpose: scenario === "diagnostic" ? "diagnostic" : "publish",
-            publicationSelection: scenario === "diagnostic" ? null : selection,
-          }),
-          release_profile: "full",
-          rerun_group: "all",
+  it.each([
+    "publish",
+    "diagnostic",
+    "missing",
+    "selection",
+    "context",
+    "tooling",
+    "missing-publication",
+  ])("authenticates new source-admission evidence: %s", (scenario) => {
+    const selection: PublicationSelection = {
+      route: "normal",
+      npmDistTag: "latest",
+      publishOpenclawNpm: true,
+      pluginPublishScope: "all-publishable",
+      plugins: [],
+    };
+    const request = publicationSourceRequest({
+      PUBLICATION_INPUTS_JSON: JSON.stringify({
+        ref: targetSha,
+        trusted_workflow_json: publicationDispatchEnvelope(null, {
+          validationPurpose: scenario === "diagnostic" ? "diagnostic" : "publish",
+          publicationSelection: scenario === "diagnostic" ? null : selection,
         }),
-        PUBLICATION_TARGET_CONTEXT: "release/2026.9.9",
-        PUBLICATION_TOOLING_JSON: JSON.stringify({ fullRef: "refs/heads/main", sha: workflowSha }),
-        PUBLICATION_TARGET_SHA: targetSha,
-        GITHUB_REPOSITORY: "openclaw/openclaw",
-        GITHUB_REF: `refs/heads/${pinnedBranch}`,
-        GITHUB_SHA: workflowSha,
-        GITHUB_RUN_ID: "123",
-        GITHUB_RUN_ATTEMPT: "2",
+        release_profile: "full",
+        rerun_group: "all",
+      }),
+      PUBLICATION_TARGET_CONTEXT: "release/2026.9.9",
+      PUBLICATION_TOOLING_JSON: JSON.stringify({ fullRef: "refs/heads/main", sha: workflowSha }),
+      PUBLICATION_TARGET_SHA: targetSha,
+      GITHUB_REPOSITORY: "openclaw/openclaw",
+      GITHUB_REF: `refs/heads/${pinnedBranch}`,
+      GITHUB_SHA: workflowSha,
+      GITHUB_RUN_ID: "123",
+      GITHUB_RUN_ATTEMPT: "2",
+    });
+    const source = createPublicationSourceFact(
+      request,
+      scenario === "diagnostic" ? null : { packages: [], platforms: [] },
+      scenario === "diagnostic"
+        ? null
+        : {
+            version: "2026.9.9",
+            packages: [{ name: "openclaw", version: "2026.9.9", targets: ["npm"] }],
+            platforms: [],
+          },
+    );
+    const manifest = releaseManifest({
+      sourceAdmissionContract: "1",
+      sourceAdmission: source,
+      releaseProfile: "full",
+      rerunGroup: "all",
+      runReleaseSoak: "true",
+      trustedWorkflow: {
+        fullRef: scenario === "tooling" ? "refs/heads/other" : "refs/heads/main",
+        sha: workflowSha,
+      },
+      validationInputs: {
+        ...publicationIntentInputs(source),
+        targetContextRef: scenario === "context" ? "release/2026.9.8" : "release/2026.9.9",
+        allowUnreleasedChangelog: "false",
+      },
+    });
+    if (scenario === "missing") {
+      delete (manifest as Record<string, unknown>).sourceAdmission;
+      delete (manifest as Record<string, unknown>).sourceAdmissionContract;
+    }
+    const run = () =>
+      validateFullReleaseValidationEvidence({
+        run: releaseRun(),
+        manifest,
+        getWorkflowSource: () =>
+          'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n' +
+          (scenario === "missing-publication"
+            ? '  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n'
+            : ""),
+        expectedRepository: "openclaw/openclaw",
+        expectedRunId: "123",
+        expectedTargetSha: targetSha,
+        isTrustedMainAncestor: () => true,
+        expectedPublicationSelection: (): PublicationSelection => ({
+          ...selection,
+          route: scenario === "selection" ? "prepared" : "normal",
+        }),
       });
-      const source = createPublicationSourceFact(
-        request,
-        scenario === "diagnostic" ? null : { packages: [], platforms: [] },
-        scenario === "diagnostic"
-          ? null
-          : {
-              version: "2026.9.9",
-              packages: [{ name: "openclaw", version: "2026.9.9", targets: ["npm"] }],
-              platforms: [],
-            },
+    if (scenario === "publish") {
+      expect(run).not.toThrow();
+    } else {
+      expect(run).toThrow(
+        /source.admission|source admission|publication|cannot prepare publication/iu,
       );
-      const manifest = releaseManifest({
-        sourceAdmissionContract: "1",
-        sourceAdmission: source,
-        releaseProfile: "full",
-        rerunGroup: "all",
-        runReleaseSoak: "true",
-        trustedWorkflow: {
-          fullRef: scenario === "tooling" ? "refs/heads/other" : "refs/heads/main",
-          sha: workflowSha,
-        },
-        validationInputs: {
-          ...publicationIntentInputs(source),
-          targetContextRef: scenario === "context" ? "release/2026.9.8" : "release/2026.9.9",
-          allowUnreleasedChangelog: "false",
-        },
-      });
-      if (scenario === "missing") {
-        delete (manifest as Record<string, unknown>).sourceAdmission;
-        delete (manifest as Record<string, unknown>).sourceAdmissionContract;
-      }
-      const run = () =>
-        validateFullReleaseValidationEvidence({
-          run: releaseRun(),
-          manifest,
-          getWorkflowSource: () => 'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n',
-          expectedRepository: "openclaw/openclaw",
-          expectedRunId: "123",
-          expectedTargetSha: targetSha,
-          isTrustedMainAncestor: () => true,
-          expectedPublicationSelection: (): PublicationSelection => ({
-            ...selection,
-            route: scenario === "selection" ? "prepared" : "normal",
-          }),
-        });
-      if (scenario === "publish") {
-        expect(run).not.toThrow();
-      } else {
-        expect(run).toThrow(/source.admission|source admission|cannot prepare publication/u);
-      }
-    },
-  );
+    }
+  });
 
   it.each(["main", pinnedBranch])(
     "binds npm beta coverage to its exact publication tag on %s",

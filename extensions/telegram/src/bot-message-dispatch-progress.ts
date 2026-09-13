@@ -5,7 +5,12 @@ import {
   type ChannelProgressDraftLine,
 } from "openclaw/plugin-sdk/channel-outbound";
 import type { TelegramBotDeps } from "./bot-deps.js";
-import { resetLaneState, rotateAnswerLaneAfterToolProgress } from "./bot-message-dispatch-draft.js";
+import {
+  enqueueDraftEvent,
+  resetLaneState,
+  rotateAnswerLaneAfterToolProgress,
+  rotateAnswerLaneForNewMessage,
+} from "./bot-message-dispatch-draft.js";
 import type {
   TelegramDispatchTurn as Turn,
   TelegramDispatchTurnConfig as TurnConfig,
@@ -212,13 +217,26 @@ export async function handleToolStart(
   payload: CallbackPayload<"onToolStart">,
 ): Promise<boolean> {
   const toolName = payload.name?.trim();
-  const progressPromise = pushProgressEvent(turn, () =>
-    turn.progressCompositor.pushToolEvent(payload),
-  );
+  let rendered = false;
+  const progressPromise = enqueueDraftEvent(turn, async () => {
+    if (
+      payload.phase !== "update" &&
+      turn.answerLane.stream &&
+      turn.streamMode !== "progress" &&
+      !turn.activeAnswerDraftIsToolProgressOnly
+    ) {
+      // A tool invalidates unaccepted answer text, including pending lazy previews.
+      // Serialize with partials so earlier text cannot arrive after retirement.
+      await rotateAnswerLaneForNewMessage(turn);
+      turn.progressCompositor.resetActivity();
+    }
+    rendered = await pushProgressEvent(turn, () => turn.progressCompositor.pushToolEvent(payload));
+  });
   if (turn.statusReactionController && toolName) {
     await turn.statusReactionController.setTool(toolName);
   }
-  return await progressPromise;
+  await progressPromise;
+  return rendered;
 }
 
 export async function handleCompactionStart(turn: Turn): Promise<boolean> {

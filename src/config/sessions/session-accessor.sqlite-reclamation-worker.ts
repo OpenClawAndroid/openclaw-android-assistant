@@ -11,6 +11,7 @@ import {
   type OpenClawAgentDatabaseWorkerLeaseReceipt,
 } from "../../state/openclaw-agent-db-lease.js";
 import { registerOpenClawAgentDatabaseAsyncResource } from "../../state/openclaw-agent-db-lifecycle.js";
+import { runOpenClawAgentWorkerWrite } from "../../state/openclaw-agent-write-admission.js";
 import {
   captureOpenClawStateDatabaseReadAdmission,
   registerOpenClawStateDatabaseAsyncResource,
@@ -319,9 +320,21 @@ class SqliteReclamationWorker {
     }
     return (this.closing ??= (async () => {
       await this.active?.catch(() => {});
-      this.worker?.ref();
-      this.worker?.postMessage({ type: "close" });
-      await this.exited;
+      const worker = this.worker;
+      if (worker) {
+        worker.ref();
+        await runOpenClawAgentWorkerWrite(this.options, async () => {
+          try {
+            worker.postMessage({ type: "close" }, []);
+          } catch (error) {
+            await worker.terminate();
+            throw error;
+          } finally {
+            // Checkpoint and native close retain admission even if dispatch fails.
+            await this.exited;
+          }
+        });
+      }
       // Native exit is joined before exact receipt cleanup; PID-wide cleanup is never safe.
       if (this.lease) {
         releaseExitedOpenClawAgentDatabaseWorkerLease(this.lease);

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 // Maturity docs renderer tests cover evidence-backed generated-doc checks.
 import fs from "node:fs";
 import path from "node:path";
+import { Parser } from "htmlparser2";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
@@ -9,7 +10,7 @@ import {
   qaProfileEvidencePlan,
   readQaMaturityTaxonomySource,
 } from "../../extensions/qa-lab/test-api.js";
-import { parseDocsDocument } from "../../scripts/lib/docs-markdown.mjs";
+import { createDocsMarkdown, parseDocsDocument } from "../../scripts/lib/docs-markdown.mjs";
 import { createTempDirTracker } from "../helpers/temp-dir.js";
 
 const repoRoot = path.resolve(__dirname, "../..");
@@ -751,6 +752,177 @@ describe("maturity docs renderer CLI", () => {
       expect(document.collisions).toEqual([]);
     }
   });
+
+  it.each(["absent", "matching", "mismatched"] as const)(
+    "renders %s decision history without changing strict validation or current judgments",
+    (history) => {
+      const dir = tempDirs.make("openclaw-maturity-decisions-");
+      const taxonomyPath = path.join(dir, "taxonomy.yaml");
+      const scoresPath = path.join(dir, "scores.yaml");
+      const evidenceDir = path.join(dir, "evidence");
+      const record = <T extends string | number | boolean>(value: T) => ({
+        value,
+        rationale:
+          'Synthetic <review> {context} | "quoted" & `code` [link](https://example.test)\nsecond line',
+        reviewer: "Fixture reviewer",
+        evidence_refs: ["qa/fixture-one", "qa/fixture-two"],
+        revalidate_when: "The reviewed behavior changes",
+      });
+      const reviewed = history !== "absent";
+      const mismatch = history === "mismatched";
+      const score = (value: number, label: string) => ({ score: value, label });
+      const bundle = {
+        quality: score(70, "Beta"),
+        completeness: score(80, "Stable"),
+      };
+      const authored = {
+        quality: {
+          ...bundle.quality,
+          ...(reviewed ? { decision: record(mismatch ? 69 : 70) } : {}),
+        },
+        completeness: {
+          ...bundle.completeness,
+          ...(reviewed ? { decision: record(mismatch ? 79 : 80) } : {}),
+        },
+      };
+      fs.writeFileSync(
+        taxonomyPath,
+        stringifyYaml({
+          version: 1,
+          title: "Synthetic decision fixture",
+          levels: [
+            { id: "experimental", code: "M1", label: "Experimental" },
+            { id: "stable", code: "M4", label: "Stable" },
+          ],
+          surfaces: [
+            {
+              id: "tools",
+              name: "Fixture tools",
+              family: "core",
+              level: "experimental",
+              ...(reviewed ? { level_decision: record(mismatch ? "stable" : "experimental") } : {}),
+              categories: [
+                {
+                  id: "review",
+                  name: "Review",
+                  category_note: "Synthetic review",
+                  features: [{ name: "Fixture feature", coverageIds: ["tools.evidence"] }],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      fs.writeFileSync(
+        scoresPath,
+        stringifyYaml({
+          version: 1,
+          process_version: 1,
+          counts: { active_surfaces: 1, category_scores: 1 },
+          rollups: { surface_average: bundle, category_average: bundle },
+          surfaces: [
+            {
+              id: "tools",
+              name: "Fixture tools",
+              level: "experimental",
+              scores: authored,
+              categories: [
+                {
+                  name: "Review",
+                  ...authored,
+                  lts: {
+                    supported: false,
+                    human_override: false,
+                    ...(reviewed ? { decision: record(mismatch) } : {}),
+                  },
+                },
+              ],
+              lts: { supported_categories: 0, total_categories: 1, status: "none" },
+            },
+          ],
+        }),
+      );
+      writeQaEvidence({
+        dir: evidenceDir,
+        taxonomyPath,
+        entries: [{ id: "synthetic-review", status: "pass" }],
+        scorecard: allProfileScorecardFixture(1, taxonomyPath),
+      });
+      const result = runCli(
+        "--taxonomy",
+        taxonomyPath,
+        "--scores",
+        scoresPath,
+        "--evidence-dir",
+        evidenceDir,
+        "--output-dir",
+        dir,
+        "--strict-inputs",
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+      const scorecard = fs.readFileSync(path.join(dir, "maturity/scorecard.md"), "utf8");
+      const taxonomy = fs.readFileSync(path.join(dir, "maturity/taxonomy.md"), "utf8");
+      for (const markdown of [scorecard, taxonomy]) {
+        expect(markdown).toContain("<summary>Decision context</summary>");
+        const decisionBlocks =
+          markdown.match(/<details>\s*<summary>Decision context<\/summary>[\s\S]*?<\/details>/gu) ??
+          [];
+        expect(decisionBlocks.length).toBeGreaterThan(0);
+        for (const block of decisionBlocks) {
+          // Native labelled flow avoids forbidden table elements and conflicting ARIA roles.
+          expect(block).not.toMatch(/<\/?(?:table|thead|tbody|tr|th|td)(?:\s|>)|\srole=/u);
+          expect(block).not.toMatch(/<p>(?:(?!<\/p>)[\s\S])*<div>/u);
+        }
+        expect(markdown).toContain("Coverage Experimental - 0%");
+        const md = createDocsMarkdown();
+        const document = parseDocsDocument(markdown, md);
+        expect(document.collisions).toEqual([]);
+        const visibleText: string[] = [];
+        const tags: string[] = [];
+        const parser = new Parser({
+          ontext: (value) => visibleText.push(value),
+          onopentag: (name) => {
+            tags.push(name);
+            if (name === "br") {
+              visibleText.push("\n");
+            }
+          },
+        });
+        parser.end(md.renderer.render(document.tokens, md.options, document.env));
+        const textContent = visibleText.join("");
+        for (const [label, value] of [
+          ["Level", "experimental"],
+          ["Quality", "70"],
+          ["Completeness", "80"],
+        ]) {
+          expect(textContent).toContain(`${label}Current value: ${value}Recorded decision: `);
+        }
+        expect(tags).not.toContain("review");
+        expect(markdown.includes("Non-gating mismatch")).toBe(mismatch);
+        expect(markdown.includes("Unknown (not recorded)")).toBe(!reviewed);
+        if (reviewed) {
+          for (const text of [
+            `Rationale: ${record(70).rationale}`,
+            "Reviewer: Fixture reviewer",
+            "Evidence: qa/fixture-one; qa/fixture-two",
+            "Revalidate when: The reviewed behavior changes",
+            `Recorded value: ${mismatch ? "stable" : "experimental"}`,
+            `Recorded value: ${mismatch ? 69 : 70}`,
+            `Recorded value: ${mismatch ? 79 : 80}`,
+          ]) {
+            expect(textContent).toContain(text);
+          }
+        }
+      }
+      expect(scorecard).toContain('<span className="maturity-summary-value">75%</span>');
+      expect(taxonomy).toContain("<span>Review / LTS</span>");
+      expect(taxonomy).toContain("<p>Current value: <span>false</span></p>");
+      expect(taxonomy).not.toContain(" / LTS-supported");
+      expect(taxonomy.match(/Non-gating mismatch/g) ?? []).toHaveLength(mismatch ? 6 : 0);
+      expect(scorecard.match(/Non-gating mismatch/g) ?? []).toHaveLength(mismatch ? 3 : 0);
+    },
+  );
 
   it("renders the maturity score from quality and completeness without coverage", () => {
     const outputDir = tempDirs.make("openclaw-maturity-docs-output-");

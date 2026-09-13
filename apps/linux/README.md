@@ -10,6 +10,21 @@ The tray's **Stop Gateway** and **Restart Gateway** actions request graceful shu
 
 After a connection drops, the companion keeps reconnecting while the service state is unknown. **Start Gateway** remains available only for a confirmed stopped service.
 
+The companion uses a unified title bar that blends into the dashboard. Drag the
+empty header space, a session title, or the thin strip below the top resize edge
+to move the window. Double-click those areas to maximize or restore it; buttons
+and editable content keep their normal behavior. The window edges still resize.
+Linux and Windows builds place minimize, maximize/restore, and close at the top
+right. macOS test builds retain native traffic lights at the top left. Closing
+the main window keeps the companion in the tray; closing a separate discovered
+Gateway window closes that window.
+While a page loads, redirects outside the dashboard, or opens a modal dialog,
+Linux and Windows keep the system title bar available until the companion's
+controls can receive input again.
+Dashboards opt into the unified title bar only when their UI supports its layout
+and modal handling. Older Gateways keep the system title bar and their existing
+dashboard controls; update the Gateway to enable the unified layout.
+
 Published AMD64 AppImages are built on Ubuntu 22.04 and require glibc 2.35 or
 newer plus a `libstdc++` that provides `GLIBCXX_3.4.30`. Ubuntu 22.04 and
 Debian 12 meet that ABI floor. RHEL 9 and Rocky Linux 9 ship glibc 2.34, so
@@ -128,6 +143,24 @@ automated scope checks verify the child viewport dimensions and retained tabs.
 The script exits nonzero on assertion or cleanup failure. `--help` describes all
 options without connecting to the app.
 
+### Native title bar regression on Linux
+
+The first-run driver can exercise window movement and controls through real X11
+pointer input. Install `openbox`, `wmctrl`, `xdotool`, `x11-utils`, and
+ImageMagick alongside the driver's Xvfb, D-Bus, and AT-SPI dependencies, then run:
+
+```bash
+xvfb-run -a -s '-screen 0 1440x1000x24' dbus-run-session -- \
+  /usr/bin/python3 apps/linux/tests/first_run.py \
+  apps/linux/src-tauri/target/debug/openclaw-desktop --window-chrome \
+  --artifacts-dir /tmp/openclaw-window-chrome-proof
+```
+
+The driver creates an isolated HOME and desktop session. It checks drag geometry,
+double-click maximize/restore, caption buttons, corner resizing, and closing to
+the tray. Screenshots and observed window geometry remain in the artifact
+directory. This X11 proof does not replace testing a Wayland compositor.
+
 ## First-run setup
 
 The welcome screen explains what OpenClaw can do and asks where your assistant
@@ -155,6 +188,14 @@ OpenSSH configuration and host-key verification; keep the remote Gateway bound
 to loopback when possible. See the
 [remote access guide](https://docs.openclaw.ai/gateway/remote) for Gateway
 authentication and network requirements.
+
+Use **Connection Settings** in the native tray menu to edit a remote connection.
+Opening settings reads only the saved address and transport settings; it does not
+resolve credentials, and token and password fields stay empty. **Retry** reconnects
+to the saved remote Gateway with freshly resolved credentials without rewriting
+configuration or installing or starting a local service. Opening the remote
+dashboard does not prove Gateway availability or successful authentication; check
+the dashboard for HTTP errors, authentication prompts, and Gateway readiness.
 
 After connecting, Model Setup discovers AI access available to the selected
 Gateway and shows it as a choice. Discovery never imports or copies an account,

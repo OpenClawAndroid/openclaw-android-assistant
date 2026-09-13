@@ -13,7 +13,7 @@ import type {
   TasksRecoveryResult,
 } from "../../../../packages/gateway-protocol/src/schema/tasks.js";
 import { t } from "../../i18n/index.ts";
-import { formatDurationCompact } from "../format.ts";
+import { formatDurationCompact } from "../format-duration.ts";
 import { normalizeTaskSummary, type TaskStatus, type TaskSummary } from "./task-summary.ts";
 
 type TaskTimestamp = NonNullable<TaskSummary["updatedAt"]>;

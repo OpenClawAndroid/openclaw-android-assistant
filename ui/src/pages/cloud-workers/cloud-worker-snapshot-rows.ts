@@ -2,7 +2,8 @@ import { html, nothing } from "lit";
 import type { EnvironmentSummary } from "../../../../packages/gateway-protocol/src/index.js";
 import { renderSettingsRow, renderSettingsStatus } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
-import { formatDurationHuman, formatRelativeTimestamp } from "../../lib/format.ts";
+import { formatDurationHuman } from "../../lib/format-duration.ts";
+import { formatRelativeTimestamp } from "../../lib/format.ts";
 
 export type SnapshotImage = {
   profileKey: string;

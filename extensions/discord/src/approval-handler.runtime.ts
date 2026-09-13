@@ -19,6 +19,7 @@ import {
   DISCORD_APPROVAL_ALLOWED_MENTIONS,
   formatDiscordApprovalDisplayValue,
 } from "./approval-message-safety.js";
+import { discordApprovalMessageUpdates } from "./approval-message-updates.js";
 import { shouldHandleDiscordApprovalRequest } from "./approval-shared.js";
 import { isDiscordExecApprovalClientEnabled } from "./exec-approvals.js";
 import {
@@ -341,12 +342,14 @@ async function updateMessage(params: {
       accountId: params.accountId,
     });
     const payload = buildExecApprovalPayload(params.container);
-    await discordRequest(
-      () =>
-        editChannelMessage(rest, params.channelId, params.messageId, {
-          body: stripUndefinedFields(serializePayload(payload)),
-        }),
-      "update-approval",
+    await discordApprovalMessageUpdates.enqueue(params.messageId, () =>
+      discordRequest(
+        () =>
+          editChannelMessage(rest, params.channelId, params.messageId, {
+            body: stripUndefinedFields(serializePayload(payload)),
+          }),
+        "update-approval",
+      ),
     );
   } catch (err) {
     logError(`discord approvals: failed to update message: ${String(err)}`);
@@ -372,9 +375,11 @@ async function finalizeMessage(params: {
       token: params.token,
       accountId: params.accountId,
     });
-    await discordRequest(
-      () => deleteChannelMessage(rest, params.channelId, params.messageId),
-      "delete-approval",
+    await discordApprovalMessageUpdates.enqueue(params.messageId, () =>
+      discordRequest(
+        () => deleteChannelMessage(rest, params.channelId, params.messageId),
+        "delete-approval",
+      ),
     );
   } catch (err) {
     logError(`discord approvals: failed to delete message: ${String(err)}`);

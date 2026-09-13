@@ -1,3 +1,4 @@
+import { Value } from "typebox/value";
 import { afterEach, expect, test } from "vitest";
 import { peekSystemEventEntries, resetSystemEventsForTest } from "../infra/system-events.js";
 import { findTaskByRunId } from "../tasks/task-registry-query.js";
@@ -129,6 +130,7 @@ test.skipIf(process.platform === "win32").each([
 
     expect(outcome.status).toBe(expectedStatus);
     expect(details.status).toBe(expectedStatus);
+    expect(Value.Check(processTool.outputSchema!, poll.details)).toBe(true);
     expect(details.exitCode).toBe(expectedExitCode);
     expect(getFinishedSession(run.session.id)?.terminalStatus).toBe(expectedStatus);
     expect(textContent(poll)).toContain(`Process exited with ${expectedExitLabel}.`);
@@ -478,6 +480,7 @@ test.skipIf(process.platform === "win32")(
       expect(textContent(killed)).toBe(`Termination requested for session ${sessionId}.`);
       // A performed kill must not read as a failed tool call.
       expect(killed.details).toMatchObject({ status: "completed" });
+      expect(Value.Check(processTool.outputSchema!, killed.details)).toBe(true);
 
       await expect
         .poll(
@@ -511,6 +514,7 @@ test.skipIf(process.platform === "win32")(
         sessionId,
       });
       expect(completedLog.details).toMatchObject({ status: "failed", sessionId });
+      expect(Value.Check(processTool.outputSchema!, completedLog.details)).toBe(true);
       expect(textContent(completedLog)).toContain("LINE:alpha");
       expect(textContent(completedLog)).toContain("LINE:beta");
       expect(textContent(completedLog)).toContain("CONTROL:CTRL-C:2");

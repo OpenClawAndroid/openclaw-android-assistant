@@ -23,6 +23,10 @@ import {
   type SlackApprovalAction,
 } from "../../approval-actions.js";
 import { isSlackApprovalAuthorizedSender } from "../../approval-auth.js";
+import {
+  hasSlackApprovalControl,
+  runSlackApprovalMessageUpdate,
+} from "../../approval-message-updates.js";
 import { isSlackExecApprovalAuthorizedSender } from "../../exec-approvals.js";
 import { dispatchSlackPluginInteractiveHandler } from "../../interactive-dispatch.js";
 import { decodeSlackQuestionAction, resolveSlackQuestionAction } from "../../question-actions.js";
@@ -671,26 +675,41 @@ async function handleSlackApprovalInteraction(params: {
     });
     const terminalLabel = resolveSlackApprovalTerminalLabel(result.approval);
     const prefix = result.applied ? "Resolved" : "Already resolved";
+    const { channelId, messageTs } = params.parsed;
     let terminalized = false;
-    try {
-      // Always terminalize the clicked message. Generic forwarding does not retain
-      // a receipt for the resolved-event updater, and event/local updates may race.
-      const terminalText = `${prefix}: ${terminalLabel}`;
-      await updateSlackInteractionMessage({
-        ctx: params.ctx,
-        eventScope: params.eventScope,
-        channelId: params.parsed.channelId,
-        messageTs: params.parsed.messageTs,
-        text: truncateSlackText(terminalText, 4000),
-        blocks: buildSlackApprovalTerminalBlocks({
-          blocks: params.parsed.typedBody.message?.blocks,
-          label: terminalLabel,
-          prefix,
-        }),
-      });
-      terminalized = true;
-    } catch {
-      // Best-effort terminal presentation only; canonical Gateway state already won.
+    if (channelId && messageTs) {
+      try {
+        terminalized = await runSlackApprovalMessageUpdate(
+          { accountId: params.ctx.accountId, channelId, messageTs },
+          async () => {
+            const { readSlackMessages } = await import("../../actions.js");
+            const { messages } = await readSlackMessages(channelId, {
+              client: params.eventScope?.client ?? params.ctx.app.client,
+              messageId: messageTs,
+              threadId: params.parsed.threadTs,
+            });
+            const current = messages[0];
+            if (!hasSlackApprovalControl(current?.blocks, params.approval)) {
+              return false;
+            }
+            await updateSlackInteractionMessage({
+              ctx: params.ctx,
+              eventScope: params.eventScope,
+              channelId,
+              messageTs,
+              text: truncateSlackText(`${prefix}: ${terminalLabel}`, 4000),
+              blocks: buildSlackApprovalTerminalBlocks({
+                blocks: current?.blocks,
+                label: terminalLabel,
+                prefix,
+              }),
+            });
+            return true;
+          },
+        );
+      } catch {
+        // Best-effort terminal presentation only; canonical Gateway state already won.
+      }
     }
     if (!terminalized || !result.applied) {
       await respondEphemeral(

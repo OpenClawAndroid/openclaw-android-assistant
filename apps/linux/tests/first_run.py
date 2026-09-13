@@ -10,6 +10,7 @@ intentionally starts installation instead of showing the channel chooser.
 --local-start-failure uses a fixture CLI to exercise failed local startup.
 --inline-browser uses a synthetic saved Gateway to exercise native child WebViews
 and requires xdotool for real pointer input.
+--window-chrome checks dragging, resizing, and window controls with xdotool and Openbox.
 """
 
 import argparse
@@ -172,7 +173,7 @@ def interrupted(signum, _frame):
     raise RuntimeError(f"Native first-run smoke interrupted by signal {signum}")
 
 
-def drive(binary, *, remote_only, local_start_failure, inline_browser, artifacts_dir):
+def drive(binary, *, remote_only, local_start_failure, inline_browser, window_chrome, artifacts_dir):
     try:
         import gi
 
@@ -188,6 +189,10 @@ def drive(binary, *, remote_only, local_start_failure, inline_browser, artifacts
 
     def capture(outcome):
         if artifacts_dir is None:
+            return
+        if window_chrome:
+            if outcome == "failed" and inline_fixture is not None:
+                inline_fixture.capture("failed")
             return
         if inline_browser:
             scenario = "inline-browser"
@@ -221,6 +226,11 @@ def drive(binary, *, remote_only, local_start_failure, inline_browser, artifacts
         from inline_browser import GatewayFixture
 
         inline_fixture = GatewayFixture(artifacts_dir)
+        inline_fixture.start()
+    elif window_chrome:
+        from window_chrome import WindowChromeFixture
+
+        inline_fixture = WindowChromeFixture(artifacts_dir)
         inline_fixture.start()
 
     with Path("app.log").open("wb") as log:
@@ -283,6 +293,11 @@ def main():
         action="store_true",
         help="Verify real WebKit child input, snapshots, history and dashboard replacement",
     )
+    scenarios.add_argument(
+        "--window-chrome",
+        action="store_true",
+        help="Verify real window dragging, resizing, maximize, minimize, and close controls",
+    )
     args = parser.parse_args()
     if sys.platform != "linux" or os.geteuid() == 0:
         parser.error("Run on Linux as a non-root user; do not disable the WebKit sandbox")
@@ -296,6 +311,10 @@ def main():
         parser.error("The minimal system PATH must not contain an OpenClaw CLI")
     if args.inline_browser and not os.access("/usr/bin/xdotool", os.X_OK):
         parser.error("Inline browser pointer proof requires xdotool")
+    if args.window_chrome:
+        for tool in ("xdotool", "wmctrl", "xprop", "xwininfo", "openbox"):
+            if shutil.which(tool) is None:
+                parser.error(f"Window chrome proof requires {tool}")
     if args.artifacts_dir:
         args.artifacts_dir = args.artifacts_dir.resolve()
         args.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -308,6 +327,7 @@ def main():
             remote_only=args.remote_only,
             local_start_failure=args.local_start_failure,
             inline_browser=args.inline_browser,
+            window_chrome=args.window_chrome,
             artifacts_dir=args.artifacts_dir,
         )
         return
@@ -373,6 +393,8 @@ def main():
             command.append("--local-start-failure")
         if args.inline_browser:
             command.append("--inline-browser")
+        if args.window_chrome:
+            command.append("--window-chrome")
         if args.artifacts_dir:
             command.extend(["--artifacts-dir", str(args.artifacts_dir)])
         command.append(str(binary))

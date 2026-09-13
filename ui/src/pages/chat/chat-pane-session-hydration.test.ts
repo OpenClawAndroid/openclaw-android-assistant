@@ -181,7 +181,10 @@ describe("chat pane session hydration", () => {
     pane.presented = true;
     expect(commitEffects).toHaveLength(1);
     commitEffects[0]!(vi.fn());
-    expect(request).not.toHaveBeenCalled();
+    expect(request.mock.calls.map(([method]) => method).toSorted()).toEqual([
+      "chat.metadata",
+      "models.list",
+    ]);
     runAnimationFrame();
     runAnimationFrame();
     await Promise.resolve();

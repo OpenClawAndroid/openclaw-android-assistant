@@ -107,7 +107,9 @@ describe("config factory writer boundary", () => {
 
   it("loads the real writer on first use and reads back the persisted config", async () => {
     const loadWriter = vi.fn(() =>
-      vi.importActual<typeof import("./io.write.js")>("./io.write.js"),
+      vi.importActual<typeof import("./io.write.js")>(
+        new URL("./io.write.js", import.meta.url).href,
+      ),
     );
     vi.doMock("./io.write.js", loadWriter);
     const { io, configPath } = await fixture();
@@ -186,7 +188,9 @@ describe("config factory writer boundary", () => {
       vi.doMock("./io.write.js", async () => {
         entered.resolve();
         await release.promise;
-        return vi.importActual<typeof import("./io.write.js")>("./io.write.js");
+        return vi.importActual<typeof import("./io.write.js")>(
+          new URL("./io.write.js", import.meta.url).href,
+        );
       });
       const { io, env, home, configPath, raw } = await fixture();
       const secondPath = path.join(home, "second.json");

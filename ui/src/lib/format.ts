@@ -6,11 +6,7 @@ import {
 // Control UI module implements format behavior.
 import { asDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
-import {
-  resolveCompactDurationParts,
-  resolveSingleUnitDurationParts,
-  type DurationPart,
-} from "../../../src/infra/format-time/format-duration-internal.ts";
+import type { DurationPart } from "../../../src/infra/format-time/format-duration-internal.ts";
 import { i18n, t } from "../i18n/index.ts";
 import { formatUiError } from "./format-error.ts";
 
@@ -119,17 +115,6 @@ export function formatRelativeTimestamp(
 
   const signedValue = isPast ? -value : value;
   return options.suffix === false ? formatUnit({ value, unit }) : formatRelative(signedValue, unit);
-}
-
-export function formatDurationCompact(ms?: number | null): string | undefined {
-  return resolveCompactDurationParts(ms)?.map(formatUnit).join(" ");
-}
-
-export function formatDurationHuman(ms?: number | null, fallback = t("common.na")): string {
-  if (ms == null || !Number.isFinite(ms) || ms < 0) {
-    return fallback;
-  }
-  return resolveSingleUnitDurationParts(ms).map(formatUnit).join(" ");
 }
 
 export function formatUnknownText(value: unknown): string {

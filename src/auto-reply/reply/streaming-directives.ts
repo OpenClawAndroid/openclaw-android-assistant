@@ -43,15 +43,7 @@ export const splitTrailingDirective = (text: string): { text: string; tail: stri
   // payloads. The final message parser still owns legacy MEDIA delivery.
   const lastNewline = text.lastIndexOf("\n");
   const lastLine = lastNewline < 0 ? text : text.slice(lastNewline + 1);
-  if (/^\s*MEDIA:/i.test(lastLine)) {
-    const mediaLineStart = lastNewline < 0 ? 0 : lastNewline + 1;
-    if (mediaLineStart < bufferStart) {
-      bufferStart = mediaLineStart;
-    }
-  }
-
-  const prefixMatch = lastLine.match(/^[\t ]*(MEDIA|MEDI|MED|ME|M)$/i);
-  if (prefixMatch) {
+  if (/^\s*MEDIA:/i.test(lastLine) || /^[\t ]*(MEDIA|MEDI|MED|ME|M)$/i.test(lastLine)) {
     const mediaLineStart = lastNewline < 0 ? 0 : lastNewline + 1;
     if (mediaLineStart < bufferStart) {
       bufferStart = mediaLineStart;

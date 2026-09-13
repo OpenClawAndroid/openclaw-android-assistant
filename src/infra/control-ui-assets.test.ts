@@ -376,6 +376,58 @@ if (process.exitCode === 0) {
     );
   });
 
+  it("enforces the index limit when the file grows after metadata admission", () => {
+    const root = abs("fixtures/growing-index");
+    const indexPath = path.join(root, "index.html");
+    setFile(indexPath, "<html></html>");
+    const identity = fs.statSync(indexPath);
+    const statSync = fs.statSync;
+    const fstatSync = fs.fstatSync;
+    let grew = false;
+    const grow = (stat: fs.Stats | fs.BigIntStats) => {
+      if (!grew && BigInt(stat.ino) === BigInt(identity.ino)) {
+        grew = true;
+        fs.appendFileSync(indexPath, "x".repeat(256 * 1024));
+      }
+    };
+    const pathStat = vi.spyOn(fs, "statSync").mockImplementation((...args) => {
+      const stat = statSync(...args);
+      if (stat) {
+        grow(stat);
+      }
+      return stat;
+    });
+    const descriptorStat = vi.spyOn(fs, "fstatSync").mockImplementation((...args) => {
+      const stat = fstatSync(...args);
+      grow(stat);
+      return stat;
+    });
+    try {
+      expect(inspectControlUiRootAssets(root)).toEqual({
+        kind: "incomplete",
+        indexPath,
+        missingAsset: "index.html exceeds its size limit",
+      });
+      expect(grew).toBe(true);
+    } finally {
+      pathStat.mockRestore();
+      descriptorStat.mockRestore();
+    }
+  });
+
+  it.each(["symlink", "hardlink"])("accepts a contained %s index", (kind) => {
+    const root = abs(`fixtures/${kind}-index`);
+    const target = path.join(root, "original.html");
+    setFile(target, "<html></html>");
+    const indexPath = path.join(root, "index.html");
+    if (kind === "symlink") {
+      fs.symlinkSync(target, indexPath, "file");
+    } else {
+      fs.linkSync(target, indexPath);
+    }
+    expect(inspectControlUiRootAssets(root)).toEqual({ kind: "ready", indexPath });
+  });
+
   it("builds the source checkout selected by canonical package-root discovery", async () => {
     const packagedRoot = abs("fixtures/package-owner");
     const checkoutRoot = abs("fixtures/checkout-owner");

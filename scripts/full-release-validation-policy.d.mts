@@ -6,6 +6,15 @@ export function classifyReleaseChangelogEvidenceComparison(
   identity: { baseSha: string; version?: unknown },
 ): { changedPaths: string[]; policy: string };
 export function serializeReleaseArtifact(payload: unknown): string;
+export function buildReleaseValidationManifest(input: {
+  plan: ReleaseRecord;
+  drain?: ReleaseRecord;
+  context: ReleaseRecord;
+}): ReleaseRecord;
+export function assertReleasePublicationKnownBudget(
+  plan: ReleaseRecord,
+  context: ReleaseRecord,
+): void;
 export function normalizeReleaseCoveragePolicy(
   input: ReleaseRecord,
 ): "npm-beta-v1" | "npm-stable-v1" | undefined;
@@ -30,6 +39,10 @@ export interface ReleaseChild extends ReleaseRecord {
 export interface ReleaseExecutionPlan extends ReleaseRecord {
   sourceAdmissionContract?: "1";
   sourceAdmission?: import("./full-release-publication-contract.mjs").PublicationSourceFact | null;
+  publicationAdmissionContract?: "1";
+  publicationAdmission?:
+    | import("./full-release-publication-contract.mjs").PublicationAdmission
+    | null;
   children: ReleaseChild[];
   evidenceReuse: ReleaseRecord;
   gates: ReleaseRecord[];

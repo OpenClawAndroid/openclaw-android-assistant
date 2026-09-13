@@ -2,7 +2,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { listAgentIds } from "../agents/agent-scope.js";
-import { listSubagentRunsForController } from "../agents/subagents/registry/subagent-registry-read.js";
+import { buildSubagentSessionListReadIndex } from "../agents/subagents/registry/subagent-registry-read.js";
 import {
   isConfiguredSessionStoreAgentId,
   resolveAgentMainSessionKey,
@@ -579,6 +579,7 @@ function includeDirectChildEntries(
   try {
     const parentKeys = new Set([target.canonicalKey, ...target.storeKeys]);
     const childKeys = new Set<string>();
+    const subagentRuns = buildSubagentSessionListReadIndex();
     for (const parentKey of parentKeys) {
       for (const { sessionKey, entry } of listSessionChildEntriesReadOnly({
         agentId: target.agentId,
@@ -589,7 +590,9 @@ function includeDirectChildEntries(
       })) {
         target.store[sessionKey] = entry;
       }
-      for (const { childSessionKey } of listSubagentRunsForController(parentKey)) {
+      for (const { childSessionKey } of subagentRuns.runsByControllerSessionKey.get(
+        parentKey.trim(),
+      ) ?? []) {
         childKeys.add(childSessionKey);
       }
     }

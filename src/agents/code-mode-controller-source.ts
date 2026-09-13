@@ -230,6 +230,12 @@ export const CODE_MODE_CONTROLLER_SOURCE = String.raw`
     read: (name) => request("skillsRead", [name]),
   });
 
+  const results = Object.freeze({
+    save: (value) => request("resultSave", [value]),
+    load: (id) => request("resultLoad", [id]),
+    delete: (id) => request("resultDelete", [id]),
+  });
+
   if (globalThis.__openclawSwarmEnabled === true) {
     Object.defineProperties(globalThis, {
       agents: {
@@ -403,6 +409,7 @@ export const CODE_MODE_CONTROLLER_SOURCE = String.raw`
     nodes: { value: nodes, enumerable: true },
     namespaces: { value: Object.freeze(namespaceGlobals), enumerable: true },
     skills: { value: skills, enumerable: true },
+    results: { value: results, enumerable: true },
     setTimeout: { value: (callback, delay, ...args) => scheduleTimer(callback, delay, args), enumerable: true },
     clearTimeout: { value: cancelTimer, enumerable: true },
     console: { value: guestConsole, enumerable: true },

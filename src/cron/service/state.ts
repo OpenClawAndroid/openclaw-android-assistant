@@ -421,8 +421,10 @@ export type CronRunResult =
   | { ok: true; ran: false; reason: "ownerless" }
   | { ok: false };
 
-/** Remove result that distinguishes missing jobs from failed removal. */
-export type CronRemoveResult = { ok: true; removed: boolean } | { ok: false; removed: false };
+/** Remove result, including deferred base-session cleanup after durable deletion. */
+export type CronRemoveResult =
+  | { ok: true; removed: boolean; sessionCleanup?: "pending" }
+  | { ok: false; removed: false };
 
 /** Created cron job returned by service mutation calls. */
 type CronDeclarativeAddResult = CronStoredJob & {

@@ -386,7 +386,7 @@ describe("test-projects args", () => {
     },
     {
       title: "routes unclassified plugin targets to the catch-all owner",
-      target: "extensions/workboard/index.test.ts",
+      target: "extensions/example/index.test.ts",
       config: "test/vitest/vitest.extensions.config.ts",
     },
     {

@@ -6,7 +6,6 @@ import {
   readRecentSessionTranscriptMessageEvents,
   readSessionTranscriptMessageEvents,
   resolveConcreteSessionStorePath,
-  resolveSessionTranscriptReadTarget,
   waitForSessionTranscriptProjection,
   type SessionTranscriptMessageEvent,
   type SessionTranscriptReadScope,
@@ -31,6 +30,11 @@ import type {
 } from "../sessions/transcript-read-window.js";
 import { aggregateSessionTranscriptUsage } from "./session-transcript-derived-readers.js";
 import { projectTranscriptEntryMessage } from "./session-transcript-message.js";
+import {
+  resolveTranscriptReadTarget,
+  toTranscriptReadScope,
+  type ResolvedTranscriptReadTarget,
+} from "./session-transcript-read-target.js";
 import type {
   ReadRecentSessionMessagesOptions,
   ReadSessionMessagesAsyncOptions,
@@ -76,38 +80,6 @@ type ReadSessionMessageByIdResult = {
   found: boolean;
   serializedBytes?: number;
 };
-
-export type ResolvedTranscriptReadTarget = {
-  agentId?: string;
-  sessionFile: string;
-  sessionId: string;
-  sessionKey?: string;
-  storePath?: string;
-};
-
-export function resolveTranscriptReadTarget(
-  scope: SessionTranscriptReadScope,
-): ResolvedTranscriptReadTarget {
-  const target = resolveSessionTranscriptReadTarget(scope);
-  return {
-    agentId: target.agentId,
-    sessionFile: target.sessionKey ?? target.sessionId,
-    sessionId: target.sessionId,
-    ...(target.sessionKey ? { sessionKey: target.sessionKey } : {}),
-    storePath: target.storePath,
-  };
-}
-
-export function toTranscriptReadScope(
-  target: ResolvedTranscriptReadTarget,
-): SessionTranscriptReadScope {
-  return {
-    ...(target.agentId ? { agentId: target.agentId } : {}),
-    sessionId: target.sessionId,
-    ...(target.sessionKey ? { sessionKey: target.sessionKey } : {}),
-    ...(target.storePath ? { storePath: target.storePath } : {}),
-  };
-}
 
 function archivedTranscriptReader(target: ResolvedTranscriptReadTarget): ArchivedTranscriptReader {
   return new ArchivedTranscriptReader({
@@ -177,12 +149,6 @@ function readRecentSqliteMessageRecords(
     messages: projectSqliteHistoryEvents(page.events),
     totalMessages: page.totalMessages,
   };
-}
-
-export function sqliteMessageEventWithSeq(
-  entry: Pick<SessionTranscriptMessageEvent, "event" | "seq" | "displayPosition">,
-): unknown {
-  return projectTranscriptEntryMessage(entry.event, entry.seq, entry.displayPosition);
 }
 
 function buildSqlitePreviewItems(

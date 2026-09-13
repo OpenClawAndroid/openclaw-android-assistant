@@ -127,7 +127,7 @@ export function sidebarPanelDefinitions(
         : textKey === "dashboard"
           ? "board"
           : textKey,
-      t("common.loading"),
+      t(textKey === "desktop" ? "desktop.connecting" : "common.loading"),
     ),
     empty: { description: t(`chat.sidePanel.${textKey}Empty`) },
     headerAction,

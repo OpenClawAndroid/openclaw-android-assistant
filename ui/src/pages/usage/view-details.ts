@@ -10,12 +10,8 @@ import {
 import { renderSettingsSegmented } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import "../../components/tooltip.ts";
-import {
-  createMsFormatter,
-  formatDurationCompact,
-  formatMs,
-  formatTimeMs,
-} from "../../lib/format.ts";
+import { formatDurationCompact } from "../../lib/format-duration.ts";
+import { createMsFormatter, formatMs, formatTimeMs } from "../../lib/format.ts";
 import { parseToolSummary } from "./helpers.ts";
 import { charsToTokens, formatUsageCost, formatUsageTokens } from "./metrics.ts";
 import type {

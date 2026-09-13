@@ -131,6 +131,22 @@ describe("resolveResumeSession", () => {
       },
     },
     {
+      name: "ambiguous substrings preserve order and exclude fuzzy-only candidates",
+      query: "plan",
+      rows: [
+        { key: "agent:main:one", displayName: "Annual planning" },
+        { key: "agent:main:two", displayName: "Plan" },
+        { key: "agent:main:three", displayName: "Personal learning" },
+      ],
+      expected: { kind: "ambiguous", keys: ["agent:main:one", "agent:main:two"] },
+    },
+    {
+      name: "ambiguous fuzzy matches retain score order",
+      query: "pln",
+      rows: sessions,
+      expected: { kind: "ambiguous", keys: ["agent:work:beta", "agent:main:alpha"] },
+    },
+    {
       name: "no match",
       query: "unrelated-session-name",
       rows: sessions,

@@ -32,7 +32,7 @@ const enDesktop = {
     macLockStateUnknown:
       "This Mac’s lock state is unknown. Check the desktop before using computer control; Screen Sharing remains available for sign-in.",
     connect: "Connect",
-    connecting: "Connecting to desktop…",
+    connecting: en.desktop.connecting,
     takeControl: "Take control",
     switchToViewOnly: "Switch to view only",
     viewOnly: "View only",

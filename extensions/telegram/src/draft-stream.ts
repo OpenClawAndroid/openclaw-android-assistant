@@ -645,7 +645,13 @@ export function createTelegramDraftStream(params: {
     }
     if (!streamState.final) {
       finalPagePlan = undefined;
+      const updateGeneration = generation;
       const sent = await sendOrEditPlannedPage(firstPage, fullPreview.complete);
+      // A retired send/edit may finish after repositioning. Consume it without
+      // restoring old recovery text or asking the loop to retry that generation.
+      if (updateGeneration !== generation) {
+        return true;
+      }
       if (sent) {
         lastDeliveredText = pages.length === 1 ? trimmed : firstPage.plainText.trimEnd();
       }
@@ -837,6 +843,7 @@ export function createTelegramDraftStream(params: {
     if (!continueFinalPagination) {
       finalPagePlan = undefined;
       lastRequestedText = "";
+      lastDeliveredText = "";
       loop.resetPending();
       lastRequestedPreview = undefined;
     }

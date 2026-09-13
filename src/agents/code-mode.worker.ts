@@ -135,6 +135,9 @@ function createHostRequestHandler(params: {
       method !== "search" &&
       method !== "describe" &&
       method !== "callValue" &&
+      method !== "resultSave" &&
+      method !== "resultLoad" &&
+      method !== "resultDelete" &&
       method !== "nodes" &&
       method !== "yield" &&
       method !== "namespace" &&

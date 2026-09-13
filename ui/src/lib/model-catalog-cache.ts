@@ -7,6 +7,10 @@ export type ModelCatalogReadScope = Pick<
   ModelsListParams,
   "agentId" | "sessionKey" | "authProfileId"
 >;
+type ModelCatalogInvalidationScope = ModelCatalogReadScope & { sessionsOnly?: boolean };
+export type ModelCatalogCacheUpdate =
+  | { type: "published" }
+  | { type: "invalidated"; matches: (scope: ModelsListParams, key: string) => boolean };
 
 export type ModelCatalogClient = Pick<GatewayBrowserClient, "request">;
 export type ModelCatalogRequest = {
@@ -16,6 +20,7 @@ export type ModelCatalogRequest = {
   preparing: boolean;
   settled: boolean;
   promise: Promise<ModelCatalogResult>;
+  transportSettled: Promise<void>;
   resolve: (result: ModelCatalogResult) => void;
   reject: (error: unknown) => void;
   start: () => void;
@@ -52,7 +57,10 @@ export type ModelCatalogEntry = {
 
 // Application lifecycle invalidation must not eagerly load catalog readers or presentation.
 export const modelCatalogCache = new WeakMap<ModelCatalogClient, ModelCatalogCache>();
-const observers = new WeakMap<ModelCatalogClient, Set<() => void>>();
+export const modelCatalogObservers = new WeakMap<
+  ModelCatalogClient,
+  Set<(update: ModelCatalogCacheUpdate) => void>
+>();
 
 export function getModelCatalogCache(client: ModelCatalogClient): ModelCatalogCache {
   let cache = modelCatalogCache.get(client);
@@ -63,24 +71,12 @@ export function getModelCatalogCache(client: ModelCatalogClient): ModelCatalogCa
   return cache;
 }
 
-export function subscribeModelCatalogCache(
+function notifyModelCatalogCache(
   client: ModelCatalogClient,
-  listener: () => void,
-): () => void {
-  const listeners = observers.get(client) ?? new Set();
-  observers.set(client, listeners);
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0) {
-      observers.delete(client);
-    }
-  };
-}
-
-function notifyModelCatalogCache(client: ModelCatalogClient): void {
-  for (const listener of Array.from(observers.get(client) ?? [])) {
-    listener();
+  update: ModelCatalogCacheUpdate,
+): void {
+  for (const listener of Array.from(modelCatalogObservers.get(client) ?? [])) {
+    listener(update);
   }
 }
 
@@ -105,12 +101,14 @@ export function beginModelCatalogRead(
 
 const MAX_CACHED_MODEL_CATALOGS = 64;
 
-function trimModelCatalogCache(cache: ModelCatalogCache): void {
+function trimModelCatalogCache(client: ModelCatalogClient, cache: ModelCatalogCache): void {
+  const retired = new Set<string>();
   for (const key of cache.entries.keys()) {
     if (cache.entries.size <= MAX_CACHED_MODEL_CATALOGS) {
-      return;
+      break;
     }
     cache.entries.delete(key);
+    retired.add(key);
     // Display eviction retires publication, never an unsettled transport's ownership.
     for (const read of cache.reads) {
       if (
@@ -120,6 +118,12 @@ function trimModelCatalogCache(cache: ModelCatalogCache): void {
         cache.reads.delete(read);
       }
     }
+  }
+  if (retired.size && modelCatalogCache.get(client) === cache) {
+    notifyModelCatalogCache(client, {
+      type: "invalidated",
+      matches: (_scope, key) => retired.has(key),
+    });
   }
 }
 
@@ -177,7 +181,7 @@ export function publishModelCatalogResult(
   if (params.refresh && discoverySucceeded) {
     for (const other of cache.entries.values()) {
       if (other !== entry) {
-        invalidateModelCatalogEntry(other);
+        markModelCatalogInvalid(other);
       }
     }
     cache.reads.clear();
@@ -201,14 +205,32 @@ export function publishModelCatalogResult(
       }
     }
   }
-  trimModelCatalogCache(cache);
-  notifyModelCatalogCache(client);
+  trimModelCatalogCache(client, cache);
+  if (params.refresh && discoverySucceeded) {
+    notifyModelCatalogCache(client, {
+      type: "invalidated",
+      matches: (_scope, candidateKey) => candidateKey !== key,
+    });
+  }
+  notifyModelCatalogCache(client, { type: "published" });
   return true;
 }
 
-export function invalidateModelCatalogEntry(entry: ModelCatalogEntry): void {
+function markModelCatalogInvalid(entry: ModelCatalogEntry): void {
   entry.invalidated = true;
   entry.expiresAt = undefined;
+}
+
+export function invalidateModelCatalogEntry(
+  client: ModelCatalogClient,
+  entry: ModelCatalogEntry,
+): void {
+  markModelCatalogInvalid(entry);
+  const key = modelCatalogKey(modelCatalogParams(entry.scope));
+  notifyModelCatalogCache(client, {
+    type: "invalidated",
+    matches: (_scope, candidateKey) => candidateKey === key,
+  });
 }
 
 /** A connection boundary retires even the last accepted display snapshot. */
@@ -220,13 +242,13 @@ export function clearModelCatalogCache(client: ModelCatalogClient): void {
       lane.queued?.reject(new DOMException("Model catalog connection retired", "AbortError"));
     }
   }
-  notifyModelCatalogCache(client);
+  notifyModelCatalogCache(client, { type: "invalidated", matches: () => true });
 }
 
 /** Retire read eligibility while preserving the last accepted, scoped display snapshot. */
 export function invalidateModelCatalogCache(
   client: ModelCatalogClient,
-  scope?: ModelCatalogReadScope & { sessionsOnly?: boolean },
+  scope?: ModelCatalogInvalidationScope,
 ): void {
   const cache = modelCatalogCache.get(client);
   if (!cache) {
@@ -248,9 +270,11 @@ export function invalidateModelCatalogCache(
   }
   for (const entry of cache.entries.values()) {
     if (matches(entry.scope)) {
-      invalidateModelCatalogEntry(entry);
+      markModelCatalogInvalid(entry);
     }
   }
-  trimModelCatalogCache(cache);
-  notifyModelCatalogCache(client);
+  notifyModelCatalogCache(client, {
+    type: "invalidated",
+    matches,
+  });
 }

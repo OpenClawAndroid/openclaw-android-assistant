@@ -12,6 +12,7 @@ import { subagentRuns } from "./subagent-registry-memory.js";
 import {
   loadSubagentRunsForChildSessionFromSqlite,
   loadSubagentRunsForControllerFromSqlite,
+  loadSubagentRunsByRunIdsFromSqlite,
   loadSubagentRegistryFromSqlite,
   loadSubagentSessionListRunsFromSqlite,
   saveSubagentRegistryChangesToSqlite,
@@ -131,6 +132,7 @@ export function onSubagentRegistryPersisted(listener: SubagentRegistryPersistLis
 function projectSubagentRunForSessionList(entry: SubagentRunRecord): SubagentRunReadRecord {
   return {
     runId: entry.runId,
+    ...(entry.swarmRunId ? { swarmRunId: entry.swarmRunId } : {}),
     childSessionKey: entry.childSessionKey,
     ...(entry.controllerSessionKey ? { controllerSessionKey: entry.controllerSessionKey } : {}),
     requesterSessionKey: entry.requesterSessionKey,
@@ -375,13 +377,42 @@ function getSubagentRunsSnapshot<T extends SubagentRunReadRecord>(
 
 export function getSubagentRunsSnapshotForRead(
   inMemoryRuns: Map<string, SubagentRunRecord>,
-  include?: (entry: SubagentRunRecord) => boolean,
 ): Map<string, SubagentRunRecord> {
-  return getSubagentRunsSnapshot(
-    inMemoryRuns,
-    persistedSubagentRunsReadCache,
-    include ? { matches: include } : undefined,
-  );
+  return getSubagentRunsSnapshot(inMemoryRuns, persistedSubagentRunsReadCache);
+}
+
+export function getSubagentRunsSnapshotForRunIds(
+  inMemoryRuns: Map<string, SubagentRunRecord>,
+  runIds: readonly string[],
+): Map<string, SubagentRunRecord> {
+  const requested = new Set(runIds.map((runId) => runId.trim()));
+  if (requested.size === 0) {
+    return new Map();
+  }
+  const matches = (entry: SubagentRunReadRecord) =>
+    requested.has(entry.runId) || Boolean(entry.swarmRunId && requested.has(entry.swarmRunId));
+  return getSubagentRunsSnapshot(inMemoryRuns, persistedSubagentRunsReadCache, {
+    load: () => {
+      const readSelected = () => {
+        const projection = loadPersistedSubagentRunsForRead(
+          persistedSubagentSessionListRunsReadCache,
+        );
+        const physicalRunIds = [...projection.values()].filter(matches).map((entry) => entry.runId);
+        return { physicalRunIds, entries: loadSubagentRunsByRunIdsFromSqlite(physicalRunIds) };
+      };
+      let selected = readSelected();
+      if (
+        selected.entries.length !== selected.physicalRunIds.length ||
+        selected.entries.some((entry) => !matches(entry))
+      ) {
+        // Another process may replace a physical row while preserving its stable collector id.
+        persistedSubagentSessionListRunsReadCache.snapshot = undefined;
+        selected = readSelected();
+      }
+      return selected.entries;
+    },
+    matches,
+  });
 }
 
 export function getSubagentSessionListRunsSnapshotForRead(

@@ -22,7 +22,10 @@ import {
   releaseExecutionPlanSha256,
   validateReleaseExecutionPlanArtifact,
 } from "../../scripts/full-release-validation-policy.mjs";
-import { validateParentManifest } from "../../scripts/release-ci-summary.mjs";
+import {
+  createReleaseEvidenceClient,
+  validateParentManifest,
+} from "../../scripts/release-ci-summary.mjs";
 
 const SHA = "a".repeat(40);
 const TARGET_SHA = "b".repeat(40);
@@ -248,6 +251,10 @@ function preflightMethods(
     })),
   ];
   return {
+    getReleaseEvidenceClient: () => ({
+      ...createReleaseEvidenceClient(REPOSITORY),
+      getWorkflowSource: () => "name: Full Release Validation\n",
+    }),
     getJobLog: async (jobId: number) => {
       if (jobId === 1) {
         return [
@@ -438,6 +445,28 @@ describe("FRV immutable plan eligibility", () => {
 });
 
 describe("FRV continuation preflight", () => {
+  it("rejects deleted B admission before continuation can select rerun effects", async () => {
+    const selected = child("normalCi", "101");
+    const client = {
+      ...preflightMethods([selected], (entry) => runFor(entry, 1, "failure")),
+      getReleaseEvidenceClient: () => ({
+        ...createReleaseEvidenceClient(REPOSITORY),
+        getWorkflowSource: () =>
+          'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n',
+      }),
+      getAttemptJobs: vi.fn(async () => [job("test", "failure")]),
+      getRun: vi.fn(async () => runFor(selected, 1, "failure")),
+      rerunFailed: vi.fn(),
+      rerunParent: vi.fn(),
+    };
+    await expect(continueFailed(plan([selected]), "77", client, { dryRun: true })).rejects.toThrow(
+      "continuation admission differs from its immutable source workflow contract",
+    );
+    expect(client.getRun).not.toHaveBeenCalled();
+    expect(client.rerunFailed).not.toHaveBeenCalled();
+    expect(client.rerunParent).not.toHaveBeenCalled();
+  });
+
   it.each([
     "Prepare release npm artifacts / Prepare publishable npm package",
     "Prepare release Docker artifacts / Seal prepared Docker images",
@@ -471,6 +500,10 @@ describe("FRV continuation preflight", () => {
 
     await expect(
       continueFailed(parentOwnedPlan, "77", {
+        getReleaseEvidenceClient: () => {
+          reads += 1;
+          throw new Error("unexpected evidence client");
+        },
         getAttemptJobs: read,
         getJobLog: read,
         getParentJobs: read,
@@ -563,6 +596,10 @@ describe("FRV continuation preflight", () => {
 
     await expect(
       continueFailed(plan([first, second]), "77", {
+        getReleaseEvidenceClient: () => {
+          downstreamReads += 1;
+          throw new Error("unexpected evidence client");
+        },
         getAttemptJobs: downstreamRead,
         getJobLog: downstreamRead,
         getParentJobs: async () => [

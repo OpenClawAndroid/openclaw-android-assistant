@@ -13,7 +13,8 @@ import {
   type GatewayStatusSnapshot,
 } from "../../components/gateway-vitals.ts";
 import { t } from "../../i18n/index.ts";
-import { formatDurationHuman, formatRelativeTimestamp } from "../../lib/format.ts";
+import { formatDurationHuman } from "../../lib/format-duration.ts";
+import { formatRelativeTimestamp } from "../../lib/format.ts";
 import {
   loadCommandLaneDiagnostics,
   type CommandLaneDiagnostics,

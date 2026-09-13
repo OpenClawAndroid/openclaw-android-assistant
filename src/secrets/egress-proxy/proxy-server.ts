@@ -6,11 +6,11 @@ import {
   type IncomingHttpHeaders,
   type IncomingMessage,
 } from "node:http";
-import { Agent as HttpsAgent, createServer as createHttpsServer } from "node:https";
+import { Agent as HttpsAgent } from "node:https";
 import net, { type Socket } from "node:net";
 import path from "node:path";
 import type { Duplex, Readable, Writable } from "node:stream";
-import { rootCertificates } from "node:tls";
+import { createServer as createTlsServer, rootCertificates } from "node:tls";
 import { URL } from "node:url";
 import { normalizeExactAllowedHost as normalizeHostname } from "../exact-hostname.js";
 import {
@@ -444,11 +444,26 @@ export async function startSecretEgressProxyServer(params: {
               forwardRequest({ request, response, ...parsed, registered, upgrade });
             }
           };
-          return createHttpsServer(leaf, handleRequest)
-            .on("upgrade", (request, _socket, head) =>
-              handleUpgradeRequest(handleRequest, request, head),
-            )
-            .on("secureConnection", (socket) => ownResource(registered, socket));
+          const httpServer = createHttpServer(handleRequest).on(
+            "upgrade",
+            (request, _socket, head) => handleUpgradeRequest(handleRequest, request, head),
+          );
+          const tlsServer = createTlsServer(leaf).on("secureConnection", (socket) => {
+            ownResource(registered, socket);
+            httpServer.emit("connection", socket);
+          });
+          tlsServer.on("tlsClientError", (_error, socket) => socket.destroy());
+          return {
+            // oxlint-disable-next-line no-warning-comments -- remove after the upstream Bun HTTPS fix ships.
+            // TODO(bun): Remove the split TLS/HTTP endpoint once Bun ships
+            // https://github.com/oven-sh/bun/pull/42594.
+            acceptConnection: (socket) => tlsServer.emit("connection", socket),
+            close: () => {
+              tlsServer.close();
+              httpServer.close();
+            },
+            setSecureContext: (options) => tlsServer.setSecureContext(options),
+          };
         },
       });
       registered.tlsServers.set(key, context);
@@ -562,7 +577,7 @@ export async function startSecretEgressProxyServer(params: {
         if (head.length > 0) {
           clientSocket.unshift(head);
         }
-        tlsServer.emit("connection", clientSocket);
+        tlsServer.acceptConnection(clientSocket);
       } catch (error) {
         if (!authorization.isActive() || clientSocket.destroyed) {
           return;

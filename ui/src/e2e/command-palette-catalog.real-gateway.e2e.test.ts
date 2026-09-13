@@ -185,6 +185,10 @@ suite.define(() => {
           await page.goto(url.href);
           await waitForControlUiGatewayReady(page);
           const settings = page.locator("openclaw-model-providers-page");
+          const refreshButton = settings.locator(".model-providers__refresh-button");
+          const catalogProgress = settings.locator(
+            '.model-providers__catalog-progress[role="status"]',
+          );
           const pickers = settings.locator(".model-providers__defaults openclaw-select-picker");
           const primary = pickers.first();
           const trigger = primary.locator(".picker-select__trigger");
@@ -217,8 +221,26 @@ suite.define(() => {
             expect(replies.get(request.id)?.ok).toBe(true);
             return requireRecord(replies.get(request.id)?.payload);
           };
+          const catalogIdle = async () =>
+            (await refreshButton.isEnabled()) &&
+            (await catalogProgress.count()) === 0 &&
+            requests.every(({ id }) => replies.has(id));
+          const waitForCatalogIdle = async () => {
+            await expect
+              .poll(async () => {
+                const requestCount = requests.length;
+                if (!(await catalogIdle())) {
+                  return false;
+                }
+                await page.evaluate(() => {
+                  return new Promise(requestAnimationFrame);
+                });
+                return requests.length === requestCount && (await catalogIdle());
+              })
+              .toBe(true);
+          };
           const open = async () => {
-            await expect.poll(() => requests.every(({ id }) => replies.has(id))).toBe(true);
+            await waitForCatalogIdle();
             const requestsBeforeOpen = requests.length;
             const acquisitionsBeforeOpen = acquisitions();
             if ((await trigger.getAttribute("aria-expanded")) === "true") {

@@ -92,7 +92,6 @@ const publications: Record<string, string | symbol> = {
   "src/commands/onboard-non-interactive/local.ts": Symbol.for(
     "openclaw.onboardNonInteractiveLocalTestApi",
   ),
-  "src/commands/status.command.ts": Symbol.for("openclaw.statusCommandTestApi"),
   "src/cron/service/active-run-cancellation.ts": Symbol.for("openclaw.activeCronTaskRunTestApi"),
   "src/cron/service/timer.ts": Symbol.for("openclaw.cronTimerTestApi"),
   "src/cron/session-reaper.ts": Symbol.for("openclaw.cronSessionReaperTestApi"),

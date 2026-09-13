@@ -6,18 +6,22 @@ import { subagentRuns } from "../agents/subagents/registry/subagent-registry-mem
 import { isSubagentRunQueued } from "../agents/subagents/registry/subagent-registry-read.js";
 import { spawnSubagentDirect } from "../agents/subagents/spawn/subagent-spawn.js";
 import { testing as spawnTesting } from "../agents/subagents/spawn/subagent-spawn.test-support.js";
+import { closeSwarmScheduler } from "../agents/subagents/swarm/swarm-scheduler.js";
 import { registerAgentRunCapacityWait } from "../infra/agent-run-capacity-wait.js";
 import {
   clearAgentRunContext,
   getAgentRunContext,
   getAgentRunLifecycleGeneration,
 } from "../infra/agent-run-registry.js";
+import { unwrapGatewayMethodDispatchResponse } from "./server-in-process-dispatch.js";
 import { agentRunHandler } from "./server-methods/agent-run-handler.js";
 import { handleChatAbortRequest } from "./server-methods/chat-abort-handler.js";
 import { resolveVisibleActiveSessionRunState } from "./server-methods/session-active-runs.js";
 import { sessionAbortHandlers } from "./server-methods/sessions-abort.js";
+import { sessionDeleteHandlers } from "./server-methods/sessions-delete.js";
 import { createSyntheticPluginRuntimeClient } from "./server-plugin-runtime-client.js";
 import type { dispatchGatewayMethodInProcess } from "./server-plugins.js";
+import { loadGatewaySessionEntryReadOnly } from "./session-utils.js";
 import { useQueuedCollectorFixture } from "./session-utils.queued-collector.test-support.js";
 
 const { parentKey, requestContext, operatorClient } = useQueuedCollectorFixture();
@@ -76,14 +80,16 @@ describe("queued collector native admission", () => {
             }
           } else if (method === "chat.abort") {
             await handleChatAbortRequest(request);
+          } else if (method === "sessions.delete") {
+            await expectDefined(
+              sessionDeleteHandlers["sessions.delete"],
+              "sessions.delete handler",
+            )(request);
           } else {
             throw new Error(`Unexpected native cleanup method ${method}`);
           }
           const [ok, payload, error] = respond.mock.calls[0] ?? [];
-          if (!ok) {
-            throw new Error(`Native Gateway request failed: ${JSON.stringify(error)}`);
-          }
-          return payload as T;
+          return unwrapGatewayMethodDispatchResponse(method, { ok, payload, error }) as T;
         },
       });
       try {
@@ -164,6 +170,9 @@ describe("queued collector native admission", () => {
         expect.soft(entry.execution.startedAt).toBeUndefined();
         expect.soft(entry.sessionStartedAt).toBeUndefined();
         expect(context.chatAbortControllers.has(entry.runId)).toBe(false);
+        // This unadopted launch still owns its provisional session; join its real cleanup.
+        await closeSwarmScheduler();
+        expect(loadGatewaySessionEntryReadOnly(entry.childSessionKey).entry).toBeUndefined();
       } finally {
         if (nativeRunId) {
           context.chatAbortControllers.get(nativeRunId)?.controller.abort();

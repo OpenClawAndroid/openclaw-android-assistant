@@ -55,7 +55,9 @@ export function cloneTaskRecordForObserver(record: TaskRecord): Omit<TaskRecord,
   return snapshot;
 }
 
-export function normalizeTaskTimestamps(task: TaskRecord): TaskRecord {
+export function normalizeTaskTimestamps<
+  T extends Pick<TaskRecord, "status" | "createdAt" | "startedAt" | "endedAt" | "lastEventAt">,
+>(task: T): T {
   // Detached runtimes can report lifecycle times captured before the registry
   // inserted or restored the row; keep createdAt as the visible lifecycle floor.
   let createdAt = task.createdAt;
@@ -86,7 +88,7 @@ export function normalizeTaskTimestamps(task: TaskRecord): TaskRecord {
     return task;
   }
 
-  const normalized: TaskRecord = {
+  const normalized: T = {
     ...task,
     createdAt,
   };

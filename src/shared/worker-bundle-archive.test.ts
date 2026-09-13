@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import {
   DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS,
   extractWorkerBundleArchive,
@@ -12,14 +13,15 @@ import {
 import { hashWorkerBundleManifest } from "./worker-bundle-hash.js";
 
 describe("worker bundle archive", () => {
+  const tempDirs = useAutoCleanupTempDirTracker(afterEach);
   let root: string;
 
-  beforeEach(async () => {
-    root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "openclaw-bundle-archive-"));
+  beforeEach(() => {
+    root = tempDirs.make("openclaw-bundle-archive-");
   });
 
-  afterEach(async () => {
-    await fs.rm(root, { recursive: true, force: true });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("extracts only a manifest-identical regular-file bundle", async () => {
@@ -76,6 +78,87 @@ describe("worker bundle archive", () => {
     ).rejects.toThrow("Invalid worker bundle tar entry");
   });
 
+  it.each(["replacement", "oversized", "symlink"] as const)(
+    "handles a %s swapped in after directory entry inspection",
+    async (kind) => {
+      const source = path.join(root, "source");
+      const filePath = path.join(source, "worker.mjs");
+      const replacement = path.join(root, "replacement");
+      const contents = "export const worker = true;\n";
+      await fs.mkdir(source);
+      await fs.writeFile(filePath, "old", { mode: 0o600 });
+      if (kind === "symlink") {
+        const outside = path.join(root, "outside");
+        await fs.writeFile(outside, contents);
+        await fs.symlink(outside, replacement);
+      } else {
+        await fs.writeFile(replacement, contents, { mode: 0o700 });
+      }
+      const lstat = fs.lstat.bind(fs);
+      let replaced = false;
+      vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
+        const stats = await lstat(...args);
+        if (!replaced && String(args[0]) === filePath) {
+          replaced = true;
+          await fs.rename(replacement, filePath);
+        }
+        return stats;
+      });
+
+      const manifest = readWorkerBundleDirectoryManifest({
+        root: source,
+        limits: {
+          maxEntries: 1,
+          maxExpandedBytes: kind === "oversized" ? 3 : 1024,
+        },
+      });
+      if (kind === "replacement") {
+        await expect(manifest).resolves.toEqual([
+          {
+            path: "worker.mjs",
+            mode: 0o700,
+            size: Buffer.byteLength(contents),
+            sha256: createHash("sha256").update(contents).digest("hex"),
+          },
+        ]);
+      } else {
+        await expect(manifest).rejects.toThrow(
+          kind === "oversized" ? "directory exceeds its limits" : /symbolic link|symlink/iu,
+        );
+      }
+      expect(replaced).toBe(true);
+    },
+  );
+
+  it.each(["worker.mjs", "~/worker.mjs"])(
+    "retains hardlinked %s and ignores directories and the install receipt in file limits",
+    async (relativePath) => {
+      const source = path.join(root, "source");
+      const original = path.join(root, "worker.mjs");
+      const contents = "export {};\n";
+      await fs.mkdir(path.join(source, "empty"), { recursive: true });
+      await fs.mkdir(path.dirname(path.join(source, relativePath)), { recursive: true });
+      await fs.writeFile(original, contents, { mode: 0o700 });
+      await fs.link(original, path.join(source, relativePath));
+      await fs.writeFile(path.join(source, "bootstrap-receipt.json"), "{}\n");
+
+      await expect(
+        readWorkerBundleDirectoryManifest({
+          root: source,
+          limits: { maxEntries: 1, maxExpandedBytes: Buffer.byteLength(contents) },
+          ignoreTopLevel: new Set(["bootstrap-receipt.json"]),
+        }),
+      ).resolves.toEqual([
+        {
+          path: relativePath,
+          mode: 0o700,
+          size: Buffer.byteLength(contents),
+          sha256: createHash("sha256").update(contents).digest("hex"),
+        },
+      ]);
+    },
+  );
+
   it("rejects a valid archive under the wrong logical hash", async () => {
     const source = path.join(root, "source");
     const archive = path.join(root, "bundle.tgz");
@@ -112,15 +195,7 @@ describe("worker bundle archive", () => {
     const bundleHash = hashWorkerBundleManifest(
       await readWorkerBundleArchiveManifest(archive, DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS),
     );
-    const readStats = fs.lstat.bind(fs);
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
-      const stats = await readStats(...args);
-      if (stats.isFile()) {
-        stats.mode = (Number(stats.mode) & ~0o777) | 0o666;
-      }
-      return stats;
-    });
 
     try {
       await expect(
@@ -131,6 +206,9 @@ describe("worker bundle archive", () => {
           limits: DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS,
         }),
       ).resolves.toBeUndefined();
+      for (const artifact of artifacts) {
+        await fs.chmod(path.join(destination, artifact), 0o666);
+      }
       expect(
         hashWorkerBundleManifest(
           await readWorkerBundleDirectoryManifest({

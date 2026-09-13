@@ -8,6 +8,13 @@ title: "openclaw status"
 
 Diagnostics for channels + sessions.
 
+Task counts and audit totals use a read-only metadata summary. Retained task
+payloads and delivery history are not loaded for each status request, and
+overlapping requests share the pending summary read. Database work runs on the
+shared SQLite worker; live task ownership is still checked by the Gateway.
+These summaries are not a full physical database-integrity check. Full registry
+restoration and Doctor retain their integrity verification.
+
 ```bash
 openclaw status
 openclaw status --all

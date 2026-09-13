@@ -36,6 +36,7 @@ import {
   resolveAgentRuntimePluginLoadPlan,
   resolveAgentRuntimePluginSelections,
   type AgentHarnessPluginSelection,
+  type RuntimePluginLoadPurpose,
 } from "./harness/runtime-plugin-load-plan.js";
 
 type AgentRuntimePluginRegistryParams = {
@@ -53,6 +54,7 @@ type AgentRuntimePluginRegistryParams = {
   /** Lifecycle-owned selection; standalone/direct generations stay source-default. */
   preferBuiltPluginArtifacts?: boolean;
   metadataSnapshot?: PluginMetadataSnapshot;
+  purpose?: RuntimePluginLoadPurpose;
 };
 
 function resolveAgentRuntimePluginRegistryLoad(
@@ -86,10 +88,13 @@ function resolveAgentRuntimePluginRegistryLoad(
   // startup runtime plugin ids plus selected run owners bound the registry scope.
   const activePluginIds = listLoadedRuntimePluginIds();
   const startupPluginIds =
-    params.basePluginIds ??
-    (requestPluginRegistry
-      ? listRuntimePluginIdsFromRegistry(requestPluginRegistry)
-      : (metadataSnapshot.pluginIds ?? (activePluginIds.length > 0 ? activePluginIds : undefined)));
+    params.purpose === "model-catalog"
+      ? (params.basePluginIds ?? [])
+      : (params.basePluginIds ??
+        (requestPluginRegistry
+          ? listRuntimePluginIdsFromRegistry(requestPluginRegistry)
+          : (metadataSnapshot.pluginIds ??
+            (activePluginIds.length > 0 ? activePluginIds : undefined))));
   const plan = resolveAgentRuntimePluginLoadPlan({
     config: params.config,
     workspaceDir: workspaceDir ?? process.cwd(),
@@ -97,9 +102,10 @@ function resolveAgentRuntimePluginRegistryLoad(
     selections: resolveAgentRuntimePluginSelections(
       params.config,
       params.selections ?? [],
-      params.configuredHarnessRuntimes,
+      params.purpose === "model-catalog" ? [] : params.configuredHarnessRuntimes,
     ),
     metadataSnapshot,
+    ...(params.purpose ? { purpose: params.purpose } : {}),
   });
   return {
     ...loadOptions,
@@ -119,19 +125,27 @@ function reusableAgentRuntimeRegistry(
   params: AgentRuntimePluginRegistryParams,
   loadOptions: PluginLoadOptions,
 ): PluginRegistry | undefined {
+  const pluginIds = loadOptions.onlyPluginIds;
   return params.reusableRegistry &&
-    loadOptions.onlyPluginIds !== undefined &&
-    registryContainsRuntimePluginIds(params.reusableRegistry, loadOptions.onlyPluginIds)
+    pluginIds !== undefined &&
+    (params.purpose !== "model-catalog" ||
+      listRuntimePluginIdsFromRegistry(params.reusableRegistry).every((pluginId) =>
+        pluginIds.includes(pluginId),
+      )) &&
+    registryContainsRuntimePluginIds(params.reusableRegistry, pluginIds)
     ? params.reusableRegistry
     : undefined;
 }
 
-function adoptAgentRuntimeRegistrations(pluginRegistry: PluginRegistry): {
+function adoptAgentRuntimeRegistrations(
+  pluginRegistry: PluginRegistry,
+  purpose: RuntimePluginLoadPurpose | undefined,
+): {
   registry: PluginRegistry;
   donor?: PluginRegistry;
 } {
   const activeRegistry = getActivePluginRegistry();
-  if (!activeRegistry) {
+  if (!activeRegistry || purpose === "model-catalog") {
     return { registry: pluginRegistry };
   }
   const registry = bindPluginRegistryResourceOwner(
@@ -167,7 +181,7 @@ export async function acquireAgentRuntimePluginRegistry(
     ? withPluginMetadataSnapshotScope(params.metadataSnapshot, acquire)
     : acquire());
   try {
-    const { registry, donor } = adoptAgentRuntimeRegistrations(acquired.registry);
+    const { registry, donor } = adoptAgentRuntimeRegistrations(acquired.registry, params.purpose);
     const primaryResources = getPluginRegistryInspectionResources(acquired.registry);
     if (!primaryResources) {
       throw new Error("Acquired prepared registry has no registration resource owner");
@@ -218,7 +232,7 @@ export function loadAgentRuntimePluginRegistryHandle(
     : load();
   // Media providers remain owned by this source when full-only donors require a copy.
   onPrimaryRegistry?.(pluginRegistry);
-  return adoptAgentRuntimeRegistrations(pluginRegistry).registry;
+  return adoptAgentRuntimeRegistrations(pluginRegistry, params.purpose).registry;
 }
 
 /** Binds a scoped plugin generation when a direct host has no Gateway owner. */

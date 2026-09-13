@@ -953,6 +953,19 @@
     return null;
   }
 
+  function formatOutputLines(lines, lang) {
+    if (lang) {
+      const code = lines.join("\n");
+      try {
+        return hljs.highlight(code, { language: lang }).value;
+      } catch {
+        return escapeHtml(code);
+      }
+    }
+
+    return lines.map((line) => `<div>${escapeHtml(replaceTabs(line))}</div>`).join("");
+  }
+
   function formatExpandableOutput(text, maxLines, lang) {
     text = replaceTabs(text);
     const lines = text.split("\n");
@@ -960,21 +973,10 @@
     const remaining = lines.length - maxLines;
 
     if (lang) {
-      let highlighted;
-      try {
-        highlighted = hljs.highlight(text, { language: lang }).value;
-      } catch {
-        highlighted = escapeHtml(text);
-      }
+      const highlighted = formatOutputLines(lines, lang);
 
       if (remaining > 0) {
-        const previewCode = displayLines.join("\n");
-        let previewHighlighted;
-        try {
-          previewHighlighted = hljs.highlight(previewCode, { language: lang }).value;
-        } catch {
-          previewHighlighted = escapeHtml(previewCode);
-        }
+        const previewHighlighted = formatOutputLines(displayLines, lang);
 
         return `<div class="tool-output expandable" onclick="this.classList.toggle('expanded')">
               <div class="output-preview"><pre><code class="hljs">${previewHighlighted}</code></pre>
@@ -990,24 +992,15 @@
       let out =
         '<div class="tool-output expandable" onclick="this.classList.toggle(\'expanded\')">';
       out += '<div class="output-preview">';
-      for (const line of displayLines) {
-        out += `<div>${escapeHtml(replaceTabs(line))}</div>`;
-      }
+      out += formatOutputLines(displayLines);
       out += `<div class="expand-hint">... (${remaining} more lines)</div></div>`;
       out += '<div class="output-full">';
-      for (const line of lines) {
-        out += `<div>${escapeHtml(replaceTabs(line))}</div>`;
-      }
+      out += formatOutputLines(lines);
       out += "</div></div>";
       return out;
     }
 
-    let out = '<div class="tool-output">';
-    for (const line of displayLines) {
-      out += `<div>${escapeHtml(replaceTabs(line))}</div>`;
-    }
-    out += "</div>";
-    return out;
+    return `<div class="tool-output">${formatOutputLines(displayLines)}</div>`;
   }
 
   function renderToolCall(call) {

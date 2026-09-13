@@ -4,11 +4,9 @@ import type { SessionTreeEntry } from "@openclaw/agent-core";
 import { sql, type RawBuilder } from "kysely";
 import { selectResetKeptEntries } from "../../../packages/agent-core/src/harness/session/tool-result-pairing.js";
 import {
-  executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   iterateSqliteQuerySync,
   prepareSqliteQueryIterator,
-  prepareSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import {
@@ -100,6 +98,24 @@ function selectMessageMetadata(query: ReturnType<typeof selectMessageRows>) {
 }
 
 function createMessageRangeReaders(database: CurrentTranscriptProjection["database"]) {
+  const metadata = (direction: "asc" | "desc") =>
+    prepareSqliteQueryIterator<
+      MessageRangeParameters,
+      { message_position: number; serialized_bytes: number }
+    >(database.db, (parameter) =>
+      selectMessageMetadata(
+        selectMessageRows(
+          database,
+          parameter((params) => params.sessionId),
+          {
+            start: parameter((params) => params.start),
+            endExclusive: parameter((params) => params.endExclusive),
+          },
+        )
+          .clearOrderBy()
+          .orderBy("active.message_position", direction),
+      ),
+    );
   return {
     messages: prepareSqliteQueryIterator<
       MessageRangeParameters,
@@ -116,21 +132,8 @@ function createMessageRangeReaders(database: CurrentTranscriptProjection["databa
         ),
       ),
     ),
-    metadata: prepareSqliteQuerySync<
-      MessageRangeParameters,
-      { message_position: number; serialized_bytes: number }
-    >(database.db, (parameter) =>
-      selectMessageMetadata(
-        selectMessageRows(
-          database,
-          parameter((params) => params.sessionId),
-          {
-            start: parameter((params) => params.start),
-            endExclusive: parameter((params) => params.endExclusive),
-          },
-        ),
-      ),
-    ),
+    metadata: metadata("asc"),
+    metadataDescending: metadata("desc"),
   };
 }
 
@@ -550,27 +553,48 @@ export function readVisibleMessageMetadata(
   start: number,
   endExclusive: number,
 ) {
-  return selectVisibleMessageRanges(projection, start, endExclusive).flatMap((range) => {
+  return Array.from(iterateVisibleMessageMetadata(projection, start, endExclusive));
+}
+
+/** Byte-bounded tails can stop sizing at their first excluded predecessor. */
+export function* iterateVisibleMessageMetadata(
+  projection: CurrentTranscriptProjection,
+  start: number,
+  endExclusive: number,
+  direction: "asc" | "desc" = "asc",
+): IterableIterator<{
+  message_position: number;
+  serialized_bytes: number;
+  logicalPosition: number;
+}> {
+  const ranges = selectVisibleMessageRanges(projection, start, endExclusive);
+  for (const range of direction === "desc" ? ranges.toReversed() : ranges) {
     const rows =
       "positions" in range
-        ? executeSqliteQuerySync(
+        ? iterateSqliteQuerySync(
             projection.database.db,
             selectMessageMetadata(
-              selectMessageRows(projection.database, projection.resolved.sessionId, range),
+              selectMessageRows(projection.database, projection.resolved.sessionId, range)
+                .clearOrderBy()
+                .orderBy("active.message_position", direction),
             ),
-          ).rows
-        : getMessageRangeReaders(projection.database).metadata({
+          )
+        : getMessageRangeReaders(projection.database)[
+            direction === "desc" ? "metadataDescending" : "metadata"
+          ]({
             sessionId: projection.resolved.sessionId,
             start: range.start,
             endExclusive: range.endExclusive,
-          }).rows;
-    return rows.map((row) => ({
-      message_position: row.message_position,
-      serialized_bytes: row.serialized_bytes,
-      // Position-based mapping preserves logical holes if a joined row is absent.
-      logicalPosition: range.logicalPosition(row.message_position),
-    }));
-  });
+          });
+    for (const row of rows) {
+      yield {
+        message_position: row.message_position,
+        serialized_bytes: row.serialized_bytes,
+        // Position-based mapping preserves logical holes if a joined row is absent.
+        logicalPosition: range.logicalPosition(row.message_position),
+      };
+    }
+  }
 }
 
 /** Reads logical transcript bytes, reusing cached retained-tail facts after resets. */

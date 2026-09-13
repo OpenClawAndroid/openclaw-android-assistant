@@ -68,8 +68,8 @@ openclaw-new-session-page {
   color: var(--accent);
 }
 
-html.openclaw-native-macos .new-session-page__incognito-rail {
-  top: 52px;
+html:is(.openclaw-native-macos, .openclaw-native-desktop) .new-session-page__incognito-rail {
+  top: var(--openclaw-native-titlebar-height, 52px);
 }
 
 @media (max-width: 560px) {

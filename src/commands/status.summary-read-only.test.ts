@@ -19,6 +19,7 @@ import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/sess
 import { getActivePluginRegistry, setActivePluginRegistry } from "../plugins/runtime.js";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import { getStatusSummary } from "../status/summary.js";
 import {
   createDirectOutboundTestAdapter,
   createOutboundTestPlugin,
@@ -26,7 +27,6 @@ import {
 } from "../test-utils/channel-plugins.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import { getStatusSummary } from "./summary.js";
 
 describe("getStatusSummary read-only session access", () => {
   const previousRegistry = getActivePluginRegistry();

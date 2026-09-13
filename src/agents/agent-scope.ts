@@ -33,6 +33,7 @@ import {
   resolveAgentWorkspaceDir,
   resolveDefaultAgentId,
   tryResolveLegacyDataOwnerAgentId,
+  withAgentRosterFactsBatch,
 } from "./agent-scope-config.js";
 import { resolveCanonicalWorkspacePath } from "./workspace-state-identity.js";
 export { hasSessionAutoModelFallbackProvenance } from "../config/sessions/model-override-provenance.js";
@@ -707,18 +708,20 @@ export function resolveAgentIdByWorkspacePath(
   workspacePath: string,
 ): string | undefined {
   const normalizedWorkspacePath = resolveCanonicalWorkspacePath(workspacePath.replaceAll("\0", ""));
-  let matchedAgentId: string | undefined;
-  let matchedWorkspaceLength = -1;
+  return withAgentRosterFactsBatch(cfg, () => {
+    let matchedAgentId: string | undefined;
+    let matchedWorkspaceLength = -1;
 
-  for (const id of listAgentIds(cfg)) {
-    const workspaceDir = resolveCanonicalWorkspacePath(resolveAgentWorkspaceDir(cfg, id));
-    if (!isPathInside(workspaceDir, normalizedWorkspacePath)) {
-      continue;
+    for (const id of listAgentIds(cfg)) {
+      const workspaceDir = resolveCanonicalWorkspacePath(resolveAgentWorkspaceDir(cfg, id));
+      if (!isPathInside(workspaceDir, normalizedWorkspacePath)) {
+        continue;
+      }
+      if (workspaceDir.length > matchedWorkspaceLength) {
+        matchedAgentId = id;
+        matchedWorkspaceLength = workspaceDir.length;
+      }
     }
-    if (workspaceDir.length > matchedWorkspaceLength) {
-      matchedAgentId = id;
-      matchedWorkspaceLength = workspaceDir.length;
-    }
-  }
-  return matchedAgentId;
+    return matchedAgentId;
+  });
 }

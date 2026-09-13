@@ -55,6 +55,20 @@ function maturityScoreLabelForScore(score: number) {
   throw new Error(`score outside 0-100: ${score}`);
 }
 
+function qaMaturityDecisionSchema<T extends z.ZodType>(value: T) {
+  return z.strictObject({
+    value,
+    rationale: z.string().trim().min(1),
+    reviewer: z.string().trim().min(1),
+    evidence_refs: z.array(z.string().trim().min(1)).min(1),
+    revalidate_when: z.string().trim().min(1),
+  });
+}
+
+const qaMaturityScoreDecisionSchema = qaMaturityDecisionSchema(z.number().int().min(0).max(100));
+const qaMaturityLtsDecisionSchema = qaMaturityDecisionSchema(z.boolean());
+const qaMaturityLevelDecisionSchema = qaMaturityDecisionSchema(z.string().trim().min(1));
+
 const qaMaturityScoreObjectSchema = z
   .strictObject({
     score: z.number().int().min(0).max(100),
@@ -92,6 +106,15 @@ const qaMaturityScoreBundleSchema = z.strictObject({
   ...qaMaturityScoreBundleShape,
 });
 
+// Only authored scores carry decisions; Coverage and computed rollups keep the plain schema.
+const qaMaturityReviewedScoreSchema = qaMaturityScoreObjectSchema.safeExtend({
+  decision: qaMaturityScoreDecisionSchema.optional(),
+});
+const qaMaturityReviewedScoreShape = {
+  quality: qaMaturityReviewedScoreSchema,
+  completeness: qaMaturityReviewedScoreSchema,
+};
+
 const qaMaturityScoreLastRunSchema = z.strictObject({
   status: z.string().trim().min(1).optional(),
   completed_at: z.string().trim().min(1).optional(),
@@ -104,6 +127,7 @@ const qaMaturityScoreCategoryLtsSchema = z.strictObject({
   supported: z.boolean(),
   reason: z.string().trim().min(1).optional(),
   human_override: z.boolean(),
+  decision: qaMaturityLtsDecisionSchema.optional(),
 });
 
 const qaMaturityScoreSurfaceLtsSchema = z.strictObject({
@@ -115,7 +139,7 @@ const qaMaturityScoreSurfaceLtsSchema = z.strictObject({
 const qaMaturityScoreCategorySchema = z.strictObject({
   name: z.string().trim().min(1),
   ...qaMaturityLegacyCoverageShape,
-  ...qaMaturityScoreBundleShape,
+  ...qaMaturityReviewedScoreShape,
   lts: qaMaturityScoreCategoryLtsSchema,
 });
 
@@ -131,7 +155,10 @@ const qaMaturityScoreSurfaceSchema = z.strictObject({
       label: z.string().trim().min(1).optional(),
     }),
   ]),
-  scores: qaMaturityScoreBundleSchema,
+  scores: z.strictObject({
+    ...qaMaturityLegacyCoverageShape,
+    ...qaMaturityReviewedScoreShape,
+  }),
   categories: z.array(qaMaturityScoreCategorySchema),
   lts: qaMaturityScoreSurfaceLtsSchema,
   last_score_run: qaMaturityScoreLastRunSchema.optional(),
@@ -174,6 +201,7 @@ const qaMaturitySurfaceSchema = z.object({
   name: z.string().trim().min(1),
   family: z.string().trim().min(1),
   level: z.string().trim().min(1),
+  level_decision: qaMaturityLevelDecisionSchema.optional(),
   level_code: z.string().trim().min(1).optional(),
   archived: z.boolean().optional(),
   rationale: z.string().trim().min(1).optional(),
@@ -297,6 +325,16 @@ const qaMaturityTaxonomySchema = z
     const coverageIdOwners = new Map<string, { key: string; label: string }>();
     const surfaceIds = new Set<string>();
     for (const [surfaceIndex, surface] of taxonomy.surfaces.entries()) {
+      if (
+        surface.level_decision &&
+        !taxonomy.levels.some((level) => level.id === surface.level_decision?.value)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["surfaces", surfaceIndex, "level_decision", "value"],
+          message: "decision value must be a declared maturity level ID",
+        });
+      }
       if (surfaceIds.has(surface.id)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -392,6 +430,11 @@ export type QaScorecardEvidenceMode = z.infer<typeof qaScorecardEvidenceModeSche
 export type QaScorecardChannelDriver = z.infer<typeof qaScorecardChannelDriverSchema>;
 type QaMaturityScoreKey = (typeof QA_MATURITY_SCORE_KEYS)[number];
 export type QaMaturityScoreObject = z.infer<typeof qaMaturityScoreObjectSchema>;
+export type QaMaturityDecision = z.infer<
+  | typeof qaMaturityScoreDecisionSchema
+  | typeof qaMaturityLtsDecisionSchema
+  | typeof qaMaturityLevelDecisionSchema
+>;
 export type QaMaturityScoreSurfaceLts = z.infer<typeof qaMaturityScoreSurfaceLtsSchema>;
 type QaMaturityScoreCategory = z.infer<typeof qaMaturityScoreCategorySchema>;
 export type QaMaturityScoreSurface = z.infer<typeof qaMaturityScoreSurfaceSchema>;

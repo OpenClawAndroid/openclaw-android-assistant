@@ -68,11 +68,17 @@ callable functions.
 
 The arrow in each quick-index line describes the callable function's value.
 `-> Array<{ id: string }>` is a declared output hint; `-> ?` is output unknown.
-Unknown outputs stay raw-first: return the value unchanged, observe it, then
-filter or map it in a later `exec` instead of feeding guessed fields into
-dependent logic in the same program. This also
-applies when a declared-output read feeds a final `-> ?` call: return that
-call's raw value without wrapping it in the requested answer shape.
+For unknown outputs, return the value unchanged or return
+`await results.save(value)` for a bounded preview. Observe the raw value or
+preview before filtering or mapping in a later `exec`; do not feed guessed
+fields into dependent logic in the same program. This also applies when a
+declared-output read feeds a final `-> ?` call: return or save that final raw
+value without wrapping it in a guessed answer shape.
+
+`results.load(id)` returns a detached JSON copy for later cells in the same
+agent run, and `results.delete(id)` frees capacity. Read `results.d.ts` through
+`API.read` for types, limits, and lifetime, or see
+[Reuse data across cells](/tools/code-mode/quickstart#reuse-data-across-cells).
 
 ```typescript
 type ToolCatalogMetadata = {
@@ -172,7 +178,9 @@ const status = await node.invoke("device.status");
 ```
 
 `nodes.list()` returns paired node ids, names, platforms, connection state, and
-advertised commands. `nodes.get(idOrName)` resolves an exact id before a display
+advertised commands. TypeScript preflight knows these fields and the node handle
+methods. Command parameters and results remain `unknown` because each node
+command defines its own payload; check the result before composing it. `nodes.get(idOrName)` resolves an exact id before a display
 name and returns a handle with `id`, `name`, and `invoke(command, params?)`.
 Invocation uses the normal `nodes` tool path, so pairing, command policy, scopes,
 approvals, timeouts, hooks, and telemetry are unchanged. A handle includes

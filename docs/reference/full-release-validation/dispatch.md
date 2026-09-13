@@ -53,6 +53,15 @@ success, or publication authority. `diagnostic`, `main-qualification`, and
 `postpublish-confidence` omit `publication_selection_json` and record publication
 source admission as not applicable. Coverage is selected independently.
 
+Fresh publish requests also require tooling with registry admission. After
+source verification, resolution collects bounded public npm and ClawHub
+observations for the selected packages, uploads them, then binds the immutable
+artifact and admission time before producers can start. Required read errors and
+unsupported bootstrap states block admission; latest-dependency drift is advisory.
+Supported first-package or trust-repair routes retain unresolved downstream owner
+authority, not permission to publish. The source fact remains source-only.
+Nonpublish requests do not collect registry observations.
+
 The SHA-pinned helper packs its semantic `-f validation_purpose` and
 `-f publication_selection_json` arguments into the existing
 `trusted_workflow_json` input. Raw workflow dispatch uses this closed envelope:
@@ -67,6 +76,10 @@ without converting their inputs or witness digests.
 merely supplying a protected tooling ref does not select that route. Saved state
 binds the choice and rejects contradictory resumes. Historical state without a
 route retains normal recovery semantics and gains no source-admission claim.
+For registry-admitted parents, the checklist reads authenticated retained planning
+summaries instead of repeating the two local registry sweeps. Preparation and
+publication compare that evidence with their actual selected operands; a normal
+parent cannot authorize the prepared route by changing the command afterward.
 
 Record the candidate SHA/ref and Tooling SHA/ref once for the release and reuse
 them for later Code-SHA, Release-SHA, and focused reruns. Main lineage

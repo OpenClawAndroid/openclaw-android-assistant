@@ -29,6 +29,8 @@ The selected chat loads before automatic sidebar task lists refresh. Live events
 
 Closed Terminal, Browser, Desktop, and Home/Ask OpenClaw panels initialize when you open them rather than during initial navigation. Panels saved as open still restore after a reload.
 
+Hidden retained chats defer command and model metadata refreshes until you return to them. Repeated background changes share the current metadata read and refresh once more after it finishes, instead of issuing overlapping requests.
+
 Choose **New agent** in the sidebar or Agents home to open the custodian chat.
 It recommends a chief of staff, researcher, writer, reviewer, or a small team
 with all four. Reply with a choice, or describe custom work and a name. Role

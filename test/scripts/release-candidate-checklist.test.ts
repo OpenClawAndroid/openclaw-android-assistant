@@ -23,6 +23,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import {
   normalizePublicationIntent,
+  publicationAdmissionContract,
   publicationIntentInputs,
   publicationSourceContract,
 } from "../../scripts/full-release-publication-contract.mjs";
@@ -175,6 +176,7 @@ describe("release candidate checklist", () => {
     routingError?: string;
     stopAtRegistry?: boolean;
     publicationRoute?: string;
+    registryAdmission?: boolean;
   }>([
     { tag: "v2026.9.1", pin: "2026.9.1", expected: "passed", failedRegistry: "" },
     { tag: "v2026.9.1", pin: "2026.7.4", expected: "warning", failedRegistry: "" },
@@ -186,6 +188,14 @@ describe("release candidate checklist", () => {
       pin: "2026.9.1",
       expected: "passed",
       failedRegistry,
+      registryAdmission: true,
+    })),
+    ...(["npm-only", "reuse"] as const).map((launch) => ({
+      tag: "v2026.9.1",
+      pin: "2026.9.1",
+      expected: "passed",
+      launch,
+      registryAdmission: true,
     })),
     {
       tag: "v2026.9.1",
@@ -242,7 +252,7 @@ describe("release candidate checklist", () => {
       publicationRoute: "prepared",
     },
   ])(
-    "preflights registries ($failedRegistry) before validation and records Android evidence for $tag ($pin; $launch; $distTag; $publicationRoute)",
+    "consumes producer-qualified registry plans ($failedRegistry; $registryAdmission) and records Android evidence for $tag ($pin; $launch; $distTag; $publicationRoute)",
     async ({
       tag,
       pin,
@@ -253,6 +263,7 @@ describe("release candidate checklist", () => {
       routingError,
       stopAtRegistry,
       publicationRoute = "normal",
+      registryAdmission = false,
     }) => {
       const { root: targetRoot, git } = candidateGitFixture({
         "package.json": JSON.stringify({ version: tag.slice(1) }),
@@ -359,6 +370,7 @@ describe("release candidate checklist", () => {
           normalizePublicationIntent,
           publicationIntentInputs,
           publicationSourceContract,
+          publicationAdmissionContract,
           parsePluginReleaseSelection,
           isRecord,
           requireString: (value: string) => value,
@@ -395,7 +407,25 @@ describe("release candidate checklist", () => {
               : file.endsWith("preflight-manifest.json")
                 ? npmManifest
                 : {},
-          validateFullReleaseValidationEvidence: () => ({ source: "direct" }),
+          authenticateFullReleaseValidationEvidence: async () => {
+            stages.push("authenticate");
+            if (registryAdmission && failedRegistry) {
+              throw new Error(`${failedRegistry} registry unavailable`);
+            }
+            return {
+              source: "direct",
+              publicationAdmission: registryAdmission
+                ? {
+                    observations: {
+                      plans: {
+                        npm: { all: [{ packageName: "@openclaw/example", version: "2026.9.1" }] },
+                        clawhub: { all: [] },
+                      },
+                    },
+                  }
+                : null,
+            };
+          },
           downloadResolvedArtifact: async () => ({ name: "npm-preflight" }),
           verifyNpmPreflightProducer: () => ({}),
           isDeepStrictEqual,
@@ -409,6 +439,9 @@ describe("release candidate checklist", () => {
           runTelegramIfNeeded: async () => ({ status: "skipped" }),
           collectPluginPlanWithRetry: async (script: string) => {
             stages.push(script);
+            if (registryAdmission) {
+              throw new Error("B must not perform a local registry sweep");
+            }
             if (routingError || stopAtRegistry) {
               throw new Error(`fixture registry-plan sentinel: ${script}`);
             }
@@ -440,7 +473,12 @@ describe("release candidate checklist", () => {
           expect(generatedChecks).not.toHaveBeenCalled();
         } else {
           // Retained recovery reaches its old planner; this does not certify monthly publication.
-          expect(stages).toEqual(["scripts/plugin-npm-release-plan.ts"]);
+          expect(stages).toEqual([
+            "wait",
+            "wait",
+            "authenticate",
+            "scripts/plugin-npm-release-plan.ts",
+          ]);
           expect(writeState).toHaveBeenCalledWith(
             statePath,
             expect.objectContaining({
@@ -449,8 +487,12 @@ describe("release candidate checklist", () => {
             }),
           );
         }
-        expect(updateState).not.toHaveBeenCalled();
-        expect(waitedRuns).toEqual([]);
+        if (routingError || launch === "mismatch") {
+          expect(updateState).not.toHaveBeenCalled();
+          expect(waitedRuns).toEqual([]);
+        } else {
+          expect(waitedRuns).toEqual(launch === "saved-full" ? ["333", "444"] : ["111", "222"]);
+        }
         expect(publishCommand).not.toHaveBeenCalled();
         expect(existsSync(join(options.outputDir, "release-candidate-evidence.json"))).toBe(false);
         expect(existsSync(join(options.outputDir, "release-candidate-evidence.md"))).toBe(false);
@@ -463,8 +505,7 @@ describe("release candidate checklist", () => {
       }
       if (failedRegistry) {
         await expect(completion).rejects.toThrow(`${failedRegistry} registry unavailable`);
-        expect(stages).not.toContain("dispatch");
-        expect(stages).not.toContain("wait");
+        expect(stages).toEqual(["dispatch", "wait", "wait", "authenticate"]);
         expect(existsSync(join(options.outputDir, "release-candidate-evidence.json"))).toBe(false);
         expect(log.mock.calls.flat().join("\n")).not.toContain("publish command:");
         return;
@@ -495,10 +536,14 @@ describe("release candidate checklist", () => {
           evidence[publicationRoute === "prepared" ? "publishCommand" : "prepareCommand"],
         ).toBeUndefined();
       }
-      expect(stages.slice(0, 3)).toEqual([
-        "scripts/plugin-npm-release-plan.ts",
-        "scripts/plugin-clawhub-release-plan.ts",
-        launch === "npm-only" ? "dispatch" : "wait",
+      expect(stages).toEqual([
+        ...(launch === "npm-only" ? ["dispatch"] : []),
+        "wait",
+        "wait",
+        "authenticate",
+        ...(registryAdmission
+          ? []
+          : ["scripts/plugin-npm-release-plan.ts", "scripts/plugin-clawhub-release-plan.ts"]),
       ]);
       expect(waitedRuns).toEqual(["111", "222"]);
       const evidence = JSON.parse(
@@ -509,6 +554,19 @@ describe("release candidate checklist", () => {
         "utf8",
       );
       const output = log.mock.calls.map(([line]) => line).join("\n");
+      if (registryAdmission) {
+        expect(evidence.pluginNpmPlan).toEqual(
+          evidence.publicationAdmission.observations.plans.npm,
+        );
+        expect(evidence.pluginClawHubPlan).toEqual(
+          evidence.publicationAdmission.observations.plans.clawhub,
+        );
+        expect(summary).toContain(
+          "Pending owner actions and final publisher checks remain required",
+        );
+      } else {
+        expect(evidence.publicationAdmission).toBeNull();
+      }
       expect(
         evidence[publicationRoute === "prepared" ? "prepareCommand" : "publishCommand"],
       ).toContain(
@@ -2039,9 +2097,9 @@ describe("release candidate checklist", () => {
 
     expect(source).toContain("allowShaPinnedWorkflowRef: true");
     expect(source).toContain(
-      "const fullValidationEvidence = validateFullReleaseValidationEvidence({",
+      "const fullValidationEvidence = await authenticateFullReleaseValidationEvidence({",
     );
-    expect(source).toContain("runStrictReleaseEvidenceValidation({ repository, runId })");
+    expect(source).not.toContain("runStrictReleaseEvidenceValidation");
     expect(source).toContain("expectedReleaseTag: options.tag");
     expect(source).toContain("refs/heads/main:refs/remotes/origin/main");
     expect(source).toContain(

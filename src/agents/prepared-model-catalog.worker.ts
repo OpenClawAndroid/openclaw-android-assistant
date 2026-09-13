@@ -129,13 +129,13 @@ async function prepareWorkerGeneration(value: PreparedModelCatalogWorkerInput) {
     .map((plugin) => plugin.id)
     .toSorted((left, right) => left.localeCompare(right));
   const prepared = await prepareWorkspaceBuildGroup(
-    [{ ...value.input, runtimePluginSelections: [] }],
+    [value.input],
     "static",
     {
       preferBuiltPluginArtifacts: value.preferBuiltPluginArtifacts,
       basePluginIds,
       providerDiscoveryProviderIds: value.providerIds,
-      getConfiguredHarnessRuntimes: () => [],
+      purpose: "model-catalog",
     },
     undefined,
     undefined,
@@ -285,8 +285,7 @@ export async function runPreparedModelCatalogWorkerRequest(
       // catalog owners from the captured metadata before binding the authoritative registry.
       const catalogRegistry = loadAgentRuntimePluginRegistryHandle({
         ...value.input,
-        selections: [],
-        configuredHarnessRuntimes: [],
+        purpose: "model-catalog",
         metadataSnapshot: pluginMetadataSnapshot,
         preferBuiltPluginArtifacts: value.preferBuiltPluginArtifacts,
         reusableRegistry: pluginRegistry,

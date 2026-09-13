@@ -38,6 +38,7 @@ import {
   loadBundledProviderStaticCatalogContextModels,
 } from "./embedded-agent-runner/model.static-catalog.js";
 import { createStaticModelIdMatcher } from "./embedded-agent-runner/model.static-id.js";
+import type { RuntimePluginLoadPurpose } from "./harness/runtime-plugin-load-plan.js";
 import { modelCatalogRowToEntry } from "./model-catalog-entry.js";
 import {
   buildConfiguredModelCatalog,
@@ -163,6 +164,7 @@ export async function prepareWorkspaceBuildGroup(
     basePluginIds?: readonly string[];
     onStage?: (stage: string) => void;
     registryResources?: PreparedModelRuntimeBuildResources;
+    purpose?: RuntimePluginLoadPurpose;
   } = {},
   loadInboundPluginRegistry?: PreparedInboundRegistryLoader,
   reusablePluginGeneration?: PreparedModelRuntimePluginGeneration,
@@ -215,6 +217,7 @@ export async function prepareWorkspaceBuildGroup(
     options.getConfiguredHarnessRuntimes,
     options.basePluginIds,
     options.registryResources,
+    options.purpose,
   );
   const { inboundPluginRegistry, runtimePluginRegistry, primaryRegistry } =
     preparingRegistries instanceof Promise ? await preparingRegistries : preparingRegistries;

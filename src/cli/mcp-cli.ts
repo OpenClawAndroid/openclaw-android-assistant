@@ -847,12 +847,11 @@ export function registerMcpCli(program: Command) {
           opts.json,
         );
       }
-      // Without this the human output is a bare header: both probe loops are empty,
-      // so an operator with no servers sees no outcome and no next step. JSON keeps
-      // emitting its empty envelope so machine consumers see a stable shape.
-      if (!opts.json && Object.keys(servers).length === 0) {
+      // Empty and disabled-only registries have no live probe rows to print.
+      // Explain the intentional non-outcome; JSON keeps its existing empty envelope.
+      if (!opts.json && Object.values(servers).every((server) => server.enabled === false)) {
         defaultRuntime.log(
-          `No MCP servers configured in ${loaded.path}. Add one with ${formatCliCommand("openclaw mcp add <name> --command <command>")}.`,
+          `No enabled MCP servers in ${loaded.path}. Add one with ${formatCliCommand("openclaw mcp add <name> --command <command>")} or enable one with ${formatCliCommand("openclaw mcp configure <name> --enable")}.`,
         );
         return;
       }

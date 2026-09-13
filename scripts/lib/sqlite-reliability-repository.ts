@@ -19,6 +19,7 @@ import {
 import {
   assertReliabilityForcedExit,
   waitForReliabilityWorkerExit,
+  waitForReliabilityWorkerMessage,
 } from "./sqlite-reliability-process.js";
 
 type RepositoryCrashPoint = "after-commit" | "before-pending" | "pending";
@@ -47,43 +48,17 @@ async function waitForCrashPoint(params: {
   crashPoint: RepositoryCrashPoint;
   readStderr: () => string;
 }): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          `SQLite repository worker did not reach ${params.crashPoint}.${formatReliabilityStderr(params.readStderr())}`,
-        ),
-      );
-    }, REPOSITORY_TIMEOUT_MS);
-    const onMessage = (message: unknown) => {
+  await waitForReliabilityWorkerMessage({
+    child: params.child,
+    matches: (message) => {
       const event = message as { crashPoint?: unknown; kind?: unknown } | undefined;
-      if (event?.kind === "crash-point" && event.crashPoint === params.crashPoint) {
-        cleanup();
-        resolve();
-      }
-    };
-    const onError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      cleanup();
-      reject(
-        new Error(
-          `SQLite repository worker exited before ${params.crashPoint}: code=${String(code)} signal=${String(signal)}.${formatReliabilityStderr(params.readStderr())}`,
-        ),
-      );
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      params.child.off("message", onMessage);
-      params.child.off("error", onError);
-      params.child.off("exit", onExit);
-    };
-    params.child.on("message", onMessage);
-    params.child.on("error", onError);
-    params.child.on("exit", onExit);
+      return event?.kind === "crash-point" && event.crashPoint === params.crashPoint;
+    },
+    timeoutMs: REPOSITORY_TIMEOUT_MS,
+    timeoutMessage: () =>
+      `SQLite repository worker did not reach ${params.crashPoint}.${formatReliabilityStderr(params.readStderr())}`,
+    exitMessage: (code, signal) =>
+      `SQLite repository worker exited before ${params.crashPoint}: code=${String(code)} signal=${String(signal)}.${formatReliabilityStderr(params.readStderr())}`,
   });
 }
 

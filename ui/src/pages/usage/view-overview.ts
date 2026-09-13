@@ -9,7 +9,7 @@ import { handleCopyButton } from "../../components/copy-button.ts";
 import { renderSettingsSection, renderSettingsSegmented } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import "../../components/tooltip.ts";
-import { formatDurationCompact } from "../../lib/format.ts";
+import { formatDurationCompact } from "../../lib/format-duration.ts";
 import {
   buildUsageCostWindows,
   buildUsageCostWindowSummary,

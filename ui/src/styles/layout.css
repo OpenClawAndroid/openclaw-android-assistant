@@ -12,7 +12,7 @@
   --shell-chrome-controls-gap: 4px;
   /* Settings takeover and the main sidebar share the same bottom divider geometry. */
   --shell-sidebar-footer-height: 53px;
-  --shell-native-titlebar-controls-inset: 92px;
+  --shell-native-titlebar-controls-inset: var(--openclaw-native-controls-inset, 92px);
   --shell-native-titlebar-controls-width: 156px;
   /* Collapsed navigation restores toggle, new-thread, and search outside the
      hidden sidebar. Optional controls contribute only while mounted. */
@@ -174,12 +174,8 @@
   stroke-linejoin: round;
 }
 
-.shell:has(.shell-chrome-controls__custodian, .shell-chrome-controls__home) {
+.shell:has(.shell-chrome-controls__home) {
   --shell-controls-width: 140px;
-}
-
-.shell:has(.shell-chrome-controls__custodian):has(.shell-chrome-controls__home) {
-  --shell-controls-width: 176px;
 }
 
 .shell--mobile-nav .shell-chrome-controls {
@@ -219,6 +215,22 @@ html.openclaw-native-web-chrome .sidebar-brand__desktop-control {
   display: none;
 }
 
+/* Desktop adapters provide window-control geometry; the shared shell owns
+   clearance for both navigation surfaces and page actions. */
+html.openclaw-native-desktop .shell:not(.shell--mobile-nav) {
+  .sidebar-shell,
+  .settings-sidebar__header {
+    padding-top: var(--openclaw-native-titlebar-height, 52px);
+  }
+
+  .content:not(.content--chat) {
+    padding-top: max(
+      var(--settings-content-block-start-padding, 16px),
+      var(--openclaw-native-titlebar-height, 52px)
+    );
+  }
+}
+
 html:is(.openclaw-native-macos, .openclaw-native-nav, .openclaw-native-web-chrome) .sidebar-brand {
   --sidebar-agent-avatar-size: 32px;
 }
@@ -226,8 +238,7 @@ html:is(.openclaw-native-macos, .openclaw-native-nav, .openclaw-native-web-chrom
 .macos-titlebar-controls {
   position: fixed;
   top: 0;
-  /* Clear the traffic lights (~74px cluster) with breathing room before the
-     first hosted button, so the two groups read as separate. */
+  /* macOS clears its traffic lights; other desktop hosts align to the rail. */
   left: var(--shell-native-titlebar-controls-inset);
   /* Above app chrome (<=45), below dropdowns/dialogs (>=100). */
   z-index: 50;

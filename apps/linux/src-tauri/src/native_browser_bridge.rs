@@ -80,14 +80,17 @@ impl NativeBrowserBridgeState {
         // Tauri currently only adds runtime ACL entries. The live selected-document
         // check below revokes old Gateway authority, even though their ACL remains.
         if !state.granted_origins.contains(&origin) {
-            app.add_capability(
+            let capability =
                 CapabilityBuilder::new(format!("native-browser-{}", uuid::Uuid::new_v4()))
                     .local(false)
                     .remote(format!("{origin}/*"))
                     .webview("main")
-                    .permission("allow-native-browser-request"),
-            )
-            .map_err(|error| format!("Could not enable the native browser: {error}"))?;
+                    .permission("allow-native-browser-request")
+                    .permission("allow-window-chrome-request");
+            #[cfg(not(target_os = "macos"))]
+            let capability = capability.permission("allow-window-chrome-drag");
+            app.add_capability(capability)
+                .map_err(|error| format!("Could not enable the native browser: {error}"))?;
             state.granted_origins.insert(origin);
         }
         state.generation = state.generation.wrapping_add(1);
@@ -97,7 +100,11 @@ impl NativeBrowserBridgeState {
             generation: state.generation,
             ready: false,
         };
-        let script = initialization_script(&document);
+        let script = format!(
+            "{}\n{}",
+            initialization_script(&document),
+            crate::window_chrome::initialization_script(Some(dashboard), true)
+        );
         state.document = Some(document);
         state.reset_pending = true;
         Ok(Some(script))
@@ -186,20 +193,26 @@ fn initialization_script(document: &DashboardDocument) -> String {
 pub fn dashboard_is_current(app: &AppHandle, webview: &Webview) -> bool {
     // Native URL reads may dispatch to the UI thread, whose callbacks also use
     // this state. Never hold the bridge mutex across a native dispatch.
-    let Ok(url) = webview.url() else {
-        return false;
-    };
+    webview.label() == "main"
+        && webview
+            .url()
+            .is_ok_and(|url| dashboard_source_matches(app, &url, true))
+}
+
+pub fn dashboard_window_source_is_current(app: &AppHandle, source: &Url) -> bool {
+    dashboard_source_matches(app, source, false)
+}
+
+fn dashboard_source_matches(app: &AppHandle, source: &Url, require_ready: bool) -> bool {
     let Some(state) = app.try_state::<NativeBrowserBridgeState>() else {
         return false;
     };
     let Ok(inner) = state.inner.lock() else {
         return false;
     };
-    webview.label() == "main"
-        && inner
-            .document
-            .as_ref()
-            .is_some_and(|document| document.ready && matches_dashboard(&url, &document.url))
+    inner.document.as_ref().is_some_and(|document| {
+        (!require_ready || document.ready) && matches_dashboard(source, &document.url)
+    })
 }
 
 // Native callbacks can already hold the runtime's webview registry borrow. Their
@@ -285,6 +298,9 @@ pub fn page_load(webview: Webview, payload: PageLoadPayload<'_>, document_token:
         (state.generation, state.reset_pending)
     };
     let started = matches!(payload.event(), PageLoadEvent::Started);
+    if started {
+        crate::window_chrome::loading(&webview);
+    }
     tauri::async_runtime::spawn(async move {
         let bridge = app.state::<NativeBrowserBridgeState>();
         let _lifecycle = bridge.lifecycle.lock().await;

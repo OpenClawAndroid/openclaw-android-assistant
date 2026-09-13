@@ -447,6 +447,10 @@ protocol state, and subscriptions all live in Workboard tables (not
 plugin key-value entries). A card export preserves the board narrative
 without inlining attachment blob contents.
 
+SQLite opening, queries, and transactions run in a background database worker.
+Disabling or reloading the plugin drains admitted storage work before closing
+its connections.
+
 Installations that used Workboard in the `.28` release can run
 `openclaw doctor --fix` to migrate the shipped legacy plugin-state namespaces
 (`workboard.cards`, `workboard.boards`, `workboard.notify`, and, if present,

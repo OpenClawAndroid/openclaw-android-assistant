@@ -12,14 +12,22 @@ import {
 import { closeOpenClawStateDatabaseAsync } from "./openclaw-state-db-cache.js";
 import { openOpenClawStateDatabase } from "./openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "./openclaw-state-worker-context.js";
-import { createSqliteWorkerBackend } from "./openclaw-state.worker.js";
+import {
+  createSqliteWorkerBackend,
+  openExistingSqliteWorkerBackend,
+} from "./openclaw-state.worker.js";
 
 let state: OpenClawTestState;
+const backends = new Set<ReturnType<typeof createSqliteWorkerBackend>>();
 beforeEach(async () => {
   state = await createOpenClawTestState({ prefix: "openclaw-flow-summary-", applyEnv: true });
 });
 afterEach(async () => {
   vi.restoreAllMocks();
+  for (const backend of backends) {
+    await backend.close();
+  }
+  backends.clear();
   await closeOpenClawStateDatabaseAsync();
   await state.cleanup();
 });
@@ -66,6 +74,7 @@ function fixture(statuses: readonly TaskStatus[] = ["running"]) {
   const backend = runWithSqliteWorkerStateContext(context, () =>
     createSqliteWorkerBackend(undefined, { databasePath: context.admission.databasePath }),
   );
+  backends.add(backend);
   const summary = (requestedOwner = ownerKey, flowId = flow.flowId) =>
     runWithSqliteWorkerStateContext(context, () =>
       backend.execute({ type: "flows.summary", input: { ownerKey: requestedOwner, flowId } }),
@@ -141,6 +150,61 @@ it("counts every status and runtime without mixing another flow, including empty
     byStatus: { queued: 5 },
     byRuntime: { subagent: 8 },
   });
+});
+
+it("retains the shared native handle until its last actor closes and preserves rows on reopen", async () => {
+  const context = captureOpenClawStateWorkerContext();
+  const first = runWithSqliteWorkerStateContext(context, () =>
+    createSqliteWorkerBackend(undefined, { databasePath: context.admission.databasePath }),
+  );
+  const second = runWithSqliteWorkerStateContext(context, () =>
+    openExistingSqliteWorkerBackend(undefined, { databasePath: context.admission.databasePath }),
+  );
+  backends.add(first).add(second);
+  const database = openOpenClawStateDatabase();
+  const flow = buildFlowRecord({
+    controllerId: "tests/native-borrow",
+    ownerKey: "agent:main:borrow",
+    goal: "Keep the surviving actor usable",
+    createdAt: 100,
+  });
+  runWithSqliteWorkerStateContext(context, () =>
+    first.execute({ type: "flows.createManaged", input: { flow } }),
+  );
+  expect(
+    runWithSqliteWorkerStateContext(context, () =>
+      second.execute({ type: "flows.current", input: { flowId: flow.flowId } }),
+    ),
+  ).toMatchObject({ flowId: flow.flowId, revision: 0 });
+
+  await first.close();
+  expect(database.db.isOpen).toBe(true);
+  expect(
+    runWithSqliteWorkerStateContext(context, () =>
+      second.execute({
+        type: "flows.updateManaged",
+        input: {
+          flowId: flow.flowId,
+          ownerKey: flow.ownerKey,
+          expectedRevision: 0,
+          patch: { status: "succeeded", updatedAt: 200, endedAt: 200 },
+        },
+      }),
+    ),
+  ).toMatchObject({ applied: true, flow: { status: "succeeded", revision: 1 } });
+  await second.close();
+  expect(database.db.isOpen).toBe(false);
+
+  const reopenedContext = captureOpenClawStateWorkerContext();
+  const reopened = runWithSqliteWorkerStateContext(reopenedContext, () =>
+    createSqliteWorkerBackend(undefined, { databasePath: reopenedContext.admission.databasePath }),
+  );
+  backends.add(reopened);
+  expect(
+    runWithSqliteWorkerStateContext(reopenedContext, () =>
+      reopened.execute({ type: "flows.current", input: { flowId: flow.flowId } }),
+    ),
+  ).toMatchObject({ flowId: flow.flowId, status: "succeeded", revision: 1 });
 });
 
 it.each(["runtime", "status"] as const)(

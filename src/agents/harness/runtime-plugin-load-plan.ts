@@ -41,6 +41,8 @@ export type AgentHarnessPluginSelection = {
   agentId?: string;
 };
 
+export type RuntimePluginLoadPurpose = "agent" | "model-catalog";
+
 function dedupePluginIds(values: readonly string[]): string[] {
   const result: string[] = [];
   for (const value of values) {
@@ -313,20 +315,26 @@ export function resolveAgentRuntimePluginLoadPlan(params: {
   basePluginIds?: readonly string[];
   selections: readonly AgentHarnessPluginSelection[];
   metadataSnapshot: PluginMetadataSnapshot;
+  purpose?: RuntimePluginLoadPurpose;
 }): { config?: OpenClawConfig; pluginIds?: string[] } {
   let config = params.config;
-  const memoryPluginIds = resolveSelectedMemoryPluginIds({
-    config: params.config,
-    metadataSnapshot: params.metadataSnapshot,
-  });
-  const contextEnginePluginId = resolveSelectedContextEnginePluginId(params.config);
+  const includeAgentOwners = params.purpose !== "model-catalog";
+  const memoryPluginIds = includeAgentOwners
+    ? resolveSelectedMemoryPluginIds({
+        config: params.config,
+        metadataSnapshot: params.metadataSnapshot,
+      })
+    : [];
+  const contextEnginePluginId = includeAgentOwners
+    ? resolveSelectedContextEnginePluginId(params.config)
+    : undefined;
   const contextEnginePluginIds = contextEnginePluginId ? [contextEnginePluginId] : [];
   const basePluginIds = (params.basePluginIds ?? []).filter(
     (pluginId) => !restrictiveAllowlistOmitsPlugin(params.config, pluginId),
   );
   const pluginIds = [...basePluginIds, ...memoryPluginIds, ...contextEnginePluginIds];
   const forceActivatedPluginIds = [...memoryPluginIds, ...contextEnginePluginIds];
-  for (const selection of params.selections) {
+  for (const selection of includeAgentOwners ? params.selections : []) {
     const runtime = resolveSelectedAgentHarnessRuntime(selection, config);
     const providerOwnerPluginIds = resolveSelectedProviderOwnerPluginIds({
       provider: selection.provider,
@@ -386,7 +394,7 @@ export function resolveAgentRuntimePluginLoadPlan(params: {
   }
   return {
     ...(config ? { config } : {}),
-    ...(params.basePluginIds === undefined && scopedPluginIds.length === 0
+    ...(includeAgentOwners && params.basePluginIds === undefined && scopedPluginIds.length === 0
       ? {}
       : { pluginIds: scopedPluginIds }),
   };

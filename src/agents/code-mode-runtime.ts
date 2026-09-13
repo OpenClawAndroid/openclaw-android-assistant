@@ -9,6 +9,7 @@ import { clampNumber } from "../utils.js";
 import { resolveAgentConfig } from "./agent-scope-config.js";
 import type { CodeModeOutputSource } from "./code-mode-json.js";
 import type { CodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
+import { CODE_MODE_RESULTS_API_FILE } from "./code-mode-results-api.js";
 import {
   MAX_CODE_MODE_PENDING_TOOL_CALLS,
   type CodeModeConfig as CodeModeWorkerConfig,
@@ -324,5 +325,8 @@ export function createCodeModeApiFilesForRun(
   swarmEnabled: boolean,
 ) {
   const { apiFiles: files } = namespaceRuntime;
-  return swarmEnabled ? files : files.filter((file) => file.path !== "agents.d.ts");
+  return [
+    CODE_MODE_RESULTS_API_FILE,
+    ...(swarmEnabled ? files : files.filter((file) => file.path !== "agents.d.ts")),
+  ];
 }

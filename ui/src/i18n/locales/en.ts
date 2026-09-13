@@ -13,7 +13,7 @@ export const en: TranslationMap & {
   // Lazy en-devices.ts assigns into this namespace.
   devices: TranslationMap;
   desktop: TranslationMap &
-    Record<"title" | "openWindow" | "unavailable" | "toggle" | "reconnect", string>;
+    Record<"title" | "openWindow" | "unavailable" | "toggle" | "reconnect" | "connecting", string>;
   updates: TranslationMap;
   login: TranslationMap;
   skillWorkshop: TranslationMap;
@@ -2376,6 +2376,7 @@ export const en: TranslationMap & {
     unavailable: "Desktop viewing is unavailable for this connection.",
     toggle: "Toggle desktop panel",
     reconnect: "Reconnect",
+    connecting: "Connecting to desktop…",
   },
   routeTitles: {
     modelProviders: "Models",

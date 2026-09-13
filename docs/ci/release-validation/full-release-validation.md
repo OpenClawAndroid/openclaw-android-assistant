@@ -107,8 +107,11 @@ pnpm ci:full-release \
 ```
 
 Choose `npmDistTag=beta` for a beta and `route=prepared` only for an intended
-prepared-button consumer. Admission verifies source metadata, not registry
-eligibility or publication authority. For nonpublish work, explicitly select
+prepared-button consumer. Source admission verifies committed metadata; fresh
+publish runs also retain separate selected npm and ClawHub registry admission
+before fanout. Neither grants publication authority. See
+[Dispatch](/reference/full-release-validation/dispatch) for both contracts.
+For nonpublish work, explicitly select
 `diagnostic`, `main-qualification`, or `postpublish-confidence` and omit the
 publication selection; profile and filters still select the actual coverage.
 

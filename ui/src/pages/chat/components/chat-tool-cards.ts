@@ -25,9 +25,9 @@ import {
   resolveCollapsedToolArgumentPreview as toolArgumentPreview,
   resolveToolCardOutcome,
 } from "../../../lib/chat/tool-cards.ts";
-import { resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
+import { resolveToolActivityIcon, resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
 import { renderPluginSurface } from "../../../plugins/control-ui-view.ts";
-import type { PluginToolIcon } from "../chat-tool-icon-controller.ts";
+import type { PluginToolIcons } from "../chat-tool-icon-controller.ts";
 import { renderHighlightedCommand } from "./chat-command-highlight.ts";
 import { renderDiffStatChips } from "./chat-diff-render.ts";
 import {
@@ -88,11 +88,18 @@ export function shouldToggleSelectableDisclosure(event: MouseEvent): boolean {
   );
 }
 
-export function renderToolIcon(name: string, pluginIcon?: PluginToolIcon) {
-  // Memory activity keeps its semantic glyph instead of the plugin's app tile.
-  if (name === "memory") {
-    return icons.memory;
+export function renderToolIcon(
+  name: string,
+  tool?: { toolName: string; pluginToolIcons?: PluginToolIcons },
+) {
+  // Tool identity outranks argument-shape glyphs and generic plugin artwork.
+  const activityIcon = resolveToolActivityIcon(tool?.toolName);
+  if (activityIcon) {
+    return activityIcon === "claw"
+      ? html`<span class="chat-tool-claw">${icons.claw}</span>`
+      : icons[activityIcon];
   }
+  const pluginIcon = tool?.pluginToolIcons?.get(tool.toolName);
   if (pluginIcon) {
     return html`<img
       src=${pluginIcon.url}
@@ -469,7 +476,7 @@ export function renderToolCard(
   const isFileRow = Boolean(workspaceFilePath);
   const rowContent = html`
     <span class="chat-tool-msg-summary__icon"
-      >${renderToolIcon(icon, opts.pluginToolIcons?.get(card.name))}</span
+      >${renderToolIcon(icon, { toolName: display.name, pluginToolIcons: opts.pluginToolIcons })}</span
     >
     <span class="chat-tool-disclosure__content"
       >${renderToolRowContent(

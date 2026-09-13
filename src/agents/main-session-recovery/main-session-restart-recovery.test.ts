@@ -138,6 +138,7 @@ vi.mock("../../gateway/call.js", () => ({
 const sendRecoveryNotice = vi.fn<GatewayRecoveryRuntime["sendRecoveryNotice"]>(async () => ({
   suppressed: false,
 }));
+let dispatchSettlement = createDeferred();
 const mockRecoveryRuntime = {
   dispatchSessionMethod: vi.fn(),
   dispatchAgent: async <T>(
@@ -154,6 +155,7 @@ const mockRecoveryRuntime = {
       });
       options?.onAccepted?.(result);
       options?.onExecutionStarted?.();
+      await dispatchSettlement.promise;
     }
     return result;
   },
@@ -213,6 +215,7 @@ function loadSessionEntry(
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  dispatchSettlement = createDeferred();
   vi.mocked(callGateway).mockReset();
   vi.mocked(callGateway).mockImplementation(async () => ({ runId: "run-resumed" }));
   resetAgentEventsForTest();
@@ -1872,6 +1875,57 @@ describe("main-session-restart-recovery", () => {
     },
   );
 
+  it.each([false, true])(
+    "announces an active recovered Telegram topic (notice fails=%s)",
+    async (noticeFails) => {
+      const sessionsDir = await makeSessionsDir();
+      const sessionKey = "agent:main:telegram:group:-100123:topic:99";
+      const storePath = path.join(sessionsDir, "sessions.json");
+      await writeMainSession({
+        sessionsDir,
+        sessionKey,
+        deliveryContext: {
+          channel: "telegram",
+          to: "telegram:-100123",
+          accountId: "work",
+          threadId: 99,
+        },
+      });
+      await writeCompletedToolTranscript(sessionsDir);
+      if (noticeFails) {
+        sendRecoveryNotice.mockRejectedValueOnce(new Error("temporary transport failure"));
+      }
+      await expectRecovery({ started: 1, settled: 0, failed: 0, skipped: 0 });
+      expect(sendRecoveryNotice).toHaveBeenCalledOnce();
+      const notice = sendRecoveryNotice.mock.calls[0]?.[0];
+      expect(notice).toMatchObject({
+        channel: "telegram",
+        to: "telegram:-100123",
+        accountId: "work",
+        threadId: 99,
+        text: "I'm continuing your interrupted request now (the gateway has just restarted).  Don't be concerned with the lack of typing; I am working behind the scenes and I'll send a message when I'm done!",
+        idempotencyKey: `main-session-restart-recovery:${String(gatewayParams().idempotencyKey)}:resumed-notice`,
+      });
+      expect(notice?.isCurrent?.({})).toBe(true);
+      const current = loadSessionEntry({ sessionKey, storePath });
+      if (!current) {
+        throw new Error("expected recovered session");
+      }
+      await writeStore(sessionsDir, {
+        [sessionKey]: { ...current, abortedLastRun: true },
+      });
+      expect(notice?.isCurrent?.({})).toBe(false);
+      await writeStore(sessionsDir, {
+        [sessionKey]: { ...current, sessionId: "replacement-session" },
+      });
+      expect(notice?.isCurrent?.({})).toBe(false);
+      await writeStore(sessionsDir, { [sessionKey]: current });
+      expect(notice?.isCurrent?.({})).toBe(true);
+      dispatchSettlement.resolve();
+      await waitForFast(() => expect(notice?.isCurrent?.({})).toBe(false));
+    },
+  );
+
   it("re-adopts a persisted Telegram private-topic route and releases the next turn", async () => {
     const sessionsDir = await makeSessionsDir();
     const storePath = path.join(sessionsDir, "sessions.json");
@@ -1918,7 +1972,6 @@ describe("main-session-restart-recovery", () => {
       sessionsDir,
       sessionKey,
       delivery,
-      restartRecoveryDeliveryContext: recoveryContext,
     });
     await writeCompletedToolTranscript(sessionsDir);
 
@@ -1957,7 +2010,7 @@ describe("main-session-restart-recovery", () => {
           runId,
         }),
       ).toMatchObject({
-        restartRecoveryDeliveryContext: recoveryContext,
+        restartRecoveryDeliveryContext: deliveryContext,
         restartRecoveryDeliveryRunId: runId,
       });
       const result = {
@@ -2001,6 +2054,7 @@ describe("main-session-restart-recovery", () => {
         text: "recovered private-topic reply",
         threadId: "99",
       });
+      expect(sendRecoveryNotice).not.toHaveBeenCalled();
       const completed = loadSessionEntry({ sessionKey, storePath });
       expect(completed).toMatchObject({ status: "done", abortedLastRun: false });
       expect(completed?.restartRecoveryDeliveryRunId).toBeUndefined();
@@ -2767,7 +2821,11 @@ describe("main-session-restart-recovery", () => {
       expect(callGateway).toHaveBeenCalledOnce();
       expect(gatewayParams()).toMatchObject({ forceRestartSafeTools: true });
       expect(gatewayParams().message).toContain(pendingPayload);
-      expect(sendRecoveryNotice).not.toHaveBeenCalled();
+      expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+        }),
+      );
     },
   );
 
@@ -3119,7 +3177,11 @@ describe("main-session-restart-recovery", () => {
     }
 
     expect(callGateway).toHaveBeenCalledOnce();
-    expect(sendRecoveryNotice).not.toHaveBeenCalled();
+    expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+      }),
+    );
     expect(loadSessionEntry({ sessionKey, storePath })?.status).toBe("running");
   });
 
@@ -4348,6 +4410,7 @@ describe("main-session-restart-recovery", () => {
     expect(result).toEqual({ started: 1, settled: 0, failed: 0, skipped: 0 });
     expect(callGateway).toHaveBeenCalledOnce();
     expect(gatewayParams().idempotencyKey).toBe("recovery-main");
+    expect(sendRecoveryNotice).not.toHaveBeenCalled();
     expect(gatewayParams()).toMatchObject({
       expectedExistingSessionId: "main-session",
       internalRuntimeHandoffId: expect.any(String),
@@ -5366,7 +5429,11 @@ describe("main-session-restart-recovery", () => {
 
     expect(callGateway).toHaveBeenCalledOnce();
     expect(gatewayParams()).toMatchObject({ forceRestartSafeTools: true });
-    expect(sendRecoveryNotice).not.toHaveBeenCalled();
+    expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+      }),
+    );
     expect(loadSessionEntry({ sessionKey, storePath })?.status).toBe("running");
   });
 
@@ -5497,7 +5564,11 @@ describe("main-session-restart-recovery", () => {
 
       expect(callGateway).toHaveBeenCalledOnce();
       expect(gatewayParams()).toMatchObject({ forceRestartSafeTools: true });
-      expect(sendRecoveryNotice).not.toHaveBeenCalled();
+      expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+        }),
+      );
       expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
         status: "running",
         abortedLastRun: false,
@@ -5562,7 +5633,11 @@ describe("main-session-restart-recovery", () => {
     await expectRecovery({ started: 1, settled: 0, failed: 0, skipped: 0 });
 
     expect(gatewayParams()).toMatchObject({ forceRestartSafeTools: true });
-    expect(sendRecoveryNotice).not.toHaveBeenCalled();
+    expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+      }),
+    );
     expect(loadSessionEntry({ sessionKey, storePath })?.status).toBe("running");
   });
 
@@ -5578,7 +5653,11 @@ describe("main-session-restart-recovery", () => {
     await expectRecovery({ started: 1, settled: 0, failed: 0, skipped: 0 });
 
     expect(gatewayParams()).toMatchObject({ forceRestartSafeTools: true });
-    expect(sendRecoveryNotice).not.toHaveBeenCalled();
+    expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+      }),
+    );
     expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
       status: "running",
       abortedLastRun: false,
@@ -5602,7 +5681,11 @@ describe("main-session-restart-recovery", () => {
       await expectRecovery({ started: 1, settled: 0, failed: 0, skipped: 0 });
 
       expect(gatewayParams()).toMatchObject({ forceRestartSafeTools: true });
-      expect(sendRecoveryNotice).not.toHaveBeenCalled();
+      expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+        }),
+      );
       expect(loadSessionEntry({ sessionKey, storePath })?.status).toBe("running");
     },
   );
@@ -5637,7 +5720,11 @@ describe("main-session-restart-recovery", () => {
 
     await expectRecovery({ started: 1, settled: 0, failed: 0, skipped: 0 });
     expect(callGateway).toHaveBeenCalledOnce();
-    expect(sendRecoveryNotice).not.toHaveBeenCalled();
+    expect(sendRecoveryNotice).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(/:resumed-notice$/),
+      }),
+    );
   });
 
   it.each([

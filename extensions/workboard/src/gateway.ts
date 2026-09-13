@@ -16,6 +16,7 @@ import {
   registerWorkboardWorkspaceCardMethods,
   registerWorkboardWorkspaceWorkflowMethods,
 } from "./gateway-workspace-methods.js";
+import { resolveWorkboardSqliteWorkerModuleUrl } from "./sqlite-store-paths.js";
 import { registerWorkboardStoreLifecycle } from "./store-lifecycle.js";
 import { WorkboardStore } from "./store.js";
 
@@ -41,7 +42,9 @@ export function registerWorkboardGatewayMethods(params: {
   store?: WorkboardStore;
 }) {
   const { api: hostApi } = params;
-  const store = params.store ?? WorkboardStore.openSqlite();
+  const store =
+    params.store ??
+    WorkboardStore.openSqlite(resolveWorkboardSqliteWorkerModuleUrl(hostApi.runtimeSource));
   if (!params.store) {
     registerWorkboardStoreLifecycle(hostApi, store);
   }

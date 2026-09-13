@@ -876,6 +876,7 @@ describe("CLI attempt execution", () => {
     body: string;
     runId: string;
     cwd?: string;
+    abortSignal?: AbortSignal;
     onExecutionStarted?: () => void;
     onAgentEvent?: RunAgentAttemptParams["onAgentEvent"];
     classifyResult?: RunAgentAttemptParams["classifyResult"];
@@ -890,7 +891,10 @@ describe("CLI attempt execution", () => {
       body: params.body,
       classifyResult: params.classifyResult,
       runId: params.runId,
-      opts: { onExecutionStarted: params.onExecutionStarted },
+      opts: {
+        onExecutionStarted: params.onExecutionStarted,
+        abortSignal: params.abortSignal,
+      },
       ...(params.onAgentEvent ? { onAgentEvent: params.onAgentEvent } : {}),
       agentDir,
       sessionStore: params.sessionStore,
@@ -1519,7 +1523,7 @@ describe("CLI attempt execution", () => {
     );
   });
 
-  it("clears reused Claude CLI session IDs after AbortError without retrying", async () => {
+  it("preserves and resumes a reused Claude CLI session after AbortError", async () => {
     const sessionKey = "agent:main:direct:cli-abort";
     const cliSessionId = "abort-poisoned-session";
     await writeClaudeCliAssistantTranscript(cliSessionId);
@@ -1541,15 +1545,114 @@ describe("CLI attempt execution", () => {
 
     expect(runCliAgentMock).toHaveBeenCalledTimes(1);
     expect(firstRunCliAgentArg().cliSessionId).toBe(cliSessionId);
-    expect(sessionStore[sessionKey]?.cliSessionBindings?.["claude-cli"]).toBeUndefined();
-    expect(sessionStore[sessionKey]?.cliSessionIds?.["claude-cli"]).toBeUndefined();
-    expect(sessionStore[sessionKey]?.claudeCliSessionId).toBeUndefined();
+    expect(sessionStore[sessionKey]?.cliSessionBindings?.["claude-cli"]?.sessionId).toBe(
+      cliSessionId,
+    );
+    expect(sessionStore[sessionKey]?.cliSessionIds?.["claude-cli"]).toBe(cliSessionId);
+    expect(sessionStore[sessionKey]?.claudeCliSessionId).toBe(cliSessionId);
 
     const persisted = readSessionStore();
-    expect(persisted[sessionKey]?.cliSessionBindings?.["claude-cli"]).toBeUndefined();
-    expect(persisted[sessionKey]?.cliSessionIds?.["claude-cli"]).toBeUndefined();
-    expect(persisted[sessionKey]?.claudeCliSessionId).toBeUndefined();
+    expect(persisted[sessionKey]?.cliSessionBindings?.["claude-cli"]?.sessionId).toBe(cliSessionId);
+    expect(persisted[sessionKey]?.cliSessionIds?.["claude-cli"]).toBe(cliSessionId);
+    expect(persisted[sessionKey]?.claudeCliSessionId).toBe(cliSessionId);
+
+    runCliAgentMock.mockResolvedValueOnce(makeCliResult("continued after abort", cliSessionId));
+
+    await runClaudeCliAttempt({
+      sessionKey,
+      sessionEntry,
+      sessionStore,
+      body: "continue after abort",
+      runId: "run-cli-abort-resume",
+    });
+
+    expect(runCliAgentMock).toHaveBeenCalledTimes(2);
+    expect(firstRunCliAgentArg(1).cliSessionId).toBe(cliSessionId);
   });
+
+  it.each([
+    { reason: "aborted", replacement: false },
+    { reason: "timeout", replacement: false },
+    { reason: "aborted", replacement: true },
+    { reason: "timeout", replacement: true },
+  ] as const)(
+    "settles returned $reason partial output with replacement=$replacement before the next turn",
+    async ({ reason, replacement }) => {
+      const sessionKey = "agent:main:direct:cli-partial-interruption";
+      const cliSessionId = "established-session";
+      const successorCliSessionId = "unfinished-successor";
+      const homeDir = path.join(tmpDir, "home");
+      await writeClaudeCliAssistantTranscript(cliSessionId, homeDir);
+      await writeClaudeCliAssistantTranscript(successorCliSessionId, homeDir);
+      const sessionEntry = makeClaudeCliSessionEntry("session-partial-interruption", cliSessionId);
+      if (replacement) {
+        sessionEntry.cliSessionBindings!["claude-cli"]!.forkNextResume = true;
+      }
+      const sessionStore = { [sessionKey]: sessionEntry };
+      await writeSessionStoreSeed(sessionStore);
+      const controller = new AbortController();
+      runCliAgentMock.mockImplementationOnce(async (runParams: RunCliAgentParams) => {
+        expect(runParams.cliSessionId).toBe(cliSessionId);
+        if (replacement) {
+          expect(await runParams.claimCliSessionFork?.()).toBe(true);
+          await runParams.persistCliSessionForkSuccessor?.(successorCliSessionId);
+          expect(readSessionStore()[sessionKey]?.cliSessionBindings?.["claude-cli"]).toMatchObject({
+            sessionId: successorCliSessionId,
+            forceReuse: true,
+          });
+        }
+        controller.abort(
+          new DOMException(reason, reason === "timeout" ? "TimeoutError" : "AbortError"),
+        );
+        expect(runParams.abortSignal?.aborted).toBe(true);
+        const context = buildPreparedCliRunContext({
+          provider: "claude-cli",
+          sessionId: sessionEntry.sessionId,
+          sessionKey,
+          workspaceDir: tmpDir,
+        });
+        context.reusableCliSession = { mode: "reuse", sessionId: cliSessionId };
+        return buildCliRunResult({
+          context,
+          output: { text: "partial reply", terminalInterruption: { reason } },
+          effectiveCliSessionId: replacement ? successorCliSessionId : cliSessionId,
+          bindingFlushOk: true,
+          usedHistoryPrompt: false,
+          userTurnHandled: true,
+          sessionBindingDisabled: false,
+          preparedContextAgentMeta: {},
+        });
+      });
+
+      await runClaudeCliAttempt({
+        sessionKey,
+        sessionEntry,
+        sessionStore,
+        body: "continue the conversation",
+        runId: "run-partial-interruption",
+        abortSignal: controller.signal,
+      });
+
+      const expectedSessionId = replacement ? undefined : cliSessionId;
+      const persisted = readSessionStore()[sessionKey];
+      expect.soft(persisted?.cliSessionBindings?.["claude-cli"]?.sessionId).toBe(expectedSessionId);
+      expect.soft(persisted?.cliSessionBindings?.["claude-cli"]?.forceReuse).toBeUndefined();
+      expect
+        .soft(sessionStore[sessionKey]?.cliSessionBindings?.["claude-cli"]?.sessionId)
+        .toBe(expectedSessionId);
+      runCliAgentMock.mockResolvedValueOnce(makeCliResult("continued after interruption"));
+      await runClaudeCliAttempt({
+        sessionKey,
+        sessionEntry: sessionStore[sessionKey],
+        sessionStore,
+        body: "continue",
+        runId: "run-after-partial-interruption",
+      });
+
+      expect(runCliAgentMock).toHaveBeenCalledTimes(2);
+      expect(firstRunCliAgentArg(1).cliSessionId).toBe(expectedSessionId);
+    },
+  );
 
   it("clears a fork-marked Claude CLI session after terminal failover", async () => {
     const sessionKey = "agent:main:direct:cli-fork-expired";
@@ -1768,52 +1871,92 @@ describe("CLI attempt execution", () => {
     expect(readSessionStore()[sessionKey]?.cliSessionBindings?.["claude-cli"]).toBeUndefined();
   });
 
-  it("preserves a restored fork marker when recovery dies before producing a successor", async () => {
-    const sessionKey = "agent:main:direct:cli-fork-before-successor-failure";
-    const cliSessionId = "recovery-source-session";
-    await writeClaudeCliAssistantTranscript(cliSessionId);
-    const sessionEntry = makeClaudeCliSessionEntry(
-      "session-cli-fork-before-successor-failure",
-      cliSessionId,
-    );
-    const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
-    await writeSessionStoreSeed(sessionStore);
-    const recoveryError = Object.assign(new Error("fork process died before init"), {
-      name: "AbortError",
-    });
-    runCliAgentMock.mockImplementationOnce(async (args: unknown) => {
-      const runArgs = requireRecord(args, "run CLI agent argument");
-      await (
-        runArgs.onBeforeForkedCliSessionRetry as (params: {
-          provider: string;
-          reason: "timeout";
-          sessionId: string;
-        }) => Promise<boolean>
-      )({ provider: "claude-cli", reason: "timeout", sessionId: cliSessionId });
-      await (runArgs.claimCliSessionFork as () => Promise<boolean>)();
-      await (runArgs.restoreCliSessionFork as () => Promise<void>)();
-      throw recoveryError;
-    });
+  it.each(["recovery failure", "catalog cancellation"] as const)(
+    "preserves a restored fork marker before a successor after %s",
+    async (scenario) => {
+      const sessionKey = "agent:main:direct:cli-fork-before-successor-failure";
+      const cliSessionId = "recovery-source-session";
+      await writeClaudeCliAssistantTranscript(cliSessionId);
+      const sessionEntry = makeClaudeCliSessionEntry(
+        "session-cli-fork-before-successor-failure",
+        cliSessionId,
+      );
+      const catalogCancellation = scenario === "catalog cancellation";
+      if (catalogCancellation) {
+        sessionEntry.cliSessionBindings!["claude-cli"] = {
+          sessionId: cliSessionId,
+          forceReuse: true,
+          forkNextResume: true,
+          resumeCheckpointId: "source-checkpoint",
+        };
+      }
+      const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
+      await writeSessionStoreSeed(sessionStore);
+      const recoveryError = Object.assign(new Error("fork process died before init"), {
+        name: "AbortError",
+      });
+      const controller = new AbortController();
+      runCliAgentMock.mockImplementationOnce(async (runArgs: RunCliAgentParams) => {
+        if (!catalogCancellation) {
+          expect(
+            await runArgs.onBeforeForkedCliSessionRetry?.({
+              provider: "claude-cli",
+              reason: "timeout",
+              sessionId: cliSessionId,
+            }),
+          ).toBe(true);
+        }
+        expect(await runArgs.claimCliSessionFork?.()).toBe(true);
+        expect(
+          readSessionStore()[sessionKey]?.cliSessionBindings?.["claude-cli"]?.forkNextResume,
+        ).toBeUndefined();
+        if (catalogCancellation) {
+          controller.abort(recoveryError);
+          expect(runArgs.abortSignal?.aborted).toBe(true);
+        }
+        await runArgs.restoreCliSessionFork?.();
+        throw recoveryError;
+      });
 
-    await expect(
-      runClaudeCliAttempt({
+      await expect(
+        runClaudeCliAttempt({
+          sessionKey,
+          sessionEntry,
+          sessionStore,
+          body: "resume and fail before fork init",
+          runId: "run-cli-fork-before-successor-failure",
+          abortSignal: controller.signal,
+        }),
+      ).rejects.toBe(recoveryError);
+
+      expect.soft(sessionStore[sessionKey]?.cliSessionBindings?.["claude-cli"]).toMatchObject({
+        sessionId: cliSessionId,
+        forkNextResume: true,
+      });
+      expect
+        .soft(readSessionStore()[sessionKey]?.cliSessionBindings?.["claude-cli"])
+        .toMatchObject({
+          sessionId: cliSessionId,
+          forkNextResume: true,
+          ...(catalogCancellation
+            ? { forceReuse: true, resumeCheckpointId: "source-checkpoint" }
+            : {}),
+        });
+      runCliAgentMock.mockResolvedValueOnce(makeCliResult("continued in fork", "fork-successor"));
+      await runClaudeCliAttempt({
         sessionKey,
         sessionEntry,
         sessionStore,
-        body: "resume and fail before fork init",
-        runId: "run-cli-fork-before-successor-failure",
-      }),
-    ).rejects.toBe(recoveryError);
-
-    expect(sessionStore[sessionKey]?.cliSessionBindings?.["claude-cli"]).toMatchObject({
-      sessionId: cliSessionId,
-      forkNextResume: true,
-    });
-    expect(readSessionStore()[sessionKey]?.cliSessionBindings?.["claude-cli"]).toMatchObject({
-      sessionId: cliSessionId,
-      forkNextResume: true,
-    });
-  });
+        body: "continue in a fork",
+        runId: "run-cli-after-before-successor-failure",
+      });
+      expect(runCliAgentMock).toHaveBeenCalledTimes(2);
+      expect(firstRunCliAgentArg(1)).toMatchObject({
+        cliSessionId,
+        forkCliSessionOnResume: true,
+      });
+    },
+  );
 
   it("does not clear a concurrent rebind after failed fork recovery", async () => {
     const sessionKey = "agent:main:direct:cli-fork-concurrent-rebind";

@@ -1,7 +1,6 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
-  countActiveDescendantRuns,
-  getSessionDisplaySubagentRunByChildSessionKey,
+  buildSubagentSessionListReadIndex,
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
   isSubagentRunLive,
@@ -108,16 +107,14 @@ export function projectGatewaySessionRunState(params: {
   rowContext?: SessionListRowContext;
 }) {
   const { key, entry, now, rowContext } = params;
-  const subagentRun = rowContext
-    ? rowContext.subagentRuns.getDisplaySubagentRun(key)
-    : getSessionDisplaySubagentRunByChildSessionKey(key);
+  const subagentRuns = rowContext?.subagentRuns ?? buildSubagentSessionListReadIndex(now);
+  const subagentRun = subagentRuns.getDisplaySubagentRun(key);
   const subagentOwner =
     normalizeOptionalString(subagentRun?.controllerSessionKey) ||
     normalizeOptionalString(subagentRun?.requesterSessionKey);
   const liveSubagentRunActive = isSubagentRunLive(subagentRun) || isSubagentRunQueued(subagentRun);
   const hasActiveSubagentRun =
-    liveSubagentRunActive ||
-    (rowContext?.subagentRuns.countActiveDescendantRuns(key) ?? countActiveDescendantRuns(key)) > 0;
+    liveSubagentRunActive || subagentRuns.countActiveDescendantRuns(key) > 0;
   const persistedSessionStatus = entry?.status;
   const persistedSessionEndedAt = entry?.endedAt;
   const persistedSessionStartedAt = entry?.startedAt;

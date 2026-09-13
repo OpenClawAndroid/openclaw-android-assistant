@@ -106,11 +106,12 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       boards: WorkboardKeyedStore<PersistedWorkboardBoard>;
       subscriptions: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
       attachments: WorkboardKeyedStore<PersistedWorkboardAttachment>;
-      dataVersion?: () => number;
-      close?: () => void;
+      ready?: Promise<number>;
+      dataVersion?: () => number | Promise<number>;
+      close?: () => void | Promise<void>;
     },
   ) {
-    super(stores.dataVersion, stores.close);
+    super(stores.dataVersion, stores.close, stores.ready);
     this.store = this.trackCardStore(store);
     this.boardStore = this.track(stores.boards);
     this.subscriptionStore = this.track(stores.subscriptions, { notifyChanges: false });
@@ -904,11 +905,6 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     for (const entry of await this.subscriptionStore.entries()) {
       if (entry.value?.version === 1 && entry.value.subscription?.cardId === cardId) {
         await this.subscriptionStore.delete(entry.key);
-      }
-    }
-    for (const entry of await this.attachmentStore.entries()) {
-      if (entry.value?.version === 1 && entry.value.attachment?.cardId === cardId) {
-        await this.attachmentStore.delete(entry.key);
       }
     }
     await this.removeReferencesToCard(cardId);

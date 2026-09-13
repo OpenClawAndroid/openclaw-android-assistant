@@ -60,9 +60,9 @@ zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSBitmapImageRep", "NSEvent", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSSavePanel", "NSToolbar", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSData", "NSDictionary", "NSError", "NSKeyValueObserving", "NSString"] }
-objc2-web-kit = { version = "0.3.2", default-features = false, features = ["WKDownload", "WKDownloadDelegate", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKSnapshotConfiguration", "WKNavigation", "WKNavigationDelegate", "objc2-app-kit", "block2"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKSnapshotConfiguration", "WKNavigation", "WKNavigationDelegate", "WKScriptMessage", "WKScriptMessageHandler", "WKUserContentController", "objc2-app-kit", "block2"] }
 tauri-plugin-notifications = { git = "https://github.com/steipete/tauri-plugin-notifications.git", rev = "35d04a6af588a5d5d438da0320c7d95a877cfe14", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]

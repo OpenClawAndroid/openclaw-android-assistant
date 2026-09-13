@@ -144,5 +144,8 @@ export async function ensureStagedInputDirectory(
   }
   // Never add an exclusion to an existing project directory or replace its files.
   signal?.throwIfAborted();
-  await root.create(ignorePath, STAGED_INPUT_GITIGNORE, { mode: 0o600 });
+  await root.create(ignorePath, STAGED_INPUT_GITIGNORE, {
+    mode: 0o600,
+    assertBeforeMutation: () => signal?.throwIfAborted(),
+  });
 }

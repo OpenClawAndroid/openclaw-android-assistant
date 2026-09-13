@@ -155,6 +155,7 @@ it("fences swarm effects after owner or policy loss during a shared runtime impo
           createPendingBridgeStates(pendingRequests, {
             config: limits,
             inbox: owner.inbox,
+            results: owner.results,
             runtime,
             ctx,
             catalogProjection: createCodeModeCatalogProjection(runtime.all({ includeMcp: false })),

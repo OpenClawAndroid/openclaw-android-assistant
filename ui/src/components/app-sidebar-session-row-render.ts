@@ -11,7 +11,7 @@ import { sessionHasPendingApproval } from "../app/approval-presentation.ts";
 import type { ApplicationContext, ApplicationNavigationOptions } from "../app/context.ts";
 import { resolveControlUiAuthCandidates } from "../app/control-ui-auth.ts";
 import { t } from "../i18n/index.ts";
-import { formatDurationCompact } from "../lib/format.ts";
+import { formatDurationCompact } from "../lib/format-duration.ts";
 import {
   restartHoverMarqueeIfHovered,
   startHoverMarqueeFromEvent,

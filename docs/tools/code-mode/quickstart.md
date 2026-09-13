@@ -137,10 +137,50 @@ Declared output fields may feed later calls in that same `exec`; do not spend a
 second `exec` merely inspecting them.
 
 When a quick-index line ends in `-> ?`, the output shape is unknown. The first
-`exec` must return the final async tool call unchanged. Do not feed the unknown
-value into guessed field-dependent logic in the same program. Observe the raw
-value, then use a later `exec` for dependent composition. This costs an extra
-model turn, but prevents the model from guessing field names.
+`exec` must return the final async tool call unchanged or save its value for a
+bounded preview. Do not feed the unknown value into guessed field-dependent
+logic in the same program. Inspect the raw value or saved preview, then use a
+later `exec` for dependent composition.
+
+## Reuse data across cells
+
+Save a fetched result when later steps need to inspect and transform it:
+
+```javascript
+const [shipmentTool] = await catalog.search("list shipments");
+return await results.save(await shipmentTool({}));
+```
+
+Return this descriptor directly as the cell's output. Its preview, shape, and
+count are already prepared; the full fetched value stays in saved storage.
+
+The returned reference contains an `id`, encoded JSON `bytes`, `count`, a
+shallow `shape` sample, and a bounded JSON `preview`. `count` is the array
+length, object key count, or 1 for a scalar. The shape samples the first array
+item and a few fields; it is not a schema or validation guarantee. When
+`previewTruncated` is true, the preview is only a prefix and may not be parseable JSON.
+
+After inspecting those fields, a later cell can reuse the original result:
+
+```javascript
+const shipments = await results.load("result_<id from the previous cell>");
+return shipments.filter((shipment) => !shipment.paid).length;
+```
+
+Every load returns an independent JSON copy. Modifying it does not change the
+saved value. Use `await results.delete(id)` to release capacity. Missing or
+expired references reject with a catchable error. `API.read("results.d.ts")`
+provides the TypeScript declarations; loaded data remains `unknown` until checked.
+
+References last only for the current agent run and catalog. They survive cell
+completion and `wait`, but not run end, abort, catalog replacement, permission
+changes, or Gateway restart. They are snapshots: fetch again when current
+external state matters. The store holds at most 64 values with a total encoded
+JSON allowance of `min(memoryLimitBytes, maxSnapshotBytes)` (10 MiB by default),
+separate from the cell inbox. New saves fail when full; existing references are
+never evicted automatically. No functions, tool handles, or permissions are saved.
+Result operations are unavailable in `restartSafe` cells because references are
+transient and deletion cannot be replayed safely.
 
 ## Recover from tool errors
 

@@ -271,6 +271,20 @@ html.openclaw-native-macos body .shell--mobile-nav .topnav-shell__actions {
   margin-left: auto;
 }
 
+/* Desktop webviews keep their caption buttons when resized into drawer mode. */
+html.openclaw-native-desktop body .shell--mobile-nav {
+  --shell-topbar-height: var(--openclaw-native-titlebar-height, 52px);
+
+  .topbar {
+    padding: 0 calc(var(--openclaw-native-window-controls-width, 0px) + 12px) 0
+      var(--openclaw-native-controls-inset, 12px);
+  }
+
+  .topnav-shell {
+    min-height: var(--openclaw-native-titlebar-height, 52px);
+  }
+}
+
 /* Mobile-specific styles */
 @media (max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
   .shell {

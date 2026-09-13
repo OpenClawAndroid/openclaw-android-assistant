@@ -105,6 +105,10 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
 }): Promise<Result> {
   const { worker, operationId } = params;
   return new Promise((resolve, reject) => {
+    // oxlint-disable-next-line no-warning-comments -- remove after the upstream Bun Worker fix ships.
+    // TODO(bun): Rely on the Worker's native async resource once Bun ships
+    // https://github.com/oven-sh/bun/pull/42593.
+    const runInOperationContext = AsyncLocalStorage.snapshot();
     let result: Result | undefined;
     let validation: OpenClawAgentDatabaseValidation | undefined;
     let workerError: Error | undefined;
@@ -123,14 +127,16 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
       workerError ??= toStringifiedError(error);
       void worker.terminate();
     };
-    const error = (failure: unknown) => {
-      // Parent authority failures take precedence over the Worker's generic unwind error.
-      transportError ??= toStringifiedError(failure);
-    };
-    const messageError = (failure: unknown) => {
-      error(failure);
-      void worker.terminate();
-    };
+    const error = (failure: unknown) =>
+      runInOperationContext(() => {
+        // Parent authority failures take precedence over the Worker's generic unwind error.
+        transportError ??= toStringifiedError(failure);
+      });
+    const messageError = (failure: unknown) =>
+      runInOperationContext(() => {
+        error(failure);
+        void worker.terminate();
+      });
     const finish = (code?: number) => {
       if (completed) {
         return;
@@ -162,12 +168,13 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
         })
         .catch(reject);
     };
-    const exit = (code: number) => {
-      params.onExit?.(code);
-      finish(code);
-    };
+    const exit = (code: number) =>
+      runInOperationContext(() => {
+        params.onExit?.(code);
+        finish(code);
+      });
     // Worker events inherit its first caller; each request must retain its own authority context.
-    const receive = AsyncLocalStorage.bind((message: SqliteMutationWorkerMessage<Result>) => {
+    const receiveInOperationContext = (message: SqliteMutationWorkerMessage<Result>) => {
       if (message.operationId !== operationId) {
         return;
       }
@@ -266,7 +273,9 @@ export function runSqliteMutationWorkerRequest<Result>(params: {
           finish();
         }
       }
-    });
+    };
+    const receive = (message: SqliteMutationWorkerMessage<Result>) =>
+      runInOperationContext(receiveInOperationContext, message);
     worker.on("message", receive);
     worker.once("exit", exit);
     worker.once("error", error);

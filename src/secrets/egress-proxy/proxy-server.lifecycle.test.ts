@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
 import { once } from "node:events";
 import fs from "node:fs";
+import * as http from "node:http";
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import * as https from "node:https";
 import { createServer as createHttpsServer, type Server } from "node:https";
@@ -17,6 +18,7 @@ import { mintSecretSentinel } from "../sentinel.js";
 import { startSecretEgressProxyServer, type SecretEgressProxyHandle } from "./proxy-server.js";
 
 vi.mock("node:https", { spy: true });
+vi.mock("node:http", { spy: true });
 
 const run = { instanceId: "instance-1", runId: "run-1" };
 const sibling = { instanceId: "instance-2", runId: "run-2" };
@@ -121,8 +123,8 @@ beforeEach(async () => {
   incoming = new Map();
   responses = new Map();
   bodyReceived = new Set();
-  const { createServer } = await vi.importActual<typeof https>("node:https");
-  vi.spyOn(https, "createServer").mockImplementation((options, listener) =>
+  const { createServer } = await vi.importActual<typeof http>("node:http");
+  vi.spyOn(http, "createServer").mockImplementation((options, listener) =>
     createServer(options, listener).on("request", (request, response) => {
       const proof = request.headers["x-upload-proof"];
       if (typeof proof === "string" && !incoming.has(proof)) {

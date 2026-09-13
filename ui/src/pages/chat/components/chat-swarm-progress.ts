@@ -3,7 +3,7 @@ import { repeat } from "lit/directives/repeat.js";
 import type { GatewaySessionRow } from "../../../api/types.ts";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
-import { formatDurationCompact } from "../../../lib/format.ts";
+import { formatDurationCompact } from "../../../lib/format-duration.ts";
 import { resolveSessionDisplayName } from "../../../lib/session-display.ts";
 import { areUiSessionKeysEquivalent } from "../../../lib/sessions/session-key.ts";
 

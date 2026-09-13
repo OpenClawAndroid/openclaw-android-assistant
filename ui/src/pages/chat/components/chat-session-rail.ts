@@ -12,7 +12,8 @@ import { renderPanelLoadingSkeleton } from "../../../components/panel-loading-sk
 import "../../../components/tooltip.ts";
 import "../../../components/web-awesome.ts";
 import { t } from "../../../i18n/index.ts";
-import { formatDurationCompact, formatTimeAgo, formatTimeMs } from "../../../lib/format.ts";
+import { formatDurationCompact } from "../../../lib/format-duration.ts";
+import { formatTimeAgo, formatTimeMs } from "../../../lib/format.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import {
   type ChatObserverDisplayPreference,

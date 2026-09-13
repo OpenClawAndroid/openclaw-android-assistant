@@ -4,7 +4,10 @@ import {
   validateFullReleaseCandidateRequest,
 } from "./full-release-candidate-contract.mjs";
 import {
+  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT,
   FULL_RELEASE_SOURCE_ADMISSION_CONTRACT,
+  publicationIntentInputs,
+  validatePublicationAdmissionBinding,
   validatePublicationSourceBinding,
 } from "./full-release-publication-contract.mjs";
 import { hasRequiredLinuxCrossOsSuites } from "./lib/cross-os-release-checks/suite-filter.mjs";
@@ -23,6 +26,135 @@ export function serializeReleaseArtifact(payload) {
   return json;
 }
 
+export function buildReleaseValidationManifest({ plan, drain, context }) {
+  const childEvidence = Object.fromEntries(
+    Object.entries(drain?.children ?? {}).map(([key, child]) => [
+      key,
+      {
+        runId: child.runId,
+        plannedRunAttempt: child.plannedRunAttempt,
+        effectiveRunAttempt: child.runAttempt,
+        observedRunAttempts: child.observedRunAttempts,
+        compositeJobsSha256: child.compositeJobsSha256,
+        dispatchActor: child.dispatchActor,
+        triggeringActor: child.triggeringActor,
+        repository: child.repository,
+        jobs: child.timing.jobs.map(
+          ({ name, status, conclusion, acceptedRunAttempt, startedAt, completedAt, url }) => ({
+            name,
+            status,
+            conclusion,
+            acceptedRunAttempt,
+            startedAt,
+            completedAt,
+            url,
+          }),
+        ),
+      },
+    ]),
+  );
+  const current = {
+    version: 4,
+    runId: context.runId,
+    runAttempt: context.runAttempt,
+    workflowRef: context.workflowRef,
+    workflowSha: context.workflowSha,
+    workflowFullRef: context.workflowFullRef,
+    workflowRefType: context.workflowRefType,
+    targetRef: context.targetRef,
+    targetSha: plan.targetSha,
+    candidateBinding: plan.candidate,
+    publicationArtifacts: context.publicationArtifacts ?? { npmPreflight: null, docker: null },
+    childEvidence,
+    executionPlanSha256: plan.sha256,
+    sourceParentRunAttempt: Number(plan.parentRunAttempt),
+    ...(plan.sourceAdmissionContract
+      ? {
+          sourceAdmissionContract: plan.sourceAdmissionContract,
+          sourceAdmission: plan.sourceAdmission,
+          trustedWorkflow: plan.trustedWorkflow,
+        }
+      : {}),
+    ...(plan.publicationAdmissionContract
+      ? {
+          publicationAdmissionContract: plan.publicationAdmissionContract,
+          publicationAdmission: plan.publicationAdmission,
+        }
+      : {}),
+  };
+  const runs = Object.fromEntries(plan.children.map((child) => [child.key, child.runId]));
+  const root = plan.evidenceReuse.sourceManifest;
+  let rootPublication;
+  if (plan.evidenceReuse.requested && root?.publicationAdmissionContract !== undefined) {
+    rootPublication = {
+      sourceAdmissionContract: root.sourceAdmissionContract,
+      sourceAdmission: root.sourceAdmission,
+      publicationAdmissionContract: root.publicationAdmissionContract,
+      publicationAdmission: root.publicationAdmission,
+    };
+    validatePublicationAdmissionBinding(rootPublication);
+    if (
+      root.sourceAdmission.runId !== plan.evidenceReuse.rootRunId ||
+      root.sourceAdmission.candidateSha !== plan.evidenceReuse.evidenceSha
+    ) {
+      throw new Error("reused publication admission differs from the retained root identity");
+    }
+  }
+  const manifest = plan.evidenceReuse.requested
+    ? {
+        ...plan.evidenceReuse.sourceManifest,
+        ...current,
+        evidenceReuse: {
+          policy: plan.evidenceReuse.policy,
+          runId: plan.evidenceReuse.rootRunId,
+          selectedRunId: plan.evidenceReuse.selectedRunId,
+          evidenceSha: plan.evidenceReuse.evidenceSha,
+          changedPaths: plan.evidenceReuse.changedPaths ?? [],
+          ...(rootPublication ? { publication: rootPublication } : {}),
+        },
+        controls: {
+          ...plan.evidenceReuse.sourceManifest.controls,
+          performanceReportPublication: "artifact-only",
+        },
+      }
+    : {
+        ...current,
+        workflowName: "Full Release Validation",
+        releaseProfile: context.releaseProfile,
+        rerunGroup: context.rerunGroup,
+        runReleaseSoak: context.runReleaseSoak,
+        validationInputs: {
+          ...context.validationInputs,
+          ...(plan.sourceAdmissionContract
+            ? {
+                ...publicationIntentInputs(plan.sourceAdmission),
+              }
+            : {}),
+          ...(plan.coveragePolicy ? { coveragePolicy: plan.coveragePolicy } : {}),
+        },
+        controls: {
+          stableSoakRequired: ["stable", "full"].includes(context.releaseProfile),
+          performanceBlocking: context.releaseProfile !== "beta",
+          performanceReportPublication: "artifact-only",
+        },
+        childRuns: {
+          normalCi: runs.normalCi ?? "",
+          pluginPrereleaseIndependent: runs.pluginPrereleaseIndependent ?? "",
+          pluginPrereleaseCandidate: runs.pluginPrereleaseCandidate ?? "",
+          releaseChecksIndependent: runs.releaseChecksIndependent ?? "",
+          releaseChecksCandidate: runs.releaseChecksCandidate ?? "",
+          npmTelegram: runs.npmTelegram ?? "",
+          productPerformance: {
+            runId: runs.productPerformance ?? "",
+            conclusion: drain?.children?.productPerformance?.conclusion ?? "",
+            blocking: context.releaseProfile !== "beta",
+          },
+        },
+      };
+  serializeReleaseArtifact(manifest);
+  return manifest;
+}
+
 const SUCCESSFUL_JOB_CONCLUSIONS = new Set(["neutral", "skipped", "success"]);
 const MAX_REPORTED_ISSUES = 25;
 const MAX_SUMMARY_ISSUES = 5;
@@ -32,6 +164,47 @@ const MAX_URL_LENGTH = 1024;
 const EXACT_TARGET_EVIDENCE_REUSE_POLICY = "exact-target-full-validation-v1";
 const CHANGELOG_ONLY_EVIDENCE_REUSE_POLICY = "changelog-only-release-v1";
 export const SPLIT_CHANGELOG_EVIDENCE_REUSE_POLICY = "split-changelog-release-v1";
+
+export function assertReleasePublicationKnownBudget(plan, context) {
+  serializeReleaseArtifact(plan);
+  // Only these future fields have finite bounds in the existing plan normalizers.
+  // Complete future jobs/attempts and candidate receipts are not covered here.
+  const issue = normalizeIssue(
+    Object.fromEntries(
+      ["child", "conclusion", "job", "kind", "message", "runId", "url"].map((key) => [
+        key,
+        "\0".repeat(
+          key === "url"
+            ? MAX_URL_LENGTH
+            : key === "message"
+              ? MAX_MESSAGE_LENGTH
+              : MAX_LABEL_LENGTH,
+        ),
+      ]),
+    ),
+    "orchestration_error",
+  );
+  const reserved = {
+    ...plan,
+    children: plan.children.map((child) =>
+      child.selected
+        ? {
+            ...child,
+            result: "\0".repeat(MAX_LABEL_LENGTH),
+            runId: "9".repeat(MAX_LABEL_LENGTH),
+            runAttempt: Number.MAX_SAFE_INTEGER,
+            sourceParentAttempt: Number.MAX_SAFE_INTEGER,
+            url: "\0".repeat(MAX_URL_LENGTH),
+          }
+        : child,
+    ),
+    gates: plan.gates.map((gate) => ({ ...gate, result: "\0".repeat(MAX_LABEL_LENGTH) })),
+    blockers: Array.from({ length: MAX_REPORTED_ISSUES }, () => issue),
+    errors: Array.from({ length: MAX_REPORTED_ISSUES }, () => issue),
+  };
+  serializeReleaseArtifact(reserved);
+  buildReleaseValidationManifest({ plan: reserved, context });
+}
 
 // A split-layout receipt is bound to one selected release, never the directory.
 // Historical root-file receipts retain their original exact-path contract.
@@ -916,6 +1089,9 @@ function releaseExecutionPlanShape(payload) {
       ...(Object.hasOwn(payload, "sourceAdmissionContract")
         ? ["sourceAdmissionContract", "sourceAdmission"]
         : []),
+      ...(Object.hasOwn(payload, "publicationAdmissionContract")
+        ? ["publicationAdmissionContract", "publicationAdmission"]
+        : []),
     ]),
   ].toSorted((left, right) => left.localeCompare(right));
   const expectedChildKeys = hasAttemptEvidence
@@ -940,6 +1116,12 @@ function executionPlanDigestPayload(plan) {
         sourceAdmission: plan.sourceAdmission,
       }
     : {};
+  const publication = Object.hasOwn(plan, "publicationAdmissionContract")
+    ? {
+        publicationAdmissionContract: plan.publicationAdmissionContract,
+        publicationAdmission: plan.publicationAdmission,
+      }
+    : {};
   const waiver = Object.hasOwn(plan, "telegramWaiver")
     ? { targetVersion: plan.targetVersion, telegramWaiver: plan.telegramWaiver }
     : {};
@@ -949,6 +1131,7 @@ function executionPlanDigestPayload(plan) {
   if (!Object.hasOwn(plan, "attemptEvidenceVersion")) {
     return {
       ...source,
+      ...publication,
       ...waiver,
       blockers: plan.blockers,
       children: plan.children,
@@ -969,6 +1152,7 @@ function executionPlanDigestPayload(plan) {
   }
   return {
     ...source,
+    ...publication,
     ...waiver,
     ...coverage,
     attemptEvidenceVersion: plan.attemptEvidenceVersion,
@@ -1011,6 +1195,8 @@ export function buildReleaseExecutionPlanArtifact({
   rerunGroup,
   sourceAdmissionContract,
   sourceAdmission,
+  publicationAdmissionContract,
+  publicationAdmission,
   targetVersion,
   telegramWaiver,
   trustedWorkflow,
@@ -1066,6 +1252,9 @@ export function buildReleaseExecutionPlanArtifact({
   }
   const basePlan = {
     ...(sourceAdmissionContract !== undefined ? { sourceAdmissionContract, sourceAdmission } : {}),
+    ...(publicationAdmissionContract !== undefined
+      ? { publicationAdmissionContract, publicationAdmission }
+      : {}),
     ...(waiver ? { telegramWaiver: waiver, targetVersion } : {}),
     ...(coveragePolicy !== undefined ? { coveragePolicy, targetVersion } : {}),
     version: 1,
@@ -1085,11 +1274,14 @@ export function buildReleaseExecutionPlanArtifact({
     errors: normalizeIssues(errors, "orchestration_error"),
   };
   validatePlanSourceAdmission(basePlan, expected);
+  validatePlanPublicationAdmission(basePlan, expected);
   if (!attemptAware) {
     if (coveragePolicy !== undefined) {
       throw new Error("release coverage policy requires a phase-three execution plan");
     }
-    return { ...basePlan, sha256: releaseExecutionPlanSha256(basePlan) };
+    const result = { ...basePlan, sha256: releaseExecutionPlanSha256(basePlan) };
+    serializeReleaseArtifact(result);
+    return result;
   }
   const repository = boundedString(expected.repository, MAX_LABEL_LENGTH);
   const normalizedCandidateRequest = validateFullReleaseCandidateRequest(expected.candidateRequest);
@@ -1101,7 +1293,28 @@ export function buildReleaseExecutionPlanArtifact({
     candidate: candidate === null ? null : validateFullReleaseCandidateBinding(candidate),
   };
   validateCandidatePlanBinding(plan, expected.candidateRequest);
-  return { ...plan, sha256: releaseExecutionPlanSha256(plan) };
+  const result = { ...plan, sha256: releaseExecutionPlanSha256(plan) };
+  serializeReleaseArtifact(result);
+  return result;
+}
+
+function validatePlanPublicationAdmission(plan, expected) {
+  if (
+    plan.publicationAdmissionContract === FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT &&
+    plan.publicationAdmission === null &&
+    plan.gates.some(
+      (gate) => gate.name === "Resolve target ref" && gate.required && gate.result !== "success",
+    )
+  ) {
+    if (
+      expected.publicationAdmissionContract !== undefined &&
+      expected.publicationAdmissionContract !== plan.publicationAdmissionContract
+    ) {
+      throw new Error("publication admission contract mismatch");
+    }
+    return;
+  }
+  validatePublicationAdmissionBinding(plan, expected);
 }
 
 function validatePlanSourceAdmission(plan, expected) {
@@ -1164,7 +1377,9 @@ export function validateReleaseExecutionPlanArtifact(payload, expected = {}) {
     throw new Error("release execution plan artifact is invalid");
   }
   const shape = releaseExecutionPlanShape(payload);
+  serializeReleaseArtifact(payload);
   validatePlanSourceAdmission(payload, expected);
+  validatePlanPublicationAdmission(payload, expected);
   const sha256 = releaseExecutionPlanSha256(payload);
   if (payload.sha256 !== sha256) {
     throw new Error("release execution plan artifact digest is invalid");

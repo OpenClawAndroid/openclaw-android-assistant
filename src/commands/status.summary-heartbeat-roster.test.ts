@@ -5,7 +5,7 @@ import { testing as cliBackendsTesting } from "../agents/cli-backends.test-suppo
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
-import { getStatusSummary } from "./summary.js";
+import { getStatusSummary } from "../status/summary.js";
 
 const AGENT_COUNT = 200;
 

@@ -116,6 +116,39 @@ describe("integrated public Code Mode", () => {
     expect(result, JSON.stringify(result)).toMatchObject({ status: "completed", value: 7 });
     expect(target.execute).toHaveBeenCalledOnce();
   });
+
+  it("returns bounded compiler diagnostics together before any effects", async () => {
+    const target = pluginToolWithExecute("effect", "Effect", async () => jsonResult("done"));
+    const { ctx, config, tools } = createCodeModeHarness();
+    applyCodeModeCatalog({ ...ctx, config, tools: [...tools, target] });
+    const result = resultDetails(
+      await tools[0]!.execute("preflight-errors", {
+        code: [
+          "await effect();",
+          "missing_" + "é".repeat(4096) + ";",
+          ...Array.from({ length: 6 }, (_, index) => `missing_${index};`),
+        ].join("\n"),
+        language: "typescript",
+        typecheck: true,
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "invalid_input",
+      bridgeDispatchStarted: false,
+      failurePhase: "input",
+    });
+    const error = String(result.error);
+    expect(error).toContain("openclaw-code-mode:user.ts:2:1:");
+    expect(error).toContain("[diagnostic truncated]");
+    expect(error).toContain("openclaw-code-mode:user.ts:6:1: Cannot find name 'missing_3'");
+    expect(error).not.toContain("missing_4");
+    expect(error).toContain("2 additional errors omitted");
+    expect(Buffer.byteLength(error, "utf8")).toBeLessThan(6 * 1024);
+    expect(error).not.toContain("�");
+    expect(target.execute).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])(
     "refuses a new host effect after the boundary deadline (resume=%s)",
     async (resume) => {

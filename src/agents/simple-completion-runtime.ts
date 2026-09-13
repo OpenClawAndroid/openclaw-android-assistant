@@ -432,6 +432,9 @@ async function prepareSimpleCompletionModelCore(
         })
       : fingerprintResolvedProviderAuth(auth)
     : undefined;
+  await import("./ai-transport-runtime-host.js");
+  assertCurrent?.();
+  params.signal?.throwIfAborted();
   const modelRuntime = getModelRegistryRuntime(resolved.modelRegistry);
   const model = applySecretRefHeaderSentinels(
     applyLocalNoAuthHeaderOverride(resolvedModel, resolvedAuth),

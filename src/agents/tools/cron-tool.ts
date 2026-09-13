@@ -46,6 +46,7 @@ import {
   cronCreateRequiresCreatorAuthority,
   resolveCronCreatorExecToolTarget,
 } from "./cron-tool-creator-cap.js";
+import { CronToolOutputSchema } from "./cron-tool-output-schema.js";
 import {
   assertCronPacingInput,
   createCronToolSchema,
@@ -230,6 +231,7 @@ export function createCronTool(opts?: CronToolOptions, deps?: CronToolDeps): Any
     description: managementAuthority?.managementOnly
       ? 'Manage any existing automation on this Gateway as the authenticated Control UI administrator. Actions: list [includeDisabled,limit,offset] (compact summaries with timing; follow nextOffset); get jobId (full schedule, payload, and delivery details); update jobId job (partial patch, null clears); run jobId (runMode:"force" runs now); remove jobId. Creator attribution and scheduled execution policy stay intact. Use the Automations page for other actions.'
       : buildCronToolDescription({ triggersEnabled }),
+    outputSchema: CronToolOutputSchema,
     parameters: createCronToolSchema({
       agentSessionKey: opts?.agentSessionKey,
       triggersEnabled,

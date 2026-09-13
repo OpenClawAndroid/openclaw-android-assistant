@@ -1,10 +1,11 @@
 import { once } from "node:events";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, it } from "vitest";
 import type { ModelsListResult } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
 import type { WizardNextResult } from "../../../packages/gateway-protocol/src/schema/wizard.js";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "../test-helpers.e2e.js";
 
@@ -26,6 +27,9 @@ it.each([0, 7_000])(
     const provider = "login-discovery-fixture";
     const trace: Array<{ path: string; time: number; method: string; authenticated: boolean }> = [];
     let responseDelay = catalogDelay;
+    let holdNextCatalogResponse = false;
+    const refreshRequestStarted = createDeferred<ServerResponse>();
+    const releaseRefreshResponse = createDeferred();
     const endpoint = createServer((request, response) => {
       trace.push({
         path: request.url ?? "",
@@ -42,7 +46,15 @@ it.each([0, 7_000])(
         request.url === "/models" &&
         request.headers.authorization === "Bearer fixture-access"
       ) {
-        void delay(responseDelay).then(() =>
+        let responseReady: Promise<void>;
+        if (holdNextCatalogResponse) {
+          holdNextCatalogResponse = false;
+          responseReady = releaseRefreshResponse.promise;
+          refreshRequestStarted.resolve(response);
+        } else {
+          responseReady = delay(responseDelay);
+        }
+        void responseReady.then(() =>
           response.end(JSON.stringify([{ id: "account-exclusive", name: "Account exclusive" }])),
         );
       } else {
@@ -154,19 +166,28 @@ it.each([0, 7_000])(
         }
         expect(wizard.status, wizard.error).toBe("done");
         const loginCompleted = performance.now();
-        const observations = [];
-        for (const offsetMs of [1_000, 10_000]) {
-          await delay(Math.max(0, loginCompleted + offsetMs - performance.now()));
+        const observePassiveReads = async (stage: "early" | "final") => {
           const before = trace.filter((row) => row.path === "/models").length;
           const reads = await Promise.all([list(), list()]);
-          observations.push({
-            offsetMs,
+          return {
+            stage,
             observedAtMs: performance.now() - loginCompleted,
             before,
             after: trace.filter((row) => row.path === "/models").length,
             reads,
-          });
+          };
+        };
+        await delay(Math.max(0, loginCompleted + 1_000 - performance.now()));
+        const observations = [await observePassiveReads("early")];
+        const publicationDeadline = loginCompleted + 10_000;
+        while (performance.now() < publicationDeadline) {
+          const publishedIds = (await list()).ids;
+          if (publishedIds.includes("account-exclusive")) {
+            break;
+          }
+          await delay(Math.min(200, Math.max(0, publicationDeadline - performance.now())));
         }
+        observations.push(await observePassiveReads("final"));
         const automaticTrace = trace.map((row) => ({ ...row, time: row.time - loginCompleted }));
         responseDelay = 0;
         const manualRefresh = await list(true);
@@ -178,20 +199,29 @@ it.each([0, 7_000])(
             key: session.key,
             model: `${provider}/account-exclusive@${provider}:owner`,
           });
-          responseDelay = 7_000;
-          const refreshStarted = once(endpoint, "request");
+          holdNextCatalogResponse = true;
           const refresh = client.request("models.list", {
             agentId: "main",
             provider,
             refresh: true,
           });
-          await refreshStarted;
-          const selectedAccount = await client.request<ModelsListResult>("models.list", {
-            sessionKey: session.key,
-            view: "configured",
+          void refresh.catch((error: unknown) => {
+            refreshRequestStarted.reject(error);
           });
-          expect(selectedAccount.pendingProviders ?? []).not.toContain(provider);
-          await refresh;
+          try {
+            const heldResponse = await refreshRequestStarted.promise;
+            const selectedAccount = await client.request<ModelsListResult>("models.list", {
+              sessionKey: session.key,
+              view: "configured",
+            });
+            expect(selectedAccount.pendingProviders ?? []).not.toContain(provider);
+            expect(heldResponse.writableEnded).toBe(false);
+            expect(heldResponse.destroyed).toBe(false);
+          } finally {
+            holdNextCatalogResponse = false;
+            releaseRefreshResponse.resolve();
+            await refresh;
+          }
         }
         console.log(
           "LOGIN_DISCOVERY_PROOF",
@@ -210,12 +240,12 @@ it.each([0, 7_000])(
           for (const read of observation.reads) {
             expect.soft(read.elapsedMs).toBeLessThan(1_000);
             if (
-              observation.offsetMs === 1_000 &&
+              observation.stage === "early" &&
               (catalogDelay === 7_000 || !read.ids.includes("account-exclusive"))
             ) {
               expect.soft(read.result.pendingProviders).toContain(provider);
             }
-            if (observation.offsetMs === 10_000) {
+            if (observation.stage === "final") {
               expect.soft(read.ids).toContain("account-exclusive");
             }
           }

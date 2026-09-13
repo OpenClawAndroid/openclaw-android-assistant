@@ -150,7 +150,7 @@ function createRootTestLintFixture() {
   })) {
     writeRepoFile(dir, file, source);
   }
-  materializeNativeCompiler(dir);
+  mkdirSync(path.join(dir, "node_modules/.bin"), { recursive: true });
   for (const name of ["@types/node", "vitest", "tsx"]) {
     const destination = path.join(dir, "node_modules", name);
     mkdirSync(path.dirname(destination), { recursive: true });
@@ -897,6 +897,7 @@ describe("scripts/changed-lanes", () => {
     "fails real changed-check lint for $name and passes after repair",
     ({ count, extension, otherPaths }) => {
       const { dir, run } = createRootTestLintFixture();
+      materializeNativeCompiler(dir);
       const targets = Array.from(
         { length: count },
         (_, index) => `test/root-lint-${index}.test.${extension}`,
@@ -965,6 +966,7 @@ describe("scripts/changed-lanes", () => {
 
   it("discovers the canonical root test program and preserves ambient and source-alias types", () => {
     const { dir, run } = createRootTestLintFixture();
+    materializeNativeCompiler(dir);
     const sources = ["test/discovery.test.ts", "test/component.test.tsx"];
     const declarations = ["test/vitest/vitest.test-shards.d.mts", "test/vitest/common.d.cts"];
     const modules = ["test/plain.mts", "test/plain.cts"];

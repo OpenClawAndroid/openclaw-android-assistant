@@ -1120,7 +1120,11 @@ export function runAgentAttempt(params: {
                     return Boolean(claimed);
                   },
                   restoreCliSessionFork: async () => {
-                    const restored = await restoreCliSessionForkInStore(forkStoreParams);
+                    // Restoring the fork is current-owner cleanup, including after cancellation.
+                    const restored = await restoreCliSessionForkInStore({
+                      ...forkStoreParams,
+                      assertCommitAllowed: assertSettlementCurrent,
+                    });
                     if (restored) {
                       params.sessionEntry = restored;
                     }
@@ -1265,6 +1269,7 @@ export function runAgentAttempt(params: {
             shouldClearFailedCliSessionBinding({
               error: err,
               binding: failedCliSessionBinding,
+              bindingReplacedDuringRun: failedCliSessionId !== activeCliSessionBinding?.sessionId,
               hasNewGeneratedMediaTask: hasNewGeneratedMediaTaskForSessionKey(
                 params.sessionKey,
                 mediaTaskIdsBefore,

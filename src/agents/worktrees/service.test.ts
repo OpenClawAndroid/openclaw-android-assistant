@@ -548,12 +548,13 @@ describe("ManagedWorktreeService", () => {
     expect(await git(repo, "rev-parse", "openclaw/existing-name")).toBe(branchTip);
   });
 
-  it("copies only included ignored regular files without following symlinks", async () => {
+  it("copies included ignored regular files independently, including hardlinks, without following symlinks", async () => {
     await fs.writeFile(path.join(repo, ".gitignore"), "cache/\nlinked\nlinked-dir/\n");
     await fs.writeFile(path.join(repo, ".worktreeinclude"), "cache/*.txt\nlinked\nlinked-dir/**\n");
     await fs.mkdir(path.join(repo, "cache"));
     await fs.writeFile(path.join(repo, "cache", "keep.txt"), "keep\n");
     await fs.chmod(path.join(repo, "cache", "keep.txt"), 0o744);
+    await fs.link(path.join(repo, "cache", "keep.txt"), path.join(repo, "cache", "linked.txt"));
     await fs.writeFile(path.join(repo, "cache", "skip.bin"), "skip\n");
     const outside = path.join(root, "outside.txt");
     await fs.writeFile(outside, "outside\n");
@@ -567,7 +568,15 @@ describe("ManagedWorktreeService", () => {
     const copied = path.join(created.path, "cache", "keep.txt");
     expect(await fs.readFile(copied, "utf8")).toBe("keep\n");
     expect((await fs.stat(copied)).mode & 0o777).toBe(0o744);
-    expect(getRegistryWorktreeProvisionedPaths(env, created.id)).toEqual(["cache/keep.txt"]);
+    expect(getRegistryWorktreeProvisionedPaths(env, created.id)).toEqual([
+      "cache/keep.txt",
+      "cache/linked.txt",
+    ]);
+    await fs.writeFile(copied, "worktree edit\n");
+    expect(await fs.readFile(path.join(repo, "cache", "keep.txt"), "utf8")).toBe("keep\n");
+    expect(await fs.readFile(path.join(created.path, "cache", "linked.txt"), "utf8")).toBe(
+      "keep\n",
+    );
     await expect(fs.stat(path.join(created.path, "cache", "skip.bin"))).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -600,6 +609,66 @@ describe("ManagedWorktreeService", () => {
     expect(await fs.readFile(path.join(created.path, "collision.txt"), "utf8")).toBe("from base\n");
     expect((await fs.stat(path.join(created.path, "collision.txt"))).mode & 0o111).toBe(0);
     expect(getRegistryWorktreeProvisionedPaths(env, created.id)).toEqual([]);
+  });
+
+  it("rejects an included file replaced by a symlink after inspection", async () => {
+    await fs.writeFile(path.join(repo, ".gitignore"), "settings.local\n");
+    await fs.writeFile(path.join(repo, ".worktreeinclude"), "settings.local\n");
+    const source = path.join(repo, "settings.local");
+    await fs.writeFile(source, "included bytes\n");
+    const outside = path.join(root, "outside.txt");
+    await fs.writeFile(outside, "outside bytes\n");
+    const lstat = fs.lstat.bind(fs);
+    let replaced = false;
+    vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
+      const observed = await lstat(...args);
+      if (args[0] === source && !replaced) {
+        replaced = true;
+        await fs.rename(source, `${source}.original`);
+        await fs.symlink(outside, source);
+      }
+      return observed;
+    });
+
+    await expect(
+      service.create({ repoRoot: repo, name: "swapped-source", baseRef: "HEAD" }),
+    ).rejects.toThrow();
+
+    expect(replaced).toBe(true);
+    expect(listRegistryWorktrees(env)).toEqual([]);
+    expect(await git(repo, "worktree", "list", "--porcelain")).not.toContain(
+      "refs/heads/openclaw/swapped-source",
+    );
+    expect(await fs.readFile(outside, "utf8")).toBe("outside bytes\n");
+  });
+
+  it("provisions large files under a literal tilde directory", async () => {
+    await fs.writeFile(path.join(repo, ".gitignore"), "~/\n");
+    await fs.writeFile(path.join(repo, ".worktreeinclude"), "~/**\n");
+    await fs.mkdir(path.join(repo, "~"));
+    const size = 17 * 1024 * 1024;
+    const tail = Buffer.from("large provisioned file\n");
+    const source = await fs.open(path.join(repo, "~", "large.bin"), "wx");
+    try {
+      await source.truncate(size);
+      await source.write(tail, 0, tail.length, size - tail.length);
+    } finally {
+      await source.close();
+    }
+
+    const created = await service.create({ repoRoot: repo, name: "large-tilde", baseRef: "HEAD" });
+
+    expect(getRegistryWorktreeProvisionedPaths(env, created.id)).toEqual(["~/large.bin"]);
+    const copied = await fs.open(path.join(created.path, "~", "large.bin"), "r");
+    try {
+      expect((await copied.stat()).size).toBe(size);
+      const buffer = Buffer.alloc(tail.length);
+      const { bytesRead } = await copied.read(buffer, 0, buffer.length, size - buffer.length);
+      expect(bytesRead).toBe(tail.length);
+      expect(buffer).toEqual(tail);
+    } finally {
+      await copied.close();
+    }
   });
 
   it("runs an executable setup script with source and worktree paths", async () => {

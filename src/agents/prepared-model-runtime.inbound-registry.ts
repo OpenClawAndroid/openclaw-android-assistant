@@ -11,6 +11,7 @@ import {
   getActivePluginRegistryWorkspaceDir,
   getActivePluginRuntimeSubagentMode,
 } from "../plugins/runtime.js";
+import type { RuntimePluginLoadPurpose } from "./harness/runtime-plugin-load-plan.js";
 import { prepareOwnedPluginLoadContext } from "./prepared-model-runtime.plugin-context.js";
 import type { PreparedModelRuntimeBuildResources } from "./prepared-model-runtime.resources.js";
 import type {
@@ -154,20 +155,31 @@ export function prepareWorkspacePluginRegistries(
   getConfiguredHarnessRuntimes?: () => readonly string[],
   basePluginIds?: readonly string[],
   registryResources?: PreparedModelRuntimeBuildResources,
+  purpose?: RuntimePluginLoadPurpose,
 ): PreparedWorkspacePluginRegistries | Promise<PreparedWorkspacePluginRegistries> {
-  // Read-only catalog owners stay runtime-free. Executable probes opt in to provider runtime,
-  // while non-core harness probes carry the exact selected plugin generation.
-  if (input.readOnly && !input.loadRuntimePlugins && !input.runtimePluginSelections) {
+  // Passive reads stay runtime-free; catalog workers and executable probes carry explicit scope.
+  if (
+    purpose !== "model-catalog" &&
+    input.readOnly &&
+    !input.loadRuntimePlugins &&
+    !input.runtimePluginSelections
+  ) {
     return {};
   }
   // Resolve batch facts only for a registry load; read-only and reused registries need no scan.
   let primaryRegistry: PluginRegistry | undefined;
-  const inboundPluginRegistry = input.readOnly
-    ? undefined
-    : (reusableGeneration?.inboundPluginRegistry ??
-      loadInboundRegistry?.(input, metadataSnapshot, getConfiguredHarnessRuntimes?.(), (source) => {
-        primaryRegistry = source;
-      }));
+  const inboundPluginRegistry =
+    input.readOnly || purpose === "model-catalog"
+      ? undefined
+      : (reusableGeneration?.inboundPluginRegistry ??
+        loadInboundRegistry?.(
+          input,
+          metadataSnapshot,
+          getConfiguredHarnessRuntimes?.(),
+          (source) => {
+            primaryRegistry = source;
+          },
+        ));
   const baseRegistry = reusableGeneration?.pluginRegistry ?? inboundPluginRegistry;
   primaryRegistry ??= reusableGeneration?.mediaCapabilityProviderSource?.registry ?? baseRegistry;
   let loadedPrimaryRegistry: PluginRegistry | undefined;
@@ -175,16 +187,18 @@ export function prepareWorkspacePluginRegistries(
     ? registryResources.load.bind(registryResources)
     : loadAgentRuntimePluginRegistryHandle;
   const runtimePluginRegistry =
-    input.runtimePluginSelections || !baseRegistry
+    purpose === "model-catalog" || input.runtimePluginSelections || !baseRegistry
       ? loadRuntimeRegistry(
           {
-            ...(input.loadRuntimePlugins
-              ? { basePluginIds: [] }
-              : baseRegistry
-                ? { basePluginIds: listRuntimePluginIdsFromRegistry(baseRegistry) }
-                : basePluginIds !== undefined
-                  ? { basePluginIds }
-                  : {}),
+            ...(purpose === "model-catalog"
+              ? { basePluginIds: basePluginIds ?? [] }
+              : input.loadRuntimePlugins
+                ? { basePluginIds: [] }
+                : baseRegistry
+                  ? { basePluginIds: listRuntimePluginIdsFromRegistry(baseRegistry) }
+                  : basePluginIds !== undefined
+                    ? { basePluginIds }
+                    : {}),
             ...(reusableGeneration?.pluginRegistry
               ? { reusableRegistry: reusableGeneration.pluginRegistry }
               : {}),
@@ -196,6 +210,7 @@ export function prepareWorkspacePluginRegistries(
             ...(preferBuiltPluginArtifacts ? { preferBuiltPluginArtifacts: true } : {}),
             selections: input.runtimePluginSelections,
             configuredHarnessRuntimes: getConfiguredHarnessRuntimes?.(),
+            ...(purpose ? { purpose } : {}),
           },
           (source) => {
             loadedPrimaryRegistry =

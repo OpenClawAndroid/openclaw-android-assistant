@@ -427,6 +427,7 @@ async function start(args: string[]) {
 
 describe("full-suite timing metadata", () => {
   it("records inherited include selections without replacing whole-config history", async () => {
+    vi.stubEnv("OPENCLAW_TEST_PROJECTS_TIMINGS", "1");
     const timings = await import("../../scripts/lib/vitest-shard-timings.mts");
     const actual = await vi.importActual<
       typeof import("../../scripts/lib/vitest-shard-timings.mts")

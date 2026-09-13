@@ -9,7 +9,7 @@ import {
 import { createInitialSubagentSession } from "../agents/subagents/spawn/subagent-spawn-session-patch.js";
 import { spawnSubagentDirect } from "../agents/subagents/spawn/subagent-spawn.js";
 import { testing as spawnTesting } from "../agents/subagents/spawn/subagent-spawn.test-support.js";
-import { reserveSwarmRun } from "../agents/subagents/swarm/swarm-scheduler.js";
+import { closeSwarmScheduler, reserveSwarmRun } from "../agents/subagents/swarm/swarm-scheduler.js";
 import { testing as schedulerTesting } from "../agents/subagents/swarm/swarm-scheduler.test-support.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { resolveSessionResetPolicy } from "../config/sessions.js";
@@ -108,6 +108,8 @@ export function useQueuedCollectorFixture() {
   });
 
   afterEach(async () => {
+    // Keep dispatch dependencies and session state alive until owned launch cleanup settles.
+    await closeSwarmScheduler();
     stopLifecycleListener?.();
     stopLifecycleListener = undefined;
     flushPendingSessionsChangedEvents();

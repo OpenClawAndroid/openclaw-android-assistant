@@ -139,7 +139,7 @@ export async function recoverEmbeddedRunOverflow(
   const observedOverflowTokens = extractObservedOverflowTokenCount(errorText);
   const preflightRecovery = input.attempt.preflightRecovery;
   const truncateToolResults = async () => {
-    const { sessionManager, assertActive } = input.prepareRecoverySession();
+    const { sessionManager, assertActive } = input.prepareRecoverySession(contextTokenBudget);
     if (!sessionManager) {
       return {
         truncated: false,
@@ -277,7 +277,7 @@ export async function recoverEmbeddedRunOverflow(
         );
       }
       if (input.contextEngine.maintain) {
-        const transcript = input.prepareRecoverySession();
+        const transcript = input.prepareRecoverySession(contextTokenBudget);
         await runContextEngineMaintenance({
           ...transcript,
           contextEngine: input.contextEngine,
@@ -302,7 +302,7 @@ export async function recoverEmbeddedRunOverflow(
     if (preflightRecovery && isNoRealConversationCompactionNoop(compactResult)) {
       input.state.lastCompactionTokensAfter = undefined;
       input.state.lastContextBudgetStatus = undefined;
-      const transcript = input.prepareRecoverySession();
+      const transcript = input.prepareRecoverySession(contextTokenBudget);
       await resetNoRealConversationTokenSnapshot({
         sessionTarget: transcript.sessionManager?.getSessionTarget(),
         sessionPersistence: runParams.sessionPersistence,

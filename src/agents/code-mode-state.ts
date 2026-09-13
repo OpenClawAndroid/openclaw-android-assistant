@@ -12,6 +12,7 @@ import { CODE_MODE_EXEC_TOOL_NAME, CODE_MODE_WAIT_TOOL_NAME } from "./code-mode-
 import type { CodeModeOutputState } from "./code-mode-json.js";
 import type { CodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
 import { CodeModeProgramDataInbox, type CodeModeReplyLease } from "./code-mode-program-data.js";
+import { createCodeModeResultsAccess, type CodeModeResultsAccess } from "./code-mode-results.js";
 import type {
   CodeModeConfig,
   CodeModeSettlementMode,
@@ -111,6 +112,7 @@ export function createCodeModeRunOwner(ctx: ToolSearchToolContext, config: CodeM
     runId,
     signal,
     inbox,
+    results: createCodeModeResultsAccess(ctx, config),
     close,
     approvalWait,
     bindCall(callSignal?: AbortSignal): AbortSignal {
@@ -364,6 +366,8 @@ function isPendingBridgeRequestReplaySafe(
   if (request.method === "nodes") {
     return request.args[0] === "list" || request.args[0] === "get";
   }
+  // Saved references are transient, and deletion cannot be replayed safely.
+  // Result operations intentionally stay outside restart-safe execution.
   if (request.method !== "callValue") {
     return false;
   }
@@ -380,6 +384,7 @@ export function createPendingBridgeStates(
   params: {
     config: CodeModeConfig;
     inbox: CodeModeProgramDataInbox;
+    results: CodeModeResultsAccess;
     runtime: ToolSearchRuntime;
     catalogProjection: CodeModeCatalogProjection;
     namespaceRuntime: CodeModeNamespaceRuntime;
@@ -415,6 +420,7 @@ export function createPendingBridgeStates(
     }
     const bridgeCall = runBridgeRequest({
       runtime: params.runtime,
+      results: params.results,
       catalogProjection: params.catalogProjection,
       namespaceRuntime: params.namespaceRuntime,
       parentToolCallId: params.parentToolCallId,

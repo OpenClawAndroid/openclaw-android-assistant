@@ -2,7 +2,6 @@ import { readSessionMessageIdentity } from "@openclaw/gateway-client/browser";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { GatewayEventFrame } from "../../api/gateway.ts";
-import { invalidateChatMetadataStore } from "../../lib/chat/chat-metadata-cache.ts";
 import { extractText } from "../../lib/chat/message-extract.ts";
 import {
   isHiddenAssistantStreamText,
@@ -374,17 +373,6 @@ function handleSessionsChangedEvent(
     matchesChat && typeof source?.reason === "string" && BRANCH_TOPOLOGY_REASONS.has(source.reason);
   if (resetsSelectedSession || changesBranchTopology) {
     retirePullRequestRefreshes(state);
-  }
-  if (
-    matchesChat &&
-    state.client &&
-    (resetsSession || source?.reason === "command-metadata" || source?.reason === "patch")
-  ) {
-    // Selection commands and model patches can change the persisted profile without changing credentials.
-    invalidateChatMetadataStore(state.client, {
-      agentId: resolveChatAgentId(state) ?? undefined,
-      sessionKey: state.sessionKey,
-    });
   }
   if (resetsSelectedSession) {
     const scope = readChatSessionProjectionScope(state, { agentId: resolveChatAgentId(state) });

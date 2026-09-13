@@ -29,6 +29,11 @@ export type ToastOptions = {
 const DEFAULT_TOAST_DURATION_MS = 6_000;
 const TOAST_EXIT_FALLBACK_MS = 450;
 
+function resolveToastAnchorRect(anchor: Element | undefined) {
+  const rect = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+  return rect && rect.width > 0 ? rect : null;
+}
+
 function activeModalToastLayer() {
   return [...(document.openClawModalLayers ?? [])].findLast((candidate) => candidate.isConnected);
 }
@@ -167,14 +172,11 @@ class OpenClawToastHost extends OpenClawLightDomContentsElement {
       return;
     }
     this.clearDismissTimer();
-    const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const anchorRect = toast.anchor?.isConnected ? toast.anchor.getBoundingClientRect() : null;
-    const anchored = anchorRect !== null && anchorRect.width > 0;
     if (
       (reason !== "dismiss" && reason !== "timeout") ||
-      reducedMotion ||
       !this.isConnected ||
-      !anchored
+      globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ||
+      !resolveToastAnchorRect(toast.anchor)
     ) {
       this.finishDismiss(reason);
       return;
@@ -193,14 +195,13 @@ class OpenClawToastHost extends OpenClawLightDomContentsElement {
     if (!toast) {
       return nothing;
     }
-    const anchorRect = toast.anchor?.isConnected ? toast.anchor.getBoundingClientRect() : null;
-    const anchored = anchorRect !== null && anchorRect.width > 0;
+    const anchorRect = resolveToastAnchorRect(toast.anchor);
     return html`
       <div
-        class="app-toast ${anchored ? "app-toast--anchored" : toast.placement === "bottom" ? "app-toast--bottom" : ""}"
+        class="app-toast ${anchorRect ? "app-toast--anchored" : toast.placement === "bottom" ? "app-toast--bottom" : ""}"
         data-active=${this.active ? "true" : "false"}
         style=${styleMap(
-          anchored
+          anchorRect
             ? {
                 "--app-toast-anchor-center": `${anchorRect.left + anchorRect.width / 2}px`,
                 "--app-toast-anchor-top": `${anchorRect.top + (toast.anchorTopOffset ?? 0)}px`,

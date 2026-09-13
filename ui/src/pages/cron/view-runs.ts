@@ -13,10 +13,9 @@ import { icon } from "../../components/icons.ts";
 import "../../components/web-awesome.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { i18n, t } from "../../i18n/index.ts";
+import { formatDurationCompact, formatDurationHuman } from "../../lib/format-duration.ts";
 import { formatUiExternalText } from "../../lib/format-error.ts";
 import {
-  formatDurationCompact,
-  formatDurationHuman,
   formatRelativeTimestamp,
   createMsFormatter,
   formatCompactTokenCount,

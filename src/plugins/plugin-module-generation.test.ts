@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { createJiti } from "jiti";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -776,6 +776,34 @@ describe("plugin module generations", () => {
       expect(load(root, entry).value).toEqual(expected);
     },
   );
+
+  it("resolves deferred TypeScript without acquiring the compiler until execution", () => {
+    const root = temp.make("plugin-resolve-only-typescript-");
+    fs.writeFileSync(
+      path.join(root, "index.cjs"),
+      "exports.resolve = () => require.resolve('./deferred.ts'); exports.read = () => require('./deferred.ts').value;",
+    );
+    fs.writeFileSync(path.join(root, "deferred.ts"), "exports.value = 42 as number;");
+    // oxlint-disable-next-line typescript/unbound-method -- called below with the intercepted module receiver.
+    const originalRequire = Module.prototype.require;
+    const compilerGuard = vi.spyOn(Module.prototype, "require").mockImplementation(function (
+      this: NodeJS.Module,
+      id: string,
+    ) {
+      if (id === "typescript") {
+        throw new Error("Resolution must not acquire the TypeScript compiler");
+      }
+      return originalRequire.call(this, id);
+    });
+    let plugin: { resolve(): string; read(): number };
+    try {
+      plugin = load(root, "index.cjs").value as typeof plugin;
+      expect(fs.existsSync(plugin.resolve())).toBe(true);
+    } finally {
+      compilerGuard.mockRestore();
+    }
+    expect(plugin.read()).toBe(42);
+  });
 
   it("defers unused TypeScript syntax errors until their module is loaded", async () => {
     const root = temp.make("plugin-lazy-source-error-");

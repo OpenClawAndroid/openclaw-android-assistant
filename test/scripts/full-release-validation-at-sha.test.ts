@@ -3054,6 +3054,55 @@ describe("full-release-validation-at-sha", () => {
     }
   });
 
+  it.each(["publish", "diagnostic", "main-qualification", "postpublish-confidence"])(
+    "requires registry capability only for fresh publish requests: %s",
+    (purpose) => {
+      const fixture = createDispatchFixture({
+        workflowSource: CURRENT_WORKFLOW_SOURCE.replace(
+          '  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n',
+          "",
+        ),
+      });
+      try {
+        const result = fixture.run([
+          "--workflow-sha",
+          fixture.workflowSha,
+          "--trusted-workflow-ref",
+          fixture.trustedWorkflowTag,
+          "-f",
+          `validation_purpose=${purpose}`,
+          ...(purpose === "publish"
+            ? [
+                "-f",
+                `publication_selection_json=${JSON.stringify({
+                  route: "normal",
+                  npmDistTag: "beta",
+                  publishOpenclawNpm: true,
+                  pluginPublishScope: "all-publishable",
+                  plugins: [],
+                })}`,
+              ]
+            : []),
+        ]);
+        expect(result.status, result.stderr).toBe(purpose === "publish" ? 1 : 0);
+        if (purpose === "publish") {
+          expect(result.stderr).toContain("does not support registry admission");
+          expect(
+            fixture.readCalls(fixture.ghCallsPath).filter((args) => ghApiMethod(args) !== "GET"),
+          ).toEqual([]);
+          expect(
+            fixture.readCalls(fixture.gitCallsPath).filter((args) => args[0] === "push"),
+          ).toEqual([]);
+          expect(existsSync(join(fixture.checkout, ".artifacts/full-release-validation"))).toBe(
+            false,
+          );
+        }
+      } finally {
+        fixture.cleanup();
+      }
+    },
+  );
+
   it("rejects pinned old-schema tooling before either remote ref is pushed", () => {
     const fixture = createDispatchFixture({
       workflowSource:

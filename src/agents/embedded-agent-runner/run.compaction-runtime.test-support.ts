@@ -16,7 +16,14 @@ import { createUsageAccumulator } from "./usage-accumulator.js";
 
 type RecoveryKind = "overflow" | "timeout";
 type AuthorityLoss = "closed" | "replaced" | "writer-replaced";
-type FixtureOptions = { oversized?: boolean; inMemory?: boolean; detached?: boolean };
+type FixtureOptions = {
+  oversized?: boolean;
+  inMemory?: boolean;
+  detached?: boolean;
+  historicalTurns?: number;
+  contextTokenBudget?: number;
+  toolResultText?: string;
+};
 export type RecoveryFixture = Awaited<ReturnType<typeof createRecoveryFixture>>;
 
 // The engine is synthetic; admission, writer claims, safety timeout, recovery,
@@ -67,7 +74,9 @@ async function createRecoveryFixture(state: OpenClawTestState, options: FixtureO
     content: [
       {
         type: "text",
-        text: options.oversized === false ? "small output" : "fixture output ".repeat(12_000),
+        text:
+          options.toolResultText ??
+          (options.oversized === false ? "small output" : "fixture output ".repeat(1_800)),
       },
     ],
     isError: false,
@@ -92,6 +101,24 @@ async function createRecoveryFixture(state: OpenClawTestState, options: FixtureO
   ];
   if (!memoryManager) {
     await replaceSessionEntry(target, { sessionId, updatedAt: 1 });
+  }
+  if (options.historicalTurns) {
+    const history = memoryManager ?? SessionManager.open(target, state.workspaceDir);
+    for (let index = 0; index < options.historicalTurns; index += 1) {
+      history.appendMessage(makeAgentUserMessage({ content: `Archived request ${index}` }));
+      history.appendMessage(
+        makeAgentAssistantMessage({
+          content: [{ type: "toolCall", id: `archived-${index}`, name: "read", arguments: {} }],
+          stopReason: "toolUse",
+        }),
+      );
+      history.appendMessage({
+        ...toolResult,
+        toolCallId: `archived-${index}`,
+        content: [{ type: "text", text: "archived output ".repeat(12_000) }],
+      });
+      history.appendResetBoundary("new");
+    }
   }
   let recentUserId: string | undefined;
   for (const message of messages) {
@@ -268,7 +295,7 @@ async function createRecoveryFixture(state: OpenClawTestState, options: FixtureO
         state: recoveryState,
         usageAccumulator,
         contextEngine,
-        contextTokenBudget: 4_096,
+        contextTokenBudget: options.contextTokenBudget ?? 4_096,
         genericCompactionRecoveryAllowed: true,
         attempt: makeAttemptResult({
           ...(kind === "timeout" ? { timedOut: true } : { promptError }),
@@ -344,6 +371,7 @@ async function createRecoveryFixture(state: OpenClawTestState, options: FixtureO
         ? memoryManager.getEntries()
         : await loadTranscriptEvents(target);
       return {
+        resetCount: manager.getEntries().filter((entry) => entry.type === "reset").length,
         eventDigests: events.map((entry) =>
           createHash("sha256").update(JSON.stringify(entry)).digest("hex"),
         ),
@@ -353,10 +381,10 @@ async function createRecoveryFixture(state: OpenClawTestState, options: FixtureO
           .filter((entry) => entry.type === "compaction")
           .map((entry) => entry.id),
         toolResultChars: manager
-          .getBranch()
-          .flatMap((entry) =>
-            entry.type === "message" && entry.message.role === "toolResult"
-              ? entry.message.content.flatMap((block) =>
+          .buildSessionContext()
+          .messages.flatMap((message) =>
+            message.role === "toolResult"
+              ? message.content.flatMap((block) =>
                   block.type === "text" ? [block.text.length] : [],
                 )
               : [],

@@ -21,6 +21,7 @@ import { retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
 import { setChatError } from "./chat-send-queue-state.ts";
 import { refreshCurrentChatSessionList } from "./chat-session.ts";
 import { invalidateImageLightbox } from "./chat-state-page.ts";
+import { refreshChatMetadata } from "./chat-state-refresh.ts";
 import { selectedChatSessionRow } from "./chat-state-route.ts";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
@@ -170,6 +171,7 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
       const state = this.state;
       if (state) {
         this.unreadPatchGuard.beginActivation(state.sessionKey);
+        void refreshChatMetadata(state, { automatic: true });
       }
       const deferredHydrationActive = this.resumeDeferredSessionHydration();
       if (state && !deferredHydrationActive) {

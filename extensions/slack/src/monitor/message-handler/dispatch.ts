@@ -340,7 +340,7 @@ async function dispatchSlackMessageWithSetup(
           draftStream && !draftPreviewCommitted.value && !delivery.observedFinalReplyDelivery
             ? {
                 flush: draftStream.flush,
-                clear: draftStream.clear,
+                clear: () => draftStream.clear({ preserveHumanReplies: true }),
                 discardPending: draftStream.discardPending,
                 seal: draftStream.seal,
                 id: () => {
@@ -661,6 +661,16 @@ async function dispatchSlackMessageWithSetup(
   const anyReplyDelivered = hasVisibleInboundReplyDispatch(settledDispatchResult, {
     observedReplyDelivery: delivery.observedReplyDelivery,
   });
+
+  if (
+    !progress.isProgressMode &&
+    anyReplyDelivered &&
+    !delivery.observedFinalReplyDelivery &&
+    !dispatchError &&
+    !agentRunFailed
+  ) {
+    await draftStream?.clear({ preserveHumanReplies: true });
+  }
 
   if (
     progress.isProgressMode &&

@@ -18,10 +18,12 @@ import {
   getModelCatalogCache,
   modelCatalogCache,
   modelCatalogKey,
+  modelCatalogObservers,
   modelCatalogParams,
   publishModelCatalogResult,
   type ModelCatalogReadScope,
   type ModelCatalogClient,
+  type ModelCatalogCacheUpdate,
   type ModelCatalogRead,
   type ModelCatalogRequest,
   type ModelCatalogRequestLane,
@@ -34,6 +36,21 @@ export type ChatModelCatalogState = {
   pendingProviders?: readonly string[];
   status: "idle" | "loading" | "ready" | "error" | "offline";
 };
+
+export function subscribeModelCatalogCache(
+  client: ModelCatalogClient,
+  listener: (update: ModelCatalogCacheUpdate) => void,
+): () => void {
+  const listeners = modelCatalogObservers.get(client) ?? new Set();
+  modelCatalogObservers.set(client, listeners);
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      modelCatalogObservers.delete(client);
+    }
+  };
+}
 
 export function resolveModelCatalogState(
   result: Pick<ModelCatalogResult, "models" | "refreshFailed"> &
@@ -80,7 +97,7 @@ export function peekModelCatalog(
   const key = modelCatalogKey(modelCatalogParams(options));
   const entry = cache?.get(key);
   if (entry?.expiresAt !== undefined && entry.expiresAt <= Date.now()) {
-    invalidateModelCatalogEntry(entry);
+    invalidateModelCatalogEntry(client, entry);
     // Keep ordering until bounded eviction so an older unresolved read cannot refill this slot.
   }
   if (entry?.invalidated && !allowStale) {
@@ -91,6 +108,17 @@ export function peekModelCatalog(
     cache.set(key, entry);
   }
   return entry?.result;
+}
+
+export function settleModelCatalogRequests(
+  client: ModelCatalogClient,
+  scope: ModelsListParams,
+): Promise<void> | undefined {
+  const key = modelCatalogKey(modelCatalogParams(scope));
+  const pending = Array.from(modelCatalogCache.get(client)?.requests.get(key)?.values() ?? [])
+    .map((lane) => lane.active?.transportSettled)
+    .filter((promise) => promise !== undefined);
+  return pending.length ? Promise.allSettled(pending).then(() => {}) : undefined;
 }
 
 function createModelCatalogRequest(params: {
@@ -105,6 +133,7 @@ function createModelCatalogRequest(params: {
   const { client, cache, lane, timeoutMs } = params;
   const controller = new AbortController();
   const completion = createDeferredCore<ModelCatalogResult>();
+  const transportSettled = createDeferredCore();
   const duration =
     typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
       ? resolveSafeTimeoutDelayMs(timeoutMs, { minMs: 0 })
@@ -123,6 +152,7 @@ function createModelCatalogRequest(params: {
     }
   };
   const finishTransport = () => {
+    transportSettled.resolve();
     if (lane.active !== pending) {
       return;
     }
@@ -143,6 +173,7 @@ function createModelCatalogRequest(params: {
     settled: false,
     subscribers: new Set(),
     promise: completion.promise,
+    transportSettled: transportSettled.promise,
     resolve: (result) => {
       if (!pending.settled) {
         retireCompletion();

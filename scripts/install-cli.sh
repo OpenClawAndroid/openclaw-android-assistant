@@ -401,6 +401,9 @@ ensure_git() {
         fail "Git missing and package manager not found. Install git and retry."
       fi
       ;;
+    freebsd)
+      fail "Git missing. Ask the system administrator to install it with pkg install git, then retry."
+      ;;
     darwin)
       if command -v brew >/dev/null 2>&1; then
         brew install git
@@ -512,6 +515,7 @@ os_detect() {
   case "$os" in
     Darwin) echo "darwin" ;;
     Linux) echo "linux" ;;
+    FreeBSD) echo "freebsd" ;;
     *) fail "Unsupported OS: $os" ;;
   esac
 }
@@ -604,15 +608,17 @@ link_node_runtime_paths() {
 }
 
 linked_node_is_usable() {
+  local candidate_node="${1-$(node_bin)}"
+  local candidate_npm="${2-$(npm_bin)}"
   local candidate_bin
   local current_version
   local required_version
 
-  if [[ ! -x "$(node_bin)" || ! -x "$(npm_bin)" ]]; then
+  if [[ ! -x "$candidate_node" || ! -x "$candidate_npm" ]]; then
     return 1
   fi
 
-  current_version="$("$(node_bin)" -v 2>/dev/null || echo "")"
+  current_version="$("$candidate_node" -v 2>/dev/null || echo "")"
   required_version="$(required_node_version)"
   if ! node_release_version_is_supported "$current_version"; then
     return 1
@@ -620,12 +626,12 @@ linked_node_is_usable() {
   if ! semver_at_least "$NODE_RELEASE_VERSION_CORE" "$required_version"; then
     return 1
   fi
-  candidate_bin="$(node_dir)/bin"
-  if ! PATH="${candidate_bin}:${PATH}" "$(npm_bin)" --version >/dev/null 2>&1; then
+  candidate_bin="${candidate_node%/*}"
+  if ! PATH="${candidate_bin}:${PATH}" "$candidate_npm" --version >/dev/null 2>&1; then
     return 1
   fi
 
-  "$(node_bin)" -e '
+  "$candidate_node" -e '
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(":memory:");
     try {
@@ -1175,6 +1181,27 @@ install_node() {
     fail "Node ${NODE_VERSION} is unsupported; use ${SUPPORTED_NODE_VERSION_LABEL}."
   fi
   dir="$(node_dir)"
+
+  if [[ "$os" == "freebsd" ]]; then
+    if [[ "$NODE_ONLY" -eq 1 ]]; then
+      fail "Private Node.js recovery is unavailable on FreeBSD. Update Node.js and npm with pkg, then retry."
+    fi
+    local system_node system_npm installed_version
+    system_node="$(command_path_without_node_prefix node || true)"
+    system_npm="$(command_path_without_node_prefix npm || true)"
+    emit_json step name node status start method system
+    # FreeBSD has no official Node binary archive. Validate the package-owned
+    # runtime before publishing links so a failed prerequisite leaves the CLI intact.
+    if ! linked_node_is_usable "$system_node" "$system_npm"; then
+      fail "FreeBSD requires ${SUPPORTED_NODE_VERSION_LABEL}, working npm, and WAL-reset-safe SQLite. Ask the system administrator to install or update node24 and npm-node24 with pkg, then retry with node and npm on PATH."
+    fi
+    system_node="$("$system_node" -p 'process.execPath')"
+    system_npm="$("$system_node" -p 'require("node:fs").realpathSync(process.argv[1])' "$system_npm")"
+    link_node_runtime_paths "$system_node" "$system_npm"
+    installed_version="$("$(node_bin)" -v)"
+    emit_json step name node status ok method system version "$installed_version"
+    return
+  fi
 
   if [[ "$os" == "linux" ]] && command -v apk >/dev/null 2>&1 && is_musl_linux; then
     install_alpine_node

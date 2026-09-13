@@ -16,11 +16,14 @@ const elements = {
   footerMode: document.querySelector("#footer-mode"),
   gatewayList: document.querySelector("#gateway-list"),
   discoveryStatus: document.querySelector("#discovery-status"),
+  editConnection: document.querySelector("#edit-connection"),
   installButton: document.querySelector("#install-button"),
   installControls: document.querySelector("#install-controls"),
+  installHint: document.querySelector("#install-hint"),
   installLog: document.querySelector("#install-log"),
   logStatus: document.querySelector("#log-status"),
   logWrap: document.querySelector("#log-wrap"),
+  localSubtitle: document.querySelector("#local-subtitle"),
   primaryAction: document.querySelector("#primary-action"),
   remoteAuth: document.querySelector(".remote-auth"),
   remoteConnect: document.querySelector("#remote-connect"),
@@ -38,6 +41,7 @@ const elements = {
   remoteUrlField: document.querySelector("#remote-url-field"),
   setupBack: document.querySelector("#setup-back"),
   setupContinue: document.querySelector("#setup-continue"),
+  setupNavigation: document.querySelector(".setup-navigation"),
   statusDot: document.querySelector("#status-dot"),
   title: document.querySelector("#title"),
   updateAction: document.querySelector("#update-action"),
@@ -59,6 +63,8 @@ let firstRunPhase = null;
 let selectedConnection = "local";
 let remoteTransport = "direct";
 let remoteConnectionPending = false;
+let editingConnection = false;
+let activeRemoteRetry = null;
 
 function show(element, visible) {
   element.classList.toggle("hidden", !visible);
@@ -80,8 +86,12 @@ function render({
   if (activity) {
     elements.activityLabel.textContent = activity;
   }
+  elements.installHint.textContent = firstRunBuild?.platform === "freebsd"
+    ? "Installs the CLI in ~/.openclaw using your system Node.js and npm."
+    : "Installs the CLI and managed Node runtime in ~/.openclaw.";
   show(elements.installControls, showInstall);
   show(elements.actionControls, false);
+  show(elements.editConnection, false);
   show(elements.welcomeScreen, false);
   show(elements.connectionChoices, false);
   show(elements.discovery, true);
@@ -282,6 +292,8 @@ async function connect() {
         elements.channel.value = "dev";
       }
       renderWelcome();
+    } else if (snapshot.phase === "remoteError") {
+      renderRemoteRetry(snapshot.detail);
     }
   } catch (error) {
     renderRetry(friendlyError(error));
@@ -301,9 +313,14 @@ function renderWelcome() {
 }
 
 function renderConnectionChoices() {
+  const freebsd = firstRunBuild?.platform === "freebsd";
+  elements.localSubtitle.textContent = freebsd
+    ? "Connect to a Gateway you start with the FreeBSD service or in a terminal."
+    : "Private to this computer. Installs and starts automatically.";
   render({
-    description:
-      "Most people choose this computer. OpenClaw installs everything and keeps your assistant running in the background.",
+    description: freebsd
+      ? "On FreeBSD, install the CLI if needed, then start your Gateway with the openclaw package service or run openclaw gateway run in a terminal. Connect here using the same account you used for onboarding."
+      : "Most people choose this computer. OpenClaw installs everything and keeps your assistant running in the background.",
     dot: "idle",
     eyebrow: "CHOOSE YOUR GATEWAY",
     title: "Where should your assistant live?",
@@ -313,6 +330,9 @@ function renderConnectionChoices() {
 }
 
 function selectConnection(connection) {
+  if (editingConnection && connection !== "remote") {
+    return;
+  }
   selectedConnection = connection;
   const isRemote = connection === "remote";
   elements.connectionLocal.classList.toggle("selected", !isRemote);
@@ -342,7 +362,9 @@ function selectRemoteTransport(transport) {
 async function continueLocalSetup() {
   if (firstRunPhase === "unconfigured") {
     render({
-      activity: "Starting your local Gateway…",
+      activity: firstRunBuild?.platform === "freebsd"
+        ? "Connecting to your local Gateway…"
+        : "Starting your local Gateway…",
       description: "OpenClaw is preparing your assistant on this computer.",
       eyebrow: "FIRST-RUN SETUP",
       title: "Preparing your companion",
@@ -356,8 +378,9 @@ async function continueLocalSetup() {
   }
   if (firstRunBuild?.releaseBuild === false) {
     render({
-      description:
-        "This development build works best with a matching OpenClaw release channel.",
+      description: firstRunBuild?.platform === "freebsd"
+        ? "Install a compatible system Node.js and npm before installing the CLI. Then start your Gateway with the package service or openclaw gateway run."
+        : "This development build works best with a matching OpenClaw release channel.",
       eyebrow: "FIRST-RUN SETUP",
       showInstall: true,
       title: "Choose a release channel",
@@ -404,7 +427,7 @@ async function connectRemoteGateway() {
   remoteConnectionPending = true;
   elements.remoteConnect.disabled = true;
   elements.setupContinue.disabled = true;
-  showRemoteFeedback("Checking your Gateway connection…", false);
+  showRemoteFeedback("Preparing the remote dashboard…", false);
 
   try {
     await invoke("connect_remote_gateway", {
@@ -415,7 +438,7 @@ async function connectRemoteGateway() {
       password: elements.remotePassword.value || null,
       remotePort: isDirect ? null : remotePort,
     });
-    showRemoteFeedback("Gateway connected. Opening OpenClaw…", false);
+    showRemoteFeedback("Opening the remote dashboard…", false);
   } catch (error) {
     const message = friendlyError(error);
     if (/auth|token|password|unauthori[sz]ed|forbidden|401|403/i.test(message)) {
@@ -435,6 +458,94 @@ function showRemoteFeedback(message, isError) {
   show(elements.remoteFeedback, true);
 }
 
+function renderRemoteRetry(message) {
+  editingConnection = true;
+  renderAction(
+    {
+      actionLabel: "Retry",
+      description: message || "Open Connection Settings to check the remote Gateway.",
+      dot: "error",
+      eyebrow: "REMOTE GATEWAY",
+      title: "Connection needs attention",
+    },
+    retryRemote,
+  );
+  show(elements.discovery, false);
+  show(elements.editConnection, true);
+}
+
+async function retryRemote() {
+  const attempt = {};
+  activeRemoteRetry = attempt;
+  elements.primaryAction.disabled = true;
+  try {
+    // Retry the saved route, resolving credentials afresh without saving the
+    // editor's empty secret fields or selecting a local service.
+    const snapshot = await invoke("bootstrap", { remoteRetry: true });
+    if (activeRemoteRetry === attempt && snapshot.phase === "remoteError") {
+      renderRemoteRetry(snapshot.detail);
+    }
+  } catch (error) {
+    if (activeRemoteRetry === attempt) {
+      renderRemoteRetry(friendlyError(error));
+    }
+  } finally {
+    elements.primaryAction.disabled = false;
+  }
+}
+
+async function editConnection() {
+  // Native Settings entry retires preparation; its late IPC reply must not
+  // replace the editor in a still-live recovery document either.
+  activeRemoteRetry = null;
+  editingConnection = true;
+  render({
+    description: "Update the remote Gateway address or authentication.",
+    dot: "idle",
+    eyebrow: "REMOTE GATEWAY",
+    title: "Connection Settings",
+  });
+  show(elements.connectionChoices, true);
+  show(elements.connectionLocal, false);
+  elements.connectionLocal.disabled = true;
+  show(elements.connectionRemote, false);
+  show(elements.setupNavigation, true);
+  show(elements.setupContinue, false);
+  selectConnection("remote");
+  elements.remoteToken.value = "";
+  elements.remotePassword.value = "";
+  elements.remoteAuth.open = false;
+  try {
+    const settings = await invoke("bootstrap", { connectionSettings: true });
+    const remote = settings.remote;
+    selectRemoteTransport(remote?.transport === "ssh" ? "ssh" : "direct");
+    elements.remoteUrl.value = remote?.url || "";
+    elements.remoteSshTarget.value = remote?.sshTarget || "";
+    elements.remotePort.value = remote?.remotePort || 18789;
+    if (settings.detail) {
+      showRemoteFeedback(settings.detail, true);
+    }
+    if (remote) {
+      primaryAction = retryRemote;
+      elements.primaryAction.textContent = "Retry";
+      show(elements.actionControls, true);
+    }
+  } catch (error) {
+    showRemoteFeedback(friendlyError(error), true);
+  }
+}
+
+async function closeConnectionSettings() {
+  elements.setupBack.disabled = true;
+  try {
+    await invoke("close_connection_settings");
+  } catch (error) {
+    showRemoteFeedback(friendlyError(error), true);
+  } finally {
+    elements.setupBack.disabled = false;
+  }
+}
+
 async function install() {
   elements.installButton.disabled = true;
   elements.channel.disabled = true;
@@ -443,7 +554,9 @@ async function install() {
   show(elements.logWrap, true);
   render({
     activity: "Installing OpenClaw…",
-    description: "A managed CLI and Node runtime are being installed in your home directory.",
+    description: firstRunBuild?.platform === "freebsd"
+      ? "Installing the CLI requires a compatible system Node.js and npm. Start the Gateway with the package service or in a terminal after installation."
+      : "A managed CLI and Node runtime are being installed in your home directory.",
     eyebrow: "INSTALLING",
     title: "Preparing your companion",
   });
@@ -504,7 +617,9 @@ elements.installButton.addEventListener("click", () => {
 elements.welcomeContinue.addEventListener("click", renderConnectionChoices);
 elements.connectionLocal.addEventListener("click", () => selectConnection("local"));
 elements.connectionRemote.addEventListener("click", () => selectConnection("remote"));
-elements.setupBack.addEventListener("click", renderWelcome);
+elements.setupBack.addEventListener("click", () =>
+  editingConnection ? closeConnectionSettings() : renderWelcome(),
+);
 elements.setupContinue.addEventListener("click", () => {
   void (selectedConnection === "remote" ? connectRemoteGateway() : continueLocalSetup());
 });
@@ -527,6 +642,9 @@ for (const input of [
 }
 elements.primaryAction.addEventListener("click", () => {
   void primaryAction?.();
+});
+elements.editConnection.addEventListener("click", () => {
+  void editConnection();
 });
 elements.updateAction.addEventListener("click", () => {
   void updateAction?.();
@@ -593,7 +711,12 @@ void refreshGateways();
 window.setInterval(() => void refreshGateways(), 2000);
 
 const mode = new URLSearchParams(window.location.search).get("mode");
-if (mode === "missingCli") {
+if (mode === "connectionSettings") {
+  await editConnection();
+} else if (mode === "remoteError") {
+  renderRemoteRetry();
+} else if (mode === "missingCli") {
+  firstRunBuild = await invoke("build_info").catch(() => null);
   render({
     description: "Install the OpenClaw CLI to connect to a local Gateway.",
     dot: "idle",

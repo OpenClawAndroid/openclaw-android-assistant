@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
+import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionsResolveParams } from "../../packages/gateway-protocol/src/index.js";
+import { clearSubagentRunsReadCacheForTest } from "../agents/subagents/registry/subagent-registry-state.js";
+import { saveSubagentRegistryToSqlite } from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
 import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -8,6 +11,8 @@ import {
   openOpenClawAgentDatabase,
 } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { createDirectChatContext } from "./server-chat.agent-events.test-helpers.js";
+import { sessionReadHandlers } from "./server-methods/sessions-read.js";
 import { roleClient, rolePolicyConfig } from "./session-sharing.test-utils.js";
 import { resolveSessionKeyFromResolveParams } from "./sessions-resolve.js";
 
@@ -30,6 +35,72 @@ function resolve(p: SessionsResolveParams) {
 const resolved = { ok: true, key: scope.sessionKey, agentId: "main" };
 
 describe("session resolution metadata", () => {
+  it.each(["key", "sessionId", "shortId", "reference", "label"] as const)(
+    "resolves parent-scoped %s requests without hydrating retained subagent tasks",
+    async (selector) => {
+      await withOpenClawTestState(
+        { env: { OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" } },
+        async () => {
+          const now = Date.now();
+          const parent = "agent:main:main";
+          const key = "agent:main:subagent:12345678-0aaa-4000-8000-000000000001";
+          const selected = { ...entry, updatedAt: now, spawnedBy: parent };
+          replaceSessionEntrySync({ ...scope, sessionKey: key }, selected);
+          const rows = [key, "agent:main:subagent:retained"].map((childSessionKey, index) => ({
+            runId: `resolve-run-${index}`,
+            childSessionKey,
+            requesterSessionKey: parent,
+            requesterDisplayKey: "main",
+            task: `retained-resolve-task:${"x".repeat(16_384)}`,
+            cleanup: "keep" as const,
+            createdAt: now - 100,
+            execution: { status: "terminal" as const, startedAt: now - 100, endedAt: now - 50 },
+            completion: { required: false },
+            delivery: { status: "not_required" as const },
+          }));
+          saveSubagentRegistryToSqlite(new Map(rows.map((row) => [row.runId, row])));
+          clearSubagentRunsReadCacheForTest();
+          const value =
+            selector === "sessionId"
+              ? selected.sessionId
+              : selector === "shortId"
+                ? "12345678"
+                : selector === "label"
+                  ? selected.label
+                  : selector === "reference"
+                    ? { key }
+                    : key;
+          const respond = vi.fn();
+          const parse = vi.spyOn(JSON, "parse");
+          try {
+            await expectDefined(
+              sessionReadHandlers["sessions.resolve"],
+              "resolve handler",
+            )({
+              params: { [selector]: value, spawnedBy: parent, agentId: "main" },
+              context: createDirectChatContext({ getRuntimeConfig: () => cfg }),
+              req: { type: "req", id: "registry-resolve", method: "sessions.resolve" },
+              client: null,
+              isWebchatConnect: () => false,
+              respond,
+            });
+            expect(respond).toHaveBeenCalledWith(
+              true,
+              expect.objectContaining({ ok: true, key, agentId: "main" }),
+              undefined,
+            );
+            expect(parse.mock.calls.some(([json]) => json.includes("retained-resolve-task:"))).toBe(
+              false,
+            );
+          } finally {
+            parse.mockRestore();
+            clearSubagentRunsReadCacheForTest();
+          }
+        },
+      );
+    },
+  );
+
   it.each(selectors)("resolves %j without decoding unrelated saved prompts", async (p) => {
     await withOpenClawTestState({ label: "resolve-prompts" }, async () => {
       replaceSessionEntrySync(scope, entry);

@@ -292,14 +292,25 @@ describe("shared toast", () => {
 
   it("cleans up paused toasts and queued outcomes on removal", async () => {
     vi.useFakeTimers();
+    const media = vi.fn(() => ({ matches: false }));
+    vi.stubGlobal("matchMedia", media);
     const host = await mountHost();
+    const anchor = document.createElement("div");
+    document.body.append(anchor);
+    const bounds = vi
+      .spyOn(anchor, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 100, 100));
     const firstDismiss = vi.fn();
     const queuedDismiss = vi.fn();
-    showToast({ message: "First", onDismiss: firstDismiss });
+    showToast({ anchor, message: "First", onDismiss: firstDismiss });
     showToast({ message: "Queued", fifo: true, onDismiss: queuedDismiss });
     await host.updateComplete;
     host.querySelector<HTMLButtonElement>(".app-toast__dismiss")!.focus();
+    bounds.mockClear();
+    media.mockClear();
     host.remove();
+    expect(bounds).not.toHaveBeenCalled();
+    expect(media).not.toHaveBeenCalled();
     expect(firstDismiss).toHaveBeenCalledExactlyOnceWith("disconnected");
     expect(queuedDismiss).toHaveBeenCalledExactlyOnceWith("disconnected");
     await vi.advanceTimersByTimeAsync(0);
@@ -311,14 +322,14 @@ describe("shared toast", () => {
 
   it("still runs a focused action immediately and honors reduced-motion dismissal", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn(() => ({ matches: true })),
-    );
+    const media = vi.fn(() => ({ matches: true }));
+    vi.stubGlobal("matchMedia", media);
     const host = await mountHost();
     const anchor = document.createElement("div");
     document.body.append(anchor);
-    vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 100));
+    const bounds = vi
+      .spyOn(anchor, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 100, 100));
     const onAction = vi.fn();
     const onDismiss = vi.fn();
     showToast({ anchor, message: "Session archived", actionLabel: "Undo", onAction, onDismiss });
@@ -326,15 +337,22 @@ describe("shared toast", () => {
     const action = host.querySelector<HTMLButtonElement>(".app-toast__action")!;
     action.focus();
     await vi.advanceTimersByTimeAsync(6_100);
+    bounds.mockClear();
+    media.mockClear();
     action.click();
     await host.updateComplete;
+    expect(bounds).not.toHaveBeenCalled();
+    expect(media).not.toHaveBeenCalled();
     expect(onAction).toHaveBeenCalledOnce();
     expect(onDismiss).toHaveBeenCalledExactlyOnceWith("action");
     showToast({ anchor, message: "Temporary", durationMs: 100 });
     await host.updateComplete;
+    bounds.mockClear();
     await vi.advanceTimersByTimeAsync(100);
     await host.updateComplete;
     expect(host.querySelector(".app-toast")).toBeNull();
+    expect(bounds).not.toHaveBeenCalled();
+    expect(media).toHaveBeenCalledExactlyOnceWith("(prefers-reduced-motion: reduce)");
     expect(vi.getTimerCount()).toBe(0);
   });
 

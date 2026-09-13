@@ -528,6 +528,34 @@ describe("collectPluginReleaseDependencyFreshnessWarnings", () => {
 });
 
 describe("collectPluginReleasePlan", () => {
+  it("consumes the shared completed observations without npm CLI or another fetch", async () => {
+    const repoDir = makeTempRepoRoot(tempDirs, "openclaw-plugin-npm-release-");
+    const plugin = writePublishablePluginFixture(repoDir, {
+      version: "2026.9.9",
+      publishTo: "npm",
+      dependency: { packageName: "demo-runtime", version: "1.2.3", requireLatest: true },
+    });
+    const forbidden = vi.fn(() => {
+      throw new Error("unplanned subprocess or registry read");
+    });
+    childProcessMock.execFileSyncOverride = forbidden as unknown as ExecFileSync;
+    vi.stubGlobal("fetch", forbidden);
+    const published = vi.fn(async () => true);
+    const latest = vi.fn(() => "1.2.3");
+    const plan = await collectPluginReleasePlan({
+      rootDir: repoDir,
+      selectionMode: "all-publishable",
+      resolvePublishedVersion: published,
+      resolveLatestVersion: latest,
+    });
+    expect(plan.candidates).toEqual([]);
+    expect(plan.skippedPublished.map((entry) => entry.packageName)).toEqual([plugin.packageName]);
+    expect(plan.warnings).toEqual([]);
+    expect(published).toHaveBeenCalledExactlyOnceWith(plugin.packageName, "2026.9.9");
+    expect(latest).toHaveBeenCalledExactlyOnceWith("demo-runtime");
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
   it.each(["stale", "unavailable"])(
     "keeps npm publish candidates when latest is %s",
     async (scenario) => {

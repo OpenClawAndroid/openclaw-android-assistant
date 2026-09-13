@@ -331,6 +331,12 @@ Source admission validates committed metadata before selected producers start.
 It is not registry eligibility, product-validation success, or publication
 authority. Nonpublish work explicitly selects `diagnostic`,
 `main-qualification`, or `postpublish-confidence` without a publication selection.
+Fresh publish tooling additionally collects and retains selected public-registry
+observations before fanout. The checklist and evidence verification authenticate
+that original admission and compare their actual operands without repeating the
+FRV observation sweep. Publishers retain their live registry planning, trust
+checks, and final readbacks. Supported bootstrap routes still require downstream
+owner authorization; admission does not grant it.
 
 An explicit stable or full release request includes macOS publication unless the operator limits its scope. That authorization carries through macOS validation, signing, notarization, promotion, and verification without a separate macOS consent step. Follow the current owner-configured environment policy and retain all enforced rules and exact-source artifact checks.
 

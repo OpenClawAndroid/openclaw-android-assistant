@@ -573,6 +573,7 @@ describe("AgentSession compaction", () => {
 
     await session.prompt("continue");
 
+    expect(streamMocks.streamSimple).toHaveBeenCalledOnce();
     const compactionEvents = onAgentEvent.mock.calls
       .map(([event]) => event)
       .filter((event) => event.stream === "compaction");
@@ -605,29 +606,15 @@ describe("AgentSession compaction", () => {
       ...createAssistant(testModel, [{ type: "text", text: "old answer" }]),
       timestamp: 2,
     });
-    const handlers = createCompactionHandlers();
     const syntheticError = new Error("synthetic manual cancellation rejection");
-    const abortActiveCompaction = () => session.abortCompaction();
-    handlers.set("session_before_compact", [
-      async () => {
-        abortActiveCompaction();
-        throw syntheticError;
-      },
-    ]);
     streamMocks.streamSimple.mockImplementation(
       (_activeModel: Model, _context: Context, options?: SimpleStreamOptions) => {
-        if (options?.signal?.aborted) {
-          throw syntheticError;
-        }
-        return createAssistantResultStream(
-          createAssistant(testModel, [{ type: "text", text: "unexpected compaction" }]),
-        );
+        expect(options?.signal?.aborted).toBe(false);
+        session.abortCompaction();
+        throw syntheticError;
       },
     );
-    const { session } = await createTestSession({
-      sessionManager,
-      resourceLoader: createResourceLoader(handlers),
-    });
+    const { session } = await createTestSession({ sessionManager });
     const onAgentEvent = vi.fn();
     const subscription = subscribeEmbeddedAgentSession({
       session,
@@ -637,6 +624,7 @@ describe("AgentSession compaction", () => {
 
     await expect(session.compact()).rejects.toBe(syntheticError);
 
+    expect(streamMocks.streamSimple).toHaveBeenCalledOnce();
     const compactionEvents = onAgentEvent.mock.calls
       .map(([event]) => event)
       .filter((event) => event.stream === "compaction");

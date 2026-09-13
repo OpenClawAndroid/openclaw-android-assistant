@@ -595,18 +595,21 @@ export function readTaskRegistryMutationSnapshotInDatabase(
 export function readTaskRegistrySnapshotIfReady(
   database: TaskRegistryDatabase,
 ): TaskRegistryReadOnlyLoadResult {
-  const { db } = database;
-  const hasReadableSchema =
-    tableExists(db, "task_runs") &&
-    tableExists(db, "task_delivery_state") &&
-    tableHasColumns(db, "task_runs", TASK_RUN_SELECT_COLUMNS) &&
-    tableHasColumns(db, "task_delivery_state", TASK_DELIVERY_STATE_SELECT_COLUMNS);
-  return hasReadableSchema
+  return hasReadableTaskRegistrySchema(database.db)
     ? { state: "ready", snapshot: readTaskRegistrySnapshot(database) }
     : {
         state: "migration-required",
         snapshot: { tasks: new Map(), deliveryStates: new Map() },
       };
+}
+
+export function hasReadableTaskRegistrySchema(db: DatabaseSync): boolean {
+  return (
+    tableExists(db, "task_runs") &&
+    tableExists(db, "task_delivery_state") &&
+    tableHasColumns(db, "task_runs", TASK_RUN_SELECT_COLUMNS) &&
+    tableHasColumns(db, "task_delivery_state", TASK_DELIVERY_STATE_SELECT_COLUMNS)
+  );
 }
 
 export function listTaskRecordsByOwnerKeyInDatabase(

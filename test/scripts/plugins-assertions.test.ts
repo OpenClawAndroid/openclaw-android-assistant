@@ -69,32 +69,18 @@ function runAssertionAsync(args: string[], env: NodeJS.ProcessEnv) {
   );
 }
 
-function writeFixtureServerShims(binDir: string, pidPath: string): void {
+function writeFixtureServerShims(
+  binDir: string,
+  pidPath: string,
+  termAction: "exit 0" | ":" = "exit 0",
+): void {
   mkdirSync(binDir, { recursive: true });
   writeFileSync(
     path.join(binDir, "node"),
     [
       "#!/bin/bash",
       'printf "%s\\n" "$$" >"$OPENCLAW_TEST_FIXTURE_SERVER_PID"',
-      "trap 'exit 0' TERM",
-      "while true; do /bin/sleep 1; done",
-      "",
-    ].join("\n"),
-  );
-  writeFileSync(path.join(binDir, "sleep"), "#!/bin/bash\nexit 0\n");
-  chmodSync(path.join(binDir, "node"), 0o755);
-  chmodSync(path.join(binDir, "sleep"), 0o755);
-  writeFileSync(pidPath, "");
-}
-
-function writeStubbornFixtureServerShims(binDir: string, pidPath: string): void {
-  mkdirSync(binDir, { recursive: true });
-  writeFileSync(
-    path.join(binDir, "node"),
-    [
-      "#!/bin/bash",
-      'printf "%s\\n" "$$" >"$OPENCLAW_TEST_FIXTURE_SERVER_PID"',
-      "trap ':' TERM",
+      `trap '${termAction}' TERM`,
       "while true; do /bin/sleep 1; done",
       "",
     ].join("\n"),
@@ -557,7 +543,7 @@ done
       const fixtureDir = path.join(root, "fixture");
       const pidPath = path.join(root, "server.pid");
       mkdirSync(fixtureDir);
-      writeStubbornFixtureServerShims(binDir, pidPath);
+      writeFixtureServerShims(binDir, pidPath, ":");
 
       const result = runPluginsSweepShell(
         [

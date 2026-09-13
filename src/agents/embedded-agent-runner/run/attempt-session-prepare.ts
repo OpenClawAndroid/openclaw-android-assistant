@@ -60,6 +60,7 @@ import {
   reconcilePrePersistedCurrentUserTurn,
 } from "./pre-persisted-user-turn.js";
 import { resolveSessionBoundaryPromptCacheKey } from "./session-boundary-prompt-cache-key.js";
+import { resolveEmbeddedSessionContextLimits } from "./session-context-limits.js";
 import { notifyToolActivity } from "./tool-activity-heartbeat.js";
 import {
   createToolLoopBatchAdmission,
@@ -570,13 +571,7 @@ export async function prepareEmbeddedAttemptSessionManager(input: {
       ? SessionManager.open(
           attempt.sessionTarget as SessionTranscriptRuntimeTarget,
           input.effectiveCwd,
-          {
-            maxBytes: Math.min(
-              64 * 1024 * 1024,
-              Math.max(1024, (attempt.contextTokenBudget ?? 128_000) * 8),
-            ),
-            maxEvents: 10_000,
-          },
+          resolveEmbeddedSessionContextLimits(attempt.contextTokenBudget),
         )
       : SessionManager.inMemory(input.effectiveCwd));
   // Publish ownership before awaiting preparation; outer cleanup must receive

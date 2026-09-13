@@ -151,6 +151,13 @@ occur.
 
 ### Post-merge continuation proof
 
+For a registry-admitted publish parent, continuation authenticates the original
+attempt-one plan and its successful guarded upload before any rerun or dispatch.
+It does not recollect public registry state, restamp admission time, or replace
+the original artifact. Historical parents keep their exact frozen contract;
+nonpublish parents carry no publication admission. Existing refusals for
+parent-owned artifacts and incomplete child identities still apply.
+
 Use the non-release `FRV Proof Broker` and `FRV Proof Fixture` workflows only
 after the reviewed SHA lands on protected `main`. The fixture contains one
 fixed no-op job that intentionally fails on attempt one and passes on attempt

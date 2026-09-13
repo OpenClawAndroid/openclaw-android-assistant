@@ -412,40 +412,66 @@ describe("Code Mode MCP namespace", () => {
     });
   });
 
-  it("renames MCP namespace identifiers that would be unsafe path segments", async () => {
-    const { config, catalogRef, tools: codeModeTools } = createCodeModeHarness();
-    const dangerous = materializedMcpTool({
-      name: "constructor__prototype",
+  it.each([
+    {
       serverName: "constructor",
       toolName: "prototype",
-      parameters: {
-        type: "object",
-        properties: { value: { type: "string" } },
-        required: ["value"],
-      },
-    });
-    applyCodeModeCatalog({
-      tools: [...codeModeTools, dangerous],
-      config,
-      sessionId: "session-code-mode",
-      sessionKey: "agent:main:main",
-      runId: "run-code-mode",
-      catalogRef,
-    });
+      serverIdentifier: "constructor2",
+      toolIdentifier: "prototype2",
+    },
+    {
+      serverName: "service",
+      toolName: "results",
+      serverIdentifier: "service",
+      toolIdentifier: "results",
+    },
+    {
+      serverName: "results",
+      toolName: "read",
+      serverIdentifier: "results",
+      toolIdentifier: "read",
+    },
+  ])(
+    "preserves safe MCP paths and escapes unsafe paths for server $serverName and tool $toolName",
+    async ({ serverName, toolName, serverIdentifier, toolIdentifier }) => {
+      const { config, catalogRef, tools: codeModeTools } = createCodeModeHarness();
+      const target = materializedMcpTool({
+        name: `${serverName}__${toolName}`,
+        serverName,
+        toolName,
+        parameters: {
+          type: "object",
+          properties: { value: { type: "string" } },
+          required: ["value"],
+        },
+      });
+      applyCodeModeCatalog({
+        tools: [...codeModeTools, target],
+        config,
+        sessionId: "session-code-mode",
+        sessionKey: "agent:main:main",
+        runId: "run-code-mode",
+        catalogRef,
+      });
 
-    const details = await runUntilCompleted({
-      execTool: expectDefined(codeModeTools[0], "codeModeTools[0] test invariant"),
-      waitTool: expectDefined(codeModeTools[1], "codeModeTools[1] test invariant"),
-      code: 'return JSON.parse((await MCP.constructor2.prototype2({ value: "safe" })).content[0].text);',
-    });
+      const details = await runUntilCompleted({
+        execTool: expectDefined(codeModeTools[0], "codeModeTools[0] test invariant"),
+        waitTool: expectDefined(codeModeTools[1], "codeModeTools[1] test invariant"),
+        code: `const result = await MCP.${serverIdentifier}.${toolIdentifier}({ value: "safe" });
+        return {
+          payload: JSON.parse(result.content[0].text),
+          declaration: (await API.read("mcp/${serverIdentifier}.d.ts")).content,
+        };`,
+      });
 
-    expect(details.status).toBe("completed");
-    expect(details.value).toEqual({
-      serverName: "constructor",
-      toolName: "prototype",
-      input: { value: "safe" },
-    });
-  });
+      expect(details, JSON.stringify(details)).toMatchObject({ status: "completed" });
+      expect(details.value).toEqual({
+        payload: { serverName, toolName, input: { value: "safe" } },
+        declaration: expect.stringContaining(`function ${toolIdentifier}(`),
+      });
+      expect(target.execute).toHaveBeenCalledOnce();
+    },
+  );
 
   describe("reserved MCP tool names", () => {
     const toolNames = ["delete", "default", "return", "enum", "class"] as const;

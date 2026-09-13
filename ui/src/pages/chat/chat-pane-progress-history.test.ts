@@ -61,6 +61,7 @@ function createHistoryProgressPane(request: GatewayRequestHandler) {
   const progress = (pane as TestChatPane & { progressCard: SessionProgressCardController })
     .progressCard;
   onTestFinished(() => progress.hostDisconnected());
+  progress.hostConnected();
   const emit = (card: ProgressCard) => {
     const gateway = pane.context.gateway as ApplicationContext["gateway"] & {
       emitTestEvent: (event: GatewayEventFrame) => void;

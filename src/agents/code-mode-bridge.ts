@@ -13,6 +13,7 @@ import { getBeforeToolCallFailureDisposition } from "./agent-tools.before-tool-c
 import { redactCodeModeCatalogIds, type CodeModeCatalogProjection } from "./code-mode-catalog.js";
 import type { CodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
 import type { CodeModeReplyLease } from "./code-mode-program-data.js";
+import type { CodeModeResultsAccess } from "./code-mode-results.js";
 import type { PendingBridgeRequest } from "./code-mode-runtime.js";
 import { readCodeModeSkill } from "./code-mode-skills.js";
 import { createCodeModeToolApiFile } from "./code-mode-tool-api.js";
@@ -213,6 +214,7 @@ export async function runBridgeRequest(params: {
   parentToolCallId: string;
   codeModeRunId: string;
   reply: CodeModeReplyLease;
+  results: CodeModeResultsAccess;
   remainingMs: number;
   ctx: ToolSearchToolContext;
   request: PendingBridgeRequest;
@@ -225,6 +227,22 @@ export async function runBridgeRequest(params: {
     const values = Array.isArray(params.request.args) ? params.request.args : [];
     let value: unknown;
     switch (params.request.method) {
+      case "resultSave":
+      case "resultLoad":
+      case "resultDelete": {
+        if (params.request.method === "resultSave") {
+          value = params.results.save(values[0], params.runtime.hasNetworkContent());
+        } else if (params.request.method === "resultLoad") {
+          const loaded = params.results.load(values[0]);
+          if (loaded.networkContent) {
+            params.runtime.observeNetworkContent(params.parentToolCallId);
+          }
+          value = loaded.value;
+        } else {
+          value = params.results.delete(values[0]);
+        }
+        break;
+      }
       case "search": {
         const query = values[0];
         if (typeof query !== "string") {

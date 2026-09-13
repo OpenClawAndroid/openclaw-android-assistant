@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import type {
   AgentHarnessScopedCreateRunningTaskRunParams,
   AgentHarnessScopedFinalizeTaskRunParams,
@@ -11,9 +12,10 @@ import type {
   AgentHarnessTaskRuntimeScope,
 } from "openclaw/plugin-sdk/agent-harness-task-runtime";
 import { withTempDir } from "openclaw/plugin-sdk/test-env";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CodexAppServerClient } from "./client.js";
 import { resolveCodexAppServerRuntimeOptions } from "./config.js";
+import { setManagedCodexPluginRoot } from "./managed-binary.js";
 import { codexNativeSubagentMonitorRuntime } from "./native-subagent-monitor.js";
 import { codexNativeSubagentRunId } from "./native-subagent-task-mirror.js";
 import type { JsonObject } from "./protocol.js";
@@ -103,6 +105,13 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: s
 }
 
 describeLive("codex native subagent monitor live", () => {
+  beforeEach(() => {
+    setManagedCodexPluginRoot(fileURLToPath(new URL("../../", import.meta.url)));
+  });
+  afterEach(() => {
+    setManagedCodexPluginRoot(undefined);
+  });
+
   it("delivers spawned subagent results live and recovers them from history", async () => {
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) {
@@ -163,7 +172,7 @@ describeLive("codex native subagent monitor live", () => {
 
         const streamed = createDeliveryRecorder();
         const monitor = new CodexNativeSubagentMonitor(client as never, streamed.runtime);
-        monitor.registerParent({
+        const parentRegistration = monitor.registerParent({
           parentThreadId,
           requesterSessionKey: "live:streamed",
           taskRuntimeScope: {
@@ -176,7 +185,7 @@ describeLive("codex native subagent monitor live", () => {
         // child still owes its own model round (plus a sleep for margin), so
         // the parent turn completes first, like an OpenClaw run cleaning up
         // after yield while its native subagent is still working.
-        await client.request(
+        const turn = await client.request(
           "turn/start",
           {
             threadId: parentThreadId,
@@ -184,11 +193,13 @@ describeLive("codex native subagent monitor live", () => {
               {
                 type: "text",
                 text: "Spawn exactly one subagent with this exact task: 'First run the shell command sleep 20 and wait for it to finish. Then reply with exactly the word BANANA42.' Do not wait for the subagent to finish. Reply DONE immediately after spawning it.",
+                text_elements: [],
               },
             ],
           },
           { timeoutMs: 300_000 },
         );
+        parentRegistration.bindTurn(turn.turn.id);
 
         await waitFor(
           () => (parentTurnCompleted ? true : undefined),
@@ -198,6 +209,7 @@ describeLive("codex native subagent monitor live", () => {
         // The child is still sleeping when the parent turn ends; delivery after
         // this point proves the detached path, not same-turn streaming.
         expect(streamed.deliveries).toHaveLength(0);
+        parentRegistration.unregister();
 
         const delivery = await waitFor(
           () => streamed.deliveries[0],
@@ -249,7 +261,7 @@ describeLive("codex native subagent monitor live", () => {
           } as AgentHarnessTaskRecord,
         ]);
         const recoveryMonitor = new CodexNativeSubagentMonitor(client as never, recovery.runtime);
-        recoveryMonitor.registerParent({
+        const recoveryRegistration = recoveryMonitor.registerParent({
           parentThreadId,
           requesterSessionKey: "live:recovery",
           taskRuntimeScope: {
@@ -257,6 +269,7 @@ describeLive("codex native subagent monitor live", () => {
           } as AgentHarnessTaskRuntimeScope,
           agentId: "live",
         });
+        recoveryRegistration.unregister();
         const recovered = await waitFor(
           () => recovery.deliveries[0],
           120_000,

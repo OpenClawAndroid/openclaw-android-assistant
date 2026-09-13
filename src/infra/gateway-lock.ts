@@ -32,7 +32,6 @@ import {
   StateDatabaseCoordinatorContentionError,
 } from "./state-database-coordinator.js";
 import { readWindowsProcessArgsSync } from "./windows-port-pids.js";
-import { readWindowsProcessStartTimeSync } from "./windows-process-start.js";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -185,9 +184,7 @@ function readProcessStartTime(pid: number, platform: NodeJS.Platform): number | 
   if (platform !== process.platform) {
     return null;
   }
-  return platform === "win32"
-    ? readWindowsProcessStartTimeSync(pid, CMDLINE_EXEC_TIMEOUT_MS)
-    : getFileLockProcessStartTime(pid);
+  return getFileLockProcessStartTime(pid, process.env, CMDLINE_EXEC_TIMEOUT_MS);
 }
 
 function defaultReadProcessCmdline(pid: number, platform: NodeJS.Platform): string[] | null {

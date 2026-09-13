@@ -1646,7 +1646,7 @@ describe("TelegramPollingSession", () => {
       let requestCount = 0;
       const server = createServer((_request, response) => {
         requestCount += 1;
-        response.writeHead(429, { "content-type": "application/json" });
+        response.writeHead(429, { connection: "close", "content-type": "application/json" });
         response.end(
           JSON.stringify({
             ok: false,
@@ -1685,9 +1685,8 @@ describe("TelegramPollingSession", () => {
       });
       const createWorker = vi.fn(() => {
         const worker = new Worker(
-          new URL("./telegram-ingress-worker.runtime.ts", import.meta.url),
+          new URL("../../../dist/telegram-ingress-worker.runtime.js", import.meta.url),
           {
-            execArgv: ["--import", "tsx"],
             workerData: {
               runtime: TELEGRAM_INGRESS_WORKER_RUNTIME_MARKER,
               token: "tok",

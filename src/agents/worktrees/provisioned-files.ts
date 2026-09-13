@@ -1,6 +1,7 @@
 import { constants as fsConstants } from "node:fs";
 import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { root as fsRoot, FsSafeError, type Root } from "../../infra/fs-safe.js";
 import { runGitWorkerOperation } from "../../infra/git-worker.js";
 import { splitNullBuffer } from "./git-path-inventory.js";
 import { requireGitBuffer } from "./git.js";
@@ -19,39 +20,54 @@ import {
 import type { ProvisionedFileState } from "./types.js";
 
 async function copyProvisionedFile(params: {
-  repoRoot: string;
-  worktreePath: string;
+  sourceRoot: Root;
+  destinationRoot: Root;
   relativePath: string;
   assertCurrent?: () => void;
+  signal?: AbortSignal;
 }): Promise<boolean> {
   const normalized = normalizeProvisionedRelativePath(params.relativePath);
+  // Eligibility checks preserve skip behavior; copyIn guards the later mutation.
   if (
     !normalized ||
-    !(await hasSafeParentDirectories(params.repoRoot, normalized)) ||
-    !(await hasSafeParentDirectories(params.worktreePath, normalized))
+    !(await hasSafeParentDirectories(params.sourceRoot.rootReal, normalized)) ||
+    !(await hasSafeParentDirectories(params.destinationRoot.rootReal, normalized))
   ) {
     return false;
   }
-  const source = resolveGitPath(params.repoRoot, normalized);
-  const destination = resolveGitPath(params.worktreePath, normalized);
+  const source = resolveGitPath(params.sourceRoot.rootReal, normalized);
+  const destination = resolveGitPath(params.destinationRoot.rootReal, normalized);
   const sourceStat = await fs.lstat(source).catch(() => undefined);
   if (!sourceStat?.isFile() || sourceStat.isSymbolicLink()) {
     return false;
   }
-  params.assertCurrent?.();
-  await fs.mkdir(path.dirname(destination), { recursive: true });
+  if (await lstatIfExists(destination)) {
+    return false;
+  }
   try {
-    params.assertCurrent?.();
-    await fs.copyFile(source, destination, fsConstants.COPYFILE_EXCL);
+    // Absolute spellings preserve Git's literal "~" and POSIX drive-like filenames.
+    await params.destinationRoot.copyIn(
+      destination,
+      { root: params.sourceRoot, relativePath: source },
+      {
+        overwrite: false,
+        maxBytes: Infinity,
+        preserveSourceMode: true,
+        sourceHardlinks: "allow",
+        mutationSymlinks: "reject",
+        durable: false,
+        assertBeforeMutation: params.assertCurrent,
+        signal: params.signal,
+      },
+    );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+    if (error instanceof FsSafeError && error.code === "already-exists") {
       // Existing checkout state is user-owned. Never mutate or claim it as provisioned.
       return false;
     }
     throw error;
   }
   params.assertCurrent?.();
-  await fs.chmod(destination, sourceStat.mode);
   return true;
 }
 
@@ -69,16 +85,22 @@ export async function provisionIncludedFiles(
     options.signal?.throwIfAborted();
     options.assertCurrent?.();
   };
+  if (inspection.paths.length === 0) {
+    return [];
+  }
+  assertCurrent();
+  const [sourceRoot, destinationRoot] = await Promise.all([fsRoot(repoRoot), fsRoot(worktreePath)]);
   const provisioned: string[] = [];
   for (const relativePath of inspection.paths) {
     const normalized = normalizeProvisionedRelativePath(relativePath);
     if (
       normalized &&
       (await copyProvisionedFile({
-        repoRoot,
-        worktreePath,
+        sourceRoot,
+        destinationRoot,
         relativePath: normalized,
         assertCurrent,
+        signal: options.signal,
       }))
     ) {
       provisioned.push(normalized);

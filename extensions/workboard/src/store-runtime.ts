@@ -8,25 +8,38 @@ export class WorkboardStoreRuntime {
   private readonly operations = new Set<Promise<unknown>>();
   private mutationQueue: Promise<unknown> = Promise.resolve();
   private closePromise: Promise<void> | undefined;
+  private sealed = false;
   private readonly epoch = randomUUID();
   private revision = 0;
   private mutationRevision = 0;
   private externalDataVersion: number | undefined;
   private readonly listeners = new Set<(change: WorkboardChange) => void>();
+  private readonly initialization: Promise<void>;
 
   constructor(
-    private readonly readDataVersion?: () => number,
-    private readonly closePersistence?: () => void,
+    private readonly readDataVersion?: () => number | Promise<number>,
+    private readonly closePersistence?: () => void | Promise<void>,
+    ready?: Promise<number>,
   ) {
-    this.externalDataVersion = readDataVersion?.();
+    this.initialization = Promise.resolve(ready ?? readDataVersion?.()).then((version) => {
+      this.externalDataVersion = version;
+    });
+    void this.initialization.catch(() => {});
+  }
+
+  ready(): Promise<void> {
+    return this.runOperation(() => undefined);
   }
 
   async runOperation<T>(run: () => T | Promise<T>): Promise<T> {
-    if (this.closePromise && !this.operationScope.getStore()?.active) {
+    if (this.sealed && !this.operationScope.getStore()?.active) {
       throw new Error("workboard store is closed.");
     }
     const context = { active: true };
-    const operation = this.operationScope.run(context, async () => await run());
+    const operation = this.operationScope.run(context, async () => {
+      await this.initialization;
+      return await run();
+    });
     this.operations.add(operation);
     try {
       return await operation;
@@ -38,15 +51,21 @@ export class WorkboardStoreRuntime {
   }
 
   close(): Promise<void> {
-    this.closePromise ??= Promise.resolve().then(async () => {
-      // Admitted operations can still add nested work. Callers own failures;
-      // join the entire set before closing this generation's connection.
-      while (this.operations.size > 0) {
-        await Promise.allSettled(this.operations);
-      }
-      this.operationScope.disable();
-      this.closePersistence?.();
-    });
+    this.sealed = true;
+    this.closePromise ??= Promise.resolve()
+      .then(async () => {
+        // Admitted operations can still add nested work. Callers own failures;
+        // join the entire set before closing this generation's connection.
+        while (this.operations.size > 0) {
+          await Promise.allSettled(this.operations);
+        }
+        this.operationScope.disable();
+        await this.closePersistence?.();
+      })
+      .catch((error: unknown) => {
+        this.closePromise = undefined;
+        throw error;
+      });
     return this.closePromise;
   }
 
@@ -133,17 +152,19 @@ export class WorkboardStoreRuntime {
     this.emit();
   }
 
-  reconcileExternalChanges(): boolean {
-    if (!this.readDataVersion) {
-      return false;
-    }
-    const current = this.readDataVersion();
-    if (current === this.externalDataVersion) {
-      return false;
-    }
-    this.externalDataVersion = current;
-    this.emit();
-    return true;
+  reconcileExternalChanges(): Promise<boolean> {
+    return this.runOperation(async () => {
+      if (!this.readDataVersion) {
+        return false;
+      }
+      const current = await this.readDataVersion();
+      if (current === this.externalDataVersion) {
+        return false;
+      }
+      this.externalDataVersion = current;
+      this.emit();
+      return true;
+    });
   }
 
   protected async enqueueMutation<T>(run: () => Promise<T>): Promise<T> {

@@ -86,16 +86,11 @@ export function readSessionMessageIdentity(
     isCliAssistant && persistedRunId?.startsWith("cli-assistant:")
       ? readSessionProjectionString(persistedRunId.slice("cli-assistant:".length))
       : persistedRunId;
-  const optimisticRunId =
-    metadata && Object.keys(metadata).every((key) => key === "idempotencyKey")
-      ? canonicalPersistedRunId
-      : null;
   const runId =
     role === "assistant"
       ? (metadataRunId ??
         envelopeRunId ??
-        (isCliAssistant || !mirroredMessage ? canonicalPersistedRunId : null) ??
-        optimisticRunId)
+        (isCliAssistant || !mirroredMessage ? canonicalPersistedRunId : null))
       : (metadataRunId ?? canonicalPersistedRunId ?? envelopeRunId);
   return {
     role,
@@ -124,9 +119,12 @@ export function readAssistantStreamSegmentIdentity(
   }
   const fallback = readRecord(record?.openclawStreamFallback);
   const itemId = readSessionProjectionString(fallback?.itemId);
+  if (!itemId) {
+    return undefined;
+  }
   const runId =
     readSessionMessageIdentity(message)?.runId ??
     readSessionProjectionString(record?.runId) ??
     readSessionProjectionString(fallback?.runId);
-  return itemId ? { itemId, ...(runId ? { runId } : {}) } : undefined;
+  return { itemId, ...(runId ? { runId } : {}) };
 }

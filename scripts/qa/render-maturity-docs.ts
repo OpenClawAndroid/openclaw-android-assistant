@@ -19,6 +19,7 @@ import {
   readQaMaturityTaxonomySource,
   readValidatedQaMaturityScoreSources,
   type QaMaturityCoverageScores,
+  type QaMaturityDecision,
   type QaMaturityScoreObject,
   type QaMaturityScoreSurface,
   type QaMaturityScoreSurfaceLts,
@@ -506,6 +507,63 @@ function maturityLevelPillFromText(value: string): string {
 function indentMarkdown(lines: string[], spaces = 4): string[] {
   const prefix = " ".repeat(spaces);
   return lines.map((line) => (line ? `${prefix}${line}` : ""));
+}
+
+type DecisionContext = {
+  label: string;
+  current: QaMaturityDecision["value"] | undefined;
+  decision?: QaMaturityDecision;
+};
+
+function renderDecisionContext(entries: DecisionContext[]): string[] {
+  // The docs publisher renders HTML/Markdown, not JSX expressions. Keep authored text literal.
+  const text = (value: string | number | boolean) =>
+    `<span>${String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replace(/[{}|`*_[\]\\]/gu, (character) => `&#${character.charCodeAt(0)};`)
+      .replace(/\r\n?|\n/gu, "<br />")}</span>`;
+  return [
+    "<details>",
+    "<summary>Decision context</summary>",
+    "<p>Missing history is unknown. Differences are non-gating and do not change current values.</p>",
+    ...entries.map(({ label, current, decision }) => {
+      const context = decision
+        ? [
+            `Recorded value: ${decision.value}`,
+            ...(decision.value !== current ? ["Non-gating mismatch"] : []),
+            `Rationale: ${decision.rationale}`,
+            `Reviewer: ${decision.reviewer}`,
+            `Evidence: ${decision.evidence_refs.join("; ")}`,
+            `Revalidate when: ${decision.revalidate_when}`,
+          ]
+            .map((field) => `<div>${text(field)}</div>`)
+            .join("")
+        : text("Unknown (not recorded)");
+      return `<div><p><strong>${text(label)}</strong></p><p>Current value: ${text(current ?? "Unknown")}</p><div>Recorded decision: ${context}</div></div>`;
+    }),
+    "</details>",
+  ];
+}
+
+function surfaceDecisionContext(
+  surface: QaMaturityTaxonomySurface,
+  scoreSurface: QaMaturityScoreSurface | undefined,
+): DecisionContext[] {
+  return [
+    { label: "Level", current: surface.level, decision: surface.level_decision },
+    {
+      label: "Quality",
+      current: scoreSurface?.scores.quality.score,
+      decision: scoreSurface?.scores.quality.decision,
+    },
+    {
+      label: "Completeness",
+      current: scoreSurface?.scores.completeness.score,
+      decision: scoreSurface?.scores.completeness.decision,
+    },
+  ];
 }
 
 function renderSurfaceRows({
@@ -1157,8 +1215,18 @@ function renderMaturityScorecard({
     "",
     ...renderSurfaceTabs({ coverage, levels, scoreSurfaces, surfaces }),
     "",
-    ...renderEvidenceSection(evidenceSummaries, surfaceNames),
+    "## Decision context",
+    "",
   );
+  for (const surface of surfaces) {
+    lines.push(
+      `### ${markdownEscape(surface.name)}`,
+      "",
+      ...renderDecisionContext(surfaceDecisionContext(surface, scoreSurfaces.get(surface.id))),
+      "",
+    );
+  }
+  lines.push(...renderEvidenceSection(evidenceSummaries, surfaceNames));
   if (updatedDate) {
     lines.push(`> Last updated: ${updatedDate}`, "");
   }
@@ -1279,6 +1347,30 @@ function renderTaxonomy({
         ...indentMarkdown(
           [
             `<div className="maturity-surface-rollup"><span>Coverage ${scoreLabel(coverage.surfaces.get(surface.id))}</span><span>Quality ${scoreLabel(scoreSurface?.scores?.quality)}</span><span>Completeness ${scoreLabel(scoreSurface?.scores?.completeness)}</span><span>${maturityLtsBadge(scoreSurface?.lts)}</span></div>`,
+            "",
+            ...renderDecisionContext([
+              ...surfaceDecisionContext(surface, scoreSurface),
+              ...surface.categories.flatMap((category): DecisionContext[] => {
+                const score = categoryScores.get(category.name);
+                return [
+                  {
+                    label: `${category.name} / Quality`,
+                    current: score?.quality.score,
+                    decision: score?.quality.decision,
+                  },
+                  {
+                    label: `${category.name} / Completeness`,
+                    current: score?.completeness.score,
+                    decision: score?.completeness.decision,
+                  },
+                  {
+                    label: `${category.name} / LTS`,
+                    current: score?.lts.supported,
+                    decision: score?.lts.decision,
+                  },
+                ];
+              }),
+            ]),
             "",
             ...categoryLines,
             "",

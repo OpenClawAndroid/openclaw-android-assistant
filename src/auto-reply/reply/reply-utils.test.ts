@@ -1590,6 +1590,19 @@ describe("createStreamingDirectiveAccumulator", () => {
     expect(second?.mediaUrls).toBeUndefined();
   });
 
+  it.each(["M", "ME", "MED", "MEDI", "MEDIA"])(
+    "keeps a split %s prefix buffered until final media parsing",
+    (prefix) => {
+      const accumulator = createStreamingDirectiveAccumulator();
+
+      expect(accumulator.consume(`Preview:\n\t${prefix}`)?.text).toBe("Preview:\n");
+      expect(accumulator.consume(`${"MEDIA".slice(prefix.length)}:./asset.png`)).toBeNull();
+      const final = accumulator.consume("", { final: true });
+      expect(final?.text).toBe("\tMEDIA:./asset.png");
+      expect(parseReplyDirectives(final?.text ?? "").mediaUrls).toEqual(["./asset.png"]);
+    },
+  );
+
   it("does not buffer a trailing letter that appears mid-line", () => {
     const accumulator = createStreamingDirectiveAccumulator();
 

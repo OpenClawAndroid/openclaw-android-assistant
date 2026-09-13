@@ -25,6 +25,7 @@ import type { AuthenticatedUser } from "../app/user-profile.ts";
 import { normalizeControlUiBuildInfo } from "../build-info-normalizers.ts";
 import type { ControlUiBuildInfo } from "../build-info.ts";
 import { createControlUiE2eArtifactDir } from "./control-ui-e2e-artifacts.ts";
+import { createControlUiE2eBuildPublication } from "./control-ui-e2e-build-publication.ts";
 import type { NativeControlUiPluginFixture } from "./control-ui-plugin-fixture.ts";
 import {
   createControlUiSessionFixtures,
@@ -610,6 +611,10 @@ export type ControlUiE2eServer = {
   close: () => Promise<void>;
 };
 
+export type ControlUiE2eProductionServer = ControlUiE2eServer & {
+  replaceBuild: (nextDir: string, previousDir: string) => Promise<void>;
+};
+
 type ControlUiE2eServerOptions = {
   source?: boolean;
 };
@@ -1069,16 +1074,18 @@ async function runProductionControlUiBuild(outDir: string): Promise<void> {
 async function startBuiltControlUiE2eServer(
   outDir: string,
   bootstrapConfig?: Record<string, unknown>,
-): Promise<ControlUiE2eServer> {
+): Promise<ControlUiE2eProductionServer> {
   const [{ preview }, { default: controlUiViteConfig }] = await Promise.all([
     import("vite"),
     import("../../vite.config.ts"),
   ]);
   const port = await resolveAvailableLoopbackPort();
   const sharedConfig = createBundledControlUiE2eConfig(controlUiViteConfig, outDir);
+  const publication = createControlUiE2eBuildPublication(outDir);
   const server = await preview({
     ...sharedConfig,
     plugins: [
+      publication.plugin,
       ...(sharedConfig.plugins ?? []),
       controlUiE2eGatewayAssetPathPlugin(),
       controlUiE2ePreviewConfigPlugin(bootstrapConfig),
@@ -1093,6 +1100,7 @@ async function startBuiltControlUiE2eServer(
     return {
       baseUrl: resolveServerBaseUrl(server),
       close: () => server.close(),
+      replaceBuild: publication.replaceBuild,
     };
   } catch (error) {
     await server.close().catch(() => {});
@@ -1116,7 +1124,7 @@ export async function startProductionControlUiE2eServer(
   outDir: string,
   buildId: string,
   bootstrapConfig?: Record<string, unknown>,
-): Promise<ControlUiE2eServer> {
+): Promise<ControlUiE2eProductionServer> {
   await buildProductionControlUiE2e(outDir, buildId);
   return startBuiltControlUiE2eServer(outDir, bootstrapConfig);
 }

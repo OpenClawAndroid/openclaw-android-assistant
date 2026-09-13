@@ -36,6 +36,11 @@ import {
   type OpenClawStateDatabaseReadAdmission,
 } from "./openclaw-state-db-async-lifecycle.js";
 import {
+  assertStateDatabaseBorrowersReleased,
+  retainStateDatabaseReference,
+  type StateDatabaseBorrowers,
+} from "./openclaw-state-db-borrow.js";
+import {
   OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
   type OpenClawStateDatabase,
 } from "./openclaw-state-db-contract.js";
@@ -64,6 +69,7 @@ type StateDatabaseLifecycle = {
   cachedDataVersionStatements: WeakMap<OpenClawStateDatabase, ReturnType<DatabaseSync["prepare"]>>;
   cachedDataVersions: WeakMap<DatabaseSync, number>;
   databaseIdentities: WeakMap<DatabaseSync, DatabasePathIdentity>;
+  borrowers: WeakMap<DatabaseSync, StateDatabaseBorrowers>;
   databaseLifecycleListeners: Set<(event: OpenClawStateDatabaseLifecycleEvent) => void>;
   terminalOpenLatch: ReturnType<typeof createSqliteTerminalOpenLatch>;
   asyncResources: ReturnType<typeof createOpenClawStateDatabaseAsyncLifecycle>;
@@ -81,6 +87,7 @@ const stateDatabaseLifecycle = resolveGlobalSingleton<StateDatabaseLifecycle>(
     >(),
     cachedDataVersions: new WeakMap<DatabaseSync, number>(),
     databaseIdentities: new WeakMap<DatabaseSync, DatabasePathIdentity>(),
+    borrowers: new WeakMap<DatabaseSync, StateDatabaseBorrowers>(),
     databaseLifecycleListeners: new Set<(event: OpenClawStateDatabaseLifecycleEvent) => void>(),
     terminalOpenLatch: createSqliteTerminalOpenLatch({
       closeByPath: (pathname, error) => {
@@ -117,6 +124,7 @@ const {
   cachedDataVersionStatements,
   cachedDataVersions,
   databaseIdentities,
+  borrowers,
   databaseLifecycleListeners,
   terminalOpenLatch,
   asyncResources,
@@ -176,11 +184,51 @@ export function registerOpenClawStateDatabaseLifecycleListener(
   return () => databaseLifecycleListeners.delete(listener);
 }
 
+function retainStateDatabaseClose(database: StateDatabaseHandle): void {
+  retainedDatabaseHandles.set(database.db, database);
+  stateDatabaseLifecycle.unregisterRetainedExitClose ??= registerSqliteCacheExitClose(
+    closeOpenClawStateDatabase,
+  );
+}
+
+/** Retain one exact canonical native owner; only the final reference retires its handle. */
+export function retainOpenClawStateDatabase(database: OpenClawStateDatabase): { release(): void } {
+  assertOpenClawStateDatabaseOpenAllowed(database.path);
+  asyncResources.capture(database.path).assertCurrent();
+  if (cachedDatabases.get(database.path) !== database || !database.db.isOpen) {
+    throw new Error("OpenClaw state database borrow requires its current canonical handle");
+  }
+  const owner: StateDatabaseBorrowers = borrowers.get(database.db) ?? {
+    references: new Set<object>(),
+    retiring: false,
+    cleanupComplete: false,
+  };
+  if (owner.retiring) {
+    throw new Error("OpenClaw state database native owner is retiring");
+  }
+  borrowers.set(database.db, owner);
+  return retainStateDatabaseReference({
+    owner,
+    retire: () => retireOpenClawStateDatabaseHandle(database),
+    retainFailedClose: () => retainStateDatabaseClose(database),
+  });
+}
+
 /** Close both physical-handle owners while retaining every cleanup failure. */
 function closeOpenClawStateDatabaseHandle(
   database: StateDatabaseHandle,
   options?: Parameters<OpenClawStateDatabase["walMaintenance"]["close"]>[0],
 ): unknown[] {
+  try {
+    assertStateDatabaseBorrowersReleased(borrowers.get(database.db), database.path);
+  } catch (error) {
+    const owner = borrowers.get(database.db);
+    if (owner) {
+      owner.retiring = true;
+    }
+    retainStateDatabaseClose(database);
+    return [error];
+  }
   const errors: unknown[] = [];
   try {
     database.walMaintenance?.close(options);
@@ -207,10 +255,7 @@ function closeOpenClawStateDatabaseHandle(
     }
   }
   if (database.db.isOpen || cleanupPending) {
-    retainedDatabaseHandles.set(database.db, database);
-    stateDatabaseLifecycle.unregisterRetainedExitClose ??= registerSqliteCacheExitClose(
-      closeOpenClawStateDatabase,
-    );
+    retainStateDatabaseClose(database);
   } else {
     retainedDatabaseHandles.delete(database.db);
     if (retainedDatabaseHandles.size === 0) {
@@ -273,7 +318,11 @@ function getCachedOpenClawStateDatabase(pathname: string): OpenClawStateDatabase
   if (runtimeFailure) {
     throw runtimeFailure;
   }
-  return cachedDatabases.get(path.resolve(pathname));
+  const database = cachedDatabases.get(path.resolve(pathname));
+  if (database && borrowers.get(database.db)?.retiring) {
+    throw new Error(`OpenClaw state database native borrower cleanup is pending: ${pathname}`);
+  }
+  return database;
 }
 
 function getOpenClawStateDatabaseIfOpenAtPath(pathname: string): OpenClawStateDatabase | undefined {
@@ -341,10 +390,20 @@ export async function getOpenClawStateDatabaseTerminalFailureAsync(
 
 /** Reject shared-state access after a process-local terminal failure. */
 function assertOpenClawStateDatabaseOpenAllowed(pathname: string): void {
-  asyncResources.identity(pathname);
+  const identity = asyncResources.identity(pathname);
   const terminalFailure = terminalOpenLatch.get(pathname);
   if (terminalFailure) {
     throw terminalFailure;
+  }
+  const resolvedPath = path.resolve(pathname);
+  for (const database of retainedDatabaseHandles.values()) {
+    if (
+      borrowers.get(database.db)?.retiring &&
+      (database.path === resolvedPath ||
+        (identity !== undefined && databaseIdentities.get(database.db)?.key === identity.key))
+    ) {
+      throw new Error(`OpenClaw state database native borrower cleanup is pending: ${pathname}`);
+    }
   }
 }
 
@@ -382,33 +441,55 @@ function retireOpenClawStateDatabaseHandle(
   database: StateDatabaseHandle,
   options?: OpenClawStateDatabaseCloseOptions,
 ): void {
+  assertStateDatabaseBorrowersReleased(borrowers.get(database.db), database.path);
+  const borrowedOwner = borrowers.get(database.db);
   const { busyTimeoutMs = OPENCLAW_SQLITE_BUSY_TIMEOUT_MS, ...closeOptions } = options ?? {};
   // Wait opportunistically within the budget; contended retirement must not write
   // any database or sidecar bytes while a foreign lifecycle owner holds exclusion.
-  const coordinator = acquireStateDatabaseCoordinator({
-    databasePath: database.path,
-    busyTimeoutMs,
-    // Retirement releases physical custody, including an idle coordinator that
-    // would otherwise keep temporary or relocated Windows homes undeletable.
-    keepAlive: false,
-  });
-  runWithSqliteCoordinator(coordinator, "state database retirement", () => {
-    // Refused acquisition leaves both cache and physical ownership untouched.
-    const wasCached = cachedDatabases.get(database.path)?.db === database.db;
-    asyncResources.invalidate(database.path);
-    const errors = closeOpenClawStateDatabaseHandle(database, closeOptions);
-    if (wasCached) {
-      try {
-        notifyOpenClawStateDatabaseClosed(database);
-      } catch (error) {
-        errors.push(error);
+  const coordinator =
+    borrowedOwner?.closeCoordinator ??
+    acquireStateDatabaseCoordinator({
+      databasePath: database.path,
+      busyTimeoutMs,
+      // Retirement releases physical custody, including an idle coordinator that
+      // would otherwise keep temporary or relocated Windows homes undeletable.
+      keepAlive: false,
+    });
+  if (borrowedOwner) {
+    borrowedOwner.closeCoordinator = coordinator;
+  }
+  try {
+    runWithSqliteCoordinator(coordinator, "state database retirement", () => {
+      // Refused acquisition leaves both cache and physical ownership untouched.
+      const wasCached = cachedDatabases.get(database.path)?.db === database.db;
+      asyncResources.invalidate(database.path);
+      const errors = closeOpenClawStateDatabaseHandle(database, closeOptions);
+      if (wasCached) {
+        try {
+          notifyOpenClawStateDatabaseClosed(database);
+        } catch (error) {
+          errors.push(error);
+        }
       }
+      throwStateDatabaseCleanupErrors(
+        errors,
+        `OpenClaw state database cleanup failed for ${database.path}.`,
+      );
+    });
+  } catch (error) {
+    if (borrowedOwner) {
+      retainStateDatabaseClose(database);
     }
-    throwStateDatabaseCleanupErrors(
-      errors,
-      `OpenClaw state database cleanup failed for ${database.path}.`,
-    );
-  });
+    throw error;
+  } finally {
+    if (borrowedOwner && coordinator.closed) {
+      borrowedOwner.closeCoordinator = undefined;
+    }
+  }
+  if (borrowedOwner) {
+    borrowedOwner.cleanupComplete = true;
+    borrowers.delete(database.db);
+  }
 }
 
 function throwStateDatabaseCleanupErrors(errors: unknown[], message: string): void {

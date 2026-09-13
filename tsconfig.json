@@ -38,6 +38,9 @@
         "./packages/ai/src/internal/google-model-family.ts"
       ],
       "@openclaw/ai/internal/openai": ["./packages/ai/src/internal/openai.ts"],
+      "@openclaw/ai/internal/openai-completions-compat": [
+        "./packages/ai/src/internal/openai-completions-compat.ts"
+      ],
       "@openclaw/ai/internal/openai-responses-payload-policy": [
         "./packages/ai/src/internal/openai-responses-payload-policy.ts"
       ],

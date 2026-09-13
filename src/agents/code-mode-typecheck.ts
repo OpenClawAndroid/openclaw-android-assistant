@@ -2,7 +2,11 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { truncateUtf8Prefix } from "../utils/utf8-truncate.js";
 import { ToolInputError } from "./tool-input-error.js";
+
+const MAX_DIAGNOSTICS = 5;
+const MAX_DIAGNOSTIC_BYTES = 1024;
 
 export async function checkCodeModeTypes(
   ts: typeof import("typescript"),
@@ -68,10 +72,13 @@ export async function checkCodeModeTypes(
     },
     host,
   );
-  const failure = ts
+  const failures = ts
     .getPreEmitDiagnostics(program)
-    .find((d) => d.category === ts.DiagnosticCategory.Error);
-  if (failure) {
+    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
+  if (failures.length === 0) {
+    return;
+  }
+  const messages = failures.slice(0, MAX_DIAGNOSTICS).map((failure) => {
     const point =
       failure.file && failure.start !== undefined
         ? failure.file.getLineAndCharacterOfPosition(failure.start)
@@ -84,10 +91,12 @@ export async function checkCodeModeTypes(
           (point.character + 1) +
           ": "
         : "";
-    throw new ToolInputError(
-      "TypeScript preflight failed: " +
-        location +
-        ts.flattenDiagnosticMessageText(failure.messageText, "\n"),
-    );
+    const message = location + ts.flattenDiagnosticMessageText(failure.messageText, "\n");
+    const prefix = truncateUtf8Prefix(message, MAX_DIAGNOSTIC_BYTES);
+    return prefix === message ? message : prefix + " [diagnostic truncated]";
+  });
+  if (failures.length > messages.length) {
+    messages.push(`${failures.length - messages.length} additional errors omitted.`);
   }
+  throw new ToolInputError("TypeScript preflight failed: " + messages.join("\n"));
 }

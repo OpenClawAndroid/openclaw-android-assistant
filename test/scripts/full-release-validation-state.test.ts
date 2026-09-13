@@ -8,6 +8,8 @@ import {
   buildFullReleaseCandidateRequest,
 } from "../../scripts/full-release-candidate-contract.mjs";
 import {
+  createPublicationAdmission,
+  createPublicationObservations,
   createPublicationSourceFact,
   publicationDispatchEnvelope,
   publicationIntentInputs,
@@ -256,6 +258,60 @@ function sourceFact(overrides: Partial<PublicationSourceRequest> = {}) {
   );
 }
 
+function registryRecord(source = sourceFact()) {
+  const time = "2026-09-13T14:00:00.000Z";
+  const observations = createPublicationObservations(source, {
+    sourceDigest: source.digest,
+    prerequisitesCompletedAt: time,
+    collectionStartedAt: time,
+    collectionCompletedAt: time,
+    npm: [
+      {
+        name: "openclaw",
+        version: "2026.9.9",
+        required: true,
+        observedAt: time,
+        outcome: "observed",
+        state: {
+          packageExists: true,
+          hasVersionHistory: true,
+          selectedVersionExists: false,
+          latestVersion: null,
+        },
+      },
+    ],
+    clawhub: [],
+    pendingAuthority: [],
+    plans: {
+      npm: { all: [], candidates: [], skippedPublished: [], warnings: [] },
+      clawhub: {
+        all: [],
+        candidates: [],
+        skippedPublished: [],
+        warnings: [],
+        bootstrapCandidates: [],
+        missingTrustedPublisher: [],
+      },
+    },
+  });
+  return {
+    sourceAdmissionContract: "1",
+    sourceAdmission: source,
+    publicationAdmissionContract: "1",
+    publicationAdmission: createPublicationAdmission(
+      source,
+      observations,
+      {
+        id: "456",
+        name: `full-release-publication-observations-${source.runId}-1`,
+        digest: `sha256:${"d".repeat(64)}`,
+        sizeInBytes: 4096,
+      },
+      time,
+    ),
+  };
+}
+
 function runPlanSubprocess(overrides: Record<string, unknown>, env: Record<string, string> = {}) {
   const root = tempDirs.make("frv-candidate-plan-");
   const output = join(root, "full-release-execution-plan.json");
@@ -296,6 +352,23 @@ function runPlanSubprocess(overrides: Record<string, unknown>, env: Record<strin
 }
 
 describe("full release execution plan", () => {
+  it("retains B observations and post-upload binding through completed plan sealing", () => {
+    const record = registryRecord();
+    const directory = tempDirs.make("publication-plan-");
+    const receipt = join(directory, "admission.json");
+    writeFileSync(receipt, JSON.stringify(record));
+    const { output, result } = runPlanSubprocess(record, {
+      FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1",
+      FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1",
+      PUBLICATION_ADMISSION_PATH: receipt,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const sealed = validateReleaseExecutionPlanArtifact(JSON.parse(readFileSync(output, "utf8")), {
+      publicationAdmissionContract: "1",
+    });
+    expect(sealed).toMatchObject(record);
+    expect(readFileSync(receipt, "utf8")).toBe(JSON.stringify(record));
+  });
   it("seals and restores source admission without reevaluation and rejects deleted support", () => {
     const sourceAdmission = sourceFact();
     const { output, result } = runPlanSubprocess(
@@ -3754,7 +3827,7 @@ printf '%s\\n' '{"id":101,"event":"workflow_dispatch","path":".github/workflows/
     ).toThrow(/release execution plan (artifact binding|child identity) is invalid/u);
   });
 
-  it.each([false, true])(
+  it.each([false, true, "registry"])(
     "writes the execution plan immediately when SIGTERM interrupts a stalled reuse API (source=%s)",
     async (source) => {
       const root = mkdtempSync(join(tmpdir(), "frv-plan-signal-"));
@@ -3766,7 +3839,15 @@ printf '%s\\n' '{"id":101,"event":"workflow_dispatch","path":".github/workflows/
             coverage: { ...sourceFact().coverage, rerun_group: "ci" },
           })
         : undefined;
-      writeFileSync(gh, '#!/bin/sh\nprintf ready > "$FRV_GH_READY"\nsleep 30\n');
+      const publication = source === "registry" ? registryRecord(sourceAdmission) : undefined;
+      const publicationPath = join(root, "publication.json");
+      if (publication) {
+        writeFileSync(publicationPath, JSON.stringify(publication));
+      }
+      writeFileSync(
+        gh,
+        `#!${process.execPath}\nrequire("node:fs").writeFileSync(process.env.FRV_GH_READY, "ready");\nsetTimeout(() => {}, 30000);\n`,
+      );
       chmodSync(gh, 0o755);
       const childProcess = spawn(process.execPath, [SCRIPT, "plan"], {
         env: {
@@ -3774,6 +3855,13 @@ printf '%s\\n' '{"id":101,"event":"workflow_dispatch","path":".github/workflows/
           EVIDENCE_CHANGED_PATHS: "[]",
           FRV_GH_READY: ghReady,
           FULL_RELEASE_EXECUTION_PLAN_PATH: output,
+          ...(publication
+            ? {
+                FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1",
+                FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1",
+                PUBLICATION_ADMISSION_PATH: publicationPath,
+              }
+            : {}),
           FULL_RELEASE_PLAN_INPUTS_JSON: JSON.stringify({
             ...(sourceAdmission ? { sourceAdmissionContract: "1", sourceAdmission } : {}),
             candidateRequestInput: canonicalCandidateRequest(),
@@ -3815,6 +3903,7 @@ printf '%s\\n' '{"id":101,"event":"workflow_dispatch","path":".github/workflows/
       expect(Date.now() - started).toBeLessThan(2_000);
       expect(JSON.parse(readFileSync(output, "utf8"))).toMatchObject({
         ...(source ? { sourceAdmissionContract: "1", sourceAdmission } : {}),
+        ...publication,
         errors: [expect.objectContaining({ kind: "collector_cancelled" })],
         parentRunAttempt: 1,
       });

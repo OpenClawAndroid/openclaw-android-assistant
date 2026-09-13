@@ -9,9 +9,11 @@ import { detectMime } from "@openclaw/media-core/mime";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { isWindowsDrivePath } from "../infra/archive-path.js";
+import { resolveRootPath } from "../infra/boundary-path.js";
 import { toErrorObject } from "../infra/errors.js";
 import {
   canonicalPathFromExistingAncestor,
+  findExistingAncestor,
   root as fsRoot,
   FsSafeError,
 } from "../infra/fs-safe.js";
@@ -747,6 +749,7 @@ async function appendMemoryFlushContent(params: {
     await root.append(params.relativePath, params.content, {
       mkdir: true,
       prependNewlineIfNeeded: true,
+      assertBeforeMutation: params.assertCurrent,
     });
     return;
   }
@@ -1419,21 +1422,15 @@ async function writeWorkspaceFile(
   abortSignal?: AbortSignal,
 ) {
   const assertCurrent = captureAgentToolSourceExecutionGuard(abortSignal);
-  // Validate the path before starting the fs-safe root: call getRoot() (which opens the
-  // root dir, rejecting if the workspace is missing) only after toCanonicalRelativeWorkspacePath
-  // succeeds. Eagerly starting it would orphan a rejecting root promise as an unhandled
-  // rejection when validation fails first — the readFile/access paths already defer the same way.
-  const relative = await toCanonicalRelativeWorkspacePath(root, absolutePath);
-  // fs-safe 0.5.2 atomically replaces a final symlink on write. The workspace
-  // contract rejects symlink write targets so the link and its target survive.
-  const rootReal = await fs.realpath(root);
-  const targetStat = await fs.lstat(path.resolve(rootReal, relative)).catch(() => undefined);
-  if (targetStat?.isSymbolicLink()) {
-    throw new FsSafeError("symlink", `refusing to write to symlink: ${absolutePath}`);
-  }
+  // Reject lexical escapes before opening the lazily created workspace root.
+  const relative = toRelativeWorkspacePath(root, absolutePath);
   const rootHandle = await getRoot();
-  assertCurrent();
-  await rootHandle.write(relative, content, { mkdir: true });
+  // Absolute admitted paths preserve literal "~" workspace directories.
+  await rootHandle.write(path.resolve(rootHandle.rootReal, relative), content, {
+    mkdir: true,
+    mutationSymlinks: "follow-parents-within-root",
+    assertBeforeMutation: assertCurrent,
+  });
 }
 
 function createHostWriteOperations(
@@ -1477,19 +1474,44 @@ function createHostWriteOperations(
       mkdir: async (dir: string) => {
         const assertCurrent = captureAgentToolSourceExecutionGuard(options?.abortSignal);
         const relative = toRelativeWorkspacePath(root, dir, { allowRoot: true });
-        const resolved = relative ? path.resolve(root, relative) : path.resolve(root);
-        await assertSandboxPath({ filePath: resolved, cwd: root, root });
+        // mkdir receives the file's parent, including directory links to the root itself.
+        const resolved = await resolveRootPath({
+          absolutePath: path.resolve(root, relative),
+          rootPath: root,
+          boundaryLabel: "workspace root",
+        });
+        const ancestor = await findExistingAncestor(resolved.rootCanonicalPath);
+        if (ancestor && ancestor !== resolved.rootCanonicalPath) {
+          const ancestorRoot = await fsRoot(ancestor);
+          // mkdir requires a relative path; the prefix preserves literal tilde names.
+          await ancestorRoot.mkdir(`./${path.relative(ancestor, resolved.rootCanonicalPath)}`, {
+            assertBeforeMutation: assertCurrent,
+          });
+        }
+        const rootHandle = await getRoot();
+        const canonicalRelative = toRelativeWorkspacePath(
+          rootHandle.rootReal,
+          resolved.canonicalPath,
+          { allowRoot: true },
+        );
         assertCurrent();
-        await fs.mkdir(resolved, { recursive: true });
+        const mutationOptions = {
+          mutationSymlinks: "reject" as const,
+          assertBeforeMutation: assertCurrent,
+        };
+        if (canonicalRelative) {
+          await rootHandle.mkdir(`./${canonicalRelative}`, mutationOptions);
+        } else {
+          await rootHandle.ensureRoot(mutationOptions);
+        }
       },
       writeFile: (absolutePath: string, content: string) =>
         writeWorkspaceFile(root, getRoot, absolutePath, content, options?.abortSignal),
       readFile: async (absolutePath: string) => {
-        // Canonicalize symlink parents like the write path: fs-safe 0.5.2
-        // rejects intermediate symlinks by default, but in-workspace symlink
-        // parents are part of the workspace contract.
+        // Reads retain the workspace contract of following only symlink parents.
         const relative = await toCanonicalRelativeWorkspacePath(root, absolutePath);
-        return (await (await getRoot()).read(relative)).buffer;
+        const rootHandle = await getRoot();
+        return (await rootHandle.read(path.resolve(rootHandle.rootReal, relative))).buffer;
       },
       statFile: async (absolutePath: string) => {
         const relative = toRelativeWorkspacePath(root, absolutePath);
@@ -1537,11 +1559,10 @@ function createHostEditOperations(
   return withMemoryWriteProvenance(
     {
       readFile: async (absolutePath: string) => {
-        // Canonicalize symlink parents like the write path: fs-safe 0.5.2
-        // rejects intermediate symlinks by default, but in-workspace symlink
-        // parents are part of the workspace contract.
+        // Reads retain the workspace contract of following only symlink parents.
         const relative = await toCanonicalRelativeWorkspacePath(root, absolutePath);
-        const safeRead = await (await getRoot()).read(relative);
+        const rootHandle = await getRoot();
+        const safeRead = await rootHandle.read(path.resolve(rootHandle.rootReal, relative));
         return safeRead.buffer;
       },
       writeFile: (absolutePath: string, content: string) =>
@@ -1564,7 +1585,8 @@ function createHostEditOperations(
           return;
         }
         try {
-          const opened = await (await getRoot()).open(relative);
+          const rootHandle = await getRoot();
+          const opened = await rootHandle.open(path.resolve(rootHandle.rootReal, relative));
           await opened.handle.close().catch(() => {});
         } catch (error) {
           if (error instanceof FsSafeError && error.code === "not-found") {

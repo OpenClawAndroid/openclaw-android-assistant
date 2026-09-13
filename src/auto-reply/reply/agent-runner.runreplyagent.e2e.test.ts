@@ -6150,6 +6150,150 @@ describe("runReplyAgent typing (heartbeat)", () => {
     },
   );
 
+  it.each([
+    {
+      label: "direct chats",
+      chatType: "direct" as const,
+      retryProvider: "openai",
+      retryModel: "gpt-daybreak-blue-latest",
+      expectedNotice: "↪️ Retried on Daybreak",
+    },
+    {
+      label: "group chats",
+      chatType: "group" as const,
+      retryProvider: "openai",
+      retryModel: "gpt-daybreak-blue-latest",
+      expectedNotice: "↪️ Retried on Daybreak",
+    },
+    {
+      label: "channels",
+      chatType: "channel" as const,
+      retryProvider: "openai",
+      retryModel: "gpt-daybreak-blue-latest",
+      expectedNotice: "↪️ Retried on Daybreak",
+    },
+    {
+      label: "custom retry targets",
+      chatType: "direct" as const,
+      retryProvider: "anthropic",
+      retryModel: "claude-opus-4-7",
+      expectedNotice: "↪️ Retried on anthropic/claude-opus-4-7",
+    },
+  ])(
+    "delivers successful policy retry notices to $label",
+    async ({ chatType, retryProvider, retryModel, expectedNotice }) => {
+      const { sessionEntry, sessionStore, storePath } = await makeSessionFixture({
+        modelProvider: "openai",
+        model: "gpt-5.6-sol",
+      });
+
+      state.runEmbeddedAgentMock.mockResolvedValue({
+        payloads: [{ text: "final" }],
+        meta: {
+          executionTrace: {
+            winnerProvider: retryProvider,
+            winnerModel: retryModel,
+            providerPolicyRetry: {
+              category: "cyber",
+              provider: retryProvider,
+              model: retryModel,
+            },
+          },
+        },
+      });
+      const fallbackSpy = vi
+        .spyOn(modelFallbackModule, "runWithModelFallback")
+        .mockImplementation(async (params: TestModelFallbackRunnerParams) => ({
+          outcome: "completed" as const,
+          result: await runFallbackModelAttempt(params, retryProvider, retryModel, "unknown"),
+          provider: retryProvider,
+          model: retryModel,
+          attempts: [
+            {
+              provider: "openai",
+              model: "gpt-5.6-sol",
+              error: "OpenAI cyber policy refusal",
+              reason: "unknown",
+              code: "OPENAI_CYBER_POLICY_REFUSAL",
+            },
+          ],
+        }));
+      try {
+        const { run } = createMinimalRun({
+          resolvedVerboseLevel: "on",
+          sessionEntry,
+          sessionStore,
+          sessionKey: "main",
+          storePath,
+          sessionCtx: { ChatType: chatType },
+        });
+
+        const result = await run();
+        expect(result).toEqual([
+          expect.objectContaining({
+            text: expectedNotice,
+            isFallbackNotice: true,
+          }),
+          expect.objectContaining({ text: "final" }),
+        ]);
+      } finally {
+        fallbackSpy.mockRestore();
+      }
+    },
+  );
+
+  it("does not report an interrupted policy retry as successful", async () => {
+    const { sessionEntry, sessionStore, storePath } = await makeSessionFixture({
+      modelProvider: "openai",
+      model: "gpt-5.6-sol",
+    });
+
+    state.runEmbeddedAgentMock.mockResolvedValue({
+      payloads: [{ text: "interrupted output" }],
+      meta: { aborted: true },
+    });
+    const fallbackSpy = vi
+      .spyOn(modelFallbackModule, "runWithModelFallback")
+      .mockImplementation(async (params: TestModelFallbackRunnerParams) => ({
+        outcome: "completed" as const,
+        result: await runFallbackModelAttempt(
+          params,
+          "openai",
+          "gpt-daybreak-blue-latest",
+          "unknown",
+        ),
+        provider: "openai",
+        model: "gpt-daybreak-blue-latest",
+        attempts: [
+          {
+            provider: "openai",
+            model: "gpt-5.6-sol",
+            error: "OpenAI cyber policy refusal",
+            reason: "unknown",
+            code: "OPENAI_CYBER_POLICY_REFUSAL",
+          },
+        ],
+      }));
+    try {
+      const { run } = createMinimalRun({
+        resolvedVerboseLevel: "on",
+        sessionEntry,
+        sessionStore,
+        sessionKey: "main",
+        storePath,
+        sessionCtx: { ChatType: "direct" },
+      });
+
+      const result = await run();
+      const text = Array.isArray(result)
+        ? result.map((payload) => payload.text).join("\n")
+        : result?.text;
+      expect(text).not.toContain("Retried on");
+    } finally {
+      fallbackSpy.mockRestore();
+    }
+  });
+
   it("clears native fallback state without attributing finalizer response usage to the native model", async () => {
     const runtimeModelSelection = { provider: "openai", model: "gpt-5.6-sol" };
     const response = { provider: "google", model: "gemini-2.5-flash" };

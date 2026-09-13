@@ -136,6 +136,11 @@ type ExecutionTrace = {
   attempts?: TraceAttempt[];
   fallbackUsed?: boolean;
   runner?: "embedded" | "cli";
+  providerPolicyRetry?: {
+    category: "cyber";
+    provider: string;
+    model: string;
+  };
 };
 
 type RequestShapingTrace = {

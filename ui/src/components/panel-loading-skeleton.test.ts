@@ -10,7 +10,6 @@ const variants = [
   "board",
   "browser",
   "chat",
-  "desktop",
   "discussion",
   "files",
   "review",
@@ -97,5 +96,8 @@ describe("panel loading skeleton", () => {
     const skeleton = mount.querySelector<HTMLElement>("openclaw-panel-loading-skeleton");
     await (skeleton as HTMLElement & { updateComplete: Promise<unknown> }).updateComplete;
     expect(skeleton?.hasAttribute("overlay")).toBe(true);
+    expect(skeleton?.getAttribute("aria-label")).toBe("Connecting");
+    expect(skeleton?.shadowRoot?.textContent).toContain("Connecting");
+    expect(skeleton?.shadowRoot?.querySelector(".skeleton")).toBeNull();
   });
 });

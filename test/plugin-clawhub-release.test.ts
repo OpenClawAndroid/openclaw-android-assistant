@@ -481,6 +481,36 @@ describe("resolveSelectedClawHubPublishablePluginPackages", () => {
 });
 
 describe("collectPluginClawHubReleasePlan", () => {
+  it("consumes completed package observations without another ClawHub read", async () => {
+    const repoDir = createTempPluginRepo({ requiredLatestDependencyVersion: "1.2.3" });
+    const forbidden = vi.fn(async () => {
+      throw new Error("unplanned registry read");
+    });
+    const resolvePackageState = vi.fn(async () => ({
+      packageExists: false,
+      alreadyPublished: false,
+      hasTrustedPublisher: false,
+      trustedPublisher: null,
+    }));
+    const plan = await collectPluginClawHubReleasePlan({
+      rootDir: repoDir,
+      selectionMode: "all-publishable",
+      resolveLatestVersion: () => "1.2.3",
+      resolvePackageState,
+      fetchImpl: forbidden,
+    });
+    expect(plan.bootstrapCandidates.map((entry) => entry.packageName)).toEqual([
+      "@openclaw/demo-plugin",
+    ]);
+    expect(plan.candidates).toEqual([]);
+    expect(plan.warnings).toEqual([]);
+    expect(resolvePackageState).toHaveBeenCalledExactlyOnceWith(
+      "@openclaw/demo-plugin",
+      "2026.4.1",
+    );
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
   it("bounds parallel ClawHub package-state reads and preserves plan order", async () => {
     const extraExtensionIds = Array.from({ length: 11 }, (_, index) => `demo-${index + 2}`);
     const repoDir = createTempPluginRepo({ extraExtensionIds });

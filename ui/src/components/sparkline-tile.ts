@@ -1,7 +1,7 @@
 import "../styles/gateway-vitals.css";
 import { html, nothing, svg } from "lit";
 import { property, state as litState } from "lit/decorators.js";
-import { formatDurationCompact } from "../lib/format.ts";
+import { formatDurationCompact } from "../lib/format-duration.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 
 export type SparklineSample = { value: number; at: number };

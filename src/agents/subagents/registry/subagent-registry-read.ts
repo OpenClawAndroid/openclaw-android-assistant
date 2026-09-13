@@ -213,29 +213,6 @@ export function isSubagentRunQueued(entry: SubagentRunReadRecord | null | undefi
   );
 }
 
-/** Returns the run to display for a child session, using live memory before snapshot state. */
-export function getSessionDisplaySubagentRunByChildSessionKey(
-  childSessionKey: string,
-): SubagentRunRecord | null {
-  const key = childSessionKey.trim();
-  if (!key) {
-    return null;
-  }
-
-  const latestInMemory = getLatestSubagentRunByChildSessionKeyFromRuns(
-    getSubagentRunsForChildSession(key),
-    key,
-  );
-  // Fresh in-memory terminal state is more accurate than an older active snapshot row.
-  return (
-    latestInMemory ??
-    getSubagentRunByChildSessionKeyFromRuns(
-      getSubagentRunsSnapshotForChildSession(subagentRuns, key),
-      key,
-    )
-  );
-}
-
 /** Returns the preferred child-session run from its scoped readable snapshot. */
 export function getSubagentRunByChildSessionKey(childSessionKey: string): SubagentRunRecord | null {
   const key = childSessionKey.trim();

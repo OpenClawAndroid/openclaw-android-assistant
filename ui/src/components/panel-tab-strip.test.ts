@@ -3,6 +3,7 @@
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
+import { createDataTransferStub } from "../test-helpers/drag-data.ts";
 import {
   panelTabStripStyles,
   renderPanelTabStrip,
@@ -253,13 +254,7 @@ describe("renderPanelTabStrip", () => {
         container: host,
       });
       const [source, target] = [...container.querySelectorAll<HTMLElement>("wa-tab")];
-      const values = new Map<string, string>();
-      const dataTransfer = {
-        dropEffect: "none",
-        effectAllowed: "none",
-        getData: (type: string) => values.get(type) ?? "",
-        setData: (type: string, value: string) => values.set(type, value),
-      };
+      const dataTransfer = createDataTransferStub();
       const dispatchDrag = (element: HTMLElement, type: string, clientX: number) => {
         const event = new MouseEvent(type, { bubbles: true, clientX, cancelable: true });
         Object.defineProperty(event, "dataTransfer", { value: dataTransfer });

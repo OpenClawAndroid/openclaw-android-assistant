@@ -1,5 +1,6 @@
 import { t } from "../../i18n/index.ts";
-import { formatDurationCompact, formatRelativeTimestamp } from "../../lib/format.ts";
+import { formatDurationCompact } from "../../lib/format-duration.ts";
+import { formatRelativeTimestamp } from "../../lib/format.ts";
 import { prettifyPlatform } from "../../lib/platform-label.ts";
 import type { DraftEnvironment } from "./discovery.ts";
 

@@ -86,6 +86,11 @@
       "import": "./dist/internal/openai.mjs",
       "default": "./dist/internal/openai.mjs"
     },
+    "./internal/openai-completions-compat": {
+      "types": "./dist/internal/openai-completions-compat.d.mts",
+      "import": "./dist/internal/openai-completions-compat.mjs",
+      "default": "./dist/internal/openai-completions-compat.mjs"
+    },
     "./internal/openai-responses-payload-policy": {
       "types": "./dist/internal/openai-responses-payload-policy.d.mts",
       "import": "./dist/internal/openai-responses-payload-policy.mjs",

@@ -343,9 +343,10 @@ suite.define(() => {
         if (input === "keyboard") {
           await page.keyboard.press("Enter");
         } else {
-          const bounds = await pendingMoreTarget!.boundingBox();
-          expect(bounds).not.toBeNull();
-          await page.mouse.click(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+          await pendingMoreTarget!.hover();
+          expect(await pendingMoreTarget!.evaluate((row) => row.matches(":hover"))).toBe(true);
+          await page.mouse.down();
+          await page.mouse.up();
         }
         expect(await gateway.getRequests("users.listModelAccounts")).toHaveLength(
           inventoryRequests.length + 1,
@@ -387,9 +388,10 @@ suite.define(() => {
         if (input === "keyboard") {
           await page.keyboard.press("Enter");
         } else {
-          const bounds = await pendingMoreTarget!.boundingBox();
-          expect(bounds).not.toBeNull();
-          await page.mouse.click(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+          await pendingMoreTarget!.hover();
+          expect(await pendingMoreTarget!.evaluate((row) => row.matches(":hover"))).toBe(true);
+          await page.mouse.down();
+          await page.mouse.up();
         }
         expect(await gateway.getRequests("users.listModelAccounts")).toHaveLength(
           pageRequests.length + 1,

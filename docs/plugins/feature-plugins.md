@@ -78,6 +78,11 @@ open **Plugins → Customize UI** and choose Draft composer. Choose Built-in to
 restore a view. Replacement selection belongs to the current browser runtime;
 it is not a persistent configuration setting.
 
+Customization controls live on the Plugins page. There is no floating
+customization button. If a workspace replacement hides navigation, open
+`/plugins` under your Control UI base URL to choose Built-in; the Plugins page
+always uses the built-in workspace.
+
 The project has three public SDK imports:
 
 | Import                                 | Purpose                                                                                          |

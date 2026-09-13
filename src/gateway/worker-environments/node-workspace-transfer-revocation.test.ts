@@ -210,14 +210,17 @@ describe("attachment transfer revocation", () => {
   it.each([
     { boundary: "blob-admitted", revoke: false },
     { boundary: "blob-admitted", revoke: true },
-    { boundary: "before-create-entry", revoke: false },
-    { boundary: "before-create-entry", revoke: true },
-    { boundary: "inside-create-before-open", revoke: false },
-    { boundary: "inside-create-before-open", revoke: true },
-    { boundary: "inside-create-after-open", revoke: false },
-    { boundary: "inside-create-after-open", revoke: true },
-    { boundary: "inside-final-create", revoke: false },
-    { boundary: "inside-final-create", revoke: true },
+    { boundary: "source-open", revoke: false },
+    { boundary: "source-open", revoke: true },
+    { boundary: "before-stage-open", revoke: false },
+    { boundary: "before-stage-open", revoke: true },
+    { boundary: "after-stage-open", revoke: false },
+    { boundary: "after-stage-open", revoke: true },
+    { boundary: "after-publish", revoke: false },
+    { boundary: "after-publish", revoke: true },
+    { boundary: "after-final-publish", revoke: false },
+    { boundary: "after-final-publish", revoke: true },
+    { boundary: "after-publish-replaced", revoke: true },
   ] as const)("$boundary revoked=$revoke", async ({ boundary, revoke }) => {
     const root = await fs.realpath(tempDirs.make("attachment-revocation-"));
     const workspaceDir = path.join(root, "workspace");
@@ -309,39 +312,78 @@ describe("attachment transfer revocation", () => {
         res.destroy(error instanceof Error ? error : new Error(String(error))),
       );
     });
-    const readsAfterRevocation: string[] = [];
+    const sourceAccessAfterRevocation: string[] = [];
     const originalReadFile = fs.readFile.bind(fs);
     vi.spyOn(fs, "readFile").mockImplementation(async (...args) => {
       const file = typeof args[0] === "string" ? args[0] : "";
       const installing = file.includes(".workspace.workspace-transfer-");
       if (installing && reached && revoke) {
-        readsAfterRevocation.push(file);
+        sourceAccessAfterRevocation.push(file);
       }
-      const data = await originalReadFile(...args);
-      // The real staging read finishes before the installer calls Root.create().
-      if (installing && file.endsWith(fresh) && boundary === "before-create-entry") {
-        crossBoundary();
-      }
-      return data;
+      return await originalReadFile(...args);
     });
+    let copySource: string | undefined;
     const originalOpen = fs.open.bind(fs);
     vi.spyOn(fs, "open").mockImplementation(async (...args) => {
-      const creation =
-        args[0] ===
-          path.join(workspaceDir, boundary === "inside-final-create" ? subsequent : fresh) &&
+      const file = typeof args[0] === "string" ? args[0] : "";
+      const sourceRead =
+        file.includes(".workspace.workspace-transfer-") &&
+        typeof args[1] === "number" &&
+        (args[1] &
+          (fsSync.constants.O_CREAT | fsSync.constants.O_WRONLY | fsSync.constants.O_RDWR)) ===
+          0;
+      if (sourceRead) {
+        copySource = file;
+        if (reached && revoke) {
+          sourceAccessAfterRevocation.push(file);
+        }
+      }
+      const privateStage =
+        copySource?.endsWith(path.normalize(fresh)) &&
+        path.dirname(file) === path.join(workspaceDir, directory) &&
+        path.basename(file).startsWith(".fs-safe-") &&
         typeof args[1] === "number" &&
         (args[1] & fsSync.constants.O_CREAT) !== 0;
-      if (creation && boundary === "inside-create-before-open") {
+      if (privateStage && boundary === "before-stage-open") {
         crossBoundary();
       }
       const handle = await originalOpen(...args);
-      if (
-        creation &&
-        (boundary === "inside-create-after-open" || boundary === "inside-final-create")
-      ) {
+      if (sourceRead) {
+        const read = handle.read.bind(handle);
+        vi.spyOn(handle, "read").mockImplementation(async (...readArgs) => {
+          if (reached && revoke) {
+            sourceAccessAfterRevocation.push(file);
+          }
+          return await read(...readArgs);
+        });
+        if (file.endsWith(path.normalize(fresh)) && boundary === "source-open") {
+          crossBoundary();
+        }
+      }
+      if (privateStage && boundary === "after-stage-open") {
         crossBoundary();
       }
       return handle;
+    });
+    const originalLink = fsSync.linkSync.bind(fsSync);
+    vi.spyOn(fsSync, "linkSync").mockImplementation((...args) => {
+      originalLink(...args);
+      const target = path.join(
+        workspaceDir,
+        boundary === "after-final-publish" ? subsequent : fresh,
+      );
+      if (
+        args[1] === target &&
+        (boundary === "after-publish" ||
+          boundary === "after-final-publish" ||
+          boundary === "after-publish-replaced")
+      ) {
+        if (boundary === "after-publish-replaced") {
+          fsSync.unlinkSync(target);
+          fsSync.writeFileSync(target, "later user replacement", { mode: 0o600 });
+        }
+        crossBoundary();
+      }
     });
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", resolve);
@@ -380,20 +422,28 @@ describe("attachment transfer revocation", () => {
           name.startsWith(".workspace.workspace-transfer-"),
         ),
       ).toEqual([]);
+      expect(
+        (await fs.readdir(path.join(workspaceDir, directory))).filter((name) =>
+          name.startsWith(".fs-safe-"),
+        ),
+      ).toEqual([]);
       if (revoke) {
         expect.soft(result).toBe("rejected");
-        expect.soft(readsAfterRevocation).toEqual([]);
-        if (boundary.startsWith("inside-")) {
-          // fs-safe 0.7.0 cannot cancel or identity-roll back an entered create.
+        expect.soft(sourceAccessAfterRevocation).toEqual([]);
+        if (
+          boundary === "after-publish" ||
+          boundary === "after-final-publish" ||
+          boundary === "after-publish-replaced"
+        ) {
           await expect(fs.readFile(path.join(workspaceDir, fresh), "utf8")).resolves.toBe(
-            "private new input",
+            boundary === "after-publish-replaced" ? "later user replacement" : "private new input",
           );
         } else {
           await expect(fs.stat(path.join(workspaceDir, fresh))).rejects.toMatchObject({
             code: "ENOENT",
           });
         }
-        if (boundary === "inside-final-create") {
+        if (boundary === "after-final-publish") {
           await expect(fs.readFile(path.join(workspaceDir, subsequent), "utf8")).resolves.toBe(
             "subsequent private input",
           );

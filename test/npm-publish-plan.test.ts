@@ -35,6 +35,79 @@ function registryResponse(params: {
 }
 
 describe("fetchNpmRegistryPackumentWithRetry", () => {
+  it("bounds decoded packument bytes and cancels an oversized stream without retrying", async () => {
+    let requests = 0;
+    let cancelled = false;
+    await expect(
+      fetchNpmRegistryPackumentWithRetry({
+        packageName: "fixture",
+        packageUrl: "https://registry.npmjs.org/fixture",
+        maxBytes: 16,
+        fetchImpl: async () => {
+          requests += 1;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                controller.enqueue(new TextEncoder().encode("123456789"));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+          );
+        },
+      }),
+    ).rejects.toMatchObject({ code: "ETOOBIG" });
+    expect(requests).toBe(1);
+    expect(cancelled).toBe(true);
+  });
+
+  it.each(["before-request", "during-body", "during-retry-sleep"] as const)(
+    "honors owning collection abort %s without another HTTP attempt",
+    async (stage) => {
+      const controller = new AbortController();
+      const reason = new Error("owning collection stopped");
+      let requests = 0;
+      let cancelled = false;
+      let slept = false;
+      if (stage === "before-request") {
+        controller.abort(reason);
+      }
+      await expect(
+        fetchNpmRegistryPackumentWithRetry({
+          packageName: "fixture",
+          packageUrl: "https://registry.npmjs.org/fixture",
+          maxBytes: 128,
+          signal: controller.signal,
+          fetchImpl: async () => {
+            requests += 1;
+            if (stage === "during-retry-sleep") {
+              return new Response("", { status: 503 });
+            }
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                pull() {
+                  controller.abort(reason);
+                },
+                cancel() {
+                  cancelled = true;
+                },
+              }),
+            );
+          },
+          sleep: async () => {
+            slept = true;
+            controller.abort(reason);
+            controller.signal.throwIfAborted();
+          },
+        }),
+      ).rejects.toBe(reason);
+      expect(requests).toBe(stage === "before-request" ? 0 : 1);
+      expect(cancelled).toBe(stage === "during-body");
+      expect(slept).toBe(stage === "during-retry-sleep");
+    },
+  );
+
   it("retries a failed response body before returning the parsed packument", async () => {
     const waits: number[] = [];
     let fetchCalls = 0;

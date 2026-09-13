@@ -867,7 +867,7 @@ openclaw-chat-pane {
   --shell-titlebar-inset: calc(var(--shell-chrome-safe-area-left) + var(--shell-attention-width));
 }
 
-html.openclaw-native-macos .shell:not(.shell--mobile-nav) {
+html:is(.openclaw-native-macos, .openclaw-native-desktop) .shell:not(.shell--mobile-nav) {
   --shell-titlebar-inset: 12px;
 }
 
@@ -908,15 +908,42 @@ html.openclaw-native-web-chrome .shell--nav-collapsed:not(.shell--mobile-nav) {
   padding-left: var(--shell-titlebar-inset);
 }
 
-/* Native macOS desktop shells: the pane header is the window's top surface,
-   so it adopts the app titlebar height (52px injected by
-   DashboardWindowController; the 50px fallback mirrors
-   .macos-titlebar-controls for older app builds). The web 48px default would
-   center the session title/actions 2px above the traffic-light/hosted-button
-   centerline. Drawer layouts instead fold titlebar clearance into their 58px
-   topbar row (layout.mobile.css). */
-html.openclaw-native-macos .shell:not(.shell--mobile-nav) .chat-pane__header {
+/* Native pane headers share the window controls' centerline. Drawer layouts
+   instead reserve a separate topbar row (layout.mobile.css). */
+html:is(.openclaw-native-macos, .openclaw-native-desktop)
+  .shell:not(.shell--mobile-nav)
+  .chat-pane__header {
   min-height: var(--openclaw-native-titlebar-height, 50px);
+}
+
+/* Only the visible top-right header shares the Linux/Windows caption buttons.
+   The side panel can own that edge, move below/left, or expand over the chat. */
+html.openclaw-native-desktop
+  .shell:not(.shell--mobile-nav)
+  .chat-split-view__column:nth-last-child(
+    1 of .chat-split-view__column:not(.chat-split-view__column--narrow-hidden)
+  )
+  > .chat-split-view__cell:nth-child(
+    1 of .chat-split-view__cell:not(.chat-split-view__cell--narrow-hidden)
+  )
+  .sidebar-region {
+  &:not(
+      .sidebar-region--open:not(.sidebar-region--expanded):not(.sidebar-region--left):not(
+          .sidebar-region--bottom
+        ):not(.sidebar-region--narrow)
+    )
+    > .sidebar-region__header
+    > .chat-pane__header,
+  &:is(
+      .sidebar-region--expanded-side,
+      .sidebar-region--open:not(.sidebar-region--expanded):not(.sidebar-region--left):not(
+          .sidebar-region--bottom
+        ):not(.sidebar-region--narrow)
+    )
+    [data-region-header="side"] {
+    padding-right: calc(var(--openclaw-native-window-controls-width, 0px) + 6px);
+    min-height: var(--openclaw-native-titlebar-height, 52px);
+  }
 }
 
 /* Native macOS: with the nav column collapsed the top-left pane header is the
@@ -929,7 +956,7 @@ html.openclaw-native-macos .shell:not(.shell--mobile-nav) .chat-pane__header {
    padding: the header's action row cannot
    shrink, and the cell's overflow:hidden would clip the close/split buttons
    at the 320px column minimum otherwise. */
-html.openclaw-native-macos
+html:is(.openclaw-native-macos, .openclaw-native-desktop)
   .shell--nav-collapsed:not(.shell--mobile-nav)
   .chat-split-view__column:first-child {
   min-width: calc(308px + var(--shell-titlebar-inset));

@@ -1935,7 +1935,9 @@ describe("release validation no-push transport", () => {
     });
     expect(fullText).toContain("-f publish_reports=false");
     expect(fullText).toContain("Report publication: disabled (artifacts only)");
-    expect(fullText).toContain('performanceReportPublication: "artifact-only"');
+    expect(
+      step(job(readWorkflow(FULL_RELEASE), "summary"), "Write release validation manifest").run,
+    ).toBe("node scripts/full-release-validation-state.mjs write-manifest");
     expect(publisher.if).toContain("inputs.publish_reports == true");
     const guard = job(performance, "artifact_only_guard");
     expect(guard.if).toContain("inputs.publish_reports != true");

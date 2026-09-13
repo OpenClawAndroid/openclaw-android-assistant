@@ -7,6 +7,12 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
+  publicationAdmissionContract,
+  publicationSourceContract,
+  validatePublicationAdmissionBinding,
+  validatePublicationSourceBinding,
+} from "./full-release-publication-contract.mjs";
+import {
   classifyReleaseGhTransportError,
   composeReleaseChildAttemptEvidence,
   isReleaseGhArtifactMissingError,
@@ -22,6 +28,10 @@ import {
   sha256Digest,
 } from "./lib/actions-artifact-archive.mjs";
 import { execPlainGh, plainGhAuthenticatedEnv, resolvePlainGhBin } from "./lib/plain-gh.mjs";
+import {
+  createReleaseEvidenceClient,
+  restoreOriginalPublicationAdmission,
+} from "./release-ci-summary.mjs";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_REPOSITORY = "openclaw/openclaw";
@@ -375,6 +385,41 @@ export async function preflightContinuation(
   ) {
     throw new Error("source full release root is not an exact fail-fast-disabled all-group target");
   }
+  const evidenceClient = client.getReleaseEvidenceClient();
+  const workflow = evidenceClient.getWorkflowSource(plan.workflowSha);
+  const sourceContract = publicationSourceContract(workflow);
+  const registryContract = publicationAdmissionContract(workflow);
+  if (
+    plan.sourceAdmissionContract !== sourceContract ||
+    plan.publicationAdmissionContract !== registryContract
+  ) {
+    throw new Error("continuation admission differs from its immutable source workflow contract");
+  }
+  const sourceAdmission = validatePublicationSourceBinding(plan, {
+    sourceAdmissionContract: sourceContract,
+    parentRunId: String(rootRunId),
+    repository,
+    targetSha: plan.targetSha,
+  });
+  validatePublicationAdmissionBinding(plan, { publicationAdmissionContract: registryContract });
+  if (registryContract && sourceAdmission.validationPurpose === "publish") {
+    const original = await restoreOriginalPublicationAdmission({
+      request: sourceAdmission,
+      client: {
+        ...evidenceClient,
+        getWorkflowSource: (sha) =>
+          sha === plan.workflowSha ? workflow : evidenceClient.getWorkflowSource(sha),
+      },
+    });
+    const validated = validateReleaseExecutionPlanArtifact(plan, {
+      parentRunId: String(rootRunId),
+      sourceAdmissionContract: sourceContract,
+      publicationAdmissionContract: registryContract,
+    });
+    if (validated.sha256 !== original.plan.sha256) {
+      throw new Error("continuation differs from the authenticated original publication plan");
+    }
+  }
   const childObservations = await Promise.all(
     selectedChildren(plan).map(async (child) => {
       const sourceParentAttempt = child.sourceParentAttempt ?? source.sourceRunAttempt;
@@ -494,6 +539,7 @@ export async function inspectContinuation(plan, client) {
 }
 
 export function createClient(repository, dependencies = {}) {
+  let releaseEvidenceClient;
   const apiJson = dependencies.apiJson ?? ((path) => ghJson(repository, path));
   const apiText =
     dependencies.apiText ??
@@ -541,6 +587,10 @@ export function createClient(repository, dependencies = {}) {
   };
   return {
     repository,
+    getReleaseEvidenceClient() {
+      releaseEvidenceClient ??= createReleaseEvidenceClient(repository);
+      return releaseEvidenceClient;
+    },
     getAttemptJobs(runId, runAttempt) {
       return attemptJobs(runId, runAttempt);
     },

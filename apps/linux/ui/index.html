@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <title>OpenClaw</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="window-chrome.css" />
   </head>
   <body>
     <main class="shell">
@@ -76,7 +77,7 @@
             <span class="connection-icon" aria-hidden="true">▣</span>
             <span class="connection-copy">
               <strong>On this computer</strong>
-              <span>Private to this computer. Installs and starts automatically.</span>
+              <span id="local-subtitle">Private to this computer. Installs and starts automatically.</span>
             </span>
             <span class="connection-badge">Recommended</span>
           </button>
@@ -153,11 +154,12 @@
             </select>
             <button id="install-button" class="primary">Install OpenClaw</button>
           </div>
-          <p class="hint">Installs the CLI and managed Node runtime in ~/.openclaw.</p>
+          <p id="install-hint" class="hint">Installs the CLI and managed Node runtime in ~/.openclaw.</p>
         </div>
 
         <div id="action-controls" class="controls hidden">
           <button id="primary-action" class="primary">Try again</button>
+          <button id="edit-connection" class="button-subtle hidden" type="button">Edit connection</button>
         </div>
 
         <section id="discovery" class="discovery" aria-labelledby="discovery-title">

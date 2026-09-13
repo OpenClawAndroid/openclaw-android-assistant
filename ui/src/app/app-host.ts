@@ -1,4 +1,3 @@
-import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import type { PropertyValues } from "lit";
 import { property, query, state } from "lit/decorators.js";
 import type { GatewayBrowserClient, GatewayEventFrame } from "../api/gateway.ts";
@@ -20,10 +19,12 @@ import type { ThemeModeChangeDetail } from "../components/theme-mode-toggle.ts";
 import { i18n, t } from "../i18n/index.ts";
 import { normalizeAgentLabel } from "../lib/agents/display.ts";
 import type { BoardFace } from "../lib/board/settings.ts";
-import { invalidateChatMetadataStore } from "../lib/chat/chat-metadata-cache.ts";
+import {
+  invalidateChatMetadataForSessionEvent,
+  invalidateChatMetadataStore,
+} from "../lib/chat/chat-metadata-cache.ts";
 import { createIdleImport } from "../lib/idle-import.ts";
 import { invalidateModelAuthStatusRequests } from "../lib/model-auth-request-state.ts";
-import { invalidateModelCatalogCache } from "../lib/model-catalog-cache.ts";
 import { resolveSessionDisplayName } from "../lib/session-display.ts";
 import {
   isUiGlobalSessionKey,
@@ -496,13 +497,12 @@ class OpenClawShell
     this.shellNavigation.selectChatSession(sessionKey, agentId);
   }
   private readonly handleGatewayEvent = (event: GatewayEventFrame) => {
-    const client = this.context?.gateway?.snapshot.client;
+    const context = this.context;
+    const client = context?.gateway?.snapshot.client;
     if (client && event.event === "sessions.changed") {
-      const agentId = asNullableRecord(event.payload)?.agentId;
-      // Session aliases are resolved by the Gateway; retire all saved projections for this agent.
-      invalidateModelCatalogCache(client, {
-        ...(typeof agentId === "string" ? { agentId } : {}),
-        sessionsOnly: true,
+      invalidateChatMetadataForSessionEvent(client, event.payload, {
+        hello: context?.gateway.snapshot.hello,
+        agentsList: context?.agents.state.agentsList,
       });
     }
     if (event.event === "config.changed" || event.event === "chat.metadata.changed") {

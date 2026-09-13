@@ -287,6 +287,13 @@ export class SqliteWorkerBroker {
             }
           }
         }
+        if (this.draining) {
+          // Host drainage owns actor cleanup; it does not wait for client releases.
+          await this.draining;
+        } else if (owned.slot.failed) {
+          // A nonlast client must still join the failed worker's native cleanup.
+          await owned.slot.exit;
+        }
         if (!owned.references) {
           await this.closeActor(owned);
         }

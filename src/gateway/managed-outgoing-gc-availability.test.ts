@@ -6,7 +6,10 @@ import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "../state/openclaw-agent-db.js";
-import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseForTest,
+  openOpenClawStateDatabase,
+} from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { cleanupManagedOutgoingMediaRecords } from "./managed-image-attachments.js";
 import {
@@ -100,4 +103,28 @@ describe("cleanupManagedOutgoingMediaRecords availability fail-safe", () => {
     expect(readManagedImageRecord("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", stateDir)).toBeNull();
     expect(fs.existsSync(originalPath)).toBe(false);
   });
+  it.each(["original_width", "original_height", "original_size_bytes"])(
+    "keeps records and orphan files when %s cannot be decoded safely",
+    async (column) => {
+      const originalPath = seedManagedRecord("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+      const orphanPath = path.join(path.dirname(originalPath), "old-orphan.png");
+      fs.writeFileSync(orphanPath, "orphan-image");
+      fs.utimesSync(orphanPath, 0, 0);
+      const database = openOpenClawStateDatabase({
+        env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+      });
+      database.db.exec(`UPDATE managed_outgoing_image_records SET ${column} = 9007199254740992`);
+
+      await expect(
+        withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+          cleanupManagedOutgoingMediaRecords({ stateDir }),
+        ),
+      ).rejects.toBeInstanceOf(RangeError);
+      expect(fs.readFileSync(originalPath, "utf8")).toBe("original-image");
+      expect(fs.readFileSync(orphanPath, "utf8")).toBe("orphan-image");
+      expect(
+        database.db.prepare("SELECT cleanup_pending FROM managed_outgoing_image_records").all(),
+      ).toEqual([{ cleanup_pending: 0 }]);
+    },
+  );
 });

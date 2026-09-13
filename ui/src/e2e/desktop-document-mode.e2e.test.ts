@@ -55,6 +55,9 @@ async function installDesktopClientFake(panel: import("playwright").Locator) {
         options.target.replaceChildren(remote);
         options.onConnect?.();
         return {
+          setPresented() {
+            return true;
+          },
           disableInput() {
             element.dataset.viewOnly = "true";
           },

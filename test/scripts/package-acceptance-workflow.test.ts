@@ -73,6 +73,21 @@ const FULL_RELEASE_ARTIFACTS_WORKFLOW = ".github/workflows/full-release-artifact
 const ACTIONS_CACHE_V6 = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9";
 const CI_WORKFLOW = ".github/workflows/ci.yml";
 const PERFORMANCE_WORKFLOW = ".github/workflows/openclaw-performance.yml";
+const PUBLICATION_CONTRACT_FILES = [
+  "scripts/full-release-publication-contract.mjs",
+  "scripts/clawhub-prepared-artifact.mjs",
+  "scripts/clawhub-parent-authorization.mjs",
+  "scripts/plugin-publication-artifact.mjs",
+  "scripts/release-tooling-identity.mjs",
+  "scripts/lib/actions-artifact-archive.mjs",
+  "scripts/lib/arg-utils.runtime.mjs",
+  "scripts/lib/bounded-response.mjs",
+  "scripts/lib/canonical-json.mjs",
+  "scripts/lib/npm-core-release-packages.json",
+  "scripts/lib/npm-publish-plan.mjs",
+  "scripts/lib/record-shared.mjs",
+  "scripts/lib/release-version.mjs",
+];
 const FULL_RELEASE_CHILD_DISPATCHES = [
   {
     jobName: "normal_ci",
@@ -2967,7 +2982,7 @@ function runReleaseChecksInputValidation(
   );
   const fixture = frozenWorkflowFixture(RELEASE_CHECKS_WORKFLOW, "resolve_target", {}, {}, {}, [
     "scripts/full-release-validation-policy.mjs",
-    "scripts/full-release-publication-contract.mjs",
+    ...PUBLICATION_CONTRACT_FILES,
     "scripts/lib/release-changelog.mjs",
     "scripts/full-release-candidate-contract.mjs",
     "scripts/lib/cross-os-release-checks/suite-filter.mjs",
@@ -5911,10 +5926,29 @@ render_github_release_notes() { cp "$2" "$1"; printf '%s\\n' '{"verificationIncl
       expect(step.run).toContain('git rev-parse "${trusted_publisher_ref}^{commit}")" != "${');
       expect(step.run).toContain('"+refs/heads/main:${trusted_main_ref}"');
       expect(step.run).toContain('TRUSTED_MAIN_REF="${trusted_main_ref}"');
-      expect(step.run).toContain('--trusted-workflow-ref "$TRUSTED_WORKFLOW_REF"');
-      expect(step.run).toContain('--trusted-workflow-full-ref "$TRUSTED_WORKFLOW_FULL_REF"');
-      expect(step.run).toContain('--trusted-workflow-sha "$TRUSTED_WORKFLOW_SHA"');
-      expect(step.run).toContain('--verifier-source-sha "$');
+      if (workflowPath === RELEASE_PUBLISH_WORKFLOW) {
+        expect(step.env?.VALIDATOR_FILE).toBe(
+          "${{ github.workspace }}/.release-validation-tooling/scripts/validate-full-release-validation-evidence.mjs",
+        );
+        expect(step.env?.STRICT_VALIDATOR_FILE).toBe(
+          "${{ github.workspace }}/.release-validation-tooling/scripts/release-ci-summary.mjs",
+        );
+        expect(step.run).toContain('MANIFEST_FILE="$manifest"');
+        expect(step.run).toContain('node "$VALIDATOR_FILE" < "$RUN_JSON_FILE"');
+      } else {
+        expect(step.env?.STRICT_VALIDATOR_FILE).toBe(
+          "${{ github.workspace }}/trusted-workflow/scripts/release-ci-summary.mjs",
+        );
+        expect(step.env?.WORKFLOW_SHA).toBe("${{ github.workflow_sha }}");
+        expect(step.run).toContain("export EXPECTED_SHA MANIFEST_FILE");
+        expect(step.run).toContain(
+          'gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FULL_RELEASE_VALIDATION_RUN_ID}/attempts/${FULL_RELEASE_VALIDATION_RUN_ATTEMPT}"',
+        );
+        expect(step.run).toContain(
+          "node trusted-workflow/scripts/validate-full-release-validation-evidence.mjs",
+        );
+      }
+      expect(step.run).not.toContain('node "$STRICT_VALIDATOR_FILE"');
     }
   });
 
@@ -8323,7 +8357,6 @@ test "$package_manager" = "pnpm@12.1.0"
   });
 
   it("keeps performance evidence advisory for beta releases", () => {
-    const workflow = readFileSync(FULL_RELEASE_VALIDATION_WORKFLOW, "utf8");
     const performanceStep = workflowStep(
       workflowJob(FULL_RELEASE_VALIDATION_WORKFLOW, "performance"),
       "Dispatch OpenClaw Performance",
@@ -8343,8 +8376,12 @@ test "$package_manager" = "pnpm@12.1.0"
     ]);
     expect(summaryStep.env?.RELEASE_PROFILE).toBe("${{ inputs.release_profile }}");
     expect(summaryStep.run).toBe("node scripts/full-release-validation-state.mjs verify");
-    expect(workflow).toContain('performanceBlocking: ($releaseProfile != "beta")');
-    expect(workflow).toContain('blocking: ($releaseProfile != "beta")');
+    const manifestStep = workflowStep(
+      workflowJob(FULL_RELEASE_VALIDATION_WORKFLOW, "summary"),
+      "Write release validation manifest",
+    );
+    expect(manifestStep.env?.RELEASE_PROFILE).toBe("${{ inputs.release_profile }}");
+    expect(manifestStep.run).toBe("node scripts/full-release-validation-state.mjs write-manifest");
   });
 
   it("keeps beta performance advisory at the publish gate", () => {
@@ -8607,8 +8644,11 @@ test "$package_manager" = "pnpm@12.1.0"
       name: "full-release-execution-plan-${{ github.run_id }}",
       "run-id": "${{ github.run_id }}",
     });
-    expect(planUpload.if).toBe("always()");
+    expect(planUpload.if).toBe(
+      "${{ always() && github.run_attempt == 1 && steps.plan.outputs.sha256 != '' && steps.plan.outputs.source_parent_attempt == '1' }}",
+    );
     expect(planUpload.with?.name).toBe("full-release-execution-plan-${{ github.run_id }}");
+    expect(planUpload.with?.overwrite).toBe(false);
     expect(manifestStep.env).not.toHaveProperty("EVIDENCE_MANIFEST");
     expect(manifestStep.run).not.toContain("needs.evidence_reuse.outputs");
     expect(decisionUpload.with?.name).toBe(
@@ -8664,7 +8704,45 @@ test "$package_manager" = "pnpm@12.1.0"
       (job.steps ?? []).filter((step) => step.uses?.startsWith("actions/download-artifact@")),
     );
 
-    expect(downloadSteps).toHaveLength(6);
+    expect(downloadSteps).toHaveLength(8);
+    expect(
+      downloadSteps.map((step) => [
+        step.name,
+        step.with?.name ?? step.with?.pattern,
+        step.with?.path,
+      ]),
+    ).toEqual([
+      [
+        "Download publication admission for reuse budgeting",
+        "full-release-publication-admission-${{ github.run_id }}-1",
+        "${{ runner.temp }}/full-release-publication-admission",
+      ],
+      [
+        "Restore immutable release execution plan artifact",
+        "full-release-execution-plan-${{ github.run_id }}",
+        "${{ runner.temp }}/full-release-execution-plan",
+      ],
+      [
+        "Download immutable publication admission",
+        "full-release-publication-admission-${{ github.run_id }}-1",
+        "${{ runner.temp }}/full-release-publication-admission",
+      ],
+      ...Array.from({ length: 3 }, () => [
+        "Download immutable release execution plan",
+        "full-release-execution-plan-${{ github.run_id }}",
+        "${{ runner.temp }}/full-release-execution-plan",
+      ]),
+      [
+        "Download release decision attempts",
+        "full-release-decision-${{ github.run_id }}-*",
+        "${{ runner.temp }}/full-release-decision-attempts",
+      ],
+      [
+        "Download diagnostic drain attempts",
+        "full-release-diagnostics-${{ github.run_id }}-*",
+        "${{ runner.temp }}/full-release-diagnostic-attempts",
+      ],
+    ]);
     for (const step of downloadSteps) {
       expect(step.uses).toBe(DOWNLOAD_ARTIFACT_V8);
     }
@@ -9103,7 +9181,7 @@ describe("package artifact reuse", () => {
     const qualify = workflowJob(FULL_RELEASE_VALIDATION_WORKFLOW, "qualify_npm_package");
     const candidate = workflowJob(FULL_RELEASE_VALIDATION_WORKFLOW, "candidate_acquisition");
     for (const job of [prepare, docker]) {
-      expect(jobNeeds(job)).toEqual(["resolve_target"]);
+      expect(jobNeeds(job)).toEqual(["resolve_target", "evidence_reuse"]);
     }
     expect(jobNeeds(qualify)).toEqual(["resolve_target", "prepare_npm_package"]);
     expect(qualify.env?.ARTIFACT_RUN_ID).toBe("${{ needs.prepare_npm_package.outputs.run_id }}");
@@ -12737,13 +12815,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       NPM_TELEGRAM_SCENARIO: "${{ inputs.npm_telegram_scenario }}",
       SKIP_PACKAGE_TELEGRAM_E2E: "${{ needs.resolve_target.outputs.skip_package_telegram_e2e }}",
     });
-    expectTextToIncludeAll(manifestStep.run, [
-      "npmTelegramPackageSpec: $npmTelegramPackageSpec",
-      "npmTelegramProviderMode: $npmTelegramProviderMode",
-      "npmTelegramScenario: $npmTelegramScenario",
-      "skipPackageTelegramE2e: $skipPackageTelegramE2e",
-      "allowUnreleasedChangelog: $allowUnreleasedChangelog",
-    ]);
+    expect(manifestStep.run).toBe("node scripts/full-release-validation-state.mjs write-manifest");
     expect(verificationStep.env).toMatchObject({
       RELEASE_PROFILE: "${{ inputs.release_profile }}",
       RERUN_GROUP: "${{ inputs.rerun_group }}",
@@ -13775,6 +13847,16 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       "sparse-checkout": "scripts",
     });
     expect(validateManifest.env).toMatchObject({
+      PUBLICATION_CONSUMER:
+        "${{ inputs.publish_docker_only && !inputs.publish_openclaw_npm && 'docker-only' || 'publisher' }}",
+      PUBLISH_DOCKER_ONLY: "${{ inputs.publish_docker_only }}",
+      PUBLISH_OPENCLAW_NPM: "${{ inputs.publish_openclaw_npm }}",
+      RELEASE_NPM_DIST_TAG: "${{ inputs.npm_dist_tag }}",
+      PLUGIN_PUBLISH_SCOPE: "${{ inputs.plugin_publish_scope }}",
+      RELEASE_PLUGINS: "${{ inputs.plugins }}",
+      PREPARED_PLUGINS: "${{ inputs.prepared_plugins }}",
+      WINDOWS_NODE_TAG: "${{ inputs.windows_node_tag }}",
+      WINDOWS_NODE_INSTALLER_DIGESTS: "${{ inputs.windows_node_installer_digests }}",
       RUN_JSON_FILE: "${{ runner.temp }}/full-release-validation-run.json",
       TRUSTED_WORKFLOW_FULL_REF: "${{ github.ref }}",
       TRUSTED_WORKFLOW_REF: "${{ github.ref_name }}",
@@ -13785,6 +13867,12 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     });
     expect(validateManifest.run).toContain('MANIFEST_FILE="$manifest"');
     expect(validateManifest.run).toContain('node "$VALIDATOR_FILE" < "$RUN_JSON_FILE"');
+    expect(validateManifest.run).not.toContain('node "$STRICT_VALIDATOR_FILE"');
+    expect(npmFullRun.env).toMatchObject({
+      PUBLICATION_CONSUMER: "core-npm",
+      RELEASE_NPM_DIST_TAG: "${{ inputs.npm_dist_tag }}",
+    });
+    expect(npmFullRun.run).not.toContain('node "$STRICT_VALIDATOR_FILE"');
     expect(publishDownload.with?.name).toBe(
       "full-release-validation-${{ inputs.full_release_validation_run_id }}-${{ needs.resolve_release_target.outputs.full_release_validation_run_attempt }}",
     );
@@ -13841,7 +13929,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     for (const source of [
       "scripts/release-ci-summary.mjs",
       "scripts/full-release-validation-policy.mjs",
-      "scripts/full-release-publication-contract.mjs",
+      ...PUBLICATION_CONTRACT_FILES,
       "scripts/lib/release-changelog.mjs",
       "scripts/full-release-candidate-contract.mjs",
       "scripts/lib/canonical-json.mjs",
