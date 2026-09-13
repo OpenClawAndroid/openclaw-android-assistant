@@ -71,20 +71,37 @@ describe("Doctor maintenance with managed-flow workers", () => {
     },
   );
 
-  it.each([false, true])(
-    "completes writes and drainage with an already-open worker=%s",
-    async (alreadyOpen) => {
+  it.each([
+    { alreadyOpen: false, reload: false },
+    { alreadyOpen: true, reload: false },
+    { alreadyOpen: true, reload: true },
+  ])(
+    "completes writes and drainage with an already-open worker=$alreadyOpen after module reload=$reload",
+    async ({ alreadyOpen, reload }) => {
       await withOpenClawTestState(
         { scenario: "external-service", label: "doctor-managed-worker" },
         async () => {
           openOpenClawStateDatabase();
-          const flows = createRuntimeAsyncTasks().managedFlows.bindSession({
+          let flows = createRuntimeAsyncTasks().managedFlows.bindSession({
             sessionKey: "agent:main:doctor",
           });
           if (alreadyOpen) {
             await flows.list();
           }
-          const maintenance = await beginDoctorMaintenance({
+          let enterMaintenance = beginDoctorMaintenance;
+          if (reload) {
+            await closeOpenClawStateDatabaseAsync();
+            vi.resetModules();
+            const [reloadedDoctor, reloadedTasks] = await Promise.all([
+              import("./doctor-maintenance.js"),
+              import("../plugins/runtime/runtime-tasks-async.js"),
+            ]);
+            enterMaintenance = reloadedDoctor.beginDoctorMaintenance;
+            flows = reloadedTasks.createRuntimeAsyncTasks().managedFlows.bindSession({
+              sessionKey: "agent:main:doctor",
+            });
+          }
+          const maintenance = await enterMaintenance({
             options: { repair: true, nonInteractive: true },
             root: null,
             runtime: { log() {}, error() {}, exit() {} },

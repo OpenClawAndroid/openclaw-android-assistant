@@ -6,12 +6,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import * as daemonExec from "../../daemon/exec-file.js";
 import * as gatewayService from "../../daemon/service.js";
 import * as systemdExec from "../../daemon/systemd-exec.js";
 import {
   readSystemdServiceExecStart,
   resolveSystemdUnitPath,
 } from "../../daemon/systemd-service-files.js";
+import { systemdManagerVersionProbe } from "../../daemon/systemd-user-bus.test-support.js";
 import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
 import { createRetainedUpdateRecovery } from "../../infra/update-retained-recovery.test-support.js";
@@ -634,6 +636,8 @@ it.each([
     vi.stubEnv(key, undefined);
   }
   vi.stubEnv("HOME", home);
+  vi.stubEnv("DBUS_SESSION_BUS_ADDRESS", `unix:path=${path.join(home, "bus")}`);
+  vi.spyOn(daemonExec, "execFileUtf8").mockImplementation(systemdManagerVersionProbe);
   vi.stubEnv("OPENCLAW_PROFILE", "caller");
   vi.stubEnv("OPENCLAW_STATE_DIR", callerState);
   vi.stubEnv("OPENCLAW_CONFIG_PATH", path.join(callerState, "openclaw.json"));

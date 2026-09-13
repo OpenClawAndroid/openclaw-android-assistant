@@ -315,7 +315,8 @@ export abstract class MemoryManagerSourceSyncOps extends MemoryManagerSessionSyn
         this.advanceSyncProgress(params.progress);
         return null;
       }
-      return { ...entry, sessionId: corpusEntryForPath(absPath).sessionId };
+      // Keep the prepared entry's non-enumerable reset boundary.
+      return Object.assign(entry, { sessionId: corpusEntryForPath(absPath).sessionId });
     };
 
     if (params.deferIndex) {

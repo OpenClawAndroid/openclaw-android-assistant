@@ -194,6 +194,45 @@ describe("session auth selection prepared facts", () => {
     });
   });
 
+  it("retains typed recovery for an explicitly selected profile removed from the store", async () => {
+    await withAuthState(async (state) => {
+      configureProfiles();
+      await expect(
+        select({
+          agentDir: state.agentDir(),
+          sessionEntry: { sessionId: "s1", updatedAt: 1 },
+          configuredProfileId: "openai:removed",
+        }),
+      ).rejects.toMatchObject({
+        code: "selected_auth_profile_unavailable",
+        profileId: "openai:removed",
+      });
+    });
+  });
+
+  it("keeps provider incompatibility for a config-only aws-sdk profile", async () => {
+    await withAuthState(async (state) => {
+      configureProfiles();
+      await expect(
+        select({
+          agentDir: state.agentDir(),
+          sessionEntry: { sessionId: "s1", updatedAt: 1 },
+          configuredProfileId: "amazon-bedrock:default",
+          cfg: {
+            auth: {
+              profiles: {
+                "amazon-bedrock:default": { provider: "amazon-bedrock", mode: "aws-sdk" },
+              },
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: "Error",
+        message: 'Auth profile "amazon-bedrock:default" is not configured for openai.',
+      });
+    });
+  });
+
   it("rejects a configured profile that belongs to another provider", async () => {
     await withAuthState(async (state) => {
       configureProfiles();

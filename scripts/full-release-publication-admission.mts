@@ -86,6 +86,7 @@ const toolingPaths = new Set([
   "src/infra/retry.ts",
   "src/infra/secure-random.ts",
   "src/logging/secret-redaction-registry.ts",
+  "src/shared/global-singleton.ts",
   "src/shared/regexp.ts",
 ]);
 type Request = ReturnType<

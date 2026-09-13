@@ -123,6 +123,7 @@ function renderChecks(pullRequest: ControlUiSessionPullRequest) {
       <summary class="chat-pr__checks-pill" aria-label=${label} title=${label}>
         <span class="chat-pr__checks-dot" aria-hidden="true"></span>
         ${t("chat.pullRequests.checks")}
+        <span class="chat-pr__checks-chevron" aria-hidden="true">${icons.chevronDown}</span>
       </summary>
       <div
         class="chat-pr__checks-menu"

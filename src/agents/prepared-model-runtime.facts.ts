@@ -235,6 +235,7 @@ export async function prepareWorkspaceBuildGroup(
     runtimePluginRegistry,
     pluginMetadataSnapshot,
     preferBuiltPluginArtifacts,
+    inboundPluginRegistry,
   );
   let preparedGeneration: PreparedModelRuntimePluginGeneration | undefined;
   const prepare = async () => {

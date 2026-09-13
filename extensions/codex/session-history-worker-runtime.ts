@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import type { AgentMessage } from "openclaw/plugin-sdk/agent-harness-runtime";
 import {
   captureCodexSessionTranscriptReadAdmission,
@@ -5,11 +6,14 @@ import {
   validateCodexSessionTranscriptReadAdmission,
   validateCodexSessionTranscriptContextVersion,
 } from "openclaw/plugin-sdk/codex-session-transcript-runtime";
-import { WorkerTaskPool } from "openclaw/plugin-sdk/process-runtime";
+import {
+  resolveRuntimeWorkerArgv,
+  resolveRuntimeWorkerUrl,
+  WorkerTaskPool,
+} from "openclaw/plugin-sdk/process-runtime";
 import { isIncognitoSessionKey } from "openclaw/plugin-sdk/session-key-runtime";
 import type { TranscriptTurnAdmission } from "openclaw/plugin-sdk/session-transcript-runtime";
 import {
-  codexHistoryWorkerUrl,
   runCodexHistoryWorkerInput,
   type CodexHistoryWorkerInput,
   type CodexHistoryWorkerResult,
@@ -25,8 +29,34 @@ import {
 } from "./src/app-server/session-history.js";
 import type { SettledTurnMessages } from "./src/app-server/settled-turn-evidence.js";
 
+const codexHistoryWorkerEntrypoint = {
+  currentModuleUrl: import.meta.url,
+  sourceWorkerName: "session-history.worker",
+  distWorkerPath: "extensions/codex/session-history.worker.js",
+  package: {
+    name: "@openclaw/codex",
+    distWorkerPath: "session-history.worker.js",
+  },
+} as const;
+
+function resolveCodexHistoryWorkerUrl(): URL {
+  const sourceUrl = resolveRuntimeWorkerUrl(codexHistoryWorkerEntrypoint);
+  const sourceNeedsBuiltFallback =
+    /\.[cm]?ts$/u.test(sourceUrl.pathname) &&
+    (typeof process.versions.bun === "string" || resolveRuntimeWorkerArgv(sourceUrl).length === 1);
+  if (!sourceNeedsBuiltFallback) {
+    return sourceUrl;
+  }
+  // oxlint-disable-next-line no-warning-comments -- removal awaits Bun Worker preload resolver support.
+  // TODO: Remove this fallback once Bun Workers apply resolver hooks from execArgv --import preloads.
+  return resolveRuntimeWorkerUrl({
+    ...codexHistoryWorkerEntrypoint,
+    root: fileURLToPath(new URL("../..", import.meta.url)),
+  });
+}
+
 const historyReads = new WorkerTaskPool<CodexHistoryWorkerInput, CodexHistoryWorkerResult>({
-  workerUrl: codexHistoryWorkerUrl,
+  workerUrl: resolveCodexHistoryWorkerUrl(),
   maxWorkers: 1,
 });
 

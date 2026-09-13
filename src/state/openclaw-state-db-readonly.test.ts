@@ -28,6 +28,7 @@ import {
   withExistingOpenClawStateDatabaseReadOnly,
   withArtifactPreservingStateReads,
   withDisposableOpenClawStateReads,
+  withOpenClawStateDatabaseReadSnapshot,
 } from "./openclaw-state-db-readonly.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -402,9 +403,16 @@ describe.each(["admission", "explicit", "async"] as const)("%s read-only state r
   });
 });
 
-it.each(["latch", "quarantine", "callback"] as const)(
-  "cleans the async snapshot after %s rejection",
-  async (failure) => {
+it.each([
+  { failure: "latch", composite: false },
+  { failure: "quarantine", composite: false },
+  { failure: "callback", composite: false },
+  { failure: "latch", composite: true },
+  { failure: "quarantine", composite: true },
+  { failure: "callback", composite: true },
+] as const)(
+  "cleans the async snapshot after $failure rejection (composite: $composite)",
+  async ({ failure, composite }) => {
     await withTempDir("openclaw-state-readonly-admission-", async (stateDir) => {
       const options = createOptions(stateDir);
       openOpenClawStateDatabase(options);
@@ -434,10 +442,14 @@ it.each(["latch", "quarantine", "callback"] as const)(
         throw refused;
       });
       try {
-        const result = withExistingOpenClawStateDatabaseArtifactPreservingReadOnlyAsync(
-          operation,
-          options,
-        );
+        const result = composite
+          ? withArtifactPreservingStateReads(() =>
+              withOpenClawStateDatabaseReadSnapshot(
+                async () => withExistingOpenClawStateDatabaseReadOnly(operation, options),
+                options,
+              ),
+            )
+          : withExistingOpenClawStateDatabaseArtifactPreservingReadOnlyAsync(operation, options);
         if (failure !== "quarantine") {
           await expect(result).rejects.toBe(refused);
         } else {

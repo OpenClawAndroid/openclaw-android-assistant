@@ -160,6 +160,9 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
   }
 
   protected override presentedChanged(presented: boolean): void {
+    if (!presented) {
+      this.dashboardPresentationActivation = undefined;
+    }
     if (!this.isConnected) {
       return;
     }

@@ -7,6 +7,7 @@ import {
   openOpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
+import * as bundleStaging from "./bundle-staging.js";
 import {
   createWorkerBundleProducer,
   resolveWorkerNpmInstallationArtifact,
@@ -185,6 +186,37 @@ describe("worker bundle producer", () => {
     });
   });
 
+  it("packages hardlinked artifacts larger than the default file-read limit", async () => {
+    await withTestDir({ prefix: "openclaw-worker-bundle-large-" }, async (root) => {
+      const packageRoot = path.join(root, "package");
+      const padding = "x".repeat(128);
+      const contents = Array.from(
+        { length: 128 * 1024 },
+        (_, index) => `//${index}:${padding}\n`,
+      ).join("");
+      await writeFixture(packageRoot, contents);
+      await fs.link(
+        path.join(packageRoot, "dist", "worker", "worker.mjs"),
+        path.join(root, "source-alias.mjs"),
+      );
+
+      const artifact = await createWorkerBundleProducer({
+        packageRoot,
+        cacheDir: path.join(root, "cache"),
+      }).prepare();
+      const extractDir = path.join(root, "extract");
+      await fs.mkdir(extractDir);
+      await tar.extract({ file: artifact.tarballPath, cwd: extractDir });
+
+      await expect(fs.readFile(path.join(extractDir, "worker.mjs"), "utf8")).resolves.toBe(
+        contents,
+      );
+      if (process.platform !== "win32") {
+        expect((await fs.stat(path.join(extractDir, "worker.mjs"))).mode & 0o777).toBe(0o700);
+      }
+    });
+  });
+
   it("prunes only unretained bundles for an exclusive cache owner", async () => {
     await withTestDir({ prefix: "openclaw-worker-bundle-prune-" }, async (root) => {
       const packageRoot = path.join(root, "package");
@@ -341,18 +373,19 @@ describe("worker bundle producer", () => {
         packageRoot: baselineRoot,
         cacheDir: path.join(root, "baseline-cache"),
       }).prepare();
-      const originalChmod = fs.chmod.bind(fs);
+      const originalCollect = bundleStaging.collectWorkerBundleManifest;
       let sourceMutated = false;
-      const chmodSpy = vi.spyOn(fs, "chmod").mockImplementation(async (filePath, mode) => {
-        await originalChmod(filePath, mode);
-        if (!sourceMutated && String(filePath).endsWith(`${path.sep}worker.mjs`)) {
+      const stagingSpy = vi
+        .spyOn(bundleStaging, "collectWorkerBundleManifest")
+        .mockImplementation(async (...args) => {
+          const manifest = await originalCollect(...args);
           sourceMutated = true;
           await fs.writeFile(
             path.join(packageRoot, "dist", "worker", "worker.mjs"),
             changedContents,
           );
-        }
-      });
+          return manifest;
+        });
 
       try {
         const artifact = await createWorkerBundleProducer({
@@ -369,7 +402,7 @@ describe("worker bundle producer", () => {
           originalContents,
         );
       } finally {
-        chmodSpy.mockRestore();
+        stagingSpy.mockRestore();
       }
     });
   });

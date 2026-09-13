@@ -1143,73 +1143,86 @@ describe("sessions_send gating", () => {
     ]);
   });
 
-  it("keeps an exact-incarnation send synchronous to its scoped lifecycle grant", async () => {
-    await withTestDir({ prefix: "openclaw-exact-session-send-" }, async (dir) => {
-      const { runSessionsSendA2AFlow } = await import("./sessions-send-tool.a2a.js");
-      vi.mocked(runSessionsSendA2AFlow).mockClear();
-      const storePath = path.join(dir, "sessions.json");
-      const targetSessionKey = "agent:main:dashboard:child";
-      const targetSessionId = "child-incarnation";
-      await upsertSessionEntryCore(
-        { agentId: "main", sessionKey: targetSessionKey, storePath },
-        {
-          sessionId: targetSessionId,
-          updatedAt: 1,
-          parentSessionKey: MAIN_AGENT_SESSION_KEY,
-        },
-      );
-      callGatewayMock.mockImplementation(async (opts: unknown) => {
-        const request = opts as { method?: string };
-        if (request.method === "sessions.list") {
-          return {
-            path: storePath,
-            sessions: [{ key: targetSessionKey, kind: "direct" }],
-          };
-        }
-        if (request.method === "agent") {
-          return { runId: "run-exact-send", acceptedAt: 123 };
-        }
-        return {};
-      });
-      const tool = createSessionsSendTool({
-        agentSessionKey: MAIN_AGENT_SESSION_KEY,
-        expectedTargetSessionId: targetSessionId,
-        idempotencyKey: "worker-session-send:stable-operation",
-        callGateway: callGatewayMock,
-        config: {
-          session: { scope: "per-sender", mainKey: "main", store: storePath },
-          tools: {
-            agentToAgent: { enabled: true },
-            sessions: { visibility: "all" },
+  it.each([
+    { targetKey: "agent:main:dashboard:child", timeoutSeconds: 0 },
+    { targetKey: "agent:main:dashboard:child", timeoutSeconds: 1 },
+    { targetKey: "agent:main:subagent:child", timeoutSeconds: 1 },
+  ])(
+    "keeps an exact-incarnation send scoped ($targetKey, wait $timeoutSeconds)",
+    async ({ targetKey: targetSessionKey, timeoutSeconds }) => {
+      await withTestDir({ prefix: "openclaw-exact-session-send-" }, async (dir) => {
+        const { runSessionsSendA2AFlow } = await import("./sessions-send-tool.a2a.js");
+        vi.mocked(runSessionsSendA2AFlow).mockClear();
+        const storePath = path.join(dir, "sessions.json");
+        const targetSessionId = "child-incarnation";
+        await upsertSessionEntryCore(
+          { agentId: "main", sessionKey: targetSessionKey, storePath },
+          {
+            sessionId: targetSessionId,
+            updatedAt: 1,
+            parentSessionKey: MAIN_AGENT_SESSION_KEY,
+            spawnedBy: MAIN_AGENT_SESSION_KEY,
           },
-        } as never,
-      });
+        );
+        callGatewayMock.mockImplementation(async (opts: unknown) => {
+          const request = opts as { method?: string };
+          if (request.method === "sessions.list") {
+            return {
+              path: storePath,
+              sessions: [{ key: targetSessionKey, kind: "direct" }],
+            };
+          }
+          if (request.method === "agent") {
+            return { runId: "run-exact-send", acceptedAt: 123 };
+          }
+          if (request.method === "agent.wait") {
+            return { runId: "run-exact-send", status: "timeout" };
+          }
+          return {};
+        });
+        const tool = createSessionsSendTool({
+          agentSessionKey: MAIN_AGENT_SESSION_KEY,
+          expectedTargetSessionId: targetSessionId,
+          idempotencyKey: "worker-session-send:stable-operation",
+          callGateway: callGatewayMock,
+          config: {
+            session: { scope: "per-sender", mainKey: "main", store: storePath },
+            tools: {
+              agentToAgent: { enabled: true },
+              sessions: { visibility: "all" },
+            },
+          } as never,
+        });
 
-      const result = await tool.execute("call-exact-send", {
-        sessionKey: targetSessionKey,
-        message: "ping",
-        timeoutSeconds: 0,
-        watch: true,
-      });
+        const result = await tool.execute("call-exact-send", {
+          sessionKey: targetSessionKey,
+          message: "ping",
+          timeoutSeconds,
+          watch: true,
+        });
 
-      expect(requireDetails(result)).toMatchObject({
-        status: "accepted",
-        sessionKey: targetSessionKey,
-        targetDisposition: "queued",
-        delivery: { status: "skipped", mode: "announce" },
-        watched: false,
-      });
-      expect(runSessionsSendA2AFlow).not.toHaveBeenCalled();
-      expect(callGatewayMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "agent",
-          params: expect.objectContaining({
-            idempotencyKey: "worker-session-send:stable-operation",
+        expect(requireDetails(result)).toMatchObject({
+          status: "accepted",
+          sessionKey: targetSessionKey,
+          targetDisposition: "queued",
+          delivery: { status: "skipped", mode: "announce" },
+          watched: false,
+        });
+        expect(runSessionsSendA2AFlow).not.toHaveBeenCalled();
+        expect(
+          callGatewayMock.mock.calls.filter(([request]) => request.method === "agent.wait"),
+        ).toHaveLength(timeoutSeconds);
+        expect(callGatewayMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            method: "agent",
+            params: expect.objectContaining({
+              idempotencyKey: "worker-session-send:stable-operation",
+            }),
           }),
-        }),
-      );
-    });
-  });
+        );
+      });
+    },
+  );
 
   it("does not disclose a resolved session key when sessionId access is denied", async () => {
     const tool = createSessionsSendTool({

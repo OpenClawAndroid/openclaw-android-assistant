@@ -18,10 +18,7 @@ import {
 } from "../config/config.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { installPluginFromPath } from "../plugins/install.js";
-import {
-  readPersistedInstalledPluginIndexInstallRecords,
-  writePersistedInstalledPluginIndexInstallRecords,
-} from "../plugins/installed-plugin-index-records.js";
+import { readPersistedInstalledPluginIndexInstallRecords } from "../plugins/installed-plugin-index-records.js";
 import { runPluginPayloadSmokeCheck } from "../plugins/payload-verification.js";
 import { createPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import {
@@ -29,6 +26,7 @@ import {
   listActiveDegradedPlugins,
   setActiveDegradedPlugins,
 } from "../plugins/runtime-degraded-state.js";
+import { seedInstalledPluginIndex } from "../plugins/test-helpers/installed-plugin-index.js";
 import {
   getGatewayTestPort,
   installGatewayTestHooks,
@@ -401,7 +399,7 @@ describe("updater plugin degradation with a running source Gateway", () => {
     const records: Record<string, PluginInstallRecord> = {
       [pluginId]: { source: "git", installPath, version: "1.0.0" },
     };
-    await writePersistedInstalledPluginIndexInstallRecords(records, { config, env: process.env });
+    await seedInstalledPluginIndex(records, { config, env: process.env });
     await fsPromises.unlink(path.join(installPath, "index.cjs"));
     const update = () =>
       withPluginCache(createPluginCache(), async () =>

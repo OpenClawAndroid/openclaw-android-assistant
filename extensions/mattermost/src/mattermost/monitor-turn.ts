@@ -300,12 +300,17 @@ export async function dispatchMattermostInboundTurn(
       }
       // A visible same-thread final can be a send or an in-place draft edit; either path records participation.
       let threadParticipationRecorded = false;
-      const markThreadParticipation = () => {
+      const markThreadParticipation = async () => {
         if (!threadParticipationRecorded && kind !== "direct" && effectiveReplyToId) {
           threadParticipationRecorded = true;
-          recordMattermostThreadParticipation(account.accountId, channelId, effectiveReplyToId, {
-            agentId: route.agentId,
-          });
+          await recordMattermostThreadParticipation(
+            account.accountId,
+            channelId,
+            effectiveReplyToId,
+            {
+              agentId: route.agentId,
+            },
+          );
         }
       };
       const result = await deliverMattermostReplyWithDraftPreview({
@@ -348,22 +353,22 @@ export async function dispatchMattermostInboundTurn(
             textLimit,
             tableMode,
             sendMessage: sendMessageMattermost,
-          }).catch((error: unknown) => {
+          }).catch(async (error: unknown) => {
             if (isChannelPartialDeliveryError(error)) {
-              markThreadParticipation();
+              await markThreadParticipation();
             }
             throw error;
           });
           // Record only visible sends so reasoning-only, empty, or suppressed threads do not auto-engage later.
           if (deliveryResult.outcome === "text" || deliveryResult.outcome === "media") {
-            markThreadParticipation();
+            await markThreadParticipation();
           } else if (
             deliveryResult.outcome === "empty" &&
             finalTextResolution?.kind === "already-delivered"
           ) {
             // The terminal payload confirms the already-published assistant block as
             // the visible final reply even though this delivery has no remaining text.
-            markThreadParticipation();
+            await markThreadParticipation();
           }
           const deliveryLog = formatMattermostFinalDeliveryOutcomeLog({
             outcome: deliveryResult.outcome,
@@ -377,9 +382,9 @@ export async function dispatchMattermostInboundTurn(
           }
           return deliveryResult;
         },
-      }).catch((error: unknown) => {
+      }).catch(async (error: unknown) => {
         if (isChannelPartialDeliveryError(error)) {
-          markThreadParticipation();
+          await markThreadParticipation();
           if (info.kind === "final") {
             // The provider final is already visible even though later bookkeeping failed.
             // Settle progress before rethrowing so late callbacks cannot revive stale draft state.
@@ -389,7 +394,7 @@ export async function dispatchMattermostInboundTurn(
         throw error;
       });
       if (result.visibleReplySent) {
-        markThreadParticipation();
+        await markThreadParticipation();
       }
       if (info.kind === "final") {
         progressDraft.markFinalReplyDelivered();

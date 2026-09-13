@@ -192,8 +192,8 @@ describe("CodexAppServerClient", () => {
         }
       | undefined;
     expect(metadata?.error).toBeInstanceOf(SyntaxError);
-    expect(metadata?.errorMessage).toBe(
-      "Unexpected non-whitespace character after JSON at position 25 (line 1 column 26)",
+    expect(metadata?.errorMessage).toMatch(
+      /^(?:Unexpected non-whitespace character after JSON at position 25 \(line 1 column 26\)|JSON Parse error: Unable to parse JSON string)$/u,
     );
     expect(metadata?.fragmentCount).toBe(1);
     expect(metadata?.linePreview).toBe('{"token":"<redacted>"} trailing');

@@ -3,7 +3,8 @@ import path from "node:path";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { beforeEach, expect, it } from "vitest";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
-import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
+import { installMockGateway, reconnectMockGateway } from "../test-helpers/control-ui-e2e.ts";
+import { pickerValue, selectPickerValue } from "../test-helpers/select-picker-e2e.ts";
 import {
   createControlUiE2eContextOptions,
   createControlUiE2eSuite,
@@ -26,7 +27,7 @@ beforeEach(() => {
 const requireRecord = createRequireRecord("record", "expected-object-value");
 
 suite.define(() => {
-  it("shows rejected initial configuration loads and recovers when reloaded", async () => {
+  it("recovers failed loads and resumes autosave after reloading a reconnected draft", async () => {
     await suite.withPage(
       { locale: "en-US", serviceWorkers: "block", viewport: { height: 900, width: 1280 } },
       async ({ page }) => {
@@ -34,6 +35,11 @@ suite.define(() => {
         const gateway = await installMockGateway(page, {
           assistantName: "Main agent",
           defaultAgentId: "main",
+          agentModel: null,
+          models: [
+            { id: "reconnect-draft", name: "Reconnect draft", provider: "openai" },
+            { id: "after-reload", name: "After reload", provider: "openai" },
+          ],
           methodResponses: {
             "agents.list": {
               agents: [{ id: "main", name: "Main agent" }],
@@ -102,6 +108,88 @@ suite.define(() => {
               .getAttribute("disabled"),
           )
           .toBeNull();
+
+        const primary = agentsPage.locator("openclaw-select-picker.model-picker__select");
+        const indicator = page.locator("openclaw-settings-save-indicator");
+        const writesBeforeReconnect = (await gateway.getRequests("config.set")).length;
+        await gateway.deferNext("config.set");
+        await selectPickerValue(primary, "openai/reconnect-draft");
+        const interrupted = await gateway.waitForRequest("config.set", {
+          after: writesBeforeReconnect,
+        });
+        const interruptedParams = requireRecord(interrupted.params);
+        expect(interruptedParams.baseHash).toBe("recovered-agent-config");
+        expect(JSON.parse(String(interruptedParams.raw))).toEqual({
+          agents: { entries: { main: { default: true, model: "openai/reconnect-draft" } } },
+        });
+
+        // An unacknowledged save keeps the draft dirty without racing the debounce.
+        const readsBeforeReconnect = (await gateway.getRequests("config.get")).length;
+        await reconnectMockGateway(page, gateway);
+        await gateway.rejectDeferred("config.set", {
+          code: "UNAVAILABLE",
+          message: "Interrupted settings save",
+        });
+        await gateway.waitForRequest("config.get", { after: readsBeforeReconnect });
+        await expect.poll(() => primary.locator(".picker-select__trigger").isEnabled()).toBe(true);
+        await expect.poll(() => pickerValue(primary)).toBe("openai/reconnect-draft");
+        await expect
+          .poll(() => indicator.textContent())
+          .toContain("Autosave paused after reconnect");
+        expect(await gateway.getRequests("config.set")).toHaveLength(writesBeforeReconnect + 1);
+
+        await gateway.setMethodResponse("config.get", {
+          config,
+          sourceConfig: config,
+          runtimeConfig: config,
+          hash: "reloaded-agent-config",
+          issues: [],
+          raw: JSON.stringify(config),
+          valid: true,
+        });
+        const readsBeforeDiscard = (await gateway.getRequests("config.get")).length;
+        await reload.click();
+        await gateway.waitForRequest("config.get", { after: readsBeforeDiscard });
+        await expect.poll(() => pickerValue(primary)).toBe("");
+        await expect.poll(() => primary.locator(".picker-select__trigger").isEnabled()).toBe(true);
+        await expect
+          .poll(() => indicator.textContent())
+          .not.toContain("Autosave paused after reconnect");
+
+        const writesBeforeFreshEdit = (await gateway.getRequests("config.set")).length;
+        expect(writesBeforeFreshEdit).toBe(writesBeforeReconnect + 1);
+        await gateway.deferNext("config.set");
+        try {
+          await selectPickerValue(primary, "openai/after-reload");
+          const saved = await gateway.waitForRequest("config.set", {
+            after: writesBeforeFreshEdit,
+          });
+          const params = requireRecord(saved.params);
+          const savedConfig = {
+            agents: { entries: { main: { default: true, model: "openai/after-reload" } } },
+          };
+          expect(params.baseHash).toBe("reloaded-agent-config");
+          expect(JSON.parse(String(params.raw))).toEqual(savedConfig);
+          expect(await gateway.getRequests("config.set")).toHaveLength(writesBeforeFreshEdit + 1);
+          // The initial read-error fixture has no stateful config store; supply its acknowledgement.
+          await gateway.resolveDeferred("config.set", {
+            config: savedConfig,
+            hash: "saved-agent-config",
+          });
+          await expect.poll(() => pickerValue(primary)).toBe("openai/after-reload");
+          await expect.poll(() => indicator.textContent()).toContain("Saved");
+        } finally {
+          if (captureUiProof) {
+            await page.screenshot({
+              animations: "disabled",
+              fullPage: true,
+              path: path.join(
+                proofDir,
+                `agent-config-reload-autosave-${process.env.OPENCLAW_UI_PROOF_LABEL ?? "result"}.png`,
+              ),
+            });
+          }
+        }
       },
     );
   });

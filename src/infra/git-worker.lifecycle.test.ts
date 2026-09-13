@@ -196,6 +196,104 @@ describe("Git operation host lifecycle", () => {
     }
   });
 
+  it.each(["cleanup-inspection", "snapshot"] as const)(
+    "serves worktree preparation while %s waits for Git, without overlapping maintenance",
+    async (maintenance) => {
+      const root = tempDirs.make("openclaw-git-worker-worktree-priority-");
+      const repo = await repository(root);
+      const peerRoot = path.join(root, "peer");
+      await fs.mkdir(peerRoot);
+      const peer = await repository(peerRoot);
+      await fs.writeFile(path.join(peer, ".gitignore"), "included.txt\n");
+      await fs.writeFile(path.join(peer, ".worktreeinclude"), "included.txt\n");
+      await fs.writeFile(path.join(peer, "included.txt"), "provisioned\n");
+      const entered = createDeferredCore();
+      const release = createDeferredCore();
+      let heldRequests = 0;
+      const realRun = worktreeGit.runGitBuffered;
+      vi.spyOn(worktreeGit, "runGitBuffered").mockImplementation(async (cwd, args, options) => {
+        if (cwd === repo && args[0] === "ls-files" && args.includes("--ignored")) {
+          heldRequests++;
+          entered.resolve();
+          await release.promise;
+        }
+        return await realRun(cwd, args, options);
+      });
+      const startMaintenance = () =>
+        runGitWorkerOperation(
+          maintenance === "snapshot"
+            ? {
+                type: "worktree.snapshot",
+                input: {
+                  worktreeId: "held-maintenance",
+                  checkoutPath: repo,
+                  repoRoot: repo,
+                  reason: "fixture",
+                  provisionedPaths: [],
+                },
+              }
+            : {
+                type: "worktree.cleanup-inspection",
+                input: { kind: "nested-repository", checkoutPath: repo },
+              },
+          {
+            onEffect: (effect) =>
+              effect.type === "worktree.snapshot-provisioned" ? [] : undefined,
+          },
+        );
+      const first = settle(startMaintenance());
+      const pending: Promise<unknown>[] = [first];
+      try {
+        await within(
+          Promise.race([
+            entered.promise,
+            first.then(() => {
+              throw new Error("Maintenance ended before its Git read was held");
+            }),
+          ]),
+        );
+        pending.push(settle(startMaintenance()));
+        const preparation = Promise.all([
+          runGitWorkerOperation({
+            type: "worktree.git-size",
+            input: { repoRoot: peer, ref: "HEAD" },
+          }),
+          runGitWorkerOperation({
+            type: "worktree.provisioning-inspection",
+            input: { sourceRoot: peer },
+          }),
+          runGitWorkerOperation({
+            type: "worktree.checkout-transition-size",
+            input: { repoRoot: peer, baseRef: "HEAD", targetRef: "HEAD" },
+          }),
+          runGitWorkerOperation({
+            type: "worktree.directory-size",
+            input: { root: peer, excludeGit: true },
+          }),
+        ]);
+        pending.push(settle(preparation));
+        const [gitBytes, provisioned, transition, directoryBytes] = await within(
+          preparation,
+          "Worktree preparation waited behind maintenance Git requests",
+        );
+        expect(gitBytes).toBe(4096);
+        expect(provisioned).toEqual({ paths: ["included.txt"], estimatedBytes: 4096 });
+        expect(transition).toEqual({
+          targetBytes: 4096,
+          changedBytes: 0,
+          requiresFullCheckout: false,
+        });
+        expect(directoryBytes).toBe(43);
+        expect(heldRequests).toBe(1);
+      } finally {
+        release.resolve();
+        await Promise.all(pending);
+      }
+      expect(heldRequests).toBe(2);
+      expect((await first).rejected).toBe(false);
+    },
+  );
+
   it.each(["abort", "close"] as const)(
     "joins the real Git fetch before %s settles",
     async (ending) => {

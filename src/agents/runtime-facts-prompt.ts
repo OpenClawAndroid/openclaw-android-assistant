@@ -105,14 +105,15 @@ export async function buildRuntimeFactsContext(
       ].join("\n"),
     );
   }
-  if (params.capabilityToolNames.has("sessions_spawn")) {
-    sections.push(
-      buildActiveSubagentRuntimeContext({
-        cfg: params.cfg,
-        controllerSessionKey: params.sessionKey,
-        controllerAgentId: params.agentId,
-      }) ?? "## Active Subagents\nnone",
-    );
+  const canSpawn = params.capabilityToolNames.has("sessions_spawn");
+  const subagentContext = buildActiveSubagentRuntimeContext({
+    cfg: params.cfg,
+    controllerSessionKey: params.sessionKey,
+    controllerAgentId: params.agentId,
+    includeSpawnContext: canSpawn,
+  });
+  if (subagentContext || canSpawn) {
+    sections.push(subagentContext ?? "## Active Subagents\nnone");
   }
   const media = await buildMediaTaskRuntimeContext(params);
   if (media) {

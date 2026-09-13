@@ -460,6 +460,95 @@ describe("createClackPrompter", () => {
   it.each([
     {
       label: "select",
+      actions: ["left", "right", "up"],
+      mock: navigationPromptMocks.selectWithNavigationFooter,
+      value: "one",
+      run: (prompter: ReturnType<typeof createClackPrompter>) =>
+        prompter.select({
+          message: "Provider",
+          options: [{ value: "one", label: "One" }],
+          navigation: { canGoBack: true },
+        }),
+    },
+    {
+      label: "multiselect",
+      actions: ["left", "up"],
+      mock: navigationPromptMocks.multiselectWithNavigationFooter,
+      value: ["one"],
+      run: (prompter: ReturnType<typeof createClackPrompter>) =>
+        prompter.multiselect({
+          message: "Options",
+          options: [{ value: "one", label: "One" }],
+          navigation: { canGoBack: true },
+        }),
+    },
+    {
+      label: "confirm",
+      actions: ["right", "up"],
+      mock: navigationPromptMocks.confirmWithNavigationFooter,
+      value: true,
+      run: (prompter: ReturnType<typeof createClackPrompter>) =>
+        prompter.confirm({ message: "Continue?", navigation: { canGoBack: true } }),
+    },
+    {
+      label: "text",
+      actions: ["up"],
+      mock: navigationPromptMocks.textWithNavigationFooter,
+      value: "label",
+      run: (prompter: ReturnType<typeof createClackPrompter>) =>
+        prompter.text({ message: "Label", navigation: { canGoBack: true } }),
+    },
+  ])(
+    "restores prior cursor actions after $label completion",
+    async ({ actions, mock, value, run }) => {
+      clackMocks.settings.actions = new Set(actions);
+      const initialEndListeners = process.stdin.listeners("end");
+      const initialKeypressListeners = process.stdin.listeners("keypress");
+      mock.mockImplementation(async () => {
+        expect(clackMocks.settings.actions).toEqual(new Set(["up"]));
+        expect(process.stdin.listenerCount("end")).toBe(initialEndListeners.length + 1);
+        expect(process.stdin.listenerCount("keypress")).toBe(initialKeypressListeners.length + 1);
+        return value;
+      });
+
+      await expect(run(createClackPrompter())).resolves.toEqual(value);
+
+      expect(mock).toHaveBeenCalledOnce();
+      expect(clackMocks.settings.actions).toEqual(new Set(actions));
+      expect(process.stdin.listeners("end")).toEqual(initialEndListeners);
+      expect(process.stdin.listeners("keypress")).toEqual(initialKeypressListeners);
+    },
+  );
+
+  it("cleans up a throwing navigation prompt after queued EOF", async () => {
+    const failure = new Error("prompt failed");
+    const initialEndListeners = process.stdin.listeners("end");
+    const initialKeypressListeners = process.stdin.listeners("keypress");
+    clackMocks.settings.actions = new Set(["left", "up"]);
+    let promptSignal: AbortSignal | undefined;
+    navigationPromptMocks.textWithNavigationFooter.mockImplementation(({ signal }) => {
+      promptSignal = signal;
+      expect(clackMocks.settings.actions).toEqual(new Set(["up"]));
+      process.stdin.emit("end");
+      throw failure;
+    });
+
+    await expect(
+      createClackPrompter().text({ message: "Label", navigation: { canGoBack: true } }),
+    ).rejects.toBe(failure);
+
+    expect(clackMocks.settings.actions).toEqual(new Set(["left", "up"]));
+    expect(process.stdin.listeners("end")).toEqual(initialEndListeners);
+    expect(process.stdin.listeners("keypress")).toEqual(initialKeypressListeners);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(promptSignal?.aborted).toBe(false);
+  });
+
+  it.each([
+    {
+      label: "select",
       mock: clackMocks.select,
       run: (prompter: ReturnType<typeof createClackPrompter>) =>
         prompter.select({ message: "Provider", options: [{ value: "one", label: "One" }] }),
@@ -655,18 +744,32 @@ describe("createClackPrompter", () => {
     expect(process.stdin.listenerCount("keypress")).toBe(initialKeypressListeners);
   });
 
-  it("keeps Ctrl-C cancellation on Clack's canonical path", async () => {
-    clackMocks.confirm.mockResolvedValue(Symbol("clack:cancel"));
-    clackMocks.isCancel.mockReturnValueOnce(true);
+  it.each([false, true])(
+    "keeps Ctrl-C cancellation on Clack's canonical path (navigation: %s)",
+    async (navigation) => {
+      const mock = navigation
+        ? navigationPromptMocks.confirmWithNavigationFooter
+        : clackMocks.confirm;
+      mock.mockResolvedValue(Symbol("clack:cancel"));
+      clackMocks.isCancel.mockReturnValueOnce(true);
+      clackMocks.cancel.mockImplementationOnce(() => {
+        expect(clackMocks.settings.actions.has("left")).toBe(!navigation);
+        expect(clackMocks.settings.actions.has("right")).toBe(!navigation);
+      });
 
-    await expect(createClackPrompter().confirm({ message: "Continue?" })).rejects.toBeInstanceOf(
-      WizardCancelledError,
-    );
+      await expect(
+        createClackPrompter().confirm({
+          message: "Continue?",
+          ...(navigation ? { navigation: { canGoBack: true } } : {}),
+        }),
+      ).rejects.toBeInstanceOf(WizardCancelledError);
 
-    expect(clackMocks.cancel).toHaveBeenCalledWith(expect.any(String), {
-      output: process.stdout,
-    });
-  });
+      expect(clackMocks.cancel).toHaveBeenCalledWith(expect.any(String), {
+        output: process.stdout,
+      });
+      expect(clackMocks.settings.actions).toEqual(new Set(["left", "right"]));
+    },
+  );
 
   it("rejects navigation after Clack resolves an aborted prompt", async () => {
     navigationPromptMocks.textWithNavigationFooter.mockImplementation(async ({ signal }) => {
@@ -687,6 +790,7 @@ describe("createClackPrompter", () => {
     await expect(result).rejects.toMatchObject({
       direction: "forward",
     } satisfies Partial<WizardNavigationError>);
+    expect(clackMocks.settings.actions).toEqual(new Set(["left", "right"]));
   });
 
   it("keeps text cursor actions when prompt navigation has no available move", async () => {

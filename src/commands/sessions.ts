@@ -284,7 +284,7 @@ export async function sessionsCommand(
   const aggregateAgents = opts.allAgents === true;
   const cfg = getRuntimeConfig();
   const displayDefaults = resolveSessionDisplayDefaults(cfg);
-  const { lookupContextTokens, resolveContextTokensForModel } =
+  const { lookupContextTokens, resolveModelContextTokenProjection } =
     await contextLookupRuntimeLoader.load();
   const configContextTokens =
     lookupContextTokens(displayDefaults.model, { allowAsyncLoad: false }) ?? DEFAULT_CONTEXT_TOKENS;
@@ -368,9 +368,16 @@ export async function sessionsCommand(
     // the runtime's context policy, so retain their model-only offline fallback.
     const usesCliContextFallback =
       !hasPersistedContextTokens && classifyCliProvider(agentRuntime.id);
-    const resolvedContextTokens = usesCliContextFallback
-      ? lookupContextTokens(modelRef.model, { allowAsyncLoad: false })
-      : resolveContextTokensForModel({
+    const modelContext = usesCliContextFallback
+      ? {
+          contextTokens: lookupContextTokens(modelRef.model, { allowAsyncLoad: false }),
+          authoredContextTokens: resolveAuthoredModelContextTokens({
+            cfg,
+            provider: modelRef.provider,
+            model: modelRef.model,
+          }),
+        }
+      : resolveModelContextTokenProjection({
           cfg,
           provider: modelRef.provider,
           model: modelRef.model,
@@ -381,12 +388,8 @@ export async function sessionsCommand(
       provider: modelRef.provider,
       model: modelRef.model,
       agentHarnessId: agentRuntime.id,
-      resolvedContextTokens,
-      authoredContextTokens: resolveAuthoredModelContextTokens({
-        cfg,
-        provider: modelRef.provider,
-        model: modelRef.model,
-      }),
+      resolvedContextTokens: modelContext.contextTokens,
+      authoredContextTokens: modelContext.authoredContextTokens,
     });
     return Object.assign({}, row, {
       agentId,

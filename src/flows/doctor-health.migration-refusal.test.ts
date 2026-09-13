@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as doctorMaintenance from "../commands/doctor-maintenance.js";
@@ -5,6 +6,9 @@ import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { SQLITE_READONLY_CHILD_ARG } from "../infra/runtime-process-entrypoints.js";
 import * as coordinators from "../infra/state-database-coordinator.js";
 import { DoctorStateMigrationRefusalError } from "../infra/state-migrations.messages.js";
+import { buildUpdateDoctorEnv } from "../infra/update-runner-doctor.js";
+import { readConfiguredParsedLogTail } from "../logging/log-tail.js";
+import { flushLogger, resetLogger, setLoggerOverride } from "../logging/logger.js";
 import {
   assertNoOpenClawAgentDatabaseLeasesReadOnly,
   claimOpenClawAgentDatabaseLease,
@@ -38,6 +42,79 @@ describe("Doctor refused-migration maintenance outcome", () => {
     vi.spyOn(doctorMaintenance, "beginDoctorMaintenance").mockResolvedValue(maintenance);
     mocks.config.mockReturnValue({});
     mocks.packageRoot.mockReturnValue(undefined);
+  });
+
+  it("retains migration recovery and explains why source rollback cannot undo repaired state", async () => {
+    await withOpenClawTestState(
+      {
+        scenario: "minimal",
+        env: buildUpdateDoctorEnv({
+          allowGatewayServiceRepair: true,
+          allowGatewayActivation: false,
+        }),
+      },
+      async (state) => {
+        const root = state.path("checkout");
+        fs.mkdirSync(root);
+        execFileSync("git", ["init", root], { stdio: "ignore" });
+        mocks.packageRoot.mockReturnValue(root);
+        const failure = new DoctorStateMigrationRefusalError([
+          {
+            id: "agent-ownership",
+            phase: "shared",
+            source: [],
+            target: [],
+            requiredness: "required",
+            reversibility: "not-applicable",
+            outcome: "refused",
+            changes: [],
+            warnings: ["Resolve the reported ownership mismatch before retrying."],
+            refusal: {
+              code: "agent-database-ownership-mismatch",
+              message: "Resolve the reported ownership mismatch before retrying.",
+            },
+          },
+        ]);
+        const originalMessage = failure.message;
+        mocks.runContributions.mockImplementationOnce(async () => {
+          await state.writeConfig({ gateway: { mode: "local" } });
+          throw failure;
+        });
+        setLoggerOverride({
+          level: "warn",
+          consoleLevel: "silent",
+          file: state.path("warnings.log"),
+        });
+        try {
+          await expect(
+            runDoctorHealthFlow(
+              { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+              { repair: true, nonInteractive: true },
+            ),
+          ).rejects.toBe(failure);
+          expect(failure.message.startsWith(originalMessage)).toBe(true);
+          expect(failure.message).toContain(
+            "Checking out the previous source is not enough: state repairs have already run.",
+          );
+          expect(failure.message).toContain("Follow the migration recovery instructions above");
+          expect(failure.message).not.toContain("git -C");
+          expect(failure.message).not.toContain("pnpm install");
+          expect(failure.message).not.toContain("openclaw gateway start");
+          expect(JSON.parse(fs.readFileSync(state.configPath, "utf8"))).toEqual({
+            gateway: { mode: "local" },
+          });
+          expect(maintenance.release).toHaveBeenCalledOnce();
+          expect(maintenance.finish).not.toHaveBeenCalled();
+          await flushLogger();
+          const tail = await readConfiguredParsedLogTail();
+          expect(tail.lines.map((line) => line.message).join("\n")).toContain(failure.message);
+        } finally {
+          await flushLogger();
+          setLoggerOverride(null);
+          resetLogger();
+        }
+      },
+    );
   });
 
   it.each([true, false])(

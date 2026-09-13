@@ -39,11 +39,8 @@ import type {
   TranscriptToolCaller,
 } from "../../transcripts/provider-types.js";
 import { sanitizeTranscriptSourceLocator } from "../../transcripts/source-locator.js";
-import {
-  transcriptSessionSelector,
-  TranscriptsSummaryChangedError,
-  type TranscriptsStore,
-} from "../../transcripts/store.js";
+import { TranscriptsSummaryChangedError } from "../../transcripts/store-errors.js";
+import { transcriptSessionSelector, type TranscriptsStore } from "../../transcripts/store.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import type { AnyAgentTool } from "./common.js";
 import { listPastTranscripts, showPastTranscript } from "./transcripts-tool-read.js";

@@ -14,6 +14,16 @@ it("clears automatic-label metadata when a subscribed client merges a later snap
   expect({ ...previous, ...cleared }).toMatchObject({ autoLabel: null, displayName: null });
 });
 
+it("clears a saved dashboard default in subscribed session metadata", () => {
+  const sessionRow = { key: "agent:main:dashboard", kind: "direct" as const, updatedAt: 1 };
+  const previous = buildGatewaySessionEventFields({
+    sessionRow: { ...sessionRow, boardPresentation: "expanded" },
+  });
+  expect(previous.boardPresentation).toBe("expanded");
+  const cleared = buildGatewaySessionEventFields({ sessionRow });
+  expect({ ...previous, ...cleared }).toMatchObject({ boardPresentation: null });
+});
+
 it("projects session actors and explicitly clears absent attribution", () => {
   expect(
     buildGatewaySessionEventFields({

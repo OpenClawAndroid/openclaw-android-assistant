@@ -64,6 +64,33 @@ export function sidebarActivePanel(layout: SidebarLayout): SidebarPanel | undefi
   return sidebarSidePanels(layout).find((panel) => panel.id === layout.columns[0]?.activePanelId);
 }
 
+/** Logical presentation, independent of responsive/narrow viewport projection. */
+export function sidebarDashboardPresentation(
+  layout: SidebarLayout,
+): "split" | "expanded" | undefined {
+  if (!isSidebarSlotVisible(layout, "dashboard")) {
+    return undefined;
+  }
+  return layout.expanded || layout.open !== true ? "expanded" : "split";
+}
+
+/** Open without changing panel identities, docking, dimensions, or other panel state. */
+export function openDashboardPresentation(
+  layout: SidebarLayout,
+  presentation: "split" | "expanded",
+): SidebarLayout {
+  let next = openSlot(layout, "dashboard");
+  if (presentation === "expanded") {
+    const dashboard = next.columns[0]?.panels.find((panel) => panel.slot === "dashboard");
+    if (dashboard) {
+      next = promoteSidebarPanel(next, dashboard.id);
+    }
+  } else if (sidebarMainPanel(next)?.slot === "dashboard") {
+    next = openSlot(next, "conversation");
+  }
+  return setSidebarExpanded(next, presentation === "expanded");
+}
+
 export function isSidebarSlotVisible(layout: SidebarLayout, slot: SidebarSlotId): boolean {
   if (layout.expanded && layout.expandedSide) {
     return layout.open === true && sidebarActivePanel(layout)?.slot === slot;

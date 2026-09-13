@@ -1,4 +1,5 @@
 import { getDeliveryQueueEntryStatus } from "../../../infra/delivery-queue-sqlite.js";
+import type { DeliveryQueueStoredStatus } from "../../../infra/delivery-queue-sqlite.kernel.js";
 import { scheduleSessionDelivery } from "../../../infra/session-delivery-queue-runtime.js";
 import {
   prepareClaimedSessionDelivery,
@@ -80,7 +81,7 @@ function projectRedrivenTask(
 export function admitCorrelatedSubagentSessionDelivery(params: {
   runId: string;
   payload: Extract<QueuedSessionDeliveryPayload, { kind: "agentTurn" }>;
-}): { id: string; claimed: boolean; status: "pending" | "failed" | "completed" } {
+}): { id: string; claimed: boolean; status: DeliveryQueueStoredStatus } {
   const current = subagentRuns.get(params.runId);
   if (!current) {
     throw new Error(`subagent completion owner not found: ${params.runId}`);

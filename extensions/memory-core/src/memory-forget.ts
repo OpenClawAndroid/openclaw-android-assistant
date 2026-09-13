@@ -81,7 +81,7 @@ type MemoryRewrite = {
   expectedContent: string;
 };
 type ForgetIndexPlan = {
-  chunks: Array<ForgetDatabase["memory_index_chunks"]>;
+  chunks: Array<Pick<ForgetDatabase["memory_index_chunks"], "id" | "path" | "source">>;
   sources: Array<ForgetDatabase["memory_index_sources"]>;
   ftsRows: number;
   vectorRows: number;
@@ -203,11 +203,18 @@ async function planMemoryIndex(params: {
             "memory_index_chunks.id as id",
             "memory_index_chunks.path as path",
             "memory_index_chunks.source as source",
-            "memory_index_chunks.hash as hash",
-            "memory_index_chunks.text as text",
             "memory_index_chunk_provenance.origin_class as originClass",
             "memory_index_chunk_provenance.session_kind as sessionKind",
-          ]),
+          ])
+          .select((eb) =>
+            eb
+              .case("memory_index_chunks.source")
+              .when("sessions")
+              .then("")
+              .else(eb.ref("memory_index_chunks.text"))
+              .end()
+              .as("text"),
+          ),
       ).rows;
       const changedPaths = new Set(params.changedPaths);
       // Another workspace agent may already have scrubbed the shared file.

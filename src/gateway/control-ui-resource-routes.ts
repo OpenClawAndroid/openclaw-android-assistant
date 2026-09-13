@@ -18,6 +18,7 @@ const CONTROL_UI_RESOURCE_ROUTES = {
   channelAvatar: { prefix: "/__openclaw__/channel-avatar", suffix: "" },
   linkFavicon: { prefix: "/__openclaw__/link-favicon", suffix: "" },
   pluginIcon: { prefix: "/__openclaw__/plugin-icon", suffix: "" },
+  pluginActivityIcon: { prefix: "/__openclaw__/plugin-activity-icon", suffix: "" },
   userAvatar: {
     prefix: CONTROL_UI_USER_AVATAR_PATH_PREFIX.slice(0, -1),
     suffix: CONTROL_UI_USER_AVATAR_PATH_SUFFIX,

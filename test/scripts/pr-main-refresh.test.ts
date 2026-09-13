@@ -801,6 +801,114 @@ read -r release < "$OPENCLAW_TEST_FETCH_HOLD"
   );
 
   it.each([
+    {
+      name: "exact punctuation and case overlaps",
+      preparedPaths: ["src/A-file.ts", "src/a_file.ts", "src/Mixed.Case.ts"],
+      mainPaths: ["src/A-file.ts", "src/a_file.ts", "src/Mixed.Case.ts"],
+      overlaps: ["src/A-file.ts", "src/Mixed.Case.ts", "src/a_file.ts"],
+    },
+    {
+      name: "case-only nonmatches",
+      preparedPaths: ["src/Case-file.ts"],
+      mainPaths: ["src/case-file.ts"],
+      overlaps: [],
+    },
+  ])(
+    "evaluates $name in C locale without changing its caller",
+    ({ preparedPaths, mainPaths, overlaps }) => {
+      const f = fixture();
+      const commitPaths = (base: string, paths: string[], label: string) => {
+        f.git(f.canonical, "checkout", "--detach", base);
+        for (const path of paths) {
+          writeFileSync(join(f.canonical, path), `${label}\n`);
+        }
+        f.git(f.canonical, "add", "--", ...paths);
+        f.git(f.canonical, "commit", "-qm", label);
+        return f.git(f.canonical, "rev-parse", "HEAD");
+      };
+      const preparedHead = commitPaths(f.head, preparedPaths, "test: prepared paths");
+      const incomingMain = commitPaths(f.main, mainPaths, "test: incoming paths");
+      f.git(
+        f.canonical,
+        "push",
+        "origin",
+        `${preparedHead}:refs/heads/topic`,
+        `${preparedHead}:refs/pull/42/head`,
+        `${incomingMain}:refs/heads/main`,
+      );
+      f.git(f.canonical, "checkout", "--detach", f.main);
+      f.git(f.worktree, "checkout", "--detach", preparedHead);
+      f.configure({ metadata: { ...f.metadata, headRefOid: preparedHead } });
+      for (const artifact of ["pr-meta.json", "pr-meta.env", "review.json", "review.md"]) {
+        const path = join(f.local, artifact);
+        writeFileSync(path, readFileSync(path, "utf8").replaceAll(f.head, preparedHead));
+      }
+      const prepared = f.run("prepare-run");
+      expect(prepared.status, prepared.stdout + prepared.stderr).toBe(0);
+
+      const trace = join(f.root, "drift-locales.log");
+      f.env.LC_ALL = "en_US.UTF-8";
+      f.env.DRIFT_LOCALE_TRACE = trace;
+      for (const command of ["sort", "comm"]) {
+        const realCommand = `DRIFT_REAL_${command.toUpperCase()}`;
+        f.env[realCommand] = execFileSync("which", [command], { encoding: "utf8" }).trim();
+        writeFileSync(
+          join(f.root, "bin", command),
+          `#!/bin/sh
+if [ "\${DRIFT_LOCALE_PROBE:-}" = 1 ]; then
+  printf '%s\\t%s\\n' '${command}' "\${LC_ALL:-}" >> "$DRIFT_LOCALE_TRACE"
+fi
+LC_ALL=C exec "$${realCommand}" "$@"
+`,
+          { mode: 0o755 },
+        );
+      }
+      // Observe the actual evaluator's subprocess environment, not host collation behavior.
+      const result = f.shell(`
+eval "$(declare -f mainline_drift_requires_sync | sed '1s/mainline_drift_requires_sync/evaluate_actual_drift/')"
+mainline_drift_requires_sync() {
+  local DRIFT_LOCALE_PROBE=1
+  export DRIFT_LOCALE_PROBE
+  evaluate_actual_drift "$@"
+}
+merge_verify 42 || exit 1
+printf 'caller-locale=%s\\n' "$LC_ALL"
+`);
+      const output = result.stdout + result.stderr;
+      expect(result.status, output).toBe(0);
+      expect(output).toContain("caller-locale=en_US.UTF-8\n");
+      expect(output).not.toContain("Mainline files touching merge-critical infrastructure");
+      if (overlaps.length > 0) {
+        expect(output).toContain(
+          `Mainline files overlapping prepared files (${overlaps.length}):\n${overlaps.map((path) => `  - ${path}`).join("\n")}\n`,
+        );
+        expect(output).toContain("WARNING — mainline drift");
+      } else {
+        expect(output).not.toContain("Mainline files overlapping prepared files");
+        expect(output).toContain("because behind-main drift is unrelated");
+      }
+      expect(existsSync(join(f.local, "merge-output.log"))).toBe(false);
+      expect(f.events().some((event) => event.kind === "gh" && event.args?.includes("merge"))).toBe(
+        false,
+      );
+      expect(
+        f.git(
+          f.canonical,
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/openclaw/pr-merge-outcomes/42",
+        ),
+      ).toBe("");
+      expect(f.git(f.origin, "rev-parse", "refs/heads/main")).toBe(incomingMain);
+      expect(readFileSync(trace, "utf8").trim().split("\n")).toEqual([
+        "sort\tC",
+        "sort\tC",
+        "comm\tC",
+      ]);
+    },
+  );
+
+  it.each([
     [
       "commit read",
       'git() { if [ "${DRIFT_FAULT_ACTIVE:-}" = 1 ] && [ "$1" = cat-file ]; then return 1; fi; command git "$@"; }',

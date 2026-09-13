@@ -23,7 +23,7 @@ function routeData(sessions: SessionsListResult["sessions"], basePath = ""): Das
 
 describe("dashboards index", () => {
   it.each(["", "/openclaw"])(
-    "links each dashboard back to its owning chat with the panel expanded at %s",
+    "links each dashboard to an ordinary open that respects presentation defaults at %s",
     (basePath) => {
       const container = document.createElement("div");
       render(
@@ -48,7 +48,7 @@ describe("dashboards index", () => {
       expect(row?.textContent).toContain("Deploy monitor");
       expect(
         row?.querySelector<HTMLAnchorElement>(".dashboard-card__main")?.getAttribute("href"),
-      ).toBe(`${basePath}/chat/main/deploy-monitor-12345678?dashboard=expanded`);
+      ).toBe(`${basePath}/dashboard/main/deploy-monitor-12345678`);
     },
   );
 

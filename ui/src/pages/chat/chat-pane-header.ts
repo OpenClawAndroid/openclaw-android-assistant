@@ -139,6 +139,7 @@ export abstract class ChatPaneHeader extends ChatPaneDiscussion {
               @click=${() =>
                 this.state?.updateSidebarLayout(
                   setSidebarExpanded(ensureSidebarConversation(layout), layout.expanded !== true),
+                  { dashboardPresentation: "personal" },
                 )}
             >
               ${layout.expanded ? icons.minimize : icons.maximize}
@@ -169,7 +170,9 @@ export abstract class ChatPaneHeader extends ChatPaneDiscussion {
             @wa-select=${(event: CustomEvent<{ item: { value?: string } }>) => {
               const dock = event.detail.item.value;
               if (dock === "left" || dock === "right" || dock === "bottom") {
-                this.state?.updateSidebarLayout(setSidebarDock(layout, dock));
+                this.state?.updateSidebarLayout(setSidebarDock(layout, dock), {
+                  geometryOnly: true,
+                });
               }
             }}
           >
@@ -443,6 +446,10 @@ export abstract class ChatPaneHeader extends ChatPaneDiscussion {
       onActivate: toggleSessionRail,
     });
     const layoutMenuActions: HeaderMenuQuickAction[] = [];
+    const defaultAction = !catalog && this.dashboardDefaultMenuAction(row, currentLayout);
+    if (defaultAction) {
+      layoutMenuActions.push({ id: "dashboard-default", icon: icons.check, ...defaultAction });
+    }
     if (this.onOpenSplitView) {
       layoutMenuActions.push({
         id: "open-split-view",

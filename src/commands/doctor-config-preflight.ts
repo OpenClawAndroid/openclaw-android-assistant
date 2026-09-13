@@ -183,6 +183,18 @@ export async function runDoctorConfigPreflight(
     startupMigrationLease = await migrationCheckpoint.acquireStartupMigrationLeaseWithWait({
       env: startupMigrationEnv,
     });
+    // Database admission can outlast the lease TTL; renew throughout the awaited reread.
+    startupMigrationHeartbeat = setInterval(() => {
+      try {
+        startupMigrationLease?.heartbeat();
+      } catch (error) {
+        startupMigrationHeartbeatError =
+          error instanceof Error
+            ? error
+            : new Error("OpenClaw startup migration lease heartbeat failed.");
+      }
+    }, 60_000);
+    startupMigrationHeartbeat.unref?.();
     // Another process may have completed the same work between our pre-lease read and acquisition.
     // Refresh every checkpoint input under the lease so only work still missing from state runs.
     configSnapshotRead = gatewayStartupCheckpointRequired
@@ -196,21 +208,12 @@ export async function runDoctorConfigPreflight(
       !hasPendingPluginInstallConfig(configSnapshotRead.snapshot) &&
       !configSnapshotRead.recovery
     ) {
+      clearInterval(startupMigrationHeartbeat);
+      startupMigrationHeartbeat = undefined;
       startupMigrationLease.release();
       startupMigrationLease = undefined;
       return;
     }
-    startupMigrationHeartbeat = setInterval(() => {
-      try {
-        startupMigrationLease?.heartbeat();
-      } catch (error) {
-        startupMigrationHeartbeatError =
-          error instanceof Error
-            ? error
-            : new Error("OpenClaw startup migration lease heartbeat failed.");
-      }
-    }, 60_000);
-    startupMigrationHeartbeat.unref?.();
     // Restore only the backup admitted under this lease, before any other repair.
     await configSnapshotRead.recovery?.apply(startupMigrationLease.heartbeat);
   };
@@ -545,9 +548,7 @@ export async function runDoctorConfigPreflight(
           noteStartupStateMigrationResult(cronResult);
           if (options.repairPrefixedConfig === true) {
             const cronCodexPlan = await measurePreflightStep("cron-policy-scan", () =>
-              collectCronCodexRuntimePolicyTargetsReadOnly({
-                cfg: migrationConfig,
-              }),
+              collectCronCodexRuntimePolicyTargetsReadOnly({ cfg: migrationConfig }),
             );
             cronCodexRuntimePolicyTargets.push(...cronCodexPlan.targets);
             noteStartupStateMigrationResult({ changes: [], warnings: cronCodexPlan.warnings });

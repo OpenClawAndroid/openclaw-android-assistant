@@ -117,6 +117,7 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
         return await delegate.lookup(key);
       },
       async delete(key) {
+        await beforeWrite();
         const deleted = await delegate.delete(key);
         if (deleted) {
           await afterWrite(key);
@@ -314,6 +315,149 @@ describe("WorkboardStore", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it.each(["unchanged", "edited"] as const)(
+    "reports only committed reference cleanup revisions for %s peers",
+    async (peerChange) => {
+      const harness = createConcurrentSqliteHarness("openclaw-workboard-delete-references-");
+      try {
+        const parent = await harness.host.create({ title: "Selected parent" });
+        const child = await harness.host.create({ title: "Selected child" });
+        const unrelated = await harness.host.create({ title: "Unrelated" });
+        const linked = await harness.host.linkCards(parent.id, child.id);
+        const deleted = harness.paused.pauseAfterMatchingWrite(
+          (key, value) => key === parent.id && value === undefined,
+        );
+        const pending = harness.operation.delete(parent.id);
+        const outcome = pending.then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+        await deleted.reached;
+        const cleanup = harness.paused.pauseNextWrite();
+        deleted.resume();
+        await cleanup.reached;
+        let beforeCleanup = linked;
+        if (peerChange === "edited") {
+          await harness.host.addComment(child.id, { body: "Keep this external comment" });
+          beforeCleanup = await harness.host.addLink(child.id, {
+            targetCardId: unrelated.id,
+            type: "relates_to",
+          });
+        }
+        cleanup.resume();
+        const result = await outcome;
+        expect(result).not.toHaveProperty("error");
+        const current = await harness.host.get(child.id);
+        expect(
+          current?.metadata?.links?.some((link) => link.targetCardId === parent.id) ?? false,
+        ).toBe(false);
+        if (peerChange === "edited") {
+          expect(current?.metadata?.comments).toEqual(beforeCleanup.metadata?.comments);
+          expect(current?.metadata?.links).toEqual(
+            beforeCleanup.metadata?.links?.filter((link) => link.targetCardId !== parent.id),
+          );
+        }
+        expect(result).toEqual({
+          value: {
+            deleted: true,
+            referenceUpdates: [
+              {
+                id: child.id,
+                previousUpdatedAt: beforeCleanup.updatedAt,
+                updatedAt: current?.updatedAt,
+              },
+            ],
+          },
+        });
+        await expect(harness.host.get(unrelated.id)).resolves.toEqual(unrelated);
+        await expect(
+          harness.operation.delete(child.id, { expectedUpdatedAt: current?.updatedAt }),
+        ).resolves.toEqual({ deleted: true });
+      } finally {
+        await harness.close();
+      }
+    },
+  );
+
+  it.each(["move", "archive", "delete"] as const)(
+    "rejects stale %s without changing the newer card",
+    async (action) => {
+      const harness = createConcurrentSqliteHarness("openclaw-workboard-action-cas-");
+      try {
+        const base = await harness.host.create({ title: "Original", status: "todo" });
+        const newer = await harness.host.update(base.id, { title: "Newer title" });
+        const options = { expectedUpdatedAt: base.updatedAt };
+        const pending =
+          action === "move"
+            ? harness.operation.move(base.id, "blocked", 2000, undefined, options)
+            : action === "archive"
+              ? harness.operation.archive(base.id, true, options)
+              : harness.operation.delete(base.id, options);
+        await expect(pending).rejects.toMatchObject({
+          name: "WorkboardCardConflictError",
+          current: newer,
+        });
+        await expect(harness.host.get(base.id)).resolves.toEqual(newer);
+        const currentOptions = { expectedUpdatedAt: newer.updatedAt };
+        if (action === "delete") {
+          await expect(harness.operation.delete(base.id, currentOptions)).resolves.toEqual({
+            deleted: true,
+          });
+          await expect(harness.host.get(base.id)).resolves.toBeUndefined();
+        } else if (action === "move") {
+          await harness.operation.move(base.id, "blocked", 2000, undefined, currentOptions);
+          await expect(harness.host.get(base.id)).resolves.toMatchObject({
+            title: "Newer title",
+            status: "blocked",
+            position: 2000,
+          });
+        } else {
+          await harness.operation.archive(base.id, true, currentOptions);
+          await expect(harness.host.get(base.id)).resolves.toMatchObject({
+            title: "Newer title",
+            metadata: { archivedAt: expect.any(Number) },
+          });
+        }
+      } finally {
+        await harness.close();
+      }
+    },
+  );
+
+  it.each(["move", "archive", "delete"] as const)(
+    "rejects %s when another host writes after the initial read",
+    async (action) => {
+      const harness = createConcurrentSqliteHarness("openclaw-workboard-action-race-");
+      try {
+        const base = await harness.host.create({ title: "Original", status: "todo" });
+        const pause = harness.paused.pauseNextWrite();
+        const options = { expectedUpdatedAt: base.updatedAt };
+        const pending =
+          action === "move"
+            ? harness.operation.move(base.id, "blocked", 2000, undefined, options)
+            : action === "archive"
+              ? harness.operation.archive(base.id, true, options)
+              : harness.operation.delete(base.id, options);
+        const outcome = pending.then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+        await pause.reached;
+        const newer = await harness.host.update(base.id, {
+          title: "Host edit",
+          labels: ["preserved"],
+        });
+        pause.resume();
+        await expect(outcome).resolves.toMatchObject({
+          error: { name: "WorkboardCardConflictError", current: newer },
+        });
+        await expect(harness.host.get(base.id)).resolves.toEqual(newer);
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it("rejects stale card edits across sqlite connections", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-cas-"));
@@ -958,6 +1102,68 @@ describe("WorkboardStore", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("preserves legacy empty board appearance and persists explicit clears", async () => {
+    const dir = tempDirs.make("openclaw-workboard-appearance-");
+    const dbPath = path.join(dir, "workboard.sqlite");
+    const stores = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    try {
+      const store = new WorkboardStore(stores.cards, sqliteTestAuxStores(stores));
+      await store.upsertBoard({ id: "planning", name: "Planning", icon: "rocket", color: "blue" });
+      expect(await store.upsertBoard({ id: "planning", name: "Renamed" })).toMatchObject({
+        name: "Renamed",
+        icon: "rocket",
+        color: "blue",
+      });
+      for (const value of [null, "", "   "]) {
+        expect(
+          await store.upsertBoard({ id: "planning", icon: value, color: value }),
+        ).toMatchObject({
+          icon: "rocket",
+          color: "blue",
+        });
+      }
+      const withoutIcon = await store.upsertBoard({
+        id: "planning",
+        icon: "ignored replacement",
+        clearAppearance: ["icon"],
+      });
+      expect(withoutIcon.icon).toBeUndefined();
+      expect(withoutIcon.color).toBe("blue");
+      const withoutColor = await store.upsertBoard({ id: "planning", clearAppearance: ["color"] });
+      expect(withoutColor.icon).toBeUndefined();
+      expect(withoutColor.color).toBeUndefined();
+    } finally {
+      await stores.close();
+    }
+    const reopened = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    try {
+      const store = new WorkboardStore(reopened.cards, sqliteTestAuxStores(reopened));
+      const board = (await store.listBoards()).boards.find((item) => item.id === "planning");
+      expect(board).toMatchObject({ name: "Renamed" });
+      expect(board?.icon).toBeUndefined();
+      expect(board?.color).toBeUndefined();
+    } finally {
+      await reopened.close();
+    }
+  });
+
+  it.each([null, true, "icon", ["name"], [null]].map((clearAppearance) => ({ clearAppearance })))(
+    "rejects malformed appearance clearing without modifying the board: $clearAppearance",
+    async ({ clearAppearance }) => {
+      const store = createWorkboardSqliteTestStore();
+      await store.upsertBoard({ id: "planning", icon: "rocket", color: "blue" });
+      await expect(store.upsertBoard({ id: "planning", clearAppearance })).rejects.toThrow(
+        "clearAppearance must be an array",
+      );
+      expect(
+        (await store.listBoards()).boards.find((board) => board.id === "planning"),
+      ).toMatchObject({
+        icon: "rocket",
+        color: "blue",
+      });
+    },
+  );
 
   it.each([
     ["", "non-empty string"],

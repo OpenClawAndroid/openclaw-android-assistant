@@ -1,8 +1,9 @@
 // @vitest-environment node
 // Control UI tests cover chat responsive behavior.
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserContext, type Page } from "playwright";
 import { expect as expectBrowser } from "playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { QueueMode } from "../../../../packages/gateway-protocol/src/schema/logs-chat.ts";
@@ -5593,4 +5594,88 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
     });
   });
 });
+for (const engine of [chromium, webkit]) {
+  const executablePath = engine === chromium ? chromiumExecutablePath : engine.executablePath();
+  // The normal UI lane provisions Chromium; run the same regression in WebKit
+  // when installed so Safari's different intrinsic grid sizing stays covered.
+  describe.skipIf(!existsSync(executablePath))(
+    `${engine.name()} image alignment`,
+    { concurrent: false },
+    () => {
+      let browser: Browser;
+      beforeAll(async () => {
+        browser = await engine.launch({ executablePath });
+      });
+      afterAll(async () => {
+        await browser?.close();
+      });
+      it.each([
+        [1440, 1600, 1200],
+        [1440, 1800, 420],
+        [375, 1800, 420],
+      ])(
+        "keeps %ipx-wide chat image frames on their visible edges (%i×%i)",
+        async (viewportWidth, width, height) => {
+          await withBrowserPage(
+            browser.newPage({ viewport: { width: viewportWidth, height: 900 } }),
+            async (page) => {
+              const source = `data:image/svg+xml,${encodeURIComponent(
+                `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="teal"/></svg>`,
+              )}`;
+              await page.setContent(`<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+                <main style="width: 740px; max-width: 100%; margin: auto">
+                  ${["user", "user chat-group--peer", "assistant"]
+                    .map(
+                      (role) => `<div class="chat-group ${role}">
+                        <div class="chat-group-messages">
+                          <div class="chat-bubble chat-bubble--with-images">
+                            <div class="chat-message-images chat-message-images--single">
+                              <span class="chat-image-frame"><button class="chat-message-image-button" type="button">
+                                <img class="chat-message-image" src="${source}" width="${width}" height="${height}" alt="Large attachment" />
+                              </button></span>
+                            </div>
+                            <div class="chat-text">Review this image.</div>
+                          </div>
+                        </div>
+                      </div>`,
+                    )
+                    .join("")}
+                </main></body></html>`);
+              await page
+                .locator("img")
+                .evaluateAll((images: HTMLImageElement[]) =>
+                  Promise.all(images.map((image) => image.decode())),
+                );
+              const rows = await page.locator(".chat-group").evaluateAll((groups) =>
+                groups.map((group) => {
+                  const box = (selector: string) =>
+                    group.querySelector(selector)!.getBoundingClientRect();
+                  const image = box("img");
+                  const frame = box(".chat-image-frame");
+                  const text = box(".chat-text");
+                  const own =
+                    group.classList.contains("user") &&
+                    !group.classList.contains("chat-group--peer");
+                  return {
+                    frameGap: frame.right - image.right,
+                    textGap: own ? text.right - image.right : image.left - text.left,
+                    width: image.width,
+                    height: image.height,
+                    laneWidth: box(".chat-group-messages").width,
+                  };
+                }),
+              );
+              for (const row of rows) {
+                expect(Math.abs(row.frameGap)).toBeLessThanOrEqual(1);
+                expect(Math.abs(row.textGap)).toBeLessThanOrEqual(1);
+                expect(row.width).toBeLessThanOrEqual(Math.min(400, row.laneWidth) + 1);
+                expect(row.width / row.height).toBeCloseTo(width / height, 1);
+              }
+            },
+          );
+        },
+      );
+    },
+  );
+}
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

@@ -32,6 +32,10 @@ import {
   resolveDefaultPluginNpmDir,
   resolvePluginInstallDir,
 } from "../../../plugins/install-paths.js";
+import {
+  copyPluginInstallTransactionRequest,
+  retainPluginInstallTransaction,
+} from "../../../plugins/install-transaction.js";
 import { isUnavailableNpmTarget } from "../../../plugins/install-types.js";
 import { installPluginFromNpmSpec } from "../../../plugins/install.js";
 import {
@@ -249,14 +253,14 @@ async function installCandidatePackage(
             spec,
             source.expectedIntegrity,
           );
-          const options = {
+          const options = copyPluginInstallTransactionRequest(params, {
             spec,
             config: params.config,
             extensionsDir,
             expectedPluginId: candidate.pluginId,
             expectedIntegrity: source.expectedIntegrity,
             onBeforePluginArtifactCommit: capabilityConsent.onBeforePluginArtifactCommit,
-          };
+          });
           if (source.source === "clawhub") {
             const result = await installPluginFromClawHub({
               ...options,
@@ -268,6 +272,7 @@ async function installCandidatePackage(
                 warn: (message) => warnings.push(stripAnsi(message)),
               },
             });
+            retainPluginInstallTransaction(params, result);
             return { result, capabilityConsent };
           }
           const mode = params.mode === "update" || existingNpmPackagePath ? "update" : "install";
@@ -282,6 +287,7 @@ async function installCandidatePackage(
           if (!result.ok && mode === "install" && isPluginAlreadyExistsError(result.error)) {
             result = await install("update");
           }
+          retainPluginInstallTransaction(params, result);
           return { result, capabilityConsent };
         },
         isRetryable: (attempt) =>

@@ -3304,14 +3304,53 @@ describe("runGatewayLoop", () => {
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
-      expect(acquireGatewayLock).toHaveBeenNthCalledWith(1, { port: 18789 });
-      expect(acquireGatewayLock).toHaveBeenNthCalledWith(2, { port: 18789 });
-      expect(acquireGatewayLock).toHaveBeenNthCalledWith(3, { port: 18789 });
+      expect(acquireGatewayLock).toHaveBeenNthCalledWith(1, {
+        port: 18789,
+        listenerMode: "foreground",
+        supervisor: null,
+      });
+      expect(acquireGatewayLock).toHaveBeenNthCalledWith(2, {
+        port: 18789,
+        listenerMode: "foreground",
+        supervisor: null,
+      });
+      expect(acquireGatewayLock).toHaveBeenNthCalledWith(3, {
+        port: 18789,
+        listenerMode: "foreground",
+        supervisor: null,
+      });
 
       sigterm();
       await expect(exited).resolves.toBe(0);
     });
   });
+
+  it.each([
+    { env: { OPENCLAW_SUPERVISOR_MODE: "external" }, supervisor: { kind: "external", name: null } },
+    {
+      env: { OPENCLAW_WINDOWS_TASK_NAME: "Fixture Gateway" },
+      supervisor: { kind: "schtasks", name: "Fixture Gateway" },
+    },
+  ])(
+    "publishes the $supervisor.kind supervisor identity at lock acquisition",
+    async ({ env, supervisor }) => {
+      setPlatform("win32");
+      for (const [key, value] of Object.entries(env)) {
+        vi.stubEnv(key, value);
+      }
+      await withIsolatedSignals(async ({ captureSignal }) => {
+        const { exited } = await createSignaledLoopHarness();
+        expect(acquireGatewayLock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            listenerMode: "supervised",
+            supervisor,
+          }),
+        );
+        captureSignal("SIGTERM")();
+        await expect(exited).resolves.toBe(0);
+      });
+    },
+  );
 
   it("exits when lock reacquire fails during in-process restart fallback", async () => {
     vi.clearAllMocks();

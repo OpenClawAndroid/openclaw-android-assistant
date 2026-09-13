@@ -269,6 +269,7 @@ async function linkOpenClawPeerDependency(params: {
   }
 
   const warn = (error: unknown): "skipped" => {
+    params.beforePersistentApply?.();
     params.logger.warn?.(`Failed to symlink peerDependency "${params.peerName}": ${String(error)}`);
     return "skipped";
   };
@@ -389,8 +390,9 @@ export async function reconcileRegisteredOpenClawHostLinks(params: {
   env?: NodeJS.ProcessEnv;
   mode: "audit" | "repair";
   logger?: PluginPeerLinkLogger;
-  beforePersistentEffect?: () => void | Promise<void>;
   onPackageReadError?: (error: unknown, packageDir: string) => void;
+  beforePersistentApply?: () => void;
+  beforePersistentEffect?: () => void | Promise<void>;
 }): Promise<RegisteredOpenClawHostLinkResult> {
   const extensionsRoot = path.resolve(params.extensionsDir);
   const extensionsRootRealPath = await safeRealpath(extensionsRoot);
@@ -467,6 +469,7 @@ export async function reconcileRegisteredOpenClawHostLinks(params: {
       installedDir: packageDir,
       peerDependencies: dependencies,
       logger: params.logger ?? {},
+      beforePersistentApply: params.beforePersistentApply,
       beforePersistentEffect: params.beforePersistentEffect,
     });
     repaired += result.repaired;
@@ -479,8 +482,8 @@ export async function relinkOpenClawPeerDependenciesInManagedNpmRoot(params: {
   npmRoot: string;
   beforePersistentApply?: () => void;
   logger: PluginPeerLinkLogger;
-  beforePersistentEffect?: () => void | Promise<void>;
   onPackageReadError?: (error: unknown, packageDir: string) => void;
+  beforePersistentEffect?: () => void | Promise<void>;
 }): Promise<RelinkManagedNpmRootResult> {
   let checked = 0;
   let attempted = 0;

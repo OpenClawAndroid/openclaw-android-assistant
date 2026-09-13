@@ -498,7 +498,10 @@ describe("preserved update activation with real version guards", () => {
       );
       expect(mocks.health.mock.calls.every(([args]) => args.port === 19305)).toBe(true);
       if (retried) {
-        expect(mocks.terminateStale).toHaveBeenCalledWith([4242]);
+        expect(mocks.terminateStale).toHaveBeenCalledWith(
+          [4242],
+          expect.objectContaining({ env: expect.any(Object), assertCurrent: expect.any(Function) }),
+        );
       }
       if (allowed) {
         expect(await mocks.command(process.env)).toEqual(commandBefore);
@@ -943,7 +946,10 @@ describe("preserved update activation with real version guards", () => {
       expect(afterBootstrap).not.toContainEqual(["kickstart", "-k", target]);
     }
     if (scenario === "stale retry") {
-      expect(mocks.terminateStale).toHaveBeenCalledWith([4242]);
+      expect(mocks.terminateStale).toHaveBeenCalledWith(
+        [4242],
+        expect.objectContaining({ env: expect.any(Object), assertCurrent: expect.any(Function) }),
+      );
       expect(mocks.launchctl.mock.calls.filter(([args]) => args[0] === "kickstart")).toHaveLength(
         2,
       );

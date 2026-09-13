@@ -43,7 +43,7 @@ import {
 } from "./attachment-payload-store.ts";
 import { makeChatHost } from "./chat-host.test-support.ts";
 import { createChatModelSetupBanner } from "./chat-model-setup.ts";
-import { applyChatPendingInputs } from "./chat-pending-inputs.ts";
+import { applyChatPendingInputs, getChatPendingInputs } from "./chat-pending-inputs.ts";
 import * as chatProgress from "./chat-progress.ts";
 import { switchChatFastMode, switchChatModel, switchChatThinkingLevel } from "./chat-session.ts";
 import { groupMessages } from "./chat-thread-grouping.ts";
@@ -66,6 +66,10 @@ import {
   resetTranscriptSession,
   toggleTranscriptSearch,
 } from "./components/chat-thread-interactions.ts";
+import {
+  installTranscriptDomMocks,
+  resetTranscriptTestDom,
+} from "./components/chat-transcript.test-support.ts";
 import { renderWelcomeState } from "./components/chat-welcome.ts";
 import { RealtimeTalkLevelSignal } from "./realtime-talk-level.ts";
 import {
@@ -96,6 +100,14 @@ function visibleContentForMessages(messages: unknown[]): MessageGroup["visibleCo
   return groups.some((group) => group.kind === "group" && group.visibleContent === "text")
     ? "text"
     : "none";
+}
+
+function createMessageEntry(key: string, message: unknown): MessageGroup["messages"][number] {
+  const [group] = groupMessages([{ kind: "message", key, message }]);
+  if (group?.kind !== "group") {
+    throw new Error("expected a prepared message group");
+  }
+  return expectDefined(group.messages[0], "Prepared message entry");
 }
 
 const buildChatItemsMock = vi.fn(
@@ -160,7 +172,7 @@ const buildChatItemsMock = vi.fn(
               kind: "group",
               key: `group:${key}`,
               role: testMessage.testVirtualRole ?? (index % 2 === 0 ? "user" : "assistant"),
-              messages: [{ key: `message:${key}`, message }],
+              messages: [createMessageEntry(`message:${key}`, message)],
               visibleContent: visibleContentForMessages([message]),
               timestamp: index + 1,
               isStreaming: false,
@@ -173,10 +185,9 @@ const buildChatItemsMock = vi.fn(
           key: "group:assistant:test",
           role: "assistant",
           runId: (props.messages.at(-1) as { runId?: string } | undefined)?.runId,
-          messages: props.messages.map((message, index) => ({
-            key: `message:${index}`,
-            message,
-          })),
+          messages: props.messages.map((message, index) =>
+            createMessageEntry(`message:${index}`, message),
+          ),
           visibleContent: visibleContentForMessages(props.messages),
           timestamp: 1,
           isStreaming: false,
@@ -319,6 +330,7 @@ function renderWorkGroupSummaryMock(
 }
 
 beforeEach(() => {
+  installTranscriptDomMocks();
   vi.spyOn(chatThread, "buildCachedChatItems").mockImplementation(buildChatItemsMock);
   vi.spyOn(chatThread, "getExpandedToolCards").mockReturnValue(new Map<string, boolean>());
   vi.spyOn(chatThread, "getExpandedUserMessages").mockReturnValue(new Map<string, boolean>());
@@ -1651,6 +1663,57 @@ describe("chat history pagination", () => {
 });
 
 describe("retained input navigation", () => {
+  it("keeps an empty filtered page navigable without blocking an independent send", async () => {
+    const sessionKey = "agent:main:hidden-page";
+    const sessionId = "hidden-page-session";
+    const olderPage = {
+      total: 21,
+      items: [
+        {
+          id: "older-visible",
+          acceptedAt: 1,
+          state: "interrupted" as const,
+          message: { role: "user", content: "Older visible input" },
+        },
+      ],
+    };
+    const historyState = makeChatHost({
+      sessionKey,
+      currentSessionId: sessionId,
+      requestHandlers: { "chat.history": () => ({ sessionId, pendingInputs: olderPage }) },
+    });
+    applyChatPendingInputs(historyState, { total: 21, items: [], nextBefore: 2 });
+    const onSend = vi.fn();
+    const container = renderChatView({
+      historyState,
+      sessionKey,
+      draft: "Independent work",
+      getDraft: () => "Independent work",
+      onSend,
+    });
+    const earlier = expectDefined(
+      [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+        button.textContent?.includes(t("chat.pendingInputs.earlier")),
+      ),
+      "earlier pending-input navigation",
+    );
+    expect(earlier.disabled).toBe(false);
+    const send = expectDefined(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+      "send button",
+    );
+    expect(send.disabled).toBe(false);
+    send.click();
+    expect(onSend).toHaveBeenCalledOnce();
+    earlier.click();
+    await vi.waitFor(() => expect(getChatPendingInputs(historyState)?.page).toEqual(olderPage));
+    expect(historyState.request).toHaveBeenCalledWith(
+      "chat.history",
+      expect.objectContaining({ pendingBefore: 2 }),
+    );
+    expect(historyState.chatMessages).toEqual([]);
+  });
+
   it.each(["pending custody", "transcript"] as const)(
     "hides the retained queue copy represented by %s without hiding an identical new send",
     (source) => {
@@ -1921,7 +1984,7 @@ describe("chat transcript rendering", () => {
         key: "group:assistant:reply-callback-cache",
         role: "assistant",
         visibleContent: "text",
-        messages: [{ key: "message:reply-callback-cache", message }],
+        messages: [createMessageEntry("message:reply-callback-cache", message)],
         timestamp: 1,
         isStreaming: false,
       },
@@ -2120,17 +2183,14 @@ describe("chat transcript rendering", () => {
         role: "user" as const,
         visibleContent: "text" as const,
         messages: [
-          {
-            key: "user:attachment-run",
-            message: {
-              role: "user",
-              content: "Send the attachment",
-              __openclaw: {
-                id: "user:attachment-run",
-                idempotencyKey: "attachment-run:user",
-              },
+          createMessageEntry("user:attachment-run", {
+            role: "user",
+            content: "Send the attachment",
+            __openclaw: {
+              id: "user:attachment-run",
+              idempotencyKey: "attachment-run:user",
             },
-          },
+          }),
         ],
         timestamp: 1,
         isStreaming: false,
@@ -2141,14 +2201,11 @@ describe("chat transcript rendering", () => {
         role: "assistant" as const,
         visibleContent: "non-text" as const,
         messages: [
-          {
-            key: "assistant:attachment-run",
-            message: {
-              role: "assistant",
-              content: attachmentOnly.content,
-              runId: "attachment-run",
-            },
-          },
+          createMessageEntry("assistant:attachment-run", {
+            role: "assistant",
+            content: attachmentOnly.content,
+            runId: "attachment-run",
+          }),
         ],
         timestamp: 2,
         isStreaming: false,
@@ -2178,7 +2235,7 @@ describe("chat transcript rendering", () => {
         const reply = {
           ...completedFailure,
           key: `group:assistant:long-${index}`,
-          messages: [{ key: `assistant:long-${index}`, message }],
+          messages: [createMessageEntry(`assistant:long-${index}`, message)],
           isStreaming: flow === "active",
         };
         const items = flow === "ordinary" ? [reply] : [runBoundary, reply];
@@ -2197,7 +2254,7 @@ describe("chat transcript rendering", () => {
 
         vi.mocked(chatThread.buildCachedChatItems).mockReturnValue([
           ...items.slice(0, -1),
-          { ...reply, messages: [{ key: `assistant:long-${index}`, message: mixed }] },
+          { ...reply, messages: [createMessageEntry(`assistant:long-${index}`, mixed)] },
         ]);
         renderChatInto(container, { transcript, messages: [mixed] });
         expect(container.querySelector(".chat-transcript-announcement")?.textContent).toBe(
@@ -2732,8 +2789,7 @@ afterEach(() => {
   chatMediaRenderVersionMock.value = 0;
   resetChatViewState();
   replaceSlashCommands(buildFallbackSlashCommands());
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  resetTranscriptTestDom();
 });
 
 describe("per-pane chat presentation state", () => {
@@ -2910,7 +2966,7 @@ describe("chat transcript rendering cache", () => {
         key: "group:user:test",
         role: "user",
         visibleContent: "text",
-        messages: [{ key: "message:user:test", message: messages[0] }],
+        messages: [createMessageEntry("message:user:test", messages[0])],
         timestamp: 1,
         isStreaming: false,
       },
@@ -3259,10 +3315,11 @@ describe("chat loading skeleton", () => {
         role: "assistant",
         visibleContent: "text",
         messages: [
-          {
-            key: "message:assistant:test",
-            message: { role: "assistant", content: "Interim answer", timestamp: 1 },
-          },
+          createMessageEntry("message:assistant:test", {
+            role: "assistant",
+            content: "Interim answer",
+            timestamp: 1,
+          }),
         ],
         timestamp: 1,
         isStreaming: false,
@@ -3273,10 +3330,11 @@ describe("chat loading skeleton", () => {
         role: "tool",
         visibleContent: "text",
         messages: [
-          {
-            key: "message:tool:test",
-            message: { role: "tool", content: "Later tool result", timestamp: 2 },
-          },
+          createMessageEntry("message:tool:test", {
+            role: "tool",
+            content: "Later tool result",
+            timestamp: 2,
+          }),
         ],
         timestamp: 2,
         isStreaming: false,
@@ -9953,6 +10011,55 @@ describe("right-click Reply", () => {
   const renderReply = (overrides: Partial<ChatProps> = {}) =>
     renderChatView({ replyTarget, ...overrides });
 
+  function createReplyPane(paneId: string, draft: string, quote: string) {
+    const container = document.createElement("div");
+    const host: Pick<ChatProps, "draft" | "replyTarget"> = {
+      draft,
+      replyTarget: { ...replyTarget, messageId: `${paneId}-message`, text: quote },
+    };
+    const onSend = vi.fn();
+    const onAbort = vi.fn();
+    const onDraftChange = vi.fn((next: string) => {
+      host.draft = next;
+    });
+    const onRequestUpdate = vi.fn(() => redraw());
+    const onClearReply = vi.fn(() => {
+      host.replyTarget = null;
+      redraw();
+    });
+    function redraw() {
+      renderChatInto(container, {
+        paneId,
+        sessionKey: `agent:main:${paneId}`,
+        draft: host.draft,
+        getDraft: () => host.draft,
+        replyTarget: host.replyTarget,
+        canAbort: true,
+        runActive: true,
+        onDraftChange,
+        onRequestUpdate,
+        onClearReply,
+        onSend,
+        onAbort,
+      });
+    }
+    return {
+      container,
+      host,
+      redraw,
+      onDraftChange,
+      onRequestUpdate,
+      onClearReply,
+      onSend,
+      onAbort,
+      dispose: () => {
+        render(null, container);
+        container.remove();
+        resetChatViewState(paneId, container);
+      },
+    };
+  }
+
   function dispatchContextMenu(target: EventTarget): MouseEvent {
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     target.dispatchEvent(event);
@@ -10304,19 +10411,172 @@ describe("right-click Reply", () => {
     expect(onClearReply).toHaveBeenCalledTimes(1);
   });
 
-  it("clears reply target on Escape when no other handler intercepted", () => {
+  it.each([false, true])("clears reply target on Escape with shiftKey=%s", (shiftKey) => {
     const onClearReply = vi.fn();
     const container = renderReply({ onClearReply });
 
     const section = container.querySelector<HTMLElement>(".card.chat");
     const evt = new KeyboardEvent("keydown", {
       key: "Escape",
+      shiftKey,
       bubbles: true,
       cancelable: true,
     });
     section!.dispatchEvent(evt);
 
+    expect(evt.defaultPrevented).toBe(true);
     expect(onClearReply).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["isComposing", "keyCode229", "live", "rerendered-live", "prevented"])(
+    "preserves the reply and draft for %s Escape before deliberate reply clearing and abort",
+    (mode) => {
+      const draft = "Keep this reply draft";
+      const quote = "Keep this quoted message";
+      const pane = createReplyPane(`reply-${mode}`, draft, quote);
+      try {
+        document.body.append(pane.container);
+        pane.redraw();
+        const textarea = getComposerTextarea(pane.container);
+        textarea.focus();
+        expect(document.activeElement).toBe(textarea);
+        expect(textarea.value).toBe(draft);
+        expect(pane.container.querySelector(".chat-reply-preview__text")?.textContent).toBe(quote);
+        const updatesBeforeComposition = pane.onRequestUpdate.mock.calls.length;
+        const live = mode === "live" || mode === "rerendered-live";
+        if (live) {
+          textarea.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+          expect(pane.onRequestUpdate).toHaveBeenCalledTimes(updatesBeforeComposition);
+        }
+        const visibleDraft = mode === "rerendered-live" ? `${draft} composing` : draft;
+        if (mode === "rerendered-live") {
+          textarea.value = visibleDraft;
+          textarea.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+          expect(pane.onRequestUpdate.mock.calls.length).toBeGreaterThan(updatesBeforeComposition);
+          expect(pane.onDraftChange).not.toHaveBeenCalled();
+        }
+        const event = new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+          isComposing: mode === "isComposing",
+          keyCode: mode === "keyCode229" ? 229 : 0,
+        });
+        if (mode === "prevented") {
+          event.preventDefault();
+        }
+        expect(event).toMatchObject({
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+          isComposing: mode === "isComposing",
+          keyCode: mode === "keyCode229" ? 229 : 0,
+          defaultPrevented: mode === "prevented",
+        });
+        textarea.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(mode === "prevented");
+        expect(getComposerTextarea(pane.container)).toBe(textarea);
+        expect(textarea.value).toBe(visibleDraft);
+        expect(document.activeElement).toBe(textarea);
+        expect(pane.host.draft).toBe(draft);
+        expect(pane.host.replyTarget?.text).toBe(quote);
+        expect(pane.container.querySelector(".chat-reply-preview__text")?.textContent).toBe(quote);
+        expect(pane.onClearReply).not.toHaveBeenCalled();
+        expect(pane.onSend).not.toHaveBeenCalled();
+        expect(pane.onAbort).not.toHaveBeenCalled();
+
+        if (mode === "live") {
+          textarea.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+        } else if (mode === "rerendered-live") {
+          textarea.blur();
+          textarea.focus();
+        }
+        expect(pane.host.draft).toBe(visibleDraft);
+        const clear = new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        });
+        textarea.dispatchEvent(clear);
+        expect(clear.defaultPrevented).toBe(true);
+        expect(pane.onClearReply).toHaveBeenCalledOnce();
+        expect(pane.host.replyTarget).toBeNull();
+        expect(pane.container.querySelector(".chat-reply-preview")).toBeNull();
+        expect(pane.onAbort).not.toHaveBeenCalled();
+        expect(getComposerTextarea(pane.container)).toBe(textarea);
+        expect(textarea.value).toBe(visibleDraft);
+        expect(document.activeElement).toBe(textarea);
+
+        const abort = new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        });
+        textarea.dispatchEvent(abort);
+        expect(abort.defaultPrevented).toBe(true);
+        expect(pane.onAbort).toHaveBeenCalledOnce();
+        expect(pane.onClearReply).toHaveBeenCalledOnce();
+        expect(pane.onSend).not.toHaveBeenCalled();
+        expect(pane.host.draft).toBe(visibleDraft);
+        expect(getComposerTextarea(pane.container)).toBe(textarea);
+        expect(textarea.value).toBe(visibleDraft);
+        expect(document.activeElement).toBe(textarea);
+      } finally {
+        pane.dispose();
+      }
+    },
+  );
+
+  it("keeps a composing reply isolated from Escape in another pane", () => {
+    const paneA = createReplyPane("reply-pane-a", "Draft A", "Quote A");
+    const paneB = createReplyPane("reply-pane-b", "Draft B", "Quote B");
+    try {
+      document.body.append(paneA.container, paneB.container);
+      paneA.redraw();
+      paneB.redraw();
+      const textareaA = getComposerTextarea(paneA.container);
+      const textareaB = getComposerTextarea(paneB.container);
+      textareaA.focus();
+      textareaA.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      const escapeB = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      });
+      textareaB.dispatchEvent(escapeB);
+
+      expect(escapeB.defaultPrevented).toBe(true);
+      expect(paneB.onClearReply).toHaveBeenCalledOnce();
+      expect(paneB.host.replyTarget).toBeNull();
+      expect(paneB.container.querySelector(".chat-reply-preview")).toBeNull();
+      const escapeA = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      });
+      textareaA.dispatchEvent(escapeA);
+      expect(escapeA.defaultPrevented).toBe(false);
+      expect(paneA.onClearReply).not.toHaveBeenCalled();
+      expect(paneA.host.replyTarget?.text).toBe("Quote A");
+      expect(paneA.container.querySelector(".chat-reply-preview__text")?.textContent).toBe(
+        "Quote A",
+      );
+      for (const [pane, textarea, draft] of [
+        [paneA, textareaA, "Draft A"],
+        [paneB, textareaB, "Draft B"],
+      ] as const) {
+        expect(getComposerTextarea(pane.container)).toBe(textarea);
+        expect(textarea.value).toBe(draft);
+        expect(pane.host.draft).toBe(draft);
+        expect(pane.onSend).not.toHaveBeenCalled();
+        expect(pane.onAbort).not.toHaveBeenCalled();
+      }
+      expect(document.activeElement).toBe(textareaA);
+    } finally {
+      paneA.dispose();
+      paneB.dispose();
+    }
   });
 
   it("does not clear reply target when Escape is already defaultPrevented", () => {

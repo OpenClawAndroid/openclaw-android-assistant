@@ -420,14 +420,10 @@ describe("runMemoryFlushIfNeeded", () => {
       rootDir,
       events: [{ type: "message", message: { role: "user", content: "x".repeat(256) } }],
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 10,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     await upsertSessionEntryCore({ agentId: "main", sessionKey, storePath }, sessionEntry);
     const run = async (entry: SessionEntry, maxActiveTranscriptBytes = "10b") =>
       await runSessionCompactionIfNeeded({
@@ -1017,13 +1013,8 @@ describe("runMemoryFlushIfNeeded", () => {
   });
 
   it("keeps catalog-adopted sessions on Codex for memory flush turns", async () => {
-    const sessionEntry: SessionEntry = {
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       sessionId: "catalog-adopted-session",
-      updatedAt: Date.now(),
-      totalTokens: 80_000,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
-      compactionCount: 1,
       agentHarnessId: "codex",
       agentRuntimeOverride: "claude-cli",
       modelSelectionLocked: true,
@@ -1035,7 +1026,7 @@ describe("runMemoryFlushIfNeeded", () => {
           },
         },
       },
-    };
+    });
 
     const result = await runMemoryFlushIfNeeded({
       cfg: {
@@ -1520,18 +1511,12 @@ describe("runMemoryFlushIfNeeded", () => {
           },
         },
       };
-      const sessionEntry: SessionEntry = {
-        sessionId: "session",
-        updatedAt: Date.now(),
-        totalTokens: 80_000,
-        totalTokensFresh: true,
-        totalTokensVersion: 1,
-        compactionCount: 1,
+      const sessionEntry: SessionEntry = createFlushSessionEntry({
         agentRuntimeOverride: "codex",
         modelSelectionLocked: pluginOwnerId !== undefined,
         pluginOwnerId,
         agentHarnessId: "openclaw",
-      };
+      });
       const runtimePolicySessionKey = "agent:main:telegram:default:direct:12345";
       runWithModelFallbackMock.mockImplementationOnce(
         async (params: { provider: string; model: string; run: ModelFallbackParams["run"] }) => ({
@@ -1604,15 +1589,9 @@ describe("runMemoryFlushIfNeeded", () => {
   );
 
   it("ignores stale runtime pins before memory-flush fallback preflight", async () => {
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
-      totalTokens: 80_000,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
-      compactionCount: 1,
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       agentRuntimeOverride: "unsupported-runtime",
-    };
+    });
 
     await runMemoryFlushIfNeeded({
       cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
@@ -1643,14 +1622,7 @@ describe("runMemoryFlushIfNeeded", () => {
       backend: { id: "codex-cli", config: { command: "codex" } },
     });
     setActivePluginRegistry(registry);
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
-      totalTokens: 80_000,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
-      compactionCount: 1,
-    };
+    const sessionEntry: SessionEntry = createFlushSessionEntry();
 
     const result = await runMemoryFlushIfNeeded({
       cfg: {},
@@ -1703,15 +1675,9 @@ describe("runMemoryFlushIfNeeded", () => {
 
   it("skips memory flush for compatible CLI session runtime pins", async () => {
     registerClaudeCliBackend();
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
-      totalTokens: 80_000,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
-      compactionCount: 1,
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       agentRuntimeOverride: "claude-cli",
-    };
+    });
 
     const result = await runMemoryFlushIfNeeded({
       cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
@@ -2152,14 +2118,10 @@ describe("runMemoryFlushIfNeeded", () => {
   it.each(["user", "auto"] as const)(
     "passes resolved context budget and %s auth profile to preflight compaction",
     async (authProfileIdSource) => {
-      const sessionEntry: SessionEntry = {
-        sessionId: "session",
-        updatedAt: Date.now(),
+      const sessionEntry: SessionEntry = createFlushSessionEntry({
         totalTokens: 245_000,
-        totalTokensFresh: true,
-        totalTokensVersion: 1,
         compactionCount: 0,
-      };
+      });
 
       await runSessionCompactionIfNeeded({
         cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
@@ -2517,14 +2479,10 @@ describe("runMemoryFlushIfNeeded", () => {
     );
     const storePath = path.join(rootDir, "preflight-fresh-sessions.json");
     const sessionKey = "agent:main:main";
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 985,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     await upsertSessionEntryCore({ agentId: "main", sessionKey, storePath }, sessionEntry);
 
     await runDefaultPreflight(sessionEntry, {
@@ -2998,14 +2956,10 @@ describe("runMemoryFlushIfNeeded", () => {
       compacted: false,
       reason: "plugin already stored this turn",
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 180_499,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     const sessionStore = { main: sessionEntry };
     const replyOperation = createReplyOperation();
 
@@ -3730,14 +3684,10 @@ describe("runMemoryFlushIfNeeded", () => {
       rootDir,
       events: [{ type: "message", message: { role: "user", content: "x".repeat(256) } }],
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 10,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     const sessionStore = { main: sessionEntry };
     const replyOperation = createReplyOperation();
 
@@ -3781,14 +3731,10 @@ describe("runMemoryFlushIfNeeded", () => {
       rootDir,
       events: [{ type: "message", message: { role: "user", content: "x".repeat(256) } }],
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 10,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
 
     await runSessionCompactionIfNeeded({
       cfg: {
@@ -3890,16 +3836,12 @@ describe("runMemoryFlushIfNeeded", () => {
       ]);
       expect(readTranscriptStatsSync(scope).sizeBytes).toBeGreaterThan(10);
 
-      const sessionEntry: SessionEntry = {
-        sessionId: "session",
-        updatedAt: Date.now(),
+      const sessionEntry: SessionEntry = createFlushSessionEntry({
         totalTokens: 10,
-        totalTokensFresh: true,
-        totalTokensVersion: 1,
         compactionCount: 0,
         agentRuntimeOverride: "codex",
         agentHarnessId,
-      };
+      });
       const sessionStore = { [sessionKey]: sessionEntry };
       const replyOperation = createReplyOperation();
       const run = async (entry: SessionEntry | undefined) =>
@@ -4038,16 +3980,12 @@ describe("runMemoryFlushIfNeeded", () => {
     const manager = SessionManager.open(scope, rootDir);
     manager.appendMessage({ role: "user", content: "x".repeat(256), timestamp: 1 });
     const activeBytes = readSessionTranscriptActiveStats(scope).sizeBytes;
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 10,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
       agentRuntimeOverride: "codex",
       agentHarnessId: "openclaw",
-    };
+    });
     const sessionStore = { [sessionKey]: sessionEntry };
     const accountingCommitted = createDeferred();
     const releaseCompactor = createDeferred();
@@ -4356,16 +4294,12 @@ describe("runMemoryFlushIfNeeded", () => {
     ]);
     expect(readSessionTranscriptActiveStats(scope).sizeBytes).toBeLessThan(10 * 1024);
 
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 347_000,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
       agentRuntimeOverride: "codex",
       agentHarnessId: "openclaw",
-    };
+    });
     const replyOperation = createReplyOperation();
 
     const entry = await runSessionCompactionIfNeeded({
@@ -4417,14 +4351,10 @@ describe("runMemoryFlushIfNeeded", () => {
     ]);
     expect(readTranscriptStatsSync(scope).sizeBytes).toBeGreaterThan(10);
 
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 10,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     const cfg = {
       agents: {
         defaults: {
@@ -4488,14 +4418,10 @@ describe("runMemoryFlushIfNeeded", () => {
     ]);
     expect(readTranscriptStatsSync(scope).sizeBytes).toBeGreaterThan(10);
 
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 10,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     const replyOperation = createReplyOperation();
     await fs.writeFile(
       path.join(rootDir, "AGENTS.md"),
@@ -4573,14 +4499,11 @@ describe("runMemoryFlushIfNeeded", () => {
   it("keeps incognito preflight compaction in the process-local transcript store", async () => {
     const durableStorePath = path.join(rootDir, "durable-sessions.json");
     const sessionKey = "agent:main:dashboard:incognito-preflight";
-    const sessionEntry: SessionEntry = {
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       sessionId: "incognito-session",
-      updatedAt: Date.now(),
       totalTokens: 90_000,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
 
     await runSessionCompactionIfNeeded({
       cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
@@ -4740,14 +4663,10 @@ describe("runMemoryFlushIfNeeded", () => {
         content: "x".repeat(256),
         timestamp: 1,
       });
-      const sessionEntry: SessionEntry = {
-        sessionId: "session",
-        updatedAt: Date.now(),
+      const sessionEntry: SessionEntry = createFlushSessionEntry({
         totalTokens: 10,
-        totalTokensFresh: true,
-        totalTokensVersion: 1,
         compactionCount: 0,
-      };
+      });
       const replyOperation = createReplyOperation();
 
       const statuses: unknown[] = [];
@@ -4800,14 +4719,10 @@ describe("runMemoryFlushIfNeeded", () => {
       rootDir,
       events: [{ type: "message", message: { role: "user", content: "x".repeat(5_000) } }],
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 120,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     const onCompactionNotice = vi.fn();
     compactEmbeddedAgentSessionMock.mockResolvedValueOnce({
       ok: true,
@@ -4858,14 +4773,10 @@ describe("runMemoryFlushIfNeeded", () => {
       events: [{ type: "message", message: { role: "user", content: "x".repeat(5_000) } }],
     });
     incrementCompactionCountMock.mockRejectedValueOnce(new Error("count update failed"));
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
+    const sessionEntry: SessionEntry = createFlushSessionEntry({
       totalTokens: 120,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
       compactionCount: 0,
-    };
+    });
     const onCompactionNotice = vi.fn();
 
     await expect(

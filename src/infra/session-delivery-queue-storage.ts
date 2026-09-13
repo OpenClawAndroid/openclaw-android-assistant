@@ -15,6 +15,7 @@ import {
   upsertDeliveryQueueEntry,
   type DeliveryQueueCompletionRetention,
 } from "./delivery-queue-sqlite.js";
+import type { DeliveryQueueStoredStatus } from "./delivery-queue-sqlite.kernel.js";
 import { generateSecureUuid } from "./secure-random.js";
 
 // Session delivery queue persists session-scoped messages until channel
@@ -174,7 +175,7 @@ export async function enqueueClaimedSessionDelivery(
 ): Promise<{
   id: string;
   claimed: boolean;
-  status: "pending" | "failed" | "completed" | "unknown";
+  status: DeliveryQueueStoredStatus;
 }> {
   const entry = prepareClaimedSessionDelivery(params, initialAttemptLeaseMs);
   const id = entry.id;
@@ -184,7 +185,7 @@ export async function enqueueClaimedSessionDelivery(
     stateDir,
     insertOnly: true,
   });
-  let status: "pending" | "failed" | "completed" | undefined;
+  let status: DeliveryQueueStoredStatus | undefined;
   try {
     status = claimed
       ? "pending"

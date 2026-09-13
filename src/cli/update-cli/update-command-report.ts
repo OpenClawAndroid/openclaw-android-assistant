@@ -66,7 +66,6 @@ export async function runInteractiveUpdateFailureAction(params: {
       const result: UpdateRunResult = params.result ?? {
         status: "error",
         mode: "unknown",
-        reason: "unexpected-error",
         steps: [],
         durationMs: 0,
       };

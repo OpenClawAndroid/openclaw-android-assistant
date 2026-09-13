@@ -336,7 +336,10 @@ export function registerRestartOutcomeTests(
         ]),
       );
       if (scenario === "repair retry health") {
-        expect(mocks.terminateStale).toHaveBeenCalledExactlyOnceWith([4242]);
+        expect(mocks.terminateStale).toHaveBeenCalledExactlyOnceWith(
+          [4242],
+          expect.objectContaining({ env: expect.any(Object), assertCurrent: expect.any(Function) }),
+        );
         expect(mocks.restart).toHaveBeenCalledOnce();
         expect(mocks.health.mock.lastCall?.[0]).toMatchObject({
           requireRunningService: true,

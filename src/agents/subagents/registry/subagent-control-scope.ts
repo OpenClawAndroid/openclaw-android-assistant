@@ -87,7 +87,7 @@ function resolveRunRequesterAgentId(
   return resolveSubagentRequesterAgentId(cfg, entry);
 }
 
-function isSubagentRunVisibleToSession(
+export function isSubagentRunVisibleToSession(
   entry: SubagentRunRecord,
   sessionKey: string,
   agentId: string,

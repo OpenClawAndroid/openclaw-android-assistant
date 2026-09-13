@@ -150,7 +150,8 @@ of request time nor CPU measurements.
 
 Two related info-level records help attribute slow worktree cleanup:
 `slow managed worktree removal` separates allocation admission, callback work,
-and final settlement; `slow Git ref mutation` separates directory resolution,
+and final settlement, with preparation, snapshot, checkout removal, and body
+finalization timings inside the callback; `slow Git ref mutation` separates directory resolution,
 queue waiting, and queued work. Both require diagnostics and info-level logging,
 emit only after an operation lasting at least one second settles, and have
 separate fixed budgets of 60 records per minute per runtime isolate with

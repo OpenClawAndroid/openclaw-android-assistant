@@ -9,15 +9,17 @@ import {
   transitionOwnedDeliveryQueueEntry,
 } from "./delivery-queue-sqlite-claim.js";
 import {
-  completeDeliveryQueueEntryInDatabase,
-  deleteDeliveryQueueEntryInDatabase,
   getDeliveryQueueEntryStatus,
   loadDeliveryQueueEntry,
   reserveDeliveryQueueEntryAttempt,
   updateDeliveryQueueEntry,
   upsertDeliveryQueueEntry,
-  upsertDeliveryQueueEntryInDatabase,
 } from "./delivery-queue-sqlite.js";
+import {
+  completeDeliveryQueueEntryInDatabase,
+  deleteDeliveryQueueEntryInDatabase,
+  upsertDeliveryQueueEntryInDatabase,
+} from "./delivery-queue-sqlite.kernel.js";
 import { installDeliveryQueueTmpDirHooks } from "./outbound/delivery-queue.test-helpers.js";
 
 describe("delivery queue SQLite dispatch ownership", () => {

@@ -367,9 +367,8 @@ export async function handleSendChat(
       parsed?.command.key === "model" && shouldForwardModelCommandToServer(parsed.args);
     if (parsed?.command.executeLocal && !forwardModel) {
       if (shouldQueueLocalSlashCommand(parsed.command.key)) {
-        const holdReason = chatSendHoldReason(host, submittedSessionKey);
-        if (holdReason) {
-          setChatError(host, holdReason);
+        if (chatSendHoldReason(host, submittedSessionKey)) {
+          host.requestUpdate?.();
           return undefined;
         }
         const submitKey = chatSubmitKey(host, "local", message, attachmentsToSend);
@@ -576,9 +575,9 @@ export async function handleSendChat(
     ) {
       return;
     }
-    const holdReason = chatSendHoldReason(host, submittedSessionKey);
-    if (holdReason) {
-      setChatError(host, holdReason);
+    if (chatSendHoldReason(host, submittedSessionKey)) {
+      // The composer owns transient recovery notices, including their removal.
+      host.requestUpdate?.();
       return;
     }
     let pendingSettings = getPendingChatPickerPatch(host, submittedSessionKey);
@@ -633,7 +632,11 @@ export async function handleSendChat(
       const hold = chatSendHoldReason(host, submittedSessionKey);
       if (hold || (intent && (isChatBusy(host) || hasDirectSessionRun(host)))) {
         retireOutboxPayload(queued);
-        setChatError(host, hold ?? t("chat.goals.busy"));
+        if (hold) {
+          host.requestUpdate?.();
+        } else {
+          setChatError(host, t("chat.goals.busy"));
+        }
         return;
       }
       // Retain a picker captured before storage, including its rejected result;

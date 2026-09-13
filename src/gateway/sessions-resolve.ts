@@ -132,6 +132,7 @@ function sessionResolveCandidate(
     agentId: normalizeAgentId(agentId),
     ...(displayName ? { displayName } : {}),
     ...(entry.boardFace ? { boardFace: entry.boardFace } : {}),
+    ...(entry.boardPresentation ? { boardPresentation: entry.boardPresentation } : {}),
   };
 }
 

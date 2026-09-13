@@ -226,6 +226,94 @@ describe("profile-owned skill publication and selection", () => {
     });
   });
 
+  it.each(["oversized", "hardlinked"] as const)(
+    "rejects %s instructions before caching a selected revision",
+    async (replacement) => {
+      const { alice, options } = fixture();
+      const saved = await saveSkillLibrary(alice, draft(), options);
+      const pins = seedSkillLibrarySelection(alice, options);
+      const directory = skillLibraryRevisionDir(
+        saved.entry.skillId,
+        saved.entry.revision,
+        options.env,
+      );
+      const filePath = path.join(directory, "SKILL.md");
+      if (replacement === "oversized") {
+        await fs.chmod(filePath, 0o600);
+        await fs.appendFile(filePath, "a".repeat(SKILL_LIBRARY_MAX_FILE_BYTES));
+      } else {
+        await fs.link(filePath, path.join(directory, "linked.md"));
+      }
+      expect(() => loadSkillLibrarySelection(pins, options)).toThrow(
+        "Pinned skill instructions could not be read",
+      );
+      await fs.unlink(filePath);
+      await fs.writeFile(filePath, content);
+      expect(loadSkillLibrarySelection(pins, options)[0]?.skill.contentHash).toBe(
+        createHash("sha256").update(content).digest("hex"),
+      );
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "loads selected revisions through a state directory alias while rejecting nested symlinks",
+    async () => {
+      const { alice, options, stateDir } = fixture();
+      const saved = await saveSkillLibrary(alice, draft(), options);
+      const pins = seedSkillLibrarySelection(alice, options);
+      const alias = path.join(tempDirs.make("skill-library-alias-"), "state");
+      await fs.symlink(stateDir, alias, "dir");
+      const aliasedOptions = {
+        ...options,
+        env: { ...options.env, OPENCLAW_STATE_DIR: alias },
+      };
+      const directory = skillLibraryRevisionDir(
+        saved.entry.skillId,
+        saved.entry.revision,
+        aliasedOptions.env,
+      );
+      const filePath = path.join(directory, "SKILL.md");
+      const target = path.join(directory, "instructions.md");
+      await fs.rename(filePath, target);
+      await fs.symlink("instructions.md", filePath);
+      expect(() => loadSkillLibrarySelection(pins, aliasedOptions)).toThrow(
+        "Pinned skill instructions could not be read",
+      );
+      await fs.unlink(filePath);
+      await fs.rename(target, filePath);
+      expect(loadSkillLibrarySelection(pins, aliasedOptions)[0]?.skill).toMatchObject({
+        filePath,
+        contentHash: createHash("sha256").update(content).digest("hex"),
+      });
+    },
+  );
+
+  it("retains selected content hashes after disk changes without loading revision manifests", async () => {
+    const { alice, options } = fixture();
+    await saveSkillLibrary(alice, draft(), options);
+    const pins = seedSkillLibrarySelection(alice, options);
+    const { db } = openOpenClawStateDatabase(options);
+    db.setAuthorizer((action, table, column) =>
+      action === constants.SQLITE_READ &&
+      table === "skill_library_revisions" &&
+      column === "files_json"
+        ? constants.SQLITE_DENY
+        : constants.SQLITE_OK,
+    );
+    try {
+      const [selected] = loadSkillLibrarySelection(pins, options);
+      expect(selected?.skill.contentHash).toBe(createHash("sha256").update(content).digest("hex"));
+      const filePath = expectDefined(selected, "selected revision").skill.filePath;
+      await fs.chmod(filePath, 0o600);
+      await fs.writeFile(filePath, `${content}\nChanged after selection`);
+      expect(loadSkillLibrarySelection(pins, options)[0]?.skill.contentHash).toBe(
+        createHash("sha256").update(content).digest("hex"),
+      );
+    } finally {
+      db.setAuthorizer(null);
+    }
+  });
+
   it("enforces independent read/write/transfer checks and preserves a removed session pin", async () => {
     const { options, alice, admin, actor } = fixture();
     const bob = actor(ensureProfileForEmail("bob@example.test", options).id);

@@ -11,10 +11,7 @@ import {
 import { resolvePluginArtifactDeclaredSurface } from "./capability-artifact.js";
 import { computeDeclaredSurfaceHash } from "./capability-summary.js";
 import { hashStableJson } from "./installed-plugin-index-hash.js";
-import {
-  readPersistedInstalledPluginIndexInstallRecords,
-  writePersistedInstalledPluginIndexInstallRecords,
-} from "./installed-plugin-index-records.js";
+import { readPersistedInstalledPluginIndexInstallRecords } from "./installed-plugin-index-records.js";
 import type { PluginLifecycleRuntimeApply } from "./lifecycle.js";
 import {
   cleanupPluginLoaderFixturesForTest,
@@ -25,6 +22,7 @@ import {
 import { reloadManagedPlugin } from "./management-mutations.js";
 import { clearPluginMetadataLifecycleCaches } from "./plugin-metadata-lifecycle.js";
 import { createColdPluginFixture } from "./test-helpers/cold-plugin-fixtures.js";
+import { seedInstalledPluginIndex } from "./test-helpers/installed-plugin-index.js";
 
 vi.mock("./management-install.js", () => {
   throw new Error("Plugin policy changes must not load the installation implementation");
@@ -114,7 +112,7 @@ describe("reload consent and current install preconditions", () => {
       },
     };
     await state.writeConfig(config);
-    await writePersistedInstalledPluginIndexInstallRecords(
+    await seedInstalledPluginIndex(
       {
         "reload-proof": {
           source: "path",
@@ -229,7 +227,7 @@ describe("reload consent and current install preconditions", () => {
       },
     };
     await state.writeConfig(cohortConfig);
-    await writePersistedInstalledPluginIndexInstallRecords(
+    await seedInstalledPluginIndex(
       {
         "reload-proof": record,
         "second-proof": {

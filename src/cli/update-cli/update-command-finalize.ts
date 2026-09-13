@@ -81,7 +81,7 @@ export async function updateFinalizeCommand(
   await withCommandProcessScope(async (stopChildren) => {
     const lifecycle = new UpdateFinalizationLifecycle(Boolean(opts.json), timeoutMs, stopChildren);
     try {
-      const root = await withUpdateInProgressEnv(invocationCwd, () =>
+      const { root, installKind, runId } = await withUpdateInProgressEnv(invocationCwd, () =>
         lifecycle.run("preflight", async () => {
           // Refused invocations cannot create a ledger or write failure-triage artifacts.
           // A missing canonical path can be an interrupted publication, not a
@@ -93,31 +93,36 @@ export async function updateFinalizeCommand(
             recoverOrphanedSidecars: false,
           });
           await retainCliProcessJobUntilExit();
-          lifecycle.attachLedger();
-          return await resolveUpdateRoot();
+          const admittedRunId = lifecycle.attachLedger();
+          const resolvedRoot = await resolveUpdateRoot();
+          const resolvedInstallKind = await resolveUpdateInstallKind(resolvedRoot, {
+            timeoutMs: lifecycle.budget("preflight"),
+          });
+          lifecycle.recordInstallKind(resolvedInstallKind);
+          return { root: resolvedRoot, installKind: resolvedInstallKind, runId: admittedRunId };
         }),
       );
       lifecycle.root = root;
       const target = { root, env: resolveServiceRefreshEnv(process.env, invocationCwd) };
-      await withUpdateFailureTriage({ ...opts, invocationCwd }, target, () =>
-        withUpdateInProgressEnv(invocationCwd, async () => {
-          try {
-            const prepared = await lifecycle.run("targetConfigValidation", () =>
-              prepareUpdateFinalization(
-                opts,
-                root,
-                requestedChannel,
-                lifecycle.budget("targetConfigValidation"),
-              ),
-            );
-            await updateFinalizeCommandInternal(opts, prepared, lifecycle, recoveryRunIds);
-          } catch (error) {
-            if (error instanceof UpdateCommandFailure) {
-              lifecycle.complete(error.exitCode);
+      await withUpdateFailureTriage(
+        { ...opts, invocationCwd, run: { runId, env: target.env } },
+        target,
+        () =>
+          withUpdateInProgressEnv(invocationCwd, async () => {
+            try {
+              const prepared = await lifecycle.run("targetConfigValidation", () =>
+                prepareUpdateFinalization(opts, root, installKind, requestedChannel),
+              );
+              await updateFinalizeCommandInternal(opts, prepared, lifecycle, recoveryRunIds);
+            } catch (error) {
+              if (error instanceof UpdateCommandFailure) {
+                lifecycle.complete(error.exitCode);
+              } else {
+                lifecycle.fail();
+              }
+              throw error;
             }
-            throw error;
-          }
-        }),
+          }),
       );
     } catch (error) {
       if (!lifecycle.completed) {
@@ -133,8 +138,8 @@ export async function updateFinalizeCommand(
 async function prepareUpdateFinalization(
   opts: UpdateFinalizeOptions,
   root: string,
+  installKind: "git" | "package" | "unknown",
   requestedChannel: UpdateChannel | null,
-  timeoutMs: number,
 ) {
   await assertOpenClawStateWriteAllowedAtPath({
     databasePath: resolveOpenClawStateSqlitePath(process.env),
@@ -153,17 +158,14 @@ async function prepareUpdateFinalization(
             : configSnapshot.sourceConfig,
         }
       : undefined);
-  if (requestedChannel === "extended-stable") {
-    const installKind = await resolveUpdateInstallKind(root, { timeoutMs });
-    if (installKind === "git") {
-      await reportPreMutationUpdateResult({
-        root,
-        installKind,
-        reason: "unsupported_git_channel",
-        opts,
-        controlPlaneUpdateSentinelMeta: null,
-      });
-    }
+  if (requestedChannel === "extended-stable" && installKind === "git") {
+    await reportPreMutationUpdateResult({
+      root,
+      installKind,
+      reason: "unsupported_git_channel",
+      opts,
+      controlPlaneUpdateSentinelMeta: null,
+    });
   }
   const storedChannel = configSnapshot.valid
     ? normalizeUpdateChannel(configSnapshot.config.update?.channel)
@@ -184,6 +186,7 @@ async function prepareUpdateFinalization(
   }
   return {
     root,
+    installKind,
     configSnapshot,
     preFinalizeConfig,
     requestedChannel,
@@ -210,9 +213,7 @@ async function updateFinalizeCommandInternal(
     lifecycle.recordWarnings(doctorWarnings);
   };
 
-  if (
-    (await resolveUpdateInstallKind(root, { timeoutMs: lifecycle.budget("plugins") })) === "git"
-  ) {
+  if (prepared.installKind === "git") {
     await withPluginLifecycleLease({}, async (lease) => {
       await completeSourceUpdateRuntime({ root, timeoutMs: lifecycle.budget("plugins"), lease });
     });

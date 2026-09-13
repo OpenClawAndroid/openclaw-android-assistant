@@ -254,6 +254,7 @@ type QaEvidenceBuildBase = {
   env?: NodeJS.ProcessEnv;
   generatedAt: string;
   primaryModel: string;
+  providerId?: string;
   providerMode: QaProviderMode;
   channelDriver?: string;
   packageSource?: QaEvidencePackageSource;
@@ -338,11 +339,12 @@ function resolveQaEvidencePackageSource(env: NodeJS.ProcessEnv | undefined) {
   };
 }
 
-function buildQaEvidenceProvider(params: { providerMode: QaProviderMode; primaryModel: string }) {
+function buildQaEvidenceProvider(
+  params: Pick<QaEvidenceBuildBase, "providerMode" | "primaryModel" | "providerId">,
+) {
   const provider = getQaProvider(params.providerMode);
   const split = splitQaModelRef(params.primaryModel);
   const providerShape = {
-    id: split?.provider ?? params.providerMode,
     model: {
       name: split?.model ?? null,
       ref: params.primaryModel || null,
@@ -351,6 +353,8 @@ function buildQaEvidenceProvider(params: { providerMode: QaProviderMode; primary
   if (provider.kind === "live") {
     return {
       ...providerShape,
+      // A live run can know its provider even when its selected models differ.
+      id: split?.provider ?? (params.providerId?.trim() || params.providerMode),
       live: true,
       auth: params.providerMode,
     };

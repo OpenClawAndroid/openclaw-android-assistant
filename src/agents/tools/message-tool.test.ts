@@ -713,6 +713,7 @@ describe("message tool gateway timeout", () => {
         return {};
       });
       await runSessionsSendA2AFlow({
+        targetAgentId: "main",
         callGateway: gateway,
         targetSessionKey: sessionKey,
         requesterSessionKey: sessionKey,

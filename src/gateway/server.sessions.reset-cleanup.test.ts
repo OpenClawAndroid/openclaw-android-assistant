@@ -1046,6 +1046,7 @@ test("sessions.reset preserves explicit session preferences across session rollo
     category: "Operator group",
     icon: "🦞",
     boardFace: "dashboard",
+    boardPresentation: "expanded",
     visibility: "draft",
   } satisfies Partial<InternalSessionEntry>;
   await writeSessionStore({

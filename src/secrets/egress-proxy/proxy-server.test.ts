@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { request as httpRequest, type Server } from "node:http";
 import { createServer as createHttpsServer, request as httpsRequest } from "node:https";
@@ -5,9 +6,11 @@ import net, { type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
+import { promisify } from "node:util";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createPlaybackMediaFixture } from "../../../test/fixtures/media-playback.js";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { gitNullConfigPath } from "../../infra/git-exec.js";
 import { generateLocalProxyLeaf } from "../../proxy-capture/ca.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import {
@@ -281,6 +284,15 @@ beforeEach(async () => {
           headers: { ...request.headers },
           url: request.url ?? "",
         });
+        if (request.url?.startsWith("/git/")) {
+          response.writeHead(200, { "Content-Type": "text/plain", Connection: "close" });
+          response.end(
+            request.url === "/git/HEAD"
+              ? "ref: refs/heads/main\n"
+              : `${"a".repeat(40)}\trefs/heads/main\n`,
+          );
+          return;
+        }
         const status =
           request.url === "/fixed-length" && request.headers["content-length"] === undefined
             ? 411
@@ -506,6 +518,29 @@ describe("secret egress proxy", () => {
 
   it("activates Node environment proxy support for registered Gateway runs", () => {
     expect(proxyEnv.NODE_USE_ENV_PROXY).toBe("1");
+  });
+
+  it("lets Git HTTPS discovery trust the registered proxy certificate", async () => {
+    const result = await promisify(execFile)(
+      "git",
+      ["ls-remote", `https://localhost:${originPort}/git`, "refs/heads/main"],
+      {
+        cwd: caDir,
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          HOME: caDir,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: gitNullConfigPath(),
+          GIT_TERMINAL_PROMPT: "0",
+          ...proxyEnv,
+        },
+        timeout: 10_000,
+      },
+    );
+    expect(result.stdout).toBe(`${"a".repeat(40)}\trefs/heads/main\n`);
+    expect(originRequests.some((request) => request.url.startsWith("/git/info/refs"))).toBe(true);
+    expect(auditEvents).toContainEqual(expect.objectContaining({ kind: "forwarded" }));
   });
 
   it("survives a client that resets a refused tunnel instead of crashing the Gateway", async () => {

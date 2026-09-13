@@ -13,7 +13,9 @@ import { applyCodeModeCatalog } from "../code-mode.js";
 import {
   createCodeModeHarness,
   resetCodeModeTestState,
+  resultDetails,
   runUntilCompleted,
+  waitUntilCompleted,
 } from "../code-mode.test-support.js";
 import { createCronTool } from "./cron-tool.js";
 
@@ -58,6 +60,18 @@ const createJob = {
   sessionTarget: job.sessionTarget,
   wakeMode: job.wakeMode,
   payload: job.payload,
+};
+const history = {
+  ...page,
+  entries: [
+    {
+      ts: 1_800_000_000_000,
+      jobId: job.id,
+      action: "finished",
+      status: "ok",
+      summary: "Three unpaid invoices",
+    },
+  ],
 };
 
 describe("automations output contract", () => {
@@ -117,18 +131,7 @@ describe("automations output contract", () => {
     {
       name: "run history",
       args: { action: "runs", jobId: job.id },
-      reply: {
-        ...page,
-        entries: [
-          {
-            ts: 1_800_000_000_000,
-            jobId: job.id,
-            action: "finished",
-            status: "ok",
-            summary: "Three unpaid invoices",
-          },
-        ],
-      },
+      reply: history,
     },
     { name: "wake", args: { action: "wake", text: "Review invoices" }, reply: { ok: true } },
     {
@@ -244,44 +247,74 @@ describe("automations output contract", () => {
     }
   });
 
-  it("composes discovered automation results using the real generated declaration", async () => {
+  it("composes action results through generated declarations and a typechecked cell", async () => {
     onTestFinished(resetCodeModeTestState);
     const h = createCodeModeHarness();
-    const tool = createCronTool(undefined, { callGatewayTool: vi.fn().mockResolvedValue(list) });
+    const replies: Record<string, unknown> = {
+      "cron.list": list,
+      "cron.status": { enabled: true, jobs: 1 },
+      "cron.get": job,
+      "cron.runs": history,
+    };
+    const gatewayCall = vi.fn().mockImplementation(async (method: string) => {
+      if (!(method in replies)) {
+        throw new Error(`Unexpected gateway method: ${method}`);
+      }
+      return replies[method];
+    });
+    const tool = createCronTool(undefined, { callGatewayTool: gatewayCall });
     applyCodeModeCatalog({ ...h.ctx, tools: [...h.tools, tool] });
     const result = await runUntilCompleted({
       execTool: expectDefined(h.tools[0], "Code Mode exec"),
       waitTool: expectDefined(h.tools[1], "Code Mode wait"),
-      code: 'const [tool] = await catalog.search("automations"); const listed = await tool({action:"list"}); const file = await API.read("tools/automations.d.ts"); return {names:listed.jobs.map(job=>job.name),file};',
+      code: 'return await API.read("tools/automations.d.ts");',
     });
-    expect(result).toMatchObject({ status: "completed", value: { names: [job.name] } });
-    const { file } = result.value as { file: { content: string } };
+    expect(result).toMatchObject({ status: "completed" });
+    const file = result.value as { content: string };
+    const composition = `
+async function consume() {
+  const listed = await automations({ action: "list" });
+  const names: string[] = listed.jobs.map(job => job.name);
+  const next: number | null = listed.nextOffset;
+  const status = await automations({ action: "status" });
+  const enabled: boolean = status.enabled;
+  const jobCount: number | undefined = status.jobs;
+  const details = await automations({ action: "get", jobId: "invoice-check" });
+  const name: string = details.name;
+  const runs = await automations({ action: "runs", jobId: details.id });
+  const summaries: (string | undefined)[] = runs.entries.map(entry => entry.summary);
+  return { names, next, enabled, jobCount, name, summaries };
+}
+`;
     const fileName = "/automations-consumer.ts";
     const source = ts.createSourceFile(
       fileName,
       file.content +
+        composition +
         `
-async function consume() {
-  const result = await automations({ action: "list" });
-  if ("jobs" in result && "nextOffset" in result) {
-    const names: string[] = result.jobs.map(job => job.name);
-    const next: number | null = result.nextOffset;
-    // @ts-expect-error Invented invoice fields are not part of an automation.
-    result.jobs[0].invoiceTotal;
-    return { names, next };
+async function checkContracts(action: "list" | "runs", input: Parameters<typeof automations>[0]) {
+  const listed = await automations({ action: "list" });
+  // @ts-expect-error Invented invoice fields are not part of an automation.
+  listed.jobs[0].invoiceTotal;
+  const removed = await automations({ action: "remove", jobId: "invoice-check" });
+  if (removed.ok) {
+    const cleanup: "pending" | undefined = removed.sessionCleanup;
   }
-  if ("removed" in result && result.ok) {
-    const cleanup: "pending" | undefined = result.sessionCleanup;
-    return cleanup;
+  const added = await automations({ action: "add", job: ${JSON.stringify(createJob)} });
+  // @ts-expect-error Add can return a direct job or a convergence envelope.
+  added.id;
+  const addedJob = "job" in added ? added.job : added;
+  const id: string = addedJob.id;
+  const run = await automations({ action: "run", jobId: id });
+  if (!run.ok) {
+    const instance: string | undefined = run.processInstanceId;
   }
-  if ("entries" in result) {
-    const summaries: (string | undefined)[] = result.entries.map(entry => entry.summary);
-    return summaries;
-  }
-  if ("job" in result && result.job.payload.kind === "systemEvent") {
-    const text: string = result.job.payload.text;
-    return text;
-  }
+  const selected = await automations({ action });
+  // @ts-expect-error A dynamic action cannot promise a list result.
+  selected.jobs.map(job => job.name);
+  const dynamic = await automations(input);
+  // @ts-expect-error Broad inputs retain all possible outputs.
+  dynamic.entries.map(entry => entry.summary);
 }
 `,
       ts.ScriptTarget.ESNext,
@@ -297,5 +330,27 @@ async function consume() {
         .getPreEmitDiagnostics(program)
         .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")),
     ).toEqual([]);
+    const composed = await waitUntilCompleted({
+      details: resultDetails(
+        await expectDefined(h.tools[0], "Code Mode exec").execute("compose-automations", {
+          code: `${composition}\nreturn await consume();`,
+          language: "typescript",
+          typecheck: true,
+        }),
+      ),
+      waitTool: expectDefined(h.tools[1], "Code Mode wait"),
+    });
+    expect(composed, JSON.stringify(composed)).toMatchObject({
+      status: "completed",
+      value: {
+        names: [job.name],
+        next: null,
+        enabled: true,
+        jobCount: 1,
+        name: job.name,
+        summaries: ["Three unpaid invoices"],
+      },
+    });
+    expect(gatewayCall).toHaveBeenCalledTimes(4);
   });
 });

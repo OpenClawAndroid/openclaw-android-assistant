@@ -12,7 +12,11 @@ import type {
   ComputerToolAction,
   ScreenshotCapture,
 } from "./computer-tool-shared.js";
-import { COMPUTER_REF_WIDTH, MODEL_OBSERVATION_MAX_ELEMENTS } from "./computer-tool-shared.js";
+import {
+  COMPUTER_REF_WIDTH,
+  MODEL_OBSERVATION_MAX_ELEMENTS,
+  computerTargetDetails,
+} from "./computer-tool-shared.js";
 
 type ModelObservationProjection = NonNullable<ComputerActResult["observation"]> & {
   truncatedElements?: number;
@@ -173,7 +177,7 @@ export async function projectScreenshotResult(params: {
   const result = {
     content: [{ type: "text" as const, text }, ...content],
     details: {
-      node: target.nodeId,
+      ...computerTargetDetails(target),
       action: params.action,
       width: dimensions?.width,
       height: dimensions?.height,
@@ -245,7 +249,7 @@ export async function projectComputerActResult(params: {
         ...content,
       ],
       details: {
-        node: params.target.nodeId,
+        ...computerTargetDetails(params.target),
         action: params.precedingAction?.action ?? params.action,
         screenIndex: params.target.screenIndex,
         // Keep mutation evidence separate from the read's coordinate space and other metadata.

@@ -1,3 +1,4 @@
+import { StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   validateMentionsListResult,
@@ -230,6 +231,60 @@ describe("temporary human mention Inbox", () => {
       });
     },
   );
+
+  it("expires a retained cohort atomically without one delete call per source", async () => {
+    await withInbox(async (f) => {
+      vi.useFakeTimers();
+      f.clients.length = 0;
+      for (let index = 0; index < 32; index++) {
+        f.post(`expiry-cohort-${index}`);
+      }
+      const { db } = openOpenClawStateDatabase();
+      const state = () => db.prepare("SELECT * FROM config_machine_state ORDER BY state_key").all();
+      const before = state();
+      const sources = before.filter((row) =>
+        String(row.state_key).startsWith("notifications.mentions.source."),
+      );
+      expect(sources).toHaveLength(32);
+      db.exec(`CREATE TEMP TRIGGER reject_cohort_expiry BEFORE DELETE ON config_machine_state
+        WHEN OLD.state_key = '${String(sources[16]!.state_key)}'
+        BEGIN SELECT RAISE(ABORT, 'synthetic cohort expiry failure'); END`);
+      vi.setSystemTime(Date.now() + 7 * 24 * 60 * 60_000);
+      try {
+        expect(f.inbox.list(f.bobClient)).toMatchObject({
+          ok: false,
+          error: { code: "UNAVAILABLE" },
+        });
+        expect(state()).toEqual(before);
+      } finally {
+        db.exec("DROP TRIGGER reject_cohort_expiry");
+      }
+
+      // oxlint-disable-next-line typescript/unbound-method -- apply below preserves the intercepted statement receiver.
+      const originalRun = StatementSync.prototype.run;
+      let deletes = 0;
+      const runSpy = vi.spyOn(StatementSync.prototype, "run").mockImplementation(function (
+        this: StatementSync,
+        ...values
+      ) {
+        if (/^delete from "config_machine_state"/i.test(this.sourceSQL)) {
+          deletes++;
+        }
+        return originalRun.apply(this, values);
+      });
+      try {
+        expect(read(f.inbox, f.bobClient).items).toEqual([]);
+      } finally {
+        runSpy.mockRestore();
+      }
+      expect(deletes).toBeLessThanOrEqual(2);
+      expect(
+        state().filter((row) => String(row.state_key).startsWith("notifications.mentions.source.")),
+      ).toEqual([]);
+      const restarted = f.openInbox("after-cohort-expiry");
+      expect(read(restarted, f.bobClient).items).toEqual([]);
+    });
+  });
 
   it("keeps dismissed and evicted sources consumed across restart", async () => {
     await withInbox(async (f) => {

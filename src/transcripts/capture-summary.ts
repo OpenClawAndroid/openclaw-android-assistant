@@ -2,7 +2,8 @@ import { resolveDefaultAgentId } from "../agents/agent-scope-config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { resolveTranscriptsConfig } from "./config.js";
 import type { TranscriptSessionDescriptor } from "./provider-types.js";
-import { TranscriptsSummaryChangedError, type TranscriptsStore } from "./store.js";
+import { TranscriptsSummaryChangedError } from "./store-errors.js";
+import type { TranscriptsStore } from "./store.js";
 import { summarizeTranscriptsWithModel } from "./summary-model.js";
 import { summarizeTranscripts } from "./summary.js";
 

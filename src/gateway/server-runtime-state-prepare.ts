@@ -120,6 +120,16 @@ export async function prepareGatewayKernelState(params: {
           registry: desktopSessionRegistry,
         })
       : undefined;
+  const gatewayComputerService = (
+    await startupTrace.measure(
+      "computer.runtime-import",
+      () => import("./desktop/computer-service.js"),
+    )
+  ).createGatewayComputerService({
+    getConfig: getRuntimeConfig,
+    getPluginRegistry: () => pluginRuntime.registry,
+    hostDesktopService,
+  });
   const workerEnvironmentRuntime = workerEnvironmentStartup
     ? await startupTrace.measure("worker-environments.runtime-imports", async () => {
         const workerModule = await loadWorkerEnvironmentStartupModule();
@@ -515,6 +525,7 @@ export async function prepareGatewayKernelState(params: {
     desktopSessionRegistry,
     nodeDesktopStreamBroker,
     hostDesktopService,
+    gatewayComputerService,
     channelLogs,
     channelRuntimeEnvs,
     listStartupChannelGatewayMethods,

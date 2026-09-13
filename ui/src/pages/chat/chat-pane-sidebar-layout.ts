@@ -117,11 +117,18 @@ export function sidebarRegionCallbacks(params: {
   const { layout, state } = params;
   return {
     activatePanel: (panelId) => {
-      state.updateSidebarLayout(activatePanel(layout, panelId));
+      const slot = layout.columns[0]?.panels.find((panel) => panel.id === panelId)?.slot;
+      if (slot === "dashboard" && !isSidebarSlotVisible(layout, "dashboard")) {
+        params.openPanelSlot(slot);
+      } else {
+        state.updateSidebarLayout(activatePanel(layout, panelId));
+      }
       state.updateSidebarActivePanel(panelId);
     },
     togglePanelExpanded: (panelId) => {
-      state.updateSidebarLayout(toggleSidebarPanelExpanded(layout, panelId));
+      state.updateSidebarLayout(toggleSidebarPanelExpanded(layout, panelId), {
+        dashboardPresentation: "personal",
+      });
       state.updateSidebarActivePanel(panelId);
     },
     closeSlot: (slot) => {

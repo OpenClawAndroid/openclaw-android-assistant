@@ -177,8 +177,13 @@ export function selectHttpRequestRejection(req: IncomingMessage): Rejection {
   const onClose = () => {
     rejection.phase = "closed";
     clearTimeout(timer);
+    req.off("close", detachRequestError);
     req.off("readable", pauseCompletedRequest);
     socket.off("error", rejection.destroy);
+    // Some Node-compatible runtimes finish dispatching the request's terminal error after the
+    // socket close listeners. Keep ownership through that dispatch, then release it before the
+    // closed promise resumes application work.
+    queueMicrotask(detachRequestError);
     completion.resolve();
   };
   req.on("error", rejection.destroy);

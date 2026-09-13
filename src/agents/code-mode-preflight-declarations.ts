@@ -1,8 +1,11 @@
+import { createHash, type Hash } from "node:crypto";
+import { serialize } from "node:v8";
 import type { CodeModeCatalogProjection } from "./code-mode-catalog.js";
 import type { CodeModeApiVirtualFile, CodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
 import { createCodeModeToolApiFile } from "./code-mode-tool-api.js";
 import { ToolInputError } from "./tool-input-error.js";
 import type { ToolSearchRuntime } from "./tool-search-runtime.js";
+import type { ToolSearchCatalogSession } from "./tool-search-types.js";
 
 const GLOBALS = `
 declare function text(value: unknown): void;
@@ -30,6 +33,13 @@ declare const nodes: {
 declare const namespaces: unknown;
 `;
 
+// Only the current declaration text is retained; schemas and executable tools stay
+// with the catalog owner. A changed contract replaces this single bounded entry.
+const declarationsByCatalog = new WeakMap<
+  ToolSearchCatalogSession,
+  { fingerprint: string; content: string; bytes: number }
+>();
+
 /** Opt-in only: use the same effective owner declarations as API.read. */
 export async function createPreflightDeclarations(
   runtime: ToolSearchRuntime,
@@ -37,7 +47,43 @@ export async function createPreflightDeclarations(
   apiFiles: CodeModeApiVirtualFile[],
   namespaces: CodeModeNamespaceRuntime,
   maxBytes: number,
+  catalog: ToolSearchCatalogSession,
 ): Promise<string> {
+  let fingerprint: Hash | undefined = createHash("sha256");
+  const contracts = [];
+  for (const binding of projection.bindings) {
+    const entry = await runtime.describe(binding.id, { includeMcp: false });
+    // Client schemas remain opaque, including lazy objects that cannot be walked.
+    if (fingerprint) {
+      try {
+        // Binary serialization preserves cycles and values that JSON conflates,
+        // without invoking toJSON hooks. Uncloneable metadata bypasses reuse.
+        fingerprint.update(
+          serialize([
+            binding.callableName,
+            entry.source,
+            entry.source === "openclaw" ? entry.parameters : undefined,
+            entry.source === "openclaw" ? entry.outputSchema : undefined,
+          ]),
+        );
+      } catch {
+        fingerprint = undefined;
+      }
+    }
+    contracts.push({ callableName: binding.callableName, entry });
+  }
+  for (const file of apiFiles) {
+    fingerprint?.update(JSON.stringify(file.content));
+  }
+  fingerprint?.update(JSON.stringify(namespaces.descriptors.map(({ globalName }) => globalName)));
+  const key = fingerprint?.digest("hex");
+  const cached = key ? declarationsByCatalog.get(catalog) : undefined;
+  if (cached && cached.fingerprint === key && cached.bytes <= maxBytes) {
+    return cached.content;
+  }
+  // Do not retain declarations from a previous, possibly wider catalog if the
+  // replacement fails its allowance or contract preparation.
+  declarationsByCatalog.delete(catalog);
   const parts: string[] = [];
   let bytes = 0;
   const add = (text: string) => {
@@ -50,15 +96,8 @@ export async function createPreflightDeclarations(
     parts.push(text);
   };
   add(GLOBALS);
-  for (const binding of projection.bindings) {
-    add(
-      (
-        await createCodeModeToolApiFile(
-          binding.callableName,
-          await runtime.describe(binding.id, { includeMcp: false }),
-        )
-      ).content,
-    );
+  for (const { callableName, entry } of contracts) {
+    add((await createCodeModeToolApiFile(callableName, entry)).content);
   }
   for (const file of apiFiles) {
     add(file.content);
@@ -68,5 +107,9 @@ export async function createPreflightDeclarations(
       add("declare const " + descriptor.globalName + ": unknown;");
     }
   }
-  return parts.join("\n");
+  const content = parts.join("\n");
+  if (key) {
+    declarationsByCatalog.set(catalog, { fingerprint: key, content, bytes });
+  }
+  return content;
 }

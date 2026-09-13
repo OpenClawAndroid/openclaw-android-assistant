@@ -27,6 +27,38 @@ const added: GatewaySessionRow = {
 
 it.each([
   {
+    name: "an unrelated same-agent run finishing",
+    payload: {},
+    terminal: { sessionKeys: ["agent:main:other"], status: "done" as const, endedAt: 2 },
+    refresh: false,
+  },
+  {
+    name: "a known child run finishing",
+    payload: {},
+    terminal: { sessionKeys: [known.key], status: "done" as const, endedAt: 2 },
+    refresh: true,
+  },
+  {
+    name: "the parent run finishing",
+    payload: {},
+    terminal: { sessionKeys: [parent], status: "done" as const, endedAt: 2 },
+    refresh: true,
+  },
+  {
+    name: "the parent run finishing for an explicitly cross-agent child query",
+    payload: {},
+    terminal: { sessionKeys: [parent], status: "done" as const, endedAt: 2 },
+    refresh: true,
+    queryAgent: "worker",
+  },
+  {
+    name: "an unknown run finishing outside an incomplete child window",
+    payload: {},
+    terminal: { sessionKeys: ["agent:research:unloaded"], status: "done" as const, endedAt: 2 },
+    refresh: true,
+    incomplete: true,
+  },
+  {
     name: "unrelated accepted history",
     payload: {},
     historyRow: {
@@ -141,7 +173,7 @@ it.each([
   },
 ])(
   "refreshes a parent-scoped child query only for $name",
-  async ({ payload, historyRow, refresh, rows, incomplete, queryAgent }) => {
+  async ({ payload, historyRow, terminal, refresh, rows, incomplete, queryAgent }) => {
     vi.useFakeTimers();
     let currentRows = [known];
     const request = vi.fn(async (method: string, params?: unknown) => {
@@ -174,6 +206,8 @@ it.each([
         expect(
           sessions.captureReconcile()(historyRow, undefined, { resultAgentId: historyRow.agentId }),
         ).toBe(true);
+      } else if (terminal) {
+        sessions.reconcileRunTerminal(terminal);
       } else {
         emitEvent({ type: "event", event: "sessions.changed", payload });
       }

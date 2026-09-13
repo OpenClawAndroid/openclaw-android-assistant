@@ -8,14 +8,15 @@ import { repeat } from "lit/directives/repeat.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
 import { t } from "../../../i18n/index.ts";
-import { normalizeMessage, resolveMessageRole } from "../../../lib/chat/message-normalizer.ts";
-import { persistedMessageEntryId } from "../chat-thread-items.ts";
+import { resolveMessageDisplayMarkdown } from "../../../lib/chat/message-display.ts";
+import { normalizeMessage } from "../../../lib/chat/message-normalizer.ts";
 import { renderChatAuthorAvatar } from "./chat-author-avatar.ts";
-import { resolveMessageDisplayMarkdown } from "./chat-message-text.ts";
+import type { ChatPositionIndex } from "./chat-position-projection.ts";
 import type { ChatTranscriptSession } from "./chat-transcript-session.ts";
 
 const PREVIEW_LENGTH = 140;
 const MESSAGE_SELECTOR = ".chat-bubble[data-entry-id]";
+const PROVISIONAL_MESSAGE_SELECTOR = ".chat-bubble[data-message-id]:not([data-entry-id])";
 
 type RailInteraction = {
   hoveredId: string | null;
@@ -38,12 +39,17 @@ class ChatPositionRailDirective extends AsyncDirective {
   private layoutFrame: number | undefined;
   private activeId: string | undefined;
   private markerIds: string[] = [];
+  private markerIdsByMessageId: ReadonlyMap<string, string> = new Map();
+  private positionMessageIds: string[] = [];
   private markersChanged = true;
   private readonly markerElements = new Map<string, HTMLElement>();
   private transcriptElement: HTMLElement | undefined;
   private intersectionObserver: IntersectionObserver | undefined;
   private mutationObserver: MutationObserver | undefined;
-  private readonly observedMessages = new Map<Element, { id: string; visible: boolean }>();
+  private readonly observedMessages = new Map<
+    Element,
+    { id: string; messageId: string; visible: boolean }
+  >();
   private visibleIds = new Set<string>();
   private targetsChanged = true;
   private followActive = false;
@@ -127,6 +133,10 @@ class ChatPositionRailDirective extends AsyncDirective {
       );
       // Virtualization replaces message nodes without replacing the rail.
       // Streaming descendants keep the same observed bubble targets.
+      const isPositionTarget = (element: Element) =>
+        element.matches(MESSAGE_SELECTOR) ||
+        (element.matches(PROVISIONAL_MESSAGE_SELECTOR) &&
+          this.markerIdsByMessageId.has(element.getAttribute("data-message-id")!));
       this.mutationObserver = new MutationObserver((records, observer) => {
         if (observer !== this.mutationObserver) {
           return;
@@ -141,7 +151,12 @@ class ChatPositionRailDirective extends AsyncDirective {
               [...record.addedNodes, ...record.removedNodes].some(
                 (node) =>
                   node instanceof Element &&
-                  (node.matches(MESSAGE_SELECTOR) || node.querySelector(MESSAGE_SELECTOR)),
+                  (isPositionTarget(node) ||
+                    [
+                      ...node.querySelectorAll(
+                        `${MESSAGE_SELECTOR}, ${PROVISIONAL_MESSAGE_SELECTOR}`,
+                      ),
+                    ].some(isPositionTarget)),
               )
             );
           })
@@ -154,7 +169,7 @@ class ChatPositionRailDirective extends AsyncDirective {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["data-entry-id"],
+        attributeFilter: ["data-entry-id", "data-message-id"],
       });
       this.targetsChanged = true;
     }
@@ -162,21 +177,27 @@ class ChatPositionRailDirective extends AsyncDirective {
       return;
     }
     this.targetsChanged = false;
-    const targets = new Set(root.querySelectorAll(MESSAGE_SELECTOR));
+    const targets = new Set([
+      ...root.querySelectorAll(MESSAGE_SELECTOR),
+      ...root.querySelectorAll(PROVISIONAL_MESSAGE_SELECTOR),
+    ]);
+    const messageIdFor = (element: Element) =>
+      element.getAttribute("data-entry-id") ?? element.getAttribute("data-message-id");
     for (const [element, message] of this.observedMessages) {
       if (
         !targets.has(element) ||
-        !this.markerElements.has(message.id) ||
-        element.getAttribute("data-entry-id") !== message.id
+        messageIdFor(element) !== message.messageId ||
+        this.markerIdsByMessageId.get(message.messageId) !== message.id
       ) {
         this.intersectionObserver?.unobserve(element);
         this.observedMessages.delete(element);
       }
     }
     for (const element of targets) {
-      const id = element.getAttribute("data-entry-id")!;
-      if (this.markerElements.has(id) && !this.observedMessages.has(element)) {
-        this.observedMessages.set(element, { id, visible: false });
+      const messageId = messageIdFor(element);
+      const id = messageId ? this.markerIdsByMessageId.get(messageId) : undefined;
+      if (messageId && id && !this.observedMessages.has(element)) {
+        this.observedMessages.set(element, { id, messageId, visible: false });
         this.intersectionObserver?.observe(element);
       }
     }
@@ -202,8 +223,19 @@ class ChatPositionRailDirective extends AsyncDirective {
       }
     }
     this.visibleIds = visible;
-    const visibleOrder = this.markerIds.filter((id) => visible.has(id));
-    const activeId = this.session?.activeMessageId(visibleOrder) ?? visibleOrder[0];
+    const visibleMessageIds = new Set(
+      Array.from(this.observedMessages.values())
+        .filter((message) => message.visible)
+        .map((message) => message.messageId),
+    );
+    const visibleOrder = this.positionMessageIds.filter((id) => visibleMessageIds.has(id));
+    // A continuation, folded tool row, or virtualized jump still belongs to a transcript position.
+    const activeMessageId = this.session?.activeMessageId(
+      visibleOrder.length ? visibleOrder : this.positionMessageIds,
+    );
+    const activeId =
+      (activeMessageId ? this.markerIdsByMessageId.get(activeMessageId) : undefined) ??
+      this.markerIds[0];
     if (activeId !== this.activeId) {
       this.markerElements.get(this.activeId ?? "")?.setAttribute("aria-current", "false");
       this.activeId = activeId;
@@ -346,11 +378,11 @@ class ChatPositionRailDirective extends AsyncDirective {
   }
 
   render({
-    messages,
+    positions,
     transcript,
     requestUpdate,
   }: {
-    messages: readonly unknown[];
+    positions: ChatPositionIndex;
     transcript: ChatTranscriptSession;
     requestUpdate: () => void;
   }) {
@@ -361,12 +393,19 @@ class ChatPositionRailDirective extends AsyncDirective {
       this.disconnectVisibility();
       this.markersChanged = true;
     }
-    const candidates = messages.flatMap((message) => {
-      const id = persistedMessageEntryId(message);
-      return id ? [{ id, message }] : [];
-    });
+    const candidates = positions.markers;
+    if (
+      this.markerIdsByMessageId.size !== positions.markerIdsByMessageId.size ||
+      [...positions.markerIdsByMessageId].some(
+        ([messageId, markerId]) => this.markerIdsByMessageId.get(messageId) !== markerId,
+      )
+    ) {
+      this.targetsChanged = true;
+    }
+    this.markerIdsByMessageId = positions.markerIdsByMessageId;
+    this.positionMessageIds = [...positions.markerIdsByMessageId.keys()];
     const count = candidates.length;
-    if (count < 2) {
+    if (count === 0) {
       this.disconnected();
       return nothing;
     }
@@ -377,11 +416,12 @@ class ChatPositionRailDirective extends AsyncDirective {
     if (!candidates.some((candidate) => candidate.id === interaction.hoveredId)) {
       interaction.hoveredId = null;
     }
-    const markers = candidates.map(({ id, message }) => ({
+    const markers = candidates.map(({ id, anchorId, message, role }) => ({
       id,
+      anchorId,
       message,
       label: t(
-        resolveMessageRole(message) === "user"
+        role === "user"
           ? "chat.thread.positionUserMessage"
           : "chat.thread.positionAssistantMessage",
       ),
@@ -457,68 +497,73 @@ class ChatPositionRailDirective extends AsyncDirective {
             @touchmove=${this.stopScrollInput}
           >
             <!-- Scroll visibility updates only changed DOM attributes; keep marker templates stable. -->
-            ${guard([transcript, ...markers.flatMap((marker) => [marker.id, marker.label])], () =>
-              repeat(
-                markers,
-                (marker) => marker.id,
-                (marker, index) => html`
-                  <div class="chat-position-rail__item" role="listitem">
-                    <button
-                      class="chat-position-rail__marker"
-                      type="button"
-                      data-position-marker-id=${marker.id}
-                      tabindex=${marker.id === rovingId ? "0" : "-1"}
-                      aria-label=${t("chat.thread.positionMarker", { position: String(index + 1), count: String(count), label: marker.label })}
-                      aria-description=${t("chat.thread.positionMarkerHint")}
-                      aria-current="false"
-                      @pointerenter=${() => {
-                        interaction.hoveredId = marker.id;
-                        interaction.dismissed = false;
-                        this.requestUpdate?.();
-                      }}
-                      @focus=${(event: FocusEvent) => {
-                        // Pointer focus must not move the target before pointer-up.
-                        if (
-                          event.currentTarget instanceof HTMLElement &&
-                          event.currentTarget.matches(":focus-visible")
-                        ) {
-                          this.revealMarker(event.currentTarget);
-                        }
-                        interaction.focusedId = marker.id;
-                        interaction.dismissed = false;
-                        this.syncTabStop();
-                        this.requestUpdate?.();
-                      }}
-                      @blur=${() => {
-                        interaction.focusedId = null;
-                        this.syncTabStop();
-                        this.requestUpdate?.();
-                      }}
-                      @keydown=${(event: KeyboardEvent) => {
-                        if (
-                          [
-                            "ArrowDown",
-                            "ArrowLeft",
-                            "ArrowRight",
-                            "ArrowUp",
-                            "End",
-                            "Home",
-                          ].includes(event.key)
-                        ) {
-                          moveFocus(event, index);
-                        } else if (event.key === "Escape") {
-                          this.dismissPreview(event);
-                        } else if (event.key === "PageUp" || event.key === "PageDown") {
-                          event.stopPropagation();
-                        }
-                      }}
-                      @click=${() => transcript.revealMessage(marker.id)}
-                    >
-                      <span class="chat-position-rail__tick" aria-hidden="true"></span>
-                    </button>
-                  </div>
-                `,
-              ),
+            ${guard(
+              [
+                transcript,
+                ...markers.flatMap((marker) => [marker.id, marker.label, marker.anchorId]),
+              ],
+              () =>
+                repeat(
+                  markers,
+                  (marker) => marker.id,
+                  (marker, index) => html`
+                    <div class="chat-position-rail__item" role="listitem">
+                      <button
+                        class="chat-position-rail__marker"
+                        type="button"
+                        data-position-marker-id=${marker.id}
+                        tabindex=${marker.id === rovingId ? "0" : "-1"}
+                        aria-label=${t("chat.thread.positionMarker", { position: String(index + 1), count: String(count), label: marker.label })}
+                        aria-description=${t("chat.thread.positionMarkerHint")}
+                        aria-current="false"
+                        @pointerenter=${() => {
+                          interaction.hoveredId = marker.id;
+                          interaction.dismissed = false;
+                          this.requestUpdate?.();
+                        }}
+                        @focus=${(event: FocusEvent) => {
+                          // Pointer focus must not move the target before pointer-up.
+                          if (
+                            event.currentTarget instanceof HTMLElement &&
+                            event.currentTarget.matches(":focus-visible")
+                          ) {
+                            this.revealMarker(event.currentTarget);
+                          }
+                          interaction.focusedId = marker.id;
+                          interaction.dismissed = false;
+                          this.syncTabStop();
+                          this.requestUpdate?.();
+                        }}
+                        @blur=${() => {
+                          interaction.focusedId = null;
+                          this.syncTabStop();
+                          this.requestUpdate?.();
+                        }}
+                        @keydown=${(event: KeyboardEvent) => {
+                          if (
+                            [
+                              "ArrowDown",
+                              "ArrowLeft",
+                              "ArrowRight",
+                              "ArrowUp",
+                              "End",
+                              "Home",
+                            ].includes(event.key)
+                          ) {
+                            moveFocus(event, index);
+                          } else if (event.key === "Escape") {
+                            this.dismissPreview(event);
+                          } else if (event.key === "PageUp" || event.key === "PageDown") {
+                            event.stopPropagation();
+                          }
+                        }}
+                        @click=${() => transcript.revealMessage(marker.anchorId)}
+                      >
+                        <span class="chat-position-rail__tick" aria-hidden="true"></span>
+                      </button>
+                    </div>
+                  `,
+                ),
             )}
           </div>
           ${

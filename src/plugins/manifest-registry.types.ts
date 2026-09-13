@@ -54,6 +54,8 @@ export type PluginManifestRecord = PluginManifestRecordStatic & {
   /** Process-local source selection, never persisted in the installed index. */
   sourcePreferred?: true;
   iconPath?: string;
+  activityIconPath?: string;
+  toolActivityIconPaths?: Record<string, string>;
   packageName?: string;
   packageVersion?: string;
   packageDescription?: string;

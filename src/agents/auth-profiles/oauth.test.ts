@@ -651,3 +651,90 @@ describe("resolveApiKeyForProfile secret refs", () => {
     });
   });
 });
+
+describe("setup-owned SecretRef materialization", () => {
+  it.each(["normal", "abort", "replacement", "nested", "other-store", "other-profile"] as const)(
+    "keeps the prepared credential scoped through %s settlement",
+    async (settlement) => {
+      const { withSetupCredentialAccess } = await import("./setup-access.js");
+      const {
+        getRuntimeAuthProfileStoreCredentialsRevision,
+        getRuntimeAuthProfileStoreSnapshotCore,
+      } = await import("./runtime-snapshots.js");
+      const profileId = "openai:setup-scope";
+      const source = {
+        type: "api_key" as const,
+        provider: "openai",
+        keyRef: { source: "env" as const, provider: "default", id: "SETUP_SCOPED_KEY" },
+      };
+      const store: AuthProfileStore = { version: 1, profiles: { [profileId]: source } };
+      const controller = new AbortController();
+      const prior = getRuntimeAuthProfileStoreSnapshotCore();
+      const resolve = (agentDir?: string) =>
+        resolveApiKeyForProfile({
+          cfg: cfgFor(profileId, "openai", "api_key"),
+          store,
+          profileId,
+          agentDir,
+        });
+      let readAfterClose: (() => ReturnType<typeof resolve>) | undefined;
+      await withSetupCredentialAccess(
+        {
+          profileId,
+          signal: controller.signal,
+          runtimeCredential: {
+            source,
+            materialized: { ...source, key: "synthetic-scoped-credential" },
+            credentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
+          },
+        },
+        async () => {
+          await expect(resolve()).resolves.toMatchObject({ apiKey: "synthetic-scoped-credential" });
+          let releaseRetained: (() => void) | undefined;
+          const retained = new Promise<void>((done) => {
+            releaseRetained = done;
+          }).then(() => resolve());
+          readAfterClose = () => {
+            releaseRetained!();
+            return retained;
+          };
+          if (settlement === "abort") {
+            controller.abort();
+            await expect(resolve()).rejects.toMatchObject({ code: "SECRET_SURFACE_UNAVAILABLE" });
+          } else if (settlement === "replacement") {
+            setRuntimeAuthProfileStoreSnapshot({
+              version: 1,
+              profiles: { [profileId]: { ...source, key: "synthetic-new-owner-credential" } },
+            });
+            await expect(resolve()).rejects.toMatchObject({ code: "SECRET_SURFACE_UNAVAILABLE" });
+          } else if (settlement === "nested") {
+            await withSetupCredentialAccess({ profileId }, async () => {
+              await expect(resolve()).resolves.toMatchObject({
+                apiKey: "synthetic-scoped-credential",
+              });
+            });
+          } else if (settlement === "other-profile") {
+            await withSetupCredentialAccess({ profileId: "openai:another-setup" }, async () => {
+              await expect(resolve()).rejects.toMatchObject({ code: "SECRET_SURFACE_UNAVAILABLE" });
+            });
+          } else if (settlement === "other-store") {
+            await expect(resolve("/unrelated/setup-owner")).rejects.toMatchObject({
+              code: "SECRET_SURFACE_UNAVAILABLE",
+            });
+          }
+        },
+      );
+      expect(readAfterClose).toBeDefined();
+      await expect(readAfterClose!()).rejects.toMatchObject({ code: "SECRET_SURFACE_UNAVAILABLE" });
+      if (settlement === "replacement") {
+        await expect(resolve()).resolves.toMatchObject({
+          apiKey: "synthetic-new-owner-credential",
+        });
+      } else {
+        expect(getRuntimeAuthProfileStoreSnapshotCore()).toEqual(prior);
+      }
+      expect(store.profiles[profileId]).toEqual(source);
+      expect(store.profiles[profileId]).not.toHaveProperty("key");
+    },
+  );
+});

@@ -192,6 +192,33 @@ suite.define(() => {
         ).toBe("Harbor");
         await captureSidebarUiProof(suite, page, "sidebar-roster-after.png");
 
+        const activityQuery = {
+          archived: "all",
+          includeDerivedTitles: true,
+          includeLastMessage: true,
+          limit: 100,
+        };
+        const activityReads = () => gateway.getRequests("sessions.list", activityQuery);
+        const initialReads = (await activityReads()).length;
+        await gateway.deferNext("sessions.list", activityQuery);
+        await gateway.emitGatewayEvent("sessions.changed", {
+          agentId: "main",
+          key: "agent:main:main",
+        });
+        await expect.poll(async () => (await activityReads()).length).toBe(initialReads + 1);
+        for (let index = 0; index < 3; index += 1) {
+          await gateway.emitGatewayEvent("sessions.changed", {
+            agentId: "main",
+            key: "agent:main:main",
+          });
+          // Exercise separate debounce windows while the original server read stays held.
+          await page.waitForTimeout(250);
+          expect(await activityReads()).toHaveLength(initialReads + 1);
+        }
+        await gateway.resolveDeferred("sessions.list");
+        await expect.poll(async () => (await activityReads()).length).toBe(initialReads + 2);
+        await expect.poll(() => sessionRows.count()).toBe(12);
+
         await workspace.focus();
         await page.keyboard.press("Enter");
         const workspaceMenu = sidebar.locator(".sidebar-agent-menu");

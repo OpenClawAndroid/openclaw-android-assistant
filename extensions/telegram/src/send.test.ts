@@ -2733,7 +2733,9 @@ describe("sendMessageTelegram", () => {
     const originalBun = (globalThis as { Bun?: unknown }).Bun;
     const fetchSpy = vi.fn<typeof fetch>();
     globalThis.fetch = fetchSpy;
-    (globalThis as { Bun?: unknown }).Bun = {};
+    if (originalBun === undefined) {
+      (globalThis as { Bun?: unknown }).Bun = {};
+    }
     botApi.sendMessage.mockResolvedValue({
       message_id: 1,
       chat: { id: "123" },
@@ -2751,8 +2753,6 @@ describe("sendMessageTelegram", () => {
       globalThis.fetch = originalFetch;
       if (originalBun === undefined) {
         delete (globalThis as { Bun?: unknown }).Bun;
-      } else {
-        (globalThis as { Bun?: unknown }).Bun = originalBun;
       }
     }
   });

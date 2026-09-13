@@ -222,10 +222,13 @@
   flex-shrink: 0;
 }
 
-.chat-tool-msg-summary__icon img {
+.chat-tool-activity-icon {
   width: 16px;
   height: 16px;
-  object-fit: contain;
+  background: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .chat-tool-msg-summary__icon svg {
@@ -236,22 +239,6 @@
   stroke-width: 1.5px;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.chat-tool-claw {
-  display: inline-flex;
-}
-
-.chat-tool-msg-summary__icon .chat-tool-claw svg {
-  fill: currentColor;
-  stroke: none;
-}
-
-/* Match the progress claw's open resting pose without its looping animation. */
-.chat-tool-claw .claw-icon__jaw {
-  transform-box: view-box;
-  transform-origin: 8.6px 11px;
-  transform: rotate(-10deg);
 }
 
 /* Labels stay intact; only the following summary truncates. */

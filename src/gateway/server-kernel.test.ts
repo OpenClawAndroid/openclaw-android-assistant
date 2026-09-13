@@ -903,6 +903,7 @@ describe("createGatewayKernel", () => {
         "plugins.bootstrap",
         "gateway.kernel-state",
         "node-desktop.runtime-import",
+        "computer.runtime-import",
         "runtime.config",
         "control-ui.root",
         "terminal.launch-import",

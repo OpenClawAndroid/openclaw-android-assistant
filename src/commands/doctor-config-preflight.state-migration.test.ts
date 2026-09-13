@@ -347,6 +347,23 @@ describe("runDoctorConfigPreflight state migration", () => {
     expect(startupMigrationLeaseRelease).toHaveBeenCalledTimes(needed ? 1 : 0);
   });
 
+  it("stops renewing before releasing a lease when the admitted checkpoint is current", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    readMigrationCheckpointStatus.mockReturnValueOnce("stale").mockReturnValue("startup-current");
+    startupMigrationLeaseRelease.mockImplementationOnce(() => {
+      expect(vi.getTimerCount()).toBe(0);
+    });
+    try {
+      await runDoctorConfigPreflight(startupCheckpointOptions);
+      expect(startupMigrationLeaseRelease).toHaveBeenCalledOnce();
+      expect(autoMigrateLegacyState).not.toHaveBeenCalled();
+      expect(recordSuccessfulStartupMigrations).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("runs the startup guard immediately before the first state mutation", async () => {
     const beforeStateMigrations = vi.fn<(_snapshot?: unknown) => Promise<boolean>>(
       async () => true,

@@ -254,6 +254,17 @@ the current child sessions, run ids, statuses, labels, tasks, and
 block are quoted as data, not instructions, because they can originate
 from user/model-provided spawn arguments.
 
+Later turns also include `Recently Completed Subagents`, capped at the eight
+newest children that ended in the last 30 minutes. This lists execution metadata,
+not an acknowledgment of result delivery.
+
+`Child results awaiting delivery` carries retained completion obligations for
+the requester or controller session, even when the child ended more than 30
+minutes ago, a newer execution exists, or the current turn cannot spawn. It
+includes at most eight results, oldest first, with each result limited to 2,000
+characters. Omitted entries and truncated results are marked. Result text is
+quoted as data. Reading this context does not acknowledge or retry delivery.
+
 ## Tool: `subagents`
 
 Lists spawned sub-agent runs and background-task records owned by the

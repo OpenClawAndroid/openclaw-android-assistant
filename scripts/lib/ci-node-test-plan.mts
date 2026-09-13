@@ -1097,11 +1097,11 @@ function resolveCommandShardName(file: string): string {
 }
 
 function createAgenticCommandSplitShards(): NodeTestSplitShard[] {
-  const commandsLightTests = new Set(commandsLightTestFiles);
+  const excludedTests = new Set([...commandsLightTestFiles, ...databaseWorkerCoreTestFiles]);
   const unitFastFiles = new Set(getUnitFastTestFiles());
   const groups = new Map<string, string[]>();
   for (const file of listTestFiles("src/commands")) {
-    if (commandsLightTests.has(file) || !isStripeEligibleTestFile(file, unitFastFiles)) {
+    if (excludedTests.has(file) || !isStripeEligibleTestFile(file, unitFastFiles)) {
       continue;
     }
     const shardName = resolveCommandShardName(file);

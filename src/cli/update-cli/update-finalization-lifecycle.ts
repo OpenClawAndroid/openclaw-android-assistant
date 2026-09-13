@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 import os from "node:os";
-import { formatErrorMessage } from "../../infra/errors.js";
+import { resolveStateDir } from "../../config/paths.js";
+import { extractErrorCode, formatErrorMessage } from "../../infra/errors.js";
 import { resolveAggregateSqliteInspectionTimeoutMs } from "../../infra/sqlite-readonly-worker.js";
 import { readUpdateStateDatabaseSizes } from "../../infra/update-candidate-state.sizes.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
@@ -9,6 +10,7 @@ import {
   createUpdateFailureFact,
   type UpdateFailureFact,
 } from "../../infra/update-failure-facts.js";
+import { POST_CORE_UPDATE_ENV } from "../../infra/update-post-core-context.js";
 import { readUpdateRunDriver, type UpdateRunDriver } from "../../infra/update-run-driver.js";
 import {
   adoptUpdateRun,
@@ -16,12 +18,14 @@ import {
   finishUpdateRun,
   heartbeatUpdateRun,
   recordUpdateRunDiagnostic,
+  recordUpdateRunPhase,
   recordUpdateRunStep,
 } from "../../infra/update-run-ledger.js";
 import {
   UPDATE_RUN_HEARTBEAT_MS,
   UPDATE_RUNNER_TIMEOUT_MS,
 } from "../../infra/update-run-timeouts.js";
+import { redactSupportDiagnosticLine } from "../../logging/diagnostic-support-redaction.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { watchCliExitAfterOutput } from "../one-shot-exit.js";
@@ -67,7 +71,7 @@ export class UpdateFinalizationLifecycle {
     private readonly stopChildren: () => void,
   ) {}
 
-  attachLedger(): void {
+  attachLedger(): string {
     this.driver = readUpdateRunDriver();
     const inherited = process.env[UPDATE_RUN_ID_ENV]?.trim();
     this.ledgerOptions = { env: { ...process.env } };
@@ -81,6 +85,30 @@ export class UpdateFinalizationLifecycle {
       recordUpdateRunStep(
         this.runId,
         { step: this.active.step, status: "in_progress", startedAtMs: this.active.startedAtMs },
+        this.ledgerOptions,
+      );
+    }
+    return this.runId;
+  }
+
+  recordInstallKind(installKind: "git" | "package" | "unknown"): void {
+    if (this.runId && this.ownsRun && installKind !== "unknown") {
+      recordUpdateRunPhase(
+        this.runId,
+        "requested",
+        {
+          target: { kind: installKind },
+          ...(installKind === "package" && this.ledgerOptions?.env[POST_CORE_UPDATE_ENV] !== "1"
+            ? {
+                step: {
+                  step: "finalize:package-rollback-not-needed",
+                  status: "skipped" as const,
+                  endedAtMs: Date.now(),
+                  detail: "No package mutation during standalone finalization.",
+                },
+              }
+            : {}),
+        },
         this.ledgerOptions,
       );
     }
@@ -98,6 +126,13 @@ export class UpdateFinalizationLifecycle {
       status,
       ...(detail ? { detail } : {}),
       ...(failureFacts?.length ? { failureFacts } : {}),
+      ...(status === "failed"
+        ? {
+            reason:
+              failureFacts?.find((fact) => fact.code.trim() && fact.code !== "finalization-failed")
+                ?.code ?? active.step,
+          }
+        : {}),
       ...(status === "in_progress" ? { startedAtMs: at } : { endedAtMs: at }),
     };
     defaultRuntime.error(`[update finalize] ${JSON.stringify(step)}`);
@@ -212,7 +247,7 @@ export class UpdateFinalizationLifecycle {
           end("failed", doctorOutput ? formatDoctorOutputDetail(doctorOutput) : undefined, [
             createUpdateFailureFact({ check: phase, code: "finalization-timeout", message: error }),
           ]);
-          this.finishLedger(1, error);
+          this.finishLedger(1);
           writeSync(2, `${error}\n`);
           if (doctorOutput) {
             writeSync(2, `[update finalize] Doctor output: ${JSON.stringify(doctorOutput)}\n`);
@@ -249,11 +284,18 @@ export class UpdateFinalizationLifecycle {
           : [
               createUpdateFailureFact({
                 check: phase,
-                code: "finalization-failed",
+                code: extractErrorCode(error) ?? "finalization-failed",
                 message: formatErrorMessage(error),
               }),
             ];
-      end("failed", undefined, facts);
+      end(
+        "failed",
+        redactSupportDiagnosticLine(formatErrorMessage(error), {
+          env: process.env,
+          stateDir: resolveStateDir(process.env),
+        }),
+        facts,
+      );
       throw error;
     } finally {
       clearInterval(heartbeat);
@@ -263,12 +305,12 @@ export class UpdateFinalizationLifecycle {
     }
   }
 
-  private finishLedger(exitCode: number, reason?: string): void {
+  private finishLedger(exitCode: number): void {
     if (this.runId && this.ownsRun) {
       try {
         finishUpdateRun(
           this.runId,
-          { status: exitCode ? "failed" : "succeeded", reason },
+          { status: exitCode ? "failed" : "succeeded" },
           this.ledgerOptions,
         );
       } catch {

@@ -7,11 +7,131 @@ import {
   QA_EVIDENCE_SUMMARY_SCHEMA_VERSION,
   buildPlaywrightEvidenceSummary,
   buildQaSuiteEvidenceSummary,
+  buildScriptEvidenceSummary,
   buildVitestEvidenceSummary,
   validateQaEvidenceSummaryJson,
 } from "./evidence-summary.js";
+import type { QaProviderMode } from "./providers/index.js";
+
+const providerIdentityCases: {
+  name: string;
+  primaryModel: string;
+  providerMode: QaProviderMode;
+  providerId?: string;
+  expectedId: string;
+  expectedName: string | null;
+}[] = [
+  {
+    name: "known live provider with unknown model",
+    primaryModel: "",
+    providerMode: "live-frontier",
+    providerId: "openai",
+    expectedId: "openai",
+    expectedName: null,
+  },
+  {
+    name: "trimmed live fallback",
+    primaryModel: "",
+    providerMode: "live-frontier",
+    providerId: "  custom  ",
+    expectedId: "custom",
+    expectedName: null,
+  },
+  {
+    name: "explicit model wins conflicting fallback",
+    primaryModel: "custom/model",
+    providerMode: "live-frontier",
+    providerId: "openai",
+    expectedId: "custom",
+    expectedName: "model",
+  },
+  {
+    name: "omitted fallback",
+    primaryModel: "",
+    providerMode: "live-frontier",
+    expectedId: "live-frontier",
+    expectedName: null,
+  },
+  {
+    name: "blank fallback",
+    primaryModel: "",
+    providerMode: "live-frontier",
+    providerId: "   ",
+    expectedId: "live-frontier",
+    expectedName: null,
+  },
+  ...(["mock-openai", "aimock"] as const).flatMap((providerMode) => [
+    {
+      name: `${providerMode} ignores fallback with unknown model`,
+      primaryModel: "",
+      providerMode,
+      providerId: "custom",
+      expectedId: providerMode === "mock-openai" ? "openai" : "aimock",
+      expectedName: null,
+    },
+    {
+      name: `${providerMode} preserves model identity`,
+      primaryModel: "custom/model",
+      providerMode,
+      providerId: "openai",
+      expectedId: "custom",
+      expectedName: "model",
+    },
+  ]),
+];
 
 describe("evidence summary", () => {
+  for (const testCase of providerIdentityCases) {
+    it(`provider identity fallback: ${testCase.name}`, () => {
+      const { primaryModel, providerMode, providerId, expectedId, expectedName } = testCase;
+      const evidence = buildScriptEvidenceSummary({
+        artifactPaths: [],
+        generatedAt: "2026-09-10T00:00:00.000Z",
+        primaryModel,
+        providerMode,
+        providerId,
+        targets: [{ id: "provider-identity", title: "Provider identity", sourcePath: "probe.ts" }],
+        results: [
+          { id: "provider-identity", status: "blocked", failureMessage: "missing candidate" },
+        ],
+      });
+
+      expect(validateQaEvidenceSummaryJson(evidence)).toEqual(evidence);
+      expect(evidence.schemaVersion).toBe(2);
+      expect(evidence.entries[0]?.execution?.provider).toEqual({
+        id: expectedId,
+        model: { name: expectedName, ref: primaryModel || null },
+        ...(providerMode === "live-frontier"
+          ? { live: true, auth: providerMode }
+          : { live: false, fixture: providerMode }),
+      });
+      expect(evidence.entries[0]?.result).toEqual({
+        status: "blocked",
+        failure: { reason: "missing candidate" },
+      });
+    });
+  }
+
+  it("provider identity fallback: slim evidence still omits execution", () => {
+    const evidence = buildScriptEvidenceSummary({
+      artifactPaths: [],
+      evidenceMode: "slim",
+      generatedAt: "2026-09-10T00:00:00.000Z",
+      primaryModel: "",
+      providerMode: "live-frontier",
+      providerId: "openai",
+      targets: [{ id: "provider-identity", title: "Provider identity", sourcePath: "probe.ts" }],
+      results: [
+        { id: "provider-identity", status: "blocked", failureMessage: "missing candidate" },
+      ],
+    });
+
+    expect(validateQaEvidenceSummaryJson(evidence)).toEqual(evidence);
+    expect(evidence.evidenceMode).toBe("slim");
+    expect(evidence.entries[0]).not.toHaveProperty("execution");
+    expect(evidence.entries[0]?.result.status).toBe("blocked");
+  });
+
   it("builds QA suite evidence entries from catalog metadata", () => {
     const evidence = buildQaSuiteEvidenceSummary({
       artifactPaths: [

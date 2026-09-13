@@ -80,6 +80,7 @@ import {
   openSlot,
   promoteSidebarPanel,
   setSidebarOpen,
+  sidebarMainPanel,
 } from "./sidebar-layout.ts";
 
 export abstract class ChatPaneBase extends OpenClawLightDomElement {
@@ -436,7 +437,12 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
     if (renderedLayout.columns[0]?.panels.some((panel) => panel.slot === "companion")) {
       this.setSessionObserverVisibility(isSidebarSlotVisible(nextLayout, "companion"));
     }
-    this.commitSidebarLayout(nextLayout);
+    this.commitSidebarLayout(
+      nextLayout,
+      sidebarMainPanel(renderedLayout)?.slot === "dashboard"
+        ? { dashboardPresentation: "personal" }
+        : undefined,
+    );
   }
 
   protected requestSessionRail(intent: "open" | "toggle"): void {
@@ -511,7 +517,12 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
       }
     | undefined;
   protected readonly observedBoardPresence = new Map<string, boolean>();
-  protected dashboardExpandedRouteKey = "";
+  protected dashboardPresentationActivation?: {
+    client: ChatPageHost["client"];
+    key: string;
+    expanded: boolean;
+    pendingRoute?: boolean;
+  };
   protected swarmHydrator: SwarmRosterHydrator | null = null;
   protected readonly sessionDiscussionStates = new Map<string, SessionDiscussionState>();
   protected readonly sessionDiscussionOpenUrls = new Map<string, string | null>();
@@ -649,7 +660,10 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
   }
 
   protected abstract refreshSessionPullRequests(options?: { refresh?: boolean }): boolean;
-  protected abstract commitSidebarLayout(layout: SidebarLayout): void;
+  protected abstract commitSidebarLayout(
+    layout: SidebarLayout,
+    options?: Parameters<ChatPageHost["updateSidebarLayout"]>[1],
+  ): void;
   protected abstract refreshSwarmRoster(): void;
   protected abstract resolveBoardProvider(): BoardProvider;
   protected abstract handleBoardCommand(event: BoardCommandEvent): void;

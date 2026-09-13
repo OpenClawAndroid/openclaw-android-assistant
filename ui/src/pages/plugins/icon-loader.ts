@@ -317,6 +317,7 @@ function cancelUnreadResponseBody(response: Response): void {
 async function fetchProxiedIconBlobUrl(
   params: FetchProxiedIconParams,
   routeUrl: string,
+  svgOnly = false,
 ): Promise<string | null> {
   if (!hasSameOriginGatewayTransport(params.gatewayUrl)) {
     return null;
@@ -346,7 +347,10 @@ async function fetchProxiedIconBlobUrl(
       return null;
     }
     const contentType = normalizeMimeType(response.headers.get("content-type"));
-    if (!ALLOWED_PLUGIN_ICON_MIME_TYPES.has(contentType)) {
+    if (
+      !ALLOWED_PLUGIN_ICON_MIME_TYPES.has(contentType) ||
+      (svgOnly && contentType !== "image/svg+xml")
+    ) {
       cancelUnreadResponseBody(response);
       return null;
     }
@@ -366,6 +370,18 @@ export function fetchPluginIconBlobUrl(
     params.pluginId,
   );
   return fetchProxiedIconBlobUrl(params, routeUrl);
+}
+
+export function fetchPluginActivityIconBlobUrl(
+  params: FetchProxiedIconParams & { pluginId: string; tool?: string },
+): Promise<string | null> {
+  const path = buildControlUiResourcePath(
+    "pluginActivityIcon",
+    params.resourceBasePath,
+    params.pluginId,
+  );
+  const routeUrl = params.tool ? `${path}?tool=${encodeURIComponent(params.tool)}` : path;
+  return fetchProxiedIconBlobUrl(params, routeUrl, true);
 }
 
 export function fetchCatalogIconBlobUrl(

@@ -209,6 +209,7 @@ function writeSubagentRunValues(
 
 type SubagentRegistryReadScope =
   | { kind: "controller"; sessionKey: string }
+  | { kind: "session"; sessionKey: string }
   | { kind: "child"; sessionKey: string }
   | { kind: "runs"; runIds: readonly string[] };
 
@@ -223,6 +224,13 @@ function readSubagentRegistryRows(
     query = query.where("child_session_key", "=", scope.sessionKey);
   } else if (scope?.kind === "runs") {
     query = query.where("run_id", "in", sqliteStringSet(scope.runIds));
+  } else if (scope?.kind === "session") {
+    query = query.where((eb) =>
+      eb.or([
+        eb("controller_session_key", "=", scope.sessionKey),
+        eb("requester_session_key", "=", scope.sessionKey),
+      ]),
+    );
   } else if (scope?.kind === "controller") {
     // The writer trims controller keys; older null/empty rows belong to their requester.
     query = query.where((eb) =>
@@ -398,6 +406,11 @@ export function loadSubagentRunsForControllerFromSqlite(
   controllerSessionKey: string,
 ): SubagentRunRecord[] {
   return loadScopedSubagentRuns({ kind: "controller", sessionKey: controllerSessionKey });
+}
+
+/** Loads all generations readable by one requester or controller session. */
+export function loadSubagentRunsForSessionFromSqlite(sessionKey: string): SubagentRunRecord[] {
+  return loadScopedSubagentRuns({ kind: "session", sessionKey });
 }
 
 /** Loads all persisted generations for one child session through its existing index. */

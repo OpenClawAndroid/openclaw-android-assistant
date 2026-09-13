@@ -29,6 +29,7 @@ import type {
 } from "./computer-tool-shared.js";
 import {
   AFTER_ACTION_SCREENSHOT_DELAY_MS,
+  computerTargetDetails,
   isComputerObservationAction,
   MAX_WAIT_SECONDS,
 } from "./computer-tool-shared.js";
@@ -101,6 +102,7 @@ export function createComputerTool(options?: {
     idempotencyScope: options?.idempotencyScope,
     contextEpoch: options?.contextEpoch,
     transport: options?.transport,
+    gatewayStatus: options?.pairedNodeComputerUse?.gateway,
     availableActions,
     defaultActions: COMPUTER_TOOL_ACTIONS,
     onCapabilitiesChanged: (capabilities) => {
@@ -141,7 +143,7 @@ export function createComputerTool(options?: {
       return {
         content: [{ type: "text" as const, text }],
         details: {
-          node: params.resolved.target.nodeId,
+          ...computerTargetDetails(params.resolved.target),
           action: params.action,
           screenIndex: params.resolved.target.screenIndex,
           frameId: previousFrame.id,
@@ -284,7 +286,7 @@ export function createComputerTool(options?: {
               },
             ],
             details: {
-              node: resolved.target.nodeId,
+              ...computerTargetDetails(resolved.target),
               action,
               screenIndex: resolved.target.screenIndex,
               result: actResult,

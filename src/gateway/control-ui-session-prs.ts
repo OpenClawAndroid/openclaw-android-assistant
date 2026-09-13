@@ -25,7 +25,10 @@ import {
   GITHUB_API_ORIGIN,
   resolveGitHubApiCredentialScope,
 } from "./control-ui-github-api.js";
-import { loadSessionPullRequestReferences } from "./control-ui-session-pr-references.js";
+import {
+  loadSessionPullRequestReferences,
+  releaseSessionPullRequestReferenceCache,
+} from "./control-ui-session-pr-references.js";
 import { parseGitHubRemoteUrl } from "./github-remote.js";
 import { resolveGitHubForkParent } from "./github-repository-target.js";
 import { loadGatewaySessionEntryReadOnly } from "./session-utils.js";
@@ -108,6 +111,8 @@ function resolveSessionPullRequestSource(
     params.sessionKey,
     {
       agentId: params.agentId,
+      clone: false,
+      projection: "list",
     },
   );
   // Same session/agent scoping as sessions.files.*: a missing entry means an
@@ -594,15 +599,21 @@ export async function loadControlUiSessionPullRequests(
   } catch (error) {
     releaseSessionPullRequestLocalGitCache(deps.cacheSignal);
     branchCache.release(deps.cacheSignal);
+    releaseSessionPullRequestReferenceCache(deps.cacheSignal);
     throw error;
   }
   if (!context) {
     releaseGitReadCache("pull-request.branch-facts", deps.cacheSignal);
     branchCache.release(deps.cacheSignal);
+    releaseSessionPullRequestReferenceCache(deps.cacheSignal);
     return { pullRequests: [], rateLimited: false };
   }
   let referencesUnavailable = false;
-  const references = await loadSessionPullRequestReferences(params, context).catch(() => {
+  const references = await loadSessionPullRequestReferences(
+    params,
+    context,
+    deps.cacheSignal,
+  ).catch(() => {
     referencesUnavailable = true;
     return undefined;
   });
@@ -695,7 +706,11 @@ async function cachedBranchPullRequests(
     entry: session,
     agentId,
     canonicalKey,
-  } = loadGatewaySessionEntryReadOnly(params.sessionKey, { agentId: params.agentId });
+  } = loadGatewaySessionEntryReadOnly(params.sessionKey, {
+    agentId: params.agentId,
+    clone: false,
+    projection: "list",
+  });
   // References belong to the conversation generation. Updating its reference list must
   // retain the branch's proven PR state and quota backoff, without sharing another task's links.
   const key = JSON.stringify([

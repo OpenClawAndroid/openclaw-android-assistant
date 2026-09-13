@@ -18,8 +18,13 @@ import {
 import { resolveClawHubCatalogIconUrl } from "../plugins/catalog-icon-registry.js";
 import {
   resolveManagedPluginIconSource,
+  resolveManagedPluginActivityIconSource,
   resolveManagedSetupCatalogIconUrl,
 } from "../plugins/management-service.js";
+import {
+  isPluginActivityToolName,
+  PLUGIN_ACTIVITY_ICON_MAX_BYTES,
+} from "../plugins/portable-icon-paths.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import { parseControlUiResourcePath } from "./control-ui-contract.js";
@@ -136,6 +141,7 @@ async function loadPackageIcon(params: {
   cacheScope: string;
   iconPath: string;
   rootPath: string;
+  activity?: boolean;
 }): Promise<HttpImageRepresentation | null> {
   const cacheKey = `${params.cacheScope}\0file:${params.rootPath}\0${params.iconPath}`;
   const now = Date.now();
@@ -150,11 +156,12 @@ async function loadPackageIcon(params: {
   }
 
   const pending = (async () => {
+    const maxBytes = params.activity ? PLUGIN_ACTIVITY_ICON_MAX_BYTES : PLUGIN_ICON_MAX_BYTES;
     const opened = await openRootFile({
       absolutePath: params.iconPath,
       rootPath: params.rootPath,
       boundaryLabel: "plugin package directory",
-      maxBytes: PLUGIN_ICON_MAX_BYTES,
+      maxBytes,
       rejectHardlinks: true,
     });
     if (!opened.ok) {
@@ -163,14 +170,14 @@ async function loadPackageIcon(params: {
     try {
       // The root-scoped open pins the validated descriptor and uses nonblocking
       // flags, so post-discovery path swaps cannot escape or stall this read.
-      const body = await readFileDescriptorBounded(opened.fd, PLUGIN_ICON_MAX_BYTES);
+      const body = await readFileDescriptorBounded(opened.fd, maxBytes);
       if (body.byteLength < 1) {
         return null;
       }
       return await normalizeIconPayload({
         body,
-        contentType: "image/png",
-        maxBytes: PLUGIN_ICON_MAX_BYTES,
+        contentType: params.activity ? SVG_MIME_TYPE : "image/png",
+        maxBytes,
       });
     } catch {
       return null;
@@ -291,17 +298,27 @@ export async function handlePluginIconHttpRequest(
     rateLimiter?: AuthRateLimiter;
   },
 ): Promise<boolean> {
-  const pathname = req.url ? new URL(req.url, "http://localhost").pathname : undefined;
+  const requestUrl = req.url ? new URL(req.url, "http://localhost") : undefined;
+  const pathname = requestUrl?.pathname;
   const pluginRequest = parseControlUiResourcePath("pluginIcon", pathname, opts.basePath);
+  const activityRequest = parseControlUiResourcePath("pluginActivityIcon", pathname, opts.basePath);
   const catalogRequest = parseControlUiResourcePath("catalogIcon", pathname, opts.basePath);
   const faviconRequest = parseControlUiResourcePath("linkFavicon", pathname, opts.basePath);
-  if (!pluginRequest.matched && !catalogRequest.matched && !faviconRequest.matched) {
+  if (
+    !pluginRequest.matched &&
+    !activityRequest.matched &&
+    !catalogRequest.matched &&
+    !faviconRequest.matched
+  ) {
     return false;
   }
+  const packageRequest = activityRequest.matched ? activityRequest : pluginRequest;
   const pluginId =
-    pluginRequest.matched && pluginRequest.value && PLUGIN_ID_RE.test(pluginRequest.value)
-      ? pluginRequest.value
+    packageRequest.matched && packageRequest.value && PLUGIN_ID_RE.test(packageRequest.value)
+      ? packageRequest.value
       : null;
+  const toolNames = activityRequest.matched ? (requestUrl?.searchParams.getAll("tool") ?? []) : [];
+  const toolName = toolNames[0];
   const catalogIconUrl = catalogRequest.matched ? catalogRequest.value : null;
   const faviconHostname = faviconRequest.matched
     ? faviconRequest.value
@@ -326,6 +343,14 @@ export async function handlePluginIconHttpRequest(
   }
 
   if (
+    activityRequest.matched &&
+    (toolNames.length > 1 || (toolName !== undefined && !isPluginActivityToolName(toolName)))
+  ) {
+    sendNotFound(res);
+    return true;
+  }
+
+  if (
     faviconRequest.matched &&
     opts.config.gateway?.controlUi?.automaticallyFetchFavicons === false
   ) {
@@ -334,10 +359,12 @@ export async function handlePluginIconHttpRequest(
   }
 
   const pluginIcon = pluginId
-    ? await resolveManagedPluginIconSource({
-        config: opts.config,
-        pluginId,
-      })
+    ? activityRequest.matched
+      ? await resolveManagedPluginActivityIconSource({ config: opts.config, pluginId, toolName })
+      : await resolveManagedPluginIconSource({
+          config: opts.config,
+          pluginId,
+        })
     : undefined;
   const remoteIconUrl = catalogIconUrl
     ? (resolveManagedSetupCatalogIconUrl({
@@ -353,12 +380,17 @@ export async function handlePluginIconHttpRequest(
     sendNotFound(res);
     return true;
   }
-  const cacheScope = pluginId ? `plugin:${pluginId}` : faviconHostname ? "favicon" : "catalog";
+  const cacheScope = pluginId
+    ? `${activityRequest.matched ? "plugin-activity" : "plugin"}:${pluginId}`
+    : faviconHostname
+      ? "favicon"
+      : "catalog";
   const icon = pluginIcon
     ? await loadPackageIcon({
         cacheScope,
         iconPath: pluginIcon.path,
         rootPath: pluginIcon.rootPath,
+        activity: activityRequest.matched,
       })
     : await loadCatalogIcon({
         cacheScope,
@@ -381,7 +413,11 @@ export async function handlePluginIconHttpRequest(
     req,
     res,
     image: icon,
-    filename: faviconHostname ? "link-favicon" : "plugin-icon",
+    filename: faviconHostname
+      ? "link-favicon"
+      : activityRequest.matched
+        ? "plugin-activity-icon"
+        : "plugin-icon",
   });
   return true;
 }

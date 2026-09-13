@@ -134,6 +134,18 @@ preserve existing entries; deletion frees their capacity. Loads return detached
 copies and carry forward network-content provenance into the receiving cell's
 normal untrusted output wrapper.
 
+Interactive cells also retain final structured JSON automatically when byte or
+model-result fitting would otherwise truncate it. The worker serializes the
+final value once and retains at most the larger of the display allowance and
+the existing memory/snapshot data allowance; only eligible interactive cells
+request this capture. Catalog admission checks remaining bytes and entries
+before parsing another full JSON copy for bounded preview construction. The
+normalized string moves into the same store. Final projection reserves a usable
+reference before allocating the remaining display space to sampled descriptions
+and output; an undisplayable reference is released. Failed admission remains a
+successful partial result with a precise non-retention reason. Headless and
+restart-safe execution do not allocate automatic references.
+
 Catalog teardown, replacement, restriction, and the admitted run's abort clear
 saved data. Appended client tools preserve the same catalog lifetime. Each cell
 captures its catalog identity and entries before execution, so stale cells
@@ -174,6 +186,16 @@ response counts additional errors omitted from the batch. Diagnostics return
 `failed`/`invalid_input`;
 no guest or tool work has run when preflight rejects. This opt-in does not change
 JavaScript defaults or replace runtime JSON Schema validation.
+
+Repeated checked cells reuse one bounded declaration string per catalog when
+current tool schemas, callable names, namespace globals, and API declarations
+still match. Mutable trusted schemas are fingerprinted again on each check;
+client schemas remain opaque. Custom JSON serialization cannot hide contract
+changes, and uncloneable metadata bypasses reuse. Catalog changes replace the prepared text. Each
+warm compiler worker also reuses the pinned standard-library text and its
+reference graph. Guest programs, syntax trees, and diagnostics remain per-cell,
+and cached declaration and library bytes still count against each check's
+existing input allowance.
 
 The TypeScript compiler is loaded lazily only for TypeScript cells; plain
 JavaScript cells and disabled code mode never load it.

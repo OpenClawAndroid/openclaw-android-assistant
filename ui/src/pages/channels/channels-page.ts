@@ -278,7 +278,7 @@ class ChannelsPage extends OpenClawLightDomElement {
     if (!context) {
       return;
     }
-    await context.runtimeConfig.refresh({ discardPendingChanges: true });
+    await context.runtimeConfig.discardDraft({ reloadOnly: true });
     await context.channels.refresh(true);
   }
 

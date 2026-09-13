@@ -94,5 +94,13 @@ export function applySessionsPatchDisplayMetadata(params: {
     next.boardFace = patch.boardFace;
   }
 
+  if ("boardPresentation" in patch) {
+    if (patch.boardPresentation === null) {
+      delete next.boardPresentation;
+    } else if (patch.boardPresentation !== undefined) {
+      next.boardPresentation = patch.boardPresentation;
+    }
+  }
+
   return undefined;
 }

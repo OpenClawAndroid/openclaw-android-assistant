@@ -5,11 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { resolveTestNodeExecPath } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it } from "vitest";
 import { createCodexNativeTestState } from "./native-app-server.test-support.js";
 
 type ProcessTree = { parent: number; child: number; descendant: number };
 const fixture = fileURLToPath(new URL("./transport-orphan.test-helper.ts", import.meta.url));
+const nodeExecPath = resolveTestNodeExecPath();
 
 function isAlive(pid: number) {
   try {
@@ -93,7 +95,7 @@ describe.skipIf(process.platform === "win32")("Codex stdio crash recovery", () =
           root,
           ...(native ? [native.command, native.cwd] : []),
         ];
-        const parent = spawn(process.execPath, args, {
+        const parent = spawn(nodeExecPath, args, {
           env: {
             HOME: root,
             ...native?.env,

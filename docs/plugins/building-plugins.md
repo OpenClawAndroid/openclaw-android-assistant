@@ -248,6 +248,19 @@ local proof.
   </Step>
 </Steps>
 
+## Add plugin artwork
+
+Ship `assets/icon.png` for plugin identity in catalogs, settings, and install
+cards. Use a separate monochrome `assets/activity.svg` for compact tool calls
+in chat. Check the activity shape at 16 px in both light and dark themes; avoid
+a filled square behind the mark.
+
+One activity icon covers the plugin. Add `assets/activity/<tool-name>.svg` only
+for tools that need a distinct shape, using their exact `tools.effective` IDs.
+Include the assets in your published package and verify their presence with
+`npm pack --dry-run`. See the [activity icon contract](/plugins/manifest/surfaces#inline-activity-icons)
+for supported SVG geometry, size bounds, and fallback behavior.
+
 <a id="registering-agent-tools"></a>
 
 ## Registering tools

@@ -265,7 +265,14 @@ describe("Code Mode output provenance", () => {
           waitTool: tools[1]!,
         });
       }
-      expectOriginalCodeModeMarker(marker, payload);
+      if (mode === "interactive") {
+        expect(marker).toMatchObject({
+          truncated: true,
+          reference: { id: expect.any(String), bytes: Buffer.byteLength(JSON.stringify(payload)) },
+        });
+      } else {
+        expectOriginalCodeModeMarker(marker, payload);
+      }
       expect(result).toMatchObject({ status: "completed", value: true });
       expectCodeModeSharedBudget(result, 1024);
       expectOriginalCodeModeMarker((result.output as unknown[])[0], [

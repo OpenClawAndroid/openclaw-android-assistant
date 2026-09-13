@@ -998,12 +998,14 @@ describe("memory_search corpus labels", () => {
         corpus: "sessions",
       });
 
-      expectUnavailableMemorySearchDetails(result.details, {
+      expect(result.details).toMatchObject({
         error: "Session transcript search is not enabled.",
         warning: "Session transcript search is unavailable for this agent.",
-        action:
-          'Enable memory.search.experimental.sessionMemory and add "sessions" to memory.search.sources, then retry memory_search.',
+        action: expect.stringContaining(
+          "If an exact session-history capability is available for this run",
+        ),
       });
+      expect((result.details as { action?: string }).action).not.toContain("sessions_search");
       expect(getMemorySearchManagerMockCalls()).toBe(0);
     },
   );
@@ -1034,6 +1036,8 @@ describe("memory_search corpus labels", () => {
         agentSessionKey: "agent:main:main",
       });
 
+      expect(tool.description).toContain("indexed session transcripts");
+      expect(tool.description).not.toContain("sessions_search");
       await tool.execute("ordinary-search", { query: "favorite food", corpus });
 
       expect(seenSources).toEqual(["sessions"]);

@@ -3848,7 +3848,7 @@ td.data-table-key-col {
 }
 
 .agent-select__label {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3858,6 +3858,7 @@ td.data-table-key-col {
 .agent-select__chevron {
   display: inline-flex;
   flex: 0 0 auto;
+  margin-inline-start: auto;
   color: var(--muted);
 }
 
@@ -3869,6 +3870,44 @@ td.data-table-key-col {
   stroke-width: 1.7px;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.agent-select--compact .agent-select__trigger,
+:root[data-theme-mode="light"] .agent-select--compact .agent-select__trigger {
+  width: auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.agent-select--compact .agent-select__trigger:hover:not(:disabled),
+.agent-select--compact .agent-select__trigger[aria-expanded="true"] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-hover) 84%, transparent);
+}
+
+.agent-select--compact .agent-select__avatar {
+  width: 16px;
+  height: 16px;
+}
+
+.agent-select--compact .agent-select__label {
+  max-width: min(32vw, 220px);
+}
+
+.agent-select--compact .agent-select__chevron {
+  margin-inline-start: 0;
+}
+
+@media (pointer: coarse) {
+  .agent-select--compact .agent-select__trigger {
+    min-height: 44px;
+  }
 }
 
 .agent-select__avatar {
@@ -3952,6 +3991,13 @@ td.data-table-key-col {
   flex: 1;
   min-width: 0;
   gap: 1px;
+}
+
+.agent-select__option-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
 }
 
 .agent-select__option-label {

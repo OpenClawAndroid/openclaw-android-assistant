@@ -369,7 +369,7 @@ const CORE_TOOL_DEFINITIONS: CoreToolDefinition[] = [
   },
   {
     id: "computer",
-    description: "Control a paired computer node desktop",
+    description: "Control the Gateway desktop or a paired computer",
     sectionId: "nodes",
     profiles: [],
     includeInOpenClawGroup: true,

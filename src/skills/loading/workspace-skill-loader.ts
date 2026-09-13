@@ -375,37 +375,81 @@ export async function resolveWorkspaceSkillPromptEntries(
     assertCurrent?: () => void;
   },
 ): Promise<{ eligible: SkillEntry[]; skillFilter: string[] | undefined }> {
-  const sourceVersion = getSkillsSnapshotVersion(workspaceDir);
-  const skillFilter = resolveEffectiveWorkspaceSkillFilter(opts);
-  const skillEntries = opts?.entries ?? loadSkillEntries(workspaceDir, opts);
-  const hasBin = await prepareSkillBinaryProbe(skillEntries, opts?.assertCurrent);
-  if (!opts?.entries && getSkillsSnapshotVersion(workspaceDir) !== sourceVersion) {
-    return resolveWorkspaceSkillPromptEntries(workspaceDir, opts);
-  }
-  return {
-    eligible: filterSkillEntries(
+  for (;;) {
+    opts?.assertCurrent?.();
+    const sourceVersion = getSkillsSnapshotVersion(workspaceDir);
+    const skillFilter = resolveEffectiveWorkspaceSkillFilter(opts);
+    const skillEntries = opts?.entries ?? loadSkillEntries(workspaceDir, opts);
+    const probe = await prepareSkillBinaryProbe(skillEntries, opts, opts?.assertCurrent);
+    if (
+      probe.needsRetry() ||
+      (!opts?.entries && getSkillsSnapshotVersion(workspaceDir) !== sourceVersion)
+    ) {
+      continue;
+    }
+    const eligible = filterSkillEntries(
       skillEntries,
       opts?.config,
       skillFilter,
       opts?.skillOverrides,
       opts?.eligibility,
-      hasBin,
-    ),
-    skillFilter,
-  };
+      probe.hasBin,
+    );
+    opts?.assertCurrent?.();
+    if (probe.needsRetry()) {
+      continue;
+    }
+    return { eligible, skillFilter };
+  }
 }
 
-async function prepareSkillBinaryProbe(entries: SkillEntry[], assertCurrent?: () => void) {
-  const bins = entries.flatMap((entry) => [
-    ...(entry.metadata?.requires?.bins ?? []),
-    ...(entry.metadata?.requires?.anyBins ?? []),
-  ]);
-  for (;;) {
-    const facts = await prepareBinaryAvailability(bins, assertCurrent);
-    if (facts.isCurrent()) {
-      return facts.hasBinary;
+async function prepareSkillBinaryProbe(
+  entries: SkillEntry[],
+  opts?: Pick<WorkspaceSkillLoadOptions, "config" | "eligibility">,
+  assertCurrent?: () => void,
+) {
+  const bins = new Set<string>();
+  const bundledAllowlist = resolveBundledAllowlist(opts?.config);
+  let needsBinaries: boolean;
+  const recordBinaryRequirement = () => {
+    needsBinaries = true;
+    return true;
+  };
+  for (const entry of entries) {
+    const requires = entry.metadata?.requires;
+    if (!requires?.bins?.length && !requires?.anyBins?.length) {
+      continue;
+    }
+    needsBinaries = false;
+    shouldIncludeSkill({
+      entry,
+      config: opts?.config,
+      bundledAllowlist,
+      eligibility: opts?.eligibility,
+      hasBin: recordBinaryRequirement,
+    });
+    if (needsBinaries) {
+      for (const bin of entry.metadata?.requires?.bins ?? []) {
+        bins.add(bin);
+      }
+      for (const bin of entry.metadata?.requires?.anyBins ?? []) {
+        bins.add(bin);
+      }
     }
   }
+  const facts = await prepareBinaryAvailability(bins, assertCurrent);
+  let unprepared = false;
+  return {
+    hasBin: (bin: string) => {
+      // Eligibility can change while probing; prepare newly requested facts before publishing.
+      if (!bins.has(bin)) {
+        unprepared = true;
+        return false;
+      }
+      return facts.hasBinary(bin);
+    },
+    needsRetry: () => unprepared || !facts.isCurrent(),
+  };
 }
 
 function resolveWorkspaceSkillLoad(workspaceDir: string, opts?: WorkspaceSkillLoadOptions) {
@@ -442,18 +486,23 @@ export async function prepareWorkspaceSkills(
     if (!shouldFilter) {
       return entries;
     }
-    const hasBin = await prepareSkillBinaryProbe(entries, assertCurrent);
-    if (getSkillsSnapshotVersion(workspaceDir) !== sourceVersion) {
+    const probe = await prepareSkillBinaryProbe(entries, opts, assertCurrent);
+    if (probe.needsRetry() || getSkillsSnapshotVersion(workspaceDir) !== sourceVersion) {
       continue;
     }
-    return filterSkillEntries(
+    const eligible = filterSkillEntries(
       entries,
       opts?.config,
       effectiveSkillFilter,
       opts?.skillOverrides,
       opts?.eligibility,
-      hasBin,
+      probe.hasBin,
     );
+    assertCurrent?.();
+    if (probe.needsRetry()) {
+      continue;
+    }
+    return eligible;
   }
 }
 

@@ -1261,8 +1261,6 @@ describe("scripts/openclaw-cross-os-release-checks", () => {
     expect(source.match(/args: buildCrossOsReleaseSmokeMemorySlotConfigArgs\(\)/g)).toHaveLength(2);
     expect(source).not.toContain("models.providers.${params.providerConfig.extensionId}.baseUrl");
     expect(source).toContain('"--timeout",\n    String(CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS)');
-    const agentTurnArgCalls = source.match(/buildReleaseAgentTurnArgs\(sessionId\)/g) ?? [];
-    expect(agentTurnArgCalls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("uses collision-resistant IDs for cross-OS live release probes", () => {

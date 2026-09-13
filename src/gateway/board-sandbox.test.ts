@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildSandboxHostDocument, decodeSandboxHostCsp } from "../agents/sandbox-host.js";
 import type { BoardWidgetDocument } from "../boards/board-store.js";
+import { WIDGET_CDN_ORIGINS } from "../plugin-sdk/widget-html.js";
 import {
   buildBoardWidgetContentSecurityPolicy,
   buildBoardWidgetSandboxPath,
@@ -21,21 +22,32 @@ function document(
 }
 
 describe("board widget sandbox CSP", () => {
-  it("emits no network authority while a declaration is pending", () => {
+  it("allows static CDN resources without granting API access while a declaration is pending", () => {
     const path = buildBoardWidgetSandboxPath(document("pending"));
     const encoded = new URL(path, "https://sandbox.example").searchParams.get("csp");
 
-    expect(decodeSandboxHostCsp(encoded)).toEqual({ blockDescendantFrames: true });
-    const policy = buildSandboxHostDocument().headers["Content-Security-Policy"];
-    expect(policy).toContain("connect-src 'none'");
-    expect(policy).toContain("webrtc 'block'");
-    expect(buildBoardWidgetContentSecurityPolicy(document("pending"))).toContain(
-      "connect-src 'none'",
-    );
-    expect(buildBoardWidgetContentSecurityPolicy(document("pending"))).toContain("webrtc 'block'");
+    const csp = decodeSandboxHostCsp(encoded);
+    expect(csp).toEqual({
+      blockDescendantFrames: true,
+      resourceDomains: [...WIDGET_CDN_ORIGINS],
+    });
+    for (const policy of [
+      buildSandboxHostDocument(csp).headers["Content-Security-Policy"],
+      buildBoardWidgetContentSecurityPolicy(document("pending")),
+    ]) {
+      expect(policy).toContain("connect-src 'none'");
+      expect(policy).toContain("webrtc 'block'");
+      for (const directive of ["script-src", "style-src", "font-src"]) {
+        const sources = policy.split("; ").find((entry) => entry.startsWith(`${directive} `));
+        for (const origin of WIDGET_CDN_ORIGINS) {
+          expect(sources).toContain(origin);
+        }
+        expect(sources?.split(/\s+/u)).not.toContain("https:");
+      }
+    }
   });
 
-  it("emits only the granted widget origins", () => {
+  it("grants API access only to the declared widget origins", () => {
     const path = buildBoardWidgetSandboxPath(
       document("granted", [
         "https://api.open-meteo.com",
@@ -53,6 +65,7 @@ describe("board widget sandbox CSP", () => {
         "https://[2001:db8::1]:9443",
       ],
       blockDescendantFrames: true,
+      resourceDomains: [...WIDGET_CDN_ORIGINS],
     });
     expect(buildSandboxHostDocument(csp).headers["Content-Security-Policy"]).toContain(
       "connect-src https://api.open-meteo.com https://status.example:8443 https://[2001:db8::1]:9443",
@@ -64,6 +77,23 @@ describe("board widget sandbox CSP", () => {
     );
   });
 
+  it("preserves registered resource origins alongside the widget CDNs without granting fetch", () => {
+    const widget = {
+      ...document("pending"),
+      resourceOrigins: ["https://plugin-assets.example", "https://cdn.jsdelivr.net"],
+    };
+    const path = buildBoardWidgetSandboxPath(widget);
+    const csp = decodeSandboxHostCsp(
+      new URL(path, "https://sandbox.example").searchParams.get("csp"),
+    );
+
+    expect(csp?.resourceDomains).toEqual([...WIDGET_CDN_ORIGINS, "https://plugin-assets.example"]);
+    expect(csp?.connectDomains).toBeUndefined();
+    const policy = buildBoardWidgetContentSecurityPolicy(widget);
+    expect(policy).toContain("https://plugin-assets.example");
+    expect(policy).toContain("connect-src 'none'");
+  });
+
   it("adds the requested descendant-frame guard before resetting document port offers", () => {
     const proxy = buildSandboxHostDocument({ blockDescendantFrames: true }).html;
     const genericProxy = buildSandboxHostDocument().html;
@@ -73,7 +103,6 @@ describe("board widget sandbox CSP", () => {
     expect(proxy).toContain('lock(Document.prototype,\\"createElement\\"');
     expect(proxy).toContain('wrapSetter(Element.prototype,\\"innerHTML\\"');
     expect(proxy).toContain('wrapMethod(Element.prototype,\\"setHTMLUnsafe\\"');
-    expect(proxy).toContain('lock(globalThis,\\"open\\",undefined)');
     const guardedHtmlIndex = proxy.indexOf("const guardedHtml = guardDocument(params.html)");
     expect(guardedHtmlIndex).toBeGreaterThan(-1);
     expect(proxy.indexOf("widgetPortsOffered.clear()", guardedHtmlIndex)).toBeGreaterThan(

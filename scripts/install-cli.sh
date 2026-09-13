@@ -551,8 +551,13 @@ npm_bin() {
   echo "$(node_dir)/bin/npm"
 }
 
+is_installer_node_bin() {
+  [[ "$1" -ef "$(node_dir)/bin" || "$1" -ef "${PREFIX}/tools/node/bin" ]]
+}
+
 command_path_without_node_prefix() {
   local name="$1"
+  local exclude_active_runtime="${2:-0}"
   local path_entry
   local prefix_bin
   local filtered_path=""
@@ -560,15 +565,18 @@ command_path_without_node_prefix() {
   local -a path_entries=()
 
   prefix_bin="$(node_dir)/bin"
-  IFS=: read -r -a path_entries <<<"$PATH"
+  # The extra delimiter preserves a trailing (or sole) empty cwd entry.
+  IFS=: read -r -a path_entries <<<"${PATH}:"
   for path_entry in "${path_entries[@]}"; do
-    if [[ "$path_entry" == "$prefix_bin" ]]; then
+    if [[ "$path_entry" == "$prefix_bin" ]] ||
+      { [[ "$exclude_active_runtime" == "1" ]] && is_installer_node_bin "${path_entry:-.}"; }; then
       continue
     fi
     filtered_path="${filtered_path}${separator}${path_entry}"
     separator=":"
   done
 
+  [[ -n "$separator" ]] || return 1
   PATH="$filtered_path" command -v "$name" 2>/dev/null
 }
 
@@ -588,6 +596,9 @@ link_node_runtime_paths() {
   local dir
   local runtime_bin
   local resolved
+  # PATH entries resolve from this cwd; published links must work from any cwd.
+  [[ "$node_path" == /* ]] || node_path="$PWD/$node_path"
+  [[ "$npm_path" == /* ]] || npm_path="$PWD/$npm_path"
   dir="$(node_dir)"
   runtime_bin="${node_path%/*}"
 
@@ -599,8 +610,10 @@ link_node_runtime_paths() {
       ln -sfn "${runtime_bin}/${name}" "${dir}/bin/${name}"
       continue
     fi
-    resolved="$(command_path_without_node_prefix "$name" || true)"
+    # These optional tools cannot point through the alias we republish below.
+    resolved="$(command_path_without_node_prefix "$name" 1 || true)"
     if [[ -n "$resolved" && "$resolved" != "${dir}/bin/${name}" ]]; then
+      [[ "$resolved" == /* ]] || resolved="$PWD/$resolved"
       ln -sfn "$resolved" "${dir}/bin/${name}"
     fi
   done
@@ -671,12 +684,13 @@ linked_node_is_usable() {
 }
 
 linked_node_sqlite_version() {
-  if [[ ! -x "$(node_bin)" ]]; then
+  local candidate_node="${1-$(node_bin)}"
+  if [[ ! -x "$candidate_node" ]]; then
     printf 'unavailable\n'
     return
   fi
   local version
-  version="$("$(node_bin)" -e '
+  version="$("$candidate_node" -e '
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(":memory:");
     try {
@@ -782,23 +796,21 @@ required_node_version() {
 
 try_link_usable_node_runtime_from_path() {
   local path_entry
-  local prefix_bin
   local -a path_entries=()
 
-  prefix_bin="$(node_dir)/bin"
-  IFS=: read -r -a path_entries <<<"$PATH"
+  # The extra delimiter preserves a trailing (or sole) empty cwd entry.
+  IFS=: read -r -a path_entries <<<"${PATH}:"
   for path_entry in "${path_entries[@]}"; do
     if [[ -z "$path_entry" ]]; then
       path_entry="."
     fi
-    if [[ "$path_entry" == "$prefix_bin" ]]; then
+    # Never publish links back into the runtime prefix being replaced.
+    if is_installer_node_bin "$path_entry"; then
       continue
     fi
-    if [[ -x "${path_entry}/node" && -x "${path_entry}/npm" ]]; then
+    if linked_node_is_usable "${path_entry}/node" "${path_entry}/npm"; then
       link_node_runtime_paths "${path_entry}/node" "${path_entry}/npm"
-      if linked_node_is_usable; then
-        return 0
-      fi
+      return 0
     fi
   done
   return 1
@@ -826,16 +838,16 @@ install_alpine_node() {
   fi
 
   if [[ -x "${APK_NODE_BIN_DIR}/node" && -x "${APK_NODE_BIN_DIR}/npm" ]]; then
+    # Failed package prerequisites must leave the prefix's existing runtime intact.
+    if ! linked_node_is_usable "${APK_NODE_BIN_DIR}/node" "${APK_NODE_BIN_DIR}/npm"; then
+      installed_version="$("${APK_NODE_BIN_DIR}/node" -v 2>/dev/null || echo unknown)"
+      required_version="$(required_node_version)"
+      sqlite_version="$(linked_node_sqlite_version "${APK_NODE_BIN_DIR}/node")"
+      fail "Alpine Node package must provide Node >= ${required_version} with WAL-reset-safe SQLite 3.51.3+, 3.50.7+ within 3.50.x, or 3.44.6+ within 3.44.x; found Node ${installed_version}, SQLite ${sqlite_version}."
+    fi
     link_node_runtime_paths "${APK_NODE_BIN_DIR}/node" "${APK_NODE_BIN_DIR}/npm"
   elif ! try_link_usable_node_runtime_from_path; then
     fail "apk Node install failed. Install nodejs and npm manually, then retry."
-  fi
-
-  if ! linked_node_is_usable; then
-    installed_version="$("$(node_bin)" -v 2>/dev/null || echo unknown)"
-    required_version="$(required_node_version)"
-    sqlite_version="$(linked_node_sqlite_version)"
-    fail "Alpine Node package must provide Node >= ${required_version} with WAL-reset-safe SQLite 3.51.3+, 3.50.7+ within 3.50.x, or 3.44.6+ within 3.44.x; found Node ${installed_version}, SQLite ${sqlite_version}."
   fi
 
   installed_version="$("$(node_bin)" -v 2>/dev/null || echo unknown)"

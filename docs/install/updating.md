@@ -191,6 +191,17 @@ fallback does not undo an earlier migration; if the database is already newer
 than the restored package, install a compatible target and finish Doctor before
 starting the Gateway.
 
+For a Git checkout updated by 2026.9.2, a Doctor refusal before state writes
+prints source recovery commands when the checkout's reflog identifies the
+previous commit unambiguously. Wait for the updater to exit, then follow the
+printed checkout, `pnpm install`, `pnpm build`, and service-start guidance from
+an independent shell. If the previous commit cannot be verified, Doctor points
+you to the reflog instead. A refusal after state repairs keeps the migration
+owner's instructions: restoring source alone does not restore state.
+These diagnostics also enter the warning log, subject to normal logging settings
+and rotation. After resolving the refusal cause, retry the update. Once the
+upgrade succeeds, subsequent updates validate the candidate before activation.
+
 ### From chat
 
 Ask the agent to update OpenClaw, or send `/update` from Discord or another

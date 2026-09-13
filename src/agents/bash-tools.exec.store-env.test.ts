@@ -41,6 +41,7 @@ vi.mock("../secrets/egress-proxy/registry.js", () => ({
       SSL_CERT_FILE: "/state/secret-egress/root-ca.pem",
       CURL_CA_BUNDLE: "/state/secret-egress/root-ca.pem",
       REQUESTS_CA_BUNDLE: "/state/secret-egress/root-ca.pem",
+      GIT_SSL_CAINFO: "/state/secret-egress/root-ca.pem",
     };
   },
 }));
@@ -133,6 +134,7 @@ const EGRESS_ENV = {
   SSL_CERT_FILE: "/state/secret-egress/root-ca.pem",
   CURL_CA_BUNDLE: "/state/secret-egress/root-ca.pem",
   REQUESTS_CA_BUNDLE: "/state/secret-egress/root-ca.pem",
+  GIT_SSL_CAINFO: "/state/secret-egress/root-ca.pem",
 } as const;
 
 async function withTeamStoreEntries(

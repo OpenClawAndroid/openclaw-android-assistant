@@ -62,6 +62,7 @@ type DesktopSessionEntry = {
   readySettled: boolean;
   observers: Set<ObserverEntry>;
   observerReservations: Set<symbol>;
+  activities: Set<symbol>;
   controller?: ObserverEntry;
   lingerTimer?: ReturnType<typeof setTimeout>;
   stopped: boolean;
@@ -131,6 +132,7 @@ export function createDesktopSessionRegistry(
       }
       entry.pendingStreams.clear();
       entry.observerReservations.clear();
+      entry.activities.clear();
       if (!entry.readySettled) {
         entry.readySettled = true;
         entry.ready.reject(new DesktopSessionStoppedError());
@@ -169,7 +171,12 @@ export function createDesktopSessionRegistry(
   };
 
   const scheduleLinger = (entry: DesktopSessionEntry): void => {
-    if (!isCurrent(entry) || entry.observers.size > 0 || entry.observerReservations.size > 0) {
+    if (
+      !isCurrent(entry) ||
+      entry.observers.size > 0 ||
+      entry.observerReservations.size > 0 ||
+      entry.activities.size > 0
+    ) {
       return;
     }
     clearTimeout(entry.lingerTimer);
@@ -205,6 +212,7 @@ export function createDesktopSessionRegistry(
       readySettled: false,
       observers: new Set(),
       observerReservations: new Set(),
+      activities: new Set(),
       pendingStreams: new Map(),
       stopped: false,
       ...(request.teardown ? { teardown: request.teardown } : {}),
@@ -328,6 +336,26 @@ export function createDesktopSessionRegistry(
     };
   }
 
+  /** Keep an active desktop consumer alive independently of browser observers. */
+  function retainActivity(sourceKey: string, ownerEpoch: number) {
+    const entry = entries.get(sourceKey);
+    if (!entry || !entry.readySettled || entry.stopped || entry.ownerEpoch !== ownerEpoch) {
+      return undefined;
+    }
+    const activity = Symbol("desktop-activity");
+    entry.activities.add(activity);
+    clearTimeout(entry.lingerTimer);
+    entry.lingerTimer = undefined;
+    return {
+      isCurrent: () => isCurrent(entry) && entry.activities.has(activity),
+      release() {
+        if (entry.activities.delete(activity)) {
+          scheduleLinger(entry);
+        }
+      },
+    };
+  }
+
   function publishStream(params: {
     sourceKey: string;
     ownerEpoch: number;
@@ -413,6 +441,7 @@ export function createDesktopSessionRegistry(
     claimStream,
     hasPendingStream,
     reserveObserver,
+    retainActivity,
     claimOwnerEpoch,
     isOwnerEpochCurrent: (sourceKey: string, ownerEpoch: number) =>
       claimedOwnerEpochs.get(sourceKey) === ownerEpoch,

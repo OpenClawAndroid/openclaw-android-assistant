@@ -63,10 +63,18 @@ import {
   pluginCacheRealpathSync,
   pluginCacheStatSync,
   readPluginCacheFile,
+  readPluginCacheDirectory,
 } from "./plugin-cache-files.js";
 import type { PluginOrigin } from "./plugin-origin.types.js";
 import { normalizePluginPolicyId } from "./plugin-policy-id.js";
 import type { PluginTrust } from "./plugin-trust.js";
+import {
+  isPluginActivityToolName,
+  MAX_PLUGIN_ACTIVITY_TOOL_ICONS,
+  PLUGIN_ACTIVITY_ICON_PATH,
+  PLUGIN_TOOL_ACTIVITY_ICON_DIR,
+  PORTABLE_PLUGIN_ICON_PATH,
+} from "./portable-icon-paths.js";
 
 export type {
   BundledChannelConfigCollector,
@@ -176,13 +184,12 @@ type SeenIdEntry = {
   record: PluginManifestRecord;
 };
 
-const PORTABLE_PLUGIN_ICON_PATH = path.join("assets", "icon.png");
-
 function resolvePortablePluginIconPath(params: {
   rootDir: string;
   rejectHardlinks: boolean;
+  relativePath?: string;
 }): string | undefined {
-  const iconPath = path.resolve(params.rootDir, PORTABLE_PLUGIN_ICON_PATH);
+  const iconPath = path.resolve(params.rootDir, params.relativePath ?? PORTABLE_PLUGIN_ICON_PATH);
   const iconStat = pluginCacheLstatSync(iconPath);
   if (!iconStat?.isFile() || (params.rejectHardlinks && iconStat.nlink > 1)) {
     return undefined;
@@ -198,6 +205,55 @@ function resolvePortablePluginIconPath(params: {
   })
     ? iconPath
     : undefined;
+}
+
+function resolvePortableActivityIcons(params: {
+  rootDir: string;
+  rejectHardlinks: boolean;
+}): Pick<PluginManifestRecord, "activityIconPath" | "toolActivityIconPaths"> {
+  const activityIconPath = resolvePortablePluginIconPath({
+    ...params,
+    relativePath: PLUGIN_ACTIVITY_ICON_PATH,
+  });
+  const directory = path.resolve(params.rootDir, PLUGIN_TOOL_ACTIVITY_ICON_DIR);
+  if (
+    !isPluginRootPath({
+      rootPath: params.rootDir,
+      rootRealPath: pluginCacheRealpathSync(params.rootDir) ?? params.rootDir,
+      targetPath: directory,
+      targetMustExist: true,
+    })
+  ) {
+    return { activityIconPath };
+  }
+  let entries: ReturnType<typeof readPluginCacheDirectory>;
+  try {
+    entries = readPluginCacheDirectory(directory);
+  } catch {
+    return { activityIconPath };
+  }
+  // Ignore an overflowing directory as a whole; filesystem order never picks winners.
+  if (entries.length > MAX_PLUGIN_ACTIVITY_TOOL_ICONS) {
+    return { activityIconPath };
+  }
+  const paths: Array<[string, string]> = [];
+  for (const name of entries.map((entry) => entry.name).toSorted()) {
+    const toolName = name.endsWith(".svg") ? name.slice(0, -4) : "";
+    if (!isPluginActivityToolName(toolName)) {
+      continue;
+    }
+    const iconPath = resolvePortablePluginIconPath({
+      ...params,
+      relativePath: `${PLUGIN_TOOL_ACTIVITY_ICON_DIR}/${name}`,
+    });
+    if (iconPath) {
+      paths.push([toolName, iconPath]);
+    }
+  }
+  return {
+    activityIconPath,
+    ...(paths.length ? { toolActivityIconPaths: Object.fromEntries(paths) } : {}),
+  };
 }
 
 // Canonicalize identical physical plugin roots with the most explicit source.
@@ -445,6 +501,10 @@ function buildRecord(params: {
       rootDir: params.candidate.rootDir,
       rejectHardlinks: params.rejectHardlinks,
     }),
+    ...resolvePortableActivityIcons({
+      rootDir: params.candidate.rootDir,
+      rejectHardlinks: params.rejectHardlinks,
+    }),
     version: normalizeOptionalString(params.manifest.version) ?? params.candidate.packageVersion,
     packageName: params.candidate.packageName,
     packageVersion: params.candidate.packageVersion,
@@ -575,6 +635,10 @@ function buildBundleRecord(params: {
     name: normalizeOptionalString(params.manifest.name) ?? params.candidate.idHint,
     description: normalizeOptionalString(params.manifest.description),
     iconPath: resolvePortablePluginIconPath({
+      rootDir: params.candidate.rootDir,
+      rejectHardlinks: params.rejectHardlinks,
+    }),
+    ...resolvePortableActivityIcons({
       rootDir: params.candidate.rootDir,
       rejectHardlinks: params.rejectHardlinks,
     }),

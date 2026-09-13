@@ -9,7 +9,6 @@ import {
   buildAgentRunTerminalReplySnapshot,
   normalizeAgentRunTerminalReplySnapshot,
 } from "../../agents/agent-run-terminal-reply.js";
-import { resolveAuthoredModelContextTokens } from "../../agents/context-resolution.js";
 import { hasCommittedMessagingToolDeliveryEvidence } from "../../agents/embedded-agent-runner/delivery-evidence.js";
 import { hasIntentionalTerminalCompletion } from "../../agents/embedded-agent-runner/result-fallback-classifier.js";
 import {
@@ -120,18 +119,15 @@ export async function finalizeCronRun(params: {
   const runtimeContextTokens = resolvePositiveContextTokens(
     finalRunResult.meta?.agentMeta?.contextTokens,
   );
-  const modelContextTokens = (await cronContextRuntimeLoader.load()).resolveContextTokensForModel({
+  const { contextTokens: modelContextTokens, authoredContextTokens } = (
+    await cronContextRuntimeLoader.load()
+  ).resolveModelContextTokenProjection({
     cfg: prepared.cfgWithAgentDefaults,
     provider: providerUsed,
     model: modelUsed,
     allowAsyncLoad: false,
   });
   const agentHarnessId = normalizeOptionalString(finalRunResult.meta?.agentMeta?.agentHarnessId);
-  const authoredContextTokens = resolveAuthoredModelContextTokens({
-    cfg: prepared.cfgWithAgentDefaults,
-    provider: providerUsed,
-    model: modelUsed,
-  });
   const retainedRuntimeContextTokens = resolveTrustedSessionContextTokens({
     entry: prepared.cronSession.sessionEntry,
     provider: providerUsed,

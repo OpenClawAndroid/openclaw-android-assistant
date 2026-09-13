@@ -652,6 +652,7 @@ export async function startSecretEgressProxyServer(params: {
         SSL_CERT_FILE: trustBundlePath,
         CURL_CA_BUNDLE: trustBundlePath,
         REQUESTS_CA_BUNDLE: trustBundlePath,
+        GIT_SSL_CAINFO: trustBundlePath,
       };
     },
     revokeRun: (run) => {

@@ -5,12 +5,10 @@ import * as convergence from "../../commands/doctor/shared/post-core-plugin-conv
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../../config/types.plugins.js";
 import { withServer } from "../../plugin-sdk/test-helpers/http-test-server.js";
-import {
-  writePersistedInstalledPluginIndexInstallRecords,
-  readPersistedInstalledPluginIndexInstallRecords,
-} from "../../plugins/installed-plugin-index-records.js";
+import { readPersistedInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import { loadInstalledPluginIndex } from "../../plugins/installed-plugin-index.js";
 import { createPluginCache, withPluginCache } from "../../plugins/plugin-cache.js";
+import { seedInstalledPluginIndex } from "../../plugins/test-helpers/installed-plugin-index.js";
 import * as cohort from "../../plugins/update-cohort.js";
 import { withEnvAsync } from "../../test-utils/env.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
@@ -63,7 +61,7 @@ describe("post-core plugin payload degradation", () => {
             OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
           },
           async () => {
-            await writePersistedInstalledPluginIndexInstallRecords(records, {
+            await seedInstalledPluginIndex(records, {
               config,
               env: process.env,
             });
@@ -289,7 +287,7 @@ describe("failed cohort repair requirement assessment", () => {
         await state.writeConfig(config);
         const dataPath = await state.writeText("plugin-data.txt", "newer data survives");
         const npmConfigPath = await state.writeText("empty.npmrc", "");
-        await writePersistedInstalledPluginIndexInstallRecords(records, {
+        await seedInstalledPluginIndex(records, {
           config,
           env: process.env,
         });

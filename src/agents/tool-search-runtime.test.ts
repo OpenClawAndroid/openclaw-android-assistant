@@ -757,6 +757,7 @@ describe("Tool Search input schemas", () => {
         name: target.name,
         description: target.description,
         parameters: hostileSchema,
+        outputSchema: hostileSchema as never,
         tool: target,
       };
       const catalogRef = createToolSearchCatalogRef();

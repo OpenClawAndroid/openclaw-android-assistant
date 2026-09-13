@@ -702,9 +702,16 @@ describe("board gateway runtime boundaries", () => {
         method: string,
         params: Record<string, unknown>,
       ) => {
-        const response = await invoke(method, params);
-        expect(response.mock.calls[0]?.[0]).toBe(true);
-        return response.mock.calls[0]?.[1] as T;
+        let payload: unknown;
+        if (method === "sessions.describe") {
+          // This injected board-store harness has no shared presentation metadata.
+          payload = { session: null };
+        } else {
+          const response = await invoke(method, params);
+          expect(response.mock.calls[0]?.[0]).toBe(true);
+          payload = response.mock.calls[0]?.[1];
+        }
+        return payload as T;
       };
       return createDashboardTool({ agentSessionKey: sessionKey, agentId: "main", callGateway });
     };

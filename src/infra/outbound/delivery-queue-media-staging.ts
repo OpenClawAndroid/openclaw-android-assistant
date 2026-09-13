@@ -12,9 +12,9 @@ import {
   type DeliveryQueueStateContext,
   expireStagingAndLoadDeliveryQueueEntries,
   upsertDeliveryQueueEntry,
-  upsertDeliveryQueueEntryInDatabase,
   type DeliveryQueueEntryState,
 } from "../delivery-queue-sqlite.js";
+import { upsertDeliveryQueueEntryInDatabase } from "../delivery-queue-sqlite.kernel.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../kysely-sync.js";
 import { generateSecureUuid } from "../secure-random.js";
 

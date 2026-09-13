@@ -5,6 +5,7 @@ import type { SessionPlacementPendingRecovery } from "../lib/sessions/session-pl
 import type { ChatPageHost } from "../pages/chat/chat-state-host.ts";
 import { holdModuleResponse } from "./control-ui-e2e-suite.test-support.ts";
 import {
+  captureUiProof,
   controlUiSessionPath,
   createCloudAgentsListResponse,
   createNewSessionPageE2eSuite,
@@ -161,6 +162,13 @@ suite.define(() => {
           const composerDisabled = await page
             .locator(".agent-chat__composer-combobox textarea")
             .isDisabled();
+          await pane.getByRole("status", { name: "Loading chat", exact: true }).waitFor();
+          expect(await pane.locator(".agent-chat__welcome").count()).toBe(0);
+          await pollLocatorText(pane.locator(".agent-chat__composer-status-band")).toContain(
+            "The initial message is unresolved.",
+          );
+          expect(await pane.locator(".chat-topbar-notices .chat-error").count()).toBe(0);
+          await captureUiProof(suite, page, "startup-disconnected.png");
           await gateway.setOnline(true);
           await failedGroup.waitFor({ state: "visible" });
           // Observe the buggy delivery as well as admission before checking the invariant.
@@ -205,6 +213,10 @@ suite.define(() => {
             await pollLocatorText(pane.locator(".agent-chat__composer-status-band")).toContain(
               "Finishing connection recovery.",
             );
+            await pane.getByRole("status", { name: "Loading chat", exact: true }).waitFor();
+            expect(await pane.locator(".agent-chat__welcome").count()).toBe(0);
+            expect(await pane.locator(".chat-topbar-notices .chat-error").count()).toBe(0);
+            await captureUiProof(suite, page, "startup-recovering.png");
             await page.evaluate(() =>
               (window as unknown as { releaseRecoveryDigest: () => void }).releaseRecoveryDigest(),
             );

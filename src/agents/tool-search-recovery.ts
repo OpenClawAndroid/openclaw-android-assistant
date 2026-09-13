@@ -4,6 +4,7 @@ import {
   uniqueStrings,
 } from "@openclaw/normalization-core/string-normalization";
 import { levenshteinDistance } from "../shared/levenshtein-distance.js";
+import { truncateUtf8Prefix } from "../utils/utf8-truncate.js";
 import { resolveAgentToolExecutionSchema } from "./agent-tool-availability.js";
 import { compactToolInputHint } from "./tool-schema-hints.js";
 import type {
@@ -119,4 +120,22 @@ export function formatCatalogInputError(
   const input = compactToolInputHint(schema);
   const signature = input === "unknown" ? "" : ` Expected input: ${input}.`;
   return `Invalid arguments for tool "${entry.id}": ${details}.${hint}${signature}`;
+}
+
+export function formatCatalogOutputError(
+  entry: ToolSearchCatalogEntry,
+  errors: import("../plugins/schema-validator.js").JsonSchemaValidationError[],
+): string {
+  const details = errors.slice(0, 5).map(({ text }) => {
+    const prefix = truncateUtf8Prefix(text, 256);
+    return prefix === text ? text : `${prefix} [truncated]`;
+  });
+  if (errors.length > details.length) {
+    details.push(`${errors.length - details.length} additional validation issues omitted`);
+  }
+  return (
+    `Tool "${entry.id}" returned details that do not match its declared outputSchema. ` +
+    "Check current state before retrying; the tool returned and side effects may already have occurred. " +
+    `Validation: ${details.join("; ")}.`
+  );
 }

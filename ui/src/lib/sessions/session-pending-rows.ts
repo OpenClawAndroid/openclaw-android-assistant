@@ -33,7 +33,11 @@ export type SessionPatchRowFact = {
   agentId: string;
   sessionId: string;
   updatedAt: number | null;
-  fields: SessionPinFields | SessionReadFields | (SessionPinFields & SessionReadFields);
+  fields:
+    | SessionPinFields
+    | SessionReadFields
+    | (SessionPinFields & SessionReadFields)
+    | { boardPresentation: GatewaySessionRow["boardPresentation"] };
 };
 export type PendingRowTarget = Readonly<{
   identity: string;

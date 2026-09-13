@@ -33,10 +33,6 @@
   -moz-osx-font-smoothing: var(--chat-font-smoothing, inherit);
 }
 
-.chat-message-disclosure {
-  position: relative;
-}
-
 .chat-message-disclosure:not(.is-expanded) .chat-message-disclosure__content {
   /* Legacy line clamp compresses hidden blocks that browser descendant reveal can
      expose as overlapping text. Clip the natural Markdown layout instead. */
@@ -45,18 +41,18 @@
 }
 
 .chat-message-disclosure__toggle {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  display: grid;
-  width: 36px;
-  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
   padding: 0;
-  place-items: center;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
+  font: inherit;
+  font-size: var(--control-ui-text-sm);
+  line-height: 1;
   cursor: var(--cursor-action);
 }
 
@@ -65,7 +61,6 @@
 }
 
 .chat-message-disclosure__toggle:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
   color: var(--text);
 }
 
@@ -75,12 +70,8 @@
 }
 
 .chat-message-disclosure__toggle svg {
-  width: 15px;
-  height: 15px;
-}
-
-.chat-message-disclosure.has-overflow .chat-message-disclosure__content {
-  padding-right: 30px;
+  width: 14px;
+  height: 14px;
 }
 
 /* Exhausted full-message load: quiet inline error + manual retry. */

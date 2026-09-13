@@ -5,6 +5,7 @@ import {
   normalizeUiAppearancePreference,
   UI_APPEARANCE_PREFERENCE_KEYS,
 } from "../../../packages/gateway-protocol/src/schema/ui-appearance-preferences.ts";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { createStorageMock } from "../test-helpers/storage.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
 import {
@@ -261,10 +262,7 @@ describe("profile-bound appearance preferences", () => {
   );
 
   it("keeps pending local edits above incoming profile updates", async () => {
-    let releaseWrite!: (value: unknown) => void;
-    const write = new Promise<unknown>((resolve) => {
-      releaseWrite = resolve;
-    });
+    const { promise: write, resolve: releaseWrite } = createDeferred<unknown>();
     let profileTheme = "knot";
     const request = vi.fn(async (method: string) =>
       method === "users.prefs.get"

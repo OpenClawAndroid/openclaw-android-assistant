@@ -26,6 +26,8 @@ export type SidebarLayout = {
   dock?: SidebarDock;
   open?: boolean;
   expanded?: boolean;
+  /** null inherits the shared default; absence preserves a legacy saved layout verbatim. */
+  dashboardPresentationOverride?: "split" | "expanded" | null;
   /** Focus the active side panel without swapping its saved main/side placement. */
   expandedSide?: boolean;
 };

@@ -1800,6 +1800,7 @@ export async function performGatewaySessionReset(params: {
             icon: currentEntry?.icon,
             category: currentEntry?.category,
             boardFace: currentEntry?.boardFace,
+            boardPresentation: currentEntry?.boardPresentation,
             visibility: currentEntry?.visibility,
             displayName: currentEntry?.displayName,
             delivery: currentEntry?.delivery,

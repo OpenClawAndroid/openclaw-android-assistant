@@ -4,9 +4,10 @@ import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { listAgentEntries } from "../agents/agent-scope-config.js";
 import { testing as cliBackendsTesting } from "../agents/cli-backends.test-support.js";
+import { prepareEmbeddedSkills } from "../agents/embedded-agent-runner/skill-runtime.js";
 import { fingerprintResolvedProviderAuth } from "../agents/execution-auth-binding.js";
 import { createSystemAgentTool } from "../agents/tools/system-agent-tool.js";
-import type { OpenClawConfig } from "../config/types.js";
+import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.js";
 import {
   cleanupSystemAgentSession,
   createSystemAgentSession,
@@ -99,7 +100,7 @@ function useTempStateDir(): string {
   return stateDir;
 }
 
-function configSnapshot(config: OpenClawConfig) {
+function configSnapshot(config: OpenClawConfig): ConfigFileSnapshot {
   return {
     exists: true,
     valid: true,
@@ -108,7 +109,12 @@ function configSnapshot(config: OpenClawConfig) {
     config,
     runtimeConfig: config,
     sourceConfig: config,
+    raw: JSON.stringify(config),
+    parsed: config,
+    resolved: config,
     issues: [],
+    warnings: [],
+    legacyIssues: [],
   };
 }
 
@@ -153,6 +159,7 @@ describe("runSystemAgentTurn", () => {
       agents: {
         defaults: {
           model: "openai/gpt-5.5",
+          timeoutSeconds: 600,
           models: {
             "openai/gpt-5.5": { agentRuntime: { id: "openclaw" } },
           },
@@ -226,7 +233,7 @@ describe("runSystemAgentTurn", () => {
         authProfileIdSource: "user",
         config: binding.execution.runConfig,
         thinkLevel: "off",
-        timeoutMs: 120_000,
+        timeoutMs: 600_000,
       }),
     );
 
@@ -284,6 +291,55 @@ describe("runSystemAgentTurn", () => {
     expect(first.sessionManager).toBeUndefined();
   });
 
+  it("omits unreadable workspace skills from the system helper", async () => {
+    const stateDir = useTempStateDir();
+    const workspaceDir = path.join(stateDir, "openclaw", "workspace");
+    const skillDir = path.join(workspaceDir, "skills", "workspace-only-task");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: workspace-only-task\ndescription: Requires the read tool.\n---\nRead task files.\n",
+    );
+    const config = {
+      agents: { defaults: { model: "openai/gpt-5.5" } },
+    } satisfies OpenClawConfig;
+    const { session, deps } = await createVerifiedSession(config);
+    const runEmbeddedAgent = vi.fn(async (params: RunEmbeddedAgentParams) => {
+      const prepared = await prepareEmbeddedSkills({
+        attempt: params,
+        effectiveWorkspace: params.workspaceDir,
+        sandbox: null,
+        sessionAgentId: "openclaw",
+        includeCodeModeSkills: true,
+      });
+      try {
+        expect(prepared.skillsPrompt).toBe("");
+        expect(prepared.codeModeSkills).toEqual([]);
+      } finally {
+        prepared.restoreSkillEnv();
+      }
+      return { payloads: [{ text: "ready" }], meta: { durationMs: 0 } };
+    });
+
+    await expect(
+      runSystemAgentTurnWithDeps(
+        {
+          input: "check the gateway",
+          overview: { defaultModel: "openai/gpt-5.5" } as never,
+          surface: "gateway",
+          approvalArmed: false,
+          session,
+        },
+        {
+          ...deps,
+          runEmbeddedAgent,
+          readConfigFileSnapshot: vi.fn(async () => configSnapshot(config)),
+        },
+      ),
+    ).resolves.toMatchObject({ text: "ready" });
+    expect(runEmbeddedAgent).toHaveBeenCalledOnce();
+  });
+
   it("uses the default agent CLI route while keeping OpenClaw session identity", async () => {
     const stateDir = useTempStateDir();
     const agentDir = path.join(stateDir, "ops-agent");
@@ -291,6 +347,7 @@ describe("runSystemAgentTurn", () => {
       agents: {
         defaults: {
           model: { primary: "openai/gpt-global" },
+          timeoutSeconds: 900,
         },
         list: [
           {
@@ -342,6 +399,7 @@ describe("runSystemAgentTurn", () => {
       sessionFile: `in-memory:${session.sessionId}`,
       messageChannel: "openclaw",
       messageProvider: "openclaw",
+      timeoutMs: 900_000,
     });
     expect(call.disableCliLiveSession).toBe(true);
     expect(call.cleanupCliLiveSessionOnRunEnd).toBe(true);

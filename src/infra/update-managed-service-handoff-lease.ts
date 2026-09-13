@@ -11,6 +11,7 @@ import { hasErrnoCode } from "./errno.js";
 import { executeSqliteQuerySync, executeSqliteQueryTakeFirstSync } from "./kysely-sync.js";
 import type { SqliteTransactionOptions } from "./sqlite-transaction.js";
 import { resolvePreferredOpenClawTmpDir } from "./tmp-openclaw-dir.js";
+import { createManagedHandoffBootIdentityReader } from "./update-managed-service-handoff-boot.js";
 import { canCleanupLegacyManagedHandoff } from "./update-managed-service-handoff-cleanup.js";
 import {
   createManagedHandoffLeaseDatabase,
@@ -22,7 +23,6 @@ import {
 import { assertNoRetainedSourceBorrower } from "./update-managed-service-handoff-retained-custody.js";
 import {
   isRetiredManagedHandoffLeasePayload,
-  managedHandoffBootSchema,
   parseManagedHandoffLeasePayload,
   type HandoffProcessIdentity,
   type HandoffNativeLifetime,
@@ -74,6 +74,7 @@ export function createManagedHandoffLeaseStore(
   logger?: SqliteTransactionOptions["logger"],
 ) {
   const { databasePath, serviceManagerEnv } = options;
+  const bootIdentity = createManagedHandoffBootIdentityReader(serviceManagerEnv);
   const control = (command: string, args: string[], timeout = 5000) =>
     spawnSync(command, args, {
       env: serviceManagerEnv,
@@ -108,39 +109,6 @@ export function createManagedHandoffLeaseStore(
       throw new Error("managed handoff process start identity is unavailable");
     }
     return { pid, startIdentity };
-  }
-  function bootIdentity() {
-    let value: string | undefined;
-    if (process.platform === "linux") {
-      value = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
-    } else if (process.platform === "darwin" || process.platform === "win32") {
-      const windows = process.platform === "win32";
-      const result = control(
-        windows ? "powershell.exe" : "/usr/sbin/sysctl",
-        windows
-          ? [
-              "-NoProfile",
-              "-NonInteractive",
-              "-Command",
-              "(Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
-            ]
-          : ["-n", "kern.bootsessionuuid"],
-        windows ? 5000 : 1000,
-      );
-      if (!result.error && result.status === 0) {
-        value = result.stdout.trim();
-      }
-    }
-    // Unknown boot identities cannot be replaced with uptime or a wall-clock guess.
-    const boot = {
-      platform: process.platform,
-      identity: process.platform === "win32" ? value : value?.toLowerCase(),
-    };
-    const parsed = managedHandoffBootSchema.safeParse(boot);
-    if (!parsed.success) {
-      throw new Error("OS boot identity unavailable; run openclaw triage manually");
-    }
-    return parsed.data;
   }
   function properties(stdout: string | Buffer | null | undefined): Record<string, string> {
     return Object.fromEntries(

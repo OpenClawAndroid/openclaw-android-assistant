@@ -16,11 +16,8 @@ import type {
   TranscriptsStartResult,
 } from "./provider-types.js";
 import { sanitizeTranscriptSourceLocator } from "./source-locator.js";
-import {
-  TranscriptSessionConflictError,
-  TranscriptsSummaryChangedError,
-  type TranscriptsStore,
-} from "./store.js";
+import { TranscriptSessionConflictError, TranscriptsSummaryChangedError } from "./store-errors.js";
+import type { TranscriptsStore } from "./store.js";
 
 const ACCOUNT_ID_OUTPUT_MAX_CHARS = 64;
 

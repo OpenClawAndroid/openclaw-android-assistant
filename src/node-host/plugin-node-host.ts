@@ -16,6 +16,7 @@ import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-reque
 import type {
   OpenClawPluginNodeHostCommandAvailabilityContext,
   OpenClawPluginNodeHostCommandIo,
+  PluginLogger,
 } from "../plugins/types.js";
 import type { OpenClawPluginNodeHostCommandContext } from "../plugins/types.node-host.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
@@ -42,11 +43,15 @@ export async function ensureNodeHostPluginRegistry(params: {
   config: OpenClawConfig;
   env?: NodeJS.ProcessEnv;
   commandAllowlist?: ReadonlySet<string>;
+  onlyPluginIds?: string[];
+  logger?: PluginLogger;
 }): Promise<void> {
   const registry = (await loadPluginRegistryLoaderModule()).loadPluginRegistryHandle({
     config: params.config,
     activationSourceConfig: params.config,
     env: params.env,
+    onlyPluginIds: params.onlyPluginIds,
+    logger: params.logger,
   });
   // Resolve this registry's native readiness before publishing the first manifest.
   // No process-wide preparation cache: a replacement registry owns fresh resources.

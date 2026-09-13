@@ -334,6 +334,111 @@ describe("marketplace plugins", () => {
     });
   });
 
+  it.each([
+    {
+      label: "GitHub primary identifier and ref",
+      source: {
+        type: "github",
+        source: "git",
+        repo: " owner/primary ",
+        url: "owner/alias",
+        path: " plugins/example ",
+        ref: " pinned ",
+        branch: "main",
+        tag: "v1",
+      },
+      expected: { kind: "github", repo: "owner/primary", path: "plugins/example", ref: "pinned" },
+    },
+    {
+      label: "Git primary identifier and branch",
+      source: {
+        type: "git",
+        source: "github",
+        url: " https://example.com/primary.git ",
+        repo: "alias",
+        ref: " ",
+        branch: " main ",
+        tag: "v1",
+      },
+      expected: {
+        kind: "git",
+        url: "https://example.com/primary.git",
+        path: undefined,
+        ref: "main",
+      },
+    },
+    {
+      label: "GitHub URL alias and tag",
+      source: { source: "github", repo: " ", url: " owner/alias ", branch: " ", tag: " v1 " },
+      expected: { kind: "github", repo: "owner/alias", path: undefined, ref: "v1" },
+    },
+    {
+      label: "Git repo alias and fallback discriminator",
+      source: { type: " ", source: "git", url: 42, repo: " https://example.com/alias.git " },
+      expected: {
+        kind: "git",
+        url: "https://example.com/alias.git",
+        path: undefined,
+        ref: undefined,
+      },
+    },
+    {
+      label: "GitHub missing optional fields",
+      source: { type: "github", repo: "owner/repo" },
+      expected: { kind: "github", repo: "owner/repo", path: undefined, ref: undefined },
+    },
+    {
+      label: "Git explicit ref before branch and tag",
+      source: {
+        type: "git",
+        url: "https://example.com/repo.git",
+        ref: " pinned ",
+        branch: "main",
+        tag: "v1",
+      },
+      expected: {
+        kind: "git",
+        url: "https://example.com/repo.git",
+        path: undefined,
+        ref: "pinned",
+      },
+    },
+  ])("normalizes $label in local marketplace listings", async ({ source, expected }) => {
+    await withTempDir("openclaw-marketplace-test-", async (rootDir) => {
+      await writeMarketplaceManifest(rootDir, { plugins: [{ name: "example", source }] });
+
+      const result = await listMarketplacePlugins({ marketplace: rootDir });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      expect(result.manifest.plugins[0]?.source).toStrictEqual(expected);
+      expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+      expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    { source: { type: "github", repo: " ", url: false }, error: 'github source missing "repo"' },
+    { source: { type: "git", url: null, repo: "\t" }, error: 'git source missing "url"' },
+  ])("preserves $error in local marketplace listings", async ({ source, error }) => {
+    await withTempDir("openclaw-marketplace-test-", async (rootDir) => {
+      const manifestPath = await writeMarketplaceManifest(rootDir, {
+        plugins: [{ name: "example", source }],
+      });
+
+      const result = await listMarketplacePlugins({ marketplace: rootDir });
+
+      expect(result).toEqual({
+        ok: false,
+        error: `invalid marketplace entry "example" in ${manifestPath}: ${error}`,
+      });
+      expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+      expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("rejects oversized local marketplace manifests", async () => {
     await withTempDir("openclaw-marketplace-test-", async (rootDir) => {
       const manifestPath = path.join(rootDir, ".claude-plugin", "marketplace.json");

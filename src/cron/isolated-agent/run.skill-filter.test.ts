@@ -12,7 +12,7 @@ import {
   dispatchCronDeliveryMock,
   getCliSessionBindingMock,
   isCliProviderMock,
-  resolveContextTokensForModelMock,
+  lookupModelContextTokensMock,
   loadRunCronIsolatedAgentTurn,
   logWarnMock,
   makeCronSession,
@@ -480,7 +480,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(512_000);
+      lookupModelContextTokensMock.mockReturnValue(512_000);
       runWithModelFallbackMock.mockResolvedValueOnce({
         result: {
           result: {
@@ -520,7 +520,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(undefined);
+      lookupModelContextTokensMock.mockReturnValue(undefined);
       runWithModelFallbackMock.mockResolvedValueOnce(makeResultWithoutContextWindow());
 
       const result = await runSkillFilterCase();
@@ -541,7 +541,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(512_000);
+      lookupModelContextTokensMock.mockReturnValue(512_000);
       runWithModelFallbackMock.mockResolvedValueOnce(makeResultWithoutContextWindow());
 
       const result = await runSkillFilterCase();
@@ -562,7 +562,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(512_000);
+      lookupModelContextTokensMock.mockReturnValue(512_000);
       runWithModelFallbackMock.mockResolvedValueOnce(makeResultWithoutContextWindow());
 
       const result = await runSkillFilterCase();
@@ -583,7 +583,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(512_000);
+      lookupModelContextTokensMock.mockReturnValue(512_000);
       runWithModelFallbackMock.mockResolvedValueOnce(makeResultWithoutContextWindow());
 
       const result = await runSkillFilterCase({
@@ -617,7 +617,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(undefined);
+      lookupModelContextTokensMock.mockReturnValue(undefined);
       runWithModelFallbackMock.mockResolvedValueOnce(makeResultWithoutContextWindow());
 
       const result = await runSkillFilterCase();
@@ -643,7 +643,7 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(undefined);
+      lookupModelContextTokensMock.mockReturnValue(undefined);
       runWithModelFallbackMock.mockResolvedValueOnce(makeResultWithoutContextWindow());
 
       const result = await runSkillFilterCase();
@@ -663,14 +663,14 @@ describe("runCronIsolatedAgentTurn — skill filter", () => {
         }),
       });
       resolveCronSessionMock.mockReturnValue(session);
-      resolveContextTokensForModelMock.mockReturnValue(512_000);
+      lookupModelContextTokensMock.mockReturnValue(512_000);
 
       const result = await runSkillFilterCase();
 
       expect(result.status).toBe("ok");
       expect(session.sessionEntry.contextTokens).toBe(512_000);
       expect(session.sessionEntry.contextTokensSource).toBe("resolved");
-      expect(resolveContextTokensForModelMock).toHaveBeenCalledWith({
+      expect(lookupModelContextTokensMock).toHaveBeenCalledWith({
         cfg: expect.any(Object),
         provider: "openai",
         model: "gpt-5.4",

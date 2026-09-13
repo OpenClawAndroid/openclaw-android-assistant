@@ -3,7 +3,7 @@ import { guard } from "lit/directives/guard.js";
 import { GATEWAY_SERVER_CAPS } from "../../../../packages/gateway-protocol/src/index.js";
 import type { GatewaySessionRow } from "../../api/types.ts";
 import { hasOperatorApprovalsAccess, hasOperatorWriteAccess } from "../../app/operator-access.ts";
-import { patchSettings } from "../../app/settings.ts";
+import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { renderPanelLoadingSkeleton } from "../../components/panel-loading-skeleton.ts";
 import { t } from "../../i18n/index.ts";
 import {
@@ -15,10 +15,12 @@ import {
   type BoardViewCallbacks,
 } from "../../lib/board/provider.ts";
 import { updateBoardSessionView, type BoardSessionView } from "../../lib/board/settings.ts";
+import { formatUiError } from "../../lib/format-error.ts";
 import {
   isGatewayCapabilityAdvertised,
   isGatewayMethodAdvertised,
 } from "../../lib/gateway-methods.ts";
+import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import { resolveSessionKey } from "../../lib/sessions/index.ts";
 import {
   buildAgentMainSessionKey,
@@ -27,25 +29,143 @@ import {
   parseAgentSessionKey,
   resolveUiConversationIdentity,
 } from "../../lib/sessions/session-key.ts";
+import { showToast } from "../../lib/toast.ts";
 import { ensureBoardViewElement, renderBoardSessionSurface } from "./board-session-surface.ts";
 import { ChatPaneHistory } from "./chat-pane-history.ts";
 import type { ResolvedBoardView } from "./chat-pane-shared.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
 import { requestChatPageUpdate } from "./chat-state-render.ts";
+import { selectedChatSessionRow } from "./chat-state-route.ts";
 import {
   SIDEBAR_NARROW_BREAKPOINT_PX,
   fitSidebarLayout,
   isSidebarSlotVisible,
-  openSlot,
-  promoteSidebarPanel,
-  sidebarMainPanel,
+  openDashboardPresentation,
   resizeSidebarPanel,
-  setSidebarExpanded,
   sidebarDock,
+  sidebarDashboardPresentation,
   type SidebarLayout,
 } from "./sidebar-layout.ts";
 
 export abstract class ChatPaneBoard extends ChatPaneHistory {
-  protected commitSidebarLayout(layout: SidebarLayout): void {
+  private dashboardDefaultWrite?: { owner: string };
+
+  private get dashboardDefaultWriteOwner(): string {
+    return JSON.stringify([
+      this.headerOutcomeOwner,
+      this.state?.sessionKey,
+      this.resolveBoardConversation().agentId,
+    ]);
+  }
+
+  private canSaveDashboardDefault(row: GatewaySessionRow): boolean {
+    return Boolean(
+      this.state?.connected &&
+      row.sessionId &&
+      !this.sessionParticipationTracker.resolve({
+        catalog: false,
+        listLoading: this.state.sessionsLoading,
+        sessionKey: row.key,
+        session: row,
+      }) &&
+      readSessionMethodAccess(this.context.gateway.snapshot, {
+        method: "sessions.patch",
+        params: { key: row.key, boardPresentation: "split" },
+      }).allowed,
+    );
+  }
+
+  protected dashboardDefaultMenuAction(
+    row: GatewaySessionRow | undefined,
+    layout: SidebarLayout | undefined,
+  ) {
+    const presentation = layout ? sidebarDashboardPresentation(layout) : undefined;
+    if (
+      !row ||
+      !presentation ||
+      !this.canSaveDashboardDefault(row) ||
+      presentation === (row.boardPresentation ?? "split")
+    ) {
+      return undefined;
+    }
+    const saving = this.dashboardDefaultWrite?.owner === this.dashboardDefaultWriteOwner;
+    const agentId = this.resolveBoardConversation().agentId;
+    return {
+      label: t(saving ? "chat.sidePanel.savingDefault" : "chat.sidePanel.useViewAsDefault"),
+      disabled: saving,
+      onActivate: () => void this.saveDashboardDefault(row, agentId),
+    };
+  }
+
+  protected async saveDashboardDefault(
+    row: GatewaySessionRow,
+    agentId: string | undefined,
+  ): Promise<void> {
+    const scope = this.captureConnectionScope();
+    const currentRow = this.state ? selectedChatSessionRow(this.state) : undefined;
+    const presentation = this.state
+      ? sidebarDashboardPresentation(this.state.sidebarLayout)
+      : undefined;
+    if (
+      !scope ||
+      !currentRow ||
+      currentRow.key !== row.key ||
+      currentRow.sessionId !== row.sessionId ||
+      this.resolveBoardConversation().agentId !== agentId ||
+      !presentation ||
+      !this.canSaveDashboardDefault(currentRow) ||
+      presentation === (currentRow.boardPresentation ?? "split") ||
+      this.dashboardDefaultWrite?.owner === this.dashboardDefaultWriteOwner
+    ) {
+      return;
+    }
+    const operation = { owner: this.dashboardDefaultWriteOwner };
+    this.dashboardDefaultWrite = operation;
+    const isCurrent = () =>
+      this.ownsHeaderOutcomeScope(scope) &&
+      this.dashboardDefaultWrite === operation &&
+      this.context.sessions === scope.sessions &&
+      this.dashboardDefaultWriteOwner === operation.owner &&
+      selectedChatSessionRow(scope.state)?.sessionId === row.sessionId;
+    this.requestUpdate();
+    try {
+      const result = await scope.sessions.patch(
+        row.key,
+        { boardPresentation: presentation },
+        {
+          agentId,
+          expectedSessionId: row.sessionId,
+        },
+      );
+      if (!isCurrent()) {
+        return;
+      }
+      if (!result) {
+        throw new Error(t("chat.sidePanel.defaultSaveFailed"));
+      }
+      // The session capability publishes the acknowledged metadata. Never turn
+      // its value into a personal override or rearrange any active viewer.
+      showToast({ message: t("chat.sidePanel.defaultSaved"), anchor: this });
+    } catch (error) {
+      if (isCurrent()) {
+        this.publishHeaderError(error, scope.headerOutcomeOwner);
+        showToast({
+          message: t("chat.sidePanel.defaultSaveError", { error: formatUiError(error) }),
+          anchor: this,
+        });
+      }
+    } finally {
+      if (this.dashboardDefaultWrite === operation) {
+        this.dashboardDefaultWrite = undefined;
+        this.requestUpdate();
+      }
+    }
+  }
+
+  protected commitSidebarLayout(
+    layout: SidebarLayout,
+    options?: Parameters<ChatPageHost["updateSidebarLayout"]>[1],
+  ): void {
     const state = this.state;
     if (!state) {
       return;
@@ -54,7 +174,7 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
       this.paneWidth >= SIDEBAR_NARROW_BREAKPOINT_PX
         ? (fitSidebarLayout(layout, this.paneWidth) ?? layout)
         : layout;
-    state.updateSidebarLayout(fitted);
+    state.updateSidebarLayout(fitted, options);
   }
 
   protected commitSidebarPanelResize(
@@ -78,10 +198,12 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
       fittedSize !== undefined &&
       state.sidebarLayout.columns.some((column) => column.id === columnId)
     ) {
-      state.updateSidebarLayout(resizeSidebarPanel(state.sidebarLayout, columnId, fittedSize));
+      state.updateSidebarLayout(resizeSidebarPanel(state.sidebarLayout, columnId, fittedSize), {
+        geometryOnly: true,
+      });
       return;
     }
-    this.commitSidebarLayout(fittedProjection);
+    this.commitSidebarLayout(fittedProjection, { geometryOnly: true });
   }
 
   protected resolveBoardConversation() {
@@ -151,27 +273,76 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
     this.boardProviderLease = undefined;
   }
 
-  protected syncRetainedBoardSession(board: ResolvedBoardView): void {
-    const sessionKey = this.resolveBoardSessionKey(board.snapshot.sessionKey);
-    const savedLayout = this.state
-      ? this.context.theme.settings.sidebarSessionLayouts?.[
+  private readSavedDashboardLayout(): SidebarLayout | undefined {
+    return this.state
+      ? loadSettings().sidebarSessionLayouts?.[
           canonicalUiSessionKeyForPersistence(this.state, this.state.sessionKey)
         ]
       : undefined;
+  }
+
+  protected syncRetainedBoardSession(board: ResolvedBoardView): void {
+    const sessionKey = this.resolveBoardSessionKey(board.snapshot.sessionKey);
     const routeRequestsDashboard = this.routeFace === "dashboard" || this.dashboardExpanded;
-    if (!routeRequestsDashboard) {
-      this.dashboardExpandedRouteKey = "";
-    } else if (board.available && sessionKey && this.dashboardExpandedRouteKey !== sessionKey) {
-      this.dashboardExpandedRouteKey = sessionKey;
-      if (this.dashboardExpanded || !savedLayout) {
-        this.showDashboard(this.dashboardExpanded);
+    const activationKey = boardProviderCacheKey(this.resolveBoardConversation());
+    const activation = this.dashboardPresentationActivation;
+    const client = this.state?.client ?? null;
+    const row = this.state ? selectedChatSessionRow(this.state) : undefined;
+    const pendingRoute =
+      activation?.pendingRoute === true &&
+      activation.key === activationKey &&
+      activation.client === client;
+    if (activation && routeRequestsDashboard) {
+      activation.pendingRoute = false;
+    }
+    if (!this.presented || (!routeRequestsDashboard && !pendingRoute)) {
+      this.dashboardPresentationActivation = undefined;
+    } else if (
+      board.available &&
+      sessionKey &&
+      (activation?.key !== activationKey ||
+        activation.client !== client ||
+        activation.expanded !== this.dashboardExpanded)
+    ) {
+      // Only opening/activation may read preferences; ordinary renders stay storage-free.
+      const savedLayout = this.readSavedDashboardLayout();
+      // A row, including an absent optional value, is the authoritative default.
+      // Do not settle an initial open against an as-yet-unloaded metadata cache.
+      const hasPersonalLayout =
+        savedLayout !== undefined && savedLayout.dashboardPresentationOverride !== null;
+      if (this.dashboardExpanded || row || hasPersonalLayout) {
+        // Reconnect epochs retire async work, not the active presentation. A new
+        // client or a revisit may adopt defaults; an ordinary reconnect must not.
+        this.dashboardPresentationActivation = {
+          client,
+          key: activationKey,
+          expanded: this.dashboardExpanded,
+        };
+        if (this.dashboardExpanded) {
+          this.showDashboard(true);
+        } else if (savedLayout && savedLayout.dashboardPresentationOverride === undefined) {
+          this.commitSidebarLayout(this.restorePaneSidebarLayout(savedLayout), { persist: false });
+        } else {
+          this.showDashboard(
+            (savedLayout?.dashboardPresentationOverride ?? row?.boardPresentation ?? "split") ===
+              "expanded",
+          );
+        }
+        // Unmarked legacy layouts retain their complete saved presentation. They
+        // cannot tell us whether an old open was inherited or chosen by a person.
       }
     }
     if (sessionKey && board.provider.hasLoadedSnapshot) {
       const previous = this.observedBoardPresence.get(sessionKey);
       this.observedBoardPresence.set(sessionKey, board.hasBoard);
-      if (previous === false && board.hasBoard && board.face === "chat" && !savedLayout) {
-        this.showDashboard(false);
+      if (
+        this.presented &&
+        previous === false &&
+        board.hasBoard &&
+        board.face === "chat" &&
+        !this.readSavedDashboardLayout()
+      ) {
+        this.showDashboard((row?.boardPresentation ?? "split") === "expanded");
       }
     }
     if (
@@ -396,17 +567,17 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
     if (!state) {
       return;
     }
-    let layout = openSlot(state.sidebarLayout, "dashboard");
-    if (expanded) {
-      const dashboard = layout.columns[0]?.panels.find((panel) => panel.slot === "dashboard");
-      if (dashboard) {
-        layout = promoteSidebarPanel(layout, dashboard.id);
-      }
-    } else if (sidebarMainPanel(layout)?.slot === "dashboard") {
-      layout = openSlot(layout, "conversation");
-    }
-    layout = setSidebarExpanded(layout, expanded);
-    this.commitSidebarLayout(layout);
+    const layout = openDashboardPresentation(state.sidebarLayout, expanded ? "expanded" : "split");
+    // The child may render before its parent acknowledges the requested route.
+    // Consume this one-shot activation there, rather than saving a preference.
+    this.dashboardPresentationActivation = {
+      client: state.client,
+      key: boardProviderCacheKey(this.resolveBoardConversation()),
+      expanded: this.dashboardExpanded,
+      pendingRoute: this.routeFace !== "dashboard" && !this.dashboardExpanded,
+    };
+    // Route/default/tool applications are not personal preference writes.
+    this.commitSidebarLayout(layout, { persist: false });
     this.persistBoardSessionView({ face: "dashboard" });
   }
 

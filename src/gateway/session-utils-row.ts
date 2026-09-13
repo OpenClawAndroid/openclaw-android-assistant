@@ -2,8 +2,7 @@ import { createHash } from "node:crypto";
 import { asNonNegativeFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { SESSION_PARTICIPANT_LIMIT } from "../../packages/gateway-protocol/src/schema/session-participant.js";
-import { resolveAuthoredModelContextTokens } from "../agents/context-resolution.js";
-import { resolveContextTokensForModel } from "../agents/context.js";
+import { resolveModelContextTokenProjection } from "../agents/context.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { resolveFastModeState } from "../agents/fast-mode.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
@@ -295,29 +294,22 @@ export function buildGatewaySessionRow(params: {
     catalogEntry,
     selected: entry?.contextWindow,
   });
-  const resolvedModelContextTokens = resolvePositiveNumber(
-    resolveContextTokensForModel({
-      cfg,
-      provider: rowModelProvider,
-      model: rowModel,
-      modelContextTokens: catalogEntry?.contextTokens,
-      modelContextWindow: contextWindowProfile.contextTokens,
-      allowAsyncLoad: false,
-    }),
-  );
+  const modelContext = resolveModelContextTokenProjection({
+    cfg,
+    provider: rowModelProvider,
+    model: rowModel,
+    modelContextTokens: catalogEntry?.contextTokens,
+    modelContextWindow: contextWindowProfile.contextTokens,
+    allowAsyncLoad: false,
+  });
+  const resolvedModelContextTokens = resolvePositiveNumber(modelContext.contextTokens);
   const resolvedCurrentContextTokens = contextWindowProfile.contextTokens
     ? Math.min(
         resolvedModelContextTokens ?? contextWindowProfile.contextTokens,
         contextWindowProfile.contextTokens,
       )
     : resolvedModelContextTokens;
-  const authoredContextTokens = resolvePositiveNumber(
-    resolveAuthoredModelContextTokens({
-      cfg,
-      provider: rowModelProvider,
-      model: rowModel,
-    }),
-  );
+  const authoredContextTokens = resolvePositiveNumber(modelContext.authoredContextTokens);
   const contextTokens = resolveProjectedSessionContextTokens({
     entry,
     provider: rowModelProvider,
@@ -411,6 +403,7 @@ export function buildGatewaySessionRow(params: {
     channelAvatarUrl,
     category: entry?.category,
     boardFace: entry?.boardFace,
+    boardPresentation: entry?.boardPresentation,
     ...sessionClassificationForRow(cfg, key, sessionAgentId, entry),
     displayName,
     derivedTitle,

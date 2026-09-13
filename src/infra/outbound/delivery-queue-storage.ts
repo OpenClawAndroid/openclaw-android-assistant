@@ -19,9 +19,9 @@ import {
   terminalizePendingDeliveryQueueEntry,
   updateDeliveryQueueEntry,
   upsertDeliveryQueueEntry,
-  upsertDeliveryQueueEntryInDatabase,
   type DeliveryQueueEntryState,
 } from "../delivery-queue-sqlite.js";
+import { upsertDeliveryQueueEntryInDatabase } from "../delivery-queue-sqlite.kernel.js";
 import { generateSecureUuid } from "../secure-random.js";
 import { failPendingDelivery } from "./delivery-queue-ack.js";
 import { collectEntrySpoolPaths } from "./delivery-queue-media-spool.js";

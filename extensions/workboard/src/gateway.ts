@@ -7,6 +7,7 @@ import {
   createWorkboardDispatchHandler,
   listWorkboardCards,
   readId,
+  readExpectedUpdatedAt,
   registerWorkboardResultMethods,
   respondError,
 } from "./gateway-helpers.js";
@@ -92,13 +93,24 @@ export function registerWorkboardGatewayMethods(params: {
       WRITE_SCOPE,
       ({ params: requestParams }) =>
         redactCardResult(
-          store.move(readId(requestParams), requestParams.status, requestParams.position),
+          store.move(
+            readId(requestParams),
+            requestParams.status,
+            requestParams.position,
+            undefined,
+            {
+              expectedUpdatedAt: readExpectedUpdatedAt(requestParams),
+            },
+          ),
         ),
     ],
     [
       "workboard.cards.delete",
       WRITE_SCOPE,
-      ({ params: requestParams }) => store.delete(readId(requestParams)),
+      ({ params: requestParams }) =>
+        store.delete(readId(requestParams), {
+          expectedUpdatedAt: readExpectedUpdatedAt(requestParams),
+        }),
     ],
     [
       "workboard.cards.comment",
@@ -339,7 +351,11 @@ export function registerWorkboardGatewayMethods(params: {
       "workboard.cards.archive",
       WRITE_SCOPE,
       ({ params: requestParams }) =>
-        redactCardResult(store.archive(readId(requestParams), requestParams.archived)),
+        redactCardResult(
+          store.archive(readId(requestParams), requestParams.archived, {
+            expectedUpdatedAt: readExpectedUpdatedAt(requestParams),
+          }),
+        ),
     ],
     [
       "workboard.cards.export",

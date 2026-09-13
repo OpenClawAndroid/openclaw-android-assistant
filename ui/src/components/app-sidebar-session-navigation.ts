@@ -59,12 +59,12 @@ import {
   loadStoredSidebarSessionSortMode,
   loadStoredSidebarSessionStatusFilter,
   loadStoredSidebarSessionsGrouping,
-  loadStoredSidebarSessionsHideEmptyGroups,
   loadStoredSidebarSessionsShowCron,
   loadStoredSidebarSessionsShowPreview,
   loadStoredSidebarSessionsShowSystem,
   resolveSidebarSessionSortMode,
   storeSidebarSessionSortMode,
+  type SidebarEmptyGroupsMode,
   type SidebarRecentSession,
   type SidebarSessionSortMode,
   type SidebarSessionStatusFilter,
@@ -74,6 +74,7 @@ import { SessionDataController } from "./session-data-controller.ts";
 import type { SessionOrganizerController } from "./session-organizer-controller.ts";
 import type { SessionOwnerOption } from "./session-owner-chip.ts";
 import { SessionOwnerFilterController } from "./session-owner-filter-controller.ts";
+import { SidebarEmptyGroupsController } from "./sidebar-empty-groups-controller.ts";
 import type { SidebarMenusController } from "./sidebar-menus-controller.ts";
 
 /** Session-row projection, selection, sorting, and agent scope navigation. */
@@ -167,7 +168,15 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
   @state() sessionsShowCron = loadStoredSidebarSessionsShowCron();
   @state() sessionsShowPreview = loadStoredSidebarSessionsShowPreview();
   @state() sessionsShowSystem = loadStoredSidebarSessionsShowSystem();
-  @state() sessionsHideEmptyGroups = loadStoredSidebarSessionsHideEmptyGroups();
+  private readonly emptyGroups = new SidebarEmptyGroupsController(this, () => this.context);
+
+  get sessionsEmptyGroupsMode(): SidebarEmptyGroupsMode {
+    return this.emptyGroups.mode;
+  }
+
+  setSessionsEmptyGroupsMode(mode: SidebarEmptyGroupsMode): void {
+    this.emptyGroups.set(mode);
+  }
   @state() sessionsStatusFilter: SidebarSessionStatusFilter =
     loadStoredSidebarSessionStatusFilter();
   @state() hiddenSessionCatalogIds = loadStoredHiddenSessionCatalogIds();
@@ -231,6 +240,13 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
     if (this.sessionProjection.promoteCreatedSession(sessionKey)) {
       this.requestUpdate();
     }
+  }
+
+  protected override willUpdate(changedProperties: PropertyValues<this>) {
+    if (this.emptyGroups.reconcile() && this.sidebarMenus.sessionSortMenuPosition) {
+      this.sidebarMenus.closeSessionSortMenu();
+    }
+    super.willUpdate(changedProperties);
   }
 
   override updated(changedProperties: PropertyValues<this>) {
@@ -455,7 +471,7 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
       sectionOrder: this.knownSectionOrder(),
       catalogIds: catalogs.map((catalog) => catalog.id),
       collapsedSections,
-      hideEmptyGroups: this.sessionsHideEmptyGroups,
+      emptyGroupsMode: this.sessionsEmptyGroupsMode,
       ownerFiltered: this.sessionOwnerFilterActive || this.sessionInvolvingMeFilterActive,
       visibleSessionLimits: roster
         ? this.rosterVisibleSessionLimits

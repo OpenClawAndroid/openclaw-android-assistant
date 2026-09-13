@@ -109,13 +109,10 @@ function assertEndpointHttpTarget(target: URL, descriptor: DiscordEndpointDescri
 }
 
 function requestInitFromRequest(request: Request, signal: AbortSignal): RequestInit {
-  const rawDuplex: unknown = Reflect.get(request, "duplex");
   return {
     method: request.method,
     headers: request.headers,
-    ...(request.body
-      ? { body: request.body, ...(rawDuplex === "half" ? { duplex: "half" as const } : {}) }
-      : {}),
+    ...(request.body ? { body: request.body, duplex: "half" as const } : {}),
     signal,
     cache: request.cache,
     credentials: request.credentials,

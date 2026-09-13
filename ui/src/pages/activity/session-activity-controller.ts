@@ -221,6 +221,7 @@ export class SessionActivityController implements ReactiveController {
             includeGlobal: true,
             includeUnknown: true,
             includePeople: true,
+            excludeSubagents: true,
             includeDerivedTitles: true,
             limit: 100,
             ...(filters.personId ? { involvingProfileId: filters.personId } : {}),

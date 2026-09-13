@@ -8,6 +8,7 @@ import { writeOpenAiResponsesSse } from "../../test/helpers/openai-responses-sse
 import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
 import { clearConfigCache, clearRuntimeConfigSnapshot } from "../config/config.js";
 import { resetConfigOverrides } from "../config/runtime-overrides.js";
+import { readSessionStoreSummaryReadOnly } from "../config/sessions/session-accessor.sqlite-summary.js";
 import { clearSessionStoreCacheForTest } from "../config/sessions/store-writer-state.js";
 import type { ModelDefinitionConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -234,7 +235,7 @@ function modelDefinition(id: string): ModelDefinitionConfig {
 
 describe("sessions_send across prepared runtime reload", () => {
   it(
-    "finishes admitted model-A work and re-admits the detached reply on model B",
+    "finishes model-A work and re-admits the detached reply and announcement on model B",
     { timeout: 90_000 },
     async () => {
       const provider = await startProvider();
@@ -414,12 +415,19 @@ describe("sessions_send across prepared runtime reload", () => {
         )
         .toBe(0);
 
+      const target = readSessionStoreSummaryReadOnly(
+        { agentId: "target", env: process.env },
+        { recentLimit: 10, agentIds: ["target"] },
+      ).recent.find(({ sessionKey }) => sessionKey === "agent:target:main");
+      expect(target?.entry.status, target?.entry.lastRunError).toBe("done");
+      expect(target?.entry.lastRunError).toBeUndefined();
       expect(provider.calls).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: "dispatch", model: "model-a" }),
           expect.objectContaining({ kind: "target", model: "model-a" }),
           expect.objectContaining({ kind: "dispatch-complete", model: "model-a" }),
           expect.objectContaining({ kind: "reply", model: "model-b" }),
+          expect.objectContaining({ kind: "announce", model: "model-b" }),
         ]),
       );
       const dispatchComplete = provider.calls.find((call) => call.kind === "dispatch-complete");
@@ -429,6 +437,7 @@ describe("sessions_send across prepared runtime reload", () => {
       });
       expect(provider.calls.filter((call) => call.kind === "reply")).toHaveLength(1);
       expect(provider.calls.filter((call) => call.kind === "target")).toHaveLength(1);
+      expect(provider.calls.filter((call) => call.kind === "announce")).toHaveLength(1);
     },
   );
 });

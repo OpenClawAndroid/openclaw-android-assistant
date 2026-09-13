@@ -924,7 +924,7 @@ class AgentsPage
   }
 
   private reloadConfig() {
-    void this.context.runtimeConfig.refresh({ discardPendingChanges: true });
+    void this.context.runtimeConfig.discardDraft({ reloadOnly: true });
   }
 
   private clearAgentSkills(agentId: string) {

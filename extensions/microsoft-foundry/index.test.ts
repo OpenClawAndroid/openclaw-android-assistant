@@ -8,6 +8,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { ProviderAuthMethod } from "openclaw/plugin-sdk/core";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { resolveTestNodeExecPath } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { azLoginDeviceCodeWithOptions, execAz, getAccessTokenResultAsync } from "./cli.js";
 import plugin from "./index.js";
@@ -41,7 +42,13 @@ vi.mock("node:child_process", async () => {
   const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
   return {
     ...actual,
-    execFileSync: execFileSyncMock,
+    execFileSync: ((file: string, ...args: unknown[]) =>
+      file === "az"
+        ? execFileSyncMock(file, ...args)
+        : Reflect.apply(actual.execFileSync, actual, [
+            file,
+            ...args,
+          ])) as typeof actual.execFileSync,
   };
 });
 
@@ -755,6 +762,7 @@ describe("microsoft-foundry plugin", () => {
       timeout: 180_000,
     },
     async ({ signal }) => {
+      const nodeExecPath = resolveTestNodeExecPath();
       const { runExec } = await vi.importActual<
         typeof import("openclaw/plugin-sdk/process-runtime")
       >("openclaw/plugin-sdk/process-runtime");
@@ -788,7 +796,7 @@ process.stdout.write(JSON.stringify({
         if (process.platform === "win32") {
           await fs.writeFile(
             path.join(binDir, "az.cmd"),
-            `@echo off\r\n"${process.execPath}" "${fakeAz}" %*\r\n`,
+            `@echo off\r\n"${nodeExecPath}" "${fakeAz}" %*\r\n`,
           );
         } else {
           await fs.chmod(fakeAz, 0o700);
@@ -861,7 +869,7 @@ assert.equal(afterOldest, 130, "the evicted account must refresh through az");
         // The child has its own real profile store and token cache. Only az is synthetic;
         // no ambient credentials or the parent Vitest mocks enter its provider graph.
         const { stdout } = await runExec(
-          process.execPath,
+          nodeExecPath,
           ["--import", "tsx/esm", script, proofDir, new URL("./index.ts", import.meta.url).href],
           {
             cwd: repoRoot,
@@ -871,7 +879,7 @@ assert.equal(afterOldest, 130, "the evicted account must refresh through az");
             baseEnv: {
               PATH: [
                 binDir,
-                path.dirname(process.execPath),
+                path.dirname(nodeExecPath),
                 ...(process.platform === "win32" ? [] : ["/usr/bin", "/bin"]),
               ].join(path.delimiter),
               HOME: homeDir,

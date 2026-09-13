@@ -55,7 +55,7 @@ export function finishUpdateRunRecord(
   }
   record.status = result.status;
   record.phase = "finished";
-  record.reason = result.reason ?? null;
+  record.reason = result.reason ?? (result.status === "failed" ? record.reason : null);
   record.finishedAtMs = now;
   record.after = { ...record.after, ...result.after };
   record.downtimeMs = result.downtimeMs ?? record.downtimeMs;

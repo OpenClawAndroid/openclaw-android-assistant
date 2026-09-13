@@ -63,6 +63,21 @@ Classified database errors survive transport, and canonical close joins worker
 operations and native cleanup. Cold registry restoration and runtime-configuration
 preparation still retain their existing main-thread behavior.
 
+Model-context reads and session transcript preparation use the session-transcript
+worker with separate bounded queues. Background preparation cannot occupy the
+foreground context queue. Session exports read events, statistics, and session
+classification from one read-only SQLite snapshot, then prepare text and
+provenance off the Gateway thread. The caller carries its current exact-secret
+redaction snapshot and rejects results prepared against an obsolete registry.
+Reset-recall metadata crosses the worker boundary with the prepared content.
+Incognito databases, archive materialization, and caller-owned transcript
+observers retain their existing local execution. Index publication and
+restoration remain with their existing database and lifecycle owners.
+Worker admission and transport failures preserve the published index and its
+retry state. The existing chunking revision triggers a one-time rebuild to repair
+previously indexed reset boundaries. Rebuilds reuse cached embeddings when
+available and retain the existing atomic publication path.
+
 The optional `tasks.async.managedFlows` creation and revision mutations use the
 same row kernels in the shared worker, with fresh owner, managed-mode, and
 revision checks inside write admission. The admitted operation retains its actor

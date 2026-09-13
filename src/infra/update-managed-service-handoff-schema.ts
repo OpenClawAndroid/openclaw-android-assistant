@@ -15,6 +15,10 @@ export const managedHandoffBootSchema = z.union([
     platform: z.literal("win32"),
     identity: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z$/),
   }),
+  z.strictObject({
+    platform: z.literal("freebsd"),
+    identity: z.string().regex(/^[a-f0-9]{32}$/),
+  }),
 ]);
 const nativeLifetimeSchema = z.strictObject({
   kind: z.literal("native"),

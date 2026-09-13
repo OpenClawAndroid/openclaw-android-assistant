@@ -56,9 +56,23 @@ it("loads the staged production handoff runtime without neighboring SQL or JSON 
     );
     const staged = stageManagedHandoffRuntime(directory);
     const entry = path.join(directory, "runtime", MANAGED_HANDOFF_RUNTIME_ENTRY);
-    expect(staged).toEqual([entry]);
+    const nativeAssets =
+      process.platform === "freebsd"
+        ? [
+            "package.json",
+            "indirect.cjs",
+            "src/koffi/indirect.cjs",
+            "LICENSE.txt",
+            `build/koffi/freebsd_${process.arch}/koffi.node`,
+          ].map((file) => path.join(directory, "runtime", "node_modules", "koffi", file))
+        : [];
+    expect(staged).toEqual([entry, ...nativeAssets]);
     expect(readdirSync(directory)).toEqual(["runtime"]);
-    expect(readdirSync(path.dirname(entry))).toEqual([MANAGED_HANDOFF_RUNTIME_ENTRY]);
+    expect(readdirSync(path.dirname(entry))).toEqual(
+      process.platform === "freebsd"
+        ? [MANAGED_HANDOFF_RUNTIME_ENTRY, "node_modules"]
+        : [MANAGED_HANDOFF_RUNTIME_ENTRY],
+    );
 
     const result = spawnSync(
       resolveTestNodeExecPath(),

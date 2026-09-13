@@ -287,6 +287,7 @@ describe("resolveSessionKeyFromResolveParams", () => {
           displayName: "Release monitor",
           label: "Renamed release monitor",
           boardFace: "dashboard",
+          boardPresentation: "expanded",
           get modelOverride(): string {
             throw new Error("Short references must not resolve model metadata");
           },
@@ -305,6 +306,7 @@ describe("resolveSessionKeyFromResolveParams", () => {
       agentId: "main",
       displayName: "Renamed release monitor",
       boardFace: "dashboard",
+      boardPresentation: "expanded",
     });
   });
 

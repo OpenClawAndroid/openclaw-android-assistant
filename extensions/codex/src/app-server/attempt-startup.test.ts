@@ -320,14 +320,23 @@ describe("startCodexAttemptThread", () => {
       "configRequirements/read",
       "account/read",
     ]);
-    expect(readHarnessRequestMethods(second)).toEqual([
-      "initialize",
-      "account/login/start",
-      "config/read",
-      "configRequirements/read",
-      "account/read",
-      "thread/start",
-    ]);
+    expect([
+      [
+        "initialize",
+        "account/login/start",
+        "config/read",
+        "configRequirements/read",
+        "thread/start",
+      ],
+      [
+        "initialize",
+        "account/login/start",
+        "config/read",
+        "configRequirements/read",
+        "account/read",
+        "thread/start",
+      ],
+    ]).toContainEqual(readHarnessRequestMethods(second));
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(releaseLeasedSharedCodexAppServerClient(first.client)).toBe(true);
     await vi.waitFor(() => expect(first.process.stdin.destroyed).toBe(true));

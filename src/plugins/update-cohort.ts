@@ -10,6 +10,7 @@ import {
   type MissingPluginInstallPayload,
 } from "./payload-verification.js";
 import { createPluginCache, withPluginCache } from "./plugin-cache.js";
+import { withPluginLifecycleLease } from "./plugin-lifecycle-lease.js";
 import {
   capturePluginPackageUpdateSnapshot,
   reconcilePluginPackageUpdateConfig,
@@ -48,7 +49,17 @@ export async function convergePluginReleaseCohort(params: {
   logger?: PluginUpdateLogger;
   onIntegrityDrift?: (params: PluginUpdateIntegrityDriftParams) => boolean | Promise<boolean>;
   onCapabilityConsent?: PluginCapabilityConsentHandler;
+  beforePersistentEffect?: () => void;
 }): Promise<PluginCohortConvergenceResult> {
+  return await withPluginLifecycleLease(
+    { env: params.env, assertCurrent: params.beforePersistentEffect },
+    () => convergePluginReleaseCohortWithLease(params),
+  );
+}
+
+async function convergePluginReleaseCohortWithLease(
+  params: Parameters<typeof convergePluginReleaseCohort>[0],
+): Promise<PluginCohortConvergenceResult> {
   const sync = await syncPluginsForUpdateChannel({
     config: params.config,
     channel: params.channel,
@@ -58,7 +69,9 @@ export async function convergePluginReleaseCohort(params: {
     externalizedBundledPluginBridges: params.externalizedBundledPluginBridges,
     logger: params.logger,
     onCapabilityConsent: params.onCapabilityConsent,
+    beforePersistentEffect: params.beforePersistentEffect,
   });
+  params.beforePersistentEffect?.();
   let config = sync.config;
   let changed = sync.changed;
   let npmChanged = false;
@@ -118,7 +131,9 @@ export async function convergePluginReleaseCohort(params: {
       logger: params.logger,
       onIntegrityDrift: params.onIntegrityDrift,
       onCapabilityConsent: params.onCapabilityConsent,
+      beforePersistentEffect: params.beforePersistentEffect,
     });
+    params.beforePersistentEffect?.();
     config = repair.config;
     changed ||= repair.changed;
     npmChanged ||= repair.changed;
@@ -144,7 +159,9 @@ export async function convergePluginReleaseCohort(params: {
     logger: params.logger,
     onIntegrityDrift: params.onIntegrityDrift,
     onCapabilityConsent: params.onCapabilityConsent,
+    beforePersistentEffect: params.beforePersistentEffect,
   });
+  params.beforePersistentEffect?.();
   config = update.config;
   changed ||= update.changed;
   npmChanged ||= update.changed;

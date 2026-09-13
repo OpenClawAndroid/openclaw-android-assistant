@@ -1,6 +1,10 @@
 // Isolated run test harness builds cron run inputs, mocks, and assertions.
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { vi, type Mock } from "vitest";
+import {
+  type ContextTokenResolutionParams,
+  resolveAuthoredModelContextTokens,
+} from "../../agents/context-resolution.js";
 import { resolveFastModeState as resolveFastModeStateImpl } from "../../agents/fast-mode.js";
 import { LiveSessionModelSwitchError } from "../../agents/live-model-switch-error.js";
 import { runInitialModelFallbackAttempt } from "../../agents/test-helpers/model-fallback-runner.test-support.js";
@@ -75,7 +79,8 @@ export const resolveEffectiveAgentRuntimeMock = createMock();
 export const runWithModelFallbackMock = createMock();
 export const runEmbeddedAgentMock = createMock();
 export const runCliAgentMock = createMock();
-export const resolveContextTokensForModelMock = createMock();
+export const lookupModelContextTokensMock =
+  vi.fn<(params: ContextTokenResolutionParams) => number | undefined>();
 export const getCliSessionBindingMock = createMock();
 export const loadSessionEntryMock = createMock();
 const replaceSessionEntryMock = createMock();
@@ -177,7 +182,10 @@ vi.mock("./run-external-content.runtime.js", () => ({
 }));
 
 vi.mock("./run-context.runtime.js", () => ({
-  resolveContextTokensForModel: resolveContextTokensForModelMock,
+  resolveModelContextTokenProjection: (params: ContextTokenResolutionParams) => ({
+    contextTokens: lookupModelContextTokensMock(params),
+    authoredContextTokens: resolveAuthoredModelContextTokens(params),
+  }),
 }));
 
 vi.mock("../../web-search/runtime.js", () => ({
@@ -639,8 +647,8 @@ function resetRunExecutionMocks(): void {
 }
 
 function resetRunOutcomeMocks(): void {
-  resolveContextTokensForModelMock.mockReset();
-  resolveContextTokensForModelMock.mockReturnValue(undefined);
+  lookupModelContextTokensMock.mockReset();
+  lookupModelContextTokensMock.mockReturnValue(undefined);
   pickLastNonEmptyTextFromPayloadsMock.mockReset();
   pickLastNonEmptyTextFromPayloadsMock.mockReturnValue("test output");
   resolveCronPayloadOutcomeMock.mockReset();

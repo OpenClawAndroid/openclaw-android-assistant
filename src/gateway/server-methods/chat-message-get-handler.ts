@@ -18,6 +18,8 @@ import { resolveCurrentUserProfileDisplay } from "../current-user-profile-displa
 import { MAX_PAYLOAD_BYTES } from "../server-constants.js";
 import { readChatHistoryMessageId } from "../session-history-tail.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
+import { hiddenSessionNotFound } from "../session-sharing-policy.js";
+import { createSessionListEntryFilter } from "../session-sharing.js";
 import { readSessionMessagesAroundIdWithStatsAsync } from "../session-transcript-anchor-reader.js";
 import { readSessionMessageByIdAsync } from "../session-transcript-readers.js";
 import { loadGatewaySessionEntryReadOnly } from "../session-utils.js";
@@ -83,7 +85,7 @@ async function isChatMessageIdVisibleAfterHistoryFilters(params: {
 }
 
 export const chatMessageGetHandlers: GatewayRequestHandlers = {
-  "chat.message.get": async ({ params, respond, context }) => {
+  "chat.message.get": async ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateChatMessageGetParams, "chat.message.get", respond)) {
       return;
     }
@@ -99,9 +101,10 @@ export const chatMessageGetHandlers: GatewayRequestHandlers = {
       return;
     }
     const requestedAgentId = requestedAgent.agentId;
-    const { cfg, storePath, entry, canonicalKey } = loadGatewaySessionEntryReadOnly(sessionKey, {
+    const session = loadGatewaySessionEntryReadOnly(sessionKey, {
       agentId: requestedAgentId,
     });
+    const { cfg, storePath, entry, canonicalKey } = session;
     const selectedAgent = validateChatSelectedAgent({
       cfg,
       requestedSessionKey: sessionKey,
@@ -114,6 +117,36 @@ export const chatMessageGetHandlers: GatewayRequestHandlers = {
     const sessionId = entry?.sessionId;
     if (!sessionId) {
       respond(true, { ok: false, unavailableReason: "not_found" });
+      return;
+    }
+    const canReadSession = (current: typeof session): boolean => {
+      if (
+        !current.entry ||
+        current.agentId !== session.agentId ||
+        current.canonicalKey !== canonicalKey ||
+        current.storePath !== storePath ||
+        current.entry.sessionId !== sessionId ||
+        current.entry.lifecycleRevision !== entry.lifecycleRevision
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.UNAVAILABLE,
+            "session changed while reading history; reload the conversation",
+            { retryable: true },
+          ),
+        );
+        return false;
+      }
+      const entryFilter = createSessionListEntryFilter({ client, cfg: current.cfg });
+      if (entryFilter?.(current.canonicalKey, current.entry) === false) {
+        respond(false, undefined, hiddenSessionNotFound(canonicalKey));
+        return false;
+      }
+      return true;
+    };
+    if (!canReadSession(session)) {
       return;
     }
 
@@ -164,22 +197,33 @@ export const chatMessageGetHandlers: GatewayRequestHandlers = {
       messageId,
       { allowResetArchiveFallback: true },
     );
-    if (!resolved.found) {
-      respond(true, { ok: false, unavailableReason: "not_found" });
+    const visible =
+      resolved.found &&
+      (await isChatMessageIdVisibleAfterHistoryFilters({
+        sessionId,
+        storePath,
+        sessionEntry: entry,
+        sessionKey,
+        agentId: sessionAgentId,
+        message: resolved.message,
+        messageId,
+        sessionStartedAt:
+          typeof entry?.sessionStartedAt === "number" ? entry.sessionStartedAt : undefined,
+        allowResetArchiveFallback: true,
+      }));
+    // Async transcript/archive reads cannot publish under a stale sharing or
+    // physical-session snapshot. Pending input reads above are synchronous.
+    if (
+      !canReadSession(
+        loadGatewaySessionEntryReadOnly(sessionKey, {
+          agentId: requestedAgentId,
+          clone: false,
+          projection: "list",
+        }),
+      )
+    ) {
       return;
     }
-    const visible = await isChatMessageIdVisibleAfterHistoryFilters({
-      sessionId,
-      storePath,
-      sessionEntry: entry,
-      sessionKey,
-      agentId: sessionAgentId,
-      message: resolved.message,
-      messageId,
-      sessionStartedAt:
-        typeof entry?.sessionStartedAt === "number" ? entry.sessionStartedAt : undefined,
-      allowResetArchiveFallback: true,
-    });
     if (!visible) {
       respond(true, { ok: false, unavailableReason: "not_found" });
       return;

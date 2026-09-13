@@ -683,6 +683,71 @@ describe("openshell backend manager", () => {
     expect(cliMocks.runOpenShellCli).not.toHaveBeenCalled();
   });
 
+  it.each(["remote", "mirror"] as const)(
+    "rejects invalid exec environment before SSH staging and releases the %s session",
+    async (mode) => {
+      await using workspace = await createOpenShellTestWorkspace("env-workspace");
+      await using remote = await createOpenShellTestWorkspace("env-remote");
+      await using agentRemote = await createOpenShellTestWorkspace("env-agent");
+      sandboxMocks.remoteRoot = remote.dir;
+      sandboxMocks.remoteAgentRoot = agentRemote.dir;
+      cliMocks.runOpenShellCli.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+      const sshCommand = await makeExecutable({
+        name: "ssh-refuse",
+        script: ["#!/bin/sh", `printf 'unexpected launch\\n' >> "__LOG__"`, "exit 91"].join("\n"),
+      });
+      const logPath = expectDefined(process.env.OPEN_SHELL_CLI_TEST_LOG, "SSH launch record");
+      await fs.writeFile(logPath, "not launched\n", "utf8");
+      const session = {
+        command: sshCommand,
+        configPath: path.join(workspace.dir, "ssh-config"),
+        host: "openshell-test",
+      };
+      cliMocks.createOpenShellSshSession.mockResolvedValue(session);
+      const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/sandbox")>(
+        "openclaw/plugin-sdk/sandbox",
+      );
+      let disposalCallsAtPrepare = 0;
+      sandboxMocks.prepareSshSandboxExec.mockImplementationOnce(async (params) => {
+        disposalCallsAtPrepare = sandboxMocks.disposeSshSandboxSession.mock.calls.length;
+        return await actual.prepareSshSandboxExec(params);
+      });
+      const backend = await createOpenShellBackendFixture({
+        workspaceDir: workspace.dir,
+        mode,
+      });
+      const rejection = await backend
+        .buildExecSpec({
+          command: "true",
+          env: { "INVALID-NAME": "fixture" },
+          usePty: false,
+        })
+        .catch((error: unknown) => error);
+
+      expect(rejection).toBeInstanceOf(Error);
+      await expect(fs.readFile(logPath, "utf8")).resolves.toBe("not launched\n");
+      expect(sandboxMocks.disposeSshSandboxSession).toHaveBeenCalledTimes(
+        disposalCallsAtPrepare + 1,
+      );
+      expect(sandboxMocks.disposeSshSandboxSession).toHaveBeenLastCalledWith(session);
+
+      const valid = await backend.buildExecSpec({
+        command: "true",
+        env: { VALID_NAME: "fixture" },
+        usePty: false,
+      });
+      await backend.finalizeExec?.({
+        status: "completed",
+        exitCode: 0,
+        timedOut: false,
+        token: valid.finalizeToken,
+      });
+      expect(sandboxMocks.cleanupPreparedExec).toHaveBeenCalledOnce();
+      await expect(fs.readFile(logPath, "utf8")).resolves.toBe("not launched\n");
+      expect(String(rejection)).toContain("Invalid sandbox environment variable name");
+    },
+  );
+
   it.each(["completed", "failed"] as const)(
     "stages exec environment outside SSH argv and finalizes %s before session disposal",
     async (status) => {

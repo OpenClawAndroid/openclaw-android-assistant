@@ -61,13 +61,16 @@ async function assertGatewayPortReleasedAfterStop(
   env: GatewayServiceEnv,
   assertCurrent?: () => void,
 ): Promise<void> {
-  const { port, probeHosts } = await resolveLaunchAgentGatewayContext(env);
+  const { env: cleanupEnv, port, probeHosts } = await resolveLaunchAgentGatewayContext(env);
   if (port === null) {
     return;
   }
   assertCurrent?.();
   assertGatewayServiceUpdateCurrent();
-  cleanStaleGatewayProcessesSync(port, { assertCurrent: assertGatewayServiceUpdateCurrent });
+  cleanStaleGatewayProcessesSync(port, {
+    env: cleanupEnv,
+    assertCurrent: assertGatewayServiceUpdateCurrent,
+  });
   const diagnostics = await inspectPortUsage(port, {
     probeHosts,
   }).catch(() => null);

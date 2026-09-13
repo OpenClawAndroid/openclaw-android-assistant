@@ -2,6 +2,8 @@
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../../config/types.plugins.js";
 import { createSubsystemLogger } from "../../logging.js";
+import { normalizePluginsConfig } from "../config-state.js";
+import { hashStableJson } from "../installed-plugin-index-hash.js";
 import { resolvePluginRegistrationConfigKey } from "../loader-registration-config.js";
 import type { PluginLoadOptions } from "../loader-types.js";
 import type { PluginManifestRegistry } from "../manifest-registry.js";
@@ -34,6 +36,15 @@ export type PluginRuntimeLoadContext = {
   expectedSourceDigests?: PluginLoadOptions["expectedSourceDigests"];
 };
 
+function activationResultFingerprint(context: PluginRuntimeLoadContext): string {
+  return hashStableJson({
+    config: context.config,
+    activationSourceConfig: context.activationSourceConfig,
+    autoEnabledReasons: context.autoEnabledReasons,
+    env: context.env,
+  });
+}
+
 export function setPluginRuntimeLoadContext(
   registry: PluginRegistry,
   context: PluginRuntimeLoadContext,
@@ -44,12 +55,17 @@ export function setPluginRuntimeLoadContext(
   const capturedIdentity = previous?.loaderCacheIdentity ?? loaderCacheIdentity;
   const bound = {
     ...context,
+    activationInputFingerprint: hashStableJson({ config: context.rawConfig, env: context.env }),
+    activationResultFingerprint: activationResultFingerprint(context),
     ...(capturedIdentity ? { loaderCacheIdentity: capturedIdentity } : {}),
     // Host preparation may rebind metadata, but it cannot change already-registered closures.
     registrationConfigKey:
       previous?.registrationConfigKey ??
       registrationConfigKey ??
-      resolvePluginRegistrationConfigKey(context),
+      resolvePluginRegistrationConfigKey({
+        runtimeEntries: normalizePluginsConfig(context.config.plugins).entries,
+        sourceEntries: normalizePluginsConfig(context.activationSourceConfig.plugins).entries,
+      }),
     declaredProviderOwners:
       context.metadataSnapshot &&
       context.metadataSnapshot.manifestRegistry === context.manifestRegistry
@@ -73,6 +89,44 @@ export const getPluginRuntimeLoadContext = (
   getPluginRuntimeLoadContextState(registry) as
     | (PluginRuntimeLoadContext & PluginRuntimeLoadContextState)
     | undefined;
+
+/** Reuses activation decisions only within the exact metadata generation and unchanged inputs. */
+export function getReusablePluginRuntimeActivation(
+  registry: object | undefined,
+  params: {
+    config: OpenClawConfig;
+    env: NodeJS.ProcessEnv;
+    workspaceDir: string | undefined;
+    metadataSnapshot: PluginMetadataSnapshot;
+  },
+):
+  | Pick<PluginRuntimeLoadContext, "config" | "activationSourceConfig" | "autoEnabledReasons">
+  | undefined {
+  const context = getPluginRuntimeLoadContext(registry);
+  if (
+    !context ||
+    context.metadataSnapshot !== params.metadataSnapshot ||
+    context.workspaceDir !== params.workspaceDir ||
+    context.activationResultFingerprint !== activationResultFingerprint(context)
+  ) {
+    return undefined;
+  }
+  const inputFingerprint = hashStableJson({ config: params.config, env: params.env });
+  // Startup callers can carry either the source config or the already-applied activation config.
+  if (
+    inputFingerprint !== context.activationInputFingerprint &&
+    inputFingerprint !== hashStableJson({ config: context.config, env: context.env }) &&
+    inputFingerprint !==
+      hashStableJson({ config: context.activationSourceConfig, env: context.env })
+  ) {
+    return undefined;
+  }
+  return {
+    config: context.config,
+    activationSourceConfig: context.activationSourceConfig,
+    autoEnabledReasons: context.autoEnabledReasons,
+  };
+}
 
 /** Runtime load option values that can be passed directly to plugin loading. */
 type PluginRuntimeResolvedLoadValues = Pick<

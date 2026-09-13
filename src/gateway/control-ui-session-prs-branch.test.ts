@@ -15,7 +15,8 @@ import {
   testGitContext as context,
 } from "./control-ui-session-prs.test-support.js";
 
-vi.mock("./control-ui-session-pr-references.js", () => ({
+vi.mock("./control-ui-session-pr-references.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./control-ui-session-pr-references.js")>()),
   loadSessionPullRequestReferences: vi.fn(async () => []),
 }));
 

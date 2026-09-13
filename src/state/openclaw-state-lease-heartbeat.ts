@@ -56,6 +56,7 @@ export function startOpenClawStateLeaseHeartbeat(
         leaseMs: params.leaseMs,
         expiresAt: params.expiresAt,
         heartbeatMs: params.heartbeatMs,
+        processOwner: params.processOwner,
         shared: shared.buffer,
       } satisfies LeaseHeartbeatWorkerData,
       env: {},

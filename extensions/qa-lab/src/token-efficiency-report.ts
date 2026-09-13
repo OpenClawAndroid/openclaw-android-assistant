@@ -1,4 +1,5 @@
 // Qa Lab plugin module implements token efficiency report behavior.
+import { formatCacheMisses } from "./agentic-parity-cache-usage.js";
 import type { RuntimeParityCacheMiss } from "./runtime-parity-cache-diagnostics.js";
 import type { RuntimeId, RuntimeParityCell, RuntimeParityResult } from "./runtime-parity.js";
 import { normalizeRuntimePair, resolveRuntimeParityUsagePolicy } from "./runtime-parity.js";
@@ -148,26 +149,6 @@ function formatProcessedDelta(params: {
     params.codex.processedTokenEvidence === "unavailable"
     ? "N/A"
     : formatPercent(params.deltaPercent);
-}
-
-function formatCacheMisses(
-  misses: readonly RuntimeParityCacheMiss[] | null,
-  unmeasuredPostWarmTurns: readonly number[] | null,
-): string {
-  if (misses === null) {
-    return unmeasuredPostWarmTurns?.length
-      ? `N/A (unmeasured turns ${unmeasuredPostWarmTurns.join(", ")})`
-      : "N/A";
-  }
-  const measuredMisses =
-    misses.length === 0
-      ? "none"
-      : misses.map((miss) => `turn ${miss.turn} (${miss.inputTokens} input)`).join(", ");
-  if (!unmeasuredPostWarmTurns?.length) {
-    return measuredMisses;
-  }
-  const unknownTurns = `unmeasured turns ${unmeasuredPostWarmTurns.join(", ")}`;
-  return measuredMisses === "none" ? `N/A (${unknownTurns})` : `${measuredMisses}; ${unknownTurns}`;
 }
 
 function runtimeUsage(cell: RuntimeParityCell): TokenEfficiencyRuntimeUsage {
@@ -510,7 +491,7 @@ export function renderTokenEfficiencyMarkdownReport(report: TokenEfficiencyRepor
     );
     for (const row of report.rows) {
       lines.push(
-        `| ${row.scenarioId} | ${row.usageSource} | ${formatProcessedCount(row.openclaw)}/${row.openclaw.inputTokens}/${row.openclaw.outputTokens}/${formatOptionalCount(row.openclaw.cacheReadTokens)}/${formatOptionalCount(row.openclaw.cacheWriteTokens)}/${row.openclaw.totalTokens}/${row.openclaw.toolCallCount} | ${formatProcessedCount(row.codex)}/${row.codex.inputTokens}/${row.codex.outputTokens}/${formatOptionalCount(row.codex.cacheReadTokens)}/${formatOptionalCount(row.codex.cacheWriteTokens)}/${row.codex.totalTokens}/${row.codex.toolCallCount} | ${formatProcessedDelta({ deltaPercent: row.deltaPercent, openclaw: row.openclaw, codex: row.codex })} | ${row.classification} | ${row.flagged ? "yes" : "no"} | ${formatCacheMisses(row.openclaw.cacheMisses, row.openclaw.unmeasuredPostWarmTurns)} | ${formatCacheMisses(row.codex.cacheMisses, row.codex.unmeasuredPostWarmTurns)} | ${row.toolsUsed.join(", ")} |`,
+        `| ${row.scenarioId} | ${row.usageSource} | ${formatProcessedCount(row.openclaw)}/${row.openclaw.inputTokens}/${row.openclaw.outputTokens}/${formatOptionalCount(row.openclaw.cacheReadTokens)}/${formatOptionalCount(row.openclaw.cacheWriteTokens)}/${row.openclaw.totalTokens}/${row.openclaw.toolCallCount} | ${formatProcessedCount(row.codex)}/${row.codex.inputTokens}/${row.codex.outputTokens}/${formatOptionalCount(row.codex.cacheReadTokens)}/${formatOptionalCount(row.codex.cacheWriteTokens)}/${row.codex.totalTokens}/${row.codex.toolCallCount} | ${formatProcessedDelta({ deltaPercent: row.deltaPercent, openclaw: row.openclaw, codex: row.codex })} | ${row.classification} | ${row.flagged ? "yes" : "no"} | ${formatCacheMisses(row.openclaw.cacheMisses, row.openclaw.unmeasuredPostWarmTurns, "input")} | ${formatCacheMisses(row.codex.cacheMisses, row.codex.unmeasuredPostWarmTurns, "input")} | ${row.toolsUsed.join(", ")} |`,
       );
     }
     lines.push("");

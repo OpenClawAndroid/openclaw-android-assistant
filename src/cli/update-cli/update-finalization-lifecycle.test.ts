@@ -3,6 +3,8 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
+import { UpdateDoctorError } from "../../infra/update-doctor-result.js";
+import { prepareUpdateFailureReport } from "../../infra/update-failure-report-prepare.js";
 import * as ledger from "../../infra/update-run-ledger.js";
 import { getUpdateRun, listUpdateRuns } from "../../infra/update-run-ledger.js";
 import {
@@ -17,6 +19,79 @@ import { withCliProcessScope } from "../runtime-cleanup-scope.js";
 import { UpdateFinalizationLifecycle } from "./update-finalization-lifecycle.js";
 
 const dirs = createTempDirTracker();
+
+it("records a Doctor refusal before reporting standalone finalization", async () => {
+  const lifecycle = new UpdateFinalizationLifecycle(false, 5_000, () => {});
+  lifecycle.attachLedger();
+  const message =
+    "Doctor could not enter maintenance. Error: The update parent owns Gateway activation.";
+  const privatePath = "/home/example/private-doctor-input";
+  await expect(
+    lifecycle.run("doctor", async () => {
+      throw new UpdateDoctorError(`${message} ${privatePath}`, [
+        { check: "doctor", code: "doctor-failed", message },
+      ]);
+    }),
+  ).rejects.toThrow(message);
+  lifecycle.fail();
+  expect(vi.mocked(defaultRuntime.error).mock.calls.flat().join("\n")).not.toContain(privatePath);
+  closeOpenClawStateDatabaseForTest();
+  const run = listUpdateRuns()[0]!;
+  expect(run).toMatchObject({
+    status: "failed",
+    reason: "doctor-failed",
+  });
+  const report = await prepareUpdateFailureReport({
+    attemptId: run.runId,
+    recordedRun: run,
+    result: { status: "error", mode: "unknown", steps: [], durationMs: 1 },
+  });
+  expect(report.body).toContain("Reason code: doctor-failed");
+  expect(report.body).toContain(`Failed phase finalize:doctor: ${message}`);
+  expect(report.body).not.toContain("Failed phase finalize:doctor: exit unknown");
+});
+
+it.each([
+  "preflight",
+  "targetConfigValidation",
+  "configSnapshot",
+  "doctor",
+  "plugins",
+  "targetConfigConvergence",
+  "completionCache",
+] as const)("records the %s failure reason without finishing an inherited run", async (phase) => {
+  const inherited = ledger.createUpdateRun({ trigger: "cli" });
+  vi.stubEnv(UPDATE_RUN_ID_ENV, inherited.runId);
+  const lifecycle = new UpdateFinalizationLifecycle(false, 5_000, () => {});
+  lifecycle.attachLedger();
+  await expect(
+    lifecycle.run(phase, async () => {
+      throw new Error("phase failed");
+    }),
+  ).rejects.toThrow("phase failed");
+  lifecycle.fail();
+  expect(getUpdateRun(inherited.runId)).toMatchObject({
+    status: "running",
+    reason: `finalize:${phase}`,
+  });
+  ledger.finishUpdateRun(inherited.runId, { status: "failed", reason: "parent-failure" });
+  expect(getUpdateRun(inherited.runId)?.reason).toBe("parent-failure");
+});
+
+it("records a returned failed outcome without requiring an exception", async () => {
+  const lifecycle = new UpdateFinalizationLifecycle(false, 5_000, () => {});
+  lifecycle.attachLedger();
+  await lifecycle.run(
+    "plugins",
+    async () => undefined,
+    () => ({
+      outcome: "failed",
+      failureFacts: [{ check: "plugin-update", code: "plugin-update-failed" }],
+    }),
+  );
+  lifecycle.complete(1);
+  expect(listUpdateRuns()[0]).toMatchObject({ status: "failed", reason: "plugin-update-failed" });
+});
 
 beforeEach(() => {
   vi.useFakeTimers();

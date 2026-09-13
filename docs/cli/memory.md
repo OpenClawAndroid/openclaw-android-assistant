@@ -30,6 +30,10 @@ unavailable before any work runs:
 - Disabled memory returns `{"agentId":"main","status":"disabled"}` with a successful exit.
 - Backend acquisition failures return the standard `{"ok":false,"error":{"type":"cli_error","message":"..."}}` envelope, plus `agentId`, and exit with code 1.
 
+Invalid command input and errors during command execution also use the standard
+[CLI JSON failure envelope](/cli#json-failures) and exit with code 1. The failure
+message explains the command error; human-readable diagnostics stay on stderr.
+
 Handle these outcomes before reading the command's normal result fields. An
 enabled search with no matches still returns `{"results":[]}`. `status --json`
 keeps its aggregate array of available agents, including `[]` when all are

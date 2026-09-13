@@ -21,46 +21,7 @@ export function strokeIcon(body: SVGTemplateResult): TemplateResult {
   `;
 }
 
-const memoryIconBody = svg`
-  <path d="M18.8 5.6A8.5 8.5 0 1 0 18.8 18.4" />
-  <path d="M15.8 8.7a4.3 4.3 0 1 0 0 6.6" />
-  <circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none" />
-`;
-const fileToolOutline = svg`<path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-7-6ZM13 3v6h7" />`;
-const directoryToolOutline = svg`<path d="M3 8V5a1 1 0 0 1 1-1h6l3 4h7a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />`;
-
 export const toolIcons = {
-  memory: strokeIcon(memoryIconBody),
-  memoryStore: strokeIcon(svg`${memoryIconBody}<path d="M17.5 12H22M19.75 9.75v4.5" />`),
-  memoryForget: strokeIcon(svg`${memoryIconBody}<path d="M17.5 12H22" />`),
-  browserTool: strokeIcon(svg`
-    <path d="M14 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M3 9h9" />
-    <path d="m14 3 7 4-5 2Z" fill="currentColor" stroke="none" />
-    <path d="m16 9-3 5" />
-  `),
-  canvasTool: strokeIcon(svg`
-    <path d="M10 3H5a2 2 0 0 0-2 2v5M14 21h5a2 2 0 0 0 2-2v-5M21 10V5a2 2 0 0 0-2-2h-5M3 14v5a2 2 0 0 0 2 2h5" />
-    <path d="m8 9 7-2 2 7-7 3Z" />
-  `),
-  diffsTool: strokeIcon(svg`
-    <path d="M9 3H4v18h5M15 3h5v18h-5M12 3v18" />
-    <path d="M6 9h3M15 15h3M16.5 13.5v3" />
-  `),
-  fileFetch: strokeIcon(svg`${fileToolOutline}<path d="M12 11v6m-3-3 3 3 3-3" />`),
-  fileWrite: strokeIcon(svg`${fileToolOutline}
-    <path d="m9 18 1-4 4-3 2 2-4 4Z" />
-    <path d="m11 13 2 2" />
-  `),
-  directoryList: strokeIcon(svg`${directoryToolOutline}
-    <path d="M11 12h6M11 16h6" />
-    <circle cx="7.5" cy="12" r="1" fill="currentColor" stroke="none" />
-    <circle cx="7.5" cy="16" r="1" fill="currentColor" stroke="none" />
-  `),
-  directoryFetch: strokeIcon(svg`${directoryToolOutline}<path d="M12 10.5V17m-3-3 3 3 3-3" />`),
-  intent: strokeIcon(svg`
-    <path d="M8 4H4v16h4M12 12h9m-3.5-3.5L21 12l-3.5 3.5" />
-    <circle cx="8" cy="12" r="1.4" fill="currentColor" stroke="none" />
-  `),
   shieldCheck: strokeIcon(
     svg`<path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3zM9 12l2 2 4-4" />`,
   ),

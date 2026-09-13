@@ -167,9 +167,7 @@ async function resolvePairedComputerNodeScope(
       pairedComputerUseAvailability,
     },
   };
-  // An empty inventory preserves the fallback schema, so the policy-resolved
-  // catalog is already final. A prepared inventory must rebuild computer with
-  // the paired action projection.
+  // Rebuild computer with the prepared host/node action projection and target status.
   return pairedComputerUseAvailability.prepared
     ? resolvedParams
     : { ...resolvedParams, policyResolved };

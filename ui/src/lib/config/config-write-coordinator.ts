@@ -322,8 +322,7 @@ export function createConfigWriteCoordinator({
       }
     }
   };
-  // Discard barrier shared by discardDraft and refresh({discardPendingChanges}):
-  // settle pending writes with trailing saves suppressed so a late completion
+  // Settle pending writes with trailing saves suppressed so a late completion
   // cannot trail the just-discarded bytes back to disk.
   const drainWritesForDiscard = async (): Promise<void> => {
     cancelScheduledAutoSave();
@@ -536,18 +535,10 @@ export function createConfigWriteCoordinator({
     scheduleAutoSave();
   };
   const writes: ConfigWriteCoordinator = {
-    prepareDiscard: drainWritesForDiscard,
     patchForm: (path, value) => mutateDraft(() => updateConfigFormValue(state, path, value)),
     removeFormValue: (path) => mutateDraft(() => removeConfigFormValue(state, path)),
     setRaw: (value) => mutateDraft(() => updateConfigRawValue(state, value)),
-    resetDraft: () => {
-      patches.clear();
-      cancelScheduledAutoSave();
-      mutate(() => resetConfigPendingChanges(state));
-      clearAutoSaveDraftConnection();
-      reconcileAppliedRefresh();
-    },
-    discardDraft: async () => {
+    discardDraft: async (options) => {
       // Settle pending writes first (with trailing saves suppressed — the
       // draft is being thrown away, not re-written) so a late ack cannot
       // re-dirty or trail-write over the discard.
@@ -565,7 +556,7 @@ export function createConfigWriteCoordinator({
         }
         return;
       }
-      if (state.configRecoveryError !== null) {
+      if (options?.reloadOnly || state.configRecoveryError !== null) {
         return;
       }
       // Offline: a network refresh would silently no-op and strand the

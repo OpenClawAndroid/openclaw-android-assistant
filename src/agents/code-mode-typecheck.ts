@@ -8,6 +8,14 @@ import { ToolInputError } from "./tool-input-error.js";
 const MAX_DIAGNOSTICS = 5;
 const MAX_DIAGNOSTIC_BYTES = 1024;
 
+type LibraryFile = { text: string; references: string[] };
+// Each warm compiler worker keeps only pinned standard-library text and its
+// import graph. Programs, ASTs, guest declarations, and diagnostics remain per-cell.
+const librariesByCompiler = new WeakMap<
+  typeof import("typescript"),
+  Map<string, Promise<LibraryFile>>
+>();
+
 export async function checkCodeModeTypes(
   ts: typeof import("typescript"),
   code: string,
@@ -27,6 +35,11 @@ export async function checkCodeModeTypes(
   };
   add("user.ts", "async function __openclawPreflight() {\n" + code + "\n}");
   add("guest.d.ts", options.declarations);
+  let libraries = librariesByCompiler.get(ts);
+  if (!libraries) {
+    libraries = new Map();
+    librariesByCompiler.set(ts, libraries);
+  }
   const libDir = dirname(createRequire(import.meta.url).resolve("typescript"));
   const loadLib = async (name: string): Promise<void> => {
     if (files.has(name)) {
@@ -35,10 +48,22 @@ export async function checkCodeModeTypes(
     if (!/^lib\.[a-z0-9.]+\.d\.ts$/u.test(name)) {
       throw new ToolInputError("Invalid preflight standard library.");
     }
-    const text = await readFile(join(libDir, name), "utf8");
+    let library = libraries.get(name);
+    if (!library) {
+      library = readFile(join(libDir, name), "utf8").then((text) => ({
+        text,
+        references: ts
+          .preProcessFile(text)
+          .libReferenceDirectives.map((ref) => "lib." + ref.fileName + ".d.ts"),
+      }));
+      libraries.set(name, library);
+      void library.catch(() => libraries.delete(name));
+    }
+    const { text, references } = await library;
+    // Warm libraries still consume this cell's full compiler-input allowance.
     add(name, text);
-    for (const ref of ts.preProcessFile(text).libReferenceDirectives) {
-      await loadLib("lib." + ref.fileName + ".d.ts");
+    for (const reference of references) {
+      await loadLib(reference);
     }
   };
   await loadLib("lib.es2022.d.ts");

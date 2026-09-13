@@ -81,6 +81,8 @@ Each group contains the agent's pinned and recent sessions, with the usual sessi
 
 Groups share a window of at most 300 sessions across agents with [Agents home](/web/control-ui#agents-home), loading pinned sessions first and then the most recent sessions. Pinned sessions count toward that limit, so more than 300 pinned sessions cannot all appear in this view. The open conversation can remain visible outside this window. **Involving me** loads the same bounded window filtered by the Gateway; the other filters apply to the loaded sessions across groups.
 
+Activity refreshes pause while the browser tab is hidden and catch up when you return. Changes that arrive during a roster read share one follow-up refresh; switching filters never combines pages from different filters.
+
 The **Online** list opens a person's activity card with their reported device,
 platform, and connection type: **Web**, **App**, **Terminal** for the TUI, or
 **Command line**. Renaming a device does not change its connection type. Duplicate
@@ -102,9 +104,15 @@ Loaded child rows stay visible while an expanded or selected parent fetches upda
 
 Session previews are hidden by default for compact, single-line rows. Enable **Show message preview** in the **Sessions** filter menu to restore routine status text and message previews. The browser remembers your choice. Errors and requests for attention remain visible with previews off. Team mode keeps all session rows on one line. Three fixed slots on the right show the collapsed child count, unread state (a dot for one, a count for more), and activity or attention. Requests for input and errors take priority over activity in the state slot; expand a parent or group to inspect each conversation. Collapsed agent groups use the same slots. Nested expand controls are plain carets in the left gutter.
 
-Enable **Hide empty groups** in the same menu to hide custom groups with no sessions in the current sidebar view. It is off by default, and the browser remembers your choice. Collapsed groups with sessions stay visible. Hidden groups keep their membership and order and remain available in **Move to group**; turn the setting off to use their headers as drag targets again.
+**Hide empty groups** in the same menu shows your current choice and opens three options:
 
-Selecting a specific owner or **Involving me** automatically hides session sections with no matching sessions, including empty custom groups, **Groups**, and **Other**. Populated sections stay visible even when collapsed. Clearing the filter restores the normal collaborator and drag-target behavior without changing the **Hide empty groups** preference.
+- **When filtering** (default): hide native session sections with no matching sessions while a specific owner or **Involving me** is selected.
+- **Always**: also hide empty native sections in the unfiltered view.
+- **Never**: keep empty groups available while filtering. Sessions still obey the active filters.
+
+This is a personal display preference, stored in this browser separately for each signed-in user and Gateway. It does not change another person’s view, group membership, order, or session access, and it is not synced across devices. Connections without an identified user keep a separate browser-only choice. An existing on/off browser choice is adopted once by the first resolved viewer: on becomes **Always**, while off becomes **When filtering**. Later viewers do not inherit that migrated choice.
+
+Changing or clearing a filter never changes the saved preference. Populated groups stay visible even when collapsed, and hidden custom groups remain available in **Move to group**. Choose **Never** to recover their headers as drag targets. Catalog sections and empty agent groups in team mode retain their existing behavior. On narrow screens, the three choices open in the same menu with a **Back** action instead of a flyout.
 
 Native CLI catalogs appear only when they contain sessions matching the current owner filter. Empty catalogs stay hidden even when discovery fails or the CLI can start new sessions. If more pages remain, discovery advances one page per catalog between refreshes until a matching session appears, the catalog is exhausted, or a host reports an error. It preserves that progress and pauses while the browser tab is hidden. Returning to the tab or connecting a host queues a fresh scan after any in-flight discovery page finishes. Refreshes still check the first page for new sessions, while empty discovery pages advance without replaying the entire prefix. A completed empty scan starts again on the next regular refresh so older sessions that become visible are still discovered. Populated catalogs remain visible when another host fails, with discovery details in their status indicator. Hidden catalogs do not keep the **Other** heading visible when it is the only remaining section. Native CLI starts remain available from **New session**.
 

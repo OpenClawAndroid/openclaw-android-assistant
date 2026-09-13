@@ -318,14 +318,13 @@
 .chat-image-frame {
   position: relative;
   display: inline-flex;
-  max-width: 100%;
+  max-width: min(100%, 400px);
   overflow: hidden;
   border-radius: var(--radius-xl);
 }
 
 .chat-image-frame--managed {
   width: fit-content;
-  max-width: min(100%, 400px);
 }
 
 .chat-image-frame--managed .chat-message-image-button {

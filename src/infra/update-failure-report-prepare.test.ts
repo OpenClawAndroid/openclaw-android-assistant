@@ -14,6 +14,37 @@ function prepareDiagnosticReport(reason: string) {
 }
 
 describe("update report diagnostic command boundary", () => {
+  it.each([true, false])("uses only matching finalization facts (matches=%s)", async (matches) => {
+    const message =
+      "Doctor could not enter maintenance. Error: The update parent owns Gateway activation.";
+    const report = await prepareUpdateFailureReport(
+      {
+        attemptId: "finalization-report",
+        result: { status: "error", mode: "unknown", steps: [], durationMs: 1 },
+        recordedRun: {
+          runId: matches ? "finalization-report" : "another-run",
+          reason: "doctor-failed",
+          target: { kind: "package" },
+          steps: [
+            {
+              step: "finalize:doctor",
+              status: "failed",
+              detail: `${message} private-customer-text\nprivate second line`,
+            },
+            { step: "finalize:package-rollback-not-needed", status: "skipped" },
+          ],
+        },
+      },
+      context,
+    );
+    expect(report.body).toContain(`Reason code: ${matches ? "doctor-failed" : "unknown"}`);
+    expect(report.body).toContain(`Update mode: ${matches ? "package" : "unknown"}`);
+    expect(report.body.includes(message)).toBe(matches);
+    expect(report.body.includes("package rollback not needed: no package mutation")).toBe(matches);
+    expect(report.body).not.toContain("private-customer-text");
+    expect(report.body).not.toContain("private second line");
+  });
+
   it.each(
     (["check", "code", "pluginId", "affectedKey"] as const).flatMap((field) =>
       [

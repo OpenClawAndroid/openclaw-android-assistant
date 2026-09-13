@@ -82,6 +82,51 @@ describe("createComputerTool v2 execution", () => {
     expect(tool.description).toContain("Observe first with `get_window_state`");
   });
 
+  it("adopts refreshed node capabilities on explicit re-selection without changing Gateways", async () => {
+    const initial = v2Descriptor(["screenshot", "list_windows"]);
+    const upgraded = v2Descriptor(["screenshot", "launch_app"], {
+      provider: { ...initial.provider, generation: "generation-2" },
+    });
+    const gatewayOptions = { gatewayUrl: "wss://gateway.example", gatewayToken: "fixture-token" };
+    listNodesMock
+      .mockResolvedValueOnce([macComputerNode({ computerUse: initial })])
+      .mockResolvedValue([macComputerNode({ computerUse: upgraded })]);
+    const tool = createVisionComputerTool();
+    await tool.execute("before-upgrade", {
+      action: "screenshot",
+      node: "mac-1",
+      ...gatewayOptions,
+    });
+    expect(readActionEnum(tool)).toContain("list_windows");
+    expect(readActionEnum(tool)).not.toContain("launch_app");
+
+    await tool.execute("after-upgrade", { action: "screenshot", node: "mac-1" });
+    expect(listNodesMock).toHaveBeenLastCalledWith(
+      expect.objectContaining(gatewayOptions),
+      undefined,
+    );
+    expect(readActionEnum(tool)).toContain("launch_app");
+    expect(readActionEnum(tool)).not.toContain("list_windows");
+    await tool.execute("new-action", { action: "launch_app", app: "Fixture" });
+    expect(callGatewayToolMock).toHaveBeenCalledWith(
+      "node.invoke",
+      expect.objectContaining(gatewayOptions),
+      expect.objectContaining({
+        nodeId: "mac-1",
+        command: "computer.act",
+        params: expect.objectContaining({ action: "launch_app", app: "Fixture" }),
+      }),
+      { signal: undefined },
+    );
+    await expect(
+      tool.execute("retarget", {
+        action: "screenshot",
+        node: "mac-1",
+        gatewayUrl: "wss://other-gateway.example",
+      }),
+    ).rejects.toThrow("bound to its Gateway connection");
+  });
+
   it("refreshes a prepared schema from the Gateway override target", async () => {
     const remoteCapabilities = v2Descriptor(["screenshot", "launch_app", "get_accessibility_tree"]);
     listNodesMock.mockResolvedValue([macComputerNode({ computerUse: remoteCapabilities })]);

@@ -118,11 +118,18 @@ export async function startGatewayCoreRuntime(input: {
     workerPlacementControlAvailable,
     workerDesktopObserveAvailable,
     desktopSessionRegistry,
+    gatewayComputerService,
     listStartupChannelGatewayMethods,
     workerEnvironmentStartup,
     activateRuntimeSecrets,
   } = runtime;
-  runtime.registerGatewayLifetimeSidecars({ stop: () => desktopSessionRegistry.stopAll() });
+  runtime.registerGatewayLifetimeSidecars({
+    preparePluginReload: gatewayComputerService.preparePluginReload,
+    stop: async () => {
+      await gatewayComputerService.close();
+      await desktopSessionRegistry.stopAll();
+    },
+  });
   const secretEgressProxy =
     cfgAtStart.secrets?.egressProxy?.enabled === true
       ? await import("../secrets/egress-proxy/runtime.js").then((egressRuntime) =>
@@ -316,8 +323,11 @@ export async function startGatewayCoreRuntime(input: {
             delegatedAuthority: authority,
           }),
         onApprovalLifecycle: approvalSessionEvents.publish,
-        onAgentRunAuthorityClosed: (authority) => {
-          secretEgressProxy?.revokeRun(authority.operationalRunInstance);
+        onAgentRunAuthorityClosed: (authority, approvalReason) => {
+          gatewayComputerService.revokeRunAuthority(authority);
+          if (!approvalReason) {
+            secretEgressProxy?.revokeRun(authority.operationalRunInstance);
+          }
         },
       }),
       coreGatewayHandlers: coreGatewayHandlersLocal,

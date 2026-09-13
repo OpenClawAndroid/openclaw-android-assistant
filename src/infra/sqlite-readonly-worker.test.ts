@@ -4,6 +4,7 @@ import path from "node:path";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { mockNodeBuiltinModule } from "../plugin-sdk/test-helpers/node-builtin-mocks.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import {
   resolveAggregateSqliteInspectionTimeoutMs,
@@ -11,8 +12,23 @@ import {
   runSqliteReadOnlyWorker,
   runSqliteReadOnlyWorkerSync,
 } from "./sqlite-readonly-worker.js";
+import {
+  inspectSqliteSchemaHeader,
+  prepareSqliteReadOnlyLocation,
+  prepareSqliteReadOnlyLocationSync,
+} from "./sqlite-snapshot-source.js";
 
 const logs = vi.hoisted(() => ({ debug: vi.fn() }));
+const { getCompileCacheDir } = vi.hoisted(() => ({
+  getCompileCacheDir: vi.fn<() => string | undefined>(),
+}));
+// Enabling Node's cache is irreversible in this Vitest process. Only substitute
+// its active-directory observation; the real child still populates the cache.
+vi.mock("node:module", async (importOriginal) =>
+  mockNodeBuiltinModule(() => importOriginal<typeof import("node:module")>(), {
+    getCompileCacheDir,
+  }),
+);
 vi.mock("../logging/subsystem.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../logging/subsystem.js")>();
   return {
@@ -36,7 +52,9 @@ beforeEach(() => {
   vi.mocked(execFile).mockClear();
   vi.mocked(spawnSync).mockClear();
   logs.debug.mockClear();
+  getCompileCacheDir.mockReset();
 });
+afterEach(() => vi.unstubAllEnvs());
 
 function createDatabase(paddingBytes: number | null): string {
   const source = path.join(tempDirs.make("openclaw-snapshot-budget-"), "source.sqlite");
@@ -51,6 +69,82 @@ function createDatabase(paddingBytes: number | null): string {
   }
   return source;
 }
+
+describe.each(["sync", "async", "schema-header"] as const)(
+  "SQLite child compile cache (%s)",
+  (mode) => {
+    it.each([
+      { label: "active programmatic cache", active: true, cache: undefined, disable: undefined },
+      { label: "explicit cache", active: true, cache: "explicit", disable: undefined },
+      { label: "empty explicit cache", active: true, cache: "", disable: undefined },
+      { label: "disabled cache", active: true, cache: undefined, disable: "1" },
+      { label: "empty disable policy", active: true, cache: undefined, disable: "" },
+      { label: "unavailable cache", active: false, cache: undefined, disable: undefined },
+    ] as const)("preserves $label through the real worker", async ({ active, cache, disable }) => {
+      const root = tempDirs.make("openclaw-sqlite-child-cache-");
+      const activeDirectory = path.join(root, "active");
+      const explicitDirectory = path.join(root, "explicit");
+      fs.mkdirSync(activeDirectory);
+      fs.mkdirSync(explicitDirectory);
+      const inheritedCache = cache === "explicit" ? explicitDirectory : cache;
+      vi.stubEnv("NODE_COMPILE_CACHE", inheritedCache);
+      vi.stubEnv("NODE_DISABLE_COMPILE_CACHE", disable);
+      const stagingRoot = path.join(root, "staging");
+      fs.mkdirSync(stagingRoot);
+      vi.stubEnv("XDG_CACHE_HOME", stagingRoot);
+      getCompileCacheDir.mockReturnValue(active ? activeDirectory : undefined);
+      const source = createDatabase(0);
+      const before = fs.readFileSync(source);
+
+      if (mode === "schema-header") {
+        expect(await inspectSqliteSchemaHeader(source)).toEqual({ userVersion: 0 });
+      } else {
+        const prepared =
+          mode === "sync"
+            ? prepareSqliteReadOnlyLocationSync(source)
+            : await prepareSqliteReadOnlyLocation(source);
+        try {
+          if (mode === "sync") {
+            expect(fs.readFileSync(prepared.location)).toEqual(before);
+          }
+          const snapshot = new (requireNodeSqlite().DatabaseSync)(prepared.location, {
+            readOnly: true,
+          });
+          try {
+            expect(snapshot.prepare("SELECT data FROM padding").all()).toEqual([
+              { data: new Uint8Array(0) },
+            ]);
+            expect(
+              snapshot.prepare("SELECT sql FROM sqlite_schema WHERE name = 'padding'").get(),
+            ).toEqual({ sql: "CREATE TABLE padding (data BLOB)" });
+            expect(snapshot.prepare("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+            expect(snapshot.prepare("PRAGMA integrity_check").get()).toEqual({
+              integrity_check: "ok",
+            });
+          } finally {
+            snapshot.close();
+          }
+        } finally {
+          expect(await prepared.cleanupAsync()).toBe(true);
+        }
+        expect(fs.existsSync(prepared.location)).toBe(false);
+      }
+
+      expect(fs.readFileSync(source)).toEqual(before);
+      expect(fs.readdirSync(path.join(root, "staging", "openclaw"))).toEqual([]);
+      expect(process.env.NODE_COMPILE_CACHE).toBe(inheritedCache);
+      expect(process.env.NODE_DISABLE_COMPILE_CACHE).toBe(disable);
+      const hasCacheFiles = (directory: string) =>
+        fs
+          .readdirSync(directory, { recursive: true, withFileTypes: true })
+          .some((entry) => entry.isFile());
+      expect(hasCacheFiles(activeDirectory)).toBe(
+        active && cache === undefined && disable === undefined,
+      );
+      expect(hasCacheFiles(explicitDirectory)).toBe(cache === "explicit");
+    });
+  },
+);
 
 describe("resolveSqliteInspectionBudget", () => {
   it.each(

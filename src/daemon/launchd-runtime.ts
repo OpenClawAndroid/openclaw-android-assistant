@@ -30,6 +30,7 @@ import {
   inspectSystemLaunchDaemonOwnership,
 } from "./launchd-system.js";
 import { parseKeyValueOutput } from "./runtime-parse.js";
+import { mergeGatewayServiceEnv } from "./service-env-merge.js";
 import {
   ServiceInspectionError,
   type ServiceInspectionReason,
@@ -82,15 +83,17 @@ export async function readLaunchAgentProgramArguments(
 const LAUNCH_AGENT_BOOTSTRAP_TEARDOWN_TIMEOUT_MS = (LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS + 10) * 1_000;
 const LAUNCH_AGENT_BOOTSTRAP_TEARDOWN_POLL_MS = 500;
 export async function resolveLaunchAgentGatewayContext(env: GatewayServiceEnv): Promise<{
+  env: GatewayServiceEnv;
   port: number | null;
   probeHosts: readonly string[];
 }> {
   const serviceKind = env.OPENCLAW_SERVICE_KIND?.trim();
   if (serviceKind && serviceKind !== GATEWAY_SERVICE_KIND) {
-    return { port: null, probeHosts: [] };
+    return { env, port: null, probeHosts: [] };
   }
   const command = await readLaunchAgentProgramArguments(env).catch(() => null);
   return {
+    env: mergeGatewayServiceEnv(env, command),
     port:
       parseTcpPortFromArgs(command?.programArguments) ??
       parseTcpPort(command?.environment?.OPENCLAW_GATEWAY_PORT ?? "") ??

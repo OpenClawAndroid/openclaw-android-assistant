@@ -4,11 +4,11 @@ import {
 } from "../state/openclaw-state-db.js";
 import { loadDeliveryQueueEntryInDatabase } from "./delivery-queue-sqlite-bound.js";
 import {
-  upsertDeliveryQueueEntryInDatabase,
   resolveDeliveryQueueStateEnv,
   type DeliveryQueueStateContext,
   type DeliveryQueueEntryState,
 } from "./delivery-queue-sqlite.js";
+import { upsertDeliveryQueueEntryInDatabase } from "./delivery-queue-sqlite.kernel.js";
 import { hasLiveDeliveryQueueClaim } from "./delivery-queue-sqlite.types.js";
 import { generateSecureUuid } from "./secure-random.js";
 

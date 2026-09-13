@@ -59,6 +59,15 @@ automatically. Use `pendingBefore` with the page's `nextBefore` to read older
 inputs; `limit` bounds both pages. Pending previews share a 4 KB budget within
 the overall 80 KB response budget, so use a smaller `limit` for richer previews.
 
+`pendingInputs.total` counts retained, unconsumed inputs in the current physical
+session before display filtering and pagination. It is not a visible-message or
+runnable-job count. `items.length` is the visible count on this page. An empty
+`items` array can still have `nextBefore`; follow it to inspect older entries.
+Missing `nextBefore` means the inspected raw window is exhausted, not that all
+retained inputs were executable. Pending metadata neither authorizes replay nor
+blocks unrelated work. Execution still requires current admission and exact
+input custody.
+
 The returned view is intentionally bounded and redacted:
 
 - credential/token-like text is redacted even when general-purpose log redaction is disabled

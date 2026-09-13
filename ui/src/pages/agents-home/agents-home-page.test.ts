@@ -205,7 +205,6 @@ describe("AgentsHomePage", () => {
     expect(request).toHaveBeenCalledWith(
       "sessions.list",
       expect.objectContaining({ includeLastMessage: true, offset: 2 }),
-      expect.anything(),
     );
 
     const openChat = cards[0]?.querySelector<HTMLElement>(".agents-home__open");

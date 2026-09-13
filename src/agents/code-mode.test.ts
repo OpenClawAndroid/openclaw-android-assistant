@@ -311,6 +311,9 @@ describe("Code Mode catalog and model-visible surface", () => {
     expect(execTool.description).toContain("do not feed it into guessed field-dependent logic");
     expect(execTool.description).toContain("use a later `exec` for dependent composition");
     expect(execTool.description).toContain("await results.save(value)");
+    expect(execTool.description).toContain(
+      "Oversized final objects/arrays may return `value.reference`",
+    );
     expect(execTool.description).toContain("{id,bytes,count,shape,preview,previewTruncated}");
     expect(execTool.description).toContain("emit that descriptor directly; full JSON stays stored");
     expect(execTool.description).toContain("results.load(id)");

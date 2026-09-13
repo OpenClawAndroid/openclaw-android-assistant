@@ -2,14 +2,16 @@
 import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js";
 import type { DeliveryQueueDatabase } from "./delivery-queue-sqlite-bound.js";
 import {
-  completeDeliveryQueueEntryInDatabase,
   resolveDeliveryQueueStateEnv,
   type DeliveryQueueStateContext,
+  type DeliveryQueueEntryState,
+} from "./delivery-queue-sqlite.js";
+import {
+  completeDeliveryQueueEntryInDatabase,
   deleteDeliveryQueueEntryInDatabase,
   getDeliveryQueueEntryOwnersInDatabase,
   upsertDeliveryQueueEntryInDatabase,
-  type DeliveryQueueEntryState,
-} from "./delivery-queue-sqlite.js";
+} from "./delivery-queue-sqlite.kernel.js";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,

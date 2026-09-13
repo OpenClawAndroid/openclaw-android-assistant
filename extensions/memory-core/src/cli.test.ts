@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Command } from "commander";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import { resolveSessionTranscriptsDirForAgent as resolveTestSessionTranscriptsDirForAgent } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
@@ -775,6 +776,43 @@ describe("memory cli", () => {
   ): Promise<void> {
     const notePath = path.join(workspaceDir, "memory", `${date}.md`);
     await fs.writeFile(notePath, `${lines.join("\n")}\n`, "utf-8");
+  }
+
+  async function withHistoricalCliFixture(
+    command: "rem-harness" | "rem-backfill",
+    run: (fixture: {
+      workspaceDir: string;
+      historyPath: string;
+      scratchDirectory: () => string | undefined;
+      close: ReturnType<typeof vi.fn<() => Promise<void>>>;
+    }) => Promise<void>,
+  ) {
+    await withTempWorkspace(async (workspaceDir) => {
+      const historyPath = path.join(workspaceDir, "2025-01-01.md");
+      await fs.writeFile(historyPath, "## Preferences Learned\n- Always carry a blue notebook.\n");
+      const actualMkdtemp = fs.mkdtemp;
+      const actualRm = fs.rm;
+      let scratchDir: string | undefined;
+      const captureScratch = vi.spyOn(fs, "mkdtemp").mockImplementation(async (prefix, options) => {
+        const created = await actualMkdtemp(prefix, options);
+        if (path.basename(prefix) === `openclaw-${command}-` && typeof created === "string") {
+          scratchDir = created;
+        }
+        return created;
+      });
+      const close = vi.fn(async () => {});
+      mockManager({ status: () => makeMemoryStatus({ workspaceDir }), close });
+      try {
+        await run({ workspaceDir, historyPath, scratchDirectory: () => scratchDir, close });
+      } finally {
+        captureScratch.mockRestore();
+        // Callers settle their command first; release stores before removing failed scratch input.
+        closeOpenClawAgentDatabasesForTest();
+        if (scratchDir) {
+          await actualRm(scratchDir, { recursive: true, force: true });
+        }
+      }
+    });
   }
 
   async function expectCloseFailureAfterCommand(params: {
@@ -1948,40 +1986,86 @@ describe("memory cli", () => {
     });
   });
 
-  it("logs close failure after search", async () => {
-    const search = vi.fn(async () => [
-      {
-        path: "memory/2026-01-12.md",
-        startLine: 1,
-        endLine: 2,
-        score: 0.5,
-        snippet: "Hello",
-      },
-    ]);
-    await expectCloseFailureAfterCommand({
-      args: ["search", "hello"],
-      manager: { search },
-      beforeExpect: () => {
-        expect(search).toHaveBeenCalled();
-      },
-    });
-  });
+  it.each([false, true])(
+    "keeps successful search output when close fails (json=%s)",
+    async (json) => {
+      const search = vi.fn(async () => [
+        {
+          path: "memory/2026-01-12.md",
+          startLine: 1,
+          endLine: 2,
+          score: 0.5,
+          snippet: "Hello",
+        },
+      ]);
+      const writeJson = spyRuntimeJson(defaultRuntime);
+      await expectCloseFailureAfterCommand({
+        args: ["search", "hello", ...(json ? ["--json"] : [])],
+        manager: { search },
+        beforeExpect: () => {
+          expect(search).toHaveBeenCalled();
+          if (json) {
+            expect(writeJson).toHaveBeenCalledTimes(1);
+            expect(firstWrittenJsonArg(writeJson)).toEqual({
+              results: [
+                {
+                  path: "memory/2026-01-12.md",
+                  startLine: 1,
+                  endLine: 2,
+                  score: 0.5,
+                  snippet: "Hello",
+                },
+              ],
+            });
+          } else {
+            expect(writeJson).not.toHaveBeenCalled();
+          }
+        },
+      });
+    },
+  );
 
-  it("closes manager after search error", async () => {
-    const close = vi.fn(async () => {});
-    const search = vi.fn(async () => {
-      throw new Error("boom");
-    });
-    mockManager({ search, close });
+  it.each([
+    { rebuild: false, closeFails: false },
+    { rebuild: true, closeFails: false },
+    { rebuild: false, closeFails: true },
+  ])(
+    "propagates search failure after close (rebuild=$rebuild, closeFails=$closeFails)",
+    async ({ rebuild, closeFails }) => {
+      const warning = "Memory index rebuilt; embedding provider cost may apply.";
+      const notice: { sequence: number; warning?: string } = { sequence: 0 };
+      const close = vi.fn(async () => {
+        if (closeFails) {
+          throw new Error("close boom");
+        }
+      });
+      const search = vi.fn(async () => {
+        if (rebuild) {
+          notice.sequence += 1;
+          notice.warning = warning;
+        }
+        throw new Error("boom");
+      });
+      mockManager({
+        search,
+        close,
+        status: () => makeMemoryStatus({ custom: { automaticRebuildNotice: notice } }),
+      });
 
-    const error = spyRuntimeErrors(defaultRuntime);
-    await runMemoryCli(["search", "oops"]);
+      const error = spyRuntimeErrors(defaultRuntime);
+      const writeJson = spyRuntimeJson(defaultRuntime);
+      await expect(runMemoryCli(["search", "oops", "--json"])).rejects.toThrow(
+        `Memory search failed: boom${rebuild ? ` ${warning}` : ""}`,
+      );
 
-    expect(search).toHaveBeenCalled();
-    expect(close).toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith("Memory search failed: boom");
-    expect(process.exitCode).toBe(1);
-  });
+      expect(search).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(writeJson).not.toHaveBeenCalled();
+      expect(error.mock.calls).toEqual(
+        closeFails ? [["Memory manager close failed: close boom"]] : [],
+      );
+    },
+  );
 
   it("prints status json output when requested", async () => {
     const close = vi.fn(async () => {});
@@ -2293,16 +2377,98 @@ describe("memory cli", () => {
     expect(close).toHaveBeenCalled();
   });
 
-  it("fails when neither positional query nor --query is provided", async () => {
-    const error = spyRuntimeErrors(defaultRuntime);
-    await runMemoryCli(["search"]);
-
-    expect(error).toHaveBeenCalledWith(
+  it.each([false, true])("rejects queryless search before acquisition (json=%s)", async (json) => {
+    const writeJson = spyRuntimeJson(defaultRuntime);
+    await expect(runMemoryCli(["search", ...(json ? ["--json"] : [])])).rejects.toThrow(
       "Missing search query. Provide a positional query or use --query <text>.",
     );
     expect(getMemorySearchManager).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
+    expect(writeJson).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { args: ["forget", "--dry-run"], acquires: false, message: "Memory forget requires --session" },
+    {
+      args: ["promote-explain", "   "],
+      acquires: false,
+      message: "Memory promote-explain requires a non-empty selector.",
+    },
+    {
+      args: ["promote-explain", "unmatched fixture"],
+      acquires: true,
+      message: 'No promotion candidate matched "unmatched fixture".',
+    },
+    {
+      args: ["session-backfill", "--rollback", "--from", "2026-01-01"],
+      acquires: true,
+      message: "Memory session-backfill --rollback cannot be combined",
+    },
+    { args: ["rem-backfill"], acquires: true, message: "Memory rem-backfill requires --path" },
+  ])(
+    "propagates invalid memory input without a success report: $args",
+    async ({ args, acquires, message }) => {
+      await withTempWorkspace(async (workspaceDir) => {
+        const close = vi.fn(async () => {});
+        if (acquires) {
+          mockManager({ status: () => makeMemoryStatus({ workspaceDir }), close });
+        }
+        const writeJson = spyRuntimeJson(defaultRuntime);
+        await expect(runMemoryCli([...args, "--json"])).rejects.toThrow(message);
+        expect(writeJson).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledTimes(acquires ? 1 : 0);
+        expect(getMemorySearchManager).toHaveBeenCalledTimes(acquires ? 1 : 0);
+        expect(forgetMemoryEntries).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it.each([
+    {
+      operation: "forget",
+      args: ["forget", "--session", "fixture-session", "--dry-run"],
+      prefix: "Memory forget failed: ",
+    },
+    { operation: "rank", args: ["promote"], prefix: "Memory promote ranking failed: " },
+    { operation: "apply", args: ["promote", "--apply"], prefix: "Memory promote apply failed: " },
+    {
+      operation: "rank",
+      args: ["promote-explain", "fixture"],
+      prefix: "Memory promote-explain failed: ",
+    },
+    { operation: "session", args: ["session-backfill"], prefix: "" },
+  ])(
+    "propagates operation failure without a success report: $args",
+    async ({ operation, args, prefix }) => {
+      await withTempWorkspace(async (workspaceDir) => {
+        const failure = new Error("fixture operation rejected");
+        if (operation === "forget") {
+          forgetMemoryEntries.mockRejectedValueOnce(failure);
+        } else if (operation === "session") {
+          vi.spyOn(
+            await import("./session-backfill.js"),
+            "runSessionBackfill",
+          ).mockRejectedValueOnce(failure);
+        } else {
+          const promotion = await import("./short-term-promotion.js");
+          if (operation === "rank") {
+            vi.spyOn(promotion, "rankShortTermPromotionCandidates").mockRejectedValueOnce(failure);
+          } else {
+            vi.spyOn(promotion, "applyShortTermPromotions").mockRejectedValueOnce(failure);
+          }
+        }
+        const close = vi.fn(async () => {});
+        if (operation !== "forget") {
+          mockManager({ status: () => makeMemoryStatus({ workspaceDir }), close });
+        }
+        const writeJson = spyRuntimeJson(defaultRuntime);
+        await expect(runMemoryCli([...args, "--json"])).rejects.toThrow(
+          `${prefix}${failure.message}`,
+        );
+        expect(writeJson).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledTimes(operation === "forget" ? 0 : 1);
+      });
+    },
+  );
 
   it("prints search results as json when requested", async () => {
     const close = vi.fn(async () => {});
@@ -2718,22 +2884,225 @@ describe("memory cli", () => {
     });
   });
 
-  it("treats a missing historical path as a controlled empty-source error", async () => {
-    await withTempWorkspace(async (workspaceDir) => {
-      const close = vi.fn(async () => {});
-      mockManager({
-        status: () => makeMemoryStatus({ workspaceDir }),
-        close,
+  it.each(["rem-harness", "rem-backfill"])(
+    "rejects missing historical input in %s without allocating scratch",
+    async (command) => {
+      await withTempWorkspace(async (workspaceDir) => {
+        const close = vi.fn(async () => {});
+        mockManager({
+          status: () => makeMemoryStatus({ workspaceDir }),
+          close,
+        });
+
+        const allocate = vi.spyOn(fs, "mkdtemp");
+        const writeJson = spyRuntimeJson(defaultRuntime);
+        await expect(
+          runMemoryCli([command, "--path", path.join(workspaceDir, "missing-history"), "--json"]),
+        ).rejects.toThrow(`Memory ${command} found no YYYY-MM-DD.md files`);
+        expect(allocate).not.toHaveBeenCalled();
+        expect(writeJson).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledTimes(1);
       });
+    },
+  );
 
-      const errors = spyRuntimeErrors(defaultRuntime);
-      await runMemoryCli(["rem-backfill", "--path", path.join(workspaceDir, "missing-history")]);
+  describe.each(["rem-harness", "rem-backfill"] as const)("%s result lifecycle", (command) => {
+    it.each([false, true])(
+      "publishes success only after scratch cleanup (json=%s)",
+      async (json) => {
+        await withHistoricalCliFixture(
+          command,
+          async ({ historyPath, scratchDirectory, close }) => {
+            const entered = createDeferred<void>();
+            const release = createDeferred<void>();
+            const actualRm = fs.rm;
+            const remove = vi.spyOn(fs, "rm").mockImplementation(async (target, options) => {
+              if (target === scratchDirectory()) {
+                entered.resolve();
+                await release.promise;
+              }
+              await actualRm(target, options);
+            });
+            const writeJson = spyRuntimeJson(defaultRuntime);
+            const log = spyRuntimeLogs(defaultRuntime);
+            const outcome = runMemoryCli([
+              command,
+              "--path",
+              historyPath,
+              ...(json ? ["--json"] : []),
+            ]).then(
+              () => ({ status: "fulfilled" as const }),
+              (error: unknown) => ({ status: "rejected" as const, error }),
+            );
+            try {
+              await Promise.race([
+                entered.promise,
+                outcome.then((result) => {
+                  throw new Error("Command settled before scratch cleanup", { cause: result });
+                }),
+              ]);
+              expect(writeJson).not.toHaveBeenCalled();
+              expect(log).not.toHaveBeenCalled();
+              expect(close).not.toHaveBeenCalled();
+              release.resolve();
+              expect(await outcome).toEqual({ status: "fulfilled" });
+              if (json) {
+                expect(writeJson).toHaveBeenCalledTimes(1);
+                expect(firstWrittenJsonArg(writeJson)).toMatchObject({
+                  sourceFiles: [historyPath],
+                });
+                expect(log).not.toHaveBeenCalled();
+              } else {
+                expect(writeJson).not.toHaveBeenCalled();
+                expectLogged(log, command === "rem-harness" ? "REM Harness" : "REM Backfill");
+              }
+              const scratchDir = scratchDirectory();
+              expect(scratchDir).toBeDefined();
+              if (scratchDir) {
+                await expectPathMissing(scratchDir);
+              }
+              expect(close).toHaveBeenCalledTimes(1);
+            } finally {
+              // The expected baseline assertion fails while cleanup is pending; always join it.
+              release.resolve();
+              await outcome;
+              remove.mockRestore();
+            }
+          },
+        );
+      },
+    );
 
-      expect(
-        errors.mock.calls.some((call) => String(call[0]).includes("found no YYYY-MM-DD.md files")),
-      ).toBe(true);
-      expect(close).toHaveBeenCalled();
-    });
+    it.each([false, true])(
+      "rejects cleanup without publishing success (closeFails=%s)",
+      async (closeFails) => {
+        await withHistoricalCliFixture(
+          command,
+          async ({ historyPath, scratchDirectory, close }) => {
+            const failure = new Error("fixture scratch cleanup rejected");
+            if (closeFails) {
+              close.mockRejectedValueOnce(new Error("close boom"));
+            }
+            const actualRm = fs.rm;
+            const remove = vi.spyOn(fs, "rm").mockImplementation(async (target, options) => {
+              if (target === scratchDirectory()) {
+                throw failure;
+              }
+              await actualRm(target, options);
+            });
+            const writeJson = spyRuntimeJson(defaultRuntime);
+            const log = spyRuntimeLogs(defaultRuntime);
+            const errors = spyRuntimeErrors(defaultRuntime);
+            try {
+              await expect(runMemoryCli([command, "--path", historyPath, "--json"])).rejects.toBe(
+                failure,
+              );
+              expect(writeJson).not.toHaveBeenCalled();
+              expect(log).not.toHaveBeenCalled();
+              expect(close).toHaveBeenCalledTimes(1);
+              expect(errors.mock.calls).toEqual(
+                closeFails ? [["Memory manager close failed: close boom"]] : [],
+              );
+            } finally {
+              remove.mockRestore();
+            }
+          },
+        );
+      },
+    );
+
+    it.each(["mkdir", "copy", "read", "preview"] as const)(
+      "cleans scratch after %s fails without a success report",
+      async (fault) => {
+        await withHistoricalCliFixture(
+          command,
+          async ({ historyPath, scratchDirectory, close }) => {
+            const failure = Object.assign(new Error(`fixture ${fault} rejected`), { code: "EIO" });
+            const actualMkdir = fs.mkdir;
+            const actualCopy = fs.copyFile;
+            const actualRead = fs.readFile;
+            const actualRm = fs.rm;
+            let faultObserved = false;
+            let cleanupObserved = false;
+            if (fault === "mkdir") {
+              vi.spyOn(fs, "mkdir").mockImplementation(async (target, options) => {
+                const scratchDir = scratchDirectory();
+                if (scratchDir && target === path.join(scratchDir, "memory")) {
+                  faultObserved = true;
+                  throw failure;
+                }
+                return actualMkdir(target, options);
+              });
+            } else if (fault === "copy") {
+              vi.spyOn(fs, "copyFile").mockImplementation(async (source, destination, mode) => {
+                const scratchDir = scratchDirectory();
+                if (
+                  source === historyPath &&
+                  scratchDir &&
+                  destination === path.join(scratchDir, "memory", path.basename(historyPath))
+                ) {
+                  faultObserved = true;
+                  throw failure;
+                }
+                await actualCopy(source, destination, mode);
+              });
+            } else if (fault === "read") {
+              vi.spyOn(fs, "readFile").mockImplementation(async (target, options) => {
+                const scratchDir = scratchDirectory();
+                if (
+                  scratchDir &&
+                  target === path.join(scratchDir, "memory", path.basename(historyPath))
+                ) {
+                  faultObserved = true;
+                  throw failure;
+                }
+                return actualRead(target, options);
+              });
+            } else {
+              const failPreview = async () => {
+                faultObserved = true;
+                throw failure;
+              };
+              if (command === "rem-harness") {
+                vi.spyOn(
+                  await import("./rem-harness.js"),
+                  "previewRemHarness",
+                ).mockImplementationOnce(failPreview);
+              } else {
+                vi.spyOn(
+                  await import("./rem-evidence.js"),
+                  "previewGroundedRemMarkdown",
+                ).mockImplementationOnce(failPreview);
+              }
+              close.mockRejectedValueOnce(new Error("close boom"));
+            }
+            vi.spyOn(fs, "rm").mockImplementation(async (target, options) => {
+              if (target === scratchDirectory()) {
+                cleanupObserved = true;
+              }
+              await actualRm(target, options);
+            });
+            const writeJson = spyRuntimeJson(defaultRuntime);
+            const errors = spyRuntimeErrors(defaultRuntime);
+            await expect(runMemoryCli([command, "--path", historyPath, "--json"])).rejects.toBe(
+              failure,
+            );
+            expect(faultObserved).toBe(true);
+            expect(cleanupObserved).toBe(true);
+            expect(writeJson).not.toHaveBeenCalled();
+            expect(close).toHaveBeenCalledTimes(1);
+            expect(errors.mock.calls).toEqual(
+              fault === "preview" ? [["Memory manager close failed: close boom"]] : [],
+            );
+            const scratchDir = scratchDirectory();
+            expect(scratchDir).toBeDefined();
+            if (scratchDir) {
+              await expectPathMissing(scratchDir);
+            }
+          },
+        );
+      },
+    );
   });
 
   it("stages grounded durable candidates into the live short-term store", async () => {

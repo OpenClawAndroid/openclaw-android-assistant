@@ -51,7 +51,6 @@ function buildSandboxDocumentGuardHtml(blockDescendantFrames: boolean): string {
   wrapMethod(Element.prototype,"insertAdjacentHTML",[1]);wrapMethod(Document.prototype,"write");wrapMethod(Document.prototype,"writeln");wrapMethod(Range.prototype,"createContextualFragment",[0]);wrapMethod(DOMParser.prototype,"parseFromString",[0]);
   wrapMethod(Element.prototype,"setHTMLUnsafe",[0]);wrapMethod(Element.prototype,"setHTML",[0]);
   if(globalThis.ShadowRoot){wrapMethod(ShadowRoot.prototype,"setHTMLUnsafe",[0]);wrapMethod(ShadowRoot.prototype,"setHTML",[0]);}
-  lock(globalThis,"open",undefined);
 })();</script>`;
 }
 
@@ -256,6 +255,7 @@ function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
   }
   const createInner = (allowScripts = true) => {
     const frame = document.createElement("iframe");
+    // Block native popups here without reserving widget globals such as open.
     frame.setAttribute("sandbox", allowScripts ? "allow-scripts allow-forms" : "");
     return frame;
   };

@@ -792,8 +792,9 @@ export class ManagedWorktreeService {
       const result = await this.withAllocationLease(params, async (guard) => {
         timing?.markPhase();
         try {
-          return await this.removeWithAllocation({ ...params, ...guard });
+          return await this.removeWithAllocation({ ...params, ...guard }, timing);
         } finally {
+          timing?.markRemovalStage();
           timing?.markPhase();
         }
       });
@@ -806,7 +807,9 @@ export class ManagedWorktreeService {
 
   private async removeWithAllocation(
     params: RemoveWorktreeParams,
+    timing: ReturnType<typeof startGitOperationTiming>,
   ): Promise<RemoveManagedWorktreeResult> {
+    timing?.markRemovalStage("preparation");
     params.signal?.throwIfAborted();
     params.commitGuard?.();
     let record = this.requireLiveRecord(params.id);
@@ -835,6 +838,7 @@ export class ManagedWorktreeService {
           killProcessTree: true,
         });
       }
+      timing?.markRemovalStage("snapshot");
       let snapshotRef = record.snapshotRef;
       let snapshotError: string | undefined;
       try {
@@ -910,6 +914,7 @@ export class ManagedWorktreeService {
           throw new WorktreeSnapshotError(snapshotError, { cause: error });
         }
       }
+      timing?.markRemovalStage("checkoutRemoval");
       params.signal?.throwIfAborted();
       params.commitGuard?.();
       // Once admitted, let deletion settle; cancellation could leave a partial checkout
@@ -922,6 +927,7 @@ export class ManagedWorktreeService {
       if (removed.code !== 0) {
         throw commandError("git worktree remove", removed);
       }
+      timing?.markRemovalStage("finalization");
       params.commitGuard?.();
       const branchDelete = await runGit(record.repoRoot, ["branch", "-D", record.branch], {
         signal: params.signal,
@@ -955,6 +961,7 @@ export class ManagedWorktreeService {
         ...(snapshotError ? { snapshotError } : {}),
       };
     } catch (error) {
+      timing?.markRemovalStage("finalization");
       abortWorktreeRemoval(this.env, record.id, claimToken);
       throw error;
     }

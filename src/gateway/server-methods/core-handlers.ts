@@ -37,6 +37,7 @@ const CORE_GATEWAY_HANDLER_MODULES = {
       "chat.abort": module.handleChatAbortRequest,
     })),
   commands: () => import("./commands.js").then((module) => module.commandsHandlers),
+  computer: () => import("./computer.js").then((module) => module.computerHandlers),
   config: () => import("./config.js").then((module) => module.configHandlers),
   conversations: () => import("./conversations.js").then((module) => module.conversationHandlers),
   connect: () => import("./connect.js").then((module) => module.connectHandlers),

@@ -539,7 +539,7 @@ export function recordUpdateRunPhase(
 
 export function recordUpdateRunStep(
   runId: string,
-  step: UpdateRunStep,
+  { reason, ...step }: UpdateRunStep & { reason?: string },
   options: LedgerOptions = {},
 ): UpdateRunRecord {
   return mutateRun(
@@ -547,6 +547,9 @@ export function recordUpdateRunStep(
     (record) => {
       if (record.status === "running") {
         upsertStep(record, step);
+        if (reason !== undefined) {
+          record.reason = reason;
+        }
       }
     },
     options,

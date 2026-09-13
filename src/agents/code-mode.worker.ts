@@ -288,10 +288,21 @@ function takeOutputSafely(vm: QuickJS): unknown[] {
 function captureWorkerResult(
   result: CodeModeWorkerResult,
   config: CodeModeConfig,
+  retainFinalValue = false,
 ): CodeModeWorkerThreadResult {
   const output = captureCodeModeOutput(result.output, config.maxOutputBytes);
   if (result.status === "completed") {
-    return { ...result, output, value: captureCodeModeValue(result.value, config.maxOutputBytes) };
+    return {
+      ...result,
+      output,
+      value: captureCodeModeValue(
+        result.value,
+        config.maxOutputBytes,
+        retainFinalValue
+          ? Math.min(config.memoryLimitBytes, config.maxSnapshotBytes)
+          : config.maxOutputBytes,
+      ),
+    };
   }
   return result.status === "failed"
     ? { ...result, output, error: boundCodeModeError(result.error, config.maxOutputBytes) }
@@ -687,6 +698,7 @@ async function main(
           channel,
         ),
         config,
+        input.retainFinalValue === true,
       );
     }
     // SAFETY: This process's QuickJS workers produce snapshots; the host returns them unchanged.
@@ -710,6 +722,7 @@ async function main(
           channel,
         ),
         config,
+        input.retainFinalValue === true,
       );
     }
     return {

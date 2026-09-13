@@ -39,6 +39,11 @@ const ROUTES = [
     path: "/__openclaw__/plugin-icon/%40scope%2Fplugin",
   },
   {
+    route: "pluginActivityIcon",
+    value: "@scope/plugin",
+    path: "/__openclaw__/plugin-activity-icon/%40scope%2Fplugin",
+  },
+  {
     route: "userAvatar",
     value: "profile/a b",
     path: "/api/users/profile%2Fa%20b/avatar",

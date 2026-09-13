@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
+import { readGatewayOwnerLease } from "../infra/gateway-owner-lease.js";
 import { isGatewayArgv } from "../infra/gateway-process-argv.js";
 import { inspectPortUsage } from "../infra/ports-inspect.js";
 import type { PortListener } from "../infra/ports-types.js";
+import { tryAcquireGatewayLifecycleCleanupCoordinator } from "../infra/state-database-coordinator.js";
 import { parseTcpPort, parseTcpPortFromArgs } from "../infra/tcp-port.js";
 import {
   getWindowsPowerShellExePath,
@@ -10,11 +12,13 @@ import {
 } from "../infra/windows-install-roots.js";
 import { readWindowsProcessArgsSync } from "../infra/windows-port-pids.js";
 import { killProcessTree } from "../process/kill-tree.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { sleep } from "../utils.js";
 import { parseCmdScriptCommandLine } from "./cmd-argv.js";
 import { NODE_SERVICE_KIND } from "./constants.js";
 import { resolveGatewayServiceProbeHosts } from "./gateway-service-probe-hosts.js";
-import { readScheduledTaskCommand } from "./schtasks-layout.js";
+import { readScheduledTaskCommand, resolveTaskName } from "./schtasks-layout.js";
+import { mergeGatewayServiceEnv } from "./service-env-merge.js";
 import { resolveServiceManagerEnv } from "./service-process-env.js";
 import type { GatewayServiceRuntime } from "./service-runtime.js";
 import type { GatewayServiceCommandConfig, GatewayServiceEnv } from "./service-types.js";
@@ -155,6 +159,97 @@ export function resolveGatewayListenerPids(listeners: PortListener[]): number[] 
 }
 
 export async function resolveScheduledTaskOwnedGatewayPids(
+  env: GatewayServiceEnv,
+  context?: { port: number | null; probeHosts?: readonly string[] },
+  installedCommand?: GatewayServiceCommandConfig | null,
+): Promise<number[]> {
+  const ownership = await resolveScheduledTaskGatewayOwnership(env, context, installedCommand);
+  return ownership?.pids ?? [];
+}
+
+async function resolveScheduledTaskGatewayOwnership(
+  env: GatewayServiceEnv,
+  context?: { port: number | null; probeHosts?: readonly string[] },
+  installedCommand?: GatewayServiceCommandConfig | null,
+) {
+  const command =
+    installedCommand === undefined
+      ? await readScheduledTaskCommand(env).catch(() => null)
+      : installedCommand;
+  const port = context ? context.port : resolveScheduledTaskCommandPort(env, command);
+  if (!port) {
+    return null;
+  }
+  const ownerEnv = mergeGatewayServiceEnv(env, command);
+  const owner = readGatewayOwnerLease({ env: ownerEnv });
+  const taskName = resolveTaskName(env);
+  const isTaskSupervisor = (supervisor: NonNullable<typeof owner>["supervisor"]) =>
+    supervisor?.kind === "schtasks" && supervisor.name?.toLowerCase() === taskName.toLowerCase();
+  const pids = owner
+    ? owner.port === port && owner.state === "live" && isTaskSupervisor(owner.supervisor)
+      ? [owner.pid]
+      : []
+    : await resolveLegacyScheduledTaskOwnedGatewayPids(env, context, command);
+  return {
+    pids,
+    acquireTerminationExclusion() {
+      if (
+        owner?.port === port &&
+        owner.state !== "dead" &&
+        owner.supervisor &&
+        !isTaskSupervisor(owner.supervisor)
+      ) {
+        const supervisor = owner.supervisor;
+        const label =
+          supervisor.kind === "external"
+            ? "external supervisor"
+            : `${supervisor.kind} ${supervisor.name ?? "(name unavailable)"}`;
+        throw new Error(
+          `Gateway pid ${owner.pid} on port ${port} belongs to ${label}, not Scheduled Task ${taskName}. Run that supervisor's stop or restart command; the Gateway was left running.`,
+        );
+      }
+      // Both legacy discovery paths require exact installed argv. Older releases
+      // hold the coordinator without publishing a row and remain terminable.
+      if (pids.length > 0) {
+        return null;
+      }
+      if (owner) {
+        return null;
+      }
+      const exclusion = tryAcquireGatewayLifecycleCleanupCoordinator({
+        databasePath: resolveOpenClawStateSqlitePath(ownerEnv),
+      });
+      if (!exclusion) {
+        throw new Error(
+          "Gateway lifecycle ownership is held without a published identity; leave it running and retry after startup finishes.",
+        );
+      }
+      return exclusion;
+    },
+    assertOwnerCurrent(pid: number) {
+      const current = readGatewayOwnerLease({ env: ownerEnv });
+      if (!owner && !current) {
+        return;
+      }
+      if (
+        !owner ||
+        !current ||
+        current.owner !== owner.owner ||
+        current.pid !== pid ||
+        current.port !== port ||
+        current.host !== owner.host ||
+        current.startedAt !== owner.startedAt ||
+        current.state !== "live" ||
+        !isTaskSupervisor(current.supervisor)
+      ) {
+        throw new Error(`Gateway owner changed before terminating process ${pid}`);
+      }
+    },
+  };
+}
+
+// Full snapshots and per-PID fallback lookups require the same installed-argv attribution.
+async function resolveLegacyScheduledTaskOwnedGatewayPids(
   env: GatewayServiceEnv,
   context?: { port: number | null; probeHosts?: readonly string[] },
   installedCommand?: GatewayServiceCommandConfig | null,
@@ -328,11 +423,22 @@ export async function terminateScheduledTaskGatewayListeners(
   if (!port) {
     return [];
   }
-  const pids = await resolveScheduledTaskOwnedGatewayPids(env, resolvedContext);
-  for (const pid of pids) {
-    await terminateGatewayProcessTree(pid, 300, assertCurrent);
+  const ownership = await resolveScheduledTaskGatewayOwnership(env, resolvedContext);
+  if (!ownership) {
+    return [];
   }
-  return pids;
+  const exclusion = ownership.acquireTerminationExclusion();
+  try {
+    for (const pid of ownership.pids) {
+      await terminateGatewayProcessTree(pid, 300, () => {
+        assertCurrent?.();
+        ownership.assertOwnerCurrent(pid);
+      });
+    }
+    return ownership.pids;
+  } finally {
+    exclusion?.release();
+  }
 }
 
 export function probeProcessState(pid: number): "alive" | "missing" | "unknown" {

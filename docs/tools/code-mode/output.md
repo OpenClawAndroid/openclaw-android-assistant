@@ -61,10 +61,11 @@ already removed; session cleanup follows when that run ends.
 `process` declares session listings, poll and
 log output, input acknowledgments, and failures. Read their declarations through
 `API.read("tools/automations.d.ts")` or `API.read("tools/process.d.ts")` before
-composing results. Check the returned union before selecting action-specific
-fields, for example `"sessions" in result` for a process listing or
-`"jobs" in result && "nextOffset" in result` for an automations page. Scheduler
-status also has a numeric `jobs` count.
+composing results. Their declarations select outputs by the input `action`:
+`automations({ action: "list" })` returns a job page, while `action: "status"`
+returns scheduler status. A process list still includes its real failure outcome;
+check `result.status === "failed"` before reading `result.sessions`. Declarative
+and ordinary automation creation remain distinct possible `add` outcomes.
 
 Exact passthroughs can reuse their owning protocol schema instead of
 duplicating a model-only contract. For example, the conversation tools expose
@@ -240,6 +241,62 @@ single-tool schema response inside the program.
 The guest runtime never sees host objects directly. Inputs and outputs cross
 the bridge as JSON-compatible values with explicit size caps.
 
+## Input-dependent outputs
+
+Tools whose output depends on a string input property can annotate their existing
+`outputSchema` using standard TypeBox or JSON Schema APIs. Derive the union and
+mapping from the same variants:
+
+```typescript
+import { Type } from "typebox";
+
+const variants = Object.entries({
+  list: Type.Object({ items: Type.Array(Type.String()) }, { additionalProperties: false }),
+  status: Type.Object({ ready: Type.Boolean() }, { additionalProperties: false }),
+});
+const outputSchema = Type.Union(
+  variants.map(([, schema]) => schema),
+  {
+    "x-openclaw-input-discriminator": {
+      version: 1,
+      inputProperty: "action",
+      mapping: Object.fromEntries(variants.map(([value], index) => [value, index])),
+    },
+  },
+);
+```
+
+Assign this schema to the tool's existing `outputSchema` property. Each branch
+must include every non-throwing outcome for that input value, including failures.
+The complete union and selector come from those same branches. The annotation
+does not change input validation or authorize an operation.
+
+Generated declarations select the corresponding result for a literal input.
+A union of input values returns the union of their results. Missing, broad, or
+unmapped values retain the complete output union. The property can have any name;
+`action` is the convention used by `automations` and `process`.
+
+Catalog execution compiles the complete schema before dispatch. Results must
+satisfy the actual prepared input's branch and the original caller's advertised
+branch when a hook changes the selector. Compatible rewrites and default/alias
+preparation still work; an incompatible result cannot reach code typed for the
+original operation. Root JSON Schema constraints remain intact. Schemas containing `$ref`,
+`$dynamicRef`, or `$recursiveRef`, or exceeding bounded structural inspection,
+retain their original umbrella validation and declaration. This preserves recursive
+reference semantics. Generated comments identify this conservative fallback.
+Action declarations also share the original 32,768-character output allowance; oversized
+specializations fall back to the bounded umbrella declaration. These fallbacks do
+not affect the action-specific `automations` and `process` contracts.
+
+The serialized schema contains ordinary `anyOf` branches and the annotation
+`x-openclaw-input-discriminator` with `{ version: 1, inputProperty, mapping }`.
+The mapping associates string values with branch indexes. Keep the
+union and mapping together; do not update one independently. SDK static metadata
+and catalog descriptions preserve the annotation. Hosts that do not support it
+retain the ordinary union. Supporting hosts reject malformed annotations and
+unsupported versions before executing the tool. Unsupported declaration shapes
+remain `unknown`; the annotation does not bypass schema checks or type limits.
+
 ## Output API
 
 - `text(value)` appends human-readable output to the `output` array.
@@ -303,6 +360,18 @@ complete saved JSON; `results.load(id)` lets later code select a smaller
 projection without refetching. See
 [Reuse data across cells](/tools/code-mode/quickstart#reuse-data-across-cells)
 for limits and the agent-run lifetime.
+
+Interactive `exec`/`wait` also preserve an oversized final object or array
+automatically when their final display projection would truncate it. A saved
+result uses `value: { truncated: true, reference, guidance }`, with the same
+descriptor returned by `results.save`. Its identity remains complete when
+emitted output competes for space; preview text and sampled shapes may shrink.
+If even the identity cannot fit, the new save is released and the completed
+result explains that retention was unavailable. Capacity or data-allowance
+failures likewise preserve the original successful truncation semantics,
+without evicting earlier references. Small values, plain strings, emitted
+output, failures, headless execution, and restart-safe cells retain their
+ordinary output behavior.
 
 Marker prefixes and omitted-byte counts describe the original compact JSON after
 normalization, including array brackets, separators, and JSON escaping. Ordinary

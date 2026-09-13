@@ -1,11 +1,45 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { searchSessionTranscripts } from "../config/sessions/session-transcript-search.js";
+import {
+  readSessionTranscriptSearchVersion,
+  searchSessionTranscripts,
+} from "../config/sessions/session-transcript-search.js";
+import { createRetainedCache } from "../infra/retained-cache.js";
 import { readAssistantDisplayContent } from "../shared/assistant-display-content.js";
 import { readSessionMessageByIdAsync } from "./session-transcript-readers.js";
 import { loadGatewaySessionEntryReadOnly } from "./session-utils.js";
 
 const GITHUB_URL_CANDIDATE = /https:\/\/github\.com\/[^\s<>()\]}'"`]+/giu;
 const MAX_REFERENCES = 3;
+type ReferenceCacheEntry = { version: string | null; promise: Promise<number[]> };
+const referenceCache = createRetainedCache<ReferenceCacheEntry>();
+
+function loadReferenceSession(params: { sessionKey: string; agentId?: string }) {
+  return loadGatewaySessionEntryReadOnly(params.sessionKey, {
+    agentId: params.agentId,
+    clone: false,
+    projection: "list",
+  });
+}
+
+function referenceSourceKey(loaded: ReturnType<typeof loadReferenceSession>): string {
+  const { entry, agentId, canonicalKey, storePath } = loaded;
+  return JSON.stringify([
+    agentId,
+    canonicalKey,
+    storePath,
+    entry?.sessionId,
+    entry?.lifecycleRevision,
+    entry?.repositoryWorkspaceId,
+    entry?.worktree?.id,
+    entry?.worktree?.branch,
+    entry?.spawnedCwd,
+    entry?.spawnedWorkspaceDir,
+  ]);
+}
+
+export function releaseSessionPullRequestReferenceCache(signal?: AbortSignal): void {
+  referenceCache.release(signal);
+}
 
 function referencedPullRequestNumber(
   href: string,
@@ -44,16 +78,76 @@ function referencedPullRequestNumber(
 export async function loadSessionPullRequestReferences(
   params: { sessionKey: string; agentId?: string },
   repository: { owner: string; repo: string },
+  cacheSignal?: AbortSignal,
 ): Promise<number[]> {
-  const loaded = loadGatewaySessionEntryReadOnly(params.sessionKey, { agentId: params.agentId });
+  const loaded = loadReferenceSession(params);
   const { entry, agentId, canonicalKey, storePath } = loaded;
   if (!entry?.sessionId || !storePath) {
+    referenceCache.release(cacheSignal);
     return [];
   }
-  const scope = { agentId, sessionId: entry.sessionId, sessionKey: canonicalKey, storePath };
+  const scope = {
+    agentId,
+    sessionId: entry.sessionId,
+    sessionKey: canonicalKey,
+    storePath,
+    sessionEntry: { sessionId: entry.sessionId },
+  };
+  const sourceKey = referenceSourceKey(loaded);
+  const key = JSON.stringify([
+    sourceKey,
+    repository.owner.toLowerCase(),
+    repository.repo.toLowerCase(),
+  ]);
+  const version = readSessionTranscriptSearchVersion(scope);
+  let cached = referenceCache.get(key, cacheSignal);
+  if (!cached || cached.version !== version || version === null) {
+    const pending: ReferenceCacheEntry = {
+      version,
+      promise: Promise.resolve()
+        .then(async () => {
+          const result = await readReferences(scope, repository);
+          if (result.indexing) {
+            referenceCache.delete(key, pending);
+          }
+          return result.references;
+        })
+        .catch((error: unknown) => {
+          referenceCache.delete(key, pending);
+          throw error;
+        }),
+    };
+    if (version !== null) {
+      referenceCache.set(key, pending, cacheSignal);
+    } else {
+      referenceCache.release(cacheSignal);
+    }
+    cached = pending;
+  }
+  const references = await cached.promise;
+  if (
+    referenceSourceKey(loadReferenceSession(params)) !== sourceKey ||
+    readSessionTranscriptSearchVersion(scope) !== version
+  ) {
+    referenceCache.delete(key, cached);
+    return [];
+  }
+  return [...references];
+}
+
+async function readReferences(
+  scope: {
+    agentId: string;
+    sessionId: string;
+    sessionKey: string;
+    storePath: string;
+    sessionEntry: { sessionId: string };
+  },
+  repository: { owner: string; repo: string },
+): Promise<{ references: number[]; indexing: boolean }> {
   const candidates = searchSessionTranscripts({
     ...scope,
-    sessionKeys: [canonicalKey],
+    sessionKeys: [scope.sessionKey],
     role: "assistant",
     query: `https://github.com/${repository.owner}/${repository.repo}/pull`,
     order: "recent",
@@ -94,20 +188,5 @@ export async function loadSessionPullRequestReferences(
       }
     }
   }
-  const current = loadGatewaySessionEntryReadOnly(params.sessionKey, { agentId: params.agentId });
-  if (
-    current.agentId !== agentId ||
-    current.canonicalKey !== canonicalKey ||
-    current.storePath !== storePath ||
-    current.entry?.sessionId !== entry.sessionId ||
-    current.entry.lifecycleRevision !== entry.lifecycleRevision ||
-    current.entry.repositoryWorkspaceId !== entry.repositoryWorkspaceId ||
-    current.entry.worktree?.id !== entry.worktree?.id ||
-    current.entry.worktree?.branch !== entry.worktree?.branch ||
-    current.entry.spawnedCwd !== entry.spawnedCwd ||
-    current.entry.spawnedWorkspaceDir !== entry.spawnedWorkspaceDir
-  ) {
-    return [];
-  }
-  return [...references];
+  return { references: [...references], indexing: candidates.indexing };
 }

@@ -31,6 +31,7 @@ type GitWorkerRuntime = {
   reads?: GitPool;
   content?: GitPool;
   worktrees?: GitPool;
+  worktreeMaintenance?: GitPool;
   pending: Set<Promise<unknown>>;
   closing?: Promise<void>;
 };
@@ -43,12 +44,18 @@ function runtime(): GitWorkerRuntime {
     () => ({ pending: new Set() }),
     (state) => {
       state.closing ??= (async () => {
-        await Promise.all([state.reads?.close(), state.content?.close(), state.worktrees?.close()]);
+        await Promise.all([
+          state.reads?.close(),
+          state.content?.close(),
+          state.worktrees?.close(),
+          state.worktreeMaintenance?.close(),
+        ]);
         // Worker termination alone does not settle its parent-owned Git processes.
         await Promise.allSettled(state.pending);
         state.reads = undefined;
         state.content = undefined;
         state.worktrees = undefined;
+        state.worktreeMaintenance = undefined;
       })().finally(() => {
         state.closing = undefined;
       });
@@ -58,12 +65,17 @@ function runtime(): GitWorkerRuntime {
 }
 
 function poolFor(state: GitWorkerRuntime, command: GitWorkerCommand): GitPool {
-  const owner = command.type.startsWith("worktree.")
-    ? "worktrees"
-    : command.type === "repository.branches" || command.type === "checkout.context"
-      ? "reads"
-      : "content";
-  // Metadata must stay responsive while diffs or snapshots await slow Git work.
+  const owner =
+    command.type === "worktree.snapshot" || command.type === "worktree.cleanup-inspection"
+      ? "worktreeMaintenance"
+      : command.type.startsWith("worktree.")
+        ? "worktrees"
+        : command.type === "repository.branches" || command.type === "checkout.context"
+          ? "reads"
+          : "content";
+  // Preparation can hold the allocation lease; unrelated maintenance must not block it.
+  // Each worktree lane stays serial; host allocation and shared-ref guards still own writes.
+  // Metadata likewise stays responsive while diffs or snapshots await slow Git work.
   return (state[owner] ??= new WorkerTaskPool({
     workerUrl: resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.gitOperations),
     maxWorkers: owner === "content" ? Math.max(1, Math.min(2, os.availableParallelism() - 1)) : 1,

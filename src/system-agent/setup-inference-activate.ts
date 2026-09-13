@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveAmbientOwnerAgentId } from "../agents/agent-scope-config.js";
 import { resolveAgentDir } from "../agents/agent-scope.js";
-import { withSetupCredentialAccess } from "../agents/auth-profiles/setup-access.js";
+import type { SetupRuntimeCredential } from "../agents/auth-profiles/setup-access.js";
 import { loadAuthProfileStoreWithoutExternalProfiles } from "../agents/auth-profiles/store-runtime.js";
 import { resolveCliRuntimeCanonicalProvider } from "../agents/cli-backends.js";
 import { readCodexCliActiveApiKey } from "../agents/cli-credentials.js";
@@ -64,7 +64,10 @@ import {
   validateSetupInferenceOwnerEvidence,
 } from "./setup-inference-core.js";
 import {
-  activateSavedSetupCredential,
+  withPreparedSetupCredentialAccess,
+  activatePreparedSetupCredential,
+} from "./setup-inference-credential-access.js";
+import {
   saveSetupCredential,
   stageProviderAuthCandidate,
   stageProviderAutoCandidate,
@@ -387,13 +390,18 @@ async function activateCandidate(
   if ("error" in staged) {
     return failure({ ok: false, status: "unavailable", error: staged.error });
   }
-  const verify = () => verifyAndActivateCandidate(ctx, staged, failure);
-  return staged.authProfileId
-    ? await withSetupCredentialAccess(
-        { profileId: staged.authProfileId, agentDir: ctx.agentDir, signal: params.signal },
-        verify,
-      )
-    : await verify();
+  const verify = (runtimeCredential?: SetupRuntimeCredential) =>
+    verifyAndActivateCandidate(ctx, staged, failure, runtimeCredential);
+  if (!staged.authProfileId) {
+    return await verify();
+  }
+  return await withPreparedSetupCredentialAccess(
+    ctx,
+    staged,
+    staged.authProfileId,
+    verify,
+    failure,
+  );
 }
 
 async function verifyAndActivateCandidate(
@@ -402,6 +410,7 @@ async function verifyAndActivateCandidate(
   failure: (
     result: Extract<ActivateSetupInferenceResult, { ok: false }>,
   ) => ActivateSetupInferenceResult,
+  runtimeCredential?: SetupRuntimeCredential,
 ): Promise<ActivateSetupInferenceResult> {
   const { params, deps, snapshot, cfg, routeAgentId } = ctx;
   const source = snapshot.sourceConfig;
@@ -634,14 +643,16 @@ async function verifyAndActivateCandidate(
       throw error;
     }
   } else {
-    const latest = await readSnapshot();
-    await revalidate(latest);
+    await revalidate(await readSnapshot());
   }
   if (staged.authProfileId && savedCredential?.setup) {
     const profileId = staged.authProfileId;
-    const activate = async () => {
-      await withSetupCredentialAccess(
-        { profileId, agentDir: ctx.agentDir, signal: params.signal },
+    const activate = () =>
+      activatePreparedSetupCredential(
+        ctx,
+        profileId,
+        savedCredential,
+        runtimeCredential,
         async () => {
           const latest = await readSnapshot();
           const current = latest.runtimeConfig ?? latest.config;
@@ -660,15 +671,8 @@ async function verifyAndActivateCandidate(
               deps,
             }),
           );
-          await activateSavedSetupCredential({
-            agentDir: ctx.agentDir,
-            profileId,
-            credential: savedCredential,
-            beforeWrite: () => throwIfSetupInferenceCancelled(params),
-          });
         },
       );
-    };
     if (params.surface === "cli" || !gatewayRestartRequired) {
       if (params.onCredentialActivation) {
         params.onCredentialActivation(activate);

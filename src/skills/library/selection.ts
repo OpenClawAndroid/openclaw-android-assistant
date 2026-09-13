@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  SKILL_LIBRARY_MAX_FILE_BYTES,
   SKILL_LIBRARY_MAX_SELECTIONS,
   type SkillLibrarySelection,
   type SkillsLibraryActivateParams,
 } from "../../../packages/gateway-protocol/src/schema/skill-library.js";
 import { resolveStateDir } from "../../config/paths.js";
+import { openRootFileSync, readFileDescriptorBoundedSync } from "../../infra/boundary-file-read.js";
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import type { OpenClawStateDatabaseOptions } from "../../state/openclaw-state-db.js";
 import {
@@ -218,7 +220,30 @@ export function loadSkillLibrarySelection(
       }
       const baseDir = skillLibraryRevisionDir(selection.skillId, selection.revision, options.env);
       const filePath = path.join(baseDir, "SKILL.md");
-      const content = fs.readFileSync(filePath, "utf8");
+      const opened = openRootFileSync({
+        absolutePath: filePath,
+        rootPath: baseDir,
+        boundaryLabel: "skill library revision",
+        maxBytes: SKILL_LIBRARY_MAX_FILE_BYTES,
+        rejectHardlinks: true,
+        symlinks: "reject",
+      });
+      if (!opened.ok) {
+        throw new SkillLibraryError(
+          "INVALID_BUNDLE",
+          "Pinned skill instructions could not be read; restore the library artifact or detach it explicitly.",
+          undefined,
+          { cause: opened.error },
+        );
+      }
+      let content: string;
+      try {
+        content = readFileDescriptorBoundedSync(opened.fd, SKILL_LIBRARY_MAX_FILE_BYTES).toString(
+          "utf8",
+        );
+      } finally {
+        fs.closeSync(opened.fd);
+      }
       const frontmatter = parseSkillFrontmatter(content);
       const metadata = resolveSkillManifestMetadata(frontmatter);
       const invocation = resolveSkillInvocationPolicy(frontmatter);

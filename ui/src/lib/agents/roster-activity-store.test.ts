@@ -232,15 +232,14 @@ describe("roster activity lifecycle", () => {
       store.setInvolvingMe(true);
       expect(store.snapshot.result).toBeNull();
       expect(store.snapshot.involvingMe).toBe(true);
-      await vi.waitFor(() => expect(store.snapshot.result).toEqual(scoped));
+      expect(load).toHaveBeenCalledTimes(1);
       stale.resolve(result("Wrong query"));
-      await stale.promise;
+      await vi.waitFor(() => expect(store.snapshot.result).toEqual(scoped));
       expect(store.snapshot.result).toEqual(scoped);
       expect(load).toHaveBeenCalledTimes(2);
       expect(request).toHaveBeenLastCalledWith(
         "sessions.list",
         expect.objectContaining({ archived: "all", involvingMe: true, limit: 100 }),
-        expect.anything(),
       );
       expect(request.mock.calls.filter(([method]) => method === "sessions.subscribe")).toHaveLength(
         1,
@@ -303,6 +302,10 @@ describe("roster activity lifecycle", () => {
           source.publish({ ...source.gateway.snapshot, phase: "connected" });
         } else {
           source.publish({ ...source.gateway.snapshot, client: createTestGatewayClient(request) });
+        }
+        if (transition !== "replace client") {
+          expect(list).toHaveBeenCalledTimes(1);
+          stale.resolve(result("Retired activity", true));
         }
         await vi.waitFor(() => expect(store.snapshot.cards[0]?.preview).toBe("Current activity"));
         expect(

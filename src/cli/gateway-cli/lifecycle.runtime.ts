@@ -38,6 +38,7 @@ export { rotateAgentEventLifecycleGeneration } from "../../infra/agent-events.js
 export { markUpdateRestartSentinelFailure } from "../../infra/restart-sentinel.js";
 export {
   detectGatewayRespawnSupervisor,
+  detectGatewayRespawnSupervisorIdentity,
   detectRespawnSupervisor,
 } from "../../infra/supervisor-markers.js";
 export { writeDiagnosticStabilityBundleForFailureSync } from "../../logging/diagnostic-stability-bundle.js";

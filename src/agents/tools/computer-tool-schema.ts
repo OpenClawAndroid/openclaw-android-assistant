@@ -52,10 +52,14 @@ export function createComputerToolSchema(
     ...(targetScope === "paired"
       ? {
           ...gatewayCallOptionSchemaProperties(),
+          target: optionalStringEnum(["gateway", "node"] as const, {
+            description:
+              "Computer host. Defaults to the Gateway desktop when configured, otherwise a paired node. Later calls retain the selected host.",
+          }),
           node: Type.Optional(
             Type.String({
               description:
-                "Paired node id or display name. Omit when exactly one connected computer-capable node exists.",
+                "Paired node id or display name; implies target=node. Omit when selecting the sole connected computer-capable node.",
             }),
           ),
         }
@@ -186,7 +190,7 @@ export function createComputerToolSchema(
     dialogRef: Type.Optional(Type.String()),
     promptText: Type.Optional(Type.String()),
     resourceHandle: Type.Optional(
-      Type.String({ description: "Opaque node-owned Computer Use resource handle." }),
+      Type.String({ description: "Opaque host-owned Computer Use resource handle." }),
     ),
     resourceHandles: Type.Optional(
       Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 32 }),

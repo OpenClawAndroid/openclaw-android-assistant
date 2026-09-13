@@ -1,6 +1,7 @@
 ---
 summary: "Manifest fields for icons, CLI, MCP, Control UI, dashboard, QA, channel, and backup surfaces"
 read_when:
+  - You are adding plugin branding or compact tool activity artwork
   - Your plugin contributes a CLI command, MCP server, or dashboard widget
   - You are shipping native Control UI or a QA runner
   - You need backups or transcripts to know about plugin-owned data
@@ -15,6 +16,11 @@ Manifest fields that contribute a concrete host surface: an icon, a command, a s
 Place the portable plugin icon at `assets/icon.png`, relative to the plugin root. No manifest
 field is required. Use a square PNG that remains recognizable at 16 px; 512×512 is recommended.
 Missing, unreadable, or invalid icons are ignored and do not invalidate the plugin.
+
+This is the plugin's identity artwork for catalogs, settings, channel setup, and
+installation cards. Compact tool calls use separate
+[inline activity icons](#inline-activity-icons), so improving a chat glyph does
+not change the plugin's branding elsewhere.
 
 OpenClaw adopts this fixed package path as its icon convention, matching the path proposed in
 Agent Plugins spec proposal [agent-plugins-spec#66](https://github.com/agentplugins/agent-plugins-spec/pull/66). OpenClaw itself implements Agent Plugins 1.0.0. Other Agent Plugins
@@ -91,6 +97,59 @@ distributed separately. This lets `doctor --fix` migrate older configuration
 before plugin installation or capability consent. An installed plugin's doctor
 contract remains authoritative; retained entrypoints do not expose state
 migrations, install plugins, or grant capabilities.
+
+## Inline activity icons
+
+Place a monochrome SVG at `assets/activity.svg` for the compact icon beside the
+plugin's tool calls and collapsed tool results. No manifest field is required.
+Design it to remain clear at 16 px with a transparent background. The Control UI
+renders its shape in the activity row's text color, including dark mode; source
+colors do not become branding colors in the row.
+
+Use `assets/activity/<tool-name>.svg` only when an individual tool needs a
+different shape. The filename must exactly match that tool's `id` from
+`tools.effective`, including case. For example, a tool with ID `calendar_search`
+can ship:
+
+```text
+assets/
+  icon.png
+  activity.svg
+  activity/
+    calendar_search.svg
+```
+
+The tool ID must be at most 128 ASCII characters, start with a letter, digit, or
+underscore, and contain only letters, digits, underscores, hyphens, or periods.
+Keep the override directory to at most 128 entries; larger directories are
+ignored as a whole. The default activity icon covers other tool IDs, including
+integrations whose routing adds prefixes to tool names. These files supply presentation only; they do not
+register tools or change tool ownership.
+
+Keep each SVG file within 32 KiB. Use simple SVG geometry: `path`, `circle`,
+`ellipse`, `line`, `polygon`, `polyline`, and `rect`, optionally inside `g`. The SVG can contain at most four
+elements including the root, 8 KiB of combined path and point data, and 1,024
+path commands. Give the root a `viewBox` with positive width and height, or
+positive numeric `width` and `height`, each at most 4,096. Scripts, stylesheets, event handlers,
+external references, embedded images, and filters are not supported. For
+example:
+
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5 5h14v14H5zM8 2v6m8-6v6M5 10h14"/>
+</svg>
+```
+
+OpenClaw validates the SVG and rasterizes it before using it as an activity
+mask; it never inserts package SVG markup into the chat DOM. Missing or invalid
+artwork falls back to the existing tool glyph, without showing the packaged
+brand image. The plugin remains usable.
+
+Include both `assets/activity.svg` and `assets/activity/*.svg` in the published
+package's `files` list when used. OpenClaw's bundled metadata copier and plugin
+runtime package builder include these paths automatically. Asset discovery
+uses the Gateway's prepared plugin metadata; restart or explicitly reload the
+plugin after changing its artwork.
 
 ## Transcript sources reference
 

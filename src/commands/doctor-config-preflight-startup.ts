@@ -30,7 +30,10 @@ import {
   readAgentDatabaseAdmissionRefusal,
   recordAgentDatabaseAdmissions,
 } from "../state/agent-database-admission.js";
-import { withArtifactPreservingStateReads } from "../state/openclaw-state-db-readonly.js";
+import {
+  withArtifactPreservingStateReads,
+  withOpenClawStateDatabaseReadSnapshot,
+} from "../state/openclaw-state-db-readonly.js";
 import {
   migrationCheckpointIdentitiesMatch,
   resolveMigrationCheckpointIdentity,
@@ -86,15 +89,24 @@ export async function readStartupMigrationSnapshot(params: {
       if (startupConfig) {
         await params.validateConfig?.(startupConfig);
       }
-      let read: DoctorConfigPreflightPluginSnapshotRead = coreRecovery
-        ? {
-            ...(await createConfigIO({
-              ...recoveryOptions,
-              env: cloneEnvWithPlatformSemantics(params.env),
-            }).readConfigFileSnapshotWithPluginMetadata({ allowCurrentPluginMetadata: false })),
-            pluginMigrationFingerprint: null,
-          }
-        : await params.readSnapshot();
+      // Discovery policy and the persisted index must see one admitted generation.
+      // End its private read scope before recovery, guards, or lease acquisition.
+      let read: DoctorConfigPreflightPluginSnapshotRead =
+        await withOpenClawStateDatabaseReadSnapshot(
+          async () =>
+            coreRecovery
+              ? {
+                  ...(await createConfigIO({
+                    ...recoveryOptions,
+                    env: cloneEnvWithPlatformSemantics(params.env),
+                  }).readConfigFileSnapshotWithPluginMetadata({
+                    allowCurrentPluginMetadata: false,
+                  })),
+                  pluginMigrationFingerprint: null,
+                }
+              : await params.readSnapshot(),
+          { env: params.env },
+        );
       assertStartupConfigUnchanged(selected, read.snapshot);
       const recovery = await createConfigIO(recoveryOptions).prepareConfigRecovery(read.snapshot);
       if (Boolean(coreRecovery) !== Boolean(recovery)) {

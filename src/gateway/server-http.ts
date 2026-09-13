@@ -687,7 +687,7 @@ export function createGatewayHttpServer(opts: {
       );
       for (const [routes, loadHandler] of [
         [
-          ["pluginIcon", "catalogIcon", "linkFavicon"],
+          ["pluginIcon", "pluginActivityIcon", "catalogIcon", "linkFavicon"],
           async () => (await getPluginIconHttpModule()).handlePluginIconHttpRequest,
         ],
         [

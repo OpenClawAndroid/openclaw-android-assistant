@@ -30,7 +30,7 @@ const overrides = new Map<string, string>([
   [
     source("./update-command-convergence.ts"),
     `export async function convergeUpdatePlugins(p) {
-    p.beforePersistentEffect();
+    p.assertCurrent();
     return {resultWithPostUpdate:p.result,postUpdateConfigSnapshot:p.configSnapshot};
   }`,
   ],

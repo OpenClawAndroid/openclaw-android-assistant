@@ -3,13 +3,15 @@ import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { loadDeliveryQueueEntryInDatabase } from "../delivery-queue-sqlite-bound.js";
 import { transitionOwnedDeliveryQueueEntry } from "../delivery-queue-sqlite-claim.js";
 import {
-  completeDeliveryQueueEntryInDatabase,
   resolveDeliveryQueueStateEnv,
   type DeliveryQueueStateContext,
+} from "../delivery-queue-sqlite.js";
+import {
+  completeDeliveryQueueEntryInDatabase,
   deleteDeliveryQueueEntryInDatabase,
   prepareDeliveryQueueTerminalEntry,
   terminalizePendingDeliveryQueueEntryInDatabase,
-} from "../delivery-queue-sqlite.js";
+} from "../delivery-queue-sqlite.kernel.js";
 import { hasLiveDeliveryQueueClaim } from "../delivery-queue-sqlite.types.js";
 import { collectEntrySpoolPaths, releaseSpoolArtifacts } from "./delivery-queue-media-spool.js";
 import {

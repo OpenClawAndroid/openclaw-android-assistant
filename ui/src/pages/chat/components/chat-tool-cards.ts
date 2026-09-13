@@ -1,6 +1,7 @@
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { html, nothing } from "lit";
+import { styleMap } from "lit/directives/style-map.js";
 import { stripShellPreamble } from "../../../../../src/agents/tool-display-exec-shell.js";
 import {
   browserTabKey,
@@ -25,7 +26,7 @@ import {
   resolveCollapsedToolArgumentPreview as toolArgumentPreview,
   resolveToolCardOutcome,
 } from "../../../lib/chat/tool-cards.ts";
-import { resolveToolActivityIcon, resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
+import { resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
 import { renderPluginSurface } from "../../../plugins/control-ui-view.ts";
 import type { PluginToolIcons } from "../chat-tool-icon-controller.ts";
 import { renderHighlightedCommand } from "./chat-command-highlight.ts";
@@ -92,22 +93,15 @@ export function renderToolIcon(
   name: string,
   tool?: { toolName: string; pluginToolIcons?: PluginToolIcons },
 ) {
-  // Tool identity outranks argument-shape glyphs and generic plugin artwork.
-  const activityIcon = resolveToolActivityIcon(tool?.toolName);
+  const activityIcon = tool?.pluginToolIcons?.get(tool.toolName);
   if (activityIcon) {
-    return activityIcon === "claw"
-      ? html`<span class="chat-tool-claw">${icons.claw}</span>`
-      : icons[activityIcon];
-  }
-  const pluginIcon = tool?.pluginToolIcons?.get(tool.toolName);
-  if (pluginIcon) {
-    return html`<img
-      src=${pluginIcon.url}
-      alt=""
-      width="16"
-      height="16"
-      @error=${pluginIcon.onError}
-    />`;
+    return html`<span
+      class="chat-tool-activity-icon"
+      aria-hidden="true"
+      style=${styleMap({ maskImage: `url("${activityIcon.url}")` })}
+    >
+      <img hidden src=${activityIcon.url} alt="" @error=${activityIcon.onError} />
+    </span>`;
   }
   // SAFETY: Unknown display icon names produce undefined and use the fallback.
   return icons[name as IconName] ?? icons.puzzle;

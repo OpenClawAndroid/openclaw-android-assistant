@@ -1,12 +1,6 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, createWriteStream } from "node:fs";
-import {
-  agentOutputHasExpectedOkMarker,
-  buildCrossOsReleaseAgentSessionId,
-  buildReleaseAgentTurnArgs,
-  maybeBuildOptionalAgentTurnSkipResult,
-  shouldRetryCrossOsAgentTurnError,
-} from "./agent.ts";
+import { createWriteStream } from "node:fs";
+import { runReleaseAgentTurn } from "./agent.ts";
 import type {
   AgentTurnResult,
   GatewayHandle,
@@ -15,7 +9,6 @@ import type {
   ProviderConfig,
 } from "./config.ts";
 import {
-  CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS,
   CROSS_OS_DASHBOARD_FETCH_TIMEOUT_MS,
   CROSS_OS_DASHBOARD_SMOKE_TIMEOUT_MS,
   CROSS_OS_GATEWAY_STATUS_COMMAND_TIMEOUT_MS,
@@ -35,7 +28,7 @@ import {
   resolveInstalledGatewayStopArgs,
   runInstalledCli,
 } from "./installed.ts";
-import { readLogFileSize, readLogTextSince } from "./logs.ts";
+import { readLogFileSize } from "./logs.ts";
 import {
   dashboardHtmlMarkerStatus,
   readBoundedCrossOsResponseText,
@@ -346,44 +339,18 @@ export async function runModelsSet(params: LaneCommandParams & { providerConfig:
 export async function runAgentTurn(
   params: LaneCommandParams & { label: string },
 ): Promise<AgentTurnResult> {
-  let lastError;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const sessionId = buildCrossOsReleaseAgentSessionId(params.label, attempt);
-    try {
-      const logOffset = readLogFileSize(params.logPath);
-      const result = await runOpenClaw({
+  return runReleaseAgentTurn(
+    params,
+    (args, timeoutMs) =>
+      runOpenClaw({
         lane: params.lane,
         env: params.env,
-        args: buildReleaseAgentTurnArgs(sessionId),
+        args,
         logPath: params.logPath,
-        timeoutMs: (CROSS_OS_AGENT_TURN_TIMEOUT_SECONDS + 60) * 1000,
-      });
-      const logText = readLogTextSince(params.logPath, logOffset);
-      if (!agentOutputHasExpectedOkMarker(result.stdout, { logText })) {
-        throw new Error("Agent output did not contain the expected OK marker.");
-      }
-      return result;
-    } catch (error) {
-      lastError = error;
-      const skipped = maybeBuildOptionalAgentTurnSkipResult(error, params.logPath, {
-        attempt,
-        maxAttempts: 2,
-      });
-      if (skipped) {
-        return skipped;
-      }
-      if (attempt >= 2 || !shouldRetryCrossOsAgentTurnError(error)) {
-        throw error;
-      }
-      appendFileSync(
-        params.logPath,
-        `\n[release-checks] retrying agent turn after retryable live failure: ${
-          error instanceof Error ? error.message : String(error)
-        }\n`,
-      );
-    }
-  }
-  throw lastError;
+        timeoutMs,
+      }),
+    "agent turn",
+  );
 }
 
 export async function runDashboardSmoke(params: Pick<LaneCommandParams, "lane" | "logPath">) {

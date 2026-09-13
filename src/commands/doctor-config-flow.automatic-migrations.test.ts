@@ -3,10 +3,8 @@ import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { readConfigFileSnapshot } from "../config/config.js";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
-import {
-  readPersistedInstalledPluginIndexInstallRecords,
-  writePersistedInstalledPluginIndexInstallRecords,
-} from "../plugins/installed-plugin-index-records.js";
+import { readPersistedInstalledPluginIndexInstallRecords } from "../plugins/installed-plugin-index-records.js";
+import { seedInstalledPluginIndex } from "../plugins/test-helpers/installed-plugin-index.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { prepareDoctorContext } from "./doctor-config-flow.test-support.js";
@@ -64,7 +62,7 @@ it.each([
         },
         async () => {
           const canonical = { source: "path" as const, installPath: path.join(home, "canonical") };
-          await writePersistedInstalledPluginIndexInstallRecords(
+          await seedInstalledPluginIndex(
             { existing: canonical },
             {
               config: { plugins: { enabled: false } },

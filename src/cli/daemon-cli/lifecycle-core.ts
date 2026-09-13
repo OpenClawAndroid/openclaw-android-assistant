@@ -483,6 +483,9 @@ export async function runServiceRestart(params: {
   ) => Promise<ServiceRecoveryResult<"restarted"> | null>;
   postRestartCheck?: (ctx: RestartPostCheckContext) => Promise<GatewayServiceRestartResult | void>;
   onNotLoaded?: (ctx: ServiceRecoveryContext) => Promise<ServiceRecoveryResult<"restarted"> | null>;
+  restartOwnedProcess?: (
+    ctx: ServiceRecoveryContext,
+  ) => Promise<ServiceRecoveryResult<"restarted"> | null>;
 }): Promise<boolean> {
   const json = Boolean(params.opts?.json);
   const { stdout, warnings, emit, fail } = createDaemonActionContext({ action: "restart", json });
@@ -555,13 +558,22 @@ export async function runServiceRestart(params: {
     }
   }
 
+  if (params.restartOwnedProcess) {
+    try {
+      handledRecovery = await params.restartOwnedProcess({ json, stdout, warn, fail });
+    } catch (err) {
+      fail(`${params.serviceNoun} restart failed: ${String(err)}`);
+      return false;
+    }
+  }
+
   // Loaded services cross the native mutation boundary here. Not-loaded recovery
   // may still target a separately verified unmanaged listener.
-  if (loaded) {
+  if (loaded && !handledRecovery) {
     params.beforeServiceMutation?.();
   }
 
-  if (!loaded) {
+  if (!loaded && !handledRecovery) {
     try {
       handledRecovery = (await params.onNotLoaded?.({ json, stdout, warn, fail })) ?? null;
     } catch (err) {
@@ -583,7 +595,7 @@ export async function runServiceRestart(params: {
     recoveredLoadedState = handledRecovery.loaded ?? null;
   }
 
-  if (loaded && params.repairLoadedService) {
+  if (loaded && !handledRecovery && params.repairLoadedService) {
     try {
       const { state, issues } = await inspectGatewayServiceStartRepair(
         params.service,
@@ -627,7 +639,7 @@ export async function runServiceRestart(params: {
     }
   }
 
-  if (loaded && params.checkTokenDrift) {
+  if (loaded && !handledRecovery && params.checkTokenDrift) {
     // Check for token drift before restart (service token vs config token)
     try {
       const command = await params.service.readCommand(process.env);
@@ -664,7 +676,7 @@ export async function runServiceRestart(params: {
   let postCheckFailed = false;
   try {
     let restartResult: GatewayServiceRestartResult | undefined;
-    if (loaded && !handledRepair) {
+    if (loaded && !handledRepair && !handledRecovery) {
       await prepareGatewayRestartIntent();
       try {
         restartResult = await params.service.restart({

@@ -171,6 +171,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "color",
   "category",
   "boardFace",
+  "boardPresentation",
   "displayName",
   "delivery",
   "groupId",

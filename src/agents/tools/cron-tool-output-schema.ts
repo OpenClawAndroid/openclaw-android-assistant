@@ -5,6 +5,7 @@ import {
   CronJobSchema,
   CronRunLogEntrySchema,
 } from "../../../packages/gateway-protocol/src/schema/cron.js";
+import { defineToolOutputSchema } from "../schema/tool-output-schema.js";
 
 const nullableNumber = Type.Union([Type.Number(), Type.Null()]);
 const nullableString = Type.Union([Type.String(), Type.Null()]);
@@ -98,6 +99,7 @@ const CronStatusOutputSchema = Type.Object(
 
 const processInstanceId = Type.Optional(Type.String());
 const CronRunOutputSchema = Type.Union([
+  Type.Object({ ok: Type.Literal(false), processInstanceId }, { additionalProperties: false }),
   Type.Object(
     { ok: Type.Literal(true), ran: Type.Literal(true), processInstanceId },
     { additionalProperties: false },
@@ -130,40 +132,44 @@ const CronRunOutputSchema = Type.Union([
 ]);
 
 /** Every non-throwing automations result, reusing the canonical job/history contracts. */
-export const CronToolOutputSchema = Type.Union([
-  CronStatusOutputSchema,
-  CronListOutputSchema,
-  // Imperative add, get, and update all return the public job. Only add can
-  // include deliveryPreview or the declarative convergence envelope.
-  ...CronAddResultSchema.anyOf,
-  ...CronRunOutputSchema.anyOf,
-  Type.Object(
-    {
-      ok: Type.Literal(true),
-      removed: Type.Boolean(),
-      sessionCleanup: Type.Optional(Type.Literal("pending")),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { ok: Type.Literal(false), removed: Type.Literal(false) },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { entries: Type.Array(CronRunLogEntrySchema), ...page },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { ok: Type.Literal(true), delayMs: Type.Number({ exclusiveMinimum: 0 }) },
-    { additionalProperties: false },
-  ),
-  Type.Object({ ok: Type.Literal(true) }, { additionalProperties: false }),
-  Type.Object(
-    {
-      ok: Type.Literal(false),
-      reason: Type.Optional(Type.Literal("unwakeable-session-key")),
-      processInstanceId,
-    },
-    { additionalProperties: false },
-  ),
-]);
+export const CronToolOutputSchema = defineToolOutputSchema({
+  inputProperty: "action",
+  variants: {
+    status: CronStatusOutputSchema,
+    list: CronListOutputSchema,
+    get: CronJobSchema,
+    // Add can return a direct job or the declarative convergence envelope.
+    add: CronAddResultSchema,
+    update: CronJobSchema,
+    remove: Type.Union([
+      Type.Object(
+        {
+          ok: Type.Literal(true),
+          removed: Type.Boolean(),
+          sessionCleanup: Type.Optional(Type.Literal("pending")),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Object(
+        { ok: Type.Literal(false), removed: Type.Literal(false) },
+        { additionalProperties: false },
+      ),
+    ]),
+    run: CronRunOutputSchema,
+    runs: Type.Object(
+      { entries: Type.Array(CronRunLogEntrySchema), ...page },
+      { additionalProperties: false },
+    ),
+    next_check: Type.Object(
+      { ok: Type.Literal(true), delayMs: Type.Number({ exclusiveMinimum: 0 }) },
+      { additionalProperties: false },
+    ),
+    wake: Type.Union([
+      Type.Object({ ok: Type.Literal(true) }, { additionalProperties: false }),
+      Type.Object(
+        { ok: Type.Literal(false), reason: Type.Optional(Type.Literal("unwakeable-session-key")) },
+        { additionalProperties: false },
+      ),
+    ]),
+  },
+});

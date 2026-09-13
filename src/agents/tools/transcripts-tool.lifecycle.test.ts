@@ -9,7 +9,8 @@ import type {
   TranscriptSourceProvider,
   TranscriptStartRequest,
 } from "../../transcripts/provider-types.js";
-import { TranscriptsStore, TranscriptsSummaryChangedError } from "../../transcripts/store.js";
+import { TranscriptsSummaryChangedError } from "../../transcripts/store-errors.js";
+import { TranscriptsStore } from "../../transcripts/store.js";
 import { summarizeTranscripts } from "../../transcripts/summary.js";
 import { createTranscriptsTool } from "./transcripts-tool.js";
 

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { truncateUtf8Prefix } from "../utils/utf8-truncate.js";
-import { toCodeModeJsonSafe } from "./code-mode-json.js";
+import {
+  stringifyCodeModeJsonSafe,
+  type CodeModeJsonSource,
+  type CodeModeValueRetention,
+} from "./code-mode-json.js";
+import { createCodeModeResultReference } from "./code-mode-result-preview.js";
 import type { CodeModeConfig } from "./code-mode-worker-types.js";
 import { ToolInputError } from "./tool-input-error.js";
 import type { ToolSearchCatalogRef, ToolSearchToolContext } from "./tool-search-types.js";
@@ -20,28 +24,6 @@ const MAX_RESULTS = 64;
 
 export function disposeCodeModeResults(owner: ToolSearchCatalogRef): void {
   stores.get(owner)?.close();
-}
-
-function resultShape(value: unknown, depth = 0): string {
-  if (value === null) {
-    return "null";
-  }
-  if (Array.isArray(value)) {
-    return depth < 2 && value.length ? `Array<${resultShape(value[0], depth + 1)}>` : "Array";
-  }
-  if (typeof value === "object") {
-    if (depth >= 2) {
-      return "object";
-    }
-    return `{${Object.entries(value)
-      .slice(0, 8)
-      .map(
-        ([key, field]) =>
-          `${JSON.stringify(truncateUtf8Prefix(key, 24))}:${resultShape(field, depth + 1)}`,
-      )
-      .join(",")}}`;
-  }
-  return typeof value;
 }
 
 export type CodeModeResultsAccess = ReturnType<typeof createCodeModeResultsAccess>;
@@ -124,35 +106,58 @@ export function createCodeModeResultsAccess(
     }
     return { store, entry, id };
   };
+  const retainJson = (json: string, networkContent: boolean): CodeModeValueRetention => {
+    const bytes = Buffer.byteLength(json, "utf8");
+    const store = currentStore(true);
+    const allowance = Math.min(store.maxBytes, maxBytes);
+    if (bytes > allowance) {
+      return { reason: "Not retained: result exceeds the data allowance. Return less data." };
+    }
+    if (store.entries.size >= MAX_RESULTS || bytes > allowance - store.bytes) {
+      return {
+        reason:
+          "Not retained: result-store capacity exceeded. Delete references or return less data.",
+      };
+    }
+    // Admission precedes a detached parse. The worker's normalized JSON string
+    // moves into the existing store without another full serialization.
+    const id = `result_${randomUUID()}`;
+    const reference = createCodeModeResultReference(id, json, JSON.parse(json) as unknown);
+    store.entries.set(id, { json, bytes, networkContent });
+    store.bytes += bytes;
+    return {
+      reference,
+      release: () => {
+        if (store.entries.delete(id)) {
+          store.bytes -= bytes;
+        }
+      },
+    };
+  };
   return {
     save(value: unknown, networkContent: boolean) {
-      const normalized = toCodeModeJsonSafe(value);
-      const json = JSON.stringify(normalized) ?? "null";
-      const bytes = Buffer.byteLength(json, "utf8");
-      const store = currentStore(true);
-      if (
-        store.entries.size >= MAX_RESULTS ||
-        bytes > Math.min(store.maxBytes, maxBytes) - store.bytes
-      ) {
+      const retained = retainJson(stringifyCodeModeJsonSafe(value), networkContent);
+      if ("reason" in retained) {
         throw new ToolInputError(
           "Code Mode results capacity exceeded; delete saved references or save a smaller value. Existing references are unchanged.",
         );
       }
-      const id = `result_${randomUUID()}`;
-      store.entries.set(id, { json, bytes, networkContent });
-      store.bytes += bytes;
-      return {
-        id,
-        bytes,
-        count: Array.isArray(normalized)
-          ? normalized.length
-          : normalized !== null && typeof normalized === "object"
-            ? Object.keys(normalized).length
-            : 1,
-        shape: truncateUtf8Prefix(resultShape(normalized), 128),
-        preview: truncateUtf8Prefix(json, 256),
-        previewTruncated: bytes > 256,
-      };
+      return retained.reference;
+    },
+    retain(source: CodeModeJsonSource, networkContent: boolean): CodeModeValueRetention {
+      if (source.kind !== "complete") {
+        return { reason: "Not retained: result exceeds the data allowance. Return less data." };
+      }
+      try {
+        return retainJson(source.json, networkContent);
+      } catch (error) {
+        if (error instanceof ToolInputError) {
+          return {
+            reason: "Not retained: run catalog is unavailable or changed. Return less data.",
+          };
+        }
+        throw error;
+      }
     },
     load(id: unknown) {
       const { entry } = find(id);

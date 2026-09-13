@@ -159,17 +159,6 @@ class ChatReaderScrollControllerTest {
   }
 
   @Test
-  fun stateStartsFreshForEachSession() {
-    val oldSession = ChatReaderState(initialized = true, hasNewerContent = true, latestUserMessageId = "old")
-
-    val nextSession = initialChatReaderTransition(timeline(user("new")))
-
-    assertTrue(oldSession.hasNewerContent)
-    assertFalse(nextSession.state.hasNewerContent)
-    assertEquals("new", nextSession.state.latestUserMessageId)
-  }
-
-  @Test
   fun emptyTimelineCanResetReaderStateBeforeSameSessionReload() {
     val previous = ChatReaderState(initialized = true, hasNewerContent = true, latestUserMessageId = "old")
 

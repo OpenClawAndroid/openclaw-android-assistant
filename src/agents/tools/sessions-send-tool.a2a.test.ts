@@ -73,6 +73,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
 
   it("passes threadId through to gateway send for Telegram forum topics", async () => {
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:telegram:group:-100123:topic:554",
       displayKey: "agent:main:telegram:group:-100123:topic:554",
       message: "Test message",
@@ -90,6 +91,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
 
   it("omits threadId for non-topic sessions", async () => {
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:discord:group:dev",
       displayKey: "agent:main:discord:group:dev",
       message: "Test message",
@@ -106,6 +108,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
 
   it("bypasses the announce decider for same-session channel replies", async () => {
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:discord:channel:target-room",
       displayKey: "agent:main:discord:channel:target-room",
       message: "Test message",
@@ -122,9 +125,19 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     expect(sendParams.channel).toBe("discord");
     expect(sendParams.to).toBe("channel:target-room");
     expect(sendParams.message).toBe("Substantive channel reply");
+    expect(sendParams.agentId).toBe("main");
+    expect(sendParams).not.toHaveProperty("sessionKey");
   });
 
   it.each([
+    {
+      name: "plain text",
+      reply: "The requested work is complete.",
+      expected: {
+        message: "The requested work is complete.",
+        agentId: "orion",
+      },
+    },
     {
       name: "generated media",
       reply: "Your image is ready.\nMEDIA:./generated.png",
@@ -148,9 +161,10 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     vi.mocked(runAgentStep).mockResolvedValueOnce(reply);
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "orion",
       targetSessionKey: "agent:orion:discord:channel:target-room",
       displayKey: "agent:orion:discord:channel:target-room",
-      message: "Generate the requested media.",
+      message: "Complete the requested work.",
       announceTimeoutMs: 10_000,
       maxPingPongTurns: 0,
       requesterSessionKey: "agent:main:discord:channel:requester-room",
@@ -170,6 +184,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     });
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:discord:channel:target-room",
       displayKey: "agent:main:discord:channel:target-room",
       message: "Test message",
@@ -189,6 +204,8 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     expect(sendParams.channel).toBe("discord");
     expect(sendParams.to).toBe("channel:target-room");
     expect(sendParams.message).toBe("Delayed channel reply");
+    expect(sendParams.agentId).toBe("main");
+    expect(sendParams).not.toHaveProperty("sessionKey");
   });
 
   it("does not announce when the completed run has no reply", async () => {
@@ -198,6 +215,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     });
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:discord:channel:target-room",
       displayKey: "agent:main:discord:channel:target-room",
       message: "Test message",
@@ -216,6 +234,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     const reply = 'The log says "Agent couldn\'t generate a response", but the retry succeeded.';
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:discord:channel:target-room",
       displayKey: "agent:main:discord:channel:target-room",
       message: "Diagnose the failed turn",
@@ -235,6 +254,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     vi.mocked(runAgentStep).mockResolvedValueOnce("ANNOUNCE_SKIP");
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:discord:channel:target-room",
       displayKey: "agent:main:discord:channel:target-room",
       message: "Test message",
@@ -261,6 +281,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
       });
 
       await runSessionsSendA2AFlow({
+        targetAgentId: "main",
         targetSessionKey: "agent:main:discord:channel:target-room",
         displayKey: "agent:main:discord:channel:target-room",
         message: "Test message",
@@ -280,6 +301,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
 
   it("does not run the announce decider for same-session sends without an announce target", async () => {
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: "agent:main:main",
       displayKey: "agent:main:main",
       message: "Test message",
@@ -298,6 +320,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     const accountId = "thinker";
     const session = {
       key: "agent:main:discord:channel:target-room",
+      agentId: "main",
       kind: "group",
       classification: "channel",
       channel: "discord",
@@ -310,6 +333,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     sessionListRows = [session];
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: session.key,
       displayKey: session.key,
       message: "Test message",
@@ -330,6 +354,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     "does not re-inject exact control reply %s into agent-to-agent flow",
     async (roundOneReply) => {
       await runSessionsSendA2AFlow({
+        targetAgentId: "main",
         targetSessionKey: "agent:main:discord:group:dev",
         displayKey: "agent:main:discord:group:dev",
         message: "Test message",
@@ -359,6 +384,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     vi.mocked(waitForAgentRunReply).mockResolvedValueOnce(wait);
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "worker",
       targetSessionKey: "agent:worker:discord:group:dev",
       displayKey: "agent:worker:discord:group:dev",
       message: "Test message",
@@ -394,6 +420,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
       });
 
       await runSessionsSendA2AFlow({
+        targetAgentId: "main",
         targetSessionKey: "agent:main:discord:channel:target-room",
         displayKey: "agent:main:discord:channel:target-room",
         message: "Test message",
@@ -423,6 +450,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     });
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "worker",
       targetSessionKey: "agent:worker:discord:group:dev",
       displayKey: "agent:worker:discord:group:dev",
       message: "Test message",
@@ -445,6 +473,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     });
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "worker",
       targetSessionKey: "agent:worker:discord:group:dev",
       displayKey: "agent:worker:discord:group:dev",
       message: "Test message",
@@ -468,6 +497,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     });
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "worker",
       targetSessionKey: "agent:worker:discord:group:dev",
       displayKey: "agent:worker:discord:group:dev",
       message: "Test message",
@@ -487,6 +517,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     const targetSessionKey = "agent:other:discord:group:ops";
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "other",
       targetSessionKey,
       displayKey: targetSessionKey,
       message: "Test message",
@@ -510,6 +541,7 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
       vi.mocked(runAgentStep).mockResolvedValueOnce(announceReply);
 
       await runSessionsSendA2AFlow({
+        targetAgentId: "main",
         targetSessionKey: "agent:main:discord:group:dev",
         displayKey: "agent:main:discord:group:dev",
         message: "Test message",

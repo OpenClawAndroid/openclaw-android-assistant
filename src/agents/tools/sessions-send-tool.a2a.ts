@@ -55,17 +55,14 @@ async function deliverAnnounceReply(params: {
   callGateway: AgentToolGatewayRequestCaller;
   message: string;
   runContextId: string;
-  targetSessionKey: string;
+  targetAgentId: string;
 }) {
-  // Gateway chooses media roots before its later outbound directive parse, so
-  // project the media and its producing agent at the announcement boundary.
+  // Gateway sends need the selected owner for text routing and media roots;
+  // carry the admitted target instead of relying on an implicit default.
   const { text: message, mediaUrls, audioAsVoice } = splitMediaFromOutput(params.message.trim());
   if (!message && !mediaUrls?.length) {
     return;
   }
-  const mediaAgentId = mediaUrls?.length
-    ? parseAgentSessionKey(params.targetSessionKey)?.agentId
-    : undefined;
   try {
     await params.callGateway({
       method: "send",
@@ -73,7 +70,7 @@ async function deliverAnnounceReply(params: {
         to: params.announceTarget.to,
         message,
         ...(mediaUrls?.length ? { mediaUrls } : {}),
-        ...(mediaAgentId ? { agentId: mediaAgentId } : {}),
+        agentId: params.targetAgentId,
         ...(audioAsVoice ? { asVoice: true } : {}),
         channel: params.announceTarget.channel,
         accountId: params.announceTarget.accountId,
@@ -95,7 +92,7 @@ async function deliverAnnounceReply(params: {
 export async function runSessionsSendA2AFlow(params: {
   callGateway?: AgentToolGatewayRequestCaller;
   targetSessionKey: string;
-  targetAgentId?: string;
+  targetAgentId: string;
   displayKey: string;
   message: string;
   announceTimeoutMs: number;
@@ -185,7 +182,7 @@ export async function runSessionsSendA2AFlow(params: {
         callGateway: gatewayCall,
         message: latestReply,
         runContextId,
-        targetSessionKey: params.targetSessionKey,
+        targetAgentId: params.targetAgentId,
       });
       return;
     }
@@ -197,7 +194,7 @@ export async function runSessionsSendA2AFlow(params: {
       let currentSessionKey = params.requesterSessionKey;
       let nextSessionKey = params.targetSessionKey;
       let currentAgentId = params.requesterAgentId;
-      let nextAgentId = params.targetAgentId;
+      let nextAgentId: string | undefined = params.targetAgentId;
       let currentRole: "requester" | "target" = "requester";
       let nextRole: "requester" | "target" = "target";
       let incomingMessage = latestReply;
@@ -275,7 +272,7 @@ export async function runSessionsSendA2AFlow(params: {
         callGateway: gatewayCall,
         message: announceReply,
         runContextId,
-        targetSessionKey: params.targetSessionKey,
+        targetAgentId: params.targetAgentId,
       });
     }
   } catch (err) {

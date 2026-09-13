@@ -25,9 +25,6 @@ export type CodexHistoryWorkerResult = (
   | { kind: "settled"; result: CodexHistoryReadResult<JsonValue[]> }
 ) & { version?: SessionTranscriptContextVersion };
 
-// This top-level plugin entry is packaged in both standalone and bundled builds.
-export const codexHistoryWorkerUrl = new URL(import.meta.url);
-
 export async function runCodexHistoryWorkerInput(
   input: unknown,
 ): Promise<CodexHistoryWorkerResult> {

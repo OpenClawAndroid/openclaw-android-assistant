@@ -173,35 +173,23 @@ function normalizeEntrySource(
     return { ok: true, source: { kind: "path", path: sourcePath } };
   }
 
-  if (kind === "github") {
-    const repo = normalizeOptionalString(rec.repo) ?? normalizeOptionalString(rec.url);
-    if (!repo) {
-      return { ok: false, error: 'github source missing "repo"' };
+  if (kind === "github" || kind === "git") {
+    const identifier =
+      kind === "github"
+        ? (normalizeOptionalString(rec.repo) ?? normalizeOptionalString(rec.url))
+        : (normalizeOptionalString(rec.url) ?? normalizeOptionalString(rec.repo));
+    if (!identifier) {
+      return {
+        ok: false,
+        error: kind === "github" ? 'github source missing "repo"' : 'git source missing "url"',
+      };
     }
+    const source: MarketplaceEntrySource =
+      kind === "github" ? { kind, repo: identifier } : { kind, url: identifier };
     return {
       ok: true,
       source: {
-        kind: "github",
-        repo,
-        path: normalizeOptionalString(rec.path),
-        ref:
-          normalizeOptionalString(rec.ref) ??
-          normalizeOptionalString(rec.branch) ??
-          normalizeOptionalString(rec.tag),
-      },
-    };
-  }
-
-  if (kind === "git") {
-    const url = normalizeOptionalString(rec.url) ?? normalizeOptionalString(rec.repo);
-    if (!url) {
-      return { ok: false, error: 'git source missing "url"' };
-    }
-    return {
-      ok: true,
-      source: {
-        kind: "git",
-        url,
+        ...source,
         path: normalizeOptionalString(rec.path),
         ref:
           normalizeOptionalString(rec.ref) ??

@@ -19,7 +19,7 @@ export type MemoryChunk = {
 };
 
 // Persisted with index metadata so boundary changes rebuild unchanged files.
-export const MEMORY_CHUNKING_VERSION = 4;
+export const MEMORY_CHUNKING_VERSION = 5;
 
 export type CuratedMarkdownEntry = {
   startLine: number;

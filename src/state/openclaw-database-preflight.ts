@@ -13,6 +13,7 @@ import { assertSqliteIntegrityInWorker } from "../infra/sqlite-integrity-worker.
 import { assertSqliteIntegrity } from "../infra/sqlite-integrity.js";
 import {
   collectSqliteSchemaIssues,
+  createSqliteTableContractReader,
   type SqliteSchemaIssue,
 } from "../infra/sqlite-schema-contract.js";
 import { readSqliteWriterAppVersion as readWriterAppVersion } from "../infra/sqlite-schema-header.js";
@@ -215,16 +216,20 @@ function inspectCurrentStateStartupSchema(
       `OpenClaw state database ${databasePath} metadata schema version ${typeof metadata?.schema_version === "number" ? metadata.schema_version : "invalid"} does not match ${foundVersion}.`,
     );
   }
+  // Both policies inspect the same private or immutable snapshot; later opens read fresh facts.
+  const readTable = createSqliteTableContractReader(database);
   const issues = deduplicateSchemaIssues([
     ...collectSqliteSchemaIssues(
       database,
       OPENCLAW_STATE_SCHEMA_SQL,
       OPENCLAW_STATE_MAINTENANCE_SCHEMA_COMPATIBILITY,
+      readTable,
     ),
     ...collectSqliteSchemaIssues(
       database,
       getOpenClawStateRuntimeSchema({ includeVersionLazyAdditiveTables: false }),
       STATE_PERSISTENT_SCHEMA_COMPATIBILITY,
+      readTable,
     ),
   ]);
   return {

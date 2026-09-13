@@ -94,13 +94,12 @@ function renderDashboardCard(
   previewError: string | null,
 ) {
   const target = sessionNavigationTarget({
-    face: "chat",
+    face: "dashboard",
     sessionKey: row.key,
     fallbackAgentId: data.fallbackAgentId,
     basePath: data.basePath,
     row,
     mainKey: data.mainKey,
-    dashboardExpanded: true,
   });
   const author = dashboardAuthor(row, data.fallbackAgentId);
   const title = resolveSessionDisplayName(row.key, row);

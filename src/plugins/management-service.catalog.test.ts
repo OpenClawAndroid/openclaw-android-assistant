@@ -42,8 +42,12 @@ vi.mock("./recommended-tool-installs.js", () => ({
 }));
 
 const { clearManagedPluginCatalogCache } = await import("./management-catalog.js");
-const { listManagedPlugins, resolveManagedPluginIconSource, resolveManagedSetupCatalogIconUrl } =
-  await import("./management-service.js");
+const {
+  listManagedPlugins,
+  resolveManagedPluginIconSource,
+  resolveManagedPluginActivityIconSource,
+  resolveManagedSetupCatalogIconUrl,
+} = await import("./management-service.js");
 
 function mockHostedOfficialCatalog(entries: unknown[]) {
   mocks.officialCatalog.mockResolvedValue({
@@ -628,6 +632,102 @@ describe("managed plugin catalog", () => {
       channelIds: ["workboard-chat"],
     });
     expect(resolved).toEqual({ kind: "file", path: iconPath, rootPath: "/tmp/workboard" });
+    expect(catalog.plugins[0]).not.toHaveProperty("hasActivityIcon");
+    expect(catalog.plugins[0]).not.toHaveProperty("activityIconTools");
+    expect(
+      await resolveManagedPluginActivityIconSource({ config: {}, env: {}, pluginId: "workboard" }),
+    ).toBeUndefined();
+  });
+
+  it("projects activity capabilities without paths and resolves exact tool overrides", async () => {
+    const activityIconPath = "/tmp/workboard/assets/activity.svg";
+    const searchPath = "/tmp/workboard/assets/activity/Task.Search.svg";
+    const protoPath = "/tmp/workboard/assets/activity/__proto__.svg";
+    mocks.metadata.mockReturnValue(
+      metadataSnapshot({
+        enabled: true,
+        activityIconPath,
+        toolActivityIconPaths: Object.fromEntries([
+          ["__proto__", protoPath],
+          ["Task.Search", searchPath],
+        ]),
+      }),
+    );
+
+    const catalog = await listManagedPlugins({
+      config: {},
+      env: {},
+      officialCatalog: { entries: [] },
+    });
+    expect(catalog.plugins[0]).toMatchObject({
+      id: "workboard",
+      hasActivityIcon: true,
+      activityIconTools: ["Task.Search", "__proto__"],
+    });
+    expect(catalog.plugins[0]).not.toHaveProperty("activityIconPath");
+    expect(catalog.plugins[0]).not.toHaveProperty("toolActivityIconPaths");
+    expect(catalog.plugins[0]).not.toHaveProperty("hasIcon");
+    for (const [toolName, expectedPath] of [
+      [undefined, activityIconPath],
+      ["Task.Search", searchPath],
+      ["task.search", activityIconPath],
+      ["__proto__", protoPath],
+      ["toString", activityIconPath],
+    ] as const) {
+      expect(
+        await resolveManagedPluginActivityIconSource({
+          config: {},
+          env: {},
+          pluginId: "workboard",
+          toolName,
+        }),
+      ).toEqual({
+        kind: "file",
+        path: expectedPath,
+        rootPath: "/tmp/workboard",
+      });
+    }
+    expect(
+      await resolveManagedPluginActivityIconSource({
+        config: {},
+        env: {},
+        pluginId: "absent",
+        toolName: "Task.Search",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("advertises tool overrides even when a plugin has no default activity icon", async () => {
+    const iconPath = "/tmp/workboard/assets/activity/task.svg";
+    mocks.metadata.mockReturnValue(
+      metadataSnapshot({
+        enabled: false,
+        toolActivityIconPaths: { task: iconPath },
+      }),
+    );
+
+    const catalog = await listManagedPlugins({
+      config: {},
+      env: {},
+      officialCatalog: { entries: [] },
+    });
+    expect(catalog.plugins[0]).toMatchObject({ id: "workboard", activityIconTools: ["task"] });
+    expect(catalog.plugins[0]).not.toHaveProperty("hasActivityIcon");
+    expect(
+      await resolveManagedPluginActivityIconSource({
+        config: {},
+        env: {},
+        pluginId: "workboard",
+        toolName: "task",
+      }),
+    ).toEqual({
+      kind: "file",
+      path: iconPath,
+      rootPath: "/tmp/workboard",
+    });
+    expect(
+      await resolveManagedPluginActivityIconSource({ config: {}, env: {}, pluginId: "workboard" }),
+    ).toBeUndefined();
   });
 
   it("allows only provider-choice and bundled setup catalog icon URLs", async () => {

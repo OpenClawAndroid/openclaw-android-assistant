@@ -78,6 +78,8 @@ type CodeModeWorkerInput =
     };
 
 export type CodeModeWorkerPayload = CodeModeWorkerInput & {
+  /** Only interactive, non-replay cells can hand full final JSON to the run store. */
+  retainFinalValue?: boolean;
   wasmModule: WebAssembly.Module;
   wasmExtensions: Array<{ name: string; wasm: WebAssembly.Module }>;
 };

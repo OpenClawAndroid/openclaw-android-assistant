@@ -682,7 +682,7 @@ class PluginsPage extends OpenClawLightDomElement {
         },
         reloadConfig: () => {
           this.pluginConfigEditPending = false;
-          void this.context.runtimeConfig.refresh({ discardPendingChanges: true });
+          void this.context.runtimeConfig.discardDraft({ reloadOnly: true });
         },
         retryConfigRead: () => {
           void this.context.runtimeConfig.refresh();

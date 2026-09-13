@@ -116,7 +116,7 @@ describe("gateway auxiliary authority lifecycle", () => {
     expect(getOperatorApprovalDetailed({ id: record.id })).toEqual(pending);
   });
 
-  it("cancels generation approvals without closing whole-run capabilities", async () => {
+  it("reports scoped authority closure separately from whole-run capability closure", async () => {
     const onAgentRunAuthorityClosed = vi.fn();
     const gatewayAux = createAuthorityHarness({
       onAgentRunAuthorityClosed,
@@ -137,14 +137,18 @@ describe("gateway auxiliary authority lifecycle", () => {
 
     await expect(pending).resolves.toBeNull();
     expect(gatewayAux.execApprovalManager.getSnapshot(record.id)?.status).toBe("cancelled");
-    expect(onAgentRunAuthorityClosed).not.toHaveBeenCalled();
+    expect(onAgentRunAuthorityClosed).toHaveBeenCalledExactlyOnceWith(
+      scoped,
+      "approval-scope-closed",
+    );
     expect(validateAgentRunDelegatedAuthority(authority)).toBe(true);
 
     releaseAgentRunDelegatedAuthority(authority);
 
-    expect(onAgentRunAuthorityClosed).toHaveBeenCalledOnce();
-    expect(onAgentRunAuthorityClosed).toHaveBeenCalledWith(
+    expect(onAgentRunAuthorityClosed).toHaveBeenCalledTimes(2);
+    expect(onAgentRunAuthorityClosed).toHaveBeenLastCalledWith(
       expect.objectContaining({ operationalRunInstance }),
+      undefined,
     );
   });
 
@@ -198,6 +202,7 @@ describe("gateway auxiliary authority lifecycle", () => {
         expect(onAgentRunAuthorityClosed).toHaveBeenCalledOnce();
         expect(onAgentRunAuthorityClosed).toHaveBeenCalledWith(
           expect.objectContaining({ operationalRunInstance }),
+          undefined,
         );
       } finally {
         await gatewayAux.stopOperatorInteractions();

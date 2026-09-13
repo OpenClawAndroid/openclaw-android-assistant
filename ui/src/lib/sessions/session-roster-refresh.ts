@@ -174,7 +174,10 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
 
   const invalidateManagedLists = (
     agentId?: string | null,
-    row?: GatewaySessionRow,
+    row?: Pick<
+      GatewaySessionRow,
+      "key" | "agentId" | "controlOwnerSessionKey" | "parentSessionKey" | "spawnedBy"
+    >,
     sourceListScope?: SessionListScope,
   ) => {
     const matches = sessionListEventMatcher({ agentId, session: row });

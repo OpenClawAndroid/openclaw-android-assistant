@@ -120,9 +120,6 @@ function splitMarkdownIRByRenderedLimit<TRendered>(
   options: RenderResolver<TRendered>,
 ): MarkdownIR[] {
   const currentTextLength = chunk.text.length;
-  if (currentTextLength <= 1) {
-    return [chunk];
-  }
 
   const splitLimit = findLargestChunkTextLengthWithinRenderedLimit(chunk, renderedLimit, options);
   if (splitLimit <= 0) {
@@ -147,9 +144,6 @@ function findLargestChunkTextLengthWithinRenderedLimit<TRendered>(
   options: RenderResolver<TRendered>,
 ): number {
   const currentTextLength = chunk.text.length;
-  if (currentTextLength <= 1) {
-    return currentTextLength;
-  }
 
   // Rendered length is not guaranteed to be monotonic after escaping/link or
   // file-reference rewriting, so test exact candidates from longest to shortest.

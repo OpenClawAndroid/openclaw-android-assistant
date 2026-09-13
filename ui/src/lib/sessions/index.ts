@@ -388,7 +388,9 @@ export function createSessionCapability(
     }
     for (const key of terminal.sessionKeys) {
       if (key.trim()) {
-        roster.invalidateManagedLists(parseAgentSessionKey(key)?.agentId ?? terminal.agentId);
+        roster.invalidateManagedLists(parseAgentSessionKey(key)?.agentId ?? terminal.agentId, {
+          key,
+        });
       }
     }
     const previous = state.result;

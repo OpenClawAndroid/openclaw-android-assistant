@@ -1,3 +1,4 @@
+import type { StateLeaseProcessOwner } from "../infra/state-lease-process-owner.js";
 import type { OpenClawStateLeaseIdentity } from "./openclaw-state-lease-store.js";
 
 export const LEASE_HEARTBEAT_START_TIMEOUT_MS = 5_000;
@@ -21,5 +22,6 @@ export type LeaseHeartbeatWorkerData = {
   leaseMs: number;
   expiresAt: number;
   heartbeatMs: number;
+  processOwner?: { identity: StateLeaseProcessOwner; env: NodeJS.ProcessEnv };
   shared: SharedArrayBuffer;
 };

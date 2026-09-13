@@ -55,7 +55,9 @@ export async function withOpenClawStateDatabaseReadSnapshot<T>(
   openClawStateDatabaseCache.assertOpenClawStateDatabaseFreshOpenAllowedAtPath(pathname, env);
   let prepared: PreparedSqliteReadOnlyLocation;
   try {
-    prepared = await prepareSqliteReadOnlyLocation(pathname);
+    prepared = await prepareSqliteReadOnlyLocation(pathname, {
+      preserveSourceArtifacts: isArtifactPreservingStateRead(),
+    });
   } catch (error) {
     throw new Error(
       `Cannot read shared state for discovery: ${pathname}. Retry after the current state operation completes. ${String(error)}`,

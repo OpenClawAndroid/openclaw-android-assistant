@@ -481,7 +481,7 @@ afterEach(() => {
 });
 
 describe("loadPluginManifestRegistry", () => {
-  it("keeps manifest facts stable until a fresh operation reads the changed file", () => {
+  it("keeps manifest and artwork facts stable until a fresh operation reads changes", () => {
     const stateDir = fs.realpathSync(makeTempDir());
     const pluginDir = path.join(stateDir, "extensions", "cached-manifest");
     mkdirSafe(pluginDir);
@@ -500,6 +500,7 @@ describe("loadPluginManifestRegistry", () => {
       name: "Before",
       configSchema: { type: "object" },
     });
+    writeTextFile(pluginDir, "assets/activity/before.svg", "before activity");
     const env = hermeticEnv({
       OPENCLAW_STATE_DIR: stateDir,
     });
@@ -511,6 +512,9 @@ describe("loadPluginManifestRegistry", () => {
       name: "After",
       configSchema: { type: "object" },
     });
+    writeTextFile(pluginDir, "assets/activity.svg", "new default activity");
+    fs.unlinkSync(path.join(pluginDir, "assets/activity/before.svg"));
+    writeTextFile(pluginDir, "assets/activity/after.svg", "after activity");
     const updatedAt = new Date(Date.now() + 5000);
     fs.utimesSync(manifestPath, updatedAt, updatedAt);
 
@@ -518,12 +522,20 @@ describe("loadPluginManifestRegistry", () => {
     const second = loadPluginManifestRegistryCore({ env });
     expect(first.plugins.find((plugin) => plugin.id === "cached-manifest")?.name).toBe("Before");
     expect(second.plugins.find((plugin) => plugin.id === "cached-manifest")?.name).toBe("Before");
+    for (const snapshot of [first, second]) {
+      const plugin = snapshot.plugins.find((entry) => entry.id === "cached-manifest");
+      expect(plugin?.activityIconPath).toBeUndefined();
+      expect(Object.keys(plugin?.toolActivityIconPaths ?? {})).toEqual(["before"]);
+    }
     expect(open.mock.calls.filter(([file]) => file === manifestPath)).toEqual([]);
 
     const refreshed = withPluginCache(createPluginCache(), () =>
       loadPluginManifestRegistryCore({ env }),
     );
     expect(refreshed.plugins.find((plugin) => plugin.id === "cached-manifest")?.name).toBe("After");
+    const refreshedPlugin = refreshed.plugins.find((entry) => entry.id === "cached-manifest");
+    expect(refreshedPlugin?.activityIconPath).toBe(path.join(pluginDir, "assets/activity.svg"));
+    expect(Object.keys(refreshedPlugin?.toolActivityIconPaths ?? {})).toEqual(["after"]);
     expect(open.mock.calls.filter(([file]) => file === manifestPath)).toHaveLength(1);
     expect(
       loadPluginManifestRegistryCore({ env }).plugins.find(
@@ -594,7 +606,7 @@ describe("loadPluginManifestRegistry", () => {
     expectRegistryDiagnosticContains(registry, "plugin manifest not found");
   });
 
-  it("ignores legacy manifest icon URLs", () => {
+  it("ignores legacy manifest icon URLs and keeps identity artwork out of activity metadata", () => {
     const dir = makeTempDir();
     writeManifest(dir, {
       id: "icon-demo",
@@ -602,6 +614,7 @@ describe("loadPluginManifestRegistry", () => {
       icon: "https://cdn.simpleicons.org/simpleicons",
       configSchema: { type: "object" },
     });
+    writeTextFile(dir, "assets/icon.png", "identity icon");
 
     const registry = loadRegistry([
       createPluginCandidate({
@@ -612,9 +625,11 @@ describe("loadPluginManifestRegistry", () => {
     ]);
 
     expect(registry.plugins[0]).not.toHaveProperty("icon");
+    expect(registry.plugins[0]?.activityIconPath).toBeUndefined();
+    expect(registry.plugins[0]?.toolActivityIconPaths).toBeUndefined();
   });
 
-  it("discovers the portable package icon without manifest indirection", () => {
+  it("discovers separate identity and activity assets with exact, ordered tool IDs", () => {
     const dir = makeTempDir();
     writeManifest(dir, {
       id: "icon-demo",
@@ -622,6 +637,20 @@ describe("loadPluginManifestRegistry", () => {
       configSchema: { type: "object" },
     });
     writeTextFile(dir, "assets/icon.png", "portable icon");
+    writeTextFile(dir, "assets/activity.svg", "default activity");
+    for (const name of ["z-last", "Exact.Tool", "__proto__", "a..b"]) {
+      writeTextFile(dir, `assets/activity/${name}.svg`, "tool activity");
+    }
+    for (const name of [
+      ".hidden.svg",
+      "invalid name.svg",
+      "écho.svg",
+      "notes.png",
+      `${"a".repeat(129)}.svg`,
+    ]) {
+      writeTextFile(dir, `assets/activity/${name}`, "not a tool icon");
+    }
+    mkdirSafe(path.join(dir, "assets/activity/directory.svg"));
 
     const registry = loadRegistry([
       createPluginCandidate({
@@ -632,9 +661,20 @@ describe("loadPluginManifestRegistry", () => {
     ]);
 
     expect(registry.plugins[0]?.iconPath).toBe(path.join(dir, "assets/icon.png"));
+    expect(registry.plugins[0]?.activityIconPath).toBe(path.join(dir, "assets/activity.svg"));
+    const toolIcons = registry.plugins[0]?.toolActivityIconPaths;
+    expect(Object.keys(toolIcons ?? {})).toEqual(["Exact.Tool", "__proto__", "a..b", "z-last"]);
+    expect(toolIcons).toEqual(
+      Object.fromEntries(
+        ["Exact.Tool", "__proto__", "a..b", "z-last"].map((name) => [
+          name,
+          path.join(dir, `assets/activity/${name}.svg`),
+        ]),
+      ),
+    );
   });
 
-  it("discovers the same portable icon convention for Agent Plugins bundles", () => {
+  it("discovers the same identity and activity conventions for Agent Plugins bundles", () => {
     const dir = makeTempDir();
     setupBundleFixture({
       bundleDir: dir,
@@ -643,7 +683,11 @@ describe("loadPluginManifestRegistry", () => {
         $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
         name: "Portable Icon Bundle",
       },
-      textFiles: { "assets/icon.png": "portable icon" },
+      textFiles: {
+        "assets/icon.png": "portable icon",
+        "assets/activity.svg": "default activity",
+        "assets/activity/task.search.svg": "search activity",
+      },
     });
 
     const registry = loadRegistry([
@@ -657,7 +701,71 @@ describe("loadPluginManifestRegistry", () => {
     ]);
 
     expect(registry.plugins[0]?.iconPath).toBe(path.join(dir, "assets/icon.png"));
+    expect(registry.plugins[0]?.activityIconPath).toBe(path.join(dir, "assets/activity.svg"));
+    expect(registry.plugins[0]?.toolActivityIconPaths).toEqual({
+      "task.search": path.join(dir, "assets/activity/task.search.svg"),
+    });
   });
+
+  it.each([128, 129])(
+    "bounds activity overrides without partially discovering %i entries",
+    (count) => {
+      const dir = makeTempDir();
+      writeManifest(dir, { id: "activity-limit", configSchema: { type: "object" } });
+      writeTextFile(dir, "assets/activity.svg", "default activity");
+      for (let index = 0; index < count; index += 1) {
+        writeTextFile(dir, `assets/activity/tool_${index}.svg`, "tool activity");
+      }
+      const registry = loadRegistry([
+        createPluginCandidate({ idHint: "activity-limit", rootDir: dir, origin: "bundled" }),
+      ]);
+
+      expect(registry.plugins[0]?.activityIconPath).toBe(path.join(dir, "assets/activity.svg"));
+      if (count === 128) {
+        expect(Object.keys(registry.plugins[0]?.toolActivityIconPaths ?? {})).toHaveLength(128);
+      } else {
+        expect(registry.plugins[0]?.toolActivityIconPaths).toBeUndefined();
+      }
+    },
+  );
+
+  it.each(["default-symlink", "directory-symlink", "tool-hardlink"])(
+    "ignores activity assets that escape their installed plugin boundary (%s)",
+    (mode) => {
+      const dir = makeTempDir();
+      const outside = makeTempDir();
+      writeManifest(dir, { id: "activity-boundary", configSchema: { type: "object" } });
+      writeTextFile(outside, "tool.svg", "external activity");
+      mkdirSafe(path.join(dir, "assets"));
+      try {
+        if (mode === "default-symlink") {
+          fs.symlinkSync(path.join(outside, "tool.svg"), path.join(dir, "assets/activity.svg"));
+        } else if (mode === "directory-symlink") {
+          fs.symlinkSync(outside, path.join(dir, "assets/activity"), "junction");
+        } else {
+          mkdirSafe(path.join(dir, "assets/activity"));
+          fs.linkSync(path.join(outside, "tool.svg"), path.join(dir, "assets/activity/tool.svg"));
+        }
+      } catch (error) {
+        if (
+          process.platform === "win32" &&
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "EPERM"
+        ) {
+          return;
+        }
+        throw error;
+      }
+      const registry = loadRegistry([
+        createPluginCandidate({ idHint: "activity-boundary", rootDir: dir, origin: "global" }),
+      ]);
+
+      expect(registry.plugins).toHaveLength(1);
+      expect(registry.plugins[0]?.activityIconPath).toBeUndefined();
+      expect(registry.plugins[0]?.toolActivityIconPaths).toBeUndefined();
+    },
+  );
 
   it("preserves manifest catalog metadata and categories on registry records", () => {
     const dir = makeTempDir();

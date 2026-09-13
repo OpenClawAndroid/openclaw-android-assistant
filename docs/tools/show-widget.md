@@ -14,6 +14,12 @@ read_when:
 
 For a pinned data report, provide a structured `report` with `pin: true`. Reports render directly in the Control UI dashboard using its native typography and layout, without a document frame. Use HTML for arbitrary interactive content or an inline preview. See [Native dashboard reports](#native-dashboard-reports).
 
+The bundled `visualize` skill teaches both inline code explanations (architecture,
+execution traces, performance comparisons, and UI mockups) and persistent
+dashboard content. The `control-ui` skill owns session and board organization.
+Keep one-off visuals inline; pin for an explicit dashboard request or multiple
+non-code visualizations that belong together.
+
 ## How widgets work
 
 For HTML widgets, OpenClaw core validates `widget_code` by parsing every inline JavaScript `<script>` (classic and module), skipping scripts with `src` or a non-JavaScript `type`, then wraps it once in the canonical HTML document. Core rejects the call with the line and column of the first syntax error, so a widget with a broken script is never hosted. For an inline client, core stores that document as a Canvas document and returns a preview handle. The Control UI reads the document over its authenticated Gateway connection and renders it through the dedicated-origin, double-iframe sandbox used by dashboard widgets and MCP Apps. The widget frame does not need its own login session. iOS, Android, macOS, and Linux Quick Chat use isolated web views. Full chat clients restore the widget after history reload. Quick Chat keeps the widget for its active reply.
@@ -31,7 +37,7 @@ For browser embedding, the wrapper document injects six small host bridges aroun
 - A snapshot bridge renders the current widget document as a PNG when the embedding chat requests an export.
 - A chat-host bridge hides embedded scrollbar chrome when the widget runs inline while preserving scrolling behavior.
 
-Everything else stays inside the frame. The document runs in an opaque origin with a strict Content Security Policy. Widget scripts cannot reach the Control UI, the Gateway, or the network.
+Everything else stays inside the frame. The document runs in an opaque origin with a restrictive Content Security Policy. Widget scripts cannot directly reach the Control UI or Gateway. Public CDN assets are allowed as described below; API connections remain separate from static-resource loading.
 
 OpenClaw exposes `show_widget` only when the originating Gateway client declares the `inline-widgets` capability or exactly one registered current-channel presenter synchronously matches trusted run context. The Control UI and supported native apps declare the inline capability automatically. Linux Quick Chat stays text-only for Gateway connections that require a custom TLS leaf pin because its platform WebView cannot bind that pin. Discord matches only when Activities are configured for the current account and a concrete channel is available. Other channel runs without an inline client or matching presenter do not receive the tool.
 
@@ -85,7 +91,58 @@ Author widgets with four rules:
 3. Reserve `--accent-fill` for at most one primary action.
 4. Fit the iframe width at every viewport. Avoid fixed page or card widths. Use fluid sizing and wrap or stack multi-column layouts when narrow. Use horizontal scrolling only when exact geometry must remain.
 
-**Export:** In web chat, open the widget card menu. From there, copy the rendered widget to the clipboard or download it as a PNG. Older widget documents without the snapshot bridge fall back to an HTML file download.
+**Export:** In web chat, open the widget card menu. From there, copy the rendered widget to the clipboard or download it as a PNG. Older widget documents without the snapshot bridge fall back to an HTML file download. The PNG exporter does not inline external stylesheets or fonts; check the export when using them.
+
+## Libraries and fonts
+
+Send an HTML/SVG fragment in `widget_code`, with optional `<style>`, `<link>`, and
+`<script>` tags. OpenClaw supplies the document shell. The default widget policy
+allows scripts, ES module imports, stylesheets, and fonts from:
+
+- `https://cdnjs.cloudflare.com`
+- `https://cdn.jsdelivr.net`
+- `https://esm.sh`
+- `https://unpkg.com`
+- `https://fonts.googleapis.com`
+- `https://fonts.gstatic.com`
+- `https://fonts.bunny.net`
+
+Use version-pinned libraries and load them before the code that uses them:
+
+```html
+<div id="chart">Loading chart…</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js" crossorigin="anonymous"></script>
+<script>
+  const chart = document.getElementById("chart");
+  if (typeof d3 === "undefined") {
+    chart.textContent = "Chart library unavailable. Try again when the CDN is reachable.";
+  } else {
+    chart.textContent = "";
+    d3.select(chart)
+      .selectAll("p")
+      .data([3, 5, 8])
+      .join("p")
+      .text((value) => `Value: ${value}`);
+  }
+</script>
+```
+
+Transitive imports, stylesheet URLs, font files, and redirects must also use
+allowed origins. No library is preloaded. Inline JavaScript syntax is validated
+before hosting; external library loading and runtime behavior require rendered
+verification. Strict embed mode continues to disable scripts.
+
+This allowlist permits public resource requests without a dashboard grant. It
+does not enable `fetch`, WebSocket, arbitrary remote images, nested frames, or
+`unsafe-eval`. Fetching data from a CDN still requires the ordinary connection
+permission. Keep private data and credentials out of asset URLs. External code
+runs inside the widget and can see its content and use its granted capabilities;
+choose libraries accordingly. CDN requests reveal the client's IP and requested
+asset to the CDN; widget documents use a no-referrer policy.
+
+Existing stored inline documents retain their original document policy. Recreate
+an older widget to use external libraries; changing the host policy does not
+rewrite chat history.
 
 ## Use the tool
 
@@ -209,6 +266,8 @@ Pinned HTML and registered-source widgets expose one ticket-bound host API. An e
 
 OpenClaw forwards user-clicked links to `http` or `https` destinations to the Control UI host. The host opens a new tab with `noopener` and `noreferrer`. Forwarding covers a primary click on a `target="_blank"` link and a middle-button click on any link, matching how links behave elsewhere in the Control UI. A widget's own `preventDefault` still cancels the click. The widget sandbox never grants popup permission, and script-initiated `window.open` does not work.
 
+Popup blocking comes from the iframe sandbox permissions. Widgets can define their own `open` function, such as a dialog helper, without colliding with an OpenClaw global. Host APIs remain under `window.openclaw`, with `sendPrompt` retained as a legacy helper.
+
 Network access is separate from host tools. Put exact HTTPS origins in `capabilities.netOrigins`. Once the session policy grants them, only those origins enter the widget's `connect-src`. Wildcards, credentials, paths, query strings, and undeclared origins remain blocked. A literal port is allowed only when it is part of the declared origin.
 
 The tool schema describes currently active plugin read bindings and action
@@ -292,9 +351,9 @@ hits. Removing one widget does not fail another authorized widget's shared read.
 
 ## Security and storage
 
-Widget documents use restrictive Content Security Policies. Inline style and script are allowed, while arbitrary external resource loads remain blocked. Registered content kinds can load their explicitly public static renderer assets from the isolated sandbox origin. Inline transcript widgets cannot fetch the network. A pinned dashboard widget can fetch only exact HTTPS origins that the agent declared and the session policy granted.
+Widget documents use restrictive Content Security Policies. Inline style and script and the listed public CDN scripts, stylesheets, and fonts are allowed; other external resource loads remain blocked. Registered content kinds can load their explicitly public static renderer assets from the isolated sandbox origin. Inline transcript widgets cannot make API connections. A pinned dashboard widget can fetch only exact HTTPS origins that the agent declared and the session policy granted.
 
-The Control UI's widget content iframe always omits `allow-same-origin`, even when the global embed mode is `trusted`, so widget scripts cannot read the parent application origin. With scripts enabled, the outer proxy runs on a dedicated origin and relays messages across the frame boundary. In `strict` mode, the Control UI still reads the document through its authenticated Gateway connection, but renders it without scripts or scripted interactions. Native clients use isolated, nonpersistent web views and block navigation away from the hosted widget. The core document host also serves widgets with a `Content-Security-Policy: sandbox allow-scripts` response header, so direct rendering still runs the widget in an opaque origin instead of an application origin. Only render widget code you are willing to execute in that isolated frame.
+The Control UI's widget content iframe always omits `allow-same-origin`, even when the global embed mode is `trusted`, so widget scripts cannot read the parent application origin. With scripts enabled, the outer proxy runs on a dedicated origin and relays messages across the frame boundary. In `strict` mode, the Control UI still reads the document through its authenticated Gateway connection, but renders it without scripts or scripted interactions. Native clients use isolated, nonpersistent web views and block navigation away from the hosted widget. The core document host also serves sandbox-marked widgets with the resource policy and `sandbox allow-scripts` in the response header, so direct rendering still runs the widget in an opaque origin instead of an application origin. Only render widget code you are willing to execute in that isolated frame.
 
 The iframe also follows [`gateway.controlUi.embedSandbox`](/web/control-ui/chat#hosted-embeds). The default `scripts` tier supports interactive widgets while preserving origin isolation.
 

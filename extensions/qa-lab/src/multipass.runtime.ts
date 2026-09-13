@@ -488,45 +488,17 @@ async function waitForGuestReady(logPath: string, vmName: string) {
   throw toStringifiedError(lastError);
 }
 
-async function mountRepo(logPath: string, repoRoot: string, vmName: string) {
+async function mountPath(logPath: string, hostPath: string, guestPath: string, retryLabel: string) {
   let lastError: unknown;
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
-      await runMultipassCommand(logPath, [
-        "mount",
-        repoRoot,
-        `${vmName}:${MULTIPASS_MOUNTED_REPO_PATH}`,
-      ]);
+      await runMultipassCommand(logPath, ["mount", hostPath, guestPath]);
       return;
     } catch (error) {
       lastError = error;
       await appendMultipassLog(
         logPath,
-        `mount retry ${attempt}/5: ${coerceErrorMessage(error)}\n\n`,
-      );
-      if (attempt < 5) {
-        await sleep(2_000);
-      }
-    }
-  }
-  throw toStringifiedError(lastError);
-}
-
-async function mountCodexHome(logPath: string, hostCodexHomePath: string, vmName: string) {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    try {
-      await runMultipassCommand(logPath, [
-        "mount",
-        hostCodexHomePath,
-        `${vmName}:${MULTIPASS_GUEST_CODEX_HOME_PATH}`,
-      ]);
-      return;
-    } catch (error) {
-      lastError = error;
-      await appendMultipassLog(
-        logPath,
-        `codex-home mount retry ${attempt}/5: ${coerceErrorMessage(error)}\n\n`,
+        `${retryLabel} retry ${attempt}/5: ${coerceErrorMessage(error)}\n\n`,
       );
       if (attempt < 5) {
         await sleep(2_000);
@@ -637,9 +609,19 @@ export async function runQaMultipass(params: {
     ]);
     launched = true;
     await waitForGuestReady(plan.hostLogPath, plan.vmName);
-    await mountRepo(plan.hostLogPath, plan.repoRoot, plan.vmName);
+    await mountPath(
+      plan.hostLogPath,
+      plan.repoRoot,
+      `${plan.vmName}:${MULTIPASS_MOUNTED_REPO_PATH}`,
+      "mount",
+    );
     if (plan.hostCodexHomePath) {
-      await mountCodexHome(plan.hostLogPath, plan.hostCodexHomePath, plan.vmName);
+      await mountPath(
+        plan.hostLogPath,
+        plan.hostCodexHomePath,
+        `${plan.vmName}:${MULTIPASS_GUEST_CODEX_HOME_PATH}`,
+        "codex-home mount",
+      );
     }
     await transferLiveProviderConfig(plan);
     await runMultipassCommand(plan.hostLogPath, [

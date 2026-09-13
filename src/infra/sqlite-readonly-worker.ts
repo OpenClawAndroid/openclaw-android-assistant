@@ -1,5 +1,6 @@
 import { execFile, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { getCompileCacheDir } from "node:module";
 import path from "node:path";
 import { toUSVString } from "node:util";
 import { formatByteSize } from "@openclaw/normalization-core";
@@ -243,6 +244,16 @@ function sqliteReadOnlyWorkerArgv(
   ];
 }
 
+function sqliteReadOnlyWorkerEnv(): NodeJS.ProcessEnv {
+  const env = process.env;
+  if (env.NODE_COMPILE_CACHE !== undefined || env.NODE_DISABLE_COMPILE_CACHE !== undefined) {
+    return env;
+  }
+  // Programmatic cache enablement applies only to the current Node instance.
+  const directory = getCompileCacheDir?.();
+  return directory ? { ...env, NODE_COMPILE_CACHE: directory } : env;
+}
+
 export function runSqliteReadOnlyWorker(
   pathname: string,
   options: {
@@ -278,6 +289,7 @@ export function runSqliteReadOnlyWorker(
       ),
       {
         encoding: "utf8",
+        env: sqliteReadOnlyWorkerEnv(),
         timeout: timeoutMs,
         killSignal: "SIGKILL",
       },
@@ -323,6 +335,7 @@ export function runSqliteReadOnlyWorkerSync(pathname: string, stagingRoot: strin
     sqliteReadOnlyWorkerArgv(pathname, "sync", stagingRoot),
     {
       encoding: "utf8",
+      env: sqliteReadOnlyWorkerEnv(),
       timeout: timeoutMs,
       killSignal: "SIGKILL",
     },

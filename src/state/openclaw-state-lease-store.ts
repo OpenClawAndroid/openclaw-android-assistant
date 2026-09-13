@@ -1,9 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
+import {
+  parseStateLeaseProcessOwner,
+  readStateLeaseProcessOwnerStatus,
+  type StateLeaseProcessOwner,
+} from "../infra/state-lease-process-owner.js";
 import type { DB } from "./openclaw-state-db.generated.js";
 
 export type OpenClawStateLeaseIdentity = { scope: string; key: string; owner: string };
@@ -14,6 +20,7 @@ export function acquireOpenClawStateLeaseInTransaction(
   db: DatabaseSync,
   identity: OpenClawStateLeaseIdentity,
   leaseMs: number,
+  payloadJson: string | null = null,
 ): number | undefined {
   // BEGIN IMMEDIATE may wait on SQLite. Sample only after admission so a
   // successful insert never commits an already-expired lease.
@@ -38,13 +45,43 @@ export function acquireOpenClawStateLeaseInTransaction(
         owner: identity.owner,
         expires_at: expiresAt,
         heartbeat_at: now,
-        payload_json: null,
+        payload_json: payloadJson,
         created_at: now,
         updated_at: now,
       })
       .onConflict((conflict) => conflict.columns(["scope", "lease_key"]).doNothing()),
   );
   return inserted.numAffectedRows === 1n ? expiresAt : undefined;
+}
+
+export function readOpenClawStateLease(
+  db: DatabaseSync,
+  identity: Pick<OpenClawStateLeaseIdentity, "scope" | "key">,
+) {
+  return executeSqliteQueryTakeFirstSync(
+    db,
+    getNodeSqliteKysely<LeaseDatabase>(db)
+      .selectFrom("state_leases")
+      .select(["owner", "expires_at as expiresAt", "payload_json as payloadJson"])
+      .where("scope", "=", identity.scope)
+      .where("lease_key", "=", identity.key),
+  );
+}
+
+/** Reclaim only a same-host owner whose process identity is provably gone. */
+export function reclaimDeadOpenClawStateLeaseInTransaction(
+  db: DatabaseSync,
+  identity: Pick<OpenClawStateLeaseIdentity, "scope" | "key">,
+) {
+  const existing = readOpenClawStateLease(db, identity);
+  if (
+    existing &&
+    readStateLeaseProcessOwnerStatus(parseStateLeaseProcessOwner(existing.payloadJson)) === "dead"
+  ) {
+    releaseOpenClawStateLeaseInTransaction(db, { ...identity, owner: existing.owner });
+    return undefined;
+  }
+  return existing;
 }
 
 export function readOpenClawStateLeaseExpiry(
@@ -64,19 +101,55 @@ export function readOpenClawStateLeaseExpiry(
   )?.expires_at;
 }
 
+function repairMissingProcessStartTime(
+  db: DatabaseSync,
+  identity: OpenClawStateLeaseIdentity,
+  processOwner: StateLeaseProcessOwner | undefined,
+): string | undefined {
+  if (processOwner?.startedAt == null) {
+    return undefined;
+  }
+  const row = readOpenClawStateLease(db, identity);
+  const recorded = parseStateLeaseProcessOwner(row?.payloadJson ?? null);
+  if (
+    row?.owner !== identity.owner ||
+    recorded?.startedAt !== null ||
+    recorded.pid !== processOwner.pid ||
+    recorded.host !== processOwner.host ||
+    !row.payloadJson
+  ) {
+    return undefined;
+  }
+  const payload: unknown = JSON.parse(row.payloadJson);
+  if (!isRecord(payload) || !isRecord(payload.owner)) {
+    return undefined;
+  }
+  return JSON.stringify({
+    ...payload,
+    owner: { ...payload.owner, startedAt: processOwner.startedAt },
+  });
+}
+
 /** The caller owns the write transaction; expired or replaced owners cannot renew. */
 export function renewOpenClawStateLeaseInTransaction(
   db: DatabaseSync,
   identity: OpenClawStateLeaseIdentity,
   leaseMs: number,
+  processOwner?: StateLeaseProcessOwner,
 ): number | undefined {
   const now = Date.now();
   const expiresAt = now + leaseMs;
+  const payloadJson = repairMissingProcessStartTime(db, identity, processOwner);
   const result = executeSqliteQuerySync(
     db,
     getNodeSqliteKysely<LeaseDatabase>(db)
       .updateTable("state_leases")
-      .set({ expires_at: expiresAt, heartbeat_at: now, updated_at: now })
+      .set({
+        expires_at: expiresAt,
+        heartbeat_at: now,
+        updated_at: now,
+        ...(payloadJson === undefined ? {} : { payload_json: payloadJson }),
+      })
       .where("scope", "=", identity.scope)
       .where("lease_key", "=", identity.key)
       .where("owner", "=", identity.owner)

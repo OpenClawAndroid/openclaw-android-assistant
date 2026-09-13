@@ -9,6 +9,7 @@ import {
 } from "../../commands/doctor-completion.js";
 import { readGatewayServiceState, resolveGatewayService } from "../../daemon/service.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { readGatewayOwnerLease } from "../../infra/gateway-owner-lease.js";
 import {
   getUpdateRun,
   recordUpdateRunPhase,
@@ -333,9 +334,17 @@ export async function maybeRestartService(params: {
               ),
             );
           }
-          await terminateStaleGatewayPids(health.staleGatewayPids);
+          const terminated = await terminateStaleGatewayPids(health.staleGatewayPids, {
+            env: activation.serviceEnv,
+            assertCurrent,
+          });
           assertCurrent();
-          if (canRestartUpdatedInstall() || !isPackageUpdate) {
+          const currentOwner = readGatewayOwnerLease({ env: activation.serviceEnv });
+          if (
+            terminated.length > 0 &&
+            (!currentOwner || currentOwner.state === "dead") &&
+            (canRestartUpdatedInstall() || !isPackageUpdate)
+          ) {
             activationAccepted =
               (await runUpdatedInstallGatewayCommand(activation, "restart", preserveDefinition)) ===
               "accepted";

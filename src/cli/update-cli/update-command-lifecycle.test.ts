@@ -1,7 +1,10 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { UpdateDoctorError } from "../../infra/update-doctor-result.js";
+import { createUpdateRun, listUpdateRuns } from "../../infra/update-run-ledger.js";
 import { defaultRuntime } from "../../runtime.js";
+import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { VERSION } from "../../version.js";
 import { withOwnedManagedUpdateEnv } from "./update-command-service-env.js";
 
@@ -11,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   databasePath: "",
   readConfig: vi.fn(),
   doctorWarnings: [] as string[],
+  triage: vi.fn(),
+  interactive: false,
 }));
 
 const dirs = useAutoCleanupTempDirTracker(afterEach);
@@ -55,16 +60,19 @@ vi.mock("../../config/config.js", async (importOriginal) => ({
   readConfigFileSnapshot: mocks.readConfig,
 }));
 
-// This fixture proves lease ordering; process tests cover durable ledger writes.
-vi.mock("../../infra/update-run-ledger.js", () => ({
-  createUpdateRun: vi.fn(() => ({ runId: "lease-order-fixture" })),
-  adoptUpdateRun: vi.fn(() => ({
-    origin: { driver: { host: "lease-order-fixture", pid: 1, startIdentity: "1" } },
-  })),
-  heartbeatUpdateRun: vi.fn(),
-  recordUpdateRunStep: vi.fn(),
-  finishUpdateRun: vi.fn(),
-  recordUpdateRunDiagnostic: vi.fn(),
+vi.mock("../../infra/update-triage.js", () => ({
+  prepareUpdateFailureTriage: vi.fn(async () => mocks.triage),
+}));
+
+vi.mock("../terminal-interactivity.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../terminal-interactivity.js")>()),
+  isTerminalInteractive: () => mocks.interactive,
+}));
+
+vi.mock("../../commands/configure.shared.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../commands/configure.shared.js")>()),
+  select: vi.fn(async () => "report"),
+  confirm: vi.fn(async () => false),
 }));
 
 vi.mock("../../plugins/installed-plugin-index-records.js", () => ({
@@ -94,11 +102,8 @@ vi.mock("../../plugins/plugin-lifecycle-lease.js", () => ({
   },
 }));
 
-vi.mock("../../state/openclaw-state-db.paths.js", () => ({
-  resolveOpenClawStateSqlitePath: vi.fn(() => mocks.databasePath),
-}));
-
-vi.mock("../../state/openclaw-state-ownership.js", () => ({
+vi.mock("../../state/openclaw-state-ownership.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../state/openclaw-state-ownership.js")>()),
   assertOpenClawStateWriteAllowedAtPath: vi.fn(async () => undefined),
 }));
 
@@ -206,15 +211,26 @@ function expectLifecycleBoundary(preLeaseEvent: string): void {
 }
 
 describe("update plugin lifecycle lease boundaries", () => {
+  afterEach(() => {
+    closeOpenClawStateDatabaseForTest();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     // Ordering-only fixtures own an absent private state root; never probe a
     // shared host path while real recovery admission is running.
     mocks.databasePath = path.join(dirs.make("update-lease-order-"), "state", "openclaw.sqlite");
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    vi.stubEnv("OPENCLAW_STATE_DIR", path.dirname(path.dirname(mocks.databasePath)));
+    vi.stubEnv("OPENCLAW_UPDATE_RUN_ID", undefined);
+    vi.stubEnv("OPENCLAW_UPDATE_POST_CORE", undefined);
     mocks.events = [];
     mocks.leaseActive = false;
     mocks.doctorWarnings = [];
+    mocks.interactive = false;
+    mocks.triage.mockResolvedValue({ status: "completed", hint: "fixture" });
     vi.mocked(readPackageVersion).mockResolvedValue(VERSION);
     vi.mocked(continuePostCoreUpdateInFreshProcess).mockImplementation(async () => {
       record("target-convergence");
@@ -229,6 +245,76 @@ describe("update plugin lifecycle lease boundaries", () => {
     vi.spyOn(defaultRuntime, "log").mockImplementation(() => undefined);
     vi.spyOn(defaultRuntime, "writeJson").mockImplementation(() => undefined);
   });
+
+  it.each([false, true])(
+    "reports the admitted Doctor failure (interactive=%s)",
+    async (interactive) => {
+      mocks.interactive = interactive;
+      const message =
+        "Doctor could not enter maintenance. Error: The update parent owns Gateway activation.";
+      vi.mocked(runUpdateFinalizationDoctorInFreshProcess).mockRejectedValueOnce(
+        new UpdateDoctorError(message, [{ check: "doctor", code: "doctor-failed", message }]),
+      );
+      mocks.triage.mockImplementationOnce(async () => {
+        expect(listUpdateRuns()[0]).toMatchObject({
+          status: "failed",
+          reason: "doctor-failed",
+          target: { kind: "package" },
+        });
+        return { status: "completed", hint: "fixture" };
+      });
+      await expect(
+        updateFinalizeCommand({ json: !interactive, yes: !interactive }),
+      ).rejects.toThrow(message);
+      if (interactive) {
+        const body = vi
+          .mocked(defaultRuntime.log)
+          .mock.calls.map(([value]) => String(value))
+          .join("\n");
+        expect(body).toContain("Reason code: doctor-failed");
+        expect(body).toContain("Update mode: package");
+        expect(body).toContain(`Failed phase finalize:doctor: ${message}`);
+        expect(body).toContain(
+          "Recovery outcome: package rollback not needed: no package mutation",
+        );
+        expect(mocks.triage).not.toHaveBeenCalled();
+      } else {
+        expect(mocks.triage).toHaveBeenCalledOnce();
+      }
+      expect(listUpdateRuns()).toHaveLength(1);
+      expect(listUpdateRuns()[0]?.steps).toContainEqual(
+        expect.objectContaining({
+          step: "finalize:package-rollback-not-needed",
+          status: "skipped",
+        }),
+      );
+    },
+  );
+
+  it.each([false, true])(
+    "leaves rollback with the post-core driver (run ID=%s)",
+    async (inherited) => {
+      vi.stubEnv("OPENCLAW_UPDATE_POST_CORE", "1");
+      if (inherited) {
+        vi.stubEnv("OPENCLAW_UPDATE_RUN_ID", createUpdateRun({ trigger: "cli" }).runId);
+      }
+      vi.mocked(runUpdateFinalizationDoctorInFreshProcess).mockRejectedValueOnce(
+        new Error("Doctor failed"),
+      );
+      await expect(updateFinalizeCommand({ json: true, yes: true })).rejects.toThrow(
+        "Doctor failed",
+      );
+      const run = listUpdateRuns()[0]!;
+      expect(run).toMatchObject({
+        status: inherited ? "running" : "failed",
+        reason: "finalize:doctor",
+      });
+      expect(run.steps.some((step) => step.step === "finalize:package-rollback-not-needed")).toBe(
+        false,
+      );
+      expect(mocks.triage).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { installedVersion: VERSION, previousInstallRoot: "/tmp/openclaw", resumed: true },

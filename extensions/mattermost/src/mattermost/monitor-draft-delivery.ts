@@ -53,7 +53,7 @@ type MattermostDraftPreviewDeliverParams = {
   // Visible same-thread finals can be delivered by editing the draft preview in
   // place (onPreviewFinalized) without ever calling deliverPayload; this lets the
   // caller record thread participation on that path too.
-  recordThreadParticipation?: () => void;
+  recordThreadParticipation?: () => Promise<void> | void;
 };
 
 function combineMattermostVisibleDeliveryResults(
@@ -150,7 +150,7 @@ export async function deliverMattermostReplyWithDraftPreview(
           finalizedPreviewPost = await updateMattermostPost(params.client, previewPostId, edit);
         },
         resolveFinalizedId: (previewPostId) => finalizedPreviewPost?.id ?? previewPostId,
-        onPreviewFinalized: (_previewPostId, receipt) => {
+        onPreviewFinalized: async (_previewPostId, receipt) => {
           params.previewState.finalizedViaPreviewPost = true;
           // Supplemental retries must not repost text already committed by the preview edit.
           previewFinalTextAlreadyDelivered = true;
@@ -163,7 +163,7 @@ export async function deliverMattermostReplyWithDraftPreview(
           };
           // The visible final reply landed by editing the preview post, so the normal
           // deliverPayload record path is skipped; record participation explicitly here.
-          params.recordThreadParticipation?.();
+          await params.recordThreadParticipation?.();
         },
         buildSupplementalPayload: (payload) =>
           getReplyPayloadTtsSupplement(payload)

@@ -2301,8 +2301,9 @@ button.chat-pr__diff {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 27%, transparent);
+  border-radius: 7px;
   background: color-mix(in srgb, currentColor 12%, transparent);
   cursor: var(--cursor-action);
   font-size: 12px;
@@ -2313,6 +2314,30 @@ button.chat-pr__diff {
 
 .chat-pr__checks-pill::-webkit-details-marker {
   display: none;
+}
+
+.chat-pr__checks-pill:hover,
+.chat-pr__checks[open] .chat-pr__checks-pill {
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+  background: color-mix(in srgb, currentColor 17%, transparent);
+}
+
+.chat-pr__checks-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chat-pr__checks-chevron {
+  display: flex;
+}
+
+.chat-pr__checks-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chat-pr__checks[open] .chat-pr__checks-chevron svg {
+  transform: rotate(180deg);
 }
 
 .chat-pr__checks-dot {
@@ -2336,6 +2361,19 @@ button.chat-pr__diff {
   color: var(--text);
   font-size: 13px;
   font-weight: 500;
+}
+
+.chat-pr__checks-menu::after {
+  position: absolute;
+  right: 25px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  content: "";
+  transform: rotate(45deg);
 }
 
 .chat-pr__checks-menu-header {

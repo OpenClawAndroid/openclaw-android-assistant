@@ -430,7 +430,7 @@ fn file_secret(
         {
             return Err(());
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         if opened.uid() != unsafe { libc::geteuid() } {
             return Err(());
         }
@@ -1630,6 +1630,77 @@ mod tests {
             assert!(saved["gateway"]["remote"].get("token").is_none());
             assert!(saved["gateway"]["remote"].get("password").is_none());
             fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[test]
+    #[ignore = "requires root in a disposable Linux or FreeBSD guest"]
+    fn saved_remote_file_credentials_reject_foreign_owners() {
+        use std::os::unix::fs::{chown, DirBuilderExt, MetadataExt, PermissionsExt};
+
+        // Root can read a foreign-owned 0600 file, so rejection proves the owner
+        // check rather than an unrelated filesystem access failure.
+        assert_eq!(
+            unsafe { libc::geteuid() },
+            0,
+            "requires a disposable root guest"
+        );
+        struct FixtureDirectory(PathBuf);
+        impl Drop for FixtureDirectory {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        for field in ["token", "password"] {
+            let path = isolated_path();
+            let directory = FixtureDirectory(path.parent().unwrap().to_path_buf());
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&directory.0)
+                .unwrap();
+            let secret_path = directory.0.join("gateway-secret");
+            let payload = "fixture-owner-secret";
+            fs::write(&secret_path, payload).unwrap();
+            fs::set_permissions(&secret_path, fs::Permissions::from_mode(0o600)).unwrap();
+            let mut config = json!({
+                "secrets": { "providers": { "gatewayfile": {
+                    "source": "file", "path": secret_path, "mode": "singleValue",
+                }}},
+                "gateway": { "mode": "remote", "remote": {
+                    "url": "ws://127.0.0.1:18789",
+                }},
+            });
+            config["gateway"]["remote"][field] =
+                json!({ "source": "file", "provider": "gatewayfile", "id": "value" });
+            fs::write(&path, config.to_string()).unwrap();
+            let config_before = fs::read(&path).unwrap();
+            let own = reconnect_saved_at(&path);
+            assert_eq!(serde_json::to_value(own).unwrap()[field], payload);
+
+            let original = fs::metadata(&secret_path).unwrap();
+            chown(&secret_path, Some(1), None).unwrap();
+            let foreign = fs::metadata(&secret_path).unwrap();
+            assert_eq!(foreign.uid(), 1);
+            assert_eq!(
+                (foreign.dev(), foreign.ino()),
+                (original.dev(), original.ino())
+            );
+            assert_eq!(foreign.mode() & 0o777, 0o600);
+            assert_eq!(fs::read_to_string(&secret_path).unwrap(), payload);
+            let error = load_saved_remote_at(&path)
+                .err()
+                .expect("reject foreign owner");
+            assert!(error.contains(&format!(
+                "Gateway {field} secret reference could not be resolved"
+            )));
+            assert!(!error.contains(payload));
+            assert_eq!(fs::read(&path).unwrap(), config_before);
+
+            chown(&secret_path, Some(0), None).unwrap();
+            let restored = reconnect_saved_at(&path);
+            assert_eq!(serde_json::to_value(restored).unwrap()[field], payload);
         }
     }
 

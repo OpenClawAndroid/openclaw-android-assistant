@@ -1,6 +1,5 @@
 // QA evidence for the real Gateway TLS listener and public client pinning boundary.
 import fs from "node:fs/promises";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -21,6 +20,7 @@ import { resolveGatewayConnectionTlsFingerprint } from "../../../../src/gateway/
 import { formatErrorMessage } from "../../../../src/infra/errors.js";
 import { loadGatewayTlsServerRuntime } from "../../../../src/infra/tls/gateway.js";
 import { flushLogger, resetLogger } from "../../../../src/logging/logger.js";
+import { getDeterministicFreePortBlock, getFreePort } from "../../../../src/test-utils/ports.js";
 import { waitForFile } from "../../../helpers/process-wait.js";
 import { createDeferred } from "../../../helpers/promise.js";
 import { createQaScriptEvidenceWriter } from "./script-evidence.js";
@@ -165,23 +165,6 @@ async function readAdvertisedFingerprint(advertisementPath: string): Promise<str
     throw new Error("Gateway discovery publisher advertised an invalid TLS fingerprint");
   }
   return normalized;
-}
-
-async function getFreePort(): Promise<number> {
-  const server = net.createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    server.close();
-    throw new Error("failed to allocate a loopback port");
-  }
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
-  return address.port;
 }
 
 async function waitForPeerFingerprint(port: number): Promise<string> {
@@ -416,7 +399,7 @@ export async function runGatewayTlsPinningProof(): Promise<GatewayTlsPinningProo
     clearConfigCache();
     clearRuntimeConfigSnapshot();
 
-    const port = await getFreePort();
+    const port = await getDeterministicFreePortBlock({ offsets: [0, 1] });
     server = await startGatewayServer(port, {
       auth: { mode: "none" },
       bind: "loopback",

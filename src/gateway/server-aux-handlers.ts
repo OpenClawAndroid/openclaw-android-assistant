@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { resolveProjectedMcpCodexToolApprovalMode } from "../agents/mcp-codex-tool-approval.js";
 import { getRuntimeConfig } from "../config/io.js";
+import type { AgentRunApprovalClosureReason } from "../infra/agent-run-approval-leases.js";
 import {
   type AgentRunDelegatedAuthority,
   registerAgentRunDelegatedAuthorityClosedHandler,
@@ -76,7 +77,10 @@ export function createGatewayAuxHandlers(
   params: GatewaySecretsReloaderParams & {
     log: GatewayAuxHandlerLogger;
     onApprovalLifecycle?: (event: OperatorApprovalLifecycleEvent) => void;
-    onAgentRunAuthorityClosed?: (authority: AgentRunDelegatedAuthority) => void;
+    onAgentRunAuthorityClosed?: (
+      authority: AgentRunDelegatedAuthority,
+      approvalReason?: AgentRunApprovalClosureReason,
+    ) => void;
     validateAgentRuntimeDelegatedAuthority?: (authority: AgentRuntimeDelegatedAuthority) => boolean;
     /** Abort-wins guard: a tombstoned run must not mint standing authority. */
     hasRunAbortMarker?: (runId: string) => boolean;
@@ -295,9 +299,7 @@ export function createGatewayAuxHandlers(
         }
       }
       questionManager.cancelClosedAuthorities();
-      if (!approvalReason) {
-        params.onAgentRunAuthorityClosed?.(authority);
-      }
+      params.onAgentRunAuthorityClosed?.(authority, approvalReason);
     },
   );
   const unregisterWorkerTurnClaimClosedObserver = params.registerWorkerTurnClaimClosedHandler?.(

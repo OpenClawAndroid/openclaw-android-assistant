@@ -54,7 +54,11 @@ import {
   TOOL_PAYLOAD_REDACT_PATTERNS,
 } from "./redact-patterns.js";
 import { PEM_REDACT_MATCHER, PEM_REDACT_PATTERN_SOURCE } from "./redact-pem.js";
-import { redactRegisteredSecretValues } from "./secret-redaction-registry.js";
+import {
+  captureSecretRedactionRegistrySnapshot,
+  createSecretValueRedactor,
+  redactRegisteredSecretValues,
+} from "./secret-redaction-registry.js";
 import { shouldRedactStructuredAuthorizationCode } from "./structured-authorization-code.js";
 
 type RedactSensitiveMode = "off" | "tools";
@@ -882,7 +886,32 @@ export function redactSensitiveText(text: string, options?: RedactOptions): stri
     return text;
   }
   const exactRedacted = redactRegisteredSecretValues(text, maskToken);
-  const resolvedOptions = options ?? resolveConfigRedaction();
+  return redactSensitiveTextWithOptions(exactRedacted, options ?? resolveConfigRedaction());
+}
+
+export type SensitiveTextRedactionSnapshot = {
+  readonly registryRevision: number;
+  readonly registeredSecretValues: readonly string[];
+};
+
+/** Captures the built-in tools-mode policy used by session preparation. Never log this snapshot. */
+export function captureSensitiveTextRedactionSnapshot(): SensitiveTextRedactionSnapshot {
+  const { revision, values } = captureSecretRedactionRegistrySnapshot();
+  return { registryRevision: revision, registeredSecretValues: values };
+}
+
+export function createSensitiveTextRedactor(
+  snapshot: SensitiveTextRedactionSnapshot,
+): (text: string) => string {
+  const redactExactValues = createSecretValueRedactor(snapshot.registeredSecretValues);
+  const options: RedactOptions = { mode: "tools" };
+  return (text) => redactSensitiveTextWithOptions(redactExactValues(text, maskToken), options);
+}
+
+function redactSensitiveTextWithOptions(
+  exactRedacted: string,
+  resolvedOptions: RedactOptions,
+): string {
   if (normalizeMode(resolvedOptions.mode) === "off") {
     return exactRedacted;
   }

@@ -3969,7 +3969,10 @@ export function buildVitestRunPlans(
     (!explicitConfigTargets.includes(PACKAGE_CONTRACT_VITEST_CONFIG) &&
       hasPackageFileTarget &&
       collectVitestFileFilters(["run", ...nonTargetArgs]).length > 0);
-  if (explicitConfigTargets.every(isVitestConfigFileTarget)) {
+  if (
+    explicitConfigTargets.every(isVitestConfigFileTarget) &&
+    impliedDatabaseWorkerTargets.length === 0
+  ) {
     if (watchMode && explicitConfigTargets.length > 1) {
       throw new Error(
         "watch mode with mixed test suites is not supported; target one suite at a time or use a dedicated suite command",

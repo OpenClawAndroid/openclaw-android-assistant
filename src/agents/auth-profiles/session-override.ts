@@ -27,6 +27,7 @@ import { resolveDefaultModelForAgent } from "../model-selection.js";
 import { resolveModelCatalogIdentityKey } from "../openai-model-routes.js";
 import { listOpenAIAuthProfileProvidersForAgentRuntime } from "../openai-routing.js";
 import { resolveProviderModelRouteAuthRequirement } from "../provider-model-route-auth.js";
+import { createSelectedAuthProfileUnavailableError } from "./selection-error.js";
 import { ensureAuthProfileStore } from "./store-runtime.js";
 
 const sessionAccessorLoader = createLazyImportLoader(
@@ -642,6 +643,13 @@ export async function resolveSessionAuthSelection(params: {
       store: authStore,
     })
   ) {
+    if (!authStore.profiles[profileId] && cfg.auth?.profiles?.[profileId]?.mode !== "aws-sdk") {
+      throw createSelectedAuthProfileUnavailableError({
+        profileId,
+        provider: params.provider,
+        modelId,
+      });
+    }
     throw new Error(
       `Auth profile "${configuredProfileId}" is not configured for ${params.provider}.`,
     );

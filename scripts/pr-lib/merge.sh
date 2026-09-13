@@ -127,6 +127,7 @@ require_clawsweeper_review() {
 # The caller uses a conditional, so every fallible evidence operation is checked.
 mainline_drift_requires_sync() (
   set -o pipefail
+  export LC_ALL=C
   local mainline_base="$1"
   local prepared_head_sha="$2"
 

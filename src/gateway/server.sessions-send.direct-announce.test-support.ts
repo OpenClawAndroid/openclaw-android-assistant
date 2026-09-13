@@ -71,6 +71,7 @@ export async function runDirectSessionAnnounceScenario(params: {
     });
 
     await runSessionsSendA2AFlow({
+      targetAgentId: "main",
       targetSessionKey: sessionKey,
       displayKey: sessionKey,
       message: "announce to the direct session",

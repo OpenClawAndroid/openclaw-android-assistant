@@ -208,8 +208,12 @@ describeControlUiE2e("session pull request chips", () => {
     // Rate-limited data shows the stale warning on non-terminal chips only.
     await expect.poll(() => openChip.locator(".chat-pr__warning").count()).toBe(1);
 
-    // The CI pill opens the monitoring popover with per-state counts.
-    await openChip.locator(".chat-pr__checks-pill").click();
+    const checksControl = openChip.locator(".chat-pr__checks-pill");
+    if (captureUiProof) {
+      await page.screenshot({ path: path.join(stackingProofDir, "ci-closed.png") });
+    }
+    // The CI control opens the monitoring popover with per-state counts.
+    await checksControl.click();
     const menu = openChip.locator(".chat-pr__checks-menu");
     await expect
       .poll(() => menu.locator(".chat-pr__checks-row--passed").textContent())
@@ -220,9 +224,29 @@ describeControlUiE2e("session pull request chips", () => {
     await expect
       .poll(() => menu.locator("a").getAttribute("href"))
       .toBe("https://github.com/openclaw/openclaw/pull/103469/checks");
+    if (captureUiProof) {
+      await page.screenshot({ path: path.join(stackingProofDir, "ci-open.png") });
+    }
+    // The visible disclosure cue tracks the native details state.
+    const chevron = checksControl.locator("svg");
+    expect(await chevron.count()).toBe(1);
+    expect(await chevron.isVisible()).toBe(true);
+    const openTransform = await chevron.evaluate((node) => getComputedStyle(node).transform);
+    expect(await checksControl.evaluate((node) => getComputedStyle(node).borderTopStyle)).toBe(
+      "solid",
+    );
     // Clicking outside light-dismisses the popover.
     await page.locator(".chat-prs").click({ position: { x: 4, y: 4 } });
     await expect.poll(() => openChip.locator(".chat-pr__checks[open]").count()).toBe(0);
+    await expect
+      .poll(() => chevron.evaluate((node) => getComputedStyle(node).transform))
+      .not.toBe(openTransform);
+    // Keyboard activation keeps the same disclosure behavior.
+    await checksControl.focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => menu.isVisible()).toBe(true);
+    await page.keyboard.press("Space");
+    await expect.poll(() => menu.isVisible()).toBe(false);
 
     // Show more reveals the collapsed merged chip.
     await showMore.click();

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { zstdCompressSync } from "node:zlib";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import { loadSqliteVecExtension } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
@@ -43,6 +44,83 @@ describe("memory forget", () => {
 
   afterEach(async () => {
     await fixture.cleanup();
+  });
+
+  it("previews and forgets sessions without fetching unrelated session bodies", async () => {
+    const db = openOpenClawAgentDatabase({ agentId: "main" }).db;
+    const insert = db.prepare(`INSERT INTO memory_index_chunks
+      (id, path, source, start_line, end_line, hash, model, text, embedding, updated_at)
+      VALUES (?, ?, ?, 1, 1, 'fixture-hash', 'test', ?, '[]', 1)`);
+    const provenance = db.prepare(`INSERT INTO memory_index_chunk_provenance
+      (chunk_id, origin_class, session_kind, observed_at) VALUES (?, 'agent', 'interactive', 1)`);
+    const body = "unrelated session body 🚀\0".repeat(4_096);
+    for (let index = 0; index < 32; index += 1) {
+      const id = `session-${index}`;
+      insert.run(id, `sessions/main/${index === 0 ? "target" : id}.jsonl`, "sessions", body);
+      provenance.run(id);
+    }
+    insert.run(
+      "memory-target",
+      "memory/target.md",
+      "memory",
+      "## Session ID: target\nForget this.",
+    );
+    insert.run("memory-keep", "MEMORY.md", "memory", "Keep this memory.\0🚀");
+    // oxlint-disable-next-line typescript/unbound-method -- Called below with the intercepted native database receiver.
+    const originalPrepare = DatabaseSync.prototype.prepare;
+    let fetchedBytes = 0;
+    let fetchedRows = 0;
+    const prepareSpy = vi
+      .spyOn(DatabaseSync.prototype, "prepare")
+      .mockImplementation(function (this: DatabaseSync, sql) {
+        const statement = originalPrepare.call(this, sql);
+        if (sql.includes('left join "memory_index_chunk_provenance"')) {
+          statement.iterate = new Proxy(statement.iterate.bind(statement), {
+            apply(iterate, _receiver, args) {
+              const rows = iterate(...args);
+              return (function* () {
+                for (const row of rows) {
+                  fetchedRows += 1;
+                  for (const value of Object.values(row)) {
+                    if (typeof value === "string") {
+                      fetchedBytes += Buffer.byteLength(value);
+                    }
+                  }
+                  yield row;
+                }
+                return undefined;
+              })();
+            },
+          });
+        }
+        return statement;
+      });
+    try {
+      const preview = await forgetMemoryEntries({
+        cfg,
+        agentId: "main",
+        sessionIds: ["target"],
+        dryRun: true,
+      });
+      expect(preview.artifacts.indexChunks).toBe(2);
+      expect(db.prepare("SELECT count(*) AS count FROM memory_index_chunks").get()).toEqual({
+        count: 34,
+      });
+      const result = await forgetMemoryEntries({ cfg, agentId: "main", sessionIds: ["target"] });
+      expect(result).toEqual({ ...preview, dryRun: false });
+      expect(db.prepare("SELECT id FROM memory_index_chunks ORDER BY id").all()).toEqual(
+        ["memory-keep", ...Array.from({ length: 31 }, (_, index) => `session-${index + 1}`)]
+          .toSorted()
+          .map((id) => ({ id })),
+      );
+      expect(
+        db.prepare("SELECT text FROM memory_index_chunks WHERE id = 'session-1'").get(),
+      ).toEqual({ text: body });
+      expect(fetchedRows).toBe(68);
+      expect(fetchedBytes).toBeLessThan(16_384);
+    } finally {
+      prepareSpy.mockRestore();
+    }
   });
 
   it.each([true, false])(

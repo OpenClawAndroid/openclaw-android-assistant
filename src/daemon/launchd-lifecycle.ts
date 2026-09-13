@@ -268,10 +268,15 @@ export async function restartLaunchAgent({
 
   const detached = await isCurrentProcessInsideLaunchdService(label);
   if (!detached) {
-    const { port: cleanupPort, probeHosts } = await resolveLaunchAgentGatewayContext(serviceEnv);
+    const {
+      env: cleanupEnv,
+      port: cleanupPort,
+      probeHosts,
+    } = await resolveLaunchAgentGatewayContext(serviceEnv);
     if (cleanupPort !== null) {
       assertGatewayServiceUpdateCurrent();
       cleanStaleGatewayProcessesSync(cleanupPort, {
+        env: cleanupEnv,
         assertCurrent: assertGatewayServiceUpdateCurrent,
         // Resolve after lsof captures its listener snapshot. A KeepAlive respawn
         // during enumeration must be protected before candidate filtering/signals.

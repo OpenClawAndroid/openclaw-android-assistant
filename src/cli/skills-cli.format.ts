@@ -34,10 +34,7 @@ export type SkillsCheckOptions = {
   agent?: string;
 };
 
-function appendClawHubHint(output: string, json?: boolean): string {
-  if (json) {
-    return output;
-  }
+function appendClawHubHint(output: string): string {
   const command = formatCliCommand("openclaw skills");
   return `${output}\n\nTip: use \`${command} search\`, \`${command} install\`, and \`${command} update\` for ClawHub-backed skills.`;
 }
@@ -144,7 +141,7 @@ export function formatSkillsList(report: SkillStatusReport, opts: SkillsListOpti
     const message = opts.eligible
       ? `No eligible skills found. Run \`${formatCliCommand("openclaw skills list")}\` to see all skills.`
       : "No skills found.";
-    return appendClawHubHint(message, opts.json);
+    return appendClawHubHint(message);
   }
 
   const ready = skills.filter(isReadyForAgent);
@@ -179,7 +176,7 @@ export function formatSkillsList(report: SkillStatusReport, opts: SkillsListOpti
     }).trimEnd(),
   );
 
-  return appendClawHubHint(lines.join("\n"), opts.json);
+  return appendClawHubHint(lines.join("\n"));
 }
 
 /** Render one skill's status, requirements, install hints, and API-key setup details. */
@@ -201,7 +198,6 @@ export function formatSkillInfo(
     const safeRequestedName = sanitizeJsonString(sanitizeForLog(requestedName));
     return appendClawHubHint(
       `Skill "${safeRequestedName}" not found. Run \`${formatCliCommand("openclaw skills list")}\` to see available skills.`,
-      opts.json,
     );
   }
 
@@ -286,7 +282,7 @@ export function formatSkillInfo(
     );
   }
 
-  return appendClawHubHint(lines.join("\n"), opts.json);
+  return appendClawHubHint(lines.join("\n"));
 }
 
 /** Render aggregate setup health for all discovered skills. */
@@ -438,5 +434,5 @@ export function formatSkillsCheck(report: SkillStatusReport, opts: SkillsCheckOp
     }
   }
 
-  return appendClawHubHint(lines.join("\n"), opts.json);
+  return appendClawHubHint(lines.join("\n"));
 }
