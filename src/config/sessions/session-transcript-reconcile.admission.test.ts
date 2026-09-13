@@ -63,7 +63,8 @@ async function fixture() {
 }
 
 it("waits for a cold projection without superseding its native integrity admission", async () => {
-  const { options, scope } = await fixture();
+  const { root, options, scope } = await fixture();
+  closeOpenClawAgentDatabasesForTest(root);
   let parentChecks = 0;
   vi.spyOn(sqlite, "openNodeSqliteDatabase").mockImplementation((pathname, openOptions) => {
     const database = realOpen(pathname, openOptions);

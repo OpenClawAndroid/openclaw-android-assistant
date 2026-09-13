@@ -32,7 +32,7 @@ See [Configuration reference](/gateway/config-runtime#worktreeroot) for the opti
 
 ## Filesystem acceleration
 
-OpenClaw automatically uses filesystem acceleration for new managed worktrees when supported. Linux uses Btrfs snapshots and requires the `btrfs` command. macOS uses a native APFS directory clone, preserving independent file contents, executable modes, and symbolic links. OpenClaw keeps the template on the same writable filesystem as the new checkout; the source repository can be on another filesystem. Git configurations with checkout filters, sparse checkout, per-worktree configuration, or external attributes use normal Git checkout.
+OpenClaw automatically uses filesystem acceleration for new managed worktrees when supported. Linux uses Btrfs snapshots and requires the `btrfs` command. macOS uses a native APFS directory clone, preserving independent file contents, executable modes, and symbolic links. Windows uses ReFS block clones, including on Dev Drive volumes. OpenClaw keeps the template on the same writable filesystem as the new checkout; the source repository can be on another filesystem. Git configurations with checkout filters, sparse checkout, per-worktree configuration, or external attributes use normal Git checkout.
 
 To opt out, set:
 
@@ -42,7 +42,9 @@ To opt out, set:
 }
 ```
 
-Omitting the option or setting it to `true` enables automatic selection. Setting it to `false` uses normal Git checkout and file copying for new worktrees. Existing worktrees keep their contents and lifecycle. NTFS, ext4, HFS+, and other unsupported filesystems use the normal Git path. Unavailable native bindings or failed clones also fall back to Git; APFS cloning never silently substitutes ordinary file copies inside the accelerated path.
+Omitting the option or setting it to `true` enables automatic selection. Setting it to `false` uses normal Git checkout and file copying for new worktrees. Existing worktrees keep their contents and lifecycle. NTFS, ext4, HFS+, and other unsupported filesystems use the normal Git path. Unavailable native bindings or failed clones also fall back to Git; APFS and ReFS file-data cloning never silently substitute ordinary file copies inside the accelerated path.
+
+On Windows, point `worktreeRoot` at a directory on a ReFS volume, such as `D:\worktrees`. ReFS provides file block cloning rather than a writable directory snapshot: OpenClaw creates the directory tree and clones each file's data. Full clusters can share storage; partial file tails and filesystem metadata still consume space. The Gateway needs ordinary file access, not administrator access, to clone worktrees on an existing volume.
 
 OpenClaw maintains one reusable source-only template per repository and destination root. It rebuilds the template when the requested commit or checkout policy changes, and cleanup retires templates unused for seven days. Git continues to own worktree registration, indexes, and branches; the filesystem backend supplies the shared file contents.
 
@@ -52,7 +54,11 @@ Templates contain checked-out source only. `.worktreeinclude` provisioning and `
 
 The first accelerated worktree includes the cost of preparing a template through Git. Later APFS worktrees clone the whole directory in one native operation. OpenClaw verifies shared data-stream identities before updating Git's cached file metadata, avoiding a content reread for proven unchanged files. Git still validates the resulting index and detects subsequent edits; unsupported index formats and unverified files receive ordinary Git validation.
 
-Apple discourages general directory cloning through `clonefile`. OpenClaw uses it for its source-only templates, with Git fallback on failure. Cancellation waits for an already-started native clone to finish before recovery can touch its destination.
+Apple discourages general directory cloning through `clonefile` without publishing its complete rationale. One verified limitation is that directory clones do not apply the destination's inherited ACL permissions to descendants. OpenClaw uses normal Git checkout when the destination parent has inheritable ACL entries, when the template root carries ACLs, or when ACL inspection fails. It checks again around cloning to catch policy changes during preparation. Non-inheritable ACLs on the destination parent alone do not disable acceleration. Git owns permission inheritance; OpenClaw does not rewrite ACLs after cloning.
+
+The fast path is limited to OpenClaw's private source-only templates; do not customize ACLs inside the template cache. Cancellation waits for an already-started native clone to finish before recovery can touch its destination.
+
+ReFS cloning can take longer than native Git checkout for repositories with many small files because each file needs independent metadata and Git refreshes its index. Use `worktreeAcceleration: false` if checkout latency matters more than source storage savings.
 
 ## Layout and names
 
@@ -78,7 +84,7 @@ For partial clones, OpenClaw inventories missing objects before estimating check
 
 Creation, restore, and snapshot removal share one allocation lease across repositories and processes using the same state directory. Costs on the same volume are added together. These checks are conservative estimates, not a disk quota: other OpenClaw state directories, shell commands, deployment tools, and arbitrary setup/build output can still consume space. Reusing an existing valid checkout does not allocate another checkout. Worktrees created directly through Git are outside the managed cleanup lifecycle.
 
-Git inventories and directory-size calculations run on bounded background workers. Branch and checkout-context reads use a dedicated worker, separate from diff and snapshot processing. The Gateway keeps ownership of Git subprocesses, cancellation, allocation leases, and registry writes. Canceling an operation waits for its subprocesses and temporary-index cleanup to settle before releasing that ownership. Preparation is cancellable; once destructive checkout deletion starts, it finishes before cancellation returns so a partial checkout cannot replace the complete recovery snapshot on retry.
+Git inventories and directory-size calculations run on bounded background workers. Branch and checkout-context reads use a dedicated worker, separate from diff and snapshot processing. The Gateway keeps ownership of Git subprocesses, cancellation, allocation leases, and registry writes. Canceling an operation waits for its subprocesses and temporary-index cleanup to settle before releasing that ownership. A ref mutation still waiting behind another writer can cancel without waiting for that writer; mutations already running finish their cleanup before cancellation returns. Preparation is cancellable; once destructive checkout deletion starts, it finishes before cancellation returns so a partial checkout cannot replace the complete recovery snapshot on retry.
 
 A snapshot reuses its operation's path inventories and pins the source HEAD while constructing its temporary index. Publication verifies HEAD atomically after waiting for other ref mutations. If HEAD changes during preparation, cleanup preserves the checkout and asks you to retry. Provisioned-file membership is checked again at capture time because ignore rules and the source index can change independently. Moving inventory work to a worker does not allow concurrent allocations or weaken snapshot protection.
 

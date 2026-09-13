@@ -25,6 +25,15 @@ wa-dropdown.sidebar-session-sort-menu::part(menu) {
   width: min(220px, calc(100dvw - 16px));
 }
 
+.sidebar-session-sort-menu__item > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
 wa-dropdown-item.sidebar-session-owner-submenu::part(submenu) {
   width: min(220px, calc(100dvw - 16px));
   max-width: calc(100dvw - 16px);

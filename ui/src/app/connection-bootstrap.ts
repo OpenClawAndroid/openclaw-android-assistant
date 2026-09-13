@@ -1,5 +1,7 @@
 /** Coordinates automatic Control UI bootstrap work for one Gateway connection epoch. */
 
+import { createDeferredCore } from "../../../src/shared/deferred.js";
+
 export type ConnectionBootstrapCoordinator = {
   reset: () => void;
   run: (key: string, task: () => Promise<unknown>) => Promise<void>;
@@ -88,10 +90,7 @@ export function createConnectionBootstrapCoordinator(): ConnectionBootstrapCoord
       if (current) {
         return current;
       }
-      let resolve!: () => void;
-      const scheduled = new Promise<void>((resolveTask) => {
-        resolve = resolveTask;
-      });
+      const { promise: scheduled, resolve } = createDeferredCore();
       tasks.set(key, scheduled);
       queued.push({ generation, key, resolve, run: task });
       drain();

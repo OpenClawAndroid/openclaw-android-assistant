@@ -38,8 +38,7 @@ import {
   assertSecretOwnerAvailable,
   isSecretOwnerAvailable,
 } from "../../secrets/runtime-degraded-state.js";
-import { getUserPreferences } from "../../state/user-preferences.js";
-import { resolveUserProfileId } from "../../state/user-profiles.js";
+import { getCanonicalUserPreferences } from "../../state/user-preferences.js";
 import { resolveTalkSessionAgentId } from "../../talk/agent-target.js";
 import {
   projectInternalRealtimeVoicePublicConfig,
@@ -921,13 +920,12 @@ export const talkHandlers: GatewayRequestHandlers = {
     }
 
     const profileId = client?.authenticatedUserProfile?.profileId;
-    const canonicalProfileId = profileId ? resolveUserProfileId(profileId) : undefined;
     const accentKey = UI_APPEARANCE_PREFERENCE_KEYS.accent;
-    const profileAccent = canonicalProfileId
-      ? normalizeUiAppearancePreference(
-          accentKey,
-          getUserPreferences(canonicalProfileId, [accentKey])[accentKey],
-        )
+    const preferences = profileId
+      ? await getCanonicalUserPreferences(profileId, [accentKey])
+      : undefined;
+    const profileAccent = preferences
+      ? normalizeUiAppearancePreference(accentKey, preferences.entries[accentKey])
       : undefined;
     // Profile accent overrides gateway prefs, then the gateway seam color and theme default.
     const seamColor =

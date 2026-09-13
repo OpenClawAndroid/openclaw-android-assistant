@@ -12,6 +12,7 @@ type BodyScenario = {
   sourceMessages?: string[];
   sourceCommits?: Array<{
     message: string;
+    empty?: boolean;
     author?: { name: string; email: string };
     githubAuthor?: { login: string; type: string } | null;
   }>;
@@ -107,7 +108,11 @@ function prepareBody(scenario: BodyScenario) {
         message,
       })) ??
       [];
-    for (const { message, author, githubAuthor } of sourceCommits) {
+    for (const [index, { message, author, githubAuthor, empty }] of sourceCommits.entries()) {
+      if (!empty) {
+        writeFileSync(join(sourceRepo, "change.txt"), `${index}\n`);
+        git(["add", "change.txt"]);
+      }
       git(
         [
           "-c",
@@ -325,7 +330,12 @@ describePosix("native squash attribution", () => {
     const result = prepareBody({
       prAuthor: "contributor",
       sourceCommits: [
-        { message: "Repair", author: { name: "Contributor", email }, githubAuthor: null },
+        {
+          message: "Refresh",
+          empty: true,
+          author: { name: "Contributor", email },
+          githubAuthor: null,
+        },
       ],
       previewBody: `Repair\n\n${credit}`,
     });
@@ -347,6 +357,83 @@ describePosix("native squash attribution", () => {
     });
     expect(result.status, result.stderr).toBe(0);
     expect(result.mergeBody).toBe("Repair summary\n");
+  });
+
+  it.each([
+    { kind: "empty-only", keep: false },
+    { kind: "mixed", keep: true },
+    { kind: "PR author", keep: true },
+    { kind: "source trailer", keep: true },
+  ])("handles tree-identical refresh commits for $kind credit", ({ kind, keep }) => {
+    const contributorCredit = "Co-authored-by: Contributor <contributor@example.com>";
+    const refreshCredit = "Co-authored-by: Refresh Author <refresh@example.com>";
+    for (const overrideBody of [undefined, `Reviewed correction.\n\n${contributorCredit}\n`]) {
+      const result = prepareBody({
+        prAuthor: kind === "PR author" ? "refresh-author" : "contributor",
+        sourceCommits: [
+          {
+            message: "Repair",
+            author: { name: "Contributor", email: "contributor@example.com" },
+            githubAuthor: { login: "contributor", type: "User" },
+          },
+          {
+            message: kind === "source trailer" ? `Refresh\n\n${refreshCredit}` : "Refresh",
+            empty: true,
+            author: { name: "Refresh Author", email: "refresh@example.com" },
+            githubAuthor: { login: "refresh-author", type: "User" },
+          },
+          {
+            message: kind === "mixed" ? "Follow-up repair" : "Refresh again",
+            empty: kind !== "mixed",
+            author: { name: "Refresh Author", email: "refresh@example.com" },
+            githubAuthor: { login: "refresh-author", type: "User" },
+          },
+        ],
+        previewBody: `Repair summary\n\n${contributorCredit}\n${refreshCredit}`,
+        overrideBody,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.mergeBody).toBe(
+        `${overrideBody?.trimEnd() ?? `Repair summary\n\n${contributorCredit}`}${keep ? `\n${refreshCredit}` : ""}\n`,
+      );
+    }
+  });
+
+  it("preserves reviewed explicit credit for a tree-identical commit author", () => {
+    const credit = "Co-authored-by: Refresh Author <refresh@example.com>";
+    const overrideBody = `Reviewed credit.\r\n\r\n${credit}\r\n\r\n`;
+    const result = prepareBody({
+      sourceCommits: [
+        { message: "Repair" },
+        {
+          message: "Refresh",
+          empty: true,
+          author: { name: "Refresh Author", email: "refresh@example.com" },
+        },
+      ],
+      previewBody: `Repair\n\n${credit}`,
+      overrideBody,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.mergeBody).toBe(overrideBody);
+  });
+
+  it("rejects queue admission when tree-identical refresh credit needs removal", () => {
+    const result = prepareBody({
+      sourceCommits: [
+        { message: "Repair" },
+        {
+          message: "Refresh",
+          empty: true,
+          author: { name: "Refresh Author", email: "refresh@example.com" },
+        },
+      ],
+      previewBody: "Repair\n\nCo-authored-by: Refresh Author <refresh@example.com>",
+      previewQueue: true,
+    });
+    expect(result.status).toBe(1);
+    expect(result.mergeBody).toBeNull();
+    expect(result.stderr).toContain("Cannot queue");
   });
 
   it.each(["second@example.com", "123+second-author@users.noreply.github.com"])(
@@ -785,6 +872,7 @@ describePosix("native squash attribution", () => {
               name: "Contributor",
               email: "contributor@example.com",
               user: { login: "contributor", type: "User" },
+              changesTree: true,
             },
           ],
           captured: "",

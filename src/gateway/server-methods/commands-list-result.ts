@@ -78,10 +78,6 @@ function supportsNativeProvider(cmd: ChatCommandDefinition, provider?: string): 
   );
 }
 
-function stripLeadingSlash(value: string): string {
-  return value.startsWith("/") ? value.slice(1) : value;
-}
-
 /** Resolves normalized text aliases, preserving slash-prefixed command names. */
 function resolveTextAliases(cmd: ChatCommandDefinition): string[] {
   const seen = new Set<string>();
@@ -105,10 +101,6 @@ function resolveTextAliases(cmd: ChatCommandDefinition): string[] {
     return aliases;
   }
   return [`/${clampString(cmd.key, COMMAND_NAME_MAX_LENGTH)}`];
-}
-
-function resolvePrimaryTextName(cmd: ChatCommandDefinition): string {
-  return stripLeadingSlash(resolveTextAliases(cmd)[0] ?? `/${cmd.key}`);
 }
 
 /** Serializes a command argument into the bounded gateway protocol shape. */
@@ -150,13 +142,14 @@ function mapCommand(
 ): CommandEntry {
   const shouldIncludeArgs = includeArgs && cmd.acceptsArgs && cmd.args?.length;
   const nativeName = cmd.scope === "text" ? undefined : resolveNativeName(cmd, provider);
+  const textAliases = cmd.scope !== "native" ? resolveTextAliases(cmd) : undefined;
   return {
     name: clampString(
-      nameSurface === "text" ? resolvePrimaryTextName(cmd) : (nativeName ?? cmd.key),
+      nameSurface === "text" ? (textAliases?.[0]?.slice(1) ?? cmd.key) : (nativeName ?? cmd.key),
       COMMAND_NAME_MAX_LENGTH,
     ),
     ...(nativeName ? { nativeName: clampString(nativeName, COMMAND_NAME_MAX_LENGTH) } : {}),
-    ...(cmd.scope !== "native" ? { textAliases: resolveTextAliases(cmd) } : {}),
+    ...(textAliases ? { textAliases } : {}),
     description: clampDescription(cmd.description),
     // The v2026.8.1 SDK category remains accepted, but clients use the current Tools group.
     ...(cmd.category ? { category: cmd.category === "docks" ? "tools" : cmd.category } : {}),

@@ -65,6 +65,7 @@ const scopedGatewayMethodsIsolatedTestFiles = [
   "server-methods/board.runtime-boundaries.test.ts",
   "server-methods/chat.reset-visible-yield.test.ts",
   "server-methods/system-agent-setup-control-ui.test.ts",
+  "server-methods/users-preferences.test.ts",
   "server-methods/usage.test.ts",
   "server-methods/usage.sessions-usage.test.ts",
 ];
@@ -146,6 +147,9 @@ describe("projects vitest config", () => {
     expect(methodsIsolatedConfig.isolate).toBe(true);
     expect(normalizeConfigPath(methodsIsolatedConfig.runner)).toBe("test/non-isolated-runner.ts");
     expect(methodsIsolatedConfig.include).toEqual(scopedGatewayMethodsIsolatedTestFiles);
+    expect(serverConfig.pool).toBe("forks");
+    expect(serverConfig.isolate).toBe(false);
+    expect(serverConfig.fileParallelism).toBe(false);
     expect(serverIsolatedConfig.isolate).toBe(true);
     expect(serverIsolatedConfig.runner).toBeUndefined();
     expect(serverIsolatedConfig.include).toEqual(gatewayServerIsolatedTestFiles);

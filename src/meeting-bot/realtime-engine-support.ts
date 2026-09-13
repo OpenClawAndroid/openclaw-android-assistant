@@ -10,7 +10,10 @@ import {
   listRealtimeTranscriptionProviders,
 } from "../realtime-transcription/provider-registry.js";
 import type { RealtimeTranscriptionProviderConfig } from "../realtime-transcription/provider-types.js";
-import { resolveConfiguredRealtimeVoiceProvider } from "../talk/provider-resolver.js";
+import {
+  resolveConfiguredRealtimeVoiceProvider,
+  type ResolvedRealtimeVoiceProvider,
+} from "../talk/provider-resolver.js";
 import type {
   RealtimeVoiceBridgeEvent,
   RealtimeVoiceProviderConfig,
@@ -50,11 +53,6 @@ type MeetingRealtimeProviderSelectionConfig = {
   };
 };
 
-type ResolvedRealtimeProvider = {
-  provider: RealtimeVoiceProviderPlugin;
-  providerConfig: RealtimeVoiceProviderConfig;
-};
-
 type ResolvedRealtimeTranscriptionProvider = {
   provider: RealtimeTranscriptionProviderPlugin;
   providerConfig: RealtimeTranscriptionProviderConfig;
@@ -68,13 +66,15 @@ export function resolveMeetingRealtimeProvider(params: {
   config: MeetingRealtimeProviderSelectionConfig;
   fullConfig: OpenClawConfig;
   providers?: RealtimeVoiceProviderPlugin[];
-}): ResolvedRealtimeProvider {
+}): ResolvedRealtimeVoiceProvider {
   const providerId = params.config.realtime.voiceProvider ?? params.config.realtime.provider;
   return resolveConfiguredRealtimeVoiceProvider({
     configuredProviderId: providerId,
     providerConfigs: params.config.realtime.providers,
     cfg: params.fullConfig,
     agentId: params.config.realtime.agentId,
+    surface: "gateway-relay",
+    useProviderDefaultModel: true,
     providers: params.providers,
     defaultModel: params.config.realtime.model,
     noRegisteredProviderMessage: "No configured realtime voice provider registered",

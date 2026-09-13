@@ -24,6 +24,7 @@ import { parseJson5Text, warmJson5 } from "../json5-runtime.ts";
 import {
   resolveAgentConfigEntryTarget,
   resolveEditableSnapshotConfig,
+  setConfigSnapshot,
   type LoadConfigOptions,
   type RuntimeConfigState,
 } from "./config-state-model.ts";
@@ -137,7 +138,7 @@ export function applyConfigSnapshot(
     state.configNeedsApply = currentRevisionHash !== snapshot.appliedConfigHash;
   }
   const draftBaseHash = state.configDraftBaseHash ?? state.configSnapshot?.hash ?? null;
-  state.configSnapshot = snapshot;
+  setConfigSnapshot(state, snapshot);
   const editableConfig = resolveEditableSnapshotConfig(snapshot);
   const rawAvailable =
     typeof snapshot.raw === "string" || Boolean(editableConfig) || Boolean(state.configForm);
@@ -450,7 +451,7 @@ export function adoptConfigWriteAck(
       : staleForm
         ? null
         : replayConfigDraftEdits(submitted.form, currentForm, ack.config);
-  state.configSnapshot = {
+  setConfigSnapshot(state, {
     ...state.configSnapshot,
     raw: acknowledgedRaw,
     hash: ack.hash,
@@ -458,7 +459,7 @@ export function adoptConfigWriteAck(
     issues: [],
     config: ack.config,
     sourceConfig: ack.config,
-  };
+  });
   state.configDraftBaseHash = ack.hash;
   state.configValid = true;
   state.configIssues = [];
@@ -535,10 +536,7 @@ function resetStaleAutoSaveStatus(state: RuntimeConfigState) {
 
 function parseConfigRawDraft(raw: string): Record<string, unknown> | null {
   try {
-    const parsed = parseJson5Text(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
+    return asConfigRecord(parseJson5Text(raw));
   } catch {
     return null;
   }
@@ -645,10 +643,7 @@ function syncEnabledPluginAllowlist(
     return;
   }
   const pluginId = path[2];
-  const plugins =
-    draft.plugins && typeof draft.plugins === "object" && !Array.isArray(draft.plugins)
-      ? (draft.plugins as Record<string, unknown>)
-      : null;
+  const plugins = asConfigRecord(draft.plugins);
   const allow = Array.isArray(plugins?.allow) ? plugins.allow : null;
   if (!allow) {
     untrackAutoAllowlistedPluginId(state, pluginId);
@@ -743,8 +738,8 @@ export function stageDefaultAgentConfigEntry(state: RuntimeConfigState, agentId:
   }
   const authoredAgentId = target.path[2];
   mutateConfigForm(state, (draft) => {
-    const agents = isRecord(draft.agents) ? draft.agents : null;
-    const entries = isRecord(agents?.entries) ? agents.entries : null;
+    const agents = asConfigRecord(draft.agents);
+    const entries = asConfigRecord(agents?.entries);
     if (!entries) {
       return;
     }

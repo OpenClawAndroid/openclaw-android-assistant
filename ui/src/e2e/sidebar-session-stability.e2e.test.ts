@@ -63,6 +63,7 @@ suite.define(() => {
       await expect.poll(() => child.textContent()).toContain("Research in progress");
       await expect.poll(() => sibling.textContent()).toContain("Supporting research");
       expect(await child.getAttribute("class")).toContain("sidebar-recent-session--active");
+      await captureUiProof(suite, page, "selected-child-before-refresh.png");
       const childMatch = { spawnedBy: parentKey };
       const refreshedChildren = [
         {
@@ -267,8 +268,8 @@ suite.define(() => {
         const childRequests = (await gateway.getRequests("sessions.list", childMatch)).length;
         await gateway.deferNext("sessions.list", childMatch);
         await gateway.emitGatewayEvent("sessions.changed", {
-          key: activeKey,
-          sessionKey: activeKey,
+          key: parentKey,
+          sessionKey: parentKey,
           reason: "run",
           updatedAt: baseTime + 2,
         });

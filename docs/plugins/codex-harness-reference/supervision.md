@@ -74,7 +74,8 @@ or login. See [Native CLI starts](/web/control-ui/sessions-and-sidebar#start-a-n
 
 Only existing directories are included. Equivalent paths are canonicalized and
 deduplicated against the automatic homes, and automatic homes keep priority
-under the 100-source catalog cap. Changes require a Gateway restart.
+under the 100-source catalog cap. Config changes refresh the catalog homes in
+the default hybrid reload mode; no Gateway restart is needed.
 `sessionCatalog.homes` needs the default managed stdio app-server transport;
 Unix and WebSocket transports reject it with a visible error because they
 cannot start a source-bound app-server for each home.

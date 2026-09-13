@@ -400,14 +400,15 @@ describe("detectRuntimeShell", () => {
     envSnapshot.restore();
   });
 
-  if (!isWin) {
-    it("ignores non-interactive SHELL placeholders and falls through to runtime hints", () => {
+  it.runIf(!isWin)(
+    "ignores non-interactive SHELL placeholders and falls through to runtime hints",
+    () => {
       process.env.SHELL = "/usr/bin/false";
       process.env.BASH_VERSION = "5.2.0";
 
       expect(detectRuntimeShell()).toBe("bash");
-    });
-  }
+    },
+  );
 });
 
 describe("getShellConfig on Windows", () => {

@@ -11,6 +11,7 @@ import {
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import type { PluginMetadataSnapshot } from "../../../plugins/plugin-metadata-snapshot.types.js";
 import { isMainSessionRestartRecoveryInputProvenance } from "../../../sessions/input-provenance.js";
+import type { PersistedUserTurnMessage } from "../../../sessions/user-turn-transcript.types.js";
 import { createPreparedEmbeddedAgentSettingsManager } from "../../agent-project-settings.js";
 import {
   applyAgentAutoCompactionGuard,
@@ -374,7 +375,7 @@ export async function prepareEmbeddedAttemptSessionBoundary(input: {
   attempt: SessionBoundaryAttempt;
   getUserTranscriptContexts: () => LlmBoundaryOptions["userTranscriptContexts"];
   isRawModelRun: boolean;
-  preparedUserTurnMessage: AgentMessage | undefined;
+  preparedUserTurnMessage: PersistedUserTurnMessage | undefined;
   sessionManager: ReturnType<typeof guardSessionManager>;
   setActiveSessionSystemPrompt: (systemPrompt: string) => void;
 }): Promise<{

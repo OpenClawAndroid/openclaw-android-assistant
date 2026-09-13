@@ -19,6 +19,7 @@ import {
 } from "../../state/user-model-accounts.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { registerChatAbortController } from "../chat-abort.js";
 import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { chatHistoryHandlers } from "./chat-history-handler.js";
 import { connectChatMetadataAccount } from "./chat-metadata-runtime.test-support.js";
@@ -585,6 +586,112 @@ describe("chat history exact-entry snapshots", () => {
         expect(fresh).toMatchObject({ thinkingLevel: "low", toolOverrides });
         expect(asOptionalRecord(fresh.sessionInfo)?.childSessions).toBeUndefined();
         expect(first.thinkingLevel).toBe("high");
+      });
+    },
+  );
+});
+
+describe("chat history recovery byte budget", () => {
+  it.each(["chat.history", "chat.startup"] as const)(
+    "%s reuses measured history bytes while preserving the recovery boundary",
+    async (method) => {
+      await withOpenClawTestState({ scenario: "minimal" }, async () => {
+        const scope = {
+          agentId: "main",
+          sessionKey: "agent:main:history-bytes",
+          sessionId: "history-bytes",
+        };
+        await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+        const marker = "history-byte-fixture";
+        for (let index = 0; index < 12; index++) {
+          await appendTranscriptMessage(scope, {
+            message: {
+              role: index % 2 === 0 ? "user" : "assistant",
+              content: `${marker}-${index}: ${'漢字\n"\\'.repeat(100)}`,
+              timestamp: index + 1,
+            },
+          });
+        }
+        const context = createDirectChatContext();
+        const handler = expectDefined(chatHistoryHandlers[method], "history handler");
+        const call = async (params: Record<string, unknown> = {}) => {
+          const respond = vi.fn<RespondFn>();
+          const stringify = JSON.stringify;
+          let historyArrayBytes = 0;
+          const serialization = vi.spyOn(JSON, "stringify").mockImplementation((...args) => {
+            const result = stringify(...args);
+            if (
+              Array.isArray(args[0]) &&
+              args[0].some((value) => asOptionalRecord(value)?.role === "user") &&
+              typeof result === "string" &&
+              result.includes(marker)
+            ) {
+              historyArrayBytes += Buffer.byteLength(result);
+            }
+            return result;
+          });
+          try {
+            await handler({
+              params: { sessionKey: scope.sessionKey, ...params },
+              context,
+              req: { type: "req", id: "history-bytes", method },
+              client: null,
+              isWebchatConnect: () => false,
+              respond,
+            });
+          } finally {
+            serialization.mockRestore();
+          }
+          expect(respond).toHaveBeenCalledTimes(1);
+          const [ok, payload, error] = expectDefined(respond.mock.calls[0], "history response");
+          expect(error).toBeUndefined();
+          expect(ok).toBe(true);
+          expect(historyArrayBytes).toBe(0);
+          return expectDefined(asOptionalRecord(payload), "history payload");
+        };
+        const inactive = await call();
+        expect(inactive.messages).toHaveLength(12);
+        expect(inactive.inFlightRun).toBeUndefined();
+        const historyJson = JSON.stringify(inactive.messages);
+        const registration = registerChatAbortController({
+          chatAbortControllers: context.chatAbortControllers,
+          runId: "run-history-bytes",
+          ...scope,
+          now: 1_000,
+          timeoutMs: 60_000,
+        });
+        const run = context.chatRunState.getOrCreate("run-history-bytes");
+        run.buffer = "partial reply ".repeat(1_000);
+        run.planSnapshot = { steps: [{ step: "Read history", status: "in_progress" }] };
+        const expected = {
+          runId: "run-history-bytes",
+          text: run.buffer,
+          startedAt: 1_000,
+          plan: run.planSnapshot,
+        };
+        const exactBytes =
+          Buffer.byteLength(historyJson) + Buffer.byteLength(JSON.stringify(expected));
+        try {
+          const bounded = await call({ maxBytes: exactBytes - 1 });
+          expect(bounded.messages).toEqual(inactive.messages);
+          expect(bounded.inFlightRun).toEqual({ ...expected, text: "" });
+          const exact = await call({ maxBytes: exactBytes });
+          expect(exact.messages).toEqual(inactive.messages);
+          expect(exact.inFlightRun).toEqual(expected);
+          expect(
+            Buffer.byteLength(JSON.stringify(exact.messages)) +
+              Buffer.byteLength(JSON.stringify(exact.inFlightRun)),
+          ).toBe(exactBytes);
+          const delta = await call({ cursor: exact.deltaCursor, maxBytes: exactBytes });
+          expect(delta).toMatchObject({ kind: "delta", messages: [], inFlightRun: expected });
+          expect(JSON.stringify(inactive.messages)).toBe(historyJson);
+        } finally {
+          registration.cleanup();
+          context.chatRunState.clearRun("run-history-bytes");
+        }
+        const completed = await call();
+        expect(completed.messages).toEqual(inactive.messages);
+        expect(completed.inFlightRun).toBeUndefined();
       });
     },
   );

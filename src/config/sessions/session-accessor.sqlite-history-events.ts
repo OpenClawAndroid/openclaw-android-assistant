@@ -386,9 +386,18 @@ function resolveHistoryMessageSequence(
   if (logicalPosition < 0) {
     return undefined;
   }
-  const precedingBoundaries = history.boundaries.filter(
-    (candidate) => candidate.messagePosition <= logicalPosition,
-  ).length;
+  // Boundaries follow active order; equal positions all precede this message.
+  let precedingBoundaries = 0;
+  let end = history.boundaries.length;
+  while (precedingBoundaries < end) {
+    const middle = Math.floor((precedingBoundaries + end) / 2);
+    // The half-open search range stays inside the dense boundary projection.
+    if (history.boundaries[middle]!.messagePosition <= logicalPosition) {
+      precedingBoundaries = middle + 1;
+    } else {
+      end = middle;
+    }
+  }
   return logicalPosition + 1 + precedingBoundaries;
 }
 

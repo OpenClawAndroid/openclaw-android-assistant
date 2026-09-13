@@ -3,6 +3,7 @@ import type { FastMode, ModelsProbeResult } from "../../api/types.ts";
 import { t } from "../../i18n/index.ts";
 import type { RuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
 import { formatUiError } from "../../lib/format-error.ts";
+import type { DefaultModelSelection } from "./data.ts";
 
 export type ModelBehaviorConfig = {
   thinkingLevel: string | undefined;
@@ -10,6 +11,39 @@ export type ModelBehaviorConfig = {
   fastMode: FastMode | undefined;
   fastModeOverridden: boolean;
 };
+
+export function modelDefaultsActions(
+  getDefaults: () => DefaultModelSelection,
+  stageDefaults: (patch: Partial<DefaultModelSelection & ModelBehaviorConfig>) => void,
+) {
+  return {
+    onPrimaryChange: (model: string) => {
+      stageDefaults({
+        primary: model,
+        fallbacks: getDefaults().fallbacks.filter((fallback) => fallback !== model),
+      });
+    },
+    onFallbackChange: (model: string | null) => {
+      stageDefaults({
+        fallbacks: model
+          ? [
+              model,
+              ...getDefaults()
+                .fallbacks.slice(1)
+                .filter((fallback) => fallback !== model),
+            ]
+          : [],
+      });
+    },
+    onUtilityChange: (model: string | null) => stageDefaults({ utilityModel: model }),
+    onThinkingChange: (level: string) =>
+      stageDefaults({ thinkingLevel: level, thinkingOverridden: true }),
+    onThinkingReset: () => stageDefaults({ thinkingLevel: undefined, thinkingOverridden: false }),
+    onFastModeChange: (mode: FastMode) =>
+      stageDefaults({ fastMode: mode, fastModeOverridden: true }),
+    onFastModeReset: () => stageDefaults({ fastMode: undefined, fastModeOverridden: false }),
+  };
+}
 
 export function readModelBehaviorConfig(
   agentsDefaults: Record<string, unknown> | null,

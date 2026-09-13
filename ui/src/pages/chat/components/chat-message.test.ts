@@ -930,8 +930,9 @@ describe("grouped chat rendering", () => {
     { state: "failed", label: "Not sent", actionLabel: undefined },
     { state: "unconfirmed", label: "Delivery unconfirmed", actionLabel: undefined },
     { state: "unconfirmed", label: "Delivery unconfirmed", actionLabel: "Check delivery" },
+    { state: "waiting-reconnect", label: "Waiting for reconnect", actionLabel: undefined },
   ] as const)(
-    "shows a $state footer with its diagnostic and retry action ($actionLabel)",
+    "shows a $state footer with its diagnostic and recovery actions ($actionLabel)",
     ({ state, label, actionLabel }) => {
       const container = document.createElement("div");
       const onRetryQueuedMessage = vi.fn();
@@ -959,16 +960,23 @@ describe("grouped chat rendering", () => {
       const status = expectElement(container, ".chat-group.user .chat-send-status", HTMLElement);
       expect(status.dataset.sendState).toBe(state);
       expect(status.title).toBe("Delivery diagnostic");
+      const reconnecting = state === "waiting-reconnect";
+      const canDiscard = (state === "unconfirmed" || reconnecting) && !actionLabel;
       expect(status.textContent?.replace(/\s+/g, " ").trim()).toBe(
-        `· ${label} · ${actionLabel ?? "Retry"}${state === "unconfirmed" && !actionLabel ? " · Discard" : ""}`,
+        `· ${label}${reconnecting ? "" : ` · ${actionLabel ?? "Retry"}`}${canDiscard ? " · Discard" : ""}`,
       );
-      expect(status.querySelector("button")?.getAttribute("aria-label")).toBe(
-        actionLabel ?? "Retry queued message",
+      const retry = status.querySelector<HTMLButtonElement>(".chat-send-status__retry");
+      expect(retry?.getAttribute("aria-label")).toBe(
+        reconnecting ? undefined : (actionLabel ?? "Retry queued message"),
       );
-      status.querySelector<HTMLButtonElement>(".chat-send-status__retry")?.click();
-      expect(onRetryQueuedMessage).toHaveBeenCalledWith("attempted-send");
+      retry?.click();
+      if (reconnecting) {
+        expect(onRetryQueuedMessage).not.toHaveBeenCalled();
+      } else {
+        expect(onRetryQueuedMessage).toHaveBeenCalledWith("attempted-send");
+      }
       const discard = status.querySelector<HTMLButtonElement>(".chat-send-status__discard");
-      if (state === "unconfirmed" && !actionLabel) {
+      if (canDiscard) {
         expect(discard?.title).toBe(
           "Discard this local pending copy. This does not cancel a message already received by the Gateway.",
         );
@@ -976,7 +984,7 @@ describe("grouped chat rendering", () => {
         expect(onDiscardQueuedMessage).toHaveBeenCalledWith("attempted-send");
         discard?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 }));
         expect(onDiscardQueuedMessage).toHaveBeenCalledTimes(1);
-        expect(onRetryQueuedMessage).toHaveBeenCalledTimes(1);
+        expect(onRetryQueuedMessage).toHaveBeenCalledTimes(reconnecting ? 0 : 1);
       } else {
         expect(discard).toBeNull();
       }

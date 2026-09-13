@@ -1,4 +1,5 @@
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
+import { projectSessionResultRows } from "./reconcile.ts";
 import type { SessionArchiveVisibility } from "./session-capability.ts";
 
 type ConfirmedArchiveState = Pick<
@@ -43,7 +44,6 @@ export function createSessionArchiveState(
       if (!result || confirmed.size === 0) {
         return result;
       }
-      let changed = false;
       const sessions = result.sessions.map((row) => {
         const archive = confirmed.get(row.key);
         if (!archive) {
@@ -60,7 +60,6 @@ export function createSessionArchiveState(
         if (row.archived === true) {
           return row;
         }
-        changed = true;
         return {
           ...row,
           archived: true,
@@ -69,7 +68,7 @@ export function createSessionArchiveState(
           ...(archive.archiveReason ? { archiveReason: archive.archiveReason } : {}),
         };
       });
-      return changed ? { ...result, sessions } : result;
+      return projectSessionResultRows(result, sessions);
     },
     visibility: (key: string): SessionArchiveVisibility | undefined => {
       const normalizedKey = key.trim();

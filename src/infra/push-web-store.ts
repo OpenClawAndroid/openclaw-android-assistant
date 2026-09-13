@@ -121,7 +121,12 @@ export function isValidWebPushKey(key: unknown): key is string {
   return typeof key === "string" && key.length > 0 && key.length <= WEB_PUSH_MAX_KEY_LENGTH;
 }
 
-export function webPushSubscriptionFromRow(row: WebPushSubscriptionRow): WebPushSubscription {
+export function webPushSubscriptionFromRow(
+  row: Pick<
+    WebPushSubscriptionRow,
+    "subscription_id" | "endpoint" | "p256dh" | "auth" | "created_at_ms" | "updated_at_ms"
+  >,
+): WebPushSubscription {
   return {
     subscriptionId: row.subscription_id,
     endpoint: row.endpoint,
@@ -247,7 +252,7 @@ export function listWebPushSubscriptions(stateDir?: string): WebPushSubscription
     database.db,
     stateDb
       .selectFrom("web_push_subscriptions")
-      .selectAll()
+      .select(["subscription_id", "endpoint", "p256dh", "auth", "created_at_ms", "updated_at_ms"])
       .orderBy("created_at_ms", "asc")
       .orderBy("subscription_id", "asc"),
   ).rows.map(webPushSubscriptionFromRow);

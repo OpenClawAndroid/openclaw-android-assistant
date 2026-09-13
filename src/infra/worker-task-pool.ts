@@ -6,6 +6,7 @@ import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { createDeferredCore, type Deferred } from "../shared/deferred.js";
+import { runBestEffortCleanup } from "./non-fatal-cleanup.js";
 import {
   DEFAULT_WORKER_PENDING_BYTES,
   DEFAULT_WORKER_PENDING_TASKS,
@@ -82,6 +83,7 @@ type Task<Input, Output> = Deferred<Output> & {
 };
 type Slot<Input, Output> = {
   worker?: Worker;
+  temporaryDirectory?: string;
   task?: Task<Input, Output>;
   idleTimer?: NodeJS.Timeout;
   retiring?: Promise<void>;
@@ -100,6 +102,7 @@ export class WorkerTaskError extends Error {
 /** Bounded execution workers; each worker accepts one task at a time. */
 export class WorkerTaskPool<Input, Output> {
   private readonly slots = new Set<Slot<Input, Output>>();
+  private readonly artifactCleanups = new Set<Promise<void>>();
   private readonly queue: Task<Input, Output>[] = [];
   private readonly maxWorkers: number;
   private readonly maxPendingTasks: number;
@@ -121,6 +124,11 @@ export class WorkerTaskPool<Input, Output> {
     private readonly options: {
       workerUrl: URL;
       workerOptions?: Omit<WorkerOptions, "eval">;
+      /** Shallow per-Worker overrides; returned scratch stays owned until Worker exit. */
+      prepareWorker?: () => {
+        options: Omit<WorkerOptions, "eval">;
+        temporaryDirectory?: string;
+      };
       maxWorkers?: number;
       /** Share CPU admission with other stateless compute pools in this isolate. */
       sharedCompute?: boolean;
@@ -210,7 +218,9 @@ export class WorkerTaskPool<Input, Output> {
         this.finish(slot.task, this.closedError, undefined, true);
       }
     }
-    return Promise.all([...this.slots].map((slot) => this.retire(slot))).then(() => undefined);
+    return Promise.all([...this.slots].map((slot) => this.retire(slot)))
+      .then(() => Promise.all(this.artifactCleanups))
+      .then(() => undefined);
   }
 
   private dispatch(): void {
@@ -267,14 +277,22 @@ export class WorkerTaskPool<Input, Output> {
 
   // Worker listeners outlive tasks; their creation scope must not retain an async task frame.
   private createWorker(slot: Slot<Input, Output>): Worker {
-    const worker = runInWorkerPoolContext(
-      () =>
-        new Worker(this.options.workerUrl, {
-          // Preserve native require(ESM) and its transitive import-only exports.
-          execArgv: this.options.workerUrl.pathname.endsWith(".ts") ? ["--import", "tsx/esm"] : [],
-          ...this.options.workerOptions,
-        }),
-    );
+    const worker = runInWorkerPoolContext(() => {
+      const prepared = this.options.prepareWorker?.();
+      slot.temporaryDirectory = prepared?.temporaryDirectory;
+      const workerUrl = this.options.workerUrl;
+      const workerOptions = {
+        // Preserve native require(ESM) and its transitive import-only exports.
+        execArgv: workerUrl.pathname.endsWith(".ts") ? ["--import", "tsx/esm"] : [],
+        ...this.options.workerOptions,
+        ...prepared?.options,
+      };
+      // Preparation and option getters can synchronously close the task.
+      if (slot.retiring) {
+        throw new WorkerTaskError("worker creation closed during preparation", "unavailable");
+      }
+      return new Worker(workerUrl, workerOptions);
+    });
     slot.worker = worker;
     worker.on("message", (message: unknown) => {
       const task = slot.task;
@@ -602,11 +620,32 @@ export class WorkerTaskPool<Input, Output> {
   private retire(slot: Slot<Input, Output>): Promise<void> {
     this.clearTimeoutFn(slot.idleTimer);
     // Retain error listeners until exit: termination can race a worker startup error.
-    return (slot.retiring ??= (slot.worker?.terminate() ?? Promise.resolve()).then(() => {
-      slot.worker?.removeAllListeners();
-      this.slots.delete(slot);
-      this.dispatch();
-    }));
+    // Constructor observers can retire this slot before its Worker is assigned.
+    return (slot.retiring ??= Promise.resolve()
+      .then(() => slot.worker?.terminate())
+      .then(() => {
+        const directory = slot.temporaryDirectory;
+        if (directory) {
+          runInWorkerPoolContext(() => {
+            const cleanup = runBestEffortCleanup({
+              cleanup: async () => {
+                const { removeTemporaryArtifacts } = await import("./temp-artifact-cleanup.js");
+                await removeTemporaryArtifacts(directory, "Worker task");
+              },
+              onError: (error) =>
+                process.emitWarning(
+                  `Worker task cleanup could not load for ${directory}: ${String(error)}`,
+                ),
+            });
+            // Release execution capacity at exit; terminal close still joins disposable files.
+            this.artifactCleanups.add(cleanup);
+            void cleanup.then(() => this.artifactCleanups.delete(cleanup));
+          });
+        }
+        slot.worker?.removeAllListeners();
+        this.slots.delete(slot);
+        this.dispatch();
+      }));
   }
 }
 

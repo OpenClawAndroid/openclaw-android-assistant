@@ -411,6 +411,13 @@ syncBuiltinESMExports();`,
       const root = createTempDir("oc-profile-validation-");
       const config = path.join(root, "probe.config.mjs");
       const marker = path.join(root, "config-loaded");
+      const uncaught = path.join(root, "uncaught-error");
+      const preload = path.join(root, "observe-uncaught.mjs");
+      fs.writeFileSync(
+        preload,
+        `import fs from "node:fs";
+process.on("uncaughtExceptionMonitor", () => fs.writeFileSync(${JSON.stringify(uncaught)}, "uncaught"));`,
+      );
       fs.writeFileSync(
         config,
         `import fs from "node:fs";
@@ -429,10 +436,14 @@ throw new Error("Invalid CLI options reached config loading");`,
         "native",
         flag,
       ];
-      const result = await runProfileProcess(args, root, signal);
+      const result = await runProfileProcess(args, root, signal, {
+        NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
+      });
       expect(result.code, result.output).toBe(1);
       expect(result.output).toContain(error);
       expect(fs.existsSync(marker)).toBe(false);
+      expect(fs.existsSync(uncaught), result.output).toBe(false);
+      expect(fs.readdirSync(path.join(root, "profiles"))).toHaveLength(mode === "main" ? 1 : 0);
       expect(result.output.trimEnd()).toMatch(/\[run-vitest-profile\] FAILED \(exit 1\)$/u);
     }),
   );

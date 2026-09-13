@@ -21,6 +21,7 @@ import {
   assertSupportedAgentSchemaVersion,
   readExistingAgentSchemaMeta,
 } from "./openclaw-agent-db-schema-helpers.js";
+import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db.js";
 
 // Target 64 cached handles (roughly three WAL FDs each). Live borrowers,
@@ -51,6 +52,7 @@ export type PendingAgentDatabaseOpen = {
   assertHeld?: () => void;
   operations: number;
   releaseBorrow?: () => void;
+  validation?: OpenClawAgentDatabaseValidation;
 };
 type RetainedAgentDatabaseClose = { agentId: string; path: string; close: () => void };
 const cache = resolveGlobalSingleton<AgentDatabaseLifecycle>(

@@ -13,6 +13,8 @@ import { listRuntimePluginIdsFromRegistry } from "../plugins/active-runtime-regi
 import { normalizePluginsConfig } from "../plugins/config-state.js";
 import { isManifestPluginAvailableForControlPlane } from "../plugins/manifest-contract-eligibility.js";
 import { restorePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
+import { withPluginSourceCaptureDirectory } from "../plugins/plugin-package-metadata-capture.js";
+import { captureProviderCatalogExpiries } from "../plugins/provider-catalog-expiry.js";
 import { planRuntimePluginDiscovery } from "../plugins/provider-discovery.js";
 import { restorePreparedSyntheticAuthFacts } from "../plugins/provider-synthetic-auth.js";
 import { manifestPluginResolvesRuntimeModelCatalogAugment } from "../plugins/providers.js";
@@ -36,6 +38,7 @@ import {
   fingerprintPreparedModelCatalogGeneration,
   fingerprintPreparedModelWorkerRequest,
   type PreparedModelCatalogWorkerInput,
+  type PreparedModelCatalogWorkerData,
   type PreparedModelWorkerRequest,
   type PreparedModelWorkerResult,
 } from "./prepared-model-catalog-worker.js";
@@ -306,16 +309,14 @@ export async function runPreparedModelCatalogWorkerRequest(
         providerStaticModels: undefined,
       });
     }
-    const source = await prepareAgentCatalogSource(
-      exactAgentFacts,
-      catalogGeneration,
-      "live",
-      false,
-      {
+    const configuredProviderModelIds = new Map<string, readonly string[]>();
+    const { value: source, providerExpiries } = await captureProviderCatalogExpiries(() =>
+      prepareAgentCatalogSource(exactAgentFacts, catalogGeneration, "live", false, {
         authStore,
         providerDiscoveryProviderIds: request.providerIds,
         providerDiscoveryTimeoutMs: PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS,
-      },
+        providerCatalogInventory: { agentId: value.input.agentId, configuredProviderModelIds },
+      }),
     );
     const facts = await prepareFullCatalogFacts(
       exactAgentFacts,
@@ -360,6 +361,8 @@ export async function runPreparedModelCatalogWorkerRequest(
       generationFingerprint,
       snapshot: facts.modelCatalog,
       runtimeModels,
+      providerExpiries,
+      configuredProviderModelIds,
       configuredRuntimeModels: facts.configuredRuntimeModels,
       credentials: catalogCredentials,
       providerAuthLabels: withPluginRuntimeGenerationScope(pluginGenerationScope, () =>
@@ -409,16 +412,18 @@ function isWorkerRequest(value: unknown): value is PreparedModelWorkerRequest {
 }
 
 if (parentPort) {
-  const value = workerData as PreparedModelCatalogWorkerInput;
+  const value = workerData as PreparedModelCatalogWorkerData;
   let preparedGeneration: ReturnType<typeof prepareWorkerGeneration> | undefined;
   serveWorkerTasks((request) => {
     if (!isWorkerRequest(request)) {
       throw new Error("invalid prepared model catalog worker request");
     }
-    return runPreparedModelCatalogWorkerRequest(
-      value,
-      request,
-      () => (preparedGeneration ??= prepareWorkerGeneration(value)),
+    return withPluginSourceCaptureDirectory(value.sourceCaptureDirectory, () =>
+      runPreparedModelCatalogWorkerRequest(
+        value,
+        request,
+        () => (preparedGeneration ??= prepareWorkerGeneration(value)),
+      ),
     );
   });
 }

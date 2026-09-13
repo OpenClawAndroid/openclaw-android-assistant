@@ -40,6 +40,14 @@ provider or plugin runtime ownership. Kernels and their transaction callbacks
 remain synchronous. The asynchronous task and flow read facade runs these read
 kernels in the shared-state worker.
 
+Gateway user-preference RPCs and Talk appearance reads resolve merged profile IDs
+and access preferences in the shared-state worker. Preference writes keep profile
+resolution, quota validation, and mutation in one synchronous write transaction;
+Gateway replies and changed events follow completion. Profile merge and consent
+updates retain their connection-bound kernels. Push preference and notification
+callers still use the synchronous facade until their preparation and publication
+owners migrate together.
+
 The host captures the database path, state environment, and current admission
 before awaited work. The shared worker owns its canonical connection and schema
 opening, with Gateway schema authority delegated by its live coordinator owner.
@@ -128,8 +136,9 @@ native owner's authority after any awaited admission.
 
 Session reclamation keeps its deletion transaction on a worker connection.
 The worker opens its database under the session writer, then releases that writer
-while full integrity and foreign-key checks run on the same connection. Unrelated
-session writes can continue during those checks. It reacquires the writer and
+while any required first full integrity and foreign-key checks run on the same connection. Unrelated
+session writes can continue during those checks. Later workers reuse the Gateway's
+remembered verification for the same physical agent database. It reacquires the writer and
 revalidates current authority before index repair, schema work, or deletion.
 The connection and lease remain owned throughout admission; refusal unwinds that
 owner, and final writer admission remains held until the worker exits.
@@ -139,7 +148,8 @@ already excluded by that fresh protection set is canceled before worker admissio
 and is not counted as reclaimed. After releasing its lifecycle holds, cleanup
 remeasures physical usage before considering another candidate, so space freed by
 a peer does not cause unnecessary eviction. Every admitted worker still performs
-the full integrity, foreign-key, and current-owner checks described here.
+current-owner and schema checks; integrity reuse follows the Gateway-lifetime
+policy described in [Integrity checks](/reference/database-schemas/integrity-and-recovery#integrity-checks).
 
 Archive publication and cascading deletion remain atomic. Before COMMIT, the
 worker publishes its authorization request in shared memory and waits for the

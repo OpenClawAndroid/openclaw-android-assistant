@@ -191,12 +191,13 @@ const {
       }) => {
         provider: {
           id: string;
-          capabilities?: { supportsActivationNameGating?: boolean; handlesAgentConsult?: boolean };
         };
+        capabilities?: { supportsActivationNameGating?: boolean; handlesAgentConsult?: boolean };
         providerConfig: Record<string, unknown>;
       }
     >(() => ({
-      provider: { id: "openai", capabilities: { supportsActivationNameGating: true } },
+      provider: { id: "openai" },
+      capabilities: { supportsActivationNameGating: true },
       providerConfig: { model: "gpt-realtime-2", voice: "cedar" },
     })),
     createRealtimeVoiceBridgeSessionMock: vi.fn((_params?: unknown) => realtimeSessionMockLocal),

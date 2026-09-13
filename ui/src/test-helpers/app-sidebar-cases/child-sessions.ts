@@ -4,6 +4,7 @@ import type { SessionsListResult } from "../../api/types.ts";
 import {
   createContext,
   createGateway,
+  createGatewayHarness,
   createSessionsHarness,
   deferred,
   mountSidebar,
@@ -13,7 +14,8 @@ import "../../components/app-sidebar.ts";
 
 describe("AppSidebar agent chip", () => {
   it("loads and expands child sessions with menus but without root placement controls", async () => {
-    const gateway = createGateway({} as GatewayBrowserClient);
+    const gatewayHarness = createGatewayHarness({} as GatewayBrowserClient);
+    const { gateway } = gatewayHarness;
     const harness = createSessionsHarness("main", ["agent:main:parent"]);
     harness.list.mockResolvedValue({
       ts: 100_000,
@@ -164,6 +166,14 @@ describe("AppSidebar agent chip", () => {
           },
         ],
       },
+    });
+    await sidebar.updateComplete;
+    expect(harness.list).toHaveBeenCalledOnce();
+    gatewayHarness.publishEvent("sessions.changed", {
+      sessionKey: "agent:main:child-one",
+      agentId: "main",
+      reason: "patch",
+      spawnedBy: "agent:main:parent",
     });
     await waitForFast(() => expect(harness.list).toHaveBeenCalledTimes(2));
     await waitForFast(() =>
@@ -353,7 +363,7 @@ describe("AppSidebar agent chip", () => {
     await waitForFast(() =>
       expect(
         sidebar.querySelector('[data-child-session-error="agent:main:parent"]')?.textContent,
-      ).toContain("child session list returned no result"),
+      ).toContain("The session query did not return a result. Try again."),
     );
 
     publishParent(11);
@@ -613,6 +623,7 @@ describe("AppSidebar agent chip", () => {
     await sidebar.updateComplete;
     sidebar.querySelector<HTMLButtonElement>("[data-child-session-toggle]")?.click();
     await waitForFast(() => expect(harness.list).toHaveBeenCalledOnce());
+    await waitForFast(() => expect(sidebar.textContent).toContain("temporary list failure"));
 
     sidebar.querySelector<HTMLButtonElement>("[data-child-session-toggle]")?.click();
     await sidebar.updateComplete;

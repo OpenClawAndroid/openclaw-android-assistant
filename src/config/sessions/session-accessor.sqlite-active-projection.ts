@@ -1,5 +1,7 @@
+import type { DatabaseSync } from "node:sqlite";
+import type { InferResult, RawBuilder } from "kysely";
 import type { TranscriptDisplayPosition } from "../../chat/transcript-display-position.js";
-import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
+import { getNodeSqliteKysely, prepareSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
@@ -15,15 +17,15 @@ import {
   resolveSqliteTranscriptReadScope,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
-import { assertSessionTranscriptHot } from "./session-cold-storage-state.js";
+import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type { SessionTranscriptProjectionState } from "./session-transcript-index.js";
 import { SessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
-import { hasUnclassifiedSessionTranscriptEvents } from "./session-transcript-projection-rebuild.js";
 import { startSessionTranscriptIndexReconcile } from "./session-transcript-reconcile.js";
 
 type ActiveTranscriptDatabase = Pick<
   OpenClawAgentKyselyDatabase,
   | "session_transcript_active_events"
+  | "session_transcript_cold_archives"
   | "transcript_rewrite_watermarks"
   | "session_transcript_index_state"
   | "transcript_event_identities"
@@ -76,57 +78,85 @@ export function parseActiveTranscriptMessageRow(row: {
   };
 }
 
-function readEmptyTranscriptGeneration(
+function buildProjectionSnapshotQuery(
   database: TranscriptReadDatabase,
-  sessionId: string,
-): string | undefined {
-  return executeSqliteQueryTakeFirstSync(
-    database.db,
-    getActiveTranscriptKysely(database)
-      .selectFrom("transcript_rewrite_watermarks")
-      .select("generation")
-      .where("session_id", "=", sessionId),
-  )?.generation;
+  sessionId: RawBuilder<string>,
+) {
+  const db = getActiveTranscriptKysely(database);
+  // The target survives empty and archived transcripts, which have no hot event rows.
+  const target = db.selectNoFrom(sessionId.as("session_id")).as("target");
+  return db
+    .selectFrom(target)
+    .leftJoin("session_transcript_index_state as state", "state.session_id", "target.session_id")
+    .leftJoin(
+      "transcript_rewrite_watermarks as watermark",
+      "watermark.session_id",
+      "target.session_id",
+    )
+    .select([
+      "watermark.generation",
+      "state.active_event_count",
+      "state.active_message_count",
+      "state.indexed_seq",
+      "state.leaf_event_id",
+      "state.needs_rebuild",
+    ])
+    .select((eb) => [
+      eb
+        .selectFrom("transcript_events")
+        .select(({ fn }) => fn.max<number | null>("seq").as("latest_seq"))
+        .whereRef("transcript_events.session_id", "=", "target.session_id")
+        .as("latest_seq"),
+      eb
+        .exists(
+          eb
+            .selectFrom("session_transcript_cold_archives")
+            .select("session_id")
+            .whereRef("session_transcript_cold_archives.session_id", "=", "target.session_id"),
+        )
+        .as("is_cold"),
+      eb
+        .exists(
+          eb
+            .selectFrom("session_transcript_active_events")
+            .select("session_id")
+            .whereRef("session_transcript_active_events.session_id", "=", "target.session_id")
+            .where("context_eligible", "is", null),
+        )
+        .as("has_unclassified"),
+    ]);
 }
 
-function readProjectionSnapshot(
-  database: TranscriptReadDatabase,
-  sessionId: string,
-):
-  | {
-      generation: string | undefined;
-      latestSeq: number;
-      state?: SessionTranscriptProjectionState;
-    }
-  | undefined {
-  const row = executeSqliteQueryTakeFirstSync(
-    database.db,
-    getActiveTranscriptKysely(database)
-      .selectFrom("transcript_events as latest")
-      .leftJoin("session_transcript_index_state as state", "state.session_id", "latest.session_id")
-      .leftJoin(
-        "transcript_rewrite_watermarks as watermark",
-        "watermark.session_id",
-        "latest.session_id",
-      )
-      .select([
-        "watermark.generation",
-        "latest.seq as latest_seq",
-        "state.active_event_count",
-        "state.active_message_count",
-        "state.indexed_seq",
-        "state.leaf_event_id",
-        "state.needs_rebuild",
-      ])
-      .where("latest.session_id", "=", sessionId)
-      .orderBy("latest.seq", "desc")
-      .limit(1),
-  );
-  if (!row) {
-    return undefined;
+// Cache compilation only; bindings and rows belong to each read snapshot.
+const projectionSnapshotReaders = new WeakMap<
+  DatabaseSync,
+  ReturnType<
+    typeof prepareSqliteQuerySync<
+      string,
+      InferResult<ReturnType<typeof buildProjectionSnapshotQuery>>[number]
+    >
+  >
+>();
+
+function readProjectionSnapshot(database: TranscriptReadDatabase, sessionId: string) {
+  let read = projectionSnapshotReaders.get(database.db);
+  if (!read) {
+    read = prepareSqliteQuerySync<
+      string,
+      InferResult<ReturnType<typeof buildProjectionSnapshotQuery>>[number]
+    >(database.db, (parameter) =>
+      buildProjectionSnapshotQuery(
+        database,
+        parameter((id) => id),
+      ),
+    );
+    projectionSnapshotReaders.set(database.db, read);
   }
+  const row = read(sessionId).rows[0]!;
   return {
+    cold: Boolean(row.is_cold),
     generation: row.generation ?? undefined,
+    hasUnclassified: Boolean(row.has_unclassified),
     latestSeq: row.latest_seq,
     ...(typeof row.indexed_seq === "number"
       ? {
@@ -153,14 +183,16 @@ export function withCurrentProjectionSnapshot<T>(
     runSqliteDeferredTransactionSync(
       database.db,
       () => {
-        assertSessionTranscriptHot(database.db, resolved.sessionId);
         const snapshot = readProjectionSnapshot(database, resolved.sessionId);
-        if (!snapshot) {
+        if (snapshot.cold) {
+          throw new SessionTranscriptColdError(resolved.sessionId);
+        }
+        if (snapshot.latestSeq === null) {
           return {
             kind: "value" as const,
             value: read({
               database,
-              generation: readEmptyTranscriptGeneration(database, resolved.sessionId),
+              generation: snapshot.generation,
               resolved,
               state: EMPTY_PROJECTION_STATE,
             }),
@@ -170,7 +202,7 @@ export function withCurrentProjectionSnapshot<T>(
           snapshot.state &&
           !snapshot.state.needsRebuild &&
           snapshot.state.indexedSeq === snapshot.latestSeq &&
-          !hasUnclassifiedSessionTranscriptEvents(database.db, resolved.sessionId)
+          !snapshot.hasUnclassified
         ) {
           return {
             kind: "value" as const,

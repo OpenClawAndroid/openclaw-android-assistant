@@ -182,7 +182,7 @@ describe("session-share node commands", () => {
     },
   );
 
-  it("publishes only selected nonprivate native sessions with stable paging and search", async () => {
+  it("publishes selected root sessions while denying grouped subagents, with stable paging and search", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const fixture = commandFixture();
       // Keep the tied fixture fresh: subsequent writes prune ancient unarchived sessions.
@@ -190,7 +190,15 @@ describe("session-share node commands", () => {
       for (const [key, patch] of [
         [
           "agent:main:alpha",
-          { label: "Alpha", category: "Team", updatedAt: recency, color: "blue" },
+          {
+            label: "Alpha",
+            category: "Team",
+            updatedAt: recency,
+            color: "blue",
+            createdVia: "operator",
+            parentSessionKey: "agent:main:parent",
+            spawnDepth: 0,
+          },
         ],
         [
           "agent:main:beta",
@@ -209,11 +217,36 @@ describe("session-share node commands", () => {
           "agent:main:catalog:external",
           { label: "Adopted", category: "Team", updatedAt: recency + 1 },
         ],
+        [
+          "agent:main:subagent:key-only",
+          { label: "Subagent", category: "Team", updatedAt: recency + 1 },
+        ],
+        [
+          "agent:main:dashboard:spawn-owned",
+          { category: "Team", updatedAt: recency + 1, createdVia: "spawn" },
+        ],
+        [
+          "agent:main:acp:resumed-child",
+          {
+            category: "Team",
+            updatedAt: recency + 1,
+            spawnedBy: "agent:main:main",
+            spawnDepth: 1,
+          },
+        ],
+        ["agent:main:main", { category: "Team", updatedAt: recency - 1 }],
+        [
+          "agent:main:cron:job:run:root",
+          { category: "Team", updatedAt: recency - 1, createdVia: "cron" },
+        ],
       ] as const) {
         await replaceSessionEntry(
           { agentId: "main", sessionKey: key },
           { sessionId: key, ...patch },
         );
+      }
+      for (const key of ["subagent:key-only", "dashboard:spawn-owned", "acp:resumed-child"]) {
+        await expect.soft(fixture.read(`agent:main:${key}`)).rejects.toThrow("not shared");
       }
       const first = await fixture.list({ limit: 1 });
       expect(first.sessions).toEqual([
@@ -236,7 +269,13 @@ describe("session-share node commands", () => {
           status: "archived",
         }),
       ]);
-      expect(older.nextCursor).toBeUndefined();
+      expect(older.nextCursor).toBeDefined();
+      const roots = await fixture.list({ cursor: older.nextCursor });
+      expect(roots.sessions.map((session) => session.threadId)).toEqual([
+        "agent:main:cron:job:run:root",
+        "agent:main:main",
+      ]);
+      expect(roots.nextCursor).toBeUndefined();
       expect(
         (await fixture.list({ searchTerm: "ALPHA" })).sessions.map((session) => session.threadId),
       ).toEqual(["agent:main:alpha"]);

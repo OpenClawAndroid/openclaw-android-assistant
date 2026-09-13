@@ -294,6 +294,19 @@ export const SETTINGS_SEARCH_TARGETS = {
       "configView.sessionObserver.modelPickerHint",
     ],
   },
+  sessionSources: {
+    ...SETTINGS_ROUTE_TARGETS.sessionSources,
+    labelKey: "configView.sessionSources.title",
+    searchKeys: [
+      "configView.sessionSources.hint",
+      "configView.sessionSources.claude",
+      "configView.sessionSources.codex",
+      "configView.sessionSources.opencode",
+      "configView.sessionSources.pi",
+    ],
+    aliases:
+      "automatic auto discover discovery native external conversations show hide sidebar claude sessions",
+  },
   appearanceChat: {
     routeId: "appearance",
     labelKey: "configView.chatPrefs.title",

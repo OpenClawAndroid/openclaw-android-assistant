@@ -2,11 +2,14 @@ import type {
   GitWorktreeEffects,
   GitWorktreeOperations,
 } from "../agents/worktrees/git-worktree-operations.js";
+import type { WorkspaceArtifactReadOperations } from "../gateway/worker-environments/workspace-result-inventory.js";
 import type { BufferedCommandOptions, BufferedCommandResult } from "../process/exec.js";
 import type { GitCommandBytesResult, GitCommandOptions } from "./git-exec.js";
 import type { GitReadOperations } from "./git-read-operations.js";
 
-export type GitWorkerOperations = GitReadOperations & GitWorktreeOperations;
+export type GitWorkerOperations = GitReadOperations &
+  GitWorktreeOperations &
+  WorkspaceArtifactReadOperations;
 export type GitWorkerCommand = {
   [K in keyof GitWorkerOperations]: { type: K; input: GitWorkerOperations[K]["input"] };
 }[keyof GitWorkerOperations];

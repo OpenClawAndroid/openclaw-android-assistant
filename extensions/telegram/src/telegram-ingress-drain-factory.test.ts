@@ -121,7 +121,6 @@ describe("Telegram transport ingress outcome handoff", () => {
           createTelegramTransportIngressMonitor({
             spoolDir: "/tmp/telegram-ingress-proof",
             bot,
-            cfg: {},
             accountId: "default",
           });
           const monitor = mocks.createTelegramIngressMonitor.mock.calls[0]?.[0] as CapturedMonitor;
@@ -186,7 +185,6 @@ describe("Telegram transport ingress outcome handoff", () => {
       createTelegramTransportIngressMonitor({
         spoolDir: "/tmp/telegram-ingress-proof",
         bot,
-        cfg: {},
         accountId: "default",
       });
       const monitor = mocks.createTelegramIngressMonitor.mock.calls[0]?.[0] as CapturedMonitor;
@@ -207,7 +205,6 @@ describe("Telegram transport ingress outcome handoff", () => {
     createTelegramTransportIngressMonitor({
       spoolDir: "/tmp/telegram-ingress-proof",
       bot,
-      cfg: {},
       accountId: "default",
     });
     const monitor = mocks.createTelegramIngressMonitor.mock.calls[0]?.[0] as CapturedMonitor;
@@ -228,7 +225,6 @@ describe("Telegram transport ingress outcome handoff", () => {
     createTelegramTransportIngressMonitor({
       spoolDir: "/tmp/telegram-ingress-proof",
       bot,
-      cfg: {},
       accountId: "default",
     });
     const monitor = mocks.createTelegramIngressMonitor.mock.calls[0]?.[0] as CapturedMonitor;

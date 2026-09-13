@@ -174,7 +174,7 @@ export function createTalkRealtimeRelaySession(
   );
   const runControl = createTalkRealtimeRunControlOwner({
     controlSource: params.controlSource,
-    supportsToolCalls: params.supportsToolCalls,
+    supportsToolCalls: params.capabilities?.supportsToolCalls,
     hasActiveRun: () => {
       const relay = getActiveRelay();
       return Boolean(relay && pruneInactiveRelayAgentRuns(relay) > 0);
@@ -208,6 +208,7 @@ export function createTalkRealtimeRelaySession(
   const relayProvider = outputOwnership.bind(params.provider, runAgentConsult);
   const bridgeRequest: Parameters<typeof harness.createBridge>[0] = {
     provider: relayProvider,
+    capabilities: params.capabilities,
     cfg: params.cfg,
     agentId: relayAgentId,
     providerConfig: params.providerConfig,
@@ -236,11 +237,7 @@ export function createTalkRealtimeRelaySession(
     audioSink: {
       isOpen: () => Boolean(getActiveRelay()),
       sendAudio: (audio) => {
-        const relay = getActiveRelay();
-        if (!relay) {
-          return;
-        }
-        if (outputOwnership.phase === "cancelling") {
+        if (!getActiveRelay() || outputOwnership.phase === "cancelling") {
           return;
         }
         const outputTurnId = outputOwnership.resolve(true);
@@ -469,10 +466,7 @@ export function createTalkRealtimeRelaySession(
     },
     onToolCall: (toolCall) => {
       const relay = getActiveRelay();
-      if (!relay) {
-        return;
-      }
-      if (outputOwnership.phase === "cancelling") {
+      if (!relay || outputOwnership.phase === "cancelling") {
         return;
       }
       const outputTurnId = outputOwnership.resolve(true);
@@ -636,6 +630,7 @@ export function createTalkRealtimeRelaySession(
     context: params.context,
     bridge,
     harness,
+    capabilities: params.capabilities,
     outputOwnership,
     sessionTarget: params.sessionTarget,
     expiresAtMs,

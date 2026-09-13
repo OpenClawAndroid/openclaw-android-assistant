@@ -15,6 +15,10 @@ serveWorkerTasks<GitWorkerReply<GitWorkerResult>>(async (input, channel) => {
     channel.consumeInput();
     const value = await withGitWorkerContext<GitWorkerResult>(channel, () => {
       switch (command.type) {
+        case "workspace.artifacts":
+          return import("../gateway/worker-environments/workspace-result-inventory.runtime.js").then(
+            ({ collectStagedWorkerArtifacts }) => collectStagedWorkerArtifacts(command.input),
+          );
         case "worktree.snapshot":
         case "worktree.provisioning-inspection":
         case "worktree.cleanup-inspection":

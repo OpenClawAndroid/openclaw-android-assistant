@@ -484,11 +484,13 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
     );
     subscribe(progress);
     const operation = (async () => {
-      const requestEntries = createSessionCatalogRequestEntrySnapshot({
-        cfg: config,
-        fallbackAgentId: resolvedAgent.agentId,
-      });
-      requestEntries.freeze();
+      const requestEntries = selected.some((provider) => provider.audience !== "session-viewers")
+        ? createSessionCatalogRequestEntrySnapshot({
+            cfg: config,
+            fallbackAgentId: resolvedAgent.agentId,
+          })
+        : undefined;
+      requestEntries?.freeze();
       const instances: SessionCatalogInstances = new Map();
       const listNodes = createSessionCatalogRequestNodeSnapshot();
       const catalogList = await Promise.all(
@@ -502,7 +504,7 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
               }
             : undefined;
           const onHost = (host: SessionCatalog["hosts"][number]) => {
-            requestEntries.captureHostInstances(host, instances);
+            requestEntries?.captureHostInstances(host, instances);
             const catalog = catalogResult(provider, shareRoute, [host], undefined, createSession);
             // Progressive frames are an optimization. The final RPC response remains
             // authoritative when a slow client drops an intermediate host update.
@@ -517,13 +519,13 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
                 limitPerHost: request.limitPerHost,
                 hostIds: request.hostIds,
                 ...(request.cursors !== undefined ? { cursors: request.cursors } : {}),
-                sessionEntries: requestEntries.sessionEntries,
+                sessionEntries: requestEntries?.sessionEntries,
                 listNodes,
                 ...lifetime,
               }),
             );
             for (const host of hosts) {
-              requestEntries.captureHostInstances(host, instances);
+              requestEntries?.captureHostInstances(host, instances);
             }
             return catalogResult(provider, shareRoute, hosts, undefined, createSession);
           } catch (error) {

@@ -11,10 +11,15 @@ const AgentRuntimePolicySchema = z
 
 const AgentModelRuntimeEntrySchema = z
   .object({
+    /** Optional display/lookup alias for this provider/model entry. */
     alias: z.string().optional(),
+    /** Provider-specific API parameters (e.g., GLM-4.7 thinking mode). */
     params: z.record(z.string(), z.unknown()).optional(),
+    /** Optional agent execution runtime for this specific provider/model entry. */
     agentRuntime: AgentRuntimePolicySchema,
+    /** OpenClaw Code Mode override; omitted inherits the enclosing activation policy. */
     codeMode: z.boolean().optional(),
+    /** Enable streaming for this model (default: true, false for Ollama to avoid SDK issue #1205). */
     streaming: z.boolean().optional(),
   })
   .strict();
@@ -36,15 +41,20 @@ export const AgentModelMapSchema = z
 
 export const AgentModelPolicySchema = z
   .object({
+    /** Model refs allowed for session/run overrides. Empty or omitted allows any model. */
     allow: z.array(z.string()).optional(),
   })
   .strict();
 
 const AgentRuntimeAcpSchema = z
   .object({
+    /** ACP harness adapter id (for example codex, claude). */
     agent: z.string().optional(),
+    /** Optional ACP backend override for this agent runtime. */
     backend: z.string().optional(),
+    /** Optional ACP session mode override. */
     mode: z.enum(["persistent", "oneshot"]).optional(),
+    /** Optional runtime working directory override. */
     cwd: z.string().optional(),
   })
   .strict()

@@ -30,7 +30,7 @@ Details: [Plugins](/tools/plugin)
 
 <Steps>
   <Step title="Ensure plugin is available">
-    Install `@openclaw/mattermost` with the command above, then restart the Gateway if it is already running.
+    Install `@openclaw/mattermost` with the command above. Check the [application result](/plugins/manage-plugins#apply-changes-and-inspect) before continuing.
   </Step>
   <Step title="Create a Mattermost bot">
     Create a Mattermost bot account, copy the **bot token**, and add the bot to the teams and channels it should read.

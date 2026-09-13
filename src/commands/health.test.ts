@@ -21,12 +21,9 @@ import {
   healthCommand,
   healthCommandNonExiting,
 } from "./health.js";
+import { createTestRuntime } from "./test-runtime-config-helpers.js";
 
-const runtime = {
-  log: vi.fn(),
-  error: vi.fn(),
-  exit: vi.fn(),
-};
+const runtime = createTestRuntime();
 
 const defaultSessions: HealthSummary["sessions"] = {
   path: "/tmp/sessions.json",
@@ -130,10 +127,10 @@ function requireFirstRuntimeLog(): string {
     throw new Error("expected health command log output");
   }
   const [message] = call;
-  if (message === undefined) {
+  if (typeof message !== "string") {
     throw new Error("expected health command log output");
   }
-  return String(message);
+  return message;
 }
 
 function requireFirstGatewayRequest(): Record<string, unknown> {
@@ -218,7 +215,7 @@ describe("healthCommand", () => {
     };
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime);
 
     expect(runtime.exit).not.toHaveBeenCalled();
     const parsed = JSON.parse(requireFirstRuntimeLog()) as HealthSummary;
@@ -230,7 +227,7 @@ describe("healthCommand", () => {
 
     runtime.log.mockClear();
     callGatewayMock.mockResolvedValueOnce(snapshot);
-    await healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
     expect(output).toContain(`Session store (main): ${parsed.sessions.path}`);
@@ -265,7 +262,7 @@ describe("healthCommand", () => {
     const snapshot = createHealthSummary();
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
     expect(output).toContain("Gateway probe duration: 5ms");
@@ -312,7 +309,7 @@ describe("healthCommand", () => {
         }),
       );
 
-      await healthCommand({ config: { diagnostics: { flags: ["health"] } } }, runtime as never);
+      await healthCommand({ config: { diagnostics: { flags: ["health"] } } }, runtime);
 
       const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
       expect(output).toContain(`configured=${configured ?? "unknown"} tokenSource=secretref`);
@@ -358,7 +355,7 @@ describe("healthCommand", () => {
       { id: "matrix", config: { listAccountIds: () => ["main", "alerts"] } },
     ]);
 
-    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
     expect(output).toContain("Matrix: blocked");
@@ -417,7 +414,7 @@ describe("healthCommand", () => {
               agents: { ownership: "explicit", entries: { alpha: {}, beta: {} } },
             },
           },
-          runtime as never,
+          runtime,
         );
 
         const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
@@ -448,7 +445,7 @@ describe("healthCommand", () => {
     };
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
     expect(output).toContain("Gateway event loop: degraded for 3m");
@@ -460,7 +457,7 @@ describe("healthCommand", () => {
     expect(durationMs).toBe(5);
     callGatewayMock.mockResolvedValueOnce(legacySnapshot);
 
-    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((call) => String(call[0])).join("\n"));
     expect(output).not.toContain("Gateway probe duration:");
@@ -473,7 +470,7 @@ describe("healthCommand", () => {
     };
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 1000, config: {} }, runtime);
 
     expect(runtime.exit).not.toHaveBeenCalled();
     const output = stripAnsi(runtime.log.mock.calls.map((c) => String(c[0])).join("\n"));
@@ -487,7 +484,7 @@ describe("healthCommand", () => {
     snapshot.configReload = { hotReloadStatus: "disabled" };
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime);
 
     const parsed = JSON.parse(requireFirstRuntimeLog()) as HealthSummary;
     expect(parsed.configReload).toEqual({ hotReloadStatus: "disabled" });
@@ -498,7 +495,7 @@ describe("healthCommand", () => {
     snapshot.configReload = { hotReloadStatus: "disabled" };
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((c) => String(c[0])).join("\n"));
     expect(output).toContain("Config hot reload: disabled");
@@ -509,7 +506,7 @@ describe("healthCommand", () => {
     snapshot.configReload = { hotReloadStatus: "active" };
     callGatewayMock.mockResolvedValueOnce(snapshot);
 
-    await healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime);
 
     const output = stripAnsi(runtime.log.mock.calls.map((c) => String(c[0])).join("\n"));
     expect(output).not.toContain("Config hot reload");
@@ -568,7 +565,7 @@ describe("healthCommand", () => {
             timeoutMs: 1000,
             config: { agents: { ownership: "explicit", entries: {} } },
           },
-          runtime as never,
+          runtime,
         );
       } finally {
         clock.mockRestore();
@@ -600,7 +597,7 @@ describe("healthCommand", () => {
         password: "setup-password",
         ignoreEnvUrlOverride: true,
       },
-      runtime as never,
+      runtime,
     );
 
     expect(callGatewayMock).toHaveBeenCalledOnce();
@@ -632,7 +629,7 @@ describe("healthCommand", () => {
     callGatewayMock.mockRejectedValueOnce(error);
     formatGatewayTransportErrorJsonMock.mockReturnValueOnce(payload);
 
-    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime);
 
     expect(formatGatewayTransportErrorJsonMock).toHaveBeenCalledWith(error);
     expect(runtime.exit).toHaveBeenCalledWith(1);
@@ -661,7 +658,7 @@ describe("healthCommand", () => {
     callGatewayMock.mockRejectedValueOnce(error);
     formatGatewayClientRequestErrorJsonMock.mockReturnValueOnce(payload);
 
-    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime);
 
     expect(formatGatewayAuthErrorJsonMock).toHaveBeenCalledWith(error);
     expect(formatGatewayClientRequestErrorJsonMock).toHaveBeenCalledWith(error);
@@ -680,9 +677,9 @@ describe("healthCommand", () => {
     });
     callGatewayMock.mockRejectedValueOnce(error);
 
-    await expect(
-      healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime as never),
-    ).rejects.toBe(error);
+    await expect(healthCommand({ json: false, timeoutMs: 5000, config: {} }, runtime)).rejects.toBe(
+      error,
+    );
 
     expect(formatGatewayAuthErrorJsonMock).not.toHaveBeenCalled();
     expect(formatGatewayClientRequestErrorJsonMock).not.toHaveBeenCalled();
@@ -704,7 +701,7 @@ describe("healthCommand", () => {
         gatewayReached: true,
       });
 
-      await healthCommand({ json, timeoutMs: 5000, config: {} }, runtime as never);
+      await healthCommand({ json, timeoutMs: 5000, config: {} }, runtime);
 
       expect(probeGatewayStatusMock).toHaveBeenCalledWith({
         url: TEST_GATEWAY_URL,
@@ -751,7 +748,7 @@ describe("healthCommand", () => {
       retainGatewayResponsePayload(error, undefined);
       callGatewayMock.mockRejectedValueOnce(error);
 
-      await healthCommand({ json, timeoutMs: 5000, config: {} }, runtime as never);
+      await healthCommand({ json, timeoutMs: 5000, config: {} }, runtime);
 
       expect(isGatewayCredentialsRequiredErrorMock).not.toHaveBeenCalled();
       expect(probeGatewayStatusMock).not.toHaveBeenCalled();
@@ -786,7 +783,7 @@ describe("healthCommand", () => {
         gatewayReached: true,
       });
 
-      await healthCommand({ json, timeoutMs: 5000, config: {} }, runtime as never);
+      await healthCommand({ json, timeoutMs: 5000, config: {} }, runtime);
 
       expect(runtime.exit).toHaveBeenCalledWith(1);
       expect(runtime.log).toHaveBeenCalledTimes(expectedLogs);
@@ -812,7 +809,7 @@ describe("healthCommand", () => {
     });
     callGatewayMock.mockRejectedValueOnce(error);
 
-    await expect(healthCommand({ config: {} }, runtime as never)).rejects.toBe(error);
+    await expect(healthCommand({ config: {} }, runtime)).rejects.toBe(error);
 
     expect(runtime.log).not.toHaveBeenCalled();
     expect(probeGatewayStatusMock).not.toHaveBeenCalled();
@@ -836,7 +833,7 @@ describe("healthCommand", () => {
     });
     formatGatewayAuthErrorJsonMock.mockReturnValueOnce(payload);
 
-    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime);
 
     expect(formatGatewayAuthErrorJsonMock).toHaveBeenCalledWith(error);
     expect(formatGatewayTransportErrorJsonMock).not.toHaveBeenCalled();
@@ -856,7 +853,7 @@ describe("healthCommand", () => {
     callGatewayMock.mockRejectedValueOnce(error);
     formatGatewayAuthErrorJsonMock.mockReturnValueOnce(payload);
 
-    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime as never);
+    await healthCommand({ json: true, timeoutMs: 5000, config: {} }, runtime);
 
     expect(probeGatewayStatusMock).not.toHaveBeenCalled();
     expect(formatGatewayAuthErrorJsonMock).toHaveBeenCalledWith(error);
@@ -878,7 +875,7 @@ describe("healthCommand", () => {
 
     await healthCommand(
       { json: false, timeoutMs: 5000, config: {}, ignoreEnvUrlOverride: true },
-      runtime as never,
+      runtime,
     );
 
     expect(isGatewaySecretRefUnavailableErrorMock).toHaveBeenCalledWith(error);
@@ -921,7 +918,7 @@ describe("healthCommand", () => {
     await expect(
       healthCommandNonExiting(
         { json: false, timeoutMs: 5000, config: {}, ignoreEnvUrlOverride: true },
-        runtime as never,
+        runtime,
       ),
     ).rejects.toBeInstanceOf(ExitError);
 

@@ -179,7 +179,7 @@ function compose({ preview, source, authors, prAuthor, captured, queue }) {
   const sourceTrailers = source.split("\n").filter(Boolean);
   const eligibleEmails = new Set();
   const unverifiedEmails = new Set();
-  for (const { name, email, user } of authors) {
+  for (const { name, email, user, changesTree } of authors) {
     const normalized = email.trim().toLowerCase();
     const linkedHuman = user?.type === "User" && Boolean(user.login);
     const prAuthorMatch =
@@ -188,7 +188,9 @@ function compose({ preview, source, authors, prAuthor, captured, queue }) {
       name.trim().toLowerCase() === prAuthor.login.toLowerCase() &&
       !NOREPLY_EMAIL.test(normalized);
     if (linkedHuman || prAuthorMatch) {
-      eligibleEmails.add(normalized);
+      if (changesTree || prAuthorMatch || user?.login === prAuthor?.login) {
+        eligibleEmails.add(normalized);
+      }
     } else {
       unverifiedEmails.add(normalized);
     }

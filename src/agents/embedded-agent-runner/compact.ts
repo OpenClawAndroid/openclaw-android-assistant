@@ -43,10 +43,7 @@ import type {
   CompactEmbeddedAgentSessionParams,
   CompactEmbeddedAgentSessionRuntimeParams,
 } from "./compact.types.js";
-import {
-  containsRealConversationMessages,
-  resolveCompactionProviderStream,
-} from "./compaction-diagnostics.js";
+import { containsRealConversationMessages } from "./compaction-diagnostics.js";
 import {
   buildBeforeCompactionHookMetrics,
   estimateTokensAfterCompaction,
@@ -598,7 +595,6 @@ export const testing = {
   containsRealConversationMessages,
   estimateTokensAfterCompaction,
   buildBeforeCompactionHookMetrics,
-  resolveCompactionProviderStream,
   prepareCompactionSessionAgent,
   runBeforeCompactionHooks,
   runAfterCompactionHooks,

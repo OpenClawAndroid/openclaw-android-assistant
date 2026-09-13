@@ -8,7 +8,7 @@ import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { createSessionRepositoryWorkspaceStore } from "../../state/session-repository-workspaces.js";
 import {
   forkSessionRepositoryWorkspace,
-  readSessionRepositoryCheckpoint,
+  readSessionRepositoryArtifacts,
   recoverSessionRepositoryCheckpoint,
   stageSessionRepositoryCheckpoint,
   withSessionRepositoryCheckpoint,
@@ -145,12 +145,12 @@ it("retains cumulative multi-turn files, deletions and executable modes in a bar
     },
   );
   expect(accepted.checkpointRef).toBe(second.checkpointRef);
-  const firstSnapshot = await readSessionRepositoryCheckpoint({
-    store,
-    workspaceId: workspace.workspaceId,
-    checkpointRef: first.checkpointRef,
-  });
-  expect(firstSnapshot.current.entries.some((entry) => entry.path === "second.sh")).toBe(false);
+  await withSessionRepositoryCheckpoint(
+    { store, workspaceId: workspace.workspaceId, checkpointRef: first.checkpointRef },
+    async (snapshot) => {
+      expect(snapshot.current.entries.some((entry) => entry.path === "second.sh")).toBe(false);
+    },
+  );
 });
 
 it("recovers a published artifact after the acceptance transaction fails, without accepting a closed claim", async () => {
@@ -193,11 +193,13 @@ it("recovers a published artifact after the acceptance transaction fails, withou
       assertCurrent,
     }),
   ).toEqual(recovered);
-  const snapshot = await readSessionRepositoryCheckpoint({
+  const snapshot = await readSessionRepositoryArtifacts({
     store: reopened,
     workspaceId: workspace.workspaceId,
+    previewPath: "edit.txt",
+    assertCurrent,
   });
-  expect((await snapshot.readEntry(snapshot.changedEntries[0]!)).toString()).toBe("recover me\n");
+  expect(snapshot.preview).toEqual(new Uint8Array(Buffer.from("recover me\n")));
 });
 
 it("retries failed candidate cleanup and keeps completed cleanup independent of later Git locks", async () => {
@@ -229,13 +231,13 @@ it("retries failed candidate cleanup and keeps completed cleanup independent of 
   await Promise.all([prepared.discard(), prepared.discard()]);
   const accepted = await prepared.publish();
   expect(accepted.checkpointRef).toBe(prepared.checkpointRef);
-  const snapshot = await readSessionRepositoryCheckpoint({
+  const snapshot = await readSessionRepositoryArtifacts({
     store,
     workspaceId: workspace.workspaceId,
+    previewPath: "edit.txt",
+    assertCurrent,
   });
-  expect((await snapshot.readEntry(snapshot.changedEntries[0]!)).toString()).toBe(
-    "recover after cleanup\n",
-  );
+  expect(snapshot.preview).toEqual(new Uint8Array(Buffer.from("recover after cleanup\n")));
 });
 
 it.each([false, true])(
@@ -436,11 +438,13 @@ it("rejects mismatched transferred bytes and cannot replace an immutable checkpo
   const collision = await stage("turn-immutable");
   await expect(collision.publish()).rejects.toThrow("different result");
   await collision.discard();
-  const snapshot = await readSessionRepositoryCheckpoint({
+  const snapshot = await readSessionRepositoryArtifacts({
     store,
     workspaceId: workspace.workspaceId,
+    previewPath: "edit.txt",
+    assertCurrent,
   });
-  expect((await snapshot.readEntry(snapshot.changedEntries[0]!)).toString()).toBe("first\n");
+  expect(snapshot.preview).toEqual(new Uint8Array(Buffer.from("first\n")));
   const expected = await readActualWorkspaceManifest({ root: remote, baseCommit });
   await fs.writeFile(path.join(remote, "edit.txt"), "tampered\n");
   await expect(

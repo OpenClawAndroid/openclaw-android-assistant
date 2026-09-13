@@ -1,7 +1,7 @@
 import type { DiscordAccountConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
-  readPcm16AudioStats,
+  isRealtimeVoiceAudioAudible,
   realtimeVoiceAudioDurationMs,
   resolveRealtimeVoiceBargeIn,
   type RealtimeVoiceActivationNameTranscriptResult,
@@ -25,8 +25,6 @@ const DISCORD_REALTIME_WAKE_ACKS = ["Yeah.", "Mm-hmm.", "Got it.", "One sec."];
 const DISCORD_RAW_PCM_FRAME_BYTES = 3_840;
 // Discord consumes one frame every 20 ms; cap retained-ahead PCM at two minutes.
 const DISCORD_REALTIME_MAX_PENDING_OUTPUT_BYTES = DISCORD_RAW_PCM_FRAME_BYTES * 6_000;
-// Ignore decoded transport silence below -66 dBFS without gating quiet speech.
-const DISCORD_CONTINUOUS_OUTPUT_SILENCE_PEAK = 16;
 
 type DiscordRealtimeVoiceConfig = NonNullable<DiscordAccountConfig["voice"]>["realtime"];
 
@@ -123,13 +121,15 @@ export class DiscordRealtimePlayback<TState> {
   }
 
   isBargeInEnabled(): boolean {
-    if (this.isContinuousOutput() || this.params.wakeNameRequired()) {
+    if (this.params.wakeNameRequired()) {
       return false;
     }
     const providerId =
       this.params.providerId() ?? this.params.realtimeConfig()?.provider ?? "openai";
     const realtimeConfig = this.params.realtimeConfig();
     return resolveRealtimeVoiceBargeIn({
+      capabilities: this.params.bridge()?.capabilities,
+      outputAudioMode: this.params.bridge()?.bridge.outputAudioMode,
       configuredBargeIn: realtimeConfig?.bargeIn,
       interruptResponseOnInputAudio:
         realtimeConfig?.providers?.[providerId]?.interruptResponseOnInputAudio,
@@ -184,7 +184,7 @@ export class DiscordRealtimePlayback<TState> {
     }
     const audible =
       !this.isContinuousOutput() ||
-      readPcm16AudioStats(realtimePcm24kMono).peak >= DISCORD_CONTINUOUS_OUTPUT_SILENCE_PEAK;
+      isRealtimeVoiceAudioAudible(realtimePcm24kMono, REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ);
     // Keep pauses behind unheard speech; only idle transport silence may be dropped.
     if (!audible && !this.generatingOutput?.hasUnplayedAudibleAudio()) {
       return;

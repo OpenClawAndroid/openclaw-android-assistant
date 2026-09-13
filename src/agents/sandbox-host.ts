@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { asOptionalRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 
 export type SandboxHostCsp = {
@@ -163,8 +164,33 @@ function encodeCsp(csp?: SandboxHostCsp): string | undefined {
 }
 
 export function buildSandboxHostPath(csp?: SandboxHostCsp): string {
-  const encoded = encodeCsp(csp);
-  return encoded ? `${SANDBOX_HOST_PATH}?${SANDBOX_HOST_CSP_QUERY}=${encoded}` : SANDBOX_HOST_PATH;
+  const normalized = normalizeSandboxHostCsp(csp);
+  const encoded = encodeCsp(normalized);
+  const { version } = buildSandboxHostDocument(normalized);
+  const query = new URLSearchParams();
+  if (encoded) {
+    query.set(SANDBOX_HOST_CSP_QUERY, encoded);
+  }
+  query.set("v", version);
+  return `${SANDBOX_HOST_PATH}?${query}`;
+}
+
+/** Version the public shell and its security headers together, never widget content. */
+export function buildSandboxHostDocument(csp?: SandboxHostCsp) {
+  const html = buildSandboxHostProxyHtml(csp);
+  const headers = {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": buildSandboxHostContentSecurityPolicy(csp),
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), clipboard-write=()",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "Origin-Agent-Cluster": "?1",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  };
+  const version = createHash("sha256")
+    .update(JSON.stringify([headers, html]))
+    .digest("hex");
+  return { html, headers, version };
 }
 
 export function resolveSandboxHostPort(gatewayPort: number, configuredPort?: number): number {
@@ -205,7 +231,7 @@ export function decodeSandboxHostCsp(value: string | null): SandboxHostCsp | und
 }
 
 /** Trusted outer document. Untrusted content is written only into its inner iframe. */
-export function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
+function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
   const blockDescendantFrames = csp?.blockDescendantFrames === true;
   const serializedDocumentGuard = JSON.stringify(
     buildSandboxDocumentGuardHtml(blockDescendantFrames),
@@ -312,7 +338,7 @@ export function buildSandboxHostProxyHtml(csp?: SandboxHostCsp): string {
 }
 
 /** HTTP response policy for the isolated proxy and its inner about:blank content. */
-export function buildSandboxHostContentSecurityPolicy(csp?: SandboxHostCsp): string {
+function buildSandboxHostContentSecurityPolicy(csp?: SandboxHostCsp): string {
   const resources = csp?.resourceDomains ?? [];
   const connections = csp?.connectDomains ?? [];
   const frames = csp?.frameDomains ?? [];

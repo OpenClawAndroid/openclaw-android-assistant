@@ -196,6 +196,9 @@ export type ConfigProps = {
   composerHoldToRecord?: boolean;
   setComposerHoldToRecord?: (enabled: boolean) => void;
   gatewayUrl: string;
+  pluginsHref?: string;
+  installedSessionSourcePluginIds?: ReadonlySet<string> | null;
+  sessionSourcePluginsLoading?: boolean;
   assistantName: string;
   configPath?: string | null;
   navRootLabel?: string;

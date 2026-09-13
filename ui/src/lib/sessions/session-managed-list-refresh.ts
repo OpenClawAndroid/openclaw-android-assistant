@@ -130,10 +130,10 @@ export function createSessionManagedListRefresh(
             entry.retainedLimit = Math.max(entry.retainedLimit, decorated.sessions.length);
           }
           const notifyObserved = observations.stageObservedRows(
-            result?.sessions ?? [],
+            observed?.sessions ?? [],
             scope,
             agentId,
-            issuedRevision,
+            undefined,
             false,
           );
           entry.connectionEpoch = scope.epoch;

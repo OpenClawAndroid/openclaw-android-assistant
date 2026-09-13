@@ -247,7 +247,6 @@ suite.define(() => {
             view: "configured",
             agentId: "writer",
             refresh: true,
-            includeDefaultModels: true,
           });
         await expect
           .poll(async () =>

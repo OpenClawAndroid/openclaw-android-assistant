@@ -748,13 +748,13 @@ dependencies are available.
 
 Use the install route in each entry to decide whether install is needed. Plugins
 that say \`included in OpenClaw\` are already present in the core package.
-Official external packages need one install, then a Gateway restart.
+Official external packages need one install. Installation applies to the running
+local Gateway without restarting it; start the Gateway if it was stopped.
 
 For example, Discord is an official external package:
 
 \`\`\`bash
 openclaw plugins install @openclaw/discord
-openclaw gateway restart
 openclaw plugins inspect discord --runtime --json
 \`\`\`
 

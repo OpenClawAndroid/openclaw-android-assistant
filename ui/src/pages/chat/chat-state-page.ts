@@ -350,8 +350,8 @@ export function createPageState(
     await steerQueuedChatMessage(state, id);
     renderLifecycle.invalidate();
   };
-  state.moveQueuedChatMessage = (id, toIndex) => {
-    moveQueuedChatMessage(state, id, toIndex);
+  state.moveQueuedChatMessage = (id, targetId) => {
+    moveQueuedChatMessage(state, id, targetId);
     renderLifecycle.invalidate();
   };
   state.editQueuedChatMessage = (id) => {

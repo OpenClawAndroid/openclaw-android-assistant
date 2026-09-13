@@ -179,6 +179,9 @@ export function bootstrapApplication(): ApplicationRuntime {
           return agentId ? { agentId } : {};
         }
         const selection = loadGatewaySessionSelection(gatewayUrl);
+        if (routeIdFromPath(location.pathname, basePath) === "model-providers") {
+          return selection.selectedAgentId ? { agentId: selection.selectedAgentId } : {};
+        }
         const initial = normalizeInitialApplicationLocation(
           location,
           basePath,

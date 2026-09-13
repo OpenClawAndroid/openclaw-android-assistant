@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { GatewayErrorDetailCodes } from "../../../packages/gateway-protocol/src/index.js";
+import { requireNodeSqlite } from "../../infra/node-sqlite.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { ensureProfileForEmail, linkEmail } from "../../state/user-profiles.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
@@ -38,6 +39,7 @@ test("users.prefs remains self-scoped across durable identities", async () => {
   try {
     const ada = ensureProfileForEmail("ada@example.test");
     const grace = ensureProfileForEmail("grace@example.test");
+    const prepare = vi.spyOn(requireNodeSqlite().DatabaseSync.prototype, "prepare");
     expect(
       await invokePreferenceMethod(
         "users.prefs.set",
@@ -56,6 +58,8 @@ test("users.prefs remains self-scoped across durable identities", async () => {
       ok: true,
       payload: { status: "ok", entries: {} },
     });
+    expect(prepare).not.toHaveBeenCalled();
+    prepare.mockRestore();
     linkEmail("ada@example.test", grace.id);
     expect(await invokePreferenceMethod("users.prefs.get", {}, grace.id)).toMatchObject({
       ok: true,

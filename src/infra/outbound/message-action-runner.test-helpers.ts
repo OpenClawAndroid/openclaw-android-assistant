@@ -1,12 +1,14 @@
 // Shared runner-facade test harness. These mocks isolate message-action routing,
 // execution, and send coordination from real channel and gateway runtimes.
-import { vi } from "vitest";
+import { afterEach, beforeEach, expect, vi } from "vitest";
+import { createRequireRecord } from "../../../test/helpers/record.js";
 import { jsonResult } from "../../agents/tools/common.js";
 import { dispatchChannelMessageAction } from "../../channels/plugins/message-action-dispatch.js";
 import type {
   ChannelMessageActionName,
   ChannelPlugin,
 } from "../../channels/plugins/types.public.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   normalizeMessagePresentation,
   renderMessagePresentationFallbackText,
@@ -433,4 +435,74 @@ export async function resetMessageActionMediaMocks() {
   });
   mocks.loadWebMedia.mockReset();
   mocks.loadWebMedia.mockImplementation(actualLoadWebMedia);
+}
+
+const requireRecord = createRequireRecord("record", "expected-non-array-record");
+const requireLabeledRecord = createRequireRecord("record", "expected-label");
+
+export function readFirstPluginCall(mock: {
+  mock: { calls: unknown[][] };
+}): Record<string, unknown> {
+  const [mockCall] = mock.mock.calls;
+  const call = mockCall?.[0];
+  return requireRecord(call);
+}
+
+export function readPluginCall(
+  mock: { mock: { calls: unknown[][] } },
+  callIndex: number,
+): Record<string, unknown> {
+  const mockCall = mock.mock.calls[callIndex];
+  const call = mockCall?.[0];
+  return requireRecord(call);
+}
+
+export function readLastPluginCall(mock: {
+  mock: { calls: unknown[][] };
+}): Record<string, unknown> {
+  return readPluginCall(mock, mock.mock.calls.length - 1);
+}
+
+export function readMockCallArg(
+  mock: { mock: { calls: unknown[][] } },
+  label: string,
+  callIndex = 0,
+  argIndex = 0,
+): Record<string, unknown> {
+  const mockCall = mock.mock.calls[callIndex];
+  const value = mockCall?.[argIndex];
+  return requireLabeledRecord(value, label);
+}
+
+export function readRecordField(record: Record<string, unknown>, key: string, label: string) {
+  const value = record[key];
+  return requireLabeledRecord(value, label);
+}
+
+export function expectRecordFields(
+  record: Record<string, unknown>,
+  expected: Record<string, unknown>,
+  label: string,
+) {
+  for (const [key, value] of Object.entries(expected)) {
+    expect(record[key], `${label}.${key}`).toEqual(value);
+  }
+}
+
+export function createEnabledMessageActionConfig(channel: string): OpenClawConfig {
+  return { channels: { [channel]: { enabled: true } } };
+}
+
+export function useActionHubPluginFixture() {
+  const fixture = createActionHubPluginFixture();
+  beforeEach(() => {
+    setMessageActionTestPlugin(fixture.plugin, "actionhub");
+    fixture.handleAction.mockClear();
+  });
+  afterEach(() => {
+    setActivePluginRegistry(createTestRegistry([]));
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+  return fixture;
 }

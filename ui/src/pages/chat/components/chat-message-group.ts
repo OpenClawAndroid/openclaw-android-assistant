@@ -25,7 +25,7 @@ import { renderChatAvatar, renderForwardedAvatar } from "../chat-avatar.ts";
 import type { TurnRecap } from "../chat-progress.ts";
 import {
   persistedMessageEntryId,
-  readPendingSendFailure,
+  readPendingSendStatus,
   type AssistantMessageExpansionState,
 } from "../chat-thread.ts";
 import { hasForwardedSource } from "../chat-turn-boundary.ts";
@@ -437,7 +437,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
       : normalizedRole === "user" && group.sender
         ? resolveIdentityHue(group.sender)
         : null;
-  const sendFailure = readPendingSendFailure(group.messages.at(-1)?.message);
+  const sendStatus = readPendingSendStatus(group.messages.at(-1)?.message);
   const replyToLabel =
     normalizedRole === "assistant" ? formatSenderLabel(group.replyToSender) : null;
   const replyToTitle = replyToLabel ? t("chat.messages.replyingTo", { name: replyToLabel }) : null;
@@ -545,7 +545,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                 normalizedRole === "user" && (isPeerGroup || avatarPlacement !== "footer")
                   ? "chat-group-footer--persistent-identity"
                   : ""
-              }${sendFailure ? " chat-group-footer--send-failure" : ""}"
+              }${sendStatus ? " chat-group-footer--send-status" : ""}"
             >
               <div class="chat-group-footer__meta">
                 ${isPeerGroup ? nothing : userFooterActions}
@@ -566,7 +566,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                         "chat-sender-name",
                       )
                 }
-                ${renderChatSendStatus(sendFailure, opts)}
+                ${renderChatSendStatus(sendStatus, opts)}
                 ${renderMessageMeta(group.timestamp, meta)}
               </div>
               ${

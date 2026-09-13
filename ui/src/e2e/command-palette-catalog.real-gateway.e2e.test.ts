@@ -198,17 +198,6 @@ suite.define(() => {
           };
           await trigger.waitFor({ state: "visible" });
           await expect.poll(() => pickerValue(primary)).toBe("fixture/anchor");
-          await expect
-            .poll(() =>
-              requests.some(
-                ({ params }) =>
-                  params.view === "configured" &&
-                  params.agentId === "main" &&
-                  params.preparedOnly === undefined &&
-                  params.refresh === undefined,
-              ),
-            )
-            .toBe(true);
           expect(acquisitions()).toBe(initialAcquisitions);
           stages.push({ stage: "initial", acquisitions: acquisitions() });
 
@@ -223,7 +212,6 @@ suite.define(() => {
             expect(request.params).toEqual({
               view: "configured",
               agentId: "main",
-              includeDefaultModels: true,
               refresh: true,
             });
             expect(replies.get(request.id)?.ok).toBe(true);

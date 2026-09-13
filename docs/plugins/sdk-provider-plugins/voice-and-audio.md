@@ -156,11 +156,15 @@ Register each capability inside `register(api)` alongside your existing
     resolution; explicit configured models and request overrides still win.
     Optional `talk.catalog` inputs `provider` and `model` resolve capabilities
     for a specific realtime launch without changing saved configuration.
-    Gateway audio consumers such as Discord use
-    `resolveRealtimeVoiceProviderCapabilities(...)` from
-    `openclaw/plugin-sdk/realtime-voice` with the `gateway-relay` surface to
-    combine provider capabilities with the selected model's overrides.
-    Readiness and policy must use that same surface and model. For example,
+    Gateway audio consumers select the `gateway-relay` surface and use the
+    `capabilities` returned by `resolveConfiguredRealtimeVoiceProvider(...)`.
+    That result binds configuration, authentication readiness, and capabilities
+    to the same provider-normalized model. Browser callers also pass their
+    negotiated `clientControl` to resolution. Carry the resolved capabilities
+    into `resolveRealtimeVoiceSessionPolicy(...)` and the shared bridge/session
+    harness instead of reading the provider's static capability defaults.
+    Catalogs can still use `resolveRealtimeVoiceProviderCapabilities(...)`
+    when inspecting a candidate without creating a session. For example,
     GPT-Live owns agent delegation and interruption but does not support
     host-enforced wake-name gating, even though GA OpenAI Realtime does.
 
@@ -205,6 +209,13 @@ Register each capability inside `register(api)` alongside your existing
     provider. Omit `handleBargeIn` and report `supportsBargeIn: false` for this
     mode; incoming audio already drives native interruption. Omission of
     `outputAudioMode`, or `"response"`, retains response-based playback.
+    The shared session and harness reject host interruption for continuous
+    streams or `supportsBargeIn: false`, including fallback output clears.
+    Explicit session stop remains a separate operation. Transports must keep
+    participant audio available to the provider; microphone input that includes
+    injected assistant output must be isolated before enabling this behavior.
+    Shared browser-meeting adapters capture remote playback separately from
+    native virtual-microphone injection for that purpose.
 
     Set `bridge.pacesInputAudio: true` when the provider buffers incoming PCM
     at its sample rate and supplies silence between microphone writes. This

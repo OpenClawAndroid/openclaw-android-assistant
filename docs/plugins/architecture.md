@@ -210,6 +210,13 @@ changing that digest. Invalid optional package metadata fails only when selected
 Module acquisition uses the instance's current admission, and disposal closes
 further capture.
 
+Model-catalog workers keep their captured plugin files in a directory owned by
+one worker. The parent removes any remaining captures after that worker exits,
+including cancellation and crashes. Files remain available while the worker is
+running, and retiring one worker does not remove another generation's captures.
+Cancellation releases compute capacity after the worker exits; terminal shutdown
+also waits for file cleanup. Failed file removal is reported as a cleanup warning.
+
 Loading metadata alone does not execute every plugin, and registration remains
 synchronous. Synchronously loaded TypeScript entries and their synchronous
 TypeScript imports retain Jiti's CommonJS compilation behavior, including `.mts`

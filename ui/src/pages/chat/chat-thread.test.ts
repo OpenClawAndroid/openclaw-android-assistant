@@ -22,7 +22,7 @@ import {
   getExpandedToolCards,
   getExpandedUserMessages,
   persistedMessageEntryId,
-  readPendingSendFailure,
+  readPendingSendStatus,
   resetChatThreadState,
   setExpansionState,
   syncToolCardExpansionState,
@@ -4276,7 +4276,9 @@ describe("buildCachedChatItems", () => {
 
     expect(
       messageGroups({
-        queue: [{ ...restored, sendAttempts: 0, sendState: "waiting-reconnect" }],
+        queue: [
+          { ...restored, sendAttempts: 0, sendSubmittedAtMs: 10, sendState: "waiting-reconnect" },
+        ],
       }),
     ).toStrictEqual([]);
     for (const sendState of ["waiting-reconnect", "sending"] as const) {
@@ -4404,7 +4406,7 @@ describe("buildCachedChatItems", () => {
           error: "Delivery diagnostic",
         },
       });
-      expect(readPendingSendFailure(message)).toEqual({
+      expect(readPendingSendStatus(message)).toEqual({
         id: "attempted-send-1",
         state: sendState,
         error: "Delivery diagnostic",
@@ -4601,6 +4603,7 @@ describe("buildCachedChatItems", () => {
         }),
         queuedSend("queued-future-turn", "Later request", 2_001, "waiting-reconnect", {
           sendSubmittedAtMs: 2_001,
+          sendAttempts: 1,
         }),
       ],
       toolMessages: [mcpAppResult("mcp-app-queued", "call-queued", 2_002)],

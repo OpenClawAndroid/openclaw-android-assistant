@@ -77,14 +77,16 @@ token (or a short approval ID) so you can continue later.
 ## Enable
 
 Lobster is an **optional** plugin tool, not installed or enabled by default.
-Install the official plugin, then restart the Gateway:
+Install the official plugin:
 
 ```bash
 openclaw plugins install @openclaw/lobster
-openclaw gateway restart
 ```
 
-After the Gateway restarts, allow the tool globally:
+Installation applies to a running Gateway automatically; otherwise it takes effect
+on the next startup. See [Apply changes and inspect](/plugins/manage-plugins#apply-changes-and-inspect).
+
+Then allow the tool globally:
 
 ```json
 {

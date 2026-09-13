@@ -46,7 +46,7 @@ export function listSessionCatalogProvider(
   return sessionCatalogListAdmission.run(() => {
     params.signal?.throwIfAborted();
     return provider.list(params);
-  });
+  }, params.signal);
 }
 
 function resolveSessionCatalogRegistry(): PluginRegistry | null {

@@ -74,8 +74,21 @@ boots a canary with copied configuration and verified SQLite snapshots in an
 isolated temporary state directory. The copied database registry points to the
 copied agent databases. Installed plugin payloads and their dependencies are also
 copied; the rehearsal install records point to those copies, and their OpenClaw
-host links target the staged candidate. Path aliases that resolve to a running
-package's bundled plugin use the staged bundled plugin with the same ID when
+host links target the staged candidate. Literal imports, `require()` calls, and
+literal dynamic imports to shared source modules include those modules and their
+package metadata in the private copy. Unrelated repository files remain outside
+the snapshot.
+
+When a published updater omitted shared modules from an external plugin copy,
+candidate Doctor can complete the private copy before loading plugin repair
+hooks. Recovery requires the original path retained by that updater and matching
+source/manifest bytes; it never replaces existing private files or changes the
+serving plugin. Complete snapshots do not require the original source to remain
+available. Some older managed-state or cross-volume projections do not retain a
+recoverable original path, which Doctor reports in the update diagnostics.
+
+Path aliases that resolve to a running package's bundled plugin use the staged
+bundled plugin with the same ID when
 available, preserving bundled trust. External path installs keep their existing
 classification. The live plugin files and host links stay unchanged. Channels,
 cron, automatic updates, background task maintenance, and other side services are

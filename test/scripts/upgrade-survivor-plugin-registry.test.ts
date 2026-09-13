@@ -354,7 +354,7 @@ printf '%s\\n' "$baseline_version" >"$CAPTURE_DIR/core-version"
       `@openclaw/discord\n${pluginVersion}\n`,
     );
     expect(readFileSync(join(root, "assert-args"), "utf8")).toBe(
-      `scripts/e2e/lib/upgrade-survivor/assertions.mjs\nassert-baseline-plugin\n${pluginVersion}\n`,
+      `scripts/e2e/lib/upgrade-survivor/assertions.mjs\nassert-baseline-plugin\n${pluginVersion}\ndiscord\n`,
     );
     expect(readFileSync(join(root, "install-args"), "utf8")).toBe(
       "openclaw\n--\nplugins\ninstall\n@openclaw/discord@latest\n",

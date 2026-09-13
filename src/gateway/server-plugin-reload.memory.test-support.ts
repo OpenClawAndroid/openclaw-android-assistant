@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { expect, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { getMemoryEmbeddingProvider } from "../plugins/memory-embedding-provider-runtime.js";
+import { PluginInstanceUnavailableError } from "../plugins/plugin-instance-error.js";
 import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import type { MemoryPluginRuntime } from "../plugins/registry-contribution-types.js";
 import { createPluginRegistry } from "../plugins/registry.js";
@@ -183,8 +184,9 @@ export async function verifyGatewayMemoryReplacement(
     try {
       const closing = runtime.closeAllMemorySearchManagers?.();
       if (mode === "failed-close") {
+        await expect(closing).rejects.toThrow(PluginInstanceUnavailableError);
         await expect(closing).rejects.toThrow(
-          new Error("Plugin first was reloaded or disabled; use its current tools."),
+          "Plugin first was reloaded or disabled; use its current tools.",
         );
       } else {
         await expect(closing).resolves.toBeUndefined();

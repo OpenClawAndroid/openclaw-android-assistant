@@ -542,7 +542,7 @@
 }
 
 .skills-group[open] > .skills-group__summary .skills-group__chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 /* ---------- rows ---------- */

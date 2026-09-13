@@ -13,6 +13,7 @@ export type GatewayProfileCommand = {
   kind: "heap" | "cpu";
   action: "start" | "stop";
   profilePath: string;
+  includeWorkers?: boolean;
 };
 
 type GatewayProfileReply = {
@@ -45,6 +46,7 @@ export async function controlGatewayProfile(
   kind: GatewayProfileCommand["kind"],
   action: GatewayProfileCommand["action"],
   profilePath: string,
+  options: { includeWorkers?: boolean } = {},
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const finish = (error?: Error) => {
@@ -82,11 +84,14 @@ export async function controlGatewayProfile(
       onDisconnect();
       return;
     }
-    child.send({ channel: GATEWAY_PROFILE_CHANNEL, kind, action, profilePath }, (error) => {
-      if (error) {
-        finish(error);
-      }
-    });
+    child.send(
+      { channel: GATEWAY_PROFILE_CHANNEL, kind, action, profilePath, ...options },
+      (error) => {
+        if (error) {
+          finish(error);
+        }
+      },
+    );
   });
 }
 

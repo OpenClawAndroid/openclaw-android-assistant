@@ -531,6 +531,7 @@ describe("models.list OpenAI routes", () => {
         listModels({
           cfg,
           view: "configured",
+          includeDefaultModels: false,
           catalog: [catalogEntry("gpt-5.6", "openai-chatgpt-responses")],
         }),
       ).resolves.toEqual({
@@ -680,6 +681,7 @@ describe("models.list OpenAI routes", () => {
         listModels({
           cfg,
           view: "configured",
+          includeDefaultModels: false,
           catalog: [catalogEntry("chat-latest", "openai-chatgpt-responses")],
         }),
       ).resolves.toEqual({

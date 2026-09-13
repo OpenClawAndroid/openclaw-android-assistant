@@ -31,8 +31,11 @@ media understanding (Voxtral batch transcription), realtime STT for Voice Call
   <Step title="Install the plugin">
     ```bash
     openclaw plugins install @openclaw/mistral-provider
-    openclaw gateway restart
     ```
+
+    Installation applies to a running Gateway automatically; otherwise it takes effect
+    on the next startup. See [Apply changes and inspect](/plugins/manage-plugins#apply-changes-and-inspect).
+
   </Step>
   <Step title="Get your API key">
     Create an API key in the [Mistral Console](https://console.mistral.ai/).

@@ -9,6 +9,7 @@ import { expect, it } from "vitest";
 import type { JsonTestResults } from "vitest/node";
 import type { VitestReportCapture } from "../scripts/lib/vitest-report-capture.mts";
 import { runVitestShutdownCommand } from "./helpers/vitest-shutdown-command.ts";
+import { mockResolutionFixtureFiles } from "./non-isolated-runner.mock-resolution-fixtures.ts";
 import { testApiLifecycleFixtureFiles } from "./non-isolated-runner.test-api-fixtures.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -385,6 +386,7 @@ it("reloads the redirected mock after a real import", () => {
   expect(flavor).toBe("redirected");
 });
 `,
+    ...mockResolutionFixtureFiles,
     ...testApiLifecycleFixtureFiles(repoRoot),
     ...documentFocusFixtureFiles(),
   };
@@ -432,8 +434,8 @@ async function assertCompletion(
   const report: JsonTestResults = JSON.parse(await fs.readFile(expected.reportPath, "utf8"));
   expect(report.testResults.map((file) => file.name).toSorted()).toEqual(expected.files);
   expect(report).toMatchObject({
-    numTotalTests: 46,
-    numPassedTests: 45,
+    numTotalTests: 48,
+    numPassedTests: 47,
     numPendingTests: 1,
     numFailedTests: 0,
     numTodoTests: 0,

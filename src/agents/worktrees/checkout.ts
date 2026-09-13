@@ -104,6 +104,16 @@ async function checkoutKey(options: CheckoutOptions, commit: string): Promise<st
   }
   for (const variable of ["GIT_ATTR_GLOBAL", "GIT_ATTR_SYSTEM"]) {
     const result = await runGit(options.repoRoot, ["var", variable], gitOptions(options));
+    // git var exits 1 without output for a known but disabled path (for example
+    // GIT_ATTR_NOSYSTEM=1). Unknown variables on older Git still report an error.
+    if (
+      result.termination === "exit" &&
+      result.code === 1 &&
+      !result.stdout.trim() &&
+      !result.stderr.trim()
+    ) {
+      continue;
+    }
     // Older Git cannot report its attribute search paths: retain native checkout.
     if (
       result.code !== 0 ||
@@ -272,6 +282,10 @@ export async function addManagedWorktree(options: CheckoutOptions): Promise<GitR
     assertOwned(options);
     await fs.rmdir(options.destination);
     await template.backend.cloneTemplate(template.record.path, options.destination, options);
+    assertOwned(options);
+    // Git marks this file hidden on Windows; opening that clone with O_CREAT
+    // fails. Replace the template's link with this worktree's own registration.
+    await fs.unlink(markerPath);
     assertOwned(options);
     await fs.writeFile(markerPath, marker);
     const sourceIndex = await indexPath(template.record.path, options);

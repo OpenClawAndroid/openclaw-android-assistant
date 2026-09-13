@@ -27,7 +27,6 @@ import {
   resolveClientVoiceRunBinding,
 } from "../../talk/client-voice-session.js";
 import { clientVoiceSessionTesting } from "../../talk/client-voice-session.test-support.js";
-import type { InternalRealtimeVoiceProviderCapabilities } from "../../talk/provider-internal.js";
 import type {
   RealtimeVoiceAgentConsultRunner,
   RealtimeVoiceGatewayControl,
@@ -74,11 +73,6 @@ vi.mock("../../agents/realtime-bootstrap-context.js", () => ({
 }));
 vi.mock("../../talk/provider-resolver.js", () => ({
   resolveConfiguredRealtimeVoiceProvider: mocks.resolveProvider,
-  resolveRealtimeVoiceProviderCapabilities: (): InternalRealtimeVoiceProviderCapabilities => ({
-    ...mocks.capabilities,
-    supportsGatewayControl: true,
-    handlesAgentConsult: true,
-  }),
 }));
 vi.mock("../../talk/provider-registry.js", () => ({ listRealtimeVoiceProviders: () => [] }));
 
@@ -191,7 +185,15 @@ beforeEach(async () => {
   Object.defineProperty(provider, Symbol.for("openclaw.internal.realtime-voice-provider.v1"), {
     value: { isBrowserSessionConfigured: () => true, cancelBrowserSession: async () => undefined },
   });
-  mocks.resolveProvider.mockReturnValue({ provider, providerConfig: {} });
+  mocks.resolveProvider.mockReturnValue({
+    provider,
+    providerConfig: {},
+    capabilities: {
+      ...mocks.capabilities,
+      supportsGatewayControl: true,
+      handlesAgentConsult: true,
+    },
+  });
 });
 
 afterEach(async () => {

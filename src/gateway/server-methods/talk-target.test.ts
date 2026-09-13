@@ -39,11 +39,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../talk/provider-resolver.js", () => ({
   resolveConfiguredRealtimeVoiceProvider: mocks.resolveConfiguredRealtimeVoiceProvider,
-  resolveRealtimeVoiceProviderCapabilities: ({
-    provider,
-  }: {
-    provider: RealtimeVoiceProviderPlugin;
-  }) => provider.capabilities,
 }));
 vi.mock("../../talk/provider-registry.js", () => ({ listRealtimeVoiceProviders: () => [] }));
 vi.mock("../../agents/realtime-bootstrap-context.js", () => ({
@@ -142,7 +137,11 @@ beforeEach(async () => {
   Object.defineProperty(provider, Symbol.for("openclaw.internal.realtime-voice-provider.v1"), {
     value: { isBrowserSessionConfigured: () => true, cancelBrowserSession },
   });
-  mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({ provider, providerConfig: {} });
+  mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
+    provider,
+    providerConfig: {},
+    capabilities: provider.capabilities,
+  });
 });
 
 afterEach(async () => {

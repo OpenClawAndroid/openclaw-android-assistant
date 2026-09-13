@@ -81,8 +81,9 @@ Keep normal gateway authentication enabled. Only the Activity prefix is public, 
 
   </Step>
 
-  <Step title="Restart and test">
-    Restart the gateway. In a Discord conversation, ask the agent to show an interactive widget. The agent calls `show_widget`; click **Open widget** on the posted message.
+  <Step title="Verify and test">
+    <a id="restart-and-test" />
+    Config changes follow [hot reload](/gateway/configuration/hot-reload). Restart the Gateway if you changed its service environment to provide the client secret. In a Discord conversation, ask the agent to show an interactive widget. The agent calls `show_widget`; click **Open widget** on the posted message.
   </Step>
 </Steps>
 
@@ -107,7 +108,7 @@ The public Activity shell and token-exchange route become reachable through your
 
 - confirm the tunnel is running and routes to the gateway's actual bind port
 - confirm the Developer Portal target includes `/discord/activity`
-- restart the gateway after changing Discord or OpenClaw configuration
+- confirm [hot reload](/gateway/configuration/hot-reload) applied the OpenClaw configuration; restart the Gateway if you changed its service environment
 - confirm the Discord bot token and Activities client secret both resolve in the running gateway; incomplete credentials keep `/discord/activity` externally hidden behind the normal 404
 
 ### Discord opens a blank page or reports `blocked:csp`

@@ -17,7 +17,7 @@ import { resolveAuthenticatedProfileId } from "./users-profile-access.js";
 import { assertValidParams } from "./validation.js";
 export { buildModelsListResult };
 
-// Ordinary reads consume published facts; only an explicit refresh starts discovery.
+// Ordinary reads return saved rows while expired provider inventory refreshes in the background.
 export const modelsHandlers: GatewayRequestHandlers = {
   "models.list": async (options) => {
     const { params, respond, context, client } = options;

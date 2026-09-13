@@ -27,6 +27,7 @@ import {
   readShardTimings,
   writeShardTimings,
 } from "./lib/vitest-shard-timings.mts";
+import { getVitestWorkerDescriptor } from "./lib/vitest-worker-bootstrap.mts";
 import { createVitestWorkerRun, type VitestWorkerRun } from "./lib/vitest-worker-run.mts";
 import { resolveVitestSpawnParams, spawnWatchedVitestProcess } from "./run-vitest.mts";
 import {
@@ -471,7 +472,7 @@ export async function runTestProjects(
       ({ spec, execution }) => !spec.watchMode && !execution?.options.watch,
     );
     if (compiled.length) {
-      workers = createVitestWorkerRun(baseEnv);
+      workers = createVitestWorkerRun(baseEnv, getVitestWorkerDescriptor());
       for (const { spec } of compiled) {
         spec.workerRun = workers;
       }

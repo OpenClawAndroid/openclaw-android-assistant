@@ -173,6 +173,7 @@ describe("selected lineage after a full sessions.changed event", () => {
           label: "Event-updated selected title",
           updatedAt: Date.now(),
         };
+        vi.useFakeTimers();
         harness.publishEvent("sessions.changed", {
           sessionKey: key,
           agentId: "main",
@@ -217,6 +218,8 @@ describe("selected lineage after a full sessions.changed event", () => {
           activeRunIds: [],
           status: "done",
         });
+        await vi.advanceTimersByTimeAsync(250);
+        vi.useRealTimers();
         await waitForFast(() =>
           expect(sessions.state.result?.sessions.find((entry) => entry.key === key)).toMatchObject({
             sessionId: child.sessionId,
@@ -232,7 +235,9 @@ describe("selected lineage after a full sessions.changed event", () => {
         });
         await sidebar.updateComplete;
         expect(sessions.canonicalListRevision).toBe(revisionBefore);
-        expect(controllerChildReads).toBe(1);
+        // A retained parent query refreshes its changed member; reparenting
+        // retires the old query before its scheduled refresh runs.
+        expect(controllerChildReads).toBe(reparent ? 1 : 2);
         if (mode === "filtered omitted") {
           expect(sidebar.sessionData.sessionsResult?.sessions.map((entry) => entry.key)).toEqual([
             p1,
@@ -256,6 +261,7 @@ describe("selected lineage after a full sessions.changed event", () => {
           expect(directParent()).toBe(expectedParent);
         });
       } finally {
+        vi.useRealTimers();
         failedLists = false;
         provider.remove();
         sessions.dispose();

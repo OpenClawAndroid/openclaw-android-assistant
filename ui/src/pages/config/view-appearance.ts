@@ -26,6 +26,7 @@ import {
 import { t } from "../../i18n/index.ts";
 import { resolveScrollBehavior } from "../../lib/scroll-behavior.ts";
 import { APPEARANCE_SETTINGS_TARGET_IDS } from "./route-data.ts";
+import { renderSessionSources } from "./session-sources.ts";
 import {
   renderChatPreferencesSection,
   renderLanguageSection,
@@ -580,7 +581,7 @@ export function renderAppearanceSection(
       </section>
 
       ${renderSidebarPreferencesSection(props)} ${renderLobsterPetSection(props)}
-      ${renderChatPreferencesSection(props, inputs.chatMessageWidth)}
+      ${renderChatPreferencesSection(props, inputs.chatMessageWidth)} ${renderSessionSources(props)}
 
       <section id=${APPEARANCE_SETTINGS_TARGET_IDS.connection} class="settings-section">
         <div class="settings-section__header">

@@ -13,6 +13,10 @@ import {
   iterateSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
+import {
+  getOpenClawAgentDatabaseValidation,
+  type OpenClawAgentDatabaseValidation,
+} from "../../state/openclaw-agent-db-validation-cache.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import {
   settleOpenClawAgentDatabaseWorkerClose,
@@ -456,6 +460,7 @@ async function runReclamationWorkerPort(
   data: SqliteSessionReclamationWorkerData | SessionColdWorkerData,
 ): Promise<void> {
   let result: ReturnType<typeof reclaimSqliteSessionInTransaction> | SessionColdMutationResult;
+  let validation: OpenClawAgentDatabaseValidation | undefined;
   const coldRecords =
     data.operation === "cold-mutate" && data.plan.kind === "cold-restore"
       ? await prepareSessionColdRestoreInWorker(data.plan)
@@ -465,14 +470,22 @@ async function runReclamationWorkerPort(
   let finalAdmission = false;
   const withAdmission: OpenClawAgentDatabaseWriteAdmission = async (run) => {
     const requestedId = ++admissionId;
-    const allowed = await new Promise<boolean>((resolve, reject) => {
-      const receive = (message: { type: string; admissionId: number; allowed: boolean }) => {
+    const admission = await new Promise<{
+      allowed: boolean;
+      validation?: OpenClawAgentDatabaseValidation;
+    }>((resolve, reject) => {
+      const receive = (message: {
+        type: string;
+        admissionId: number;
+        allowed: boolean;
+        validation?: OpenClawAgentDatabaseValidation;
+      }) => {
         cleanup();
         if (message.type !== "admission" || message.admissionId !== requestedId) {
           reject(new Error("SQLite reclamation Worker received invalid write admission"));
           return;
         }
-        resolve(message.allowed);
+        resolve(message);
       };
       const closed = () => {
         cleanup();
@@ -487,10 +500,10 @@ async function runReclamationWorkerPort(
       port.postMessage({ type: "admission-request", admissionId: requestedId });
     });
     const value = await run(() => {
-      if (!allowed) {
+      if (!admission.allowed) {
         throw new Error("SQLite reclamation database admission was revoked");
       }
-    });
+    }, admission.validation);
     if (!finalAdmission) {
       port.postMessage({ type: "admission-release", admissionId: requestedId });
     }
@@ -500,7 +513,7 @@ async function runReclamationWorkerPort(
     result = await withOpenClawAgentDatabaseAdmission(
       data.plan.databaseOptions,
       withAdmission,
-      async () => {
+      async (openedDatabase) => {
         finalAdmission = true;
         let transactionDatabase: DatabaseSync | undefined;
         try {
@@ -524,6 +537,7 @@ async function runReclamationWorkerPort(
           }
           return reclaimSqliteSessionInTransaction(data.plan, { onCommit });
         } finally {
+          validation = getOpenClawAgentDatabaseValidation(openedDatabase);
           if (
             transactionDatabase &&
             (!transactionDatabase.isOpen || !transactionDatabase.isTransaction)
@@ -552,7 +566,11 @@ async function runReclamationWorkerPort(
     ...(cleanup.cleanupWarnings.length > 0 ? { cleanupWarnings: cleanup.cleanupWarnings } : {}),
     ...(!cleanup.settled ? { cleanupIncomplete: true } : {}),
   };
-  port.postMessage({ type: "reclaimed", results: [workerResult] });
+  port.postMessage({
+    type: "reclaimed",
+    results: [workerResult],
+    validation: cleanup.settled ? validation : undefined,
+  });
   port.close();
 }
 

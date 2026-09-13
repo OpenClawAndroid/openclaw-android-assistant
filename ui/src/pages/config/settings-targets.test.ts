@@ -78,6 +78,12 @@ describe("settings search target manifest", () => {
         "#settings-appearance-sidebar",
       ],
       [
+        "sessionSources",
+        "/settings/appearance",
+        "?section=__appearance__",
+        "#settings-session-sources",
+      ],
+      [
         "appearanceChat",
         "/settings/appearance",
         "?section=__appearance__",

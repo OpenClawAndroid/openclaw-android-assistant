@@ -255,17 +255,17 @@ export function isPendingSendMessage(message: unknown): boolean {
   return asRecord(asRecord(message)?.["__openclaw"])?.kind === "pending-send";
 }
 
-export function readPendingSendFailure(message: unknown): {
+export function readPendingSendStatus(message: unknown): {
   error?: string;
   id: string;
-  state: "failed" | "unconfirmed";
+  state: "failed" | "unconfirmed" | "waiting-reconnect";
 } | null {
   const metadata = asRecord(asRecord(message)?.["__openclaw"]);
   const state = metadata?.state;
   const id = metadata?.id;
   if (
     metadata?.kind !== "pending-send" ||
-    (state !== "failed" && state !== "unconfirmed") ||
+    (state !== "failed" && state !== "unconfirmed" && state !== "waiting-reconnect") ||
     typeof id !== "string"
   ) {
     return null;

@@ -156,7 +156,9 @@ suite.define(() => {
       await warning.waitFor({ state: "visible" });
       await expect.poll(() => tooltipTitleText(warning)).toContain("[NODE_LIST_FAILED]");
       await expect.poll(() => tooltipTitleText(warning)).toContain("pairing database is locked");
-      await expect.poll(() => tooltipTitleText(warning)).toContain("Settings > Plugins");
+      await expect
+        .poll(() => tooltipTitleText(warning))
+        .toContain("Settings > Appearance > Session sources");
       expect(await page.getByText("Available native session", { exact: true }).count()).toBe(1);
       expect(await page.locator('[data-session-catalog-host="node:registry"]').count()).toBe(0);
 

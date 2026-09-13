@@ -327,6 +327,11 @@ export function hasPendingSessionConversationRouteContextColumn(db: DatabaseSync
   return Boolean(columns && !columns.has("route_context_json"));
 }
 
+export function hasPendingSessionProjectColumn(db: DatabaseSync): boolean {
+  const columns = readSqliteTableColumns(db, "session_nodes");
+  return Boolean(columns && !columns.has("project_id"));
+}
+
 export function hasPendingSessionTranscriptContextEligibilityColumn(db: DatabaseSync): boolean {
   const columns = readSqliteTableColumns(db, "session_transcript_active_events");
   return Boolean(columns && !columns.has("context_eligible"));

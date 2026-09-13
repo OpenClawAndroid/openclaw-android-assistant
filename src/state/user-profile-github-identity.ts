@@ -11,7 +11,7 @@ import {
   openOpenClawStateDatabase,
   type OpenClawStateDatabaseOptions,
 } from "./openclaw-state-db.js";
-import { mutateUserPreference, selectUserPreferenceValues } from "./user-preferences.js";
+import { mutateUserPreference, selectUserPreferenceValues } from "./user-preferences.store.js";
 import { selectResolvedUserProfileById, userProfilesDb } from "./user-profiles-internal.js";
 import { ensureUserProfilesSchema, UserProfileOwnerError } from "./user-profiles-schema.js";
 

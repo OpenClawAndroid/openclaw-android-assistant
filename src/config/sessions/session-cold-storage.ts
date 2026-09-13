@@ -111,6 +111,7 @@ async function runColdMutation(
         }>({
           diagnostics,
           expectedMessageType: "reclaimed",
+          validationOwner: { database, isCurrent: claim.isCurrent },
           onCommitRequest: () => {
             authorize();
           },

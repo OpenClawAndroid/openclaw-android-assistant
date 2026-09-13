@@ -135,13 +135,9 @@ signal-cli -a +<BOT_PHONE_NUMBER> register --captcha '<SIGNALCAPTCHA_URL>'
 signal-cli -a +<BOT_PHONE_NUMBER> verify <VERIFICATION_CODE>
 ```
 
-4. Configure OpenClaw, restart the gateway, verify the channel:
+4. Configure OpenClaw and verify the channel. Config changes follow [hot reload](/gateway/configuration/hot-reload); start the Gateway if it is offline. Restart it if you changed the service's `PATH` to find `signal-cli`.
 
 ```bash
-# If you run the gateway as a user systemd service:
-systemctl --user restart openclaw-gateway.service
-
-# Then verify:
 openclaw doctor
 openclaw channels status --probe
 ```

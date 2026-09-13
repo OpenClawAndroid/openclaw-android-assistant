@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { runGitWorkerOperation } from "../../infra/git-worker.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   getSessionRepositoryWorkspaceStore,
@@ -25,6 +26,7 @@ import {
   updateWorkspaceResultRefs,
   withWorkspaceResultRefMutation,
 } from "./workspace-result-git.js";
+import type { StagedWorkerArtifactInventory } from "./workspace-result-inventory.js";
 import {
   deleteStagedWorkerWorkspaceResult,
   preparedWorkerWorkspaceResultRef,
@@ -66,7 +68,7 @@ function checkpointRef(workspace: SessionRepositoryWorkspaceRecord, ref?: string
 
 function assertBase(
   workspace: SessionRepositoryWorkspaceRecord,
-  snapshot: Pick<CheckpointSnapshot, "base" | "current" | "baseManifestRef">,
+  snapshot: Pick<StagedWorkerArtifactInventory, "base" | "current" | "baseManifestRef">,
 ) {
   if (
     !workspace.baseCommit ||
@@ -100,15 +102,20 @@ async function refObjects(
   return objects;
 }
 
-export async function readSessionRepositoryCheckpoint(params: CheckpointSource) {
+export async function readSessionRepositoryArtifacts(
+  params: CheckpointSource & { previewPath?: string; assertCurrent: () => void },
+): Promise<StagedWorkerArtifactInventory> {
   const { workspace, root } = owner(params);
   const ref = checkpointRef(workspace, params.checkpointRef);
-  const snapshot = await readStagedWorkerWorkspaceResult(root, ref);
+  const snapshot = await runGitWorkerOperation(
+    { type: "workspace.artifacts", input: { root, ref, previewPath: params.previewPath } },
+    { assertCurrent: params.assertCurrent },
+  );
   assertBase(workspace, snapshot);
   if (ref === workspace.checkpointRef && snapshot.currentManifestRef !== workspace.manifestHash) {
     throw new Error("Repository checkpoint differs from its accepted manifest");
   }
-  return { ...snapshot, checkpointRef: ref };
+  return snapshot;
 }
 
 async function publicationBinding(root: string, currentManifestRef: string) {
@@ -251,7 +258,7 @@ export async function recoverSessionRepositoryCheckpoint(
   },
 ): Promise<SessionRepositoryWorkspaceRecord> {
   const { store, workspace } = owner(params);
-  const snapshot = await readSessionRepositoryCheckpoint(params);
+  const snapshot = await readSessionRepositoryArtifacts(params);
   params.assertCurrent();
   const current = store.get(params.workspaceId);
   if (

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, hash } from "node:crypto";
 import { createReadStream } from "node:fs";
 
 export { sha256Hex, sha256HexPrefixCore } from "@openclaw/normalization-core/node-crypto";
@@ -6,11 +6,11 @@ export { sha256Hex, sha256HexPrefixCore } from "@openclaw/normalization-core/nod
 type DigestInput = string | Uint8Array;
 
 export function sha256Base64(input: DigestInput): string {
-  return createHash("sha256").update(input).digest("base64");
+  return hash("sha256", input, "base64");
 }
 
 export function sha256Base64Url(input: DigestInput): string {
-  return createHash("sha256").update(input).digest("base64url");
+  return hash("sha256", input, "base64url");
 }
 
 export function sha256Base64UrlPrefix(input: DigestInput, length: number): string {
@@ -21,7 +21,7 @@ export function sha256Base64UrlPrefix(input: DigestInput, length: number): strin
 export async function sha256File(filePath: string, end?: number): Promise<string> {
   const digest = createHash("sha256");
   try {
-    for await (const chunk of createReadStream(filePath, { end })) {
+    for await (const chunk of createReadStream(filePath, { end, highWaterMark: 256 * 1024 })) {
       digest.update(chunk);
     }
   } catch (err) {

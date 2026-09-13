@@ -1,4 +1,5 @@
 // Auth-profile saves must not report a failed transaction after rows became durable.
+import fs from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -21,6 +22,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 const {
   readPersistedAuthProfileStoreRaw,
+  resolveAuthProfileDatabasePath,
   runAuthProfileWriteTransaction,
   writePersistedAuthProfileStoreRaw,
 } = await import("./auth-profiles/sqlite.js");
@@ -72,6 +74,9 @@ describe("auth-profile database permission repair", () => {
     const permissionError = Object.assign(new Error("EACCES: chmod failed"), {
       code: "EACCES",
     });
+    if (process.platform !== "win32") {
+      fs.chmodSync(resolveAuthProfileDatabasePath(agentDir), 0o644);
+    }
     chmodFailHook.error = permissionError;
 
     expect(() =>
@@ -111,6 +116,9 @@ describe("auth-profile database permission repair", () => {
     const permissionError = Object.assign(new Error("EACCES: chmod failed"), {
       code: "EACCES",
     });
+    if (process.platform !== "win32") {
+      fs.chmodSync(resolveAuthProfileDatabasePath(agentDir), 0o644);
+    }
     chmodFailHook.error = permissionError;
 
     expect(() =>

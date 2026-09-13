@@ -259,7 +259,7 @@ export async function executeConfigExternalMutation<T>(
   }
 }
 
-type ConfigLoadOptions = LoadConfigOptions & {
+export type ConfigLoadOptions = LoadConfigOptions & {
   background?: boolean;
   beforeApplySnapshot?: () => void;
 };
@@ -303,7 +303,7 @@ export async function refreshConfigAfterMutation(
       return failure("Connection changed before the configuration update was refreshed.");
     }
     const latest = currentConfigRead(state);
-    if (!latest || !isCurrentRequest(state, "config", latest.version, client, connectionEpoch)) {
+    if (!latest) {
       return failure("The configuration refresh was superseded by a configuration write.");
     }
     if (latest === read) {
@@ -355,10 +355,7 @@ async function readConfig(
     }
     return failure(message);
   } finally {
-    if (
-      !options.background &&
-      isCurrentRequest(state, "config", version, client, connectionEpoch)
-    ) {
+    if (isCurrentRequest(state, "config", version, client, connectionEpoch)) {
       state.configLoading = false;
     }
   }

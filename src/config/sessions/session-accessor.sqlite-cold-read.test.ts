@@ -22,6 +22,7 @@ import {
 } from "../../test-utils/openclaw-test-state.js";
 import { copySqliteSessionOwnedStateForCanonicalRepair } from "./session-accessor.sqlite-canonical-repair.js";
 import { replaceSessionEntry } from "./session-accessor.sqlite-entry.js";
+import { readRecentSessionTranscriptHistoryEvents } from "./session-accessor.sqlite-history-events.js";
 import {
   createTranscriptIdentityReader,
   findTranscriptEventInDatabase,
@@ -167,6 +168,15 @@ async function prepareRace(state: OpenClawTestState) {
 
 type Race = Awaited<ReturnType<typeof prepareRace>>;
 const readers: Array<{ name: string; read: (race: Race) => unknown }> = [
+  {
+    name: "history page",
+    read: ({ scope }) =>
+      readRecentSessionTranscriptHistoryEvents(scope, {
+        maxMessages: 20,
+        maxLines: 20,
+        maxBytes: 64 * 1024,
+      }),
+  },
   { name: "header", read: ({ scope }) => loadTranscriptHeaderSync(scope) },
   { name: "tail", read: ({ scope }) => loadTranscriptTailEventsSync(scope, 2) },
   { name: "checkpoint suffix", read: ({ scope }) => loadTranscriptEventRowsAfterSeqSync(scope, 0) },

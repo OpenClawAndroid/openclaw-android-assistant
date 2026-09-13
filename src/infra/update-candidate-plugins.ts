@@ -16,6 +16,7 @@ import {
 } from "../plugins/bundled-dir.js";
 import { listBundledPluginMetadata } from "../plugins/bundled-plugin-metadata.js";
 import {
+  discoverConfiguredPluginLoadPaths,
   resolveBundledSourceCheckoutExtensionsDir,
   resolvePluginPackageEntries,
 } from "../plugins/discovery.js";
@@ -23,6 +24,7 @@ import { INSTALLED_PLUGIN_INDEX_STATE_KEY } from "../plugins/installed-plugin-in
 import { loadBundledPluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { resolvePackageExtensionEntries } from "../plugins/manifest.js";
 import { pluginCacheRealpathSync } from "../plugins/plugin-cache-files.js";
+import { inspectPluginSourceDependencies } from "../plugins/plugin-generation-source-inspection.js";
 import type { ConfigMachineStateDatabase } from "../state/config-machine-state.js";
 import { tableExists } from "../state/openclaw-state-db-schema-helpers.js";
 import { resolvePathViaExistingAncestorSync } from "./boundary-path.js";
@@ -38,7 +40,9 @@ import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { resolveOpenClawPackageRootSync } from "./openclaw-root.js";
 import { hasNodeErrorCode, isPathInside } from "./path-guards.js";
 import { resolveUpdateCandidatePluginPath } from "./update-candidate-paths.js";
+import { resolveUpdateCandidatePluginSourceEntries } from "./update-candidate-plugin-sources.js";
 import {
+  assertUpdateCandidatePluginCopySource,
   copyUpdateCandidatePluginTrees,
   prepareUpdateCandidatePluginTrees,
   UpdateCandidatePluginTreePlanSchema,
@@ -339,6 +343,23 @@ export async function prepareUpdateCandidatePlugins(
       roots.set(owner, project(owner));
     }
   }
+  for (const source of roots.keys()) {
+    assertUpdateCandidatePluginCopySource(source, targetStateDir);
+  }
+  const dependencies = inspectPluginSourceDependencies(
+    resolveUpdateCandidatePluginSourceEntries(
+      discoverConfiguredPluginLoadPaths({
+        loadPaths: locators.map(({ real }) => real),
+        env: params.env,
+      }).candidates,
+      params.config,
+    ),
+  );
+  for (const source of [...dependencies.packageRoots, ...dependencies.files]) {
+    if (![...roots.keys()].some((root) => isPathInside(root, source))) {
+      roots.set(source, project(source));
+    }
+  }
   const trees = await prepareUpdateCandidatePluginTrees({
     roots,
     project,
@@ -346,6 +367,7 @@ export async function prepareUpdateCandidatePlugins(
     candidateRoot: params.candidateRoot,
     onProgress: params.onProgress,
   });
+  dependencies.assertSourceCurrent();
   const aliases: UpdateCandidatePluginPlan["aliases"] = [];
   for (const { source, real, file, preserveBasename } of locators) {
     const copy = trees.copies.find(([directory]) => isPathInside(directory, real));

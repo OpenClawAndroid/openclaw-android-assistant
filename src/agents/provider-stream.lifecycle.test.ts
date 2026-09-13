@@ -2,6 +2,7 @@ import { createApiRegistry, createLlmRuntime } from "@openclaw/ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bindModelLlmRuntime } from "../llm/model-runtime-binding.js";
 import { createAssistantMessageEventStream } from "../llm/utils/event-stream.js";
+import { resolveProviderStreamFn } from "../plugins/provider-runtime.js";
 import { resolveCompactionProviderStream } from "./embedded-agent-runner/compaction-diagnostics.js";
 import { getModelProviderLocalServiceReconciler } from "./provider-local-service-reconcile.js";
 import {
@@ -41,14 +42,16 @@ vi.mock("../infra/net/fetch-guard.js", () => ({
 }));
 
 vi.mock("../plugins/provider-runtime.js", () => ({
-  resolveProviderStreamFn: () => providerStream,
+  resolveProviderStreamFn: vi.fn(() => providerStream),
 }));
 
 vi.mock("../plugins/provider-hook-runtime.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../plugins/provider-hook-runtime.js")>();
   return {
     ...actual,
-    resolveProviderRuntimePluginHandle: () => runtimeHandle,
+    resolveProviderRuntimePluginHandle: (
+      params: Parameters<typeof actual.resolveProviderRuntimePluginHandle>[0],
+    ) => ({ ...runtimeHandle, provider: params.provider, modelId: params.modelId }),
   };
 });
 
@@ -61,6 +64,7 @@ describe("provider stream lifecycle registration", () => {
     });
     prepare.mockClear();
     providerStream.mockReset();
+    vi.mocked(resolveProviderStreamFn).mockClear();
     reconcile.mockReset().mockResolvedValue(undefined);
     vi.stubGlobal(
       "fetch",
@@ -138,9 +142,9 @@ describe("provider stream lifecycle registration", () => {
     const model = attachModelProviderLocalService(
       bindModelLlmRuntime(
         {
-          api: "test-lifecycle-provider",
-          provider: "test-provider",
-          id: "test-model",
+          api: "ollama",
+          provider: "ollama",
+          id: "qwen3:8b",
           name: "Test Model",
           baseUrl: "http://127.0.0.1:19432/v1",
           reasoning: false,
@@ -157,12 +161,23 @@ describe("provider stream lifecycle registration", () => {
         healthUrl: "http://127.0.0.1:19432/health",
       },
     );
+    expect(apiRegistry.getApiProvider("ollama")).toBeUndefined();
     const streamFn = resolveCompactionProviderStream({
       effectiveModel: model,
       agentDir: "/tmp/test-agent",
       effectiveWorkspace: "/tmp/test-workspace",
       apiRegistry,
     });
+
+    expect(vi.mocked(resolveProviderStreamFn).mock.calls[0]?.[0].context).toMatchObject({
+      agentDir: "/tmp/test-agent",
+      workspaceDir: "/tmp/test-workspace",
+      provider: "ollama",
+      modelId: "qwen3:8b",
+      model: { api: "ollama", provider: "ollama", id: "qwen3:8b" },
+    });
+    expect(streamFn).toBeTypeOf("function");
+    expect(apiRegistry.getApiProvider("ollama")).toBeDefined();
 
     if (reconcileError) {
       await expect(streamFn?.(model, {} as never, {})).rejects.toThrow(reconcileError.message);

@@ -104,6 +104,9 @@ describe("SessionManager user idempotency", () => {
         "Session transcript keyed user is outside the current turn",
       );
       expect(sessionManager.getAppendParentId()).toBe("persisted-assistant");
+      expect(sessionManager.resolveCurrentTurnEntryId(() => true)).toBe(
+        excludeFromContext ? "persisted-assistant" : null,
+      );
       expect(
         (await loadTranscriptEvents(scope)).filter(
           (event) =>

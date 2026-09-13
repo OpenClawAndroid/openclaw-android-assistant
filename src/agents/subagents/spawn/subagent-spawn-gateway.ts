@@ -92,7 +92,14 @@ async function callSubagentGatewayWithDispatchMode(
     const isChildRunLaunch = request.method === "agent";
     const forceSyntheticClient = isChildRunLaunch || scopes != null;
     const dispatch = async (workerIdentity?: WorkerTurnExecutionIdentity) => {
-      request.assertDispatchCurrent?.();
+      // Cleanup can lose its worker claim while awaiting a session lifecycle drain.
+      const assertDispatchCurrent = workerIdentity
+        ? () => {
+            request.assertDispatchCurrent?.();
+            workerIdentity.receiptAuthority();
+          }
+        : request.assertDispatchCurrent;
+      assertDispatchCurrent?.();
       const operationalRunInstance = gatewayCaller?.workerTurnClaim
         ? workerIdentity?.operationalRunInstance
         : gatewayCaller?.operationalRunInstance;
@@ -122,7 +129,7 @@ async function callSubagentGatewayWithDispatchMode(
         withInProcessAgentRuntimeIdentity(
           {
             expectFinal: request.expectFinal,
-            sessionMutationCommitGuard: request.assertDispatchCurrent,
+            sessionMutationCommitGuard: assertDispatchCurrent,
             ...(allowModelOverride ? { allowSyntheticModelOverride: true } : {}),
             ...(options?.agentRunTracking ? { agentRunTracking: options.agentRunTracking } : {}),
             ...(gatewayContextResolver ? { resolveGatewayContext: gatewayContextResolver } : {}),
@@ -143,7 +150,7 @@ async function callSubagentGatewayWithDispatchMode(
             gatewayCaller.operationalRunInstance !== identity.operationalRunInstance ||
             gatewayCaller.executionIdentityToken !== identity.executionIdentityToken ||
             gatewayCaller.workerTurnClaim !== identity.turnClaim ||
-            parentExecutionIdentityToken !== identity.executionIdentityToken
+            (isChildRunLaunch && parentExecutionIdentityToken !== identity.executionIdentityToken)
           ) {
             throw new Error("worker child admission identity changed");
           }

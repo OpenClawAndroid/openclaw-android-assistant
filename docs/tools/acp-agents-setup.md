@@ -292,8 +292,9 @@ openclaw config set plugins.entries.acpx.config.timeoutSeconds 180
 
 Runtime turns use OpenClaw agent/run timeouts, including `/acp timeout`.
 `sessions_spawn` does not accept per-call timeout overrides; the operator path
-is `agents.defaults.subagents.runTimeoutSeconds`. Restart the gateway after
-changing `timeoutSeconds`.
+is `agents.defaults.subagents.runTimeoutSeconds`. With the default hybrid reload
+mode, changing `timeoutSeconds` automatically reloads the plugin. See
+[Config hot reload](/gateway/configuration/hot-reload).
 
 ### Health probe agent configuration
 
@@ -306,7 +307,8 @@ needs a different ACP agent for health checks, set the probe agent explicitly:
 openclaw config set plugins.entries.acpx.config.probeAgent claude
 ```
 
-Restart the gateway after changing this value.
+With the default hybrid reload mode, this change automatically reloads the plugin.
+Run `/acp doctor` to check the updated backend.
 
 ## Permission configuration
 
@@ -349,7 +351,8 @@ openclaw config set plugins.entries.acpx.config.permissionMode approve-all
 openclaw config set plugins.entries.acpx.config.nonInteractivePermissions fail
 ```
 
-Restart the gateway after changing these values.
+With the default hybrid reload mode, these changes automatically reload the plugin.
+See [Config hot reload](/gateway/configuration/hot-reload) for other reload modes.
 
 <Warning>
 OpenClaw defaults to `permissionMode=approve-reads` and `nonInteractivePermissions=fail`. In non-interactive ACP sessions, any write or exec that triggers a permission prompt can fail with `PermissionPromptUnavailableError: Permission prompt unavailable in non-interactive mode`.

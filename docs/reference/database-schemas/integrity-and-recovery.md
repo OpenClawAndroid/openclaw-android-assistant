@@ -8,13 +8,29 @@ title: "Integrity, troubleshooting, and recovery"
 
 ## Integrity checks
 
-| When                                        | Check                                                               |
-| ------------------------------------------- | ------------------------------------------------------------------- |
-| Every open                                  | Validate the `schema_meta` table and primary metadata row           |
-| Every physical writable agent-database open | Run full integrity, foreign-key, schema, and canonical-index checks |
-| Before a pending migration                  | Run a full integrity, foreign-key, role, schema, and index scan     |
-| Gateway background verifier                 | Run the full scan about once daily and log results                  |
-| Doctor, backup verification, and compaction | Run the full scan before accepting or rewriting the database        |
+| When                                                    | Check                                                                                         |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Every open                                              | Validate the `schema_meta` table and primary metadata row                                     |
+| First writable agent-database open per Gateway lifetime | Run full integrity, foreign-key, schema, and canonical-index checks                           |
+| Later physical writable agent-database opens            | Reuse integrity verification; recheck owner, version, schema, and canonical index definitions |
+| Before a pending migration                              | Run a full integrity, foreign-key, role, schema, and index scan                               |
+| Gateway background verifier                             | Run the full scan about once daily and log results                                            |
+| Doctor, backup verification, and compaction             | Run the full scan before accepting or rewriting the database                                  |
+
+Successful agent-database verification stays in memory across ordinary writes,
+connection closes, and cache eviction. Cleanup workers borrow that verification
+under their existing writer admission and return new verification to the Gateway
+after they finish. Reuse is bound to the agent and physical file identity; it does
+not hash database contents or create a persistent marker. A fresh Gateway process
+checks again, including after an unclean shutdown.
+
+Database replacement, explicit disposal, registry invalidation, quarantine, and
+failed admission discard remembered verification. Pending migrations still run
+full checks, and canonical index repairs verify their result before committing.
+Damage introduced into the same file after verification is detected by SQLite
+operations, the daily verifier, or explicit maintenance instead of a full scan
+on each reopen. Schema, ownership, and current write authority are never borrowed
+from the integrity result.
 
 The Gateway startup preflight reads schema headers only. For ordinary rollback-mode agent databases and complete WAL families, a read-only child reads the schema version and optional writer build in one fresh SQLite transaction, including committed WAL changes, without copying unrelated database contents. Its source-reader lease stays held through native close; cancellation and timeout wait for child closure. Parent-side diagnostics do not open or close the live agent file, preserving the parent's SQLite locks. As with the previous online-backup reader, native SQLite may update SHM read marks or rebuild existing SHM after a quiescent family reopens; the database and WAL contents remain unchanged. These headers are not cached compatibility or integrity proof: full readiness and writable admission retain their existing validation and fresh authority checks.
 
@@ -43,7 +59,7 @@ IPC error remains the reported failure even if termination also fails.
 
 Agent database maintenance fences other writers with a 60-second lease in the shared state database. A dedicated worker renews that lease during synchronous integrity scans and migration phases. Maintenance still checks the exact persisted owner before mutations and commit, and stops if the heartbeat fails or ownership expires or changes. Finishing or cancelling maintenance stops renewal before releasing the lease; process death leaves at most the remaining lease duration.
 
-Asynchronous agent-database admission and maintenance run their initial full-file integrity check in a read-only child process when that check is outside a write transaction. The connection and owning scope remain held until the child closes, including on cancellation or timeout. Schema changes, index repairs, and compaction retain their synchronous phases.
+Asynchronous agent-database admission runs the first full-file integrity check in a read-only child process when that check is outside a write transaction. Later ordinary opens reuse remembered verification. Maintenance retains its independent full check. The connection and owning scope remain held until the child closes, including on cancellation or timeout. Schema changes, index repairs, and compaction retain their synchronous phases.
 
 Explicit session-maintenance finalization uses this asynchronous admission if its writable handle was evicted during archive or deletion preparation. It keeps its place in the session writer queue and rechecks maintenance and deletion authority before committing. Automatic maintenance retires when its original handle closes instead of reopening it.
 

@@ -11,6 +11,7 @@ import WebSocket, { type RawData } from "ws";
 import type { OpenAIRealtimeHost } from "./realtime-host.js";
 import {
   OpenAIQuicksilverAudioClock,
+  OpenAIQuicksilverAudioAdapter,
   OpenAIQuicksilverPendingAudio,
   OPENAI_QUICKSILVER_RELAY_FRAME_BYTES,
 } from "./realtime-quicksilver-audio-buffer.js";
@@ -122,11 +123,14 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
   private sideband: ActiveSideband | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private transport: OpenAIQuicksilverGatewayTransport | undefined;
+  private readonly audio: OpenAIQuicksilverAudioAdapter;
 
   constructor(
     private readonly config: OpenAIQuicksilverBridgeConfig,
     private readonly runtime: OpenAIRealtimeHost,
-  ) {}
+  ) {
+    this.audio = new OpenAIQuicksilverAudioAdapter(config);
+  }
 
   connect(): Promise<void> {
     if (this.closed) {
@@ -140,11 +144,12 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
     if (this.closed) {
       return;
     }
+    const pcm = this.audio.decodeInput(audio);
     if (this.peer) {
-      this.peer.sendAudio(audio);
+      this.peer.sendAudio(pcm);
     } else if (!this.closed && !this.abortController.signal.aborted) {
       // Relay capture starts before transport readiness and may recycle its input buffers.
-      this.pendingAudio.append(audio);
+      this.pendingAudio.append(pcm);
     }
   }
 
@@ -152,6 +157,10 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
 
   sendUserMessage(text: string): void {
     this.delegations?.sendSessionContext(text, "speakable");
+  }
+
+  triggerGreeting(instructions?: string): void {
+    this.sendUserMessage(instructions?.trim() || "Greet the user briefly.");
   }
 
   submitToolResult(): void {
@@ -175,11 +184,15 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
     const audioFormat = this.config.audioFormat;
     if (
       audioFormat &&
-      (audioFormat.encoding !== "pcm16" ||
-        audioFormat.sampleRateHz !== RELAY_SAMPLE_RATE ||
-        audioFormat.channels !== 1)
+      (audioFormat.channels !== 1 ||
+        !(
+          (audioFormat.encoding === "pcm16" && audioFormat.sampleRateHz === RELAY_SAMPLE_RATE) ||
+          (audioFormat.encoding === "g711_ulaw" && audioFormat.sampleRateHz === 8_000)
+        ))
     ) {
-      throw new Error("OpenAI GPT-Live gateway relay requires mono PCM16 audio at 24 kHz");
+      throw new Error(
+        "OpenAI GPT-Live gateway relay requires mono PCM16 at 24 kHz or G.711 mu-law at 8 kHz",
+      );
     }
     reserveOpenAIQuicksilverSession(this);
     const connectSignal = AbortSignal.any([
@@ -232,7 +245,7 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
       resolveReady = resolve;
     });
     this.delegations = this.createDelegationController({
-      onAudio: (audio) => this.config.onAudio(audio),
+      onAudio: (audio) => this.audio.sendOutput(audio),
       onSessionStarted: resolveReady,
     });
     const connected = await this.connectSocket(
@@ -269,7 +282,7 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
       });
     const peerPromise = createPeer(
       {
-        onAudio: (audio) => this.config.onAudio(audio),
+        onAudio: (audio) => this.audio.sendOutput(audio),
         onError: (error) => this.fail(error),
         onMediaError: () => this.config.logger.debug?.("GPT-Live WebRTC media packet dropped"),
         onRtpPacket: () => this.config.onEvent?.({ direction: "server", type: "output_audio.rtp" }),
@@ -419,6 +432,7 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
         onWireEventType: (eventType) => {
           this.config.onEvent?.({ direction: "server", type: eventType });
           if (eventType === "output_audio_buffer.cleared") {
+            this.audio.reset();
             this.config.onClearAudio("barge-in");
           }
         },
@@ -571,6 +585,7 @@ export class OpenAIQuicksilverGatewayBridge implements RealtimeVoiceBridge {
     this.ready = false;
     this.transport = undefined;
     this.pendingAudio.clear();
+    this.audio.reset();
     if (disposition === "detach") {
       this.delegations?.detach();
     } else {

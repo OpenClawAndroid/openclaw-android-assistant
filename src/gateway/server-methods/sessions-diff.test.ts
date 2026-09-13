@@ -7,14 +7,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import { ensureSessionDiffBaseline } from "../../sessions/session-diff-baseline.js";
-import { captureSessionDiffBaseline } from "../../sessions/session-diff.js";
 import {
-  loadSessionDiff,
   parseNameStatusZ,
   parseNumstatZ,
-  sessionsDiffHandlers,
   splitPatchByFile,
-} from "./sessions-diff.js";
+} from "../../sessions/session-diff-parser.js";
+import { captureSessionDiffBaseline } from "../../sessions/session-diff.js";
+import { loadSessionDiff, sessionsDiffHandlers } from "./sessions-diff.js";
 
 const hoisted = vi.hoisted(() => ({
   loadSessionEntryReadOnly: vi.fn(),

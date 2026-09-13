@@ -6,8 +6,6 @@
   "include": [
     "../../src/plugins/**/*.test.ts",
     "../../src/plugins/**/*.test.tsx",
-    "../../src/security/**/*.test.ts",
-    "../../src/security/**/*.test.tsx",
     "../../src/acp/**/*.test.ts",
     "../../src/acp/**/*.test.tsx",
     "../../src/system-agent/**/*.test.ts",

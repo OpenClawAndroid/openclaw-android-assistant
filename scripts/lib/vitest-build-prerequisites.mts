@@ -108,15 +108,18 @@ const runtimeConsumers = [
     mode: "runtime",
     dir: "src/plugins",
   },
-  {
-    file: "test/plugins/codex-model-catalog.gateway.test.ts",
+  ...[
+    "test/plugins/codex-model-catalog.gateway.test.ts",
+    "src/gateway/server-methods/models-list.freshness.integration.test.ts",
+  ].map((file) => ({
+    file,
     configs: [
       "test/vitest/vitest.gateway-methods.config.ts",
       "test/vitest/vitest.gateway.config.ts",
     ],
-    mode: "runtime",
+    mode: "runtime" as const,
     dir: "",
-  },
+  })),
   ...["src/config/config-startup-corpus.test.ts", "src/config/state-startup-corpus.test.ts"].map(
     (file) => ({
       file,

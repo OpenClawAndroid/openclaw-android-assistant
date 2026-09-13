@@ -12,6 +12,11 @@ import {
   assertExecApprovalPolicySurvived,
   seedLegacyExecApprovalPolicy,
 } from "./exec-approval-fixture.mjs";
+import {
+  seedMSTeamsPollMigration,
+  assertMSTeamsPollMigration,
+  assertMSTeamsPluginFiles,
+} from "./msteams-polls.mjs";
 import { assertUpgradeVolumeMigrated, seedUpgradeVolume } from "./sqlite-volume.mjs";
 
 const command = process.argv[2];
@@ -23,6 +28,7 @@ const legacyOperator =
     : undefined;
 const SCENARIOS = new Set([
   "base",
+  "msteams-polls",
   "abandoned-update",
   "legacy-operator-state",
   "mobile-pairing-reconnect",
@@ -398,6 +404,9 @@ function seedState() {
   // Volume imports start in per-agent JSON; other scenarios cover the older shared-store move.
   seedLegacySessionMetadata(stateDir, scenario === "sqlite-volume");
   seedLegacyExecApprovalPolicy(stateDir);
+  if (scenario === "msteams-polls") {
+    seedMSTeamsPollMigration(stateDir, requireEnv("OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT"));
+  }
   if (scenario === "meeting-transcripts-sqlite") {
     seedLegacyMeetingTranscripts(stateDir);
   }
@@ -678,6 +687,13 @@ function assertStateSurvived() {
   );
   if (stage !== "baseline") {
     assertSessionMetadataMigrated(stateDir, stage);
+  }
+  if (scenario === "msteams-polls") {
+    assertMSTeamsPollMigration(
+      stateDir,
+      requireEnv("OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT"),
+      stage,
+    );
   }
   if (scenario === "meeting-transcripts-sqlite") {
     assertMeetingTranscriptsMigrated(stateDir, stage);
@@ -1208,14 +1224,14 @@ function readInstalledPluginIndex() {
   return index;
 }
 
-function assertBaselinePlugin([expectedVersion]) {
-  const record = readInstalledPluginIndex().installRecords.discord;
-  assert(record?.source === "npm", "baseline Discord plugin was not installed from npm");
-  assert(record.spec === "@openclaw/discord@latest", "baseline plugin selector became pinned");
+function assertBaselinePlugin([expectedVersion, pluginId = "discord"]) {
+  const record = readInstalledPluginIndex().installRecords[pluginId];
+  assert(record?.source === "npm", "baseline plugin was not installed from npm");
+  assert(record.spec === `@openclaw/${pluginId}@latest`, "baseline plugin selector became pinned");
   const installed = readJson(path.join(resolveHomePath(record.installPath), "package.json"));
-  assert(installed.name === "@openclaw/discord", "baseline plugin package identity changed");
+  assert(installed.name === `@openclaw/${pluginId}`, "baseline plugin package identity changed");
   assert(installed.version === expectedVersion, "baseline plugin is not the baseline version");
-  console.log(`Baseline npm plugin: @openclaw/discord@${expectedVersion}, selector=latest.`);
+  console.log(`Baseline npm plugin: @openclaw/${pluginId}@${expectedVersion}, selector=latest.`);
 }
 
 function assertExternalPluginInstall(records, pluginId, packageName) {
@@ -1371,6 +1387,12 @@ function assertNpmPluginInstall([
   const archive = fs.readFileSync(path.join(artifactDir, artifact.tarball));
   const integrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
   assert(record.integrity === integrity, `${pluginId} plugin registry artifact integrity changed`);
+  if (getScenario() === "msteams-polls" && pluginId === "msteams") {
+    assertMSTeamsPluginFiles(
+      resolveHomePath(record.installPath),
+      path.join(artifactDir, artifact.tarball),
+    );
+  }
 }
 
 function assertCompanionPluginInstalls([expectedVersion, capabilityConsentSupported]) {
@@ -1542,6 +1564,9 @@ function assertRecoverableUpdateJson([file, expectedVersion, observationRoot, ba
   // These are the reviewed packages in the base and scenario recipes.
   // Any other plugin or failure needs investigation before accepting it.
   const reviewed = new Set(["acpx", "brave", "codex", "discord", "feishu", "matrix", "whatsapp"]);
+  if (getScenario() === "msteams-polls") {
+    reviewed.add("msteams");
+  }
   const denied = new Set();
   assertStrict.ok(Array.isArray(plugins.npm?.outcomes));
   for (const outcome of plugins.npm.outcomes) {
@@ -1869,6 +1894,16 @@ if (command === "list-scenarios") {
   process.stdout.write(`${JSON.stringify([...SCENARIOS])}\n`);
 } else if (command === "seed") {
   seedState();
+} else if (command === "seed-msteams-doctor") {
+  assert(
+    getScenario() === "msteams-polls",
+    "Teams Doctor seed requires the msteams-polls scenario",
+  );
+  seedMSTeamsPollMigration(
+    requireEnv("OPENCLAW_STATE_DIR"),
+    requireEnv("OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT"),
+    "doctor",
+  );
 } else if (command === "seed-legacy-operator") {
   legacyOperator.seedLegacyOperatorState();
 } else if (command === "seed-legacy-operator-external-plugin") {

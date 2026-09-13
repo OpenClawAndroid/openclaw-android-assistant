@@ -4725,7 +4725,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
                 sender,
               ) => `<div class="chat-group user chat-group--with-footer${sender === "peer" ? " chat-group--peer" : ""}">
           <div class="chat-group-messages"><div class="chat-bubble">Attempted message</div></div>
-          <div class="chat-group-footer chat-group-footer--send-failure${sender === "direct" ? "" : " chat-group-footer--persistent-identity"}">
+          <div class="chat-group-footer chat-group-footer--send-status${sender === "direct" ? "" : " chat-group-footer--persistent-identity"}">
             <div class="chat-group-footer__meta"><span class="chat-sender-name">You</span>
               <span class="chat-send-status" data-send-state="${state}">
                 <span>·</span><span>${label}</span><span>·</span>

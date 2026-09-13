@@ -64,19 +64,16 @@ export class ModelProviderSupplementalLoader {
   adoptCoreData(
     client: GatewayBrowserClient | null,
     data: ModelProvidersData,
-    options: { preserveCatalog?: boolean } = {},
+    options: { preserveCatalogDiagnostics?: boolean } = {},
   ): void {
     const previous = client === this.options.getDataClient() ? this.options.getData() : null;
     // Keep the last supplemental snapshot visible until its replacement finishes.
     this.options.setData({
       ...data,
-      // An older core read updates config/auth, while the newer Retry owns catalog facts.
-      ...(options.preserveCatalog && previous
+      // A newer Retry owns its feedback even when an older auth read finishes afterward.
+      ...(options.preserveCatalogDiagnostics && previous
         ? {
-            models: previous.models,
-            automaticUtilityModel: previous.automaticUtilityModel,
             providerOutcomes: previous.providerOutcomes,
-            pendingProviders: previous.pendingProviders,
             catalogError: previous.catalogError,
           }
         : {}),

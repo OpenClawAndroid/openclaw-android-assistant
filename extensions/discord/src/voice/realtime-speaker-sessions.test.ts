@@ -29,8 +29,8 @@ defineDiscordVoiceTests(
       resolveConfiguredRealtimeVoiceProviderMock.mockReturnValue({
         provider: {
           id: "openai",
-          capabilities: { supportsActivationNameGating: false, handlesAgentConsult: true },
         },
+        capabilities: { supportsActivationNameGating: false, handlesAgentConsult: true },
         providerConfig: { model: "gpt-live-1", voice: "marin" },
       });
 

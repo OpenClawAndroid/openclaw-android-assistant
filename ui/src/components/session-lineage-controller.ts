@@ -7,6 +7,7 @@ import type {
   SessionRowObservation,
   SessionRowTarget,
 } from "../lib/sessions/index.ts";
+import type { SessionListScope } from "../lib/sessions/session-capability.ts";
 import {
   areUiSessionKeysEquivalent,
   isUiGlobalSessionKey,
@@ -26,6 +27,7 @@ import {
   publishObservedSessionLineage,
   publishObservedSessionRow,
   retainActiveSessionRow,
+  type SidebarChildSessionRead,
 } from "./app-sidebar-child-session-data.ts";
 
 type LineageOwner = {
@@ -62,10 +64,6 @@ type LineageRequest = {
 type LineageNavigation = Pick<LineageScope, "key" | "selectedAgentId" | "gateway" | "sessions"> & {
   identity: ReturnType<typeof resolveUiConversationIdentity>;
 };
-
-type ChildRowAdmission =
-  | { status: "not-selected" }
-  | { status: "selected"; row: GatewaySessionRow | null };
 
 export function sessionLineageIdentityHost(
   context: ApplicationContext<RouteId> | undefined,
@@ -305,10 +303,7 @@ export class SessionLineageController {
     }
   }
 
-  captureChildRead(): {
-    isCurrent: () => boolean;
-    reconcile: (row: GatewaySessionRow) => ChildRowAdmission;
-  } {
+  captureChildRead(sourceListScope?: SessionListScope): SidebarChildSessionRead {
     this.synchronize();
     const navigation = this.navigation;
     const key = navigation?.key;
@@ -319,7 +314,10 @@ export class SessionLineageController {
     const global = navigation?.identity.sessionKey === "global";
     const binding = global ? this.binding : null;
     const observed = binding?.observation?.captureReconcile();
-    const reconcile = !global ? sessions?.captureReconcile() : undefined;
+    const read = !global ? sessions?.captureReconcile() : undefined;
+    const reconcile: SessionCapability["reconcile"] | undefined = read
+      ? (row, defaults, options) => read(row, defaults, { ...options, sourceListScope })
+      : undefined;
     const isCurrent = () =>
       this.owner.isSessionDataHostConnected &&
       sessions === this.owner.context?.sessions &&

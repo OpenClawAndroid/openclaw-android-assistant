@@ -6,7 +6,7 @@ import { isSafeExecutableValue } from "../infra/exec-safety.js";
 import type { OpenRouterRouting, VercelGatewayRouting } from "../llm/types.js";
 import { normalizeExactAllowedHost } from "../secrets/exact-hostname.js";
 import { SECRET_PROVIDER_ALIAS_PATTERN } from "../secrets/ref-contract.js";
-import { isBuiltInModelProviderOverlayId } from "./model-provider-config.js";
+import { isBuiltInModelProviderOverlayId } from "./model-provider-overlay-ids.js";
 import type { ModelCompatConfig } from "./types.models.js";
 import { MODEL_APIS, MODEL_THINKING_FORMATS } from "./types.models.js";
 import { ENV_SECRET_REF_ID_RE } from "./types.secrets.js";
@@ -15,7 +15,6 @@ import { DmConfigSchema } from "./zod-schema.messages.js";
 import { SecretInputSchema } from "./zod-schema.secret-input.js";
 import { sensitive } from "./zod-schema.sensitive.js";
 
-export { isBuiltInModelProviderOverlayId } from "./model-provider-config.js";
 export {
   DmConfigSchema,
   GroupChatSchema,
@@ -782,8 +781,11 @@ const MediaUnderstandingScopeSchema = createAllowDenyChannelRulesSchema();
 
 const MediaUnderstandingAttachmentsSchema = z
   .object({
+    /** Select the first matching attachment or process multiple. */
     mode: z.union([z.literal("first"), z.literal("all")]).optional(),
+    /** Max number of attachments to process (default: 1). */
     maxAttachments: z.number().int().positive().optional(),
+    /** Attachment ordering preference. */
     prefer: z
       .union([z.literal("first"), z.literal("last"), z.literal("path"), z.literal("url")])
       .optional(),
@@ -801,27 +803,47 @@ const ProviderOptionsSchema = z
   .optional();
 
 const MediaUnderstandingRuntimeFields = {
+  /** Optional prompt override for this model entry. */
+  /** Default prompt. */
   prompt: z.string().optional(),
+  /** Optional timeout override (seconds) for this model entry. */
+  /** Default timeout (seconds). */
   timeoutSeconds: z.number().int().positive().optional(),
+  /** Optional language hint for audio transcription. */
+  /** Default language hint (audio). */
   language: z.string().optional(),
+  /** Optional provider-specific query params (merged into requests). */
   providerOptions: ProviderOptionsSchema,
+  /** Optional base URL override for provider requests. */
   baseUrl: z.string().optional(),
+  /** Optional headers merged into provider requests. */
   headers: z.record(z.string(), z.string()).optional(),
+  /** Optional request transport overrides for provider HTTP calls. */
   request: ConfiguredProviderRequestSchema,
 };
 
 const MediaUnderstandingModelSchema = z
   .object({
+    /** provider API id (e.g. openai, google). */
     provider: z.string().optional(),
+    /** Model id for provider-based understanding. */
     model: z.string().optional(),
+    /** Optional capability tags for shared model lists. */
     capabilities: MediaUnderstandingCapabilitiesSchema,
+    /** Use a CLI command instead of provider API. */
     type: z.union([z.literal("provider"), z.literal("cli")]).optional(),
+    /** CLI binary (required when type=cli). */
     command: z.string().optional(),
+    /** CLI args (template-enabled). */
     args: z.array(z.string()).optional(),
+    /** Optional max output characters for this model entry. */
     maxChars: z.number().int().positive().optional(),
+    /** Optional max bytes for this model entry. */
     maxBytes: z.number().int().positive().optional(),
     ...MediaUnderstandingRuntimeFields,
+    /** Auth profile id to use for this provider. */
     profile: z.string().optional(),
+    /** Preferred profile id if multiple are available. */
     preferredProfile: z.string().optional(),
   })
   .strict()
@@ -842,14 +864,28 @@ const ToolsMediaCapabilitySchema = z
 
 const ToolsMediaAudioSchema = z
   .object({
+    /** Enable media understanding when models are configured. */
     enabled: z.boolean().optional(),
+    /** Prefer a matching shared model entry. */
     preferredModel: z.string().trim().min(1).optional(),
+    /** Optional scope gating for understanding. */
     scope: MediaUnderstandingScopeSchema,
+    /** Default max bytes to send. */
     maxBytes: z.number().int().positive().optional(),
+    /** Default max output characters. */
     maxChars: z.number().int().positive().optional(),
     ...MediaUnderstandingRuntimeFields,
+    /** Attachment selection policy. */
     attachments: MediaUnderstandingAttachmentsSchema,
+    /**
+     * Echo the audio transcript back to the originating chat before agent processing.
+     * Lets users verify what was heard. Default: false.
+     */
     echoTranscript: z.boolean().optional(),
+    /**
+     * Format string for the echoed transcript. Use `{transcript}` as placeholder.
+     * Default: '📝 "{transcript}"'
+     */
     echoFormat: z.string().optional(),
   })
   .strict()
@@ -867,6 +903,7 @@ export const ToolsMediaSchema = z
   .optional();
 const LinkModelSchema = z
   .object({
+    /** Use a CLI command for link processing. */
     type: z.literal("cli").optional(),
     command: z.string().min(1),
     args: z.array(z.string()).optional(),
@@ -876,10 +913,13 @@ const LinkModelSchema = z
 
 export const ToolsLinksSchema = z
   .object({
+    /** Enable link understanding when models are configured. */
     enabled: z.boolean().optional(),
     scope: MediaUnderstandingScopeSchema,
+    /** Max number of links to process per message. */
     maxLinks: z.number().int().positive().optional(),
     timeoutSeconds: z.number().int().positive().optional(),
+    /** Ordered model list (fallbacks in order). */
     models: z.array(LinkModelSchema).optional(),
   })
   .strict()

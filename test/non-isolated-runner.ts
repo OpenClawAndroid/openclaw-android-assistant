@@ -36,13 +36,13 @@ type EvaluatedModules = {
 type ModuleExecution = { external?: boolean };
 type ModuleExecutionInfo = Map<string, ModuleExecution>;
 
-type SerializableMocker = {
+type ModuleMocker = {
   reset?: () => void;
-  resolveMocks?: () => Promise<void>;
+  pendingMockResolution: Promise<void>;
 };
 
 type TestRunnerInternals = {
-  moduleRunner?: { mocker?: SerializableMocker };
+  moduleRunner?: { mocker?: ModuleMocker };
   workerState: { evaluatedModules: unknown; moduleExecutionInfo: ModuleExecutionInfo };
 };
 
@@ -373,87 +373,15 @@ function resetOpenClawSessionSuspensionState(): void {
   api?.resetSessionSuspensionStateForTest?.();
 }
 
-const SERIALIZED_RESOLVE_MOCKS = Symbol.for("openclaw.serializedResolveMocks");
-
-type SerializedResolveMocksState = {
-  tail: Promise<void>;
-};
-
-type SerializedMocker = SerializableMocker & {
-  [SERIALIZED_RESOLVE_MOCKS]?: SerializedResolveMocksState;
-};
-
-// Vitest's BareModuleMocker.resolveMocks has no in-flight guard: pendingIds is
-// cleared only after all parallel resolveId RPCs settle, and every registration
-// re-invalidates the mock module node. In a shared isolate:false worker, stray
-// async work from an earlier file (a leaked timer running a dynamic import) can
-// start a second concurrent pass over the same pendingIds while the next file's
-// vi.mock registrations resolve. The slower pass then re-registers and wipes
-// already-evaluated manual mock modules mid-import-chain, so importers before
-// the wipe hold one factory instance and later importers get a fresh one
-// (vi.mocked(...) on the test's binding silently stops reaching prod).
-//
-// The pin chains each caller onto its own sequential pass instead of sharing
-// one in-flight pass. Two invariants both matter:
-// - Serialization: a pass queued behind an in-flight one sees the cleared
-//   queue and no-ops, so a snapshot is never registered (and its mock modules
-//   never invalidated) twice.
-// - Freshness: every caller's pass starts at or after its call, so ids the
-//   caller queued (vi.mock/doMock/doUnmock before a dynamic import) are
-//   registered before its fetch proceeds. Sharing one pass breaks this — a
-//   caller can coalesce onto a pass snapshotted before its ids were queued and
-//   then import with mock state unresolved (observed: auth-provenance's
-//   doUnmock + Promise.all imports loading the real provider-auth warm worker
-//   and a 120s oauth refresh instead of the mocked provider hook).
-export function serializeMockerResolveMocks(mocker: SerializableMocker): void {
-  const serializedMocker = mocker as SerializedMocker;
-  if (!mocker.resolveMocks || serializedMocker[SERIALIZED_RESOLVE_MOCKS]) {
-    return;
-  }
-  const state: SerializedResolveMocksState = { tail: Promise.resolve() };
-  serializedMocker[SERIALIZED_RESOLVE_MOCKS] = state;
-  const original = mocker.resolveMocks.bind(mocker);
-  const statics = mocker.constructor as { pendingIds?: unknown[] };
-  const runPass = async (): Promise<void> => {
-    while (true) {
-      const queue = statics.pendingIds;
-      const processedCount = queue?.length ?? 0;
-      await original();
-      // Upstream snapshots the queue contents at pass start and reassigns the
-      // pendingIds static to [] at the end, so ids queued during the pass's RPC
-      // window land in the abandoned array. Requeue and drain them before this
-      // caller proceeds so a later module fetch cannot invalidate mocks mid-import.
-      if (queue && queue !== statics.pendingIds && queue.length > processedCount) {
-        statics.pendingIds?.push(...queue.slice(processedCount));
-      }
-      if ((statics.pendingIds?.length ?? 0) === 0) {
-        return;
-      }
-    }
-  };
-  mocker.resolveMocks = () => {
-    const pass = state.tail.then(runPass);
-    // Keep the chain alive after a rejected pass; the rejection still reaches
-    // the caller that owns that pass, matching upstream behavior.
-    state.tail = pass.then(
-      () => undefined,
-      () => undefined,
-    );
-    return pass;
-  };
-}
-
-export async function drainMockerResolveMocks(
-  mocker: SerializableMocker | undefined,
-): Promise<void> {
-  const state = (mocker as SerializedMocker | undefined)?.[SERIALIZED_RESOLVE_MOCKS];
-  if (!state) {
+// Join the native owner's latest pass, including imports queued while cleanup waits.
+async function drainMockerResolveMocks(mocker: ModuleMocker | undefined): Promise<void> {
+  if (!mocker) {
     return;
   }
   while (true) {
-    const tail = state.tail;
+    const tail = mocker.pendingMockResolution;
     await tail;
-    if (state.tail === tail) {
+    if (mocker.pendingMockResolution === tail) {
       return;
     }
   }
@@ -464,10 +392,6 @@ export default class OpenClawNonIsolatedRunner extends TestRunner {
     super.onCollectStart(file);
     if (!this.config.isolate) {
       installCustomElementTracking();
-    }
-    const internals = this as unknown as TestRunnerInternals;
-    if (internals.moduleRunner?.mocker) {
-      serializeMockerResolveMocks(internals.moduleRunner.mocker);
     }
     restoreRealTimers();
     restoreNativeTimerGlobals();
@@ -493,6 +417,7 @@ export default class OpenClawNonIsolatedRunner extends TestRunner {
   // the next file's vi.mock factories silently never applied. The worker loop
   // calls startTests per file, so this hook runs after every file regardless
   // of its collect/run outcome.
+  // oxlint-disable-next-line typescript/no-misused-promises -- Vitest awaits this hook; its concrete TestRunner declaration narrows the return to void.
   override async onAfterRunFiles(files: RunnerTestFile[]) {
     super.onAfterRunFiles(files);
     if (this.config.isolate) {

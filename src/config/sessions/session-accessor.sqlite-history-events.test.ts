@@ -129,6 +129,41 @@ describe("SQLite transcript history events", () => {
     closeOpenClawStateDatabaseForTest();
   });
 
+  it("reads fresh generations and rows across empty and populated sessions", async () => {
+    const limits = { maxMessages: 20, maxLines: 20, maxBytes: 64 * 1024 };
+    expect(readRecentSessionTranscriptHistoryEvents(scope, limits)).toMatchObject({
+      events: [],
+      totalMessages: 0,
+    });
+    await replaceTranscriptEvents(scope, [{ type: "session", version: 3, id: scope.sessionId }]);
+    await replaceTranscriptEvents(scope, []);
+    const empty = readRecentSessionTranscriptHistoryEvents(scope, limits);
+    expect(empty.deltaCursor).toEqual(expect.any(String));
+    expect(empty.displaySource).toEqual(expect.any(String));
+
+    await persistSessionTranscriptTurn(scope, {
+      messages: [
+        { eventId: "after-empty", parentId: null, message: { role: "user", content: "new" } },
+      ],
+      touchSessionEntry: false,
+    });
+    const delta = readTranscriptDisplayDelta(scope, { cursor: empty.deltaCursor });
+    expect(delta.kind).toBe("page");
+    if (delta.kind !== "page") {
+      throw new Error("missing appended history delta");
+    }
+    expect(delta.events.map(historyEventId)).toContain("after-empty");
+
+    const other = { ...scope, sessionId: "other-empty", sessionKey: "agent:main:other-empty" };
+    await replaceTranscriptEvents(other, []);
+    const otherEmpty = readRecentSessionTranscriptHistoryEvents(other, limits);
+    expect(otherEmpty).toMatchObject({ events: [], totalMessages: 0 });
+    expect(otherEmpty.deltaCursor).toBeUndefined();
+    expect(
+      readRecentSessionTranscriptHistoryEvents(scope, limits).events.map(historyEventId),
+    ).toEqual(["after-empty"]);
+  });
+
   it("preserves physical dispatch cuts across history pages and deltas", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [

@@ -3,7 +3,6 @@ import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { z } from "zod";
 import type { SessionCatalogTranscriptItem } from "../../packages/gateway-protocol/src/schema/sessions-catalog.js";
-import { formatToolSummary, resolveToolDisplay } from "../agents/tool-display.js";
 import { readTranscriptSenderIdentity } from "../chat/sender-identity.js";
 import { loadSessionEntryReadOnly } from "../config/sessions/session-accessor.js";
 import type { SessionTranscriptReadScope } from "../config/sessions/session-accessor.sqlite-contract.js";
@@ -12,11 +11,9 @@ import { SessionTranscriptColdError } from "../config/sessions/session-cold-stor
 import { resolveSessionStorePathForScope } from "../config/sessions/session-store-path.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import { redactToolPayloadText } from "../logging/redact.js";
-import {
-  extractProjectedText,
-  isAssistantTextContentType,
-} from "./chat-display-projection.helpers.js";
+import { isAssistantTextContentType } from "./chat-display-projection.helpers.js";
 import { projectChatDisplayMessages } from "./chat-display-projection.js";
+import { isSuppressedControlReplyText } from "./control-reply-text.js";
 import { projectSessionCatalogSourceParticipant } from "./session-catalog-identity.js";
 import { projectSessionDisplayMessage } from "./session-display-projection.js";
 import { projectTranscriptEntryMessage } from "./session-transcript-message.js";
@@ -96,50 +93,26 @@ function boundedText(text: string): Pick<SessionCatalogTranscriptItem, "text" | 
     : { text: redacted };
 }
 
-function projectContentItem(role: unknown, value: unknown): SessionCatalogTranscriptItem {
+function projectContentItem(
+  role: unknown,
+  value: unknown,
+): SessionCatalogTranscriptItem | undefined {
+  if (role !== "user" && role !== "assistant") {
+    return undefined;
+  }
   const block = asOptionalRecord(value);
-  const contentType = block?.type;
-  if (contentType === "toolCall" || contentType === "tool_use" || contentType === "function_call") {
-    const summary = formatToolSummary(
-      resolveToolDisplay({
-        name: typeof block?.name === "string" ? block.name : undefined,
-        args: block?.arguments ?? block?.input,
-      }),
-    );
-    return { type: "toolCall", ...boundedText(summary) };
-  }
-  if (
-    contentType === "thinking" ||
-    contentType === "reasoning" ||
-    contentType === "redacted_thinking"
-  ) {
-    const text = typeof block?.thinking === "string" ? block.thinking : block?.text;
-    return { type: "reasoning", ...(typeof text === "string" ? boundedText(text) : {}) };
-  }
-  if (
-    contentType === "toolResult" ||
-    contentType === "tool_result" ||
-    role === "toolResult" ||
-    role === "tool_result" ||
-    role === "tool"
-  ) {
-    const text =
-      typeof value === "string"
-        ? value
-        : typeof block?.text === "string"
-          ? block.text
-          : extractProjectedText(block?.content);
-    return { type: "toolResult", ...boundedText(text) };
+  if (typeof value !== "string" && !isAssistantTextContentType(block?.type)) {
+    return undefined;
   }
   const text = typeof value === "string" ? value : block?.text;
-  const isText = typeof value === "string" || isAssistantTextContentType(contentType);
-  const type =
-    isText && role === "user"
-      ? "userMessage"
-      : isText && role === "assistant"
-        ? "agentMessage"
-        : "other";
-  return { type, ...(typeof text === "string" ? boundedText(text) : {}) };
+  if (
+    typeof text !== "string" ||
+    !text.trim() ||
+    (role === "assistant" && isSuppressedControlReplyText(text))
+  ) {
+    return undefined;
+  }
+  return { type: role === "user" ? "userMessage" : "agentMessage", ...boundedText(text) };
 }
 
 function projectMessageItems(
@@ -170,21 +143,27 @@ function projectMessageItems(
     ? message.content
     : [message.content ?? message.text];
   return content
-    .map((block, index) =>
-      Object.assign(projectContentItem(message.role, block), {
-        ...(metadata?.truncated === true ? { truncated: true } : {}),
-        ...(typeof metadata?.id === "string" ? { id: `${metadata.id}:${index}` } : {}),
-        ...(timestampText ? { timestamp: timestampText } : {}),
-        ...(typeof message.model === "string"
-          ? { model: redactToolPayloadText(message.model).slice(0, 200) }
-          : {}),
-        ...(sender ? { sender } : {}),
-      }),
-    )
+    .flatMap((block, index) => {
+      const item = projectContentItem(message.role, block);
+      if (!item) {
+        return [];
+      }
+      return [
+        Object.assign(item, {
+          ...(metadata?.truncated === true ? { truncated: true } : {}),
+          ...(typeof metadata?.id === "string" ? { id: `${metadata.id}:${index}` } : {}),
+          ...(timestampText ? { timestamp: timestampText } : {}),
+          ...(typeof message.model === "string"
+            ? { model: redactToolPayloadText(message.model).slice(0, 200) }
+            : {}),
+          ...(sender ? { sender } : {}),
+        }),
+      ];
+    })
     .toReversed();
 }
 
-/** Reads the native display projection without joining the source Gateway's writer lifecycle. */
+/** Reads conversation text without joining the source Gateway's writer lifecycle. */
 export async function readSessionTranscriptCatalogPage(
   params: CatalogReadParams,
 ): Promise<SessionTranscriptCatalogPage> {
@@ -205,7 +184,16 @@ export async function readSessionTranscriptCatalogPage(
     storePath,
   };
   const scopeHash = createHash("sha256")
-    .update(JSON.stringify([params.agentId, params.sessionKey, entry.sessionId, storePath]))
+    // Item offsets from the earlier tool-inclusive projection cannot resume this view.
+    .update(
+      JSON.stringify([
+        "conversation",
+        params.agentId,
+        params.sessionKey,
+        entry.sessionId,
+        storePath,
+      ]),
+    )
     .digest("base64url");
   const snapshot = readCatalogHistoryPage(scope, {
     offset: 0,

@@ -210,7 +210,7 @@ describe("AppSidebar session catalog pagination", () => {
       expect(claudeSection?.textContent).toContain("Remote session");
       expect(
         codexSection?.querySelector(".sidebar-session-group-toggle")?.getAttribute("title"),
-      ).toContain("Settings > Plugins");
+      ).toContain("Settings > Appearance > Session sources");
       expect(codexSection?.querySelector('[data-session-catalog-error="codex"]')).not.toBeNull();
       expect(claudeSection?.querySelector('[data-session-catalog-error="claude"]')).not.toBeNull();
     } finally {

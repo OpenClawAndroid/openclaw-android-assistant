@@ -41,6 +41,7 @@ import type {
   OpenClawStateWorkerOperations,
   OpenClawStateWorkerInspectionOperations,
 } from "./openclaw-state-worker-contract.js";
+import { executeUserPreferenceCommand } from "./user-preferences.worker.js";
 
 const log = createSubsystemLogger("state/worker");
 type ManagedFlowWriteResult =
@@ -79,6 +80,12 @@ export function openExistingSqliteWorkerBackend(
           command.input.generation,
           readStableSqliteFileGeneration(context.databasePath),
         );
+      }
+      if (command.type === "userPreferences.read" || command.type === "userPreferences.write") {
+        return executeUserPreferenceCommand(command, {
+          path: context.databasePath,
+          env: getSqliteWorkerStateContext().environment,
+        });
       }
       if (command.type === "flows.createManaged" || command.type === "flows.updateManaged") {
         let observed: TaskFlowRecord | undefined;

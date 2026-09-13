@@ -360,11 +360,14 @@ export async function createVoiceCallRuntime(params: {
         providerConfigs: effectiveConfig.realtime.providers,
         cfg,
         agentId,
+        surface: "gateway-relay",
+        useProviderDefaultModel: true,
       });
       return {
         agentId,
         provider: resolved.provider,
         providerConfig: resolved.providerConfig,
+        capabilities: resolved.capabilities,
         instructions: resolveRealtimeInstructions(call),
       };
     };

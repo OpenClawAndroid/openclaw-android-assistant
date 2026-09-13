@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 import { expect, it } from "vitest";
 
 const repoRoot = process.cwd();
@@ -67,9 +68,22 @@ it("compares real UI builds with canonical compression and keeps artifacts after
     write("ui/index.html", '<script type="module" src="/main.js"></script>');
     write(
       "ui/main.js",
-      'import "./style.css"; import "../packages/styles/main.js"; document.body.textContent = "ready";',
+      'import "./style.css"; import { message } from "../packages/styles/main.js"; document.body.textContent = message;',
     );
-    write("packages/styles/main.js", 'import "sizing-library/style.css";');
+    write(
+      "packages/styles/main.js",
+      'import "sizing-library/style.css"; export { message } from "fixture-workspace-value";',
+    );
+    write(
+      "packages/workspace-value/package.json",
+      '{"name":"fixture-workspace-value","type":"module","exports":"./index.js"}',
+    );
+    write("packages/workspace-value/index.js", 'export const message = "base workspace";');
+    fs.symlinkSync(
+      path.join(root, "packages/workspace-value"),
+      path.join(root, "packages/styles/node_modules/fixture-workspace-value"),
+      "junction",
+    );
     write(
       "packages/styles/node_modules/sizing-library/package.json",
       '{"name":"sizing-library","exports":{"./style.css":"./style.css"}}',
@@ -90,13 +104,14 @@ import path from "node:path";
 import { brotliCompressSync } from "node:zlib";
 import { gzip } from "pako";
 const outDir = path.resolve(import.meta.dirname, "../dist/control-ui");
-function recordBuildIdentity() {
+function recordBuildIdentity(bundle) {
   const identityCapture = process.env.OPENCLAW_TEST_BUILD_IDENTITY_CAPTURE;
   if (!identityCapture) return;
   fs.appendFileSync(identityCapture, JSON.stringify({
     identity: ["GIT_COMMIT", "OPENCLAW_BUILD_TIMESTAMP", "GIT_BRANCH", "OPENCLAW_CONTROL_UI_BUILD_ID", "OPENCLAW_CONTROL_UI_RELEASE_BUILD"].map((key) => process.env[key]),
     gitDisabled: !fs.existsSync(process.env.GIT_DIR ?? "") && spawnSync("git", ["rev-parse", "HEAD"]).status !== 0,
     packageVersion: JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8")).version,
+    entryCode: Object.values(bundle).find((output) => output.type === "chunk" && output.isEntry).code,
   }) + "\\n");
 }
 export function createControlUiPrecompressedAssetVariants(fileName, source) {
@@ -107,7 +122,8 @@ export function createControlUiPrecompressedAssetVariants(fileName, source) {
 }
 export default {
   build: { outDir, emptyOutDir: true },
-  plugins: [{ name: "fixture-precompression", buildStart: recordBuildIdentity, writeBundle(_options, bundle) {
+  plugins: [{ name: "fixture-precompression", writeBundle(_options, bundle) {
+    recordBuildIdentity(bundle);
     for (const output of Object.values(bundle)) {
       if (!/\\.(css|js)$/.test(output.fileName)) continue;
       for (const variant of createControlUiPrecompressedAssetVariants(output.fileName, fs.readFileSync(path.join(outDir, output.fileName)))) {
@@ -125,6 +141,7 @@ export default {
     const base = git("rev-parse", "HEAD");
     write("package.json", '{"name":"ui-budget-proof","version":"1.0.1","type":"module"}');
     write("ui/vite.config.ts", config.replace("level: 0", "level: 9"));
+    write("packages/workspace-value/index.js", 'export const message = "candidate workspace";');
 
     const runComparison = () => {
       fs.rmSync(identityCapture, { force: true });
@@ -174,11 +191,22 @@ export default {
         gitDisabled: boolean;
         identity: unknown;
         packageVersion: string;
+        entryCode: string;
       }>;
       expect(identities).toHaveLength(2);
       expect(identities.map(({ packageVersion }) => packageVersion)).toEqual(["1.0.1", "1.0.0"]);
       expect(identities[0]?.identity).toEqual(identities[1]?.identity);
       expect(identities.every(({ gitDisabled }) => gitDisabled)).toBe(true);
+      expect(
+        identities.map(({ entryCode }) => {
+          const document = {
+            createElement: () => ({ relList: { supports: () => true } }),
+            body: { textContent: "" },
+          };
+          runInNewContext(entryCode, { document });
+          return document.body.textContent;
+        }),
+      ).toEqual(["candidate workspace", "base workspace"]);
       expect(fs.existsSync(path.join(root, "dist/control-ui/index.html"))).toBe(true);
       expect(
         fs.readdirSync(scratch).filter((name) => name.startsWith("openclaw-ui-performance-base-")),

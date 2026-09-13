@@ -19,7 +19,10 @@ import { runWithGatewayIndependentRootWorkContinuation } from "../process/gatewa
 import type { FixedWindowRateLimiter } from "./webhook-memory-guards.js";
 
 export { resolveAcceptedBrowserOrigin } from "../gateway/origin-check.js";
-export { sendHttpRequestRejection } from "../infra/http-request-lifecycle.js";
+export {
+  runHttpConnectionRequest,
+  sendHttpRequestRejection,
+} from "../infra/http-request-lifecycle.js";
 
 /** Body-read profile for webhook payload limits before or after authentication. */
 export type WebhookBodyReadProfile = "pre-auth" | "post-auth";

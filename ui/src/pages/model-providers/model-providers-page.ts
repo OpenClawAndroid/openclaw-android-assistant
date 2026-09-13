@@ -9,8 +9,10 @@ import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
 import { showConfirmDialog } from "../../components/confirm-dialog.ts";
 import { t } from "../../i18n/index.ts";
 import { normalizeAgentLabel } from "../../lib/agents/display.ts";
+import { currentConfigObject } from "../../lib/config/config-state-model.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
-import { subscribeModelCatalogChanges } from "../../lib/model-catalog-store.ts";
+import { subscribeModelCatalogCache } from "../../lib/model-catalog-cache.ts";
+import { peekModelCatalog, subscribeModelCatalogChanges } from "../../lib/model-catalog-store.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
@@ -24,6 +26,7 @@ import {
   isMissingMethodError,
   mergeProbeResults,
   modelProviderApiKeySuccess,
+  modelDefaultsActions,
   modelProviderErrorMessage,
   readModelBehaviorConfig,
   runModelProviderApiKeyMutation,
@@ -99,12 +102,12 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       }
     },
     onComplete: ({ client, data }) => {
-      const preserveCatalog =
+      const preserveCatalogDiagnostics =
         this.data !== null && this.catalogDiscovery.generation !== this.coreCatalogGeneration;
-      if (!preserveCatalog) {
+      if (!preserveCatalogDiagnostics) {
         this.catalogDiscovery.reset();
       }
-      this.supplemental.adoptCoreData(client, data, { preserveCatalog });
+      this.supplemental.adoptCoreData(client, data, { preserveCatalogDiagnostics });
     },
     isCatalogLoading: () => this.catalogDiscovery.discovering,
     refreshPublication: () => void this.refresh("publication"),
@@ -192,6 +195,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       () => this.context?.gateway,
       (gateway) => subscribeModelCatalogChanges(gateway, () => void this.refresh("publication")),
     )
+    .watch(() => this.context?.gateway.snapshot.client, subscribeModelCatalogCache)
     .watch(
       () => this.context?.runtimeConfig,
       (runtimeConfig, notify) => runtimeConfig.subscribe(notify),
@@ -358,7 +362,13 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     if (this.context.runtimeConfig.canPatch !== true) {
       return t("modelProviders.readOnly.adminRequired");
     }
-    if (!snapshot.client || !this.selectedAgentId || !this.data?.config) {
+    const config = this.context.runtimeConfig.state;
+    if (
+      !snapshot.client ||
+      !this.selectedAgentId ||
+      config.client !== snapshot.client ||
+      !currentConfigObject(config)
+    ) {
       return t("modelProviders.configUnavailable");
     }
     return null;
@@ -604,15 +614,20 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     const rosterError = agentsState.agentsList ? null : agentsState.agentsError;
     const selected = agents.find((agent) => normalizeAgentId(agent.id) === this.selectedAgentId);
     const data = this.data ?? EMPTY_MODEL_PROVIDERS_DATA;
-    const config = readModelProviderConfig(data.config);
     const runtimeState = this.context.runtimeConfig.state;
-    const configObject =
-      asConfigRecord(runtimeState.configForm ?? runtimeState.configSnapshot?.config) ??
-      asConfigRecord(data.config) ??
-      {};
+    const configObject = currentConfigObject(runtimeState);
+    const config = readModelProviderConfig(configObject);
+    const catalog =
+      gatewaySnapshot.client && this.selectedAgentId
+        ? peekModelCatalog(
+            gatewaySnapshot.client,
+            { agentId: this.selectedAgentId },
+            { allowStale: true },
+          )
+        : undefined;
     const configuredDefaults = {
       ...config.defaults,
-      ...readModelBehaviorConfig(asConfigRecord(asConfigRecord(configObject.agents)?.defaults)),
+      ...readModelBehaviorConfig(asConfigRecord(asConfigRecord(configObject?.agents)?.defaults)),
     };
     const defaults = this.defaultsDraft ?? configuredDefaults;
     const stageDefaults = (patch: Partial<DefaultsDraft>) => {
@@ -620,9 +635,9 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       this.setMessage("defaults", null);
       void this.saveDefaults(this.defaultsDraft);
     };
-    // This keeps the pre-move General busy gate sourced from the same update state.
     const cards = buildModelProviderCards({
       ...data,
+      models: catalog?.models ?? null,
       providerUsage: data.providerUsage?.ok ? data.providerUsage.value : null,
       configProviderIds: config.providerIds,
       configApiKeyProviderIds: config.apiKeyProviderIds,
@@ -649,16 +664,16 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       costDays: MODEL_PROVIDERS_COST_DAYS,
       credentialAgentLabel: selected ? normalizeAgentLabel(selected) : this.selectedAgentId,
       cards,
-      configuredModels: buildSelectableDefaultModels(data.models, defaults),
+      configuredModels: buildSelectableDefaultModels(catalog?.models ?? null, defaults),
       defaultModels: defaults,
       authStatus: data.authStatus,
-      automaticUtilityModel: data.automaticUtilityModel,
+      automaticUtilityModel: catalog?.defaultModels?.automaticUtilityModel,
       thinkingLevel: defaults.thinkingLevel,
       thinkingOverridden: defaults.thinkingOverridden,
       fastMode: defaults.fastMode,
       fastModeOverridden: defaults.fastModeOverridden,
       catalogDiscovering:
-        this.catalogDiscovery.discovering || Boolean(data.pendingProviders?.length),
+        this.catalogDiscovery.discovering || Boolean(catalog?.pendingProviders?.length),
       catalogDiscoveryError: this.catalogDiscovery.error ?? data.catalogError,
       configBusy: this.configBusy(),
       quickAddSupported: data.authStatus?.providerCapabilities !== undefined,
@@ -683,7 +698,12 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       addProviderId: this.addProviderId,
       addProviderKey: this.addProviderKey,
       onRefresh: () =>
-        void (rosterError ? this.context.agents.refreshList() : this.refresh("forced")),
+        void (rosterError
+          ? this.context.agents.refreshList()
+          : Promise.all([
+              this.context.runtimeConfig.refresh({ background: true }),
+              this.refresh("forced"),
+            ])),
       onOpenKeyEditor: (provider) => this.openKeyEditor(provider),
       onCloseKeyEditor: () => this.closeKeyEditor(),
       onKeyDraftChange: (value) => (this.keyDraft = value),
@@ -702,27 +722,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       onAddProviderIdChange: (provider) => (this.addProviderId = provider),
       onAddProviderKeyChange: (value) => (this.addProviderKey = value),
       onAddProvider: () => void this.addProvider(),
-      onPrimaryChange: (model) => {
-        const current = this.defaultsDraft ?? configuredDefaults;
-        stageDefaults({
-          primary: model,
-          fallbacks: current.fallbacks.filter((fallback) => fallback !== model),
-        });
-      },
-      onFallbackChange: (model) => {
-        const current = this.defaultsDraft ?? configuredDefaults;
-        stageDefaults({
-          fallbacks: model
-            ? [model, ...current.fallbacks.slice(1).filter((fallback) => fallback !== model)]
-            : [],
-        });
-      },
-      onUtilityChange: (model) => stageDefaults({ utilityModel: model }),
-      onThinkingChange: (level) =>
-        stageDefaults({ thinkingLevel: level, thinkingOverridden: true }),
-      onThinkingReset: () => stageDefaults({ thinkingLevel: undefined, thinkingOverridden: false }),
-      onFastModeChange: (mode) => stageDefaults({ fastMode: mode, fastModeOverridden: true }),
-      onFastModeReset: () => stageDefaults({ fastMode: undefined, fastModeOverridden: false }),
+      ...modelDefaultsActions(() => this.defaultsDraft ?? configuredDefaults, stageDefaults),
       onCatalogRetry: () => this.catalogDiscovery.retry(),
       onOpenModelSetup: () => this.context.navigate("model-setup"),
       ...this.login.providerActions,

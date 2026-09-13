@@ -14,6 +14,7 @@ import {
   type SessionCreateOutcome,
 } from "./create.ts";
 import type { SessionPatch, SessionPatchOptions, SessionPatchResult } from "./patch.ts";
+import { projectSessionResultRows } from "./reconcile.ts";
 import { createSessionArchiveState } from "./session-archive-state.ts";
 import type {
   SessionCapability,
@@ -643,13 +644,10 @@ export function createSessionMutations(host: SessionMutationsHost) {
       if (!result || (!optimisticPins.hasPending() && !optimisticUnread.hasPending())) {
         return result;
       }
-      let changed = false;
-      const sessions = result.sessions.map((row) => {
-        const next = applyPendingRow(row, sourceAgentId);
-        changed ||= next !== row;
-        return next;
-      });
-      return changed ? { ...result, sessions } : result;
+      return projectSessionResultRows(
+        result,
+        result.sessions.map((row) => applyPendingRow(row, sourceAgentId)),
+      );
     },
     applyConfirmedArchives: archiveState.apply,
     observeArchiveState: archiveState.observe,

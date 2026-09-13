@@ -16,8 +16,8 @@ import { createNodeWorkspaceTransferService } from "./node-workspace-transfer-se
 import { startNodeWorkspaceTransferTestServer } from "./node-workspace-transfer.test-support.js";
 import { syncSessionRepositoryWorkspace } from "./repository-workspace-startup.js";
 import {
-  readSessionRepositoryCheckpoint,
   stageSessionRepositoryCheckpoint,
+  withSessionRepositoryCheckpoint,
 } from "./session-repository-checkpoints.js";
 import type {
   WorkerTunnelHandle,
@@ -263,10 +263,14 @@ it("accepts the initial SQLite and bare Git checkpoint before sync can finish or
   const accepted = f.store.get(f.repository.workspaceId);
   expect(accepted).toMatchObject({ manifestHash: result.manifestRef });
   expect(accepted?.checkpointRef).toMatch(/^refs\/openclaw\/worker-results\//u);
-  const snapshot = await readSessionRepositoryCheckpoint({ workspaceId: f.repository.workspaceId });
-  expect(snapshot.changedEntries.map((entry) => entry.path)).toEqual(["setup.txt"]);
-  expect((await snapshot.readEntry(snapshot.changedEntries[0]!)).toString()).toBe(
-    "setup complete\n",
+  await withSessionRepositoryCheckpoint(
+    { workspaceId: f.repository.workspaceId },
+    async (snapshot) => {
+      expect(snapshot.changedEntries.map((entry) => entry.path)).toEqual(["setup.txt"]);
+      expect(await fs.readFile(path.join(snapshot.stagingRoot, "setup.txt"), "utf8")).toBe(
+        "setup complete\n",
+      );
+    },
   );
   expect(
     await requireWorkspaceResultGit(f.store.artifactPath(f.repository.workspaceId), [

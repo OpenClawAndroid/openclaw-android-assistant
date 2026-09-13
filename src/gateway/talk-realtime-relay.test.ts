@@ -137,7 +137,7 @@ function createTalkRealtimeRelaySession(
   const session = createTalkRealtimeRelaySessionRaw({
     ...request,
     controlSource: capabilities?.handlesAgentConsult === true ? "delegation" : "transcript",
-    supportsToolCalls: capabilities?.supportsToolCalls,
+    capabilities,
     context: {
       ...request.context,
       chatAbortControllers: request.context.chatAbortControllers ?? new Map(),
@@ -1487,6 +1487,7 @@ describe("talk realtime gateway relay", () => {
       broadcastToConnIds,
       broadcast,
       nodeSendToSession,
+      logGateway: { warn: vi.fn() },
       chatAbortControllers: new Map([
         [
           "run-1",
@@ -3708,6 +3709,110 @@ describe("talk realtime gateway relay", () => {
       expect(relay?.harness.talk.activeTurnId).toBeUndefined();
       expect(abortController.signal.aborted).toBe(true);
       expect(broadcast).toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { mode: "continuous", fails: false },
+    { mode: "capability", fails: false },
+    { mode: "continuous", fails: true },
+  ] as const)(
+    "keeps automatic interruption provider-owned and finalizes an explicit stop ($mode, failure=$fails)",
+    async ({ mode, fails }) => {
+      const finalization = createDeferred();
+      const close = vi.fn(() => finalization.promise);
+      const handleBargeIn = vi.fn();
+      const sendAudio = vi.fn();
+      let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
+      const provider = createIdleRelayProvider();
+      if (mode === "capability") {
+        provider.capabilities = {
+          transports: ["gateway-relay"],
+          inputAudioFormats: [],
+          outputAudioFormats: [],
+          supportsBargeIn: false,
+        };
+      }
+      provider.createBridge = (request) => {
+        bridgeRequest = request;
+        return makeRelayTransport({
+          close,
+          handleBargeIn,
+          sendAudio,
+          ...(mode === "continuous" ? { outputAudioMode: "continuous" as const } : {}),
+        });
+      };
+      const { abortController, broadcastToConnIds, session } =
+        createAbortableRelayRunFixture(provider);
+      const turnId = ensureActiveRelayTurnId(session.relaySessionId);
+      bridgeRequest?.onAudio(Buffer.from([1, 2]));
+      const target = { relaySessionId: session.relaySessionId, connId: "conn-1" };
+      try {
+        await expect(
+          cancelTalkRealtimeRelayTurn({ ...target, turnId: "stale-turn", reason: "user" }),
+        ).resolves.toEqual({ status: "stale" });
+        const eventsBeforeBargeIn = broadcastToConnIds.mock.calls.length;
+        const automaticCancellation = cancelTalkRealtimeRelayTurn({
+          ...target,
+          turnId,
+          reason: "barge-in",
+        });
+        expect(close).not.toHaveBeenCalled();
+        await expect(automaticCancellation).resolves.toEqual({ status: "idle" });
+        expect(abortController.signal.aborted).toBe(false);
+        expect(broadcastToConnIds.mock.calls).toHaveLength(eventsBeforeBargeIn);
+        expect(relaySessions.get(session.relaySessionId)?.harness.talk.activeTurnId).toBe(turnId);
+        await sendTalkRealtimeRelayAudio({ ...target, audioBase64: "AQI=" });
+        expect(sendAudio).toHaveBeenCalledExactlyOnceWith(Buffer.from([1, 2]));
+
+        const cancellation = cancelTalkRealtimeRelayTurn({ ...target, turnId, reason: "user" });
+        expect(close).toHaveBeenCalledExactlyOnceWith({ disposition: "abort" });
+        expect(handleBargeIn).not.toHaveBeenCalled();
+        expect(abortController.signal.aborted).toBe(true);
+        expect(broadcastToConnIds).toHaveBeenCalledWith(
+          "talk.event",
+          expect.objectContaining({
+            type: "clear",
+            talkEvent: expect.objectContaining({ type: "turn.cancelled", turnId }),
+          }),
+          new Set(["conn-1"]),
+          { dropIfSlow: false },
+        );
+        expect(() => sendTalkRealtimeRelayAudio({ ...target, audioBase64: "AQI=" })).toThrow(
+          "Unknown realtime relay session",
+        );
+        const eventCount = broadcastToConnIds.mock.calls.length;
+        bridgeRequest?.onAudio(Buffer.from([3, 4]));
+        expect(broadcastToConnIds.mock.calls).toHaveLength(eventCount);
+        const settled = vi.fn();
+        void cancellation.then(settled, settled);
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+        const completion = fails
+          ? expect(cancellation).rejects.toThrow("finalization failed")
+          : expect(cancellation).resolves.toEqual({ status: "applied", turnId });
+        if (fails) {
+          finalization.reject(new Error("finalization failed"));
+        } else {
+          finalization.resolve();
+        }
+        await completion;
+        expect(broadcastToConnIds).toHaveBeenLastCalledWith(
+          "talk.event",
+          expect.objectContaining({
+            type: "close",
+            reason: fails ? "error" : "completed",
+            talkEvent: expect.objectContaining({
+              type: "session.closed",
+              payload: { reason: fails ? "error" : "output-cancelled" },
+            }),
+          }),
+          new Set(["conn-1"]),
+          { dropIfSlow: false },
+        );
+      } finally {
+        finalization.resolve();
+      }
     },
   );
 

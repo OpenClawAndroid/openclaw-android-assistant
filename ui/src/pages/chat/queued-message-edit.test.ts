@@ -379,7 +379,7 @@ describe("queued message edit round-trip", () => {
       beginQueuedMessageEdit(host as never, original.id);
 
       expect(isQueuedMessageBeingEdited(peer as never, original.id)).toBe(true);
-      expect(moveQueuedChatMessage(peer as never, original.id, 0)).toBe("rejected");
+      expect(moveQueuedChatMessage(peer as never, original.id, original.id)).toBe("rejected");
       await retryQueuedChatMessage(peer as never, original.id);
       await steerQueuedChatMessage(peer as never, original.id);
       expect(sendRequest).not.toHaveBeenCalled();
@@ -402,7 +402,7 @@ describe("queued message edit round-trip", () => {
     try {
       beginQueuedMessageEdit(host as never, "queued-2");
 
-      expect(moveQueuedChatMessage(peer as never, "queued-3", 0)).toBe("rejected");
+      expect(moveQueuedChatMessage(peer as never, "queued-3", "queued-1")).toBe("rejected");
       expect(peer.chatError).toBe(QUEUED_MESSAGE_REORDER_CONFLICT_ERROR);
       expect(storedOrder(peer)).toEqual(["message 1", "message 2", "message 3"]);
     } finally {
@@ -411,7 +411,7 @@ describe("queued message edit round-trip", () => {
     }
   });
 
-  it("translates peer reorder indices within one side of an edited-row barrier", () => {
+  it("keeps peer reorder targets within one side of an edited-row barrier", () => {
     const { host, unsubscribe } = queueHost([{}, {}, {}, {}]);
     const peer = makeChatHost({
       client: host.client,
@@ -423,7 +423,7 @@ describe("queued message edit round-trip", () => {
     try {
       beginQueuedMessageEdit(host as never, "queued-2");
 
-      expect(moveQueuedChatMessage(peer as never, "queued-4", 2)).toBe("moved");
+      expect(moveQueuedChatMessage(peer as never, "queued-4", "queued-3")).toBe("moved");
       expect(storedOrder(peer)).toEqual(["message 1", "message 2", "message 4", "message 3"]);
     } finally {
       stopPeer();
@@ -431,13 +431,13 @@ describe("queued message edit round-trip", () => {
     }
   });
 
-  it("keeps local reorder indices within one side of its own edited-row barrier", () => {
+  it("keeps local reorder targets within one side of its own edited-row barrier", () => {
     const { host, unsubscribe } = queueHost([{}, {}, {}, {}]);
 
     try {
       beginQueuedMessageEdit(host as never, "queued-2");
 
-      expect(moveQueuedChatMessage(host as never, "queued-4", 0)).toBe("moved");
+      expect(moveQueuedChatMessage(host as never, "queued-4", "queued-3")).toBe("moved");
       expect(storedOrder(host)).toEqual(["message 1", "message 2", "message 4", "message 3"]);
     } finally {
       unsubscribe();

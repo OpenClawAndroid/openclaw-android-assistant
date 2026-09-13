@@ -7,6 +7,7 @@ import type { GatewayEventFrame } from "../api/gateway.ts";
 import { invalidateChatMetadataStore } from "../lib/chat/chat-metadata-cache.ts";
 import { invalidateModelAuthStatusRequests } from "../lib/model-auth-request-state.ts";
 import {
+  clearModelCatalogCache,
   beginModelCatalogRead,
   publishModelCatalogResult,
   type ModelCatalogRead,
@@ -124,6 +125,7 @@ export function createGatewayMetadataObserver(
           (previous.phase === "connected" && next.phase !== "connected"))
       ) {
         invalidateModelAuthStatusRequests(previous.client);
+        clearModelCatalogCache(previous.client);
         invalidateChatMetadataStore(previous.client);
         if (!isCurrent(next)) {
           return false;

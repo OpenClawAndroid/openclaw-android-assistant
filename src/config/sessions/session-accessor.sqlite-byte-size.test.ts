@@ -133,7 +133,7 @@ it.each(readers)("sizes %s without reading transcript overflow payloads", async 
       }
       if (
         query.includes("context_eligible") &&
-        statement.columns().some(({ name }) => name === "session_id")
+        statement.columns().some(({ name }) => name === "session_id" || name === "has_unclassified")
       ) {
         readinessQueries.push(query);
       }

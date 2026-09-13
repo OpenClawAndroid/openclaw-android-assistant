@@ -378,23 +378,11 @@ function sanitizeStrippedBinaryOutput(text: string): string {
   if (!scrubbed) {
     return scrubbed;
   }
-  const chunks: string[] = [];
-  for (const char of scrubbed) {
-    const code = char.codePointAt(0);
-    if (code == null) {
-      continue;
-    }
-    if (code === 0x09 || code === 0x0a || code === 0x0d) {
-      chunks.push(char);
-      continue;
-    }
-    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) {
-      chunks.push(`\\x${code.toString(16).padStart(2, "0")}`);
-      continue;
-    }
-    chunks.push(char);
-  }
-  return chunks.join("");
+  return scrubbed.replace(/\p{Cc}/gu, (control) =>
+    control === "\t" || control === "\n" || control === "\r"
+      ? control
+      : `\\x${control.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
 }
 
 function getShellEnv(sourceEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

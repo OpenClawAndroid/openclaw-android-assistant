@@ -13,7 +13,10 @@ import {
   validateUsersSetRoleParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import { getUserPreferences, setUserPreferences } from "../../state/user-preferences.js";
+import {
+  getCanonicalUserPreferences,
+  setCanonicalUserPreferences,
+} from "../../state/user-preferences.js";
 import { UserProfileOwnerError } from "../../state/user-profiles-schema.js";
 import {
   getUserProfileDisplay,
@@ -111,7 +114,7 @@ export const usersHandlers: GatewayRequestHandlers = {
       respond(false, undefined, profileError(error));
     }
   },
-  "users.prefs.get": ({ client, params, respond }) => {
+  "users.prefs.get": async ({ client, params, respond }) => {
     if (!assertValidParams(params, validateUsersPrefsGetParams, "users.prefs.get", respond)) {
       return;
     }
@@ -125,21 +128,17 @@ export const usersHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const canonicalProfileId = resolveUserProfileId(profileId);
-      if (!canonicalProfileId) {
+      const preferences = await getCanonicalUserPreferences(profileId, params.keys);
+      if (!preferences) {
         respond(false, undefined, authenticatedProfileUnavailableError());
         return;
       }
-      respond(
-        true,
-        { status: "ok", entries: getUserPreferences(canonicalProfileId, params.keys) },
-        undefined,
-      );
+      respond(true, { status: "ok", entries: preferences.entries }, undefined);
     } catch (error) {
       respond(false, undefined, profileError(error));
     }
   },
-  "users.prefs.set": ({ client, context, params, respond }) => {
+  "users.prefs.set": async ({ client, context, params, respond }) => {
     if (!assertValidParams(params, validateUsersPrefsSetParams, "users.prefs.set", respond)) {
       return;
     }
@@ -153,12 +152,11 @@ export const usersHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const canonicalProfileId = resolveUserProfileId(profileId);
-      if (!canonicalProfileId) {
+      const result = await setCanonicalUserPreferences(profileId, params.entries);
+      if (!result) {
         respond(false, undefined, authenticatedProfileUnavailableError());
         return;
       }
-      const result = setUserPreferences(canonicalProfileId, params.entries);
       if (!result.ok) {
         if (result.error.code === "profile-key-limit") {
           respond(
@@ -191,10 +189,14 @@ export const usersHandlers: GatewayRequestHandlers = {
       }
       respond(true, { status: "ok" }, undefined);
       const keys = Object.keys(params.entries);
-      if (keys.length === 0) {
+      if (keys.length === 0 || !context.getClientConnIds) {
         return;
       }
-      const connIds = context.getClientConnIds?.((connectedClient) => {
+      const canonicalProfileId = resolveUserProfileId(result.value.profileId);
+      if (!canonicalProfileId) {
+        return;
+      }
+      const connIds = context.getClientConnIds((connectedClient) => {
         const connectedProfileId = connectedClient.authenticatedUserProfile?.profileId;
         return Boolean(
           connectedProfileId &&

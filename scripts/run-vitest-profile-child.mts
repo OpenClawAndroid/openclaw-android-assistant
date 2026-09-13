@@ -77,5 +77,7 @@ try {
       console.error(cleanupError);
     }
   }
-  throw error;
+  // Node 24 can deadlock joining GC-waiting V8 workers during uncaught-exception shutdown.
+  console.error(error);
+  process.exitCode = 1;
 }

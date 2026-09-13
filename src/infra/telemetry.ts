@@ -6,7 +6,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { z } from "zod";
 import { readProviderJsonResponse } from "../agents/provider-http-errors.js";
 import { isChannelConfigMetadataKey } from "../channels/config-metadata.js";
-import { isBuiltInModelProviderOverlayId } from "../config/model-provider-config.js";
+import { isBuiltInModelProviderOverlayId } from "../config/model-provider-overlay-ids.js";
 import { resolveIsNixMode } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveOfficialExternalProviderPluginIds } from "../plugins/official-external-plugin-catalog.js";

@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
+import * as worktreeGit from "../../agents/worktrees/git.js";
 import { NODE_WORKER_WORKSPACE_EXEC_COMMAND } from "../../infra/node-commands.js";
 import { invokeNodeWorkerSupervisorCommand } from "../../node-host/node-worker-supervisor-commands.js";
 import { NodeWorkerWorkspaceRuntime } from "../../node-host/node-worker-workspace.js";
@@ -34,7 +35,6 @@ import { seedAttachedPlacementEnvironment } from "../worker-environments/placeme
 import { createRepositoryWorkspaceMutationService } from "../worker-environments/repository-workspace-mutation.js";
 import type { WorkerEnvironmentService } from "../worker-environments/service.js";
 import {
-  readSessionRepositoryCheckpoint,
   stageSessionRepositoryCheckpoint,
   withSessionRepositoryCheckpoint,
 } from "../worker-environments/session-repository-checkpoints.js";
@@ -55,6 +55,7 @@ import {
   hashContent,
   removeWorkspaceFixture,
 } from "./sessions-files.test-support.js";
+import { WORKSPACE_PREVIEW_MAX_BYTES } from "./workspace-fs.js";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
@@ -387,15 +388,12 @@ it("accepts editor bytes and Git-normalized publication before acknowledging the
       accepted.context,
     ),
   );
-  const checkpoint = await readSessionRepositoryCheckpoint({
-    store,
-    workspaceId: source.workspaceId,
-  });
-  const changed = checkpoint.changedEntries.find((entry) => entry.path === "changed.txt")!;
-  expect((await checkpoint.readEntry(changed)).toString()).toBe("saved\r\n");
   await withSessionRepositoryCheckpoint(
     { store, workspaceId: source.workspaceId, includePublication: true },
     async (snapshot) => {
+      expect(fs.readFileSync(path.join(snapshot.stagingRoot, "changed.txt"), "utf8")).toBe(
+        "saved\r\n",
+      );
       expect(snapshot.publicationDigest).toBeDefined();
       const { snapshot: publication } = await readGitHubRepositoryPublicationMetadata(
         snapshot.publicationStagingRoot!,
@@ -600,6 +598,10 @@ it("keeps stopped inspection limited to verified changed artifacts", async () =>
   });
   fs.writeFileSync(path.join(workspace, "changed.txt"), "retained first\n");
   fs.writeFileSync(path.join(workspace, "second.txt"), "retained second\n");
+  fs.writeFileSync(
+    path.join(workspace, "oversized.txt"),
+    Buffer.alloc(WORKSPACE_PREVIEW_MAX_BYTES + 1, 97),
+  );
   const current = await readActualWorkspaceManifest({
     root: workspace,
     baseCommit: source.baseCommit,
@@ -617,25 +619,74 @@ it("keeps stopped inspection limited to verified changed artifacts", async () =>
   });
   source = await staged.publish();
   active = false;
+  const originalGitRead = worktreeGit.runGitBuffered;
+  const hostReads = vi.spyOn(worktreeGit, "runGitBuffered");
+  onTestFinished(() => hostReads.mockRestore());
   const list = expectOkPayload(await invoke("sessions.files.list", { sessionKey }, context));
   expect(list.browser.entries.map((entry: { path: string }) => entry.path)).toEqual([
     "changed.txt",
+    "oversized.txt",
     "second.txt",
   ]);
+  expect(hostReads.mock.calls.map(([, args]) => args.slice(0, 2))).toEqual([
+    ["cat-file", "commit"],
+    ["ls-tree", "-r"],
+  ]);
+  for (const call of hostReads.mock.calls) {
+    expect(call[2]).toMatchObject({ signal: expect.any(AbortSignal), killProcessTree: true });
+  }
   const retained = expectOkPayload(
     await invoke("sessions.files.get", { sessionKey, path: "second.txt" }, context),
   );
   expect(retained.file.content).toBe("retained second\n");
   expect(retained.file.hash).toBeUndefined();
   expect(retained.root).toBeUndefined();
+  const blobsRead = () => hostReads.mock.calls.filter(([, args]) => args[1] === "blob").length;
+  const beforeOversized = blobsRead();
+  const oversized = expectError(
+    await invoke("sessions.files.get", { sessionKey, path: "oversized.txt" }, context),
+  );
+  expect(oversized).toEqual({
+    code: "INVALID_REQUEST",
+    message: "session file is too large to preview",
+    details: {
+      type: "session_file_too_large",
+      path: "oversized.txt",
+      maxPreviewBytes: WORKSPACE_PREVIEW_MAX_BYTES,
+      size: WORKSPACE_PREVIEW_MAX_BYTES + 1,
+    },
+  });
+  expect(blobsRead()).toBe(beforeOversized);
   await expect(
     invoke("sessions.files.get", { sessionKey, path: "README" }, context),
   ).rejects.toThrow("not a retained changed artifact");
   const diff = await loadSessionDiff({ sessionKey }, context as never);
   expect(diff.unavailableReason).toBe("workspace_stopped");
-  expect(diff.files.map((file) => file.path)).toEqual(["changed.txt", "second.txt"]);
+  expect(diff.files.map((file) => file.path)).toEqual([
+    "changed.txt",
+    "oversized.txt",
+    "second.txt",
+  ]);
   expect(run).not.toHaveBeenCalled();
   expect(mocks.workspace).not.toHaveBeenCalled();
+
+  hostReads.mockImplementation(async (...args) => {
+    const result = await originalGitRead(...args);
+    return args[1][1] === "blob" ? { ...result, stdout: Buffer.from("tampered\n") } : result;
+  });
+  await expect(
+    invoke("sessions.files.get", { sessionKey, path: "second.txt" }, context),
+  ).rejects.toThrow("staged result payload is invalid");
+  hostReads.mockImplementation(async (...args) => {
+    const result = await originalGitRead(...args);
+    if (args[1][1] === "blob") {
+      lifecycleRevision++;
+    }
+    return result;
+  });
+  await expect(
+    invoke("sessions.files.get", { sessionKey, path: "second.txt" }, context),
+  ).rejects.toThrow("workspace owner changed");
 });
 
 it.each(["symlink", "hardlink"])(

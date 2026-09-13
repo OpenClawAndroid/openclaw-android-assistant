@@ -185,6 +185,7 @@ async function createCatalog() {
   return {
     call,
     config,
+    registry,
     provider: registry.sessionCatalogs[0]!.provider,
     changeForeign,
     replaceForeign,
@@ -206,6 +207,72 @@ const rows = (respond: ReturnType<typeof vi.fn>) =>
   );
 
 describe("catalog delivery uses current canonical privacy", () => {
+  it("lists remote publications without local stores while preserving mixed-request adoption", async () => {
+    await withCatalog(async ({ call, registry, read, list, enumerate, replaceForeign }) => {
+      const remoteHost: SessionCatalogHost = {
+        hostId: "node:source",
+        label: "Source",
+        kind: "node",
+        connected: true,
+        sessions: [
+          {
+            threadId: "remote",
+            status: "stored",
+            archived: false,
+            canContinue: false,
+            canArchive: false,
+          },
+        ],
+      };
+      registry.sessionCatalogs.push({
+        pluginId: "publication",
+        source: import.meta.url,
+        provider: {
+          id: "publication",
+          label: "Publication",
+          audience: "session-viewers",
+          list: async () => [remoteHost],
+          read,
+        },
+      });
+      const unavailable = vi
+        .spyOn(sessionAccessor, "listSessionEntriesReadOnly")
+        .mockImplementation(() => {
+          throw new Error("Local adoption store unavailable");
+        });
+      try {
+        expect(rows(await call("sessions.catalog.list", { catalogId: "publication" }))).toEqual([
+          "remote",
+        ]);
+      } finally {
+        unavailable.mockRestore();
+      }
+
+      const entered = createDeferredCore();
+      const release = createDeferredCore();
+      let observed: SessionCatalogHost | undefined;
+      list.mockImplementation(async ({ sessionEntries }) => {
+        entered.resolve();
+        await release.promise;
+        observed = enumerate(sessionEntries);
+        return [observed];
+      });
+      const pending = call();
+      try {
+        await entered.promise;
+        await replaceForeign();
+      } finally {
+        release.resolve();
+      }
+      const response = await pending;
+      expect(observed?.sessions.find((session) => session.threadId === "foreign")?.sessionKey).toBe(
+        "agent:main:foreign",
+      );
+      expect(rows(response)).toEqual(["owned"]);
+      expect(response.mock.calls[0]?.[1]?.catalogs[1]?.hosts).toEqual([remoteHost]);
+    });
+  });
+
   it("materializes only delivered catalog rows while preserving full planning and fresh identity", async () => {
     await withCatalog(async ({ call, callerId, enumerate, list, owner, replaceForeign }) => {
       for (let index = 0; index < 24; index++) {

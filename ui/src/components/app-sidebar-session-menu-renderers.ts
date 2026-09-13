@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import { ref } from "lit/directives/ref.js";
 import { t } from "../i18n/index.ts";
+import { shouldHandleNavigationClick } from "../lib/navigation-click.ts";
 import type { CatalogProjectGrouping } from "../lib/sessions/catalog-project-grouping.ts";
 import type { SidebarSessionsGrouping } from "../lib/sessions/grouping.ts";
 import {
@@ -339,6 +340,7 @@ export function renderSidebarCatalogViewMenu(params: {
 export function renderSidebarSessionSortMenu(params: {
   position: { x: number; y: number };
   trigger: HTMLElement | null;
+  sessionSourcesHref: string;
   grouping: SidebarSessionsGrouping;
   rosterMode: boolean;
   sortMode: SidebarSessionSortMode;
@@ -363,6 +365,7 @@ export function renderSidebarSessionSortMenu(params: {
   onShowPreviewChange: (show: boolean) => void;
   onShowSystemChange: (show: boolean) => void;
   onHideEmptyGroupsChange: (hide: boolean) => void;
+  onOpenSessionSources: () => void;
   onClose: (restoreFocus: boolean) => void;
 }) {
   const position = params.position;
@@ -387,6 +390,8 @@ export function renderSidebarSessionSortMenu(params: {
           const view = sidebarFilterMenuViewForValue(value);
           if (view) {
             params.onViewChange(view);
+          } else if (value === "session-sources") {
+            params.onOpenSessionSources();
           } else if (value?.startsWith("grouping:")) {
             params.onGroupingChange(value.slice("grouping:".length) as SidebarSessionsGrouping);
           } else if (value?.startsWith("sort:")) {
@@ -417,7 +422,24 @@ export function renderSidebarSessionSortMenu(params: {
         ${
           params.compact && params.view === "specific-owner"
             ? renderCompactSidebarOwnerFilter(params)
-            : html`${
+            : html`<wa-dropdown-item
+                  class="sidebar-session-sort-menu__item"
+                  value="session-sources"
+                  @click=${(event: MouseEvent) => {
+                    if (shouldHandleNavigationClick(event)) {
+                      event.preventDefault();
+                    } else {
+                      event.stopPropagation();
+                    }
+                  }}
+                >
+                  <a href=${params.sessionSourcesHref} tabindex="-1">
+                    <span class="session-menu__icon" aria-hidden="true">${icons.settings}</span>
+                    <span class="session-menu__text">${t("chat.sidebar.sessionSources")}</span>
+                  </a>
+                </wa-dropdown-item>
+                <div class="session-menu__separator" role="separator"></div>
+                ${
                   params.rosterMode
                     ? nothing
                     : html`<div class="sidebar-session-sort-menu__title">

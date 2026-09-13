@@ -151,7 +151,7 @@ export function createComposerKeyDownHandler({
           props.canSend &&
           !props.submitDisabledReason &&
           props.onQueueSteer
-            ? steerableQueuedMessage(props.queue)
+            ? steerableQueuedMessage(props.displayQueue ?? props.queue)
             : undefined;
         if (queued) {
           event.preventDefault();

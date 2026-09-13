@@ -587,16 +587,20 @@ struct TalkModeManagerTests {
         }
     }
 
-    @Test func `relay close restarts enabled continuous realtime`() {
+    @Test(arguments: [false, true])
+    func `relay close recovers disconnections but preserves explicit stop`(explicitStop: Bool) {
         let manager = TalkModeManager(allowSimulatorCapture: true)
         manager._test_prepareEnabledRealtimeSessionForClose()
 
         manager._test_handleRealtimeRelayStatus("Listening (Realtime)")
         manager._test_handleRealtimeRelayStatus("Ready")
-        manager._test_handleRealtimeRelayTermination()
+        manager._test_handleRealtimeRelayTermination(explicitStop
+            ? .outputCancelled(reason: "user")
+            : .remoteClose(reason: "completed"))
 
-        #expect(manager.statusText == "Reconnecting")
-        #expect(manager._test_rapidRealtimeRestartCount() == 1)
+        #expect(manager.statusText == (explicitStop ? "Off" : "Reconnecting"))
+        #expect(manager.isEnabled == !explicitStop)
+        #expect(manager._test_rapidRealtimeRestartCount() == (explicitStop ? 0 : 1))
         manager.isEnabled = false
     }
 

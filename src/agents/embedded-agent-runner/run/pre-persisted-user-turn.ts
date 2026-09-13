@@ -4,7 +4,6 @@ import {
   loadSessionEntry,
   loadTranscriptHeaderSync,
   readActiveTranscriptEntryAnchor,
-  readTranscriptEventAtSeqSync,
   type SessionTranscriptWriteScope,
 } from "../../../config/sessions/session-accessor.js";
 import {
@@ -24,8 +23,38 @@ import {
   AGENT_RUN_RESTART_ABORT_ERROR,
   AGENT_RUN_RESTART_ABORT_ERROR_CODE,
 } from "../../run-termination.js";
-import { isIndexedSessionEntry } from "../../sessions/session-manager-codec.js";
+import type { SessionEntry } from "../../sessions/session-manager-types.js";
 import type { SessionManager } from "../../sessions/session-manager.js";
+
+function isInterruptedTurnEntry(entry: SessionEntry, runId: string): boolean {
+  if (entry.type === "custom_message") {
+    return (
+      entry.customType === "openclaw:turn-aborted" ||
+      entry.customType === OPENCLAW_RUNTIME_CONTEXT_CUSTOM_TYPE
+    );
+  }
+  if (entry.type !== "message") {
+    return false;
+  }
+  const message = entry.message;
+  if (message.role === "custom") {
+    return readNestedToolActivity(message)?.details.runId === runId;
+  }
+  if (Reflect.get(message, "__openclaw")?.runId !== runId) {
+    return false;
+  }
+  if (message.role !== "assistant") {
+    return message.role === "toolResult";
+  }
+  return (
+    message.stopReason === "toolUse" ||
+    (message.stopReason === "aborted" &&
+      (message.errorCode !== undefined
+        ? message.errorCode === AGENT_RUN_RESTART_ABORT_ERROR_CODE
+        : message.errorMessage === AGENT_RUN_RESTART_ABORT_ERROR) &&
+      message.content.every((part) => part.type === "text" && part.text === ""))
+  );
+}
 
 /** Re-adopt the current turn without reopening arbitrary historical keyed users. */
 export function preparePersistedCurrentUserTurn(params: {
@@ -68,59 +97,8 @@ export function preparePersistedCurrentUserTurn(params: {
     }
     sessionManager.reloadPersistedTranscript();
     const userId = sessionManager.resolveCurrentTurnEntryId(
-      (entry) => {
-        if (entry.type === "custom_message") {
-          return (
-            entry.customType === "openclaw:turn-aborted" ||
-            entry.customType === OPENCLAW_RUNTIME_CONTEXT_CUSTOM_TYPE
-          );
-        }
-        if (entry.type !== "message") {
-          return false;
-        }
-        if (entry.message.role === "custom") {
-          return readNestedToolActivity(entry.message)?.details.runId === runId;
-        }
-        if (Reflect.get(entry.message, "__openclaw")?.runId !== runId) {
-          return false;
-        }
-        // Restart can land between tool batches, without an empty abort message.
-        // Keep this run's completed work in place while re-adopting its exact user.
-        if (entry.message.role === "toolResult") {
-          return true;
-        }
-        if (entry.message.role !== "assistant") {
-          return false;
-        }
-        if (entry.message.stopReason === "toolUse") {
-          return true;
-        }
-        const aborted = entry.message;
-        const errorCode: unknown = Reflect.get(aborted, "errorCode");
-        return (
-          aborted.stopReason === "aborted" &&
-          (errorCode !== undefined
-            ? errorCode === AGENT_RUN_RESTART_ABORT_ERROR_CODE
-            : aborted.errorMessage === AGENT_RUN_RESTART_ABORT_ERROR) &&
-          aborted.content.every((part) => part.type === "text" && part.text === "")
-        );
-      },
-      (entryId) => {
-        // Bounded model history omits display-only nested tools. Read their exact
-        // physical links without admitting hidden users or hydrating model context.
-        const omitted = readActiveTranscriptEntryAnchor({ ...scope, entryId });
-        if (!omitted) {
-          return undefined;
-        }
-        const event = readTranscriptEventAtSeqSync(scope, omitted.rawSeq)?.event;
-        return isIndexedSessionEntry(event) &&
-          event.type === "message" &&
-          event.id === omitted.entryId &&
-          event.parentId === omitted.effectiveParentId &&
-          readNestedToolActivity(event.message)?.details.runId === runId
-          ? event
-          : undefined;
-      },
+      (entry) => isInterruptedTurnEntry(entry, runId),
+      { includeOmittedCustomMessages: true },
     );
     const user = userId ? sessionManager.getEntry(userId) : undefined;
     if (
@@ -161,44 +139,39 @@ export function sessionMessagesContainIdempotencyKey(
   idempotencyKey: string,
 ): boolean {
   return messages.some(
-    (message) => (message as { idempotencyKey?: unknown }).idempotencyKey === idempotencyKey,
+    (message) => "idempotencyKey" in message && message.idempotencyKey === idempotencyKey,
   );
 }
 
 export function reconcilePrePersistedCurrentUserTurn(params: {
   activeSession: { agent: { state: { messages: AgentMessage[] } } };
-  currentUserTurnMessage: AgentMessage | undefined;
-  durableUserTurnMessage: AgentMessage | undefined;
+  currentUserTurnMessage: PersistedUserTurnMessage | undefined;
+  durableUserTurnMessage: PersistedUserTurnMessage | undefined;
   userTurnAlreadyPersisted: boolean;
 }): boolean {
-  const idempotencyKey = (params.currentUserTurnMessage as { idempotencyKey?: unknown } | undefined)
-    ?.idempotencyKey;
+  const idempotencyKey = params.currentUserTurnMessage?.idempotencyKey;
   if (typeof idempotencyKey !== "string" || idempotencyKey.length === 0) {
     return false;
   }
-  const durableIdempotencyKey = (
-    params.durableUserTurnMessage as { idempotencyKey?: unknown } | undefined
-  )?.idempotencyKey;
   // Recorder state is process-local; after restart the durable keyed leaf is the
   // authoritative proof that this exact admitted turn was already persisted.
-  const durableTurnMatches = durableIdempotencyKey === idempotencyKey;
+  const durableTurnMatches = params.durableUserTurnMessage?.idempotencyKey === idempotencyKey;
   if (!params.userTurnAlreadyPersisted && !durableTurnMatches) {
     return false;
   }
   const messages = params.activeSession.agent.state.messages;
-  const tail = messages.at(-1) as (AgentMessage & { idempotencyKey?: unknown }) | undefined;
-  const activeTailMatches = tail?.role === "user" && tail.idempotencyKey === idempotencyKey;
-  if (!activeTailMatches && !durableTurnMatches) {
-    // Excluded turns deliberately lack a model-context copy; writes still validate admission.
-    return (
-      (params.currentUserTurnMessage as { excludeFromContext?: unknown }).excludeFromContext ===
-      true
-    );
-  }
+  const tail = messages.at(-1);
+  const activeTailMatches =
+    tail?.role === "user" && "idempotencyKey" in tail && tail.idempotencyKey === idempotencyKey;
   if (activeTailMatches) {
     // BTW snapshots represent prior conversation; keep the current user separate
     // until prompt submission reinjects it with the resolved runtime context.
     params.activeSession.agent.state.messages = messages.slice(0, -1);
   }
-  return true;
+  // Excluded turns deliberately lack a model-context copy; writes still validate admission.
+  return (
+    activeTailMatches ||
+    durableTurnMatches ||
+    params.currentUserTurnMessage?.excludeFromContext === true
+  );
 }

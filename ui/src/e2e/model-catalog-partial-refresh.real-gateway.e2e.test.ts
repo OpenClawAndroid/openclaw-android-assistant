@@ -140,7 +140,19 @@ suite.define(() => {
               '[data-chat-model-target-group="cliAgents"] [data-chat-model-catalog-state="loading"]',
             )
             .waitFor({ state: "detached" });
-          expect(await composer.locator("[data-chat-model-catalog-state]").count()).toBe(0);
+          const catalogNotices = await composer
+            .locator("[data-chat-model-catalog-state]")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => ({
+                state: node.getAttribute("data-chat-model-catalog-state"),
+                text: node.textContent?.trim(),
+                group:
+                  node
+                    .closest("[data-chat-model-target-group]")
+                    ?.getAttribute("data-chat-model-target-group") ?? "models",
+              })),
+            );
+          expect(catalogNotices).toEqual([]);
           const stage = route === "new" ? "new" : "chat";
           await page.screenshot({
             path: path.join(suite.artifactDir, `${stage}-catalog.png`),

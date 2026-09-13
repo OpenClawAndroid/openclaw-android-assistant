@@ -19,7 +19,7 @@ import {
 } from "./openclaw-state-db.js";
 import { mergeUserGitHubConnection } from "./user-github-connections.js";
 import { mergeUserModelAccounts } from "./user-model-accounts.js";
-import { ensureUserPreferencesSchema, mergeUserPreferences } from "./user-preferences.js";
+import { ensureUserPreferencesSchema, mergeUserPreferences } from "./user-preferences.store.js";
 import { emitUserProfilesChanged, publishUserProfileAliasChange } from "./user-profile-events.js";
 import {
   applyVerifiedGitHubIdentity,

@@ -2,6 +2,7 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { GatewaySessionRow, SessionRunStatus, SessionsListResult } from "../../api/types.ts";
 import { formatUiExternalText } from "../format-error.ts";
 import { isSessionRunActive } from "../session-run-state.ts";
+import { projectSessionResultRows } from "./reconcile.ts";
 import {
   areUiSessionKeysEquivalent,
   isUiGlobalSessionKey,
@@ -165,11 +166,8 @@ export function reconcileSessionRunTerminal(
     return result;
   }
   const reconcileRow = createSessionRunTerminalReconciler(terminal, observation);
-  let changed = false;
-  const sessions = result.sessions.map((existing) => {
-    const next = reconcileRow(existing);
-    changed ||= next !== existing;
-    return next;
-  });
-  return changed ? { ...result, sessions } : result;
+  return projectSessionResultRows(
+    result,
+    result.sessions.map((existing) => reconcileRow(existing)),
+  );
 }

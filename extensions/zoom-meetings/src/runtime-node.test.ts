@@ -7,14 +7,14 @@ const resolveZoomMeetingsConfig = zoomMeetingsConfig.resolveConfig;
 const realtimeMocks = vi.hoisted(() => ({
   healths: [] as Array<{ bridgeClosed: boolean }>,
   speak: vi.fn(),
-  startAgent: vi.fn(async () => {
+  startAgent: vi.fn(async ({ transport }: { transport: { stop(): Promise<void> } }) => {
     const health = { bridgeClosed: false };
     realtimeMocks.healths.push(health);
     return {
       getHealth: () => health,
       providerId: "test",
       speak: realtimeMocks.speak,
-      stop: vi.fn(async () => {}),
+      stop: vi.fn(() => transport.stop()),
     };
   }),
 }));
@@ -111,6 +111,11 @@ describe("Zoom meetings node realtime recovery", () => {
     expect(realtimeMocks.speak).toHaveBeenCalledWith("hello");
     expect(joined.session.chrome?.audioBridge).toMatchObject({ type: "node-command-pair" });
 
+    const firstEngine = await realtimeMocks.startAgent.mock.results[0]?.value;
+    if (!firstEngine) {
+      throw new Error("Expected the initial meeting engine");
+    }
+    await firstEngine.stop();
     realtimeMocks.healths[0]!.bridgeClosed = true;
     await runtime.status(joined.session.id);
     const recovered = await runtime.speak(joined.session.id, "again");
@@ -119,5 +124,8 @@ describe("Zoom meetings node realtime recovery", () => {
     expect(realtimeMocks.startAgent).toHaveBeenCalledTimes(2);
     expect(realtimeMocks.speak).toHaveBeenCalledWith("again");
     expect(joined.session.chrome?.health?.bridgeClosed).toBe(false);
+    expect(harness.state.audioCaptureId).toEqual(expect.any(String));
+    await runtime.leave(joined.session.id);
+    expect(harness.state.audioCaptureId).toBeUndefined();
   });
 });

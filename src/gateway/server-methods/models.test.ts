@@ -276,6 +276,7 @@ function requestModelsList(params: {
     workspaceDir?: string;
   }) => Promise<Array<Record<string, unknown>>>;
   reqId?: string;
+  includeDefaultModels?: boolean;
   includeProviderCapabilities?: boolean;
   deferredAuth?: Promise<PreparedModelRuntimeAuth>;
   refresh?: boolean;
@@ -352,6 +353,9 @@ function requestModelsList(params: {
   });
   const requestParams = {
     view: params.view,
+    ...(params.includeDefaultModels === undefined
+      ? {}
+      : { includeDefaultModels: params.includeDefaultModels }),
     ...(params.refresh ? { refresh: true } : {}),
     ...(params.agentId ? { agentId: params.agentId } : {}),
     ...(params.includeProviderCapabilities ? { includeProviderCapabilities: true } : {}),
@@ -467,6 +471,7 @@ describe("models.list", () => {
 
     const selected = requestModelsList({
       view: "configured",
+      includeDefaultModels: false,
       agentId: "research",
       runtimeConfig,
       loadGatewayModelCatalog: vi.fn(async () => []),
@@ -978,6 +983,7 @@ describe("models.list", () => {
       const { request, respond } = requestModelsList({
         publishedCatalog: [],
         view: "configured",
+        includeDefaultModels: false,
         runtimeConfig,
         loadGatewayModelCatalog,
         reqId: "req-models-list-slow-catalog",
@@ -1028,6 +1034,7 @@ describe("models.list", () => {
       const { request, respond } = requestModelsList({
         publishedCatalog: [],
         view: "configured",
+        includeDefaultModels: false,
         runtimeConfig,
         deferredAuth: auth.promise,
         loadGatewayModelCatalog: vi.fn(() =>
@@ -1079,6 +1086,7 @@ describe("models.list", () => {
       const { request, respond } = requestModelsList({
         refresh: true,
         view: "configured",
+        includeDefaultModels: false,
         runtimeConfig,
         deferredAuth: Promise.reject(new Error("auth refresh failed")),
         loadGatewayModelCatalog: vi.fn(() =>
@@ -1133,6 +1141,7 @@ describe("models.list", () => {
       const { request, respond } = requestModelsList({
         refresh: true,
         view: "configured",
+        includeDefaultModels: false,
         runtimeConfig,
         preparedAuthModes: { openai: "oauth" },
         deferredAuth: Promise.resolve({
@@ -1241,6 +1250,7 @@ describe("models.list", () => {
     const { request, respond } = requestModelsList({
       publishedCatalog: [],
       view: "configured",
+      includeDefaultModels: false,
       runtimeConfig,
       loadGatewayModelCatalog,
       reqId: "req-models-list-secretref-timeout",
@@ -1380,6 +1390,7 @@ describe("models.list", () => {
       const loadConfiguredCatalog = vi.fn(() => Promise.resolve(catalog));
       const { request: configuredRequest, respond: configuredRespond } = requestModelsList({
         view: "configured",
+        includeDefaultModels: false,
         runtimeConfig: cfg,
         loadGatewayModelCatalog: loadConfiguredCatalog,
         reqId: "req-models-list-provider-allowlist",
@@ -1535,6 +1546,7 @@ describe("models.list", () => {
           for (const view of ["default", "configured"] as const) {
             const { request, respond } = requestModelsList({
               view,
+              includeDefaultModels: false,
               runtimeConfig: cfg,
               loadGatewayModelCatalog: vi.fn(() => Promise.resolve(catalog)),
               reqId: `req-models-list-local-wildcard-${view}`,

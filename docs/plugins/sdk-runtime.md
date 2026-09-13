@@ -192,13 +192,17 @@ Beyond `api.runtime`, the API object also provides:
   Plugin display name.
 </ParamField>
 <ParamField path="api.config" type="OpenClawConfig">
-  Config snapshot supplied when this instance registers. A retained instance keeps
-  that snapshot across other config changes. In long-lived callbacks, prefer the
-  supplied `cfg`, or use `api.runtime.config.current()` when no config is passed.
-  Explicitly reload the plugin to rerun registration with the latest config.
+  Config snapshot supplied when this instance registers. With the default hybrid
+  reload mode, changes to this plugin's `plugins.entries.<id>` replace its instance
+  by default and rerun registration. A retained instance keeps its snapshot across unrelated
+  config changes. In long-lived callbacks, prefer the supplied `cfg`, or use
+  `api.runtime.config.current()` when no config is passed.
 </ParamField>
 <ParamField path="api.pluginConfig" type="Record<string, unknown>">
-  Plugin-specific config from `plugins.entries.<id>.config`.
+  Plugin-specific config from `plugins.entries.<id>.config`, captured at registration.
+  Ordinary edits to this config automatically replace the instance in hybrid mode,
+  unless a narrower plugin reload policy applies. Source or manifest edits still
+  need [plugin Reload](/cli/plugins#reload).
 </ParamField>
 <ParamField path="api.logger" type="PluginLogger">
   Scoped logger (`debug`, `info`, `warn`, `error`).

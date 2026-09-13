@@ -21,6 +21,8 @@ export function createGatewayServerVitestConfig(env?: Record<string, string | un
       // Gateway child projects share one include file; preserve this project's ownership.
       intersectIncludeFile: true,
       isolate: false,
+      // The real Gateway owns the shared-state broker on its process main thread.
+      pool: "forks",
       name: "gateway-server",
     },
   );

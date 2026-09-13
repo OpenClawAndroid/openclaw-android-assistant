@@ -34,10 +34,10 @@ Reload never migrates workspace state.
 
 ### Reload modes
 
-| Mode                   | Behavior                                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| **`hybrid`** (default) | Applies hot-reloadable settings. Automatically restarts when required.                        |
-| **`off`**              | Keeps watching and validating config. Runtime changes take effect on the next manual restart. |
+| Mode                   | Behavior                                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **`hybrid`** (default) | Applies hot-reloadable settings. Automatically restarts when required.                                                                  |
+| **`off`**              | Keeps watching and validating config. Passive runtime changes wait for a manual restart; explicit plugin lifecycle actions still apply. |
 
 ```json5
 {
@@ -82,7 +82,7 @@ back to OpenClaw.
 | Automation                | `hooks`, `cron`, `agents.defaults.heartbeat`                                                                                                                                                                                                                       | No (reloads the owning subsystem)      |
 | Sessions & messages       | `session`, `messages`                                                                                                                                                                                                                                              | No                                     |
 | Tools & media             | `tools`, `skills`, `mcp` except Apps listener settings, `audio`, `talk`, `tts`, `memory.citations`, `attachments.ttlHours`                                                                                                                                         | No                                     |
-| Plugin config             | `plugins.entries.*`, `plugins.allow`, `plugins.deny`, `plugins.enabled`                                                                                                                                                                                            | No (reloads plugin runtime)            |
+| Plugin config             | `plugins.entries.*`, `plugins.allow`, `plugins.deny`, `plugins.enabled`, `plugins.slots`, `plugins.load`, legacy `plugins.installs`                                                                                                                                | No (reloads plugin runtime by default) |
 | UI & misc                 | `ui`, `logging`, `identity`, `bindings`, `surfaces`                                                                                                                                                                                                                | No                                     |
 | Approval & install policy | `approvals.exec`, `approvals.plugin`, `security.installPolicy`, `security.audit.suppressions`                                                                                                                                                                      | No (subsequent operations)             |
 | Diagnostics & ACP         | `diagnostics.flags`, `diagnostics.cacheTrace.enabled`, `acp.stream`, `acp.runtime.installCommand`                                                                                                                                                                  | No (subsequent operations)             |
@@ -99,7 +99,7 @@ back to OpenClaw.
 | Browser defaults          | `browser.profiles`, `browser.defaultProfile`, `browser.headless`, `browser.executablePath`, `browser.attachOnly`, `browser.cdpUrl`, `browser.noSandbox`, `browser.extraArgs`, `browser.snapshotDefaults`, `browser.tabCleanup`, `browser.allowSystemProfileImport` | No                                     |
 | Browser control policy    | `browser.enabled`, `browser.evaluateEnabled`, `browser.ssrfPolicy`                                                                                                                                                                                                 | No (replaces Browser control service)  |
 | Gateway server            | Other `gateway.*` settings (port, bind, auth mode, roles, tailscale, TLS)                                                                                                                                                                                          | **Yes**                                |
-| Infrastructure            | Other `discovery` and `browser` settings, MCP Apps listener settings, `secrets.egressProxy`, `plugins.load`, `plugins.installs`                                                                                                                                    | **Yes**                                |
+| Infrastructure            | Other `discovery` and `browser` settings, MCP Apps listener settings, `secrets.egressProxy`                                                                                                                                                                        | **Yes**                                |
 
 Channel plugins declare which settings restart their channel
 (`reload.configPrefixes`) and which need no reload action (`reload.noopPrefixes`).
@@ -229,13 +229,19 @@ nodes and operator connections stay open. Legacy nodes reconnect when hosted sur
 descriptors change so their protocol limits are recalculated. Pending node handshakes
 also recheck those capabilities before admission.
 
-Automatic config hot reload reuses the current plugin inventory.
-Enablement, plugin config, and account changes do not rescan plugin files.
-Supported install, update, uninstall, reload, and metadata refresh actions prepare
-and publish a new plugin inventory through the running Gateway, including when
-`gateway.reload.mode` is `off`.
-Changing an agent's workspace alone does not refresh discovery; use an explicit
-metadata refresh or restart. See [Plugin metadata snapshots](/plugins/architecture#plugin-metadata-snapshot-and-lookup-table).
+Ordinary runtime lookups use the cached plugin inventory and do not scan plugin
+files. In hybrid mode, edits under
+`plugins.entries.<id>` replace the affected instance by default and rerun registration
+with its new config. Unchanged plugin instances retain their registration
+snapshots. A plugin's narrower reload policy can retain an instance or require a restart.
+
+Plugin install, update, enable, disable, uninstall, and metadata refresh apply
+through the running Gateway's plugin lifecycle without a Gateway restart.
+Explicit plugin actions also work when passive reload is `off`. Source or
+manifest edits need `openclaw plugins reload <id>`. Changing an agent workspace
+alone does not refresh plugin discovery; use an explicit metadata refresh. See
+[Apply changes and inspect](/plugins/manage-plugins#apply-changes-and-inspect)
+and [Plugin metadata snapshots](/plugins/architecture#plugin-metadata-snapshot-and-lookup-table).
 
 During channel or plugin hot reload, Gateway-hosted channel webhook routes return
 `503` with `Retry-After: 1` until replacement ingress registers. Senders must honor

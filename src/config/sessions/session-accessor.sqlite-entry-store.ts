@@ -607,7 +607,11 @@ export function writeSessionEntry(
       .values(sessionRow)
       .onConflict((conflict) =>
         conflict.column("session_id").doUpdateSet({
-          session_key: sessionKey,
+          // Logical nodes can share a physical window. Only creation or a
+          // generation change claims it; metadata updates retain its owner.
+          ...(canonicalPreviousEntry?.sessionId === normalizedEntry.sessionId
+            ? {}
+            : { session_key: sessionKey }),
           previous_session_id: sessionRow.previous_session_id,
           reason: sessionRow.reason,
           session_scope: sessionRow.session_scope,

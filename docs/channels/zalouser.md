@@ -43,7 +43,7 @@ openclaw plugins install @openclaw/zalouser
 }
 ```
 
-4. Restart the Gateway (or finish setup).
+4. Check `openclaw channels status --probe`; start the Gateway if it is offline. Config changes follow [hot reload](/gateway/configuration/hot-reload).
 5. DM access defaults to pairing; approve the pairing code on first contact.
 
 ## What it is

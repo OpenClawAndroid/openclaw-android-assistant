@@ -254,8 +254,8 @@ describe("chat composer queue reordering", () => {
   });
 
   it.each([
-    { key: "ArrowUp", expected: ["c", 1] },
-    { key: "ArrowDown", expected: ["c", 3] },
+    { key: "ArrowUp", expected: ["c", "b"] },
+    { key: "ArrowDown", expected: ["c", "d"] },
   ])("moves the focused row on $key", ({ key, expected }) => {
     const onQueueMove = vi.fn();
     const container = renderQueue({
@@ -671,6 +671,6 @@ describe("chat composer queue reordering", () => {
     Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
     rows[0]!.dispatchEvent(drop);
 
-    expect(onQueueMove.mock.calls).toEqual([["c", 0]]);
+    expect(onQueueMove.mock.calls).toEqual([["c", "a"]]);
   });
 });

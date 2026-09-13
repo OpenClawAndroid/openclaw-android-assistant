@@ -33,6 +33,7 @@ import {
 import { migratePersistedImplicitMainRoster } from "./legacy.roster.js";
 import { materializeRuntimeConfig } from "./materialize.js";
 import { createModelPolicyRefValidator } from "./model-policy-ref.js";
+import { isBuiltInModelProviderOverlayId } from "./model-provider-overlay-ids.js";
 import type { ConfigValidationIssue, OpenClawConfig } from "./types.js";
 import { collectRawBundledChannelConfigIssues } from "./validation-channel-rules.js";
 import {
@@ -41,7 +42,6 @@ import {
   mergeUnsupportedMutableSecretRefIssues,
   withConfigIssuePath,
 } from "./validation-issues.js";
-import { isBuiltInModelProviderOverlayId } from "./zod-schema.core.js";
 import { OpenClawSchema } from "./zod-schema.js";
 import { McpServerNameSchema, NodeHostMcpServerNameSchema } from "./zod-schema.root-support.js";
 

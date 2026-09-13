@@ -451,7 +451,6 @@ export async function startTelegramWebhook(opts: {
       spoolDir,
       bot,
       botInfo,
-      cfg: opts.config ?? {},
       accountId: opts.accountId ?? "default",
       pollIntervalMs: TELEGRAM_WEBHOOK_SPOOLED_DRAIN_INTERVAL_MS,
       abortSignal: webhookAbortSignal,

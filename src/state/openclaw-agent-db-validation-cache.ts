@@ -1,30 +1,91 @@
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { isPathInside } from "../infra/path-guards.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
+import { readOpenClawAgentDatabaseIdentity } from "./openclaw-agent-db-identity.js";
 
-// Physical close retains validation for cheap reopens. Registry lifecycle changes
-// revoke it across native and transformed module graphs before a replacement opens.
-const validatedPaths = resolveGlobalSingleton<Map<string, string>>(
+export type OpenClawAgentDatabaseValidation = {
+  agentId: string;
+  identity: string;
+  /** Shared with admitted workers so owner invalidation revokes borrowed proof. */
+  valid: SharedArrayBuffer;
+};
+type ValidationDatabase = { db: DatabaseSync; path: string; agentId: string };
+
+// Ordinary close and eviction retain proof for this Gateway lifetime. Only a
+// successful canonical open can create it; workers borrow it under admission.
+const validatedPaths = resolveGlobalSingleton<Map<string, OpenClawAgentDatabaseValidation>>(
   Symbol.for("openclaw.agentDatabaseValidatedPaths"),
   () => new Map(),
+  () => clearOpenClawAgentDatabaseValidationCache(),
 );
 
-export function getValidatedOpenClawAgentDatabaseOwner(pathname: string): string | undefined {
-  return validatedPaths.get(path.resolve(pathname));
+function matchesValidation(
+  database: ValidationDatabase,
+  validation: OpenClawAgentDatabaseValidation,
+): boolean {
+  return (
+    validation.agentId === database.agentId &&
+    validation.identity === readOpenClawAgentDatabaseIdentity(database).identity &&
+    Atomics.load(new Int32Array(validation.valid), 0) === 1
+  );
 }
 
-export function setValidatedOpenClawAgentDatabaseOwner(pathname: string, agentId: string): void {
-  validatedPaths.set(path.resolve(pathname), agentId);
+export function getOpenClawAgentDatabaseValidation(
+  database: ValidationDatabase,
+): OpenClawAgentDatabaseValidation | undefined {
+  const validation = validatedPaths.get(path.resolve(database.path));
+  return validation && matchesValidation(database, validation) ? validation : undefined;
+}
+
+export function adoptOpenClawAgentDatabaseValidation(
+  database: ValidationDatabase,
+  validation: OpenClawAgentDatabaseValidation,
+): boolean {
+  if (!matchesValidation(database, validation)) {
+    return false;
+  }
+  // A concurrent first opener can return another healthy receipt. Keep the
+  // owner's existing revocation cell shared by workers already borrowing it.
+  if (getOpenClawAgentDatabaseValidation(database)) {
+    return true;
+  }
+  invalidateOpenClawAgentDatabaseValidation(database.path);
+  validatedPaths.set(path.resolve(database.path), validation);
+  return true;
+}
+
+export function setOpenClawAgentDatabaseValidation(
+  database: ValidationDatabase,
+): OpenClawAgentDatabaseValidation {
+  const { identity } = readOpenClawAgentDatabaseIdentity(database);
+  if (typeof identity !== "string") {
+    throw new Error("Only persistent agent databases retain integrity validation");
+  }
+  const validation = {
+    agentId: database.agentId,
+    identity,
+    valid: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+  };
+  Atomics.store(new Int32Array(validation.valid), 0, 1);
+  invalidateOpenClawAgentDatabaseValidation(database.path);
+  validatedPaths.set(path.resolve(database.path), validation);
+  return validation;
 }
 
 export function invalidateOpenClawAgentDatabaseValidation(pathname: string): void {
-  validatedPaths.delete(path.resolve(pathname));
+  const resolved = path.resolve(pathname);
+  const validation = validatedPaths.get(resolved);
+  if (validation) {
+    Atomics.store(new Int32Array(validation.valid), 0, 0);
+    validatedPaths.delete(resolved);
+  }
 }
 
 export function invalidateOpenClawAgentDatabaseValidationsForAgent(agentId: string): void {
-  for (const [pathname, validatedAgentId] of validatedPaths) {
-    if (validatedAgentId === agentId) {
-      validatedPaths.delete(pathname);
+  for (const [pathname, validation] of validatedPaths) {
+    if (validation.agentId === agentId) {
+      invalidateOpenClawAgentDatabaseValidation(pathname);
     }
   }
 }
@@ -32,7 +93,7 @@ export function invalidateOpenClawAgentDatabaseValidationsForAgent(agentId: stri
 export function clearOpenClawAgentDatabaseValidationCache(rootPath?: string): void {
   for (const pathname of validatedPaths.keys()) {
     if (rootPath === undefined || isPathInside(rootPath, pathname)) {
-      validatedPaths.delete(pathname);
+      invalidateOpenClawAgentDatabaseValidation(pathname);
     }
   }
 }

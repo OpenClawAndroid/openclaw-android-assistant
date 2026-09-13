@@ -191,7 +191,9 @@ If your config uses `plugins.allow`, add `codex` there too:
 }
 ```
 
-Restart the gateway after changing plugin config. If a chat already has a
+Plugin config changes apply automatically in the default hybrid reload mode.
+See [Apply changes and inspect](/plugins/manage-plugins#apply-changes-and-inspect).
+If a chat already has a
 session, run `/new` or `/reset` first so the next turn resolves the harness
 from current config.
 

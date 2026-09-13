@@ -395,7 +395,8 @@ function hasCompletedVisibleHeartbeatResponseToolCall(
     return false;
   }
   const callIds = new Set(visibleCalls.flatMap((call) => collectToolCallIds(call)));
-  for (const result of messages.slice(index + 1)) {
+  for (let resultIndex = index + 1; resultIndex < messages.length; resultIndex++) {
+    const result = expectDefined(messages[resultIndex], "messages entry at resultIndex");
     if (!isToolResultCompletionCandidate(result)) {
       break;
     }

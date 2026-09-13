@@ -3515,41 +3515,6 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     expect(compactTesting.containsRealConversationMessages(messages)).toBe(false);
   });
 
-  it("registers the Ollama api provider before compaction", () => {
-    const streamFn = vi.fn();
-    registerProviderStreamForModelMock.mockReturnValue(streamFn);
-
-    const result = compactTesting.resolveCompactionProviderStream({
-      effectiveModel: {
-        provider: "ollama",
-        api: "ollama",
-        id: "qwen3:8b",
-        input: ["text"],
-        baseUrl: "http://127.0.0.1:11434",
-        headers: { Authorization: "Bearer ollama-cloud" },
-      } as never,
-      config: undefined,
-      agentDir: TEST_WORKSPACE_DIR,
-      effectiveWorkspace: TEST_WORKSPACE_DIR,
-      apiRegistry: {} as never,
-    });
-
-    expect(result).toBe(streamFn);
-    const streamRegistration = mockCallArg(registerProviderStreamForModelMock) as Record<
-      string,
-      unknown
-    >;
-    expectRecordFields(streamRegistration, {
-      agentDir: TEST_WORKSPACE_DIR,
-      workspaceDir: TEST_WORKSPACE_DIR,
-    });
-    expectRecordFields(streamRegistration.model, {
-      provider: "ollama",
-      api: "ollama",
-      id: "qwen3:8b",
-    });
-  });
-
   it("carries the prepared provider reconciler into direct compaction", async () => {
     mockResolvedModel();
     const reconcile = vi.fn(async () => undefined);

@@ -136,6 +136,12 @@ The script may return an object with these optional fields:
 
 Throws, timeouts, exhausted tool budgets, invalid results, and `nextCheck` without pacing are normal automation run errors: they enter run history, backoff, and failure-alert handling without persisting returned state.
 
+Plugin reloads invalidate cached script preparation. If a plugin retires during setup,
+OpenClaw refreshes the tools once before starting the script, within the original
+deadline. A failure after the script starts never triggers this setup retry.
+If the refresh fails, run history and failure alerts explain that automatic setup
+recovery failed and the script did not run.
+
 Changing a running job's script payload or saved state protects that edit from
 the old script's returned state, including when completion is recovered after a
 Gateway restart. The completed run still retains its history.

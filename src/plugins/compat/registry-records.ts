@@ -20,19 +20,20 @@ export const PLUGIN_COMPAT_RECORDS = [
     warningStarts: "2026-09-12",
     removalGate: "next-plugin-sdk-major",
     replacement:
-      "Await the 14 read methods on api.runtime.tasks.async.runs, flows, and managedFlows. Retain synchronous reads until supported external-plugin migration and explicit breaking-release approval; mutations and cancellation remain on the existing surface.",
+      "Await the 14 read methods on api.runtime.tasks.async.runs, flows, and managedFlows, plus createManaged, tryCreateManaged, setWaiting, resume, finish, fail, and requestCancel on api.runtime.tasks.async.managedFlows. Reconcile outcome-unknown errors before retrying creation. Retain synchronous methods until supported external-plugin migration and explicit breaking-release approval; native cancellation and runTask remain on the existing surface.",
     docsPath: "/plugins/sdk-runtime/background-work",
     surfaces: [
       "api.runtime.tasks.runs get/list/findLatest/resolve",
       "api.runtime.tasks.flows get/list/findLatest/resolve/getTaskSummary",
       "api.runtime.tasks.managedFlows get/list/findLatest/resolve/getTaskSummary",
+      "api.runtime.tasks.managedFlows createManaged/tryCreateManaged/setWaiting/resume/finish/fail/requestCancel",
     ],
     diagnostics: [
       "TypeScript @deprecated annotations and migration documentation; no runtime warnings",
     ],
     tests: ["src/infra/sqlite-worker-task-runtime.test.ts", "extensions/webhooks/index.test.ts"],
     releaseNote:
-      "Plugins can opt into worker-backed Task Run and Task Flow queries through tasks.async while synchronous reads remain available for external compatibility. Cold registry and configuration preparation remains synchronous.",
+      "Plugins can opt into worker-backed task and flow reads plus managed-flow writes through tasks.async while synchronous methods remain available for external compatibility. Cold registry and configuration preparation remains synchronous.",
   },
   {
     code: "plugin-state-sync-keyed-store",

@@ -427,12 +427,8 @@ function withRealtimeBrowserOverrides(
   params: RealtimeVoiceLaunchOptionInput,
 ): RealtimeVoiceProviderConfig {
   const overrides: RealtimeVoiceProviderConfig = {};
-  const model = normalizeOptionalString(params.model);
   const voice = normalizeOptionalString(params.voice);
   const reasoningEffort = normalizeOptionalString(params.reasoningEffort);
-  if (model) {
-    overrides.model = model;
-  }
   if (voice) {
     overrides.voice = voice;
   }

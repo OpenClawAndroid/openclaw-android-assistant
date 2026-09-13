@@ -7050,7 +7050,7 @@ describe("handleSendChat", () => {
           expect(beginQueuedMessageEdit(host, queued.id)).toBe("started");
           expect(updateQueuedMessageEdit(host, "correction in progress")).toBe(true);
         } else {
-          moveQueuedChatMessage(host, queued.id, 1);
+          moveQueuedChatMessage(host, queued.id, host.chatQueue[1]!.id);
         }
         host.connected = true;
       });

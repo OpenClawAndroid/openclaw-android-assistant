@@ -5029,7 +5029,7 @@ describe("openclaw agent database", () => {
     );
   });
 
-  it("rechecks integrity after a validated handle is physically reopened", () => {
+  it("retains integrity verification until the runtime lifecycle resets", () => {
     const stateDir = createTempStateDir();
     const env = { OPENCLAW_STATE_DIR: stateDir };
     const databasePath = openOpenClawAgentDatabase({ agentId: "worker-1", env }).path;
@@ -5037,6 +5037,8 @@ describe("openclaw agent database", () => {
     closeOpenClawStateDatabaseForTest();
     createUnsafeIndexDrift(databasePath);
 
+    expect(openOpenClawAgentDatabase({ agentId: "worker-1", env }).db.isOpen).toBe(true);
+    closeOpenClawAgentDatabasesForTest();
     expect(() => openOpenClawAgentDatabase({ agentId: "worker-1", env })).toThrow(
       /integrity_check failed.*missing from index unsafe_index_records_value/iu,
     );

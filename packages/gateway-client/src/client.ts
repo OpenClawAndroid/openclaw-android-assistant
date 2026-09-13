@@ -628,6 +628,11 @@ export class GatewayClient {
       if (upgradeError) {
         return;
       }
+      // ws abortHandshake emits this timeout without an errno. Normalize it at
+      // the dependency boundary so RPC callers retain socket-unavailable recovery.
+      if (err.message === "Opening handshake has timed out") {
+        Object.assign(err, { code: "ETIMEDOUT" });
+      }
       this.logDebug(`gateway client error: ${formatGatewayClientErrorForLog(err)}`);
       handlers.error(err instanceof Error ? err : new Error(String(err)));
     });

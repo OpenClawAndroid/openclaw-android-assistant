@@ -1,4 +1,8 @@
-import { validateTalkSessionCancelOutputResult } from "../../../../packages/gateway-protocol/src/index.js";
+import { DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS } from "@openclaw/gateway-client/browser";
+import {
+  validateTalkSessionCancelOutputResult,
+  type TalkCatalogResult,
+} from "../../../../packages/gateway-protocol/src/index.js";
 import { t } from "../../i18n/index.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import {
@@ -63,6 +67,7 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
   private playbackOverflowed = false;
   private pendingOutputCancellations = 0;
   private speechFramesDuringPlayback = 0;
+  private supportsBargeIn = true;
   private lastRelayError: string | undefined;
   private activated = false;
   private pendingActivationEvents: GatewayRelayEvent[] = [];
@@ -92,6 +97,32 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
       }
       this.handleIncomingRelayEvent(evt.payload as GatewayRelayEvent);
     });
+    const catalog = await this.ctx.client
+      .request<TalkCatalogResult>(
+        "talk.catalog",
+        {
+          provider: this.session.provider,
+          ...(this.session.model ? { model: this.session.model } : {}),
+        },
+        { timeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS },
+      )
+      .catch(() => undefined);
+    if (this.closed) {
+      const startupError = this.currentStartupError();
+      if (startupError) {
+        throw startupError;
+      }
+      return "cancelled";
+    }
+    // Talk-only clients may not read the catalog. Keep audio flowing and leave
+    // interruption with the provider unless local cancellation is supported.
+    this.supportsBargeIn = catalog
+      ? catalog.realtime.providers.find(
+          (provider) =>
+            provider.id === this.session.provider ||
+            provider.aliases?.includes(this.session.provider),
+        )?.supportsBargeIn !== false
+      : false;
     const media = this.input.adopt((detail) => this.failAudioAppend(detail));
     const startupError = this.currentStartupError();
     if (startupError) {
@@ -187,8 +218,8 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
       if (this.closed) {
         return;
       }
-      if (this.detectBargeInSpeech(samples)) {
-        this.cancelOutputForBargeIn();
+      if (this.supportsBargeIn && this.detectBargeInSpeech(samples)) {
+        this.cancelOutput("barge-in");
       }
       const abortController = this.audioAppendAbortController;
       // Live microphone frames become stale once the Gateway falls behind, so fail at
@@ -654,10 +685,6 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
       return false;
     }
     return true;
-  }
-
-  private cancelOutputForBargeIn(): void {
-    this.cancelOutput("barge-in");
   }
 
   private cancelOutput(reason: string, requirePlayback = true): void {

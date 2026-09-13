@@ -459,7 +459,8 @@ export async function prepareModelsListResult(
   draft?.assertCurrent();
   const outcomeProjection = {
     ...(pendingProviders?.length ? { pendingProviders } : {}),
-    ...(params.params.includeDefaultModels
+    ...((params.params.includeDefaultModels ??
+    (view === "configured" && !params.params.sessionKey && !params.params.authProfileId))
       ? {
           defaultModels: {
             automaticUtilityModel:

@@ -38,6 +38,7 @@ for arch in "$@"; do
   mkdir -p "$SCRATCH/$arch/home" "$SCRATCH/$arch/tmp"
   env -i HOME="$SCRATCH/$arch/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
     TMPDIR="$SCRATCH/$arch/tmp" OPENCLAW_INSTALL_CLI_SH_NO_RUN=1 \
+    OPENCLAW_NODE_VERSION="${OPENCLAW_NODE_VERSION:-}" \
     /bin/bash -c '
       set -euo pipefail
       source "$1/scripts/install-cli.sh"

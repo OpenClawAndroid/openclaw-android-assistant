@@ -200,55 +200,24 @@ describe("GatewayClient websocket opening handshakeTimeout", () => {
     });
     const port = await listen(server);
     const handshakeTimeoutMs = 250;
-    const startedAt = Date.now();
-    const outcome = await new Promise<{
-      errorMessage?: string;
-      closed: boolean;
-    }>((resolve) => {
-      let settled = false;
-      const finish = (result: { errorMessage?: string; closed: boolean }) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(deadline);
-        resolve(result);
-      };
-      const deadline = setTimeout(() => {
-        finish({ errorMessage: "deadline exceeded without close/error", closed: false });
-      }, 2_000);
-      deadline.unref?.();
-      const client = new GatewayClient({
-        url: `ws://127.0.0.1:${port}`,
-        preauthHandshakeTimeoutMs: handshakeTimeoutMs,
-        connectChallengeTimeoutMs: handshakeTimeoutMs,
-        onConnectError: (error) => {
-          finish({
-            errorMessage: error instanceof Error ? error.message : String(error),
-            closed: false,
-          });
-        },
-        onClose: () => {
-          finish({ closed: true });
-        },
-      });
-      clients.push(client);
-      client.start();
+    const onConnectError = vi.fn();
+    const closed = createDeferred<unknown>();
+    const client = new GatewayClient({
+      url: `ws://127.0.0.1:${port}`,
+      preauthHandshakeTimeoutMs: handshakeTimeoutMs,
+      connectChallengeTimeoutMs: handshakeTimeoutMs,
+      onConnectError,
+      onClose: (_code, _reason, info) => closed.resolve(info?.connectError),
     });
-    const elapsedMs = Date.now() - startedAt;
+    clients.push(client);
+    client.start();
 
-    expect(
-      outcome.errorMessage?.includes("Opening handshake has timed out") ||
-        outcome.errorMessage?.toLowerCase().includes("timed out") ||
-        outcome.closed,
-    ).toBe(true);
-    expect(elapsedMs).toBeGreaterThanOrEqual(handshakeTimeoutMs - 50);
-    expect(elapsedMs).toBeLessThan(1_500);
-    console.log(
-      `[gateway-client handshake live proof] timed_out=true elapsed_ms=${elapsedMs} handshakeTimeout_ms=${handshakeTimeoutMs} error=${
-        outcome.errorMessage ?? `closed=${outcome.closed}`
-      }`,
-    );
+    const error = await closed.promise;
+    expect(error).toMatchObject({
+      message: "Opening handshake has timed out",
+      code: "ETIMEDOUT",
+    });
+    expect(onConnectError).toHaveBeenCalledExactlyOnceWith(error);
   });
 
   it("surfaces a rejected websocket upgrade body through the connection error", async () => {

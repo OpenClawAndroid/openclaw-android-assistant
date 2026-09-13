@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Covers Tailscale whois, Serve, and Funnel helpers.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { waitForFixtureFile } from "../../test/helpers/process-wait.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { captureEnv } from "../test-utils/env.js";
 import * as tailscale from "./tailscale.js";
@@ -56,6 +57,7 @@ describe("tailscale helpers", () => {
     envSnapshot = captureEnv([
       "OPENCLAW_TEST_TAILSCALE_BINARY",
       "OPENCLAW_TEST_TAILSCALE_SUDO_FIXTURE_MODE",
+      "OPENCLAW_TEST_TAILSCALE_FIXTURE_MARKER",
       "NODE_ENV",
       "PATH",
       "VITEST",
@@ -294,11 +296,52 @@ describe("tailscale helpers", () => {
       const fixture = fileURLToPath(
         new URL("../../test/fixtures/tailscale-foreground-fixture.mjs", import.meta.url),
       );
+      const marker = path.join(tempDirs.make("openclaw-tailscale-fixture-"), "ready");
       process.env.OPENCLAW_TEST_TAILSCALE_BINARY = fixture;
-
-      await expect(claimTailscaleRoute("funnel", 18790, 18790, vi.fn())).rejects.toThrow(
-        "Funnel is not enabled on your tailnet.",
+      process.env.OPENCLAW_TEST_TAILSCALE_FIXTURE_MARKER = marker;
+      const schedule = globalThis.setTimeout;
+      let fireDeadline: (() => void) | undefined;
+      let fires = 0;
+      const timerSpy = vi
+        .spyOn(globalThis, "setTimeout")
+        .mockImplementation((callback, ms, ...args) => {
+          const timer = schedule(callback, ms, ...args);
+          if (ms === 15_000) {
+            timerSpy.mockRestore();
+            fireDeadline = () => {
+              expect(timer.hasRef()).toBe(false);
+              expect(fires).toBe(0);
+              clearTimeout(timer);
+              fires += 1;
+              callback(...args);
+            };
+          }
+          return timer;
+        });
+      const claim = claimTailscaleRoute("funnel", 18790, 18790, vi.fn());
+      let settled = false;
+      const completion = claim.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
       );
+      try {
+        await waitForFixtureFile(marker, completion, "ready");
+        expect(settled).toBe(false);
+        if (!fireDeadline) {
+          throw new Error("expected the native 15000ms startup deadline");
+        }
+        fireDeadline();
+        await expect(claim).rejects.toThrow("Funnel is not enabled on your tailnet.");
+        expect(fires).toBe(1);
+      } finally {
+        // Leave the native deadline armed if fixture readiness fails; await real worker cleanup.
+        await completion;
+        timerSpy.mockRestore();
+      }
     },
   );
 

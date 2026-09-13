@@ -69,6 +69,7 @@ describe("realtime voice provider resolver", () => {
     });
 
     expect(resolution).toStrictEqual({
+      capabilities: undefined,
       provider: providers[1],
       providerConfig: {
         enabled: true,

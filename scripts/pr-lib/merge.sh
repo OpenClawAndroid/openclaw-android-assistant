@@ -358,18 +358,21 @@ prepare_squash_merge_body() {
     --no-show-signature --no-notes --no-color --no-decorate --encoding=UTF-8 \
     --format='%(trailers:key=Co-authored-by,only,unfold)' "$PR_MAIN_SHA..$source_head") || return 1
   # A merge commit can reflect whoever refreshed the branch, not a contributor.
-  # Preview credit must be backed by a published non-merge commit or explicit trailer.
+  # Preview credit needs a tree-changing non-merge commit, PR authorship, or explicit trailer.
   author_commits=$(git log --no-merges --reverse --no-show-signature --no-notes \
-    --no-color --no-decorate --format='%H' "$PR_MAIN_SHA..$PREP_HEAD_SHA") || return 1
+    --no-color --no-decorate --format='%H %T %P' "$PR_MAIN_SHA..$PREP_HEAD_SHA") || return 1
 
   local repo_nwo preview
   repo_nwo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || return 1
   # A git identity alone cannot establish a human contributor. Resolve the
   # published commits through GitHub, which leaves unlinked authors null.
-  authors=$(printf '%s\n' "$author_commits" | while IFS= read -r oid; do
+  authors=$(printf '%s\n' "$author_commits" | while IFS=' ' read -r oid tree parent; do
     [ -n "$oid" ] || continue
+    parent_tree=""
+    [ -z "$parent" ] || parent_tree=$(git rev-parse "$parent^{tree}") || exit 1
     gh api "repos/$repo_nwo/commits/$oid" --jq \
-      '{name:.commit.author.name,email:.commit.author.email,user:(.author | if . == null then null else {login,type} end)}' || exit 1
+      '{name:.commit.author.name,email:.commit.author.email,user:(.author | if . == null then null else {login,type} end)}' |
+      jq --arg tree "$tree" --arg parentTree "$parent_tree" '. + {changesTree: ($tree != $parentTree)}' || exit 1
   done) || return 1
   authors=$(printf '%s\n' "$authors" | jq -s .) || return 1
   preview=$(gh_plain api graphql \

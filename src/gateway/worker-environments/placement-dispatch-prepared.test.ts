@@ -33,7 +33,7 @@ import { createWorkerSessionPlacementStore } from "./placement-store.js";
 import type { WorkerProviderPreparedIntent } from "./preparation-identity.js";
 import * as support from "./service.test-support.js";
 import {
-  readSessionRepositoryCheckpoint,
+  readSessionRepositoryArtifacts,
   stageSessionRepositoryCheckpoint,
 } from "./session-repository-checkpoints.js";
 import { prepareWorkerGitHubBinding } from "./worker-github-binding.js";
@@ -687,8 +687,9 @@ describe("prepared worker dispatch", () => {
         harness.log.indexOf("sync"),
       );
       expect(repositoryStore.get(accepted.workspaceId)).toEqual(accepted);
-      const checkpoint = await readSessionRepositoryCheckpoint({
+      const checkpoint = await readSessionRepositoryArtifacts({
         workspaceId: accepted.workspaceId,
+        assertCurrent: () => {},
       });
       expect(checkpoint.currentManifestRef).toBe(current.manifestRef);
       expect(harness.environments.schedulePreparedRefill).toHaveBeenCalledWith(ready.environmentId);

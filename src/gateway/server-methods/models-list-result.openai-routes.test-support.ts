@@ -38,6 +38,7 @@ type ListModelsParams = {
   agentDir?: string;
   workspaceDir?: string;
   preparedOnly?: boolean;
+  includeDefaultModels?: boolean;
   catalog: ModelCatalogEntry[];
   catalogLoadDelayMs?: number;
   preparedCatalog?: ModelCatalogEntry[];
@@ -116,6 +117,9 @@ export async function listModels(params: ListModelsParams) {
     agentId,
     params: {
       view: params.view ?? "all",
+      ...(params.includeDefaultModels === undefined
+        ? {}
+        : { includeDefaultModels: params.includeDefaultModels }),
       ...(params.refresh ? { refresh: true } : {}),
       ...(params.preparedOnly ? { preparedOnly: true } : {}),
     },

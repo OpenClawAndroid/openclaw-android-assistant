@@ -32,8 +32,10 @@ one explicitly; neither is auto-detected.
 
 ```bash
 openclaw plugins install @openclaw/parallel-plugin
-openclaw gateway restart
 ```
+
+Installation applies to a running Gateway automatically; otherwise it takes effect
+on the next startup. See [Apply changes and inspect](/plugins/manage-plugins#apply-changes-and-inspect).
 
 ## API key (paid provider)
 

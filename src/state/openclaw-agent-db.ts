@@ -86,9 +86,10 @@ import {
 } from "./openclaw-agent-db-schema.js";
 import {
   clearOpenClawAgentDatabaseValidationCache,
-  getValidatedOpenClawAgentDatabaseOwner,
+  adoptOpenClawAgentDatabaseValidation,
+  getOpenClawAgentDatabaseValidation,
   invalidateOpenClawAgentDatabaseValidation,
-  setValidatedOpenClawAgentDatabaseOwner,
+  setOpenClawAgentDatabaseValidation,
 } from "./openclaw-agent-db-validation-cache.js";
 import {
   isIncognitoOpenClawAgentSqlitePath,
@@ -322,7 +323,11 @@ function* openOpenClawAgentDatabaseSteps(
     finishPhase("open");
     // Eviction churn must avoid migration/convergence and registry busy waits.
     // Version and owner can change while evicted, so their read-only gates run on every open.
-    let isValidatedReopen = getValidatedOpenClawAgentDatabaseOwner(pathname) === agentId;
+    const validationDatabase = { db, path: pathname, agentId };
+    if (pending?.validation) {
+      adoptOpenClawAgentDatabaseValidation(validationDatabase, pending.validation);
+    }
+    let isValidatedReopen = Boolean(getOpenClawAgentDatabaseValidation(validationDatabase));
     const walMaintenance = yield* (function* (): SqliteIntegrityOperation<SqliteWalMaintenance> {
       let maintenance: OpenClawAgentDatabase["walMaintenance"] | undefined;
       try {
@@ -330,13 +335,14 @@ function* openOpenClawAgentDatabaseSteps(
         assertSupportedAgentSchemaVersion(db, pathname);
         const existingSchema = readExistingAgentSchemaMeta(db);
         assertExistingAgentSchemaOwner(existingSchema, agentId, pathname);
-        // Integrity is not process-stable: the file can be damaged while evicted.
-        // This guard is read-only (no busy waits), so every physical open pays it.
+        // Reuse the first full verification across ordinary reopens. Schema
+        // convergence still verifies before mutation, independently of this proof.
         const requiresCurrentVersionConvergence = yield* agentDatabaseIntegrityBeforeMutationSteps(
           db,
           agentId,
           pathname,
           diagnostics,
+          isValidatedReopen,
         );
         if (isValidatedReopen && (!existingSchema || requiresCurrentVersionConvergence)) {
           // New files and same-version divergence cannot inherit an earlier validation.
@@ -404,7 +410,7 @@ function* openOpenClawAgentDatabaseSteps(
     }
     if (!isValidatedReopen) {
       registerOpenClawAgentDatabase({ agentId, path: pathname, env: options.env });
-      setValidatedOpenClawAgentDatabaseOwner(pathname, agentId);
+      setOpenClawAgentDatabaseValidation(database);
     }
     cache.terminal.clear(pathname);
     // Safety net for processes that end without an orderly close: agent DBs have

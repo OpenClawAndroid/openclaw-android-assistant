@@ -171,10 +171,7 @@ describe("agent database open timings", () => {
       isMainThread,
       admissionMode: "sync",
       thresholdMs: 1_000,
-      integrityGateMs: 0,
-      integrityGateOutcome: "healthy",
-      integrityCheckSyncMs: 0,
-      integrityOutsideCheckMs: 0,
+      integrityGateOutcome: "cached",
       canonicalIndexMs: 0,
       repairedIndexCount: 0,
       phaseDurationsMs: {
@@ -217,6 +214,9 @@ describe("agent database open timings", () => {
         database.db.exec("PRAGMA writable_schema = OFF;");
       }
       closeOpenClawAgentDatabaseByPath(pathname);
+      if (drift === "physical") {
+        closeOpenClawAgentDatabasesForTest();
+      }
       logger.warn.mockClear();
 
       const reopened = openOpenClawAgentDatabase(options);
@@ -233,19 +233,16 @@ describe("agent database open timings", () => {
       expect(logger.warn).toHaveBeenCalledExactlyOnceWith(
         "slow OpenClaw agent database open",
         expect.objectContaining({
-          elapsedMs: 1_150,
-          integrityGateMs: 0,
-          integrityGateOutcome: drift === "physical" ? "failed" : "healthy",
-          integrityCheckSyncMs: 0,
-          integrityOutsideCheckMs: 0,
+          elapsedMs: drift === "physical" ? 1_310 : 1_150,
+          integrityGateOutcome: drift === "physical" ? "failed" : "cached",
           canonicalIndexMs: 1_000,
           repairedIndexCount: drift === "physical" ? canonicalIndexCount : 1,
           phaseDurationsMs: {
             open: 60,
             validation: 1_000,
             configuration: 80,
-            schema: 0,
-            registration: 10,
+            schema: drift === "physical" ? 90 : 0,
+            registration: drift === "physical" ? 80 : 10,
           },
         }),
       );
@@ -255,7 +252,7 @@ describe("agent database open timings", () => {
   it("separates the synchronous check from readmission waiting in the completed owner log", async () => {
     const { options, pathname, advance } = createTimedOpen(0, 0, 120.75);
     openOpenClawAgentDatabase(options);
-    closeOpenClawAgentDatabaseByPath(pathname);
+    closeOpenClawAgentDatabasesForTest();
     logger.warn.mockClear();
     let admissions = 0;
 
@@ -275,7 +272,7 @@ describe("agent database open timings", () => {
     expect(admissions).toBe(2);
     expect(logger.warn).toHaveBeenCalledExactlyOnceWith("slow OpenClaw agent database open", {
       agentId: options.agentId,
-      elapsedMs: 1_270,
+      elapsedMs: 1_430,
       path: pathname,
       pid: process.pid,
       threadId,
@@ -292,8 +289,8 @@ describe("agent database open timings", () => {
         open: 60,
         validation: 1_120,
         configuration: 80,
-        schema: 0,
-        registration: 10,
+        schema: 90,
+        registration: 80,
       },
     });
   });

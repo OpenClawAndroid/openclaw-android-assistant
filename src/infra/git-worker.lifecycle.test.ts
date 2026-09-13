@@ -108,12 +108,12 @@ function settle<T>(operation: Promise<T>) {
   );
 }
 
-async function exists(directory: string): Promise<number> {
+async function exists(directory: string): Promise<boolean> {
   return fs.stat(directory).then(
-    () => 1,
+    () => true,
     (error: unknown) => {
       if (asOptionalRecord(error)?.code === "ENOENT") {
-        return 0;
+        return false;
       }
       throw error;
     },
@@ -246,14 +246,14 @@ describe("Git operation host lifecycle", () => {
         const pidHex = typeof sid === "string" ? /-P([0-9a-f]+)$/iu.exec(sid)?.[1] : undefined;
         gitPid = Number.parseInt(pidHex ?? "", 16);
         expect(Number.isSafeInteger(gitPid)).toBe(true);
-        expect(Number(isPidAlive(gitPid))).toBe(1);
+        expect(isPidAlive(gitPid)).toBe(true);
         if (ending === "abort") {
           abort.abort(new Error("fixture cancellation"));
         } else {
           await within(drainGlobalSingletonLifecycleState("restart"));
         }
-        expect(Number((await within(pending)).rejected)).toBe(1);
-        expect(Number(isPidAlive(gitPid))).toBe(0);
+        expect((await within(pending)).rejected).toBe(true);
+        expect(isPidAlive(gitPid)).toBe(false);
         const next = await runGitWorkerOperation({
           type: "repository.branches",
           input: { repoRoot: clone },
@@ -330,26 +330,24 @@ describe("Git operation host lifecycle", () => {
             }),
           ]),
         );
-        expect(await exists(temporaryDirectory)).toBe(1);
+        expect(await exists(temporaryDirectory)).toBe(true);
         if (ending === "cancel") {
           abort.abort(new Error("snapshot cancelled"));
           await nextTurn();
           expect(completed).toBe(0);
-          expect(await exists(temporaryDirectory)).toBe(1);
+          expect(await exists(temporaryDirectory)).toBe(true);
           release.resolve();
         }
         const result = await within(pending);
-        expect(Number(result.rejected)).toBe(1);
+        expect(result.rejected).toBe(true);
         if (ending === "worker-error") {
           expect(
-            Number(
-              result.rejected &&
-                result.error instanceof Error &&
-                result.error.message.includes("provisioned path entered Git snapshot"),
-            ),
-          ).toBe(1);
+            result.rejected &&
+              result.error instanceof Error &&
+              result.error.message.includes("provisioned path entered Git snapshot"),
+          ).toBe(true);
         }
-        expect(await exists(temporaryDirectory)).toBe(0);
+        expect(await exists(temporaryDirectory)).toBe(false);
         expect((await fs.readFile(neighbor)).length).toBe(4);
         expect(
           (
@@ -368,8 +366,8 @@ describe("Git operation host lifecycle", () => {
     },
   );
 
-  it.each(["authority", "HEAD"] as const)(
-    "rechecks %s after the snapshot ref waits in the real mutation queue",
+  it.each(["authority", "HEAD", "abort", "restart"] as const)(
+    "preserves the checkout when snapshot publication is interrupted by %s",
     async (changed) => {
       const root = tempDirs.make("openclaw-git-worker-authority-");
       const repo = await repository(root);
@@ -380,9 +378,11 @@ describe("Git operation host lifecycle", () => {
       const commonDir = await git(repo, "rev-parse", "--git-common-dir");
       const held = createDeferredCore();
       const release = createDeferredCore();
+      const order: string[] = [];
       const holder = gitExec.enqueueGitRefMutation(repo, commonDir, async () => {
         held.resolve();
         await release.promise;
+        order.push("predecessor");
       });
       await held.promise;
       const queueCalls = vi.spyOn(gitExec, "enqueueGitRefMutation");
@@ -391,6 +391,7 @@ describe("Git operation host lifecycle", () => {
       let current = true;
       let temporaryDirectory = "";
       const revoked = new Error("snapshot authority revoked");
+      const abort = new AbortController();
       const pending = settle(
         runGitWorkerOperation(
           {
@@ -404,6 +405,7 @@ describe("Git operation host lifecycle", () => {
             },
           },
           {
+            signal: abort.signal,
             assertCurrent: () => {
               if (!current) {
                 throw revoked;
@@ -424,6 +426,7 @@ describe("Git operation host lifecycle", () => {
           },
         ),
       );
+      let successor: Promise<void> | undefined;
       try {
         await within(
           Promise.race([
@@ -433,16 +436,32 @@ describe("Git operation host lifecycle", () => {
             }),
           ]),
         );
-        expect(await exists(temporaryDirectory)).toBe(1);
+        expect(await exists(temporaryDirectory)).toBe(true);
+        successor = gitExec.enqueueGitRefMutation(repo, commonDir, async () => {
+          order.push("successor");
+        });
         if (changed === "authority") {
           current = false;
-        } else {
+        } else if (changed === "HEAD") {
           await git(checkout, "add", "README.md");
           await git(checkout, "commit", "-m", "commit while snapshot publication waits");
           expectedHead = await git(checkout, "rev-parse", "HEAD");
+        } else {
+          if (changed === "abort") {
+            abort.abort(new Error("snapshot cancelled while queued"));
+          } else {
+            await within(drainGlobalSingletonLifecycleState("restart"));
+          }
+          const result = await within(pending, "Cancelled snapshot waited for another ref writer");
+          expect(result.rejected).toBe(true);
+          expect(await exists(temporaryDirectory)).toBe(false);
+          expect(await traceStarts(trace, "update-ref")).toHaveLength(0);
+          expect(order).toEqual([]);
         }
         release.resolve();
         await holder;
+        await successor;
+        expect(order).toEqual(["predecessor", "successor"]);
         const result = await within(pending);
         expect(result.rejected).toBe(true);
         if (changed === "authority") {
@@ -462,11 +481,13 @@ describe("Git operation host lifecycle", () => {
             ])
           ).code,
         ).not.toBe(0);
-        expect(await exists(temporaryDirectory)).toBe(0);
+        expect(await exists(temporaryDirectory)).toBe(false);
       } finally {
         current = false;
+        abort.abort();
         release.resolve();
         await holder;
+        await successor;
         await pending;
       }
     },

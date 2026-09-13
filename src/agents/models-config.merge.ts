@@ -73,6 +73,7 @@ type ProviderModelMergeOptions = {
   modelIdMatching?: "exact";
   sourceModelFields?: SourceModelFields;
   preserveConfiguredModelMembership?: boolean;
+  retainDiscoveredModels?: boolean;
 };
 
 export function buildSourceModelFields(
@@ -228,7 +229,7 @@ export function mergeProviderModels(
     );
   });
 
-  if (!options?.preserveConfiguredModelMembership) {
+  if (!options?.preserveConfiguredModelMembership || options.retainDiscoveredModels) {
     for (const implicitModel of implicitModels) {
       const id = getModelId(implicitModel);
       if (!id || seen.has(id)) {

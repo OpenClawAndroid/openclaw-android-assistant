@@ -12,12 +12,12 @@ import { readPresenceEntries, type PresencePayload } from "../app/user-profile.t
 import { formatUiError } from "../lib/format-error.ts";
 import { isGatewayAvailable } from "../lib/gateway-availability.ts";
 import type { CatalogSessionContinuedDetail } from "../lib/sessions/catalog-key.ts";
+import { childSessionListQuery } from "../lib/sessions/child-session-data.ts";
 import type { SessionCapability } from "../lib/sessions/index.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import {
-  fetchChildSessionRows,
-  mergeRefreshedChildSessionRows,
+  hydrateSidebarChildSessions,
   retireStaleChildSessionRows,
 } from "./app-sidebar-child-session-data.ts";
 import { SessionCatalogLiveState } from "./app-sidebar-session-catalog-live.ts";
@@ -52,6 +52,15 @@ import {
 } from "./session-data-controller-events.ts";
 import { SessionDataScrollController } from "./session-data-scroll-controller.ts";
 import { SessionLineageController } from "./session-lineage-controller.ts";
+
+type ChildSessionQuery = {
+  observation?: ReturnType<SessionCapability["observeList"]>;
+  result?: SessionsListResult;
+  loading?: boolean;
+  childRead?: ReturnType<SessionLineageController["captureChildRead"]>;
+  hydration?: Promise<void>;
+  refresh?: Promise<void>;
+};
 
 /** Gateway-backed session-list and external-catalog data ownership. */
 export class SessionDataController implements ReactiveController, SessionCatalogDataOwner {
@@ -88,6 +97,7 @@ export class SessionDataController implements ReactiveController, SessionCatalog
   private unsubscribeFilteredSessions: (() => void) | null = null;
   private childSessionGeneration = 0;
   private childSessionCanonicalListRevision: number | null = null;
+  private readonly childSessionQueries = new Map<string, ChildSessionQuery>();
   private reconnectListRevision: number | null = null;
   private cachedSessionResult: SessionsListResult | null = null;
   private stopCatalogBrowserEvents: (() => void) | null = null;
@@ -204,6 +214,7 @@ export class SessionDataController implements ReactiveController, SessionCatalog
   }
 
   hostDisconnected(): void {
+    this.resetChildSessionState();
     this.retireFilteredSessions();
     this.stopCatalogBrowserEvents?.();
     this.stopCatalogBrowserEvents = null;
@@ -344,12 +355,16 @@ export class SessionDataController implements ReactiveController, SessionCatalog
   }
 
   private resetChildSessionState(preserveOperatorContext = false): void {
+    for (const query of this.childSessionQueries.values()) {
+      query.observation?.dispose();
+    }
+    this.childSessionQueries.clear();
     this.childSessionGeneration += 1;
     this.loadedChildSessionKeys = new Set();
     this.loadingChildSessionKeys = new Set();
+    this.childSessionErrorsByParent = new Map();
     if (!preserveOperatorContext) {
       this.childSessionRowsByParent = {};
-      this.childSessionErrorsByParent = new Map();
       this.activeSessionLineageRoot = null;
       this.activeSessionLineageSelectedRow = null;
     }
@@ -367,9 +382,12 @@ export class SessionDataController implements ReactiveController, SessionCatalog
     }
     if (this.childSessionCanonicalListRevision !== sessions.canonicalListRevision) {
       this.childSessionCanonicalListRevision = sessions.canonicalListRevision;
-      // Navigation retains snapshots for expanded or selected parents that revalidate and
-      // retires collapsed snapshots until reopened. Generation fencing and operator errors persist.
-      this.resetChildSessionState(true);
+      // Observed child queries own their freshness. Only unobserved, collapsed
+      // snapshots lose their presentation lease when the canonical list refreshes.
+      this.loadedChildSessionKeys = new Set(
+        [...this.loadedChildSessionKeys].filter((key) => this.childSessionQueries.has(key)),
+      );
+      this.lineage.reset(true);
       this.requestSessionDataUpdate();
     }
     if (hasSidebarListFilter(this.host)) {
@@ -440,6 +458,7 @@ export class SessionDataController implements ReactiveController, SessionCatalog
       return;
     }
     this.invalidateSessionMutations();
+    this.resetChildSessionState(true);
     this.gatewaySource = gateway;
     this.gatewayConnectionRevision = gateway.connectionRevision;
     this.gatewayClient = client;
@@ -519,74 +538,133 @@ export class SessionDataController implements ReactiveController, SessionCatalog
     return refreshSidebarSessionList(this, this.sessionsAgentId, true);
   }
 
-  retireStaleChildSessions = (revalidating: ReadonlySet<string>): void =>
+  retireStaleChildSessions(revalidating: ReadonlySet<string>): void {
+    for (const [key, query] of this.childSessionQueries) {
+      if (!revalidating.has(key) && !query.refresh && !query.hydration) {
+        query.observation?.dispose();
+        this.childSessionQueries.delete(key);
+        this.finishChildSessionLoad(key);
+      }
+    }
     retireStaleChildSessionRows(this, this.lineage.routeKey, revalidating);
+  }
 
-  async loadChildSessions(parentKey: string): Promise<void> {
+  async loadChildSessions(parentKey: string, retry = false): Promise<void> {
     const sessions = this.context?.sessions;
     if (
+      !this.host.isConnected ||
       !sessions ||
+      !sessions.captureConnectionScope() ||
       !parentKey ||
-      this.loadedChildSessionKeys.has(parentKey) ||
-      this.childSessionErrorsByParent.has(parentKey) ||
-      this.loadingChildSessionKeys.has(parentKey)
+      this.childSessionErrorsByParent.has(parentKey)
     ) {
       return;
     }
-    const generation = this.childSessionGeneration;
-    const childRead = this.lineage.captureChildRead();
-    if (!childRead.isCurrent()) {
+    const existing = this.childSessionQueries.get(parentKey);
+    if (existing) {
+      await existing.refresh;
+      await existing.hydration;
       return;
     }
-    this.loadingChildSessionKeys = new Set([...this.loadingChildSessionKeys, parentKey]);
-    this.requestSessionDataUpdate();
-    try {
-      const isCurrent = () =>
-        generation === this.childSessionGeneration &&
-        sessions === this.context?.sessions &&
-        childRead.isCurrent();
-      const rows = await fetchChildSessionRows({ sessions, parentKey, isCurrent });
-      if (!rows || !isCurrent()) {
-        return;
-      }
-      const accepted = rows.flatMap((row) => {
-        const outcome = childRead.reconcile(row);
-        return outcome.status === "selected" ? (outcome.row ? [outcome.row] : []) : [row];
-      });
+    const scope = childSessionListQuery(parentKey);
+    const query: ChildSessionQuery = {};
+    this.childSessionQueries.set(parentKey, query);
+    const isCurrent = () =>
+      this.host.isConnected &&
+      sessions === this.context?.sessions &&
+      this.childSessionQueries.get(parentKey) === query;
+    query.observation = sessions.observeList(scope, (snapshot) => {
       if (!isCurrent()) {
         return;
       }
-      // Server rows replace the snapshot, so removed children disappear; only the
-      // routed lineage survives omission because the selected pane still needs it.
-      this.childSessionRowsByParent = mergeRefreshedChildSessionRows(
-        this.lineage.routeKey,
-        this.childSessionRowsByParent,
-        parentKey,
-        sessions.projectRows(accepted),
-      );
-      this.loadedChildSessionKeys = new Set([...this.loadedChildSessionKeys, parentKey]);
-    } catch (error) {
-      if (generation !== this.childSessionGeneration || sessions !== this.context?.sessions) {
+      if (snapshot.loading) {
+        if (!query.loading) {
+          query.childRead = this.lineage.captureChildRead(scope);
+        }
+        query.loading = true;
+        this.loadingChildSessionKeys = new Set([...this.loadingChildSessionKeys, parentKey]);
+        this.requestSessionDataUpdate();
         return;
       }
-      // Stop the expanded-row update loop until the operator chooses Retry or collapse/reopen.
-      this.childSessionRowsByParent = {
-        ...this.childSessionRowsByParent,
-        [parentKey]: this.childSessionRowsByParent[parentKey] ?? [],
-      };
-      this.childSessionErrorsByParent = new Map(this.childSessionErrorsByParent).set(
-        parentKey,
-        formatUiError(error),
-      );
-      this.requestSessionDataUpdate();
-    } finally {
-      if (generation === this.childSessionGeneration && sessions === this.context?.sessions) {
-        const next = new Set(this.loadingChildSessionKeys);
-        next.delete(parentKey);
-        this.loadingChildSessionKeys = next;
-        this.requestSessionDataUpdate();
+      if (snapshot.error) {
+        if (retry && !query.observation) {
+          return;
+        }
+        query.loading = false;
+        this.childSessionErrorsByParent = new Map(this.childSessionErrorsByParent).set(
+          parentKey,
+          snapshot.error,
+        );
+        this.finishChildSessionLoad(parentKey);
+        return;
       }
+      const result = snapshot.result;
+      const refreshed = query.loading || !query.result;
+      query.loading = false;
+      if (!result) {
+        return;
+      }
+      if (!refreshed) {
+        // A sibling observation can update held row fields without a new page.
+        // Project those facts without restarting pagination or read admission.
+        const rows = this.childSessionRowsByParent[parentKey];
+        if (rows) {
+          const current = sessions.projectRows(rows);
+          if (current.some((row, index) => row !== rows[index])) {
+            this.childSessionRowsByParent = {
+              ...this.childSessionRowsByParent,
+              [parentKey]: current,
+            };
+            this.requestSessionDataUpdate();
+          }
+        }
+        return;
+      }
+      query.result = result;
+      if (query.hydration) {
+        return;
+      }
+      query.hydration = hydrateSidebarChildSessions({
+        owner: this,
+        parentKey,
+        sessions,
+        initialResult: result,
+        childRead: query.childRead ?? this.lineage.captureChildRead(scope),
+        ownsQuery: isCurrent,
+        selectedKey: () => this.lineage.routeKey,
+      }).finally(() => {
+        if (isCurrent()) {
+          query.hydration = undefined;
+          this.finishChildSessionLoad(parentKey);
+        }
+      });
+    });
+    if (!isCurrent()) {
+      query.observation.dispose();
+      return;
     }
+    query.refresh = query.observation
+      .refresh()
+      .catch(() => undefined)
+      .finally(() => {
+        query.refresh = undefined;
+        if (isCurrent()) {
+          this.requestSessionDataUpdate();
+        }
+      });
+    await query.refresh;
+    await query.hydration;
+  }
+
+  private finishChildSessionLoad(parentKey: string): void {
+    if (this.childSessionErrorsByParent.has(parentKey)) {
+      this.childSessionQueries.get(parentKey)?.observation?.dispose();
+      this.childSessionQueries.delete(parentKey);
+    }
+    const next = new Set(this.loadingChildSessionKeys);
+    next.delete(parentKey);
+    this.loadingChildSessionKeys = next;
+    this.requestSessionDataUpdate();
   }
 
   loadActiveSessionLineage(sessionKey: string): Promise<void> {
@@ -633,13 +711,16 @@ export class SessionDataController implements ReactiveController, SessionCatalog
   }
 
   retryChildSessions(sessionKey: string): void {
-    if (this.childSessionErrorsByParent.has(sessionKey)) {
+    const retry = this.childSessionErrorsByParent.has(sessionKey);
+    if (retry) {
       const errors = new Map(this.childSessionErrorsByParent);
       errors.delete(sessionKey);
       this.childSessionErrorsByParent = errors;
+      this.childSessionQueries.get(sessionKey)?.observation?.dispose();
+      this.childSessionQueries.delete(sessionKey);
       this.requestSessionDataUpdate();
     }
-    void this.loadChildSessions(sessionKey);
+    void this.loadChildSessions(sessionKey, retry);
   }
 
   private invalidateSessionMutations(): void {

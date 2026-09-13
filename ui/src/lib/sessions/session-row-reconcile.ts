@@ -113,7 +113,7 @@ export function preserveRosterPresentationMetadata(
   };
 }
 
-function isOlderSessionSnapshot(
+export function isOlderSessionSnapshot(
   incoming: GatewaySessionRow,
   existing: GatewaySessionRow | undefined,
 ): boolean {
@@ -204,7 +204,7 @@ type ParsedSessionChangedEvent = readonly [
   reason: string | null,
 ];
 
-function parseSessionChangedEvent(payload: unknown): ParsedSessionChangedEvent | null {
+export function parseSessionChangedEvent(payload: unknown): ParsedSessionChangedEvent | null {
   const event = recordOrNull(payload);
   if (!event) {
     return null;

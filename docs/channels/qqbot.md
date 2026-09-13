@@ -44,7 +44,7 @@ AppSecret is not stored in plaintext. If you leave the page without saving it, y
 openclaw channels add --channel qqbot --token "AppID:AppSecret"
 ```
 
-5. Restart the Gateway.
+5. Check `openclaw channels status --probe`; start the Gateway if it is offline. Config changes follow [hot reload](/gateway/configuration/hot-reload).
 
 ## Inbound durability
 

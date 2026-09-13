@@ -40,6 +40,7 @@ import {
   replacePersistedPluginModelCatalogs,
   type PersistedPluginModelCatalog,
 } from "./plugin-model-catalog.js";
+import type { ProviderCatalogInventoryCapture } from "./provider-model-membership.js";
 
 type ModelsConfigPluginMetadataSnapshot = Pick<
   PluginMetadataSnapshot,
@@ -59,6 +60,7 @@ type EnsureOpenClawModelsJsonOptions = {
 
 type PlanOpenClawModelsJsonSourceOptions = EnsureOpenClawModelsJsonOptions & {
   authStore?: AuthProfileStore;
+  providerCatalogInventory?: ProviderCatalogInventoryCapture;
 };
 
 type PlannedOpenClawModelsJsonSource = Readonly<{
@@ -358,7 +360,10 @@ export async function planOpenClawModelsJsonSource(
   agentDirOverride?: string,
   options: PlanOpenClawModelsJsonSourceOptions = {},
 ): Promise<PlannedOpenClawModelsJsonSource> {
-  const context = prepareModelsConfigContext(config, agentDirOverride, options);
+  const context = {
+    ...prepareModelsConfigContext(config, agentDirOverride, options),
+    providerCatalogInventory: options.providerCatalogInventory,
+  };
   const { agentDir } = context;
   const existingModelsFile = await readExistingModelsFile(path.join(agentDir, "models.json"));
   const existingPluginCatalogs = loadPersistedPluginModelCatalogsReadOnly(agentDir);

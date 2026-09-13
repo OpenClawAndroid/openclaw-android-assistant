@@ -266,6 +266,14 @@ uninstall commands use the running local Gateway when available; updates refresh
 it after the local package operation finishes. Without a running Gateway, those
 commands update the local installation for its next startup.
 
+In the default `hybrid` reload mode, saving plugin configuration in the Control
+UI, through `openclaw config`, or in `openclaw.json` also applies automatically.
+By default, changes under `plugins.entries.<id>` replace that plugin's runtime
+instance, so registration, tools, hooks, and services receive its new configuration.
+Unchanged plugins keep their instances. A plugin can declare a narrower policy
+that retains its instance or requires a restart; see
+[Config hot reload](/gateway/configuration/hot-reload).
+
 CLI installation supports npm, Git, local paths and archives, npm-pack tarballs,
 marketplace sources, and official or ClawHub packages through that same owner.
 See [Install](/cli/plugins#install) for source selection and capability consent.
@@ -476,7 +484,7 @@ If the same package is available on both ClawHub and npm, use the explicit
 
 ## Related
 
-- [Plugins](/tools/plugin) - install, configure, restart, and troubleshoot
+- [Plugins](/tools/plugin) - install, configure, reload, and troubleshoot
 - [`openclaw plugins`](/cli/plugins) - full CLI reference
 - [Community plugins](/plugins/community) - public discovery and ClawHub publishing
 - [ClawHub](/clawhub/cli) - registry CLI operations

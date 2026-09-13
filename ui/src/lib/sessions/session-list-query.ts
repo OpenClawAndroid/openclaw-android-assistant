@@ -18,7 +18,7 @@ import {
   DEFAULT_SESSION_LIST_QUERY,
   normalizeManagedSessionListQuery,
 } from "./session-requests.ts";
-import { readSessionChangedEvent } from "./session-row-reconcile.ts";
+import { parseSessionChangedEvent } from "./session-row-reconcile.ts";
 
 export function isForegroundReplacement(options: SessionRefreshOptions): boolean {
   return options.append !== true && options.backgroundHydrate !== true;
@@ -32,9 +32,10 @@ export function sessionListAgentMatcher(agentId?: string | null) {
 
 /** Capture membership before event reconciliation can remove or move a known child. */
 export function sessionListEventMatcher(payload: unknown) {
-  const info = readSessionChangedEvent(payload);
-  const event = asOptionalRecord(payload);
-  const source = asOptionalRecord(event?.session) ?? event;
+  const parsed = parseSessionChangedEvent(payload);
+  const info = parsed?.[0];
+  const event = parsed?.[1] ?? asOptionalRecord(payload);
+  const source = parsed?.[2];
   const agentId =
     info?.agentId ??
     parseAgentSessionKey(info?.key)?.agentId ??
@@ -45,7 +46,7 @@ export function sessionListEventMatcher(payload: unknown) {
     source?.spawnedBy,
     source?.parentSessionKey,
     event?.parentSessionKey,
-  ].filter((owner): owner is string => typeof owner === "string" && owner.trim().length > 0);
+  ];
   return (entry: ManagedSessionList): boolean => {
     const parent = entry.scope.spawnedBy;
     if (parent && info && areUiSessionKeysEquivalent(info.key, parent)) {
@@ -61,7 +62,7 @@ export function sessionListEventMatcher(payload: unknown) {
       entry.snapshot.result?.sessions.some((row) =>
         areUiSessionKeysEquivalent(row.key, info.key),
       ) ||
-      owners.some((owner) => areUiSessionKeysEquivalent(owner, parent))
+      owners.some((owner) => typeof owner === "string" && areUiSessionKeysEquivalent(owner, parent))
     ) {
       return true;
     }

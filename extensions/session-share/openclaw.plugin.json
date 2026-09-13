@@ -7,7 +7,7 @@
   "uiHints": {
     "share.groups": {
       "label": "Shared Session Groups",
-      "help": "Only sessions in these exact group names are published. Incognito, draft, and adopted catalog sessions are never shared."
+      "help": "Only sessions in these exact group names are published. Subagent, incognito, draft, and adopted catalog sessions are never shared."
     },
     "nodes": {
       "label": "Paired Node Attribution",

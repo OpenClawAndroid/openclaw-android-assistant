@@ -48,6 +48,7 @@ describe("ManagedWorktreeService filesystem acceleration", () => {
     // Hosted runners can install system-wide LFS filters, which intentionally
     // disable acceleration. Each case owns its checkout policy instead.
     vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+    vi.stubEnv("GIT_ATTR_NOSYSTEM", "1");
     const root = tempDirs.make("openclaw-worktree-acceleration-");
     repo = await initializeRepository(root);
     env = { ...process.env, OPENCLAW_STATE_DIR: path.join(root, "state") };

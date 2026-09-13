@@ -217,6 +217,46 @@ describe("resolveAllowAlwaysPatterns", () => {
     }
   }
 
+  function registerStaleAllowAlwaysCases(
+    cases: Array<{ name: string; command: string; packageManagers: string[] }>,
+    extraExecutables: string[],
+  ) {
+    for (const { name, command, packageManagers } of cases) {
+      it(name, async () => {
+        if (process.platform === "win32") {
+          return;
+        }
+        const dir = makeExecApprovalsTempDir();
+        const allowlist = packageManagers.map((executable) => ({
+          pattern: makeExecutable(dir, executable),
+          source: "allow-always" as const,
+        }));
+        for (const executable of extraExecutables) {
+          makeExecutable(dir, executable);
+        }
+        const result = await evaluateShellAllowlistWithAuthorization({
+          command,
+          allowlist,
+          safeBins: resolveSafeBins(undefined),
+          cwd: dir,
+          env: makePathEnv(dir),
+          platform: process.platform,
+        });
+
+        expect(result.allowlistSatisfied).toBe(false);
+        expect(result.segmentAllowlistEntries).toEqual([null]);
+        expect(
+          requiresExecApproval({
+            ask: "on-miss",
+            security: "allowlist",
+            analysisOk: result.analysisOk,
+            allowlistSatisfied: result.allowlistSatisfied,
+          }),
+        ).toBe(true);
+      });
+    }
+  }
+
   it("returns direct executable paths for non-shell segments", () => {
     const exe = path.join("/tmp", "openclaw-tool");
     const patterns = resolveAllowAlwaysPatterns({
@@ -1399,204 +1439,41 @@ $0 \\"$1\\"" touch {marker}`,
     });
   });
 
-  it("rejects stale package-manager allow-always entries for shell carriers", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const pnpmPath = makeExecutable(dir, "pnpm");
-    makeExecutable(dir, "sh");
-    makeExecutable(dir, "id");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "pnpm exec sh -c 'id > marker'",
-      allowlist: [{ pattern: pnpmPath, source: "allow-always" }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
-
-  it.each(["exec", "x"])(
-    "rejects stale npm allow-always entries when unknown options hide %s",
-    async (subcommand) => {
-      if (process.platform === "win32") {
-        return;
-      }
-      const dir = makeExecApprovalsTempDir();
-      const npmPath = makeExecutable(dir, "npm");
-      makeExecutable(dir, "sh");
-      makeExecutable(dir, "id");
-      const env = makePathEnv(dir);
-      const safeBins = resolveSafeBins(undefined);
-
-      const result = await evaluateShellAllowlistWithAuthorization({
+  registerStaleAllowAlwaysCases(
+    [
+      {
+        name: "rejects stale package-manager allow-always entries for shell carriers",
+        command: "pnpm exec sh -c 'id > marker'",
+        packageManagers: ["pnpm"],
+      },
+      ...["exec", "x"].map((subcommand) => ({
+        name: `rejects stale npm allow-always entries when unknown options hide ${subcommand}`,
         command: `npm --unknown-global-option ${subcommand} sh -c 'id > marker'`,
-        allowlist: [{ pattern: npmPath, source: "allow-always" }],
-        safeBins,
-        cwd: dir,
-        env,
-        platform: process.platform,
-      });
-
-      expect(result.allowlistSatisfied).toBe(false);
-      expect(result.segmentAllowlistEntries).toEqual([null]);
-      expect(
-        requiresExecApproval({
-          ask: "on-miss",
-          security: "allowlist",
-          analysisOk: result.analysisOk,
-          allowlistSatisfied: result.allowlistSatisfied,
-        }),
-      ).toBe(true);
-    },
+        packageManagers: ["npm"],
+      })),
+      {
+        name: "rejects stale pnpm allow-always entries when unknown options hide exec",
+        command: "pnpm --unknown-global-option exec sh -c 'id > marker'",
+        packageManagers: ["pnpm"],
+      },
+      {
+        name: "rejects stale npm allow-always entries for x shell carriers",
+        command: "npm x sh -c 'id > marker'",
+        packageManagers: ["npm"],
+      },
+      {
+        name: "rejects stale package-manager allow-always entries for chained shell carriers",
+        command: "pnpm exec -- npm x sh -c 'id > marker'",
+        packageManagers: ["pnpm", "npm"],
+      },
+      {
+        name: "rejects stale yarn allow-always entries for exec-like carriers",
+        command: "yarn exec -- sh -c 'id > marker'",
+        packageManagers: ["yarn"],
+      },
+    ],
+    ["sh", "id"],
   );
-
-  it("rejects stale pnpm allow-always entries when unknown options hide exec", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const pnpmPath = makeExecutable(dir, "pnpm");
-    makeExecutable(dir, "sh");
-    makeExecutable(dir, "id");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "pnpm --unknown-global-option exec sh -c 'id > marker'",
-      allowlist: [{ pattern: pnpmPath, source: "allow-always" }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects stale npm allow-always entries for x shell carriers", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const npmPath = makeExecutable(dir, "npm");
-    makeExecutable(dir, "sh");
-    makeExecutable(dir, "id");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "npm x sh -c 'id > marker'",
-      allowlist: [{ pattern: npmPath, source: "allow-always" }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects stale package-manager allow-always entries for chained shell carriers", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const pnpmPath = makeExecutable(dir, "pnpm");
-    const npmPath = makeExecutable(dir, "npm");
-    makeExecutable(dir, "sh");
-    makeExecutable(dir, "id");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "pnpm exec -- npm x sh -c 'id > marker'",
-      allowlist: [
-        { pattern: pnpmPath, source: "allow-always" },
-        { pattern: npmPath, source: "allow-always" },
-      ],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects stale yarn allow-always entries for exec-like carriers", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const yarnPath = makeExecutable(dir, "yarn");
-    makeExecutable(dir, "sh");
-    makeExecutable(dir, "id");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "yarn exec -- sh -c 'id > marker'",
-      allowlist: [{ pattern: yarnPath, source: "allow-always" }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
 
   it.each([
     { command: "npm run test -- x", executable: "npm" },
@@ -1650,100 +1527,25 @@ $0 \\"$1\\"" touch {marker}`,
     },
   );
 
-  it("rejects stale pnpm allow-always entries for implicit exec shorthands", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const pnpmPath = makeExecutable(dir, "pnpm");
-    makeExecutable(dir, "eslint");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "pnpm eslint .",
-      allowlist: [{ pattern: pnpmPath, source: "allow-always" }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects stale pnpm allow-always entries for cwd implicit exec shorthands", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const dir = makeExecApprovalsTempDir();
-    const pnpmPath = makeExecutable(dir, "pnpm");
-    makeExecutable(dir, "eslint");
-    const env = makePathEnv(dir);
-    const safeBins = resolveSafeBins(undefined);
-
-    const result = await evaluateShellAllowlistWithAuthorization({
-      command: "pnpm -C ./package eslint .",
-      allowlist: [{ pattern: pnpmPath, source: "allow-always" }],
-      safeBins,
-      cwd: dir,
-      env,
-      platform: process.platform,
-    });
-
-    expect(result.allowlistSatisfied).toBe(false);
-    expect(result.segmentAllowlistEntries).toEqual([null]);
-    expect(
-      requiresExecApproval({
-        ask: "on-miss",
-        security: "allowlist",
-        analysisOk: result.analysisOk,
-        allowlistSatisfied: result.allowlistSatisfied,
-      }),
-    ).toBe(true);
-  });
-
-  it.each(["yarn run eslint .", "yarn eslint ."])(
-    "rejects stale yarn allow-always entries for script or bin fallback: %s",
-    async (command) => {
-      if (process.platform === "win32") {
-        return;
-      }
-      const dir = makeExecApprovalsTempDir();
-      const yarnPath = makeExecutable(dir, "yarn");
-      makeExecutable(dir, "eslint");
-      const env = makePathEnv(dir);
-      const safeBins = resolveSafeBins(undefined);
-
-      const result = await evaluateShellAllowlistWithAuthorization({
+  registerStaleAllowAlwaysCases(
+    [
+      {
+        name: "rejects stale pnpm allow-always entries for implicit exec shorthands",
+        command: "pnpm eslint .",
+        packageManagers: ["pnpm"],
+      },
+      {
+        name: "rejects stale pnpm allow-always entries for cwd implicit exec shorthands",
+        command: "pnpm -C ./package eslint .",
+        packageManagers: ["pnpm"],
+      },
+      ...["yarn run eslint .", "yarn eslint ."].map((command) => ({
+        name: `rejects stale yarn allow-always entries for script or bin fallback: ${command}`,
         command,
-        allowlist: [{ pattern: yarnPath, source: "allow-always" }],
-        safeBins,
-        cwd: dir,
-        env,
-        platform: process.platform,
-      });
-
-      expect(result.allowlistSatisfied).toBe(false);
-      expect(result.segmentAllowlistEntries).toEqual([null]);
-      expect(
-        requiresExecApproval({
-          ask: "on-miss",
-          security: "allowlist",
-          analysisOk: result.analysisOk,
-          allowlistSatisfied: result.allowlistSatisfied,
-        }),
-      ).toBe(true);
-    },
+        packageManagers: ["yarn"],
+      })),
+    ],
+    ["eslint"],
   );
 
   it("requires bound args for package-manager shell script carriers", async () => {

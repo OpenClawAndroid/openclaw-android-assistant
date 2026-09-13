@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import webPush from "web-push";
 import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
+import { trackSqliteStatementExecutions } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import {
   insertOperatorApproval,
   resolveOperatorApproval,
@@ -763,24 +764,56 @@ describe("approval delivery target persistence", () => {
 describe("sending", () => {
   const keys = { p256dh: "p256dh-key", auth: "auth-key" };
 
-  it("configures VAPID details once before broadcasting", async () => {
-    await registerWebPushSubscription({
-      endpoint: "https://push.example.com/a",
-      keys,
-      baseDir: tmpDir,
+  it("configures VAPID once and broadcasts without fetching device preferences", async () => {
+    for (const suffix of ["a", "b"]) {
+      const endpoint = `https://push.example.com/${suffix}`;
+      await registerWebPushSubscription({
+        endpoint,
+        keys,
+        binding: { deviceId: suffix, userProfileId: null },
+        baseDir: tmpDir,
+      });
+      expect(
+        setWebPushSubscriptionPreferences({
+          endpoint,
+          expectedDeviceId: suffix,
+          expectedUserProfileId: null,
+          preferences: {
+            enabled: true,
+            label: "Browser",
+            agentIds: Array.from({ length: 128 }, (_, i) => `agent-${i}`.padEnd(128, "x")),
+          },
+          stateDir: tmpDir,
+        }),
+      ).toBe(true);
+    }
+    const subscriptions = listWebPushSubscriptions(tmpDir);
+    const { db } = openOpenClawStateDatabase({
+      env: { ...process.env, OPENCLAW_STATE_DIR: tmpDir },
     });
-    await registerWebPushSubscription({
-      endpoint: "https://push.example.com/b",
-      keys,
-      baseDir: tmpDir,
-    });
+    const reads = trackSqliteStatementExecutions(db, ["subscriptions"], (sql) =>
+      /^select\b/i.test(sql) && sql.includes('"web_push_subscriptions"') ? "subscriptions" : null,
+    );
 
-    const results = await broadcastWebPush({ title: "Broadcast" }, tmpDir);
+    try {
+      const results = await broadcastWebPush({ title: "Broadcast" }, tmpDir);
 
-    expect(results).toHaveLength(2);
-    expect(results.every((result) => result.ok)).toBe(true);
-    expect(vi.mocked(webPush.setVapidDetails)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(webPush.sendNotification)).toHaveBeenCalledTimes(2);
+      expect(results).toEqual(
+        subscriptions.map(({ subscriptionId }) => ({ ok: true, subscriptionId, statusCode: 201 })),
+      );
+      expect(vi.mocked(webPush.setVapidDetails)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(webPush.sendNotification).mock.calls).toEqual(
+        subscriptions.map(({ endpoint, keys: subscriptionKeys }) => [
+          { endpoint, keys: subscriptionKeys },
+          JSON.stringify({ title: "Broadcast" }),
+          undefined,
+        ]),
+      );
+      expect(reads.rowCounts.subscriptions).toBe(2);
+      expect(reads.textBytes.subscriptions).toBeLessThan(2_048);
+    } finally {
+      reads.restore();
+    }
   });
 
   it("sends a bounded high-urgency notification only to selected subscriptions", async () => {

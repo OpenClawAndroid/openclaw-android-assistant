@@ -346,6 +346,17 @@ private func makeRuntimeTestConfigSnapshot(
         issues: nil)
 }
 
+private func makeRuntimeTestCatalogData() throws -> Data {
+    try JSONEncoder().encode(TalkCatalogResult(
+        modes: [], transports: [], brains: [], speech: [:], transcription: [:],
+        realtime: [
+            "activeProvider": AnyCodable("openai"),
+            "providers": AnyCodable([
+                ["id": AnyCodable("openai"), "supportsBargeIn": AnyCodable(true)],
+            ]),
+        ]))
+}
+
 private func makeRuntimeTestBootstrap(
     requests: RuntimeTestRelayRequestLog = RuntimeTestRelayRequestLog(),
     createBarrier: RuntimeContinuationBarrier? = nil,
@@ -383,6 +394,9 @@ private func makeRuntimeTestBootstrap(
             }
             if method == "talk.session.close" {
                 events.continuation.finish()
+            }
+            if method == "talk.catalog" {
+                return try makeRuntimeTestCatalogData()
             }
             return Data("{\"ok\":true}".utf8)
         },
@@ -562,7 +576,7 @@ struct TalkModeRuntimeSpeechTests {
                 _ = try await recoveryStarted.next("replacement realtime microphone")
                 #expect(recoveryCapture.startCount == 1)
                 #expect(await runtime.rapidRealtimeRestartCount == 1)
-                #expect(await recoveryRequests.snapshot().methods == ["talk.session.create"])
+                #expect(await recoveryRequests.snapshot().methods == ["talk.session.create", "talk.catalog"])
                 let replacement = try #require(await runtime.realtimeSession)
                 #expect(replacement !== session)
             } catch {
@@ -570,8 +584,10 @@ struct TalkModeRuntimeSpeechTests {
                 throw error
             }
             await runtime.setEnabled(false)
-            try await recoveryRequests.waitForCount(2)
-            #expect(await recoveryRequests.snapshot().methods == ["talk.session.create", "talk.session.close"])
+            try await recoveryRequests.waitForCount(3)
+            #expect(await recoveryRequests.snapshot().methods == [
+                "talk.session.create", "talk.catalog", "talk.session.close",
+            ])
         }
     }
 
@@ -791,6 +807,9 @@ struct TalkModeRuntimeSpeechTests {
                             seq: nil,
                             stateversion: nil))
                         return resultData
+                    }
+                    if method == "talk.catalog" {
+                        return try makeRuntimeTestCatalogData()
                     }
                     return Data("{\"ok\":true}".utf8)
                 }),
@@ -1012,7 +1031,7 @@ struct TalkModeRuntimeSpeechTests {
 
             _ = await attempt.value
             #expect(await sequence.requestCount() == 2)
-            #expect(await requests.snapshot().methods == ["talk.session.create"])
+            #expect(await requests.snapshot().methods == ["talk.session.create", "talk.catalog"])
             #expect(await runtime.realtimeSession != nil)
             #expect(await runtime.realtimeModelId == "fresh-model")
             await runtime.setEnabled(false)

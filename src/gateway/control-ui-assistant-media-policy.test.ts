@@ -536,47 +536,34 @@ describe("assistant image session policy", () => {
         const ticket = String((await request(source)).payload!.mediaTicket);
         const openFile = fs.open;
         let dispatched = false;
+        let preparedFile: Awaited<ReturnType<typeof fs.open>> | undefined;
         const openSpy = vi.spyOn(fs, "open").mockImplementation(async (filePath, flags, mode) => {
           const file = await openFile(filePath, flags, mode);
           if (filePath === source && !dispatched) {
+            preparedFile = file;
             dispatched = true;
-            let placement = placements.startDispatch({
+            // Dispatch admission already withdraws Gateway-local access; activation needs an
+            // attached environment and must not turn this file-open hook into a false 404.
+            placements.startDispatch({
               sessionId: entry.sessionId,
               sessionKey,
               agentId: "main",
               executionMode: "worker-turn",
             });
-            for (const [to, patch] of [
-              ["provisioning", { environmentId: "media-worker" }],
-              ["syncing", { workerBundleHash: "a".repeat(64) }],
-              [
-                "starting",
-                {
-                  workspaceBaseManifestRef: `sha256:${"b".repeat(64)}`,
-                  remoteWorkspaceDir: "/remote/workspace",
-                },
-              ],
-              ["active", { activeOwnerEpoch: 1 }],
-            ] as const) {
-              placement = placements.transition({
-                sessionId: entry.sessionId,
-                from: placement.state,
-                to,
-                expectedGeneration: placement.generation,
-                patch,
-              });
-            }
           }
           return file;
         });
         try {
           const denied = await request(source, { ticket, bytes: operation === "bytes" });
           expect(dispatched).toBe(true);
+          expect(placements.get(entry.sessionId)?.state).toBe("requested");
+          expect(preparedFile?.fd).toBe(-1);
           expect(entry.execNode).toBeUndefined();
           expect(denied.res.statusCode).toBe(404);
           expect(denied.bytes).not.toEqual(PNG);
         } finally {
           openSpy.mockRestore();
+          await preparedFile?.close();
         }
       });
     },

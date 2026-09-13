@@ -52,7 +52,7 @@ function fixture(repair = false) {
     database.db.exec(`DROP INDEX idx_agent_cache_expiry; ${wrongIndex};`);
   }
   const pathname = database.path;
-  closeOpenClawAgentDatabaseByPath(pathname);
+  closeOpenClawAgentDatabasesForTest(root);
   const state = openOpenClawStateDatabase({ env: options.env });
   const leases = () => state.db.prepare("SELECT lease_id FROM agent_database_leases").all();
   return { options, pathname, state, leases };

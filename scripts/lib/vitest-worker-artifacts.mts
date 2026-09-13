@@ -81,13 +81,14 @@ export function isVitestWorkerDeclaration(id: string): boolean {
 }
 
 /** One finite request over the already-owned Node IPC channel; never a path/build request. */
-export function requestVitestWorkerArtifacts(): Promise<void> {
+export function requestVitestWorkerArtifacts(signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!process.send || !process.connected) {
       reject(new Error("Compiled subprocess owner IPC is unavailable"));
       return;
     }
     const finish = (error?: Error) => {
+      signal?.removeEventListener("abort", onAbort);
       process.off("message", onMessage);
       process.off("disconnect", onDisconnect);
       process.channel?.unref();
@@ -97,6 +98,7 @@ export function requestVitestWorkerArtifacts(): Promise<void> {
         resolve();
       }
     };
+    const onAbort = () => finish(new Error("Compiled subprocess preparation request canceled"));
     const onDisconnect = () => finish(new Error("Compiled subprocess owner disconnected"));
     const onMessage = (message: unknown) => {
       if (
@@ -110,6 +112,11 @@ export function requestVitestWorkerArtifacts(): Promise<void> {
     };
     process.on("message", onMessage);
     process.once("disconnect", onDisconnect);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     process.channel?.ref();
     process.send(VITEST_WORKER_PREPARE_REQUEST, (error) => {
       if (error) {

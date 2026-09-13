@@ -26,12 +26,13 @@ import {
   assertSupportedAgentSchemaVersion,
   readExistingAgentSchemaMeta,
 } from "./openclaw-agent-db-schema-helpers.js";
+import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import { resolveOpenClawAgentSqlitePath } from "./openclaw-agent-db.paths.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db-contract.js";
 
 /** Denial still invokes run under admission, with a throwing authority check, to permit cleanup. */
 export type OpenClawAgentDatabaseWriteAdmission = <T>(
-  run: (assertCurrent: () => void) => T | Promise<T>,
+  run: (assertCurrent: () => void, validation?: OpenClawAgentDatabaseValidation) => T | Promise<T>,
 ) => Promise<T>;
 
 /** Refusal must unwind ownership without entering corruption repair or changing its caller error. */
@@ -155,7 +156,7 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     let suspended = false;
     try {
       while (true) {
-        const outcome = await withAdmission(async (assertCurrent) => {
+        const outcome = await withAdmission(async (assertCurrent, validation) => {
           try {
             assertCurrent();
             assertOpenClawAgentDatabaseAdmissionCurrent(options, pending, check?.database);
@@ -167,6 +168,7 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
               }),
             };
           }
+          pending.validation = validation;
           suspended = false;
           const step = failure ? steps.throw(failure.error) : steps.next();
           if (!step.done) {

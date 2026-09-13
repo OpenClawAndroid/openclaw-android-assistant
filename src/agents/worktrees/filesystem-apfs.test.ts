@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import { getApfsCloneId } from "../../../test/helpers/apfs.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
@@ -9,6 +11,23 @@ describe.skipIf(process.platform !== "darwin")("APFS worktree filesystem", () =>
   const tempDirs = useAutoCleanupTempDirTracker(afterEach);
   const options = { commitGuard: () => {} };
   afterEach(() => vi.restoreAllMocks());
+
+  it("distinguishes empty, inheritable and unreadable directory ACLs", async () => {
+    const root = tempDirs.make("openclaw-apfs-acl-");
+    const { apfsFilesystem } = await import("./filesystem-apfs.native.js");
+    expect(apfsFilesystem.readDirectoryAcl(root)).toBe("none");
+    expect(apfsFilesystem.readDirectoryAcl(path.join(root, "missing"))).toBeUndefined();
+    const cases = [
+      ["everyone allow read", "non-inheritable"],
+      ["everyone allow read,file_inherit", "inheritable"],
+      ["everyone allow read,directory_inherit", "inheritable"],
+    ] as const;
+    for (const [entry, expected] of cases) {
+      await promisify(execFile)("/bin/chmod", ["-N", root]);
+      await promisify(execFile)("/bin/chmod", ["+a", entry, root]);
+      expect(apfsFilesystem.readDirectoryAcl(root)).toBe(expected);
+    }
+  });
 
   it("shares file data while preserving modes, dotfiles, and literal symlinks", async () => {
     const root = tempDirs.make("openclaw-apfs-clone-");

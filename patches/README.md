@@ -15,12 +15,13 @@ runner, and `@vitest/runner@5.0.0` is not published, so no standalone runner
 dependency or patch remains. The published package integrity is
 `sha512-gpsMNoRhMjMktVxPtstOH4/PJuPyovVaMDr4oDilXaGH1EcqM2OE96SoHT2VIQ6fTGtTjqmHDrEu2X9RQiXf8Q==`.
 The patch SHA-256 is
-`76a69c6de8bc85bb68eebebddf7e1e798a4ebf46d36ad60e6447ebc62c49f702`
-and it changes exactly these seven published files:
+`883cdb073fe7cc1097c58700a80e0fe180b3d08a5313222fa91eeb989849c675`
+and it changes exactly these eight published files:
 
 | Target | Published SHA-256 | Patched SHA-256 |
 | --- | --- | --- |
 | `dist/chunks/cac.D805sv8h.js` | `a0971660b8c52884366a1ca3dceb6a7eb7ff41e2e3cfaed27b98395ed054e1d0` | `f37acc539be54a668448c9ae1faeacc4b37df68f81952a21001c377a775da55e` |
+| `dist/chunks/index.1_nbEjJY.js` | `9868c71ba3a06ca6f9890c60a9e6b298762b0fca74b09595a8f76340d3f92fe9` | `ad9069287604e97d9e965f7f5a74dc5d23da2e8420ce1cbd2d051765d37d900b` |
 | `dist/chunks/index.B89dZ0-N.js` | `7ae1406d3a808a5a2915895eede01e4e79fac5838f5a6457adbffd78df1bf56d` | `54a978632cf3584e4507bed3f09ba22d6f344ec45bac5ea37fda0b9718b59e58` |
 | `dist/chunks/index.OVGXnVRj.js` | `57c89e884bab20623afc06a58119c70c4f2e06397ae63e961ad0a0810c9a94b5` | `c4b8a1c9f865c4719d1bf01d871d89fd405b9a3141f2ef9bc9690e1d5078d0a8` |
 | `dist/chunks/init-forks.CiCtIMPj.js` | `ef8cf8283d7b420d2fae017b8f284555ed67e207ea12fa9f53ab28421168adfc` | `ce9b827f016907bd054c9c8041e70db67ba28943c13a0b66b8551b5b51f1fafa` |
@@ -30,6 +31,14 @@ and it changes exactly these seven published files:
 
 The patch owns these temporary invariants and removal gates:
 
+- **Mock resolution (`index.1_nbEjJY.js`):** module fetches join the mocker's
+  serialized resolution before reading its registry, even after the pending-id
+  queue is emptied by an in-flight pass. Resolution drains ids queued during a
+  pass; failed callers retain their errors without poisoning later callers.
+  Shared-worker cleanup joins the native completion tail. Remove this hunk when
+  stock Vitest passes `test/scripts/vitest-mock-resolution.test.ts` and the
+  original cold Gateway CI group containing
+  `authenticated-request-dispatch.lifetime.test.ts`.
 - **CLI validation (`cac.D805sv8h.js`):** public `parseCLI` validates unknown
   options, required values, and required arguments without executing a command.
   Help/version and `allowUnknownOptions` retain native semantics. Remove this

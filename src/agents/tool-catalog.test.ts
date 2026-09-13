@@ -119,6 +119,14 @@ describe("tool-catalog", () => {
     expect(requirePolicyAllow("minimal")).toEqual(["session_status", "gateway"]);
   });
 
+  it("treats pdf as a known media core tool, not a plugin id", () => {
+    const mediaIds = listCoreToolSections()
+      .find((section) => section.id === "media")
+      ?.tools.map((tool) => tool.id);
+    expect(mediaIds).toContain("pdf");
+    expect(mediaIds).toContain("tts");
+  });
+
   it("full profile uses wildcard to grant all tools (#76507)", () => {
     const policy = requireCoreToolProfilePolicy("full");
     expect(policy.allow).toEqual(["*"]);

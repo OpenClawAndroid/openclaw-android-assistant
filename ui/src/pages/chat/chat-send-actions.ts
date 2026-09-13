@@ -44,7 +44,6 @@ import type { ChatHistoryHost } from "./chat-state-contract.ts";
 import { storedChatOutboxScopeKey } from "./composer-persistence.ts";
 import { formatConnectError } from "./connect-error.ts";
 import {
-  activeQueuedMessageEdit,
   isQueuedMessageBeingEdited,
   QUEUED_MESSAGE_RETRY_CONFLICT_ERROR,
   QUEUED_MESSAGE_REORDER_CONFLICT_ERROR,
@@ -165,7 +164,7 @@ export const flushChatQueueForEvent = (host: ChatHost) =>
 export const retryReconnectableQueuedChatSends = resumeStoredChatOutboxes;
 
 /**
- * Moves a queued row to `toIndex` within its own movable segment. A locked row
+ * Moves a queued row to the target row's position in its own movable segment. A locked row
  * ends that segment, so the move can never carry a message past work the drain
  * is still waiting on. Every changed row commits as one durable unit, so a
  * storage failure mid-permutation leaves the prior order intact instead of a
@@ -176,7 +175,7 @@ type ChatQueueMoveResult = "moved" | "rejected" | "noop";
 export function moveQueuedChatMessage(
   host: ChatHost,
   id: string,
-  toIndex: number,
+  targetId: string,
 ): ChatQueueMoveResult {
   const owner = chatOutboxOwner(host);
   const located = owner.locate(host, id);
@@ -188,37 +187,27 @@ export function moveQueuedChatMessage(
     return "rejected";
   }
   const scope = owner.snapshot(host, located.scope);
-  // This pane already excludes its own edited row from rendered move indices,
-  // but cannot see edits owned by peers. Rebuild that exact offered index space
-  // so a peer-edit barrier is distinguishable from an ordinary no-op.
-  const localEditId = activeQueuedMessageEdit(host)?.id;
-  const offeredSegment = chatQueueMovableSegments(
-    scope,
-    (row) => isMovableChatQueueItem(row) && row.id !== localEditId,
-  ).find((rows) => rows.some((row) => row.id === id));
+  // Stable targets survive display filtering and intervening queue changes.
+  // Inspect edits before splitting so crossing a peer's edit remains a visible conflict.
+  const offeredSegment = chatQueueMovableSegments(scope).find((rows) =>
+    rows.some((row) => row.id === id),
+  );
   const fromIndex = offeredSegment?.findIndex((row) => row.id === id) ?? -1;
-  const requestedIndex = offeredSegment
-    ? Math.min(Math.max(toIndex, 0), offeredSegment.length - 1)
-    : -1;
-  if (fromIndex < 0 || fromIndex === requestedIndex) {
+  const requestedIndex = offeredSegment?.findIndex((row) => row.id === targetId) ?? -1;
+  if (fromIndex < 0 || requestedIndex < 0 || fromIndex === requestedIndex) {
     return "noop";
   }
-  const crossedPeerEdit = offeredSegment!.some(
-    (row, index) =>
-      index >= Math.min(fromIndex, requestedIndex) &&
-      index <= Math.max(fromIndex, requestedIndex) &&
-      row.id !== id &&
-      isQueuedMessageBeingEdited(host, row.id),
-  );
+  const crossedPeerEdit = offeredSegment!
+    .slice(Math.min(fromIndex, requestedIndex), Math.max(fromIndex, requestedIndex) + 1)
+    .some((row) => isQueuedMessageBeingEdited(host, row.id));
   if (crossedPeerEdit) {
     setChatError(host, QUEUED_MESSAGE_REORDER_CONFLICT_ERROR);
     return "rejected";
   }
   const segment = chatQueueMovableSegments(
-    scope,
-    (row) => isMovableChatQueueItem(row) && !isQueuedMessageBeingEdited(host, row.id),
+    offeredSegment!,
+    (row) => !isQueuedMessageBeingEdited(host, row.id),
   ).find((rows) => rows.some((row) => row.id === id));
-  const targetId = offeredSegment![requestedIndex]?.id;
   const segmentTargetIndex = segment?.findIndex((row) => row.id === targetId) ?? -1;
   const moves = reorderChatQueueItems(segment ?? [], id, segmentTargetIndex);
   if (moves.length === 0) {

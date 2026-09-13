@@ -15,6 +15,7 @@ import {
 } from "../../plugins/registry-lifecycle.js";
 import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { createPluginRecord } from "../../plugins/status.test-helpers.js";
+import { invalidateOpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import {
   closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabasesAsync,
@@ -255,6 +256,7 @@ it.each(cases)(
     const f = fixture();
     if (mode === "cold-preparation") {
       expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+      invalidateOpenClawAgentDatabaseValidation(f.databasePath);
     }
     const probe = observeAdmission(f.databasePath);
     const entered = createDeferred();
@@ -269,6 +271,7 @@ it.each(cases)(
       await release.promise;
       if (mode === "cold-commit") {
         expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+        invalidateOpenClawAgentDatabaseValidation(f.databasePath);
       }
     };
     const operation = own<string | SessionEntryLifecycleMutationResult>(
@@ -415,6 +418,7 @@ it.each(["selection", "stale", "denied"] as const)(
           });
         }
         expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+        invalidateOpenClawAgentDatabaseValidation(f.databasePath);
         return {
           result: undefined,
           replacements: entries.map(({ entry, sessionKey }) => ({
@@ -463,6 +467,7 @@ it("keeps lifecycle commit denial before its stale-row check after admission", a
         updatedAt: Date.now(),
       });
       expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+      invalidateOpenClawAgentDatabaseValidation(f.databasePath);
       return { ...currentEntry!, label: "uncommitted" };
     },
   );
@@ -499,6 +504,7 @@ it("reacquires post-builder references before planning lifecycle transcript dele
   const builder = vi.fn(
     ({ currentEntry }: { currentEntry?: import("./types.js").SessionEntry }) => {
       expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+      invalidateOpenClawAgentDatabaseValidation(f.databasePath);
       return { ...currentEntry!, usageFamilySessionIds: ["original"] };
     },
   );
@@ -535,6 +541,7 @@ it("reacquires the split lifecycle commit after real archive materialization", a
       "session.transcript.batch",
     );
     expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+    invalidateOpenClawAgentDatabaseValidation(f.databasePath);
   };
   const work = own(
     applySessionEntryLifecycleMutation({
@@ -597,6 +604,7 @@ it.each([false, true])(
         "session.transcript.batch",
       );
       expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+      invalidateOpenClawAgentDatabaseValidation(f.databasePath);
     });
     const harness: AgentHarness = {
       id: "prepared-native",
@@ -715,6 +723,7 @@ it.each(
       );
       if (cold) {
         expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+        invalidateOpenClawAgentDatabaseValidation(f.databasePath);
       }
     };
     const work = own<void | SessionEntryLifecycleMutationResult>(
@@ -797,6 +806,7 @@ it("rechecks maintenance lifetime after cold finalizer admission", async () => {
   const probe = observeAdmission(f.databasePath, true);
   hooks.afterMaterialize = async () => {
     expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+    invalidateOpenClawAgentDatabaseValidation(f.databasePath);
   };
   let current = true;
   const work = own(
@@ -830,6 +840,7 @@ it.each([false, true])(
       },
       withSessionDeletion: async (params, run) => {
         expect(closeOpenClawAgentDatabaseByPath(f.databasePath)).toBe(true);
+        invalidateOpenClawAgentDatabaseValidation(f.databasePath);
         params.assertCurrent();
         return await run({ commit, rollback });
       },

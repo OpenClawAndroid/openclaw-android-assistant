@@ -161,7 +161,11 @@ export function buildResetDividerItem(
 }
 
 function queuedSendStarted(item: ChatQueueItem): boolean {
-  return typeof item.sendSubmittedAtMs === "number" || (item.sendAttempts ?? 0) > 0;
+  // Submitting offline records timing without attempting delivery.
+  return (
+    (item.sendAttempts ?? 0) > 0 ||
+    (item.sendState !== "waiting-reconnect" && typeof item.sendSubmittedAtMs === "number")
+  );
 }
 
 export function isQueuedSendInlineState(item: ChatQueueItem): boolean {
@@ -170,6 +174,7 @@ export function isQueuedSendInlineState(item: ChatQueueItem): boolean {
     !item.localCommandName &&
     (item.sendState === "failed" ||
       item.sendState === "unconfirmed" ||
+      item.sendState === "waiting-reconnect" ||
       (item.sendState === "waiting-idle" && Boolean(item.sendError)))
   );
 }
@@ -180,7 +185,6 @@ export function shouldRenderQueuedSendInThread(item: ChatQueueItem): boolean {
     queuedSendStarted(item) &&
     (item.sendState === "waiting-model" ||
       item.sendState === "sending" ||
-      item.sendState === "waiting-reconnect" ||
       isQueuedSendInlineState(item))
   );
 }

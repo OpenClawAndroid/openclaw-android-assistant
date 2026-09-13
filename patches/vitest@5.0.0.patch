@@ -16,6 +16,83 @@ index 3b3446e1720bf0f2a6f78e11f091260fffc57c84..9b076b8fea2d246c5a1e3cc48f36a4c2
  	if (arrayArgs[2] === "watch" || arrayArgs[2] === "dev") options.watch = true;
  	if (arrayArgs[2] === "run" && !options.watch) options.run = true;
  	if (arrayArgs[2] === "related") {
+diff --git a/dist/chunks/index.1_nbEjJY.js b/dist/chunks/index.1_nbEjJY.js
+index dd5788b88d076ea855bfe28090bbc9944d0588a5..6c5617a66154a2ecc40024979ff58bd5d2853c9c 100644
+--- a/dist/chunks/index.1_nbEjJY.js
++++ b/dist/chunks/index.1_nbEjJY.js
+@@ -16,6 +16,7 @@ import { Console } from 'node:console';
+ class BareModuleMocker {
+ 	options;
+ 	static pendingIds = [];
++	pendingMockResolution = Promise.resolve();
+ 	spyModule;
+ 	primitives;
+ 	registries = /* @__PURE__ */ new Map();
+@@ -101,27 +102,35 @@ class BareModuleMocker {
+ 			};
+ 		});
+ 	}
+-	async resolveMocks() {
+-		if (!BareModuleMocker.pendingIds.length) return;
+-		const pendingIds = BareModuleMocker.pendingIds;
+-		BareModuleMocker.pendingIds = [];
+-		const resolveMock = async (mock) => {
+-			return {
+-				mock,
+-				...await this.resolveId(mock.id, mock.importer)
++	resolveMocks() {
++		// The queue empties before awaited resolution; every fetch must still join
++		// that pass before reading its registry, including calls with no new ids.
++		const pass = this.pendingMockResolution.then(() => this.resolvePendingMocks());
++		this.pendingMockResolution = pass.catch(() => {});
++		return pass;
++	}
++	async resolvePendingMocks() {
++		while (BareModuleMocker.pendingIds.length) {
++			const pendingIds = BareModuleMocker.pendingIds;
++			BareModuleMocker.pendingIds = [];
++			const resolveMock = async (mock) => {
++				return {
++					mock,
++					...await this.resolveId(mock.id, mock.importer)
++				};
+ 			};
+-		};
+-		// group consecutive mocks of the same action type together,
+-		// resolve in parallel inside each group, but run groups sequentially
+-		// to preserve mock/unmock ordering
+-		const groups = groupByConsecutiveAction(pendingIds);
+-		for (const group of groups) {
+-			// apply in queue order: two mocks of the same path can resolve out of
+-			// order, and the last queued one must win
+-			const resolvedGroup = await Promise.all(group.map(resolveMock));
+-			for (const { mock, id, url, external } of resolvedGroup) {
+-				if (mock.action === "unmock") this.unmockPath(id);
+-				if (mock.action === "mock") this.mockPath(mock.id, id, url, external, mock.type, mock.factory);
++			// group consecutive mocks of the same action type together,
++			// resolve in parallel inside each group, but run groups sequentially
++			// to preserve mock/unmock ordering
++			const groups = groupByConsecutiveAction(pendingIds);
++			for (const group of groups) {
++				// apply in queue order: two mocks of the same path can resolve out of
++				// order, and the last queued one must win
++				const resolvedGroup = await Promise.all(group.map(resolveMock));
++				for (const { mock, id, url, external } of resolvedGroup) {
++					if (mock.action === "unmock") this.unmockPath(id);
++					if (mock.action === "mock") this.mockPath(mock.id, id, url, external, mock.type, mock.factory);
++				}
+ 			}
+ 		}
+ 	}
+@@ -748,7 +757,7 @@ function startVitestModuleRunner(options) {
+ 				const rawId = unwrapId(id);
+ 				resolvingModules.add(rawId);
+ 				try {
+-					if (VitestMocker.pendingIds.length) await moduleRunner.mocker.resolveMocks();
++					await moduleRunner.mocker.resolveMocks();
+ 					if (!isImportActual) {
+ 						const resolvedMock = moduleRunner.mocker.getDependencyMockByUrl(id);
+ 						if (resolvedMock?.type === "manual" || resolvedMock?.type === "redirect") return {
 diff --git a/dist/chunks/index.B89dZ0-N.js b/dist/chunks/index.B89dZ0-N.js
 index 50abf4fbed1dc8670b7941ee466a7c8443840c5f..3cc3794a08088868bf8fc9482d65166f05781803 100644
 --- a/dist/chunks/index.B89dZ0-N.js

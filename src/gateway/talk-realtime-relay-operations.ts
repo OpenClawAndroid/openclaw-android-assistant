@@ -10,6 +10,7 @@ import type {
   RealtimeVoiceCloseOptions,
   RealtimeVoiceToolResultOptions,
 } from "../talk/provider-types.js";
+import { resolveRealtimeVoiceBargeIn } from "../talk/realtime-session-policy.js";
 import type { TalkEvent } from "../talk/talk-session-controller.js";
 import { abortChatRunById } from "./chat-abort.js";
 import { resolveOwnedActiveTalkRunTarget } from "./server-methods/talk-client-run-ownership.js";
@@ -100,7 +101,7 @@ export function pruneInactiveRelayAgentRuns(session: RelaySession): number {
 export function closeRelaySession(
   session: RelaySession,
   reason: "completed" | "error",
-  options?: RealtimeVoiceCloseOptions,
+  options?: RealtimeVoiceCloseOptions & { eventReason?: "output-cancelled" },
 ): void | Promise<void> {
   if (session.closing) {
     if (reason === "error") {
@@ -135,7 +136,9 @@ export function closeRelaySession(
       reason: closing.reason,
       talkEvent: session.harness.talk.emit({
         type: "session.closed",
-        payload: { reason: closing.reason },
+        payload: {
+          reason: closing.reason === "error" ? "error" : (options?.eventReason ?? closing.reason),
+        },
         final: true,
       }),
     });
@@ -598,6 +601,32 @@ export async function cancelTalkRealtimeRelayTurn(params: {
   if (session.outputOwnership.phase === "owned" && session.outputOwnership.turnId !== turnId) {
     return { status: "stale" as const };
   }
+  const reason = params.reason ?? "client-cancelled";
+  const cancelTurn = () => {
+    const cancelled = session.harness.talk.cancelTurn({ turnId, payload: { reason } });
+    broadcastToOwner(session.context, session.connId, {
+      relaySessionId: session.id,
+      type: "clear",
+      talkEvent: cancelled.ok ? cancelled.event : undefined,
+    });
+  };
+  if (
+    !resolveRealtimeVoiceBargeIn({
+      configuredBargeIn: true,
+      interruptResponseOnInputAudio: true,
+      capabilities: session.capabilities,
+      outputAudioMode: session.bridge.bridge.outputAudioMode,
+    })
+  ) {
+    if (reason === "barge-in") {
+      return { status: "idle" as const };
+    }
+    // Continuous providers cannot confirm a cancelled response. Explicit stops end
+    // the session through its graceful owner instead of waiting for that event.
+    cancelTurn();
+    await closeRelaySession(session, "completed", { eventReason: "output-cancelled" });
+    return { status: "applied" as const, turnId };
+  }
   const forcedConsults = session.harness.forcedConsults.handles().map((handle) => ({
     handle,
     nativeCallIds: session.harness.forcedConsults.nativeCallIds(handle),
@@ -608,7 +637,6 @@ export async function cancelTalkRealtimeRelayTurn(params: {
   ]);
   const terminalEpoch = ++session.toolResultEpoch;
   session.forcedTerminalProviderResults.clear();
-  const reason = params.reason ?? "client-cancelled";
   if (
     !session.toolCalls.markCancelled(
       [...rootCallIds, ...forcedConsults.flatMap(({ nativeCallIds }) => nativeCallIds)],
@@ -633,26 +661,16 @@ export async function cancelTalkRealtimeRelayTurn(params: {
   session.outputOwnership.turnId = turnId;
   const cancellationDrained = (session.outputOwnership.drain = createDeferredCore());
   abortRelayAgentRuns(session, reason);
-  const cancelled = session.harness.talk.cancelTurn({
-    turnId,
-    payload: { reason },
-  });
-  broadcastToOwner(session.context, session.connId, {
-    relaySessionId: session.id,
-    type: "clear",
-    talkEvent: cancelled.ok ? cancelled.event : undefined,
-  });
-  const closeAfterCancellation = () => {
+  cancelTurn();
+  setTimeout(() => {
     if (
       relaySessions.get(session.id) === session &&
       session.toolResultEpoch === terminalEpoch &&
       session.outputOwnership.phase === "cancelling"
     ) {
-      session.outputOwnership.drain?.resolve();
       void closeRelaySession(session, "completed");
     }
-  };
-  setTimeout(closeAfterCancellation, TURN_BOUND_CANCELLATION_DRAIN_MS).unref?.();
+  }, TURN_BOUND_CANCELLATION_DRAIN_MS).unref?.();
   void Promise.allSettled(
     [...rootCallIds].map(async (callId) => {
       await submitTalkRealtimeRelayToolResult({

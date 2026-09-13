@@ -8,10 +8,14 @@ import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js"
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import { clearRuntimeAuthProfileStoreSnapshots } from "../auth-profiles/runtime-snapshots.js";
+import type { ModelCatalogSnapshot } from "../model-catalog.types.js";
+import { isPreparedModelCatalogFull } from "../prepared-model-runtime.full-catalog.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "../prepared-model-runtime.test-support.js";
+import type { PreparedModelRuntimeSnapshot } from "../prepared-model-runtime.types.js";
+
+const waitTimeoutMs = 30_000;
 
 export function usePreparedCatalogWorkerFixtures() {
-  const waitTimeoutMs = 30_000;
   const retirements = new Set<() => void | Promise<void>>();
   const workers = new Set<Worker>();
   // Synchronous capture also covers failures before a worker request is awaited.
@@ -78,6 +82,7 @@ export function writeSyntheticAuthDiscoveryFixture(params: {
   fs.writeFileSync(
     path.join(params.pluginDir, "provider-discovery.cjs"),
     `const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(path.join(params.root, "discovery-artifact-paths.jsonl"))}, JSON.stringify({ threadId: require("node:worker_threads").threadId, filename: __filename }) + "\\n");
 fs.appendFileSync(${JSON.stringify(path.join(params.root, "discovery-artifacts.txt"))}, ${JSON.stringify(params.pluginVersion)} + "\\n");
 module.exports = {
   id: ${JSON.stringify(params.harnessId)},
@@ -124,4 +129,42 @@ export function markPluginMetadataSnapshotProvided(
   snapshot: PluginMetadataSnapshot,
 ): PluginMetadataSnapshot {
   return { ...snapshot, registrySource: "provided", registryDiagnostics: [] };
+}
+
+export function readCatalogDiscoveryCaptures(root: string) {
+  return fs
+    .readFileSync(path.join(root, "discovery-artifact-paths.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { threadId: number; filename: string });
+}
+
+/** Full-result assertions follow publication after the bounded foreground read returns. */
+export async function loadCompletedFullCatalog(
+  snapshot: PreparedModelRuntimeSnapshot,
+  options?: { refresh?: boolean },
+): Promise<ModelCatalogSnapshot> {
+  const previous = snapshot.readFullModelCatalog!();
+  await snapshot.loadFullModelCatalog!(options);
+  let completed: ModelCatalogSnapshot | undefined;
+  await expect
+    .poll(
+      () => {
+        const catalog = snapshot.readFullModelCatalog!();
+        if (
+          catalog &&
+          isPreparedModelCatalogFull(catalog) &&
+          !catalog.pendingProviders?.length &&
+          !catalog.refreshFailed &&
+          (!options?.refresh || catalog !== previous)
+        ) {
+          completed = catalog;
+          return true;
+        }
+        return false;
+      },
+      { timeout: waitTimeoutMs },
+    )
+    .toBe(true);
+  return completed!;
 }

@@ -83,6 +83,24 @@ function evaluateRuntimeRequires(params: RuntimeRequirementEvalParams): boolean 
     return true;
   }
 
+  const requiredEnv = requires.env ?? [];
+  if (requiredEnv.length > 0) {
+    for (const envName of requiredEnv) {
+      if (!params.hasEnv(envName)) {
+        return false;
+      }
+    }
+  }
+
+  const requiredConfig = requires.config ?? [];
+  if (requiredConfig.length > 0) {
+    for (const configPath of requiredConfig) {
+      if (!params.isConfigPathTruthy(configPath)) {
+        return false;
+      }
+    }
+  }
+
   const requiredBins = requires.bins ?? [];
   if (requiredBins.length > 0) {
     for (const bin of requiredBins) {
@@ -101,24 +119,6 @@ function evaluateRuntimeRequires(params: RuntimeRequirementEvalParams): boolean 
     const anyFound = requiredAnyBins.some((bin) => params.hasBin(bin));
     if (!anyFound && !params.hasAnyRemoteBin?.(requiredAnyBins)) {
       return false;
-    }
-  }
-
-  const requiredEnv = requires.env ?? [];
-  if (requiredEnv.length > 0) {
-    for (const envName of requiredEnv) {
-      if (!params.hasEnv(envName)) {
-        return false;
-      }
-    }
-  }
-
-  const requiredConfig = requires.config ?? [];
-  if (requiredConfig.length > 0) {
-    for (const configPath of requiredConfig) {
-      if (!params.isConfigPathTruthy(configPath)) {
-        return false;
-      }
     }
   }
 

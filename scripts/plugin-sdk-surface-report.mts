@@ -370,7 +370,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +2: canonical credential-value functions through the narrow secret-input surface.
       // +1: shared removed-model choice recovery text for channel consumers.
       // +2: shared stored-account key selection and its plugin-owned policy type.
-      4464,
+      // +1: shared per-connection webhook request ordering for channel listeners.
+      4465,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -506,7 +507,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: prepared model-specific runtime choice reader.
       // +2: canonical env-value reader and managed SecretRef marker constructor.
       // +1: shared stored-account key selection for channel readers and writers.
-      2638,
+      // +1: shared per-connection webhook request ordering for channel listeners.
+      2639,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

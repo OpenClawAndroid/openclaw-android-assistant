@@ -17,7 +17,7 @@ import { getOrCreateSessionCacheValue, setSessionCacheValue } from "./session-ca
 export {
   isPendingSendMessage,
   persistedMessageEntryId,
-  readPendingSendFailure,
+  readPendingSendStatus,
 } from "./chat-thread-items.ts";
 export {
   assistantGroupCanOwnActiveRunStatus,

@@ -12,6 +12,7 @@ import {
   type BufferedCommandResult,
   type CommandOptions,
 } from "../process/exec.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { areDiagnosticsEnabledForProcess } from "./diagnostic-events.js";
 import {
@@ -104,28 +105,49 @@ export async function enqueueGitRefMutation<T>(
   cwd: string,
   commonDirectory: string,
   run: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const timing = startRefMutationTiming();
   let outcome: "returned" | "threw" = "threw";
+  const admitted = { run, signal, timing, completion: createDeferredCore<T>() };
+  let waiting: typeof admitted | undefined = admitted;
+  const abort = () => {
+    const cancelled = waiting;
+    waiting = undefined;
+    cancelled?.completion.reject(cancelled.signal?.reason);
+  };
   try {
+    signal?.throwIfAborted();
     const commonPath = normalizeGitPathForFilesystem(commonDirectory);
     const commonDir = await fs.realpath(path.resolve(cwd, commonPath));
+    signal?.throwIfAborted();
     const key = process.platform === "win32" ? commonDir.toLowerCase() : commonDir;
     // Even deleting a loose ref locks shared packed-refs. Queue every ref owner
     // across linked worktrees; external contention retains its native error.
     timing?.enqueue();
-    const result = await gitRefMutations.enqueue(
-      key,
-      timing
-        ? () => {
-            timing.enter();
-            return run();
-          }
-        : run,
-    );
+    signal?.addEventListener("abort", abort, { once: true });
+    const queued = gitRefMutations.enqueue(key, async () => {
+      // Cancellation drops the entire caller, including its rejected promise and reason.
+      // Once started, the process owner must finish cleanup before we settle.
+      const active = waiting;
+      waiting = undefined;
+      if (!active) {
+        return;
+      }
+      try {
+        active.signal?.removeEventListener("abort", abort);
+        active.timing?.enter();
+        active.completion.resolve(await active.run());
+      } catch (error) {
+        active.completion.reject(error);
+      }
+    });
+    void queued.catch((error: unknown) => waiting?.completion.reject(error));
+    const result = await admitted.completion.promise;
     outcome = "returned";
     return result;
   } finally {
+    signal?.removeEventListener("abort", abort);
     timing?.finish(outcome);
   }
 }

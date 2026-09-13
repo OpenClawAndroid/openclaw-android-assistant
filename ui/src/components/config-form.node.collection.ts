@@ -192,7 +192,7 @@ export function renderObject(
           ${renderTags(tags)}
         </div>
         <div class="settings-row__control">
-          <span class="settings-row__chevron cfg-object__chevron">${icons.chevronDown}</span>
+          <span class="settings-row__chevron cfg-object__chevron">${icons.chevronRight}</span>
         </div>
       </summary>
       <div class="settings-subrows">${fields}</div>

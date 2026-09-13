@@ -124,7 +124,7 @@ export async function runGit(
       killProcessTree: options.killProcessTree ?? (fetchesRefs && gitArgs === args),
     });
   };
-  return await withGitRefAdmission(cwd, args, run);
+  return await withGitRefAdmission(cwd, args, run, options.signal);
 }
 
 /** Parent-only command execution for text consumers whose decoding runs in a worker. */
@@ -135,23 +135,33 @@ export async function runGitBytes(
 ) {
   const baseEnv = options.baseEnv ?? { ...process.env };
   const env = gitEnvironment(options.env, args, process.platform, baseEnv);
-  return await withGitRefAdmission(cwd, args, (gitArgs) => {
-    if (gitArgs === args) {
-      options.beforeRun?.();
-    }
-    return executeGitCommandBytes(cwd, gitArgs, {
-      ...options,
-      baseEnv,
-      env,
-      input: gitArgs === args ? options.input : undefined,
-      killProcessTree: options.killProcessTree ?? (args[0] === "fetch" && gitArgs === args),
-    });
-  });
+  return await withGitRefAdmission(
+    cwd,
+    args,
+    (gitArgs) => {
+      if (gitArgs === args) {
+        options.beforeRun?.();
+      }
+      return executeGitCommandBytes(cwd, gitArgs, {
+        ...options,
+        baseEnv,
+        env,
+        input: gitArgs === args ? options.input : undefined,
+        killProcessTree: options.killProcessTree ?? (args[0] === "fetch" && gitArgs === args),
+      });
+    },
+    options.signal,
+  );
 }
 
 async function withGitRefAdmission<
   T extends { termination: string; code: number | null; stdout: string | Uint8Array },
->(cwd: string, args: string[], run: (args: string[]) => Promise<T>): Promise<T> {
+>(
+  cwd: string,
+  args: string[],
+  run: (args: string[]) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
   const mutatesRefs =
     args[0] === "fetch" ||
     args[0] === "update-ref" ||
@@ -175,7 +185,24 @@ async function withGitRefAdmission<
           ),
           windowsEncoding: resolveWindowsConsoleEncoding(),
         });
-  return await enqueueGitRefMutation(cwd, commonDir.trim(), () => run(args));
+  let entered = false;
+  try {
+    return await enqueueGitRefMutation(
+      cwd,
+      commonDir.trim(),
+      () => {
+        entered = true;
+        return run(args);
+      },
+      signal,
+    );
+  } catch (error) {
+    if (!entered && signal?.aborted && error === signal.reason) {
+      // The runner owns cancellation results and returns before spawning with this signal.
+      return await run(args);
+    }
+    throw error;
+  }
 }
 
 /** Byte-preserving Git transport shared by worker inventories and ordinary callers. */
@@ -198,22 +225,27 @@ export async function runGitBuffered(
   }
   const baseEnv = options.baseEnv ?? { ...process.env };
   const env = gitEnvironment(options.env, args, process.platform, baseEnv);
-  return await withGitRefAdmission(cwd, args, (gitArgs) => {
-    if (gitArgs === args) {
-      options.beforeRun?.();
-    }
-    const argv = ["git", "-C", cwd, ...gitArgs];
-    return runCommandBuffered(
-      options.killProcessTree === false ? argv : withForegroundGitMaintenance(argv),
-      {
-        ...options,
-        timeoutMs: options.timeoutMs ?? GIT_TIMEOUT_MS,
-        input: gitArgs === args ? options.input : undefined,
-        baseEnv,
-        env,
-      },
-    );
-  });
+  return await withGitRefAdmission(
+    cwd,
+    args,
+    (gitArgs) => {
+      if (gitArgs === args) {
+        options.beforeRun?.();
+      }
+      const argv = ["git", "-C", cwd, ...gitArgs];
+      return runCommandBuffered(
+        options.killProcessTree === false ? argv : withForegroundGitMaintenance(argv),
+        {
+          ...options,
+          timeoutMs: options.timeoutMs ?? GIT_TIMEOUT_MS,
+          input: gitArgs === args ? options.input : undefined,
+          baseEnv,
+          env,
+        },
+      );
+    },
+    options.signal,
+  );
 }
 
 export function commandError(command: string, result: GitResult): Error {

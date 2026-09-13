@@ -348,6 +348,10 @@ export type CronJobState = Omit<
   runningReceiptId?: string;
   /** Nonce for a committed schedule edit during the pending run. */
   runningScheduleChangeId?: string;
+  /** Unresolved recovery scope and last notified signature, when an alert was requested. */
+  failureAlertIncident?: { signature?: string; scope: "run" | "trigger" };
+  /** Fences notification settlement when multiple cycles share a timestamp. */
+  lastFailureNotificationId?: string;
   /** Number of consecutive schedule computation errors. Auto-disables job after threshold. */
   scheduleErrorCount?: number;
   /** @deprecated Use lastRunStatus. */
@@ -375,6 +379,7 @@ export type CronTriggerFailureCode =
   | "output_limit_exceeded"
   | "snapshot_limit_exceeded"
   | "internal_error"
+  | "plugin_reload_failed"
   | "tool_budget_exceeded";
 
 /** Result union returned by the cron trigger-script evaluator. */

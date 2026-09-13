@@ -7,12 +7,8 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "./openclaw-state-db.js";
-import {
-  ensureUserPreferencesSchema,
-  getUserPreferences,
-  mergeUserPreferences,
-  setUserPreferences,
-} from "./user-preferences.js";
+import { getUserPreferences, setUserPreferences } from "./user-preferences.js";
+import { ensureUserPreferencesSchema, mergeUserPreferences } from "./user-preferences.store.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 

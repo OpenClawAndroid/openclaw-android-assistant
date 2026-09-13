@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire, isBuiltin } from "node:module";
@@ -627,9 +628,20 @@ export function createPluginPackageMetadataCapture(params: {
   };
 }
 
+const sourceCaptureDirectory = new AsyncLocalStorage<string>();
+
+/** A compute worker's parent reclaims this scratch directory after confirmed exit. */
+export function withPluginSourceCaptureDirectory<T>(directory: string, run: () => T): T {
+  return sourceCaptureDirectory.run(directory, run);
+}
+
 /** Admissions and failed-input receipts belong to one source acquisition lifetime. */
 export function createPluginSourceCapture(execute?: <T>(run: () => T) => T) {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "openclaw-plugin-build-")));
+  const directory = fs.realpathSync(
+    fs.mkdtempSync(
+      path.join(sourceCaptureDirectory.getStore() ?? tmpdir(), "openclaw-plugin-build-"),
+    ),
+  );
   fs.chmodSync(directory, 0o700);
   const inputs = new Map<string, PluginSourceInput>();
   const pendingInputs = new Set<string>();

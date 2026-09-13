@@ -10,7 +10,15 @@ import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
 import { createDeferredCore, type Deferred } from "../../shared/deferred.js";
-import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
+import {
+  withOpenClawAgentDatabaseReadOnly,
+  type OpenClawAgentReadOnlyDatabase,
+} from "../../state/openclaw-agent-db-readonly.js";
+import {
+  adoptOpenClawAgentDatabaseValidation,
+  getOpenClawAgentDatabaseValidation,
+  type OpenClawAgentDatabaseValidation,
+} from "../../state/openclaw-agent-db-validation-cache.js";
 import {
   encodeSessionArchiveContent,
   readSessionArchiveContentSync,
@@ -34,6 +42,18 @@ import type { SessionStateDeleteSnapshot } from "./session-accessor.sqlite-delet
 
 const log = createSubsystemLogger("session-sqlite");
 const SLOW_RECLAMATION_WORKER_MS = 1_000;
+
+type ReclamationValidationOwner = {
+  database: OpenClawAgentReadOnlyDatabase;
+  isCurrent: () => boolean;
+};
+
+type TranscriptArchiveWorkerResponse<Result> = {
+  results: Result[];
+  type: string;
+  admissionId?: number;
+  validation?: OpenClawAgentDatabaseValidation;
+};
 
 export type SessionStateDeletePlan = {
   agentId: string;
@@ -307,6 +327,7 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(params: {
   diagnostics?: SqliteSessionReclamationDiagnostics;
   expectedMessageType: "done" | "published" | "reclaimed";
   onCommitRequest?: () => void;
+  validationOwner?: ReclamationValidationOwner;
   withWriteAdmission?: (
     run: (refusal?: { error: unknown }) => Promise<Result[] | undefined>,
     diagnostics: SqliteSessionReclamationAdmissionDiagnostics,
@@ -339,6 +360,7 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(params: {
   let exitCode: number | undefined;
   const operation = new Promise<Result[]>((resolve, reject) => {
     let results: Result[] | undefined;
+    let validation: OpenClawAgentDatabaseValidation | undefined;
     let workerError: Error | undefined;
     let admission:
       | {
@@ -350,7 +372,7 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(params: {
     let admissionId = 0;
     let exited = false;
     const admissionTasks: Promise<void>[] = [];
-    worker.on("message", (message: { results: Result[]; type: string; admissionId?: number }) => {
+    worker.on("message", (message: TranscriptArchiveWorkerResponse<Result>) => {
       if (message.type === "commit-request") {
         try {
           params.onCommitRequest?.();
@@ -379,11 +401,16 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(params: {
           if (refusal) {
             workerError ??= toStringifiedError(refusal.error);
           }
+          const allowed = refusal === undefined && workerError === undefined;
           worker.postMessage(
             {
               type: "admission",
               admissionId: requested.id,
-              allowed: refusal === undefined && workerError === undefined,
+              allowed,
+              validation:
+                allowed && params.validationOwner?.isCurrent()
+                  ? getOpenClawAgentDatabaseValidation(params.validationOwner.database)
+                  : undefined,
             },
             [],
           );
@@ -430,6 +457,7 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(params: {
         released.released.resolve();
       } else if (message.type === params.expectedMessageType) {
         (results ??= []).push(...message.results);
+        validation = message.validation;
       }
     });
     worker.once("error", (error) => {
@@ -445,17 +473,22 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(params: {
         admission.released.resolve();
       }
       worker.removeAllListeners();
-      void Promise.all(admissionTasks).then(() => {
-        if (workerError) {
-          reject(workerError);
-        } else if (code !== 0) {
-          reject(new Error(`SQLite transcript archive worker exited with code ${code}`));
-        } else if (!results) {
-          reject(new Error("SQLite transcript archive worker exited without results"));
-        } else {
-          resolve(results);
-        }
-      }, reject);
+      void Promise.all(admissionTasks)
+        .then(() => {
+          if (workerError) {
+            reject(workerError);
+          } else if (code !== 0) {
+            reject(new Error(`SQLite transcript archive worker exited with code ${code}`));
+          } else if (!results) {
+            reject(new Error("SQLite transcript archive worker exited without results"));
+          } else {
+            if (validation && params.validationOwner?.isCurrent()) {
+              adoptOpenClawAgentDatabaseValidation(params.validationOwner.database, validation);
+            }
+            resolve(results);
+          }
+        })
+        .catch(reject);
     });
   });
   if (reclamationKind) {
@@ -496,6 +529,7 @@ export function runSqliteTranscriptArchiveWorkerOperation<Result>(params: {
   diagnostics?: SqliteSessionReclamationDiagnostics;
   expectedMessageType: "done" | "published" | "reclaimed";
   onCommitRequest?: () => void;
+  validationOwner?: ReclamationValidationOwner;
   withWriteAdmission?: (
     run: (refusal?: { error: unknown }) => Promise<Result[] | undefined>,
     diagnostics: SqliteSessionReclamationAdmissionDiagnostics,

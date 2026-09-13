@@ -10,6 +10,7 @@ export const APPEARANCE_SETTINGS_TARGET_IDS = {
   textSize: "settings-appearance-text-size",
   sidebar: "settings-appearance-sidebar",
   chat: "settings-appearance-chat",
+  sessionSources: "settings-session-sources",
   connection: "settings-appearance-connection",
 } as const;
 
@@ -23,6 +24,7 @@ export const SETTINGS_ROUTE_TARGETS = {
   },
   appearanceLanguage: appearanceSettingsRouteTarget(APPEARANCE_SETTINGS_TARGET_IDS.language),
   appearanceSidebar: appearanceSettingsRouteTarget(APPEARANCE_SETTINGS_TARGET_IDS.sidebar),
+  sessionSources: appearanceSettingsRouteTarget(APPEARANCE_SETTINGS_TARGET_IDS.sessionSources),
 } as const;
 
 export type ConfigRouteData = {

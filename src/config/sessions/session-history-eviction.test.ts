@@ -812,6 +812,10 @@ describe("SQLite historical session disk budget", () => {
                   usageFamilySessionIds: ["reference-old"],
                 }),
               );
+            // Complete the canonical writer's validity settlement for this healthy fixture row.
+            writer
+              .prepare("UPDATE session_nodes SET entry_valid = 1 WHERE session_key = ?")
+              .run(referringKey);
           } finally {
             if (writer !== owner.db) {
               writer.close();

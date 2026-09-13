@@ -625,6 +625,7 @@ async function handleChatHistoryRequest({
   const boundedInFlightRun = boundInFlightRunSnapshotForChatHistory({
     snapshot: inFlightRun,
     messages: capped,
+    getMessagesBytes: () => byteCounter.messagesBytes(capped),
     maxBytes: responseHistoryBytes,
   });
   const payload = {

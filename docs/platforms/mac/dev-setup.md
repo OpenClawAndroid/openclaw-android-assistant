@@ -51,6 +51,10 @@ then replaces the previous app. `scripts/restart-mac.sh` uses
 the same path; `SKIP_TSC=1` does not bypass the runtime build. Existing
 content-checked build caches still avoid unnecessary declaration work.
 
+Set `OPENCLAW_NODE_VERSION=<version>` when packaging to select a supported Node
+version for every private worker. If unset or empty, the CLI installer's default
+applies. Packaging installs and verifies the complete worker with that runtime.
+
 Each worker keeps native binaries that support its architecture and omits
 incompatible macOS, Linux, and Windows prebuilds. This prevents unused Intel-only
 dependencies from triggering macOS compatibility warnings in Apple silicon

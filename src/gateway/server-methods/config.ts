@@ -25,6 +25,7 @@ import {
 import { formatConfigIssueLines } from "../../config/issue-format.js";
 import { applyMergePatch, createMergePatch } from "../../config/merge-patch.js";
 import { normalizeSubmittedConfigModelRefs } from "../../config/model-input-normalization.js";
+import { isBuiltInModelProviderOverlayId } from "../../config/model-provider-overlay-ids.js";
 import { ConfigMutationConflictError } from "../../config/mutation-conflict.js";
 import {
   collectBaseArrayPaths,
@@ -41,7 +42,6 @@ import {
   validateConfigObjectRawWithPlugins,
   validateConfigObjectWithPlugins,
 } from "../../config/validation.js";
-import { isBuiltInModelProviderOverlayId } from "../../config/zod-schema.core.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { isPlainObject } from "../../infra/plain-object.js";
 import { getActivePluginRegistryVersion } from "../../plugins/runtime.js";

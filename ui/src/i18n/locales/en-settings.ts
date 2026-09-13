@@ -978,6 +978,21 @@ const enSettings = {
       collapseTaskProgressHint:
         "Keep task progress collapsed while work is active, then expand it when the response finishes.",
     },
+    sessionSources: {
+      title: "Session sources",
+      hint: "Choose which coding apps show their existing conversations in the sidebar.",
+      scope: "Applies to everyone on this Gateway. Changes require a Gateway restart.",
+      claude: "Show Claude Code sessions",
+      codex: "Show Codex sessions",
+      opencode: "Show OpenCode sessions",
+      pi: "Show Pi sessions",
+      sourceHint:
+        "Discover conversations on this Gateway and eligible paired computers. Requires the {plugin} plugin to be enabled.",
+      empty: "No supported session source plugins are installed. Add one in Manage plugins.",
+      unavailable:
+        "Session source settings are unavailable. Reconnect or reload Settings to try again.",
+      managePlugins: "Manage plugins",
+    },
     sidebarPrefs: {
       title: "Sidebar",
       hint: "Choose what appears while sessions are running.",

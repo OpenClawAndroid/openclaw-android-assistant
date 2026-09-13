@@ -1,9 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import type { Page } from "playwright";
 import { expect, it } from "vitest";
 import {
   captureUiProofEnabled,
   createChatFlowE2eSuite,
+  expectRequestCountStable,
   installMockGateway,
 } from "./chat-flow.test-support.ts";
 import { createControlUiE2eContextOptions } from "./control-ui-e2e-suite.test-support.ts";
@@ -11,6 +13,32 @@ import { createControlUiE2eContextOptions } from "./control-ui-e2e-suite.test-su
 const suite = createChatFlowE2eSuite();
 
 const QUEUED = ["review the migration", "then update the docs", "finally run the smoke"] as const;
+
+function storedQueueOrder(page: Page) {
+  return page.evaluate(() =>
+    Object.entries(sessionStorage)
+      .filter(([key]) => key.startsWith("openclaw.control.chatComposer.v4:"))
+      .flatMap(([, value]) => {
+        try {
+          const parsed = JSON.parse(value) as {
+            sessions?: Record<
+              string,
+              { queue?: { text?: unknown; orderKey?: unknown; createdAt?: unknown }[] }
+            >;
+          };
+          return Object.values(parsed.sessions ?? {}).flatMap((session) => session.queue ?? []);
+        } catch {
+          return [];
+        }
+      })
+      .toSorted(
+        (left, right) =>
+          (typeof left.orderKey === "number" ? left.orderKey : Number(left.createdAt)) -
+          (typeof right.orderKey === "number" ? right.orderKey : Number(right.createdAt)),
+      )
+      .map((item) => item.text),
+  );
+}
 
 suite.define(() => {
   it("reorders offline queued messages from the keyboard-focused handle", async () => {
@@ -53,6 +81,76 @@ suite.define(() => {
       await suite.closeBrowserContext(context);
     }
   });
+
+  it.each(["keyboard", "drag"] as const)(
+    "keeps a reconnecting send ahead of queued messages reordered by %s",
+    async (interaction) => {
+      const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
+      const page = await context.newPage();
+      const gateway = await installMockGateway(page);
+
+      try {
+        await page.goto(`${suite.server.baseUrl}chat`);
+        const composer = page.locator(".agent-chat__composer-combobox textarea");
+        await composer.waitFor({ state: "visible", timeout: 15_000 });
+        await gateway.deferNext("chat.send");
+        await composer.fill(QUEUED[0]);
+        await composer.press("Enter");
+        await gateway.waitForRequest("chat.send");
+        await gateway.setOnline(false);
+        await page
+          .locator('.chat-send-status[data-send-state="waiting-reconnect"]')
+          .getByText("Waiting for reconnect", { exact: true })
+          .waitFor();
+
+        for (const message of QUEUED.slice(1)) {
+          await composer.fill(message);
+          await composer.press("Enter");
+          await page.locator(".chat-queue__item", { hasText: message }).waitFor();
+        }
+
+        const queueText = () =>
+          page.locator(".chat-queue__item .chat-queue__text").allTextContents();
+        expect(await queueText()).toEqual([QUEUED[1], QUEUED[2]]);
+        expect(await storedQueueOrder(page)).toEqual([...QUEUED]);
+        expect(
+          await page.locator(".chat-group.user").getByText(QUEUED[0], { exact: true }).count(),
+        ).toBe(1);
+
+        const movingRow = page.locator(".chat-queue__item", { hasText: QUEUED[2] });
+        const handle = movingRow.locator(".chat-queue__grip");
+        if (interaction === "keyboard") {
+          await handle.focus();
+          await page.keyboard.press("ArrowUp");
+        } else {
+          const target = page.locator(".chat-queue__item", { hasText: QUEUED[1] });
+          const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+          try {
+            // Let the handle write its own drag payload before the row accepts the drop.
+            await handle.dispatchEvent("dragstart", { dataTransfer });
+            await target.dispatchEvent("dragover", { dataTransfer });
+            expect(await target.getAttribute("class")).toContain("chat-queue__item--drop-target");
+            await target.dispatchEvent("drop", { dataTransfer });
+          } finally {
+            await handle.dispatchEvent("dragend", { dataTransfer });
+            await dataTransfer.dispose();
+          }
+        }
+
+        await expect.poll(queueText).toEqual([QUEUED[2], QUEUED[1]]);
+        // The attempted send is hidden from this tray but still owns the first delivery slot.
+        expect(await storedQueueOrder(page)).toEqual([QUEUED[0], QUEUED[2], QUEUED[1]]);
+        if (interaction === "keyboard") {
+          await page.keyboard.press("ArrowUp");
+          expect(await queueText()).toEqual([QUEUED[2], QUEUED[1]]);
+          expect(await storedQueueOrder(page)).toEqual([QUEUED[0], QUEUED[2], QUEUED[1]]);
+        }
+        await expectRequestCountStable(gateway, "chat.send", 1);
+      } finally {
+        await suite.closeBrowserContext(context);
+      }
+    },
+  );
 
   it("keeps the queue order consistent through a reload after a mid-reorder storage failure", async () => {
     if (captureUiProofEnabled) {
@@ -128,33 +226,7 @@ suite.define(() => {
       // storage-level readback below runs first, while this reload is still
       // offline, exactly as the cold-reload offline-queue proof elsewhere does.
       await page.reload();
-      const storedQueueOrder = () =>
-        page.evaluate(() =>
-          Object.entries(sessionStorage)
-            .filter(([key]) => key.startsWith("openclaw.control.chatComposer.v4:"))
-            .flatMap(([, value]) => {
-              try {
-                const parsed = JSON.parse(value) as {
-                  sessions?: Record<
-                    string,
-                    { queue?: { text?: unknown; orderKey?: unknown; createdAt?: unknown }[] }
-                  >;
-                };
-                return Object.values(parsed.sessions ?? {}).flatMap(
-                  (session) => session.queue ?? [],
-                );
-              } catch {
-                return [];
-              }
-            })
-            .toSorted(
-              (left, right) =>
-                (typeof left.orderKey === "number" ? left.orderKey : Number(left.createdAt)) -
-                (typeof right.orderKey === "number" ? right.orderKey : Number(right.createdAt)),
-            )
-            .map((item) => item.text),
-        );
-      expect(await storedQueueOrder()).toEqual([...QUEUED]);
+      expect(await storedQueueOrder(page)).toEqual([...QUEUED]);
 
       // Bringing the Gateway back lets the app mount its session UI so the same
       // order can be confirmed rendered, not just stored.

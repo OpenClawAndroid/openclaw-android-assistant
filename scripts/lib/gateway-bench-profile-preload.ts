@@ -7,6 +7,7 @@ import {
   GATEWAY_HEAP_SAMPLE_INTERVAL,
   type GatewayProfileCommand,
 } from "./gateway-bench-profile.ts";
+import { GatewayBenchWorkerProfiler } from "./gateway-bench-worker-profile.ts";
 
 // Only the benchmark child gets this preload and IPC descriptor. No inspector
 // listener or profiler control is exposed through the Gateway protocol.
@@ -15,6 +16,7 @@ if (isMainThread) {
     throw new Error("Gateway profiling requires the benchmark IPC channel");
   }
   const inspector = new Session();
+  const workers = new GatewayBenchWorkerProfiler(inspector);
   inspector.connect();
   const active = new Set<GatewayProfileCommand["kind"]>();
   let busy = false;
@@ -60,16 +62,23 @@ if (isMainThread) {
           await inspector.post("HeapProfiler.startSampling", options);
         }
         active.add(message.kind);
+        if (message.includeWorkers) {
+          await workers.start(message.kind, message.profilePath);
+        }
       } else if (message.action === "stop") {
         if (!active.has(message.kind)) {
           throw new Error(`Gateway ${message.kind} profile has not started`);
         }
-        const { profile } =
-          message.kind === "cpu"
-            ? await inspector.post("Profiler.stop")
-            : await inspector.post("HeapProfiler.stopSampling");
-        active.delete(message.kind);
-        writeFileSync(message.profilePath, JSON.stringify(profile), { mode: 0o600 });
+        try {
+          const { profile } =
+            message.kind === "cpu"
+              ? await inspector.post("Profiler.stop")
+              : await inspector.post("HeapProfiler.stopSampling");
+          active.delete(message.kind);
+          writeFileSync(message.profilePath, JSON.stringify(profile), { mode: 0o600 });
+        } finally {
+          await workers.stop(message.kind);
+        }
       } else {
         throw new Error("Unknown Gateway profile command");
       }

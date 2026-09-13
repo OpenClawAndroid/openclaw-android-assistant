@@ -521,13 +521,20 @@ describe.each(structuredSenders)("Microsoft Teams $label thread routing", ({ sen
   );
 });
 
-describe("Teams text preparation at the SDK HTTP boundary", () => {
-  const source = "# Deployment status\n\n@[Alex](11111111-2222-3333-4444-555555555555)";
-  const expectedText = "**Deployment status**\n\n<at>Alex</at>";
+describe.each([
+  { label: "simple name", sourceName: "Alex", displayName: "Alex" },
+  {
+    label: "escaped brackets",
+    sourceName: String.raw`Alice \[Ops\]`,
+    displayName: "Alice [Ops]",
+  },
+])("Teams text preparation at the SDK HTTP boundary ($label)", ({ sourceName, displayName }) => {
+  const source = `# Deployment status\n\n@[${sourceName}](11111111-2222-3333-4444-555555555555)`;
+  const expectedText = `**Deployment status**\n\n<at>${displayName}</at>`;
   const expectedMention = {
     type: "mention",
-    text: "<at>Alex</at>",
-    mentioned: { id: "11111111-2222-3333-4444-555555555555", name: "Alex" },
+    text: `<at>${displayName}</at>`,
+    mentioned: { id: "11111111-2222-3333-4444-555555555555", name: displayName },
   };
   const expectedAiEntity = {
     type: "https://schema.org/Message",
@@ -565,7 +572,7 @@ describe("Teams text preparation at the SDK HTTP boundary", () => {
           log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         });
         await sendMessageMSTeams({ cfg: {}, to: conversationId, text: source });
-        expect(requests[0]?.body.text).toBe(expectedText);
+        expect.soft(requests[0]?.body.text).toBe(expectedText);
         expect
           .soft(requests[0]?.body.entities)
           .toEqual(expect.arrayContaining([expectedMention, expectedAiEntity]));

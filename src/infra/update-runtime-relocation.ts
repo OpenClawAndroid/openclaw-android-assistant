@@ -149,6 +149,23 @@ async function relocateModulesManifest(
   }
 }
 
+/** Relocate one admitted entry without traversing neighboring private files. */
+export async function relocateRuntimeEntry(
+  file: string,
+  sourceFile: string,
+  destinationFile: string,
+  kind: "file" | "symlink",
+  relocations: readonly RuntimeRelocation[],
+): Promise<void> {
+  if (kind === "symlink") {
+    await relocateRuntimeSymlink(file, sourceFile, destinationFile, relocations);
+  } else if (path.basename(file) === ".modules.yaml") {
+    await relocateModulesManifest(file, sourceFile, destinationFile, relocations);
+  } else if (path.basename(path.dirname(file)) === ".bin" && !file.endsWith(".exe")) {
+    await relocateRuntimeLauncher(file, sourceFile, destinationFile, relocations);
+  }
+}
+
 /** Rebind copied entries only; following a store symlink would mutate external data. */
 export async function relocateRuntimeTree(
   root: string,
@@ -167,13 +184,9 @@ export async function relocateRuntimeTree(
     if (entry.isDirectory()) {
       await relocateRuntimeTree(file, sourceFile, destinationFile, relocations);
     } else if (entry.isSymbolicLink()) {
-      await relocateRuntimeSymlink(file, sourceFile, destinationFile, relocations);
+      await relocateRuntimeEntry(file, sourceFile, destinationFile, "symlink", relocations);
     } else if (entry.isFile()) {
-      if (entry.name === ".modules.yaml") {
-        await relocateModulesManifest(file, sourceFile, destinationFile, relocations);
-      } else if (path.basename(root) === ".bin" && !entry.name.endsWith(".exe")) {
-        await relocateRuntimeLauncher(file, sourceFile, destinationFile, relocations);
-      }
+      await relocateRuntimeEntry(file, sourceFile, destinationFile, "file", relocations);
     }
   }
 }

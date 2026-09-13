@@ -1,7 +1,7 @@
 import path from "node:path";
 import { STREAM_ERROR_FALLBACK_TEXT } from "@openclaw/ai/internal/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import {
   appendSessionTranscriptReport,
   appendTranscriptMessage,
@@ -9,11 +9,18 @@ import {
   replaceTranscriptEvents,
 } from "../../config/sessions/session-accessor.js";
 import { readTranscriptDisplayDelta } from "../../config/sessions/session-accessor.sqlite-history-events.js";
+import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import { buildGatewaySessionSnapshot } from "../session-event-payload.js";
 import { readChatHistoryDelta } from "./chat-history-delta.js";
 import { readChatHistoryPage } from "./chat-history-pages.js";
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = createTempDirTracker();
+afterEach(() => {
+  for (const directory of tempDirs.dirs) {
+    closeOpenClawAgentDatabasesForTest(directory);
+  }
+  tempDirs.cleanup();
+});
 const maxBytes = 1_000_000;
 const sessionKey = "agent:main:delta-budget";
 const sessionId = "delta-budget-session";

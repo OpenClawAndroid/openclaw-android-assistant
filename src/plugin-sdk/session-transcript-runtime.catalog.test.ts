@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   appendTranscriptEvent,
   appendTranscriptMessage,
+  appendTranscriptMessages,
   loadSessionEntryReadOnly,
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
@@ -10,6 +12,7 @@ import {
   getSessionColdStorageStatus,
   runSessionColdStorageMaintenance,
 } from "../config/sessions/session-cold-storage.js";
+import { resolveSessionStorePathForScope } from "../config/sessions/session-store-path.js";
 import { reconcileSessionTranscriptIndexes } from "../config/sessions/session-transcript-reconcile.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -106,15 +109,23 @@ describe("native transcript catalog SDK", () => {
     });
   });
 
-  it("pages the visible display projection newest-first, including reasoning and tools, without opening a writer", async () => {
+  it("pages only user and assistant text newest-first without opening a writer", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       await seed([
         { role: "user", content: "Visible question" },
         {
           role: "assistant",
           content: [
+            { type: "text", text: "First answer part" },
             { type: "thinking", thinking: "Reasoning" },
             { type: "toolCall", id: "call", name: "read", arguments: { path: "README.md" } },
+            { type: "output_text", text: "Second answer part" },
+            { type: "tool_result", content: "Embedded tool result" },
+            { type: "reasoning", text: "More reasoning" },
+            { type: "redacted_thinking", data: "opaque" },
+            { type: "image", text: "Image metadata" },
+            { type: "text", text: " \n " },
+            { type: "text", text: "NO_REPLY" },
           ],
         },
         {
@@ -124,6 +135,12 @@ describe("native transcript catalog SDK", () => {
           content: [{ type: "text", text: "Tool result" }],
         },
         { role: "assistant", content: [{ type: "text", text: "Answer" }] },
+        { role: "tool", content: "Tool role" },
+        { role: "tool_result", content: [{ type: "text", text: "Other tool role" }] },
+        { role: "system", content: "System instructions" },
+        { role: "custom", content: [{ type: "text", text: "Unknown role" }] },
+        { role: "user", content: [{ type: "tool_result", content: "User tool result" }] },
+        { role: "assistant", content: "   " },
         { role: "assistant", content: "NO_REPLY" },
       ]);
       const databasePath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
@@ -133,20 +150,35 @@ describe("native transcript catalog SDK", () => {
       const first = await read(2);
       expect(first.items.map((item) => [item.type, item.text])).toEqual([
         ["agentMessage", "Answer"],
-        ["toolResult", "Tool result"],
+        ["agentMessage", "Second answer part"],
       ]);
       const second = await read(1, first.nextCursor);
-      expect(second.items).toMatchObject([
-        { type: "toolCall", text: expect.stringContaining("README.md") },
-      ]);
+      expect(second.items).toMatchObject([{ type: "agentMessage", text: "First answer part" }]);
       const third = await read(2, second.nextCursor);
       expect(third.items.map((item) => [item.type, item.text])).toEqual([
-        ["reasoning", "Reasoning"],
         ["userMessage", "Visible question"],
       ]);
       expect(third.nextCursor).toBeUndefined();
       expect(isOpenClawAgentDatabaseOpen(databasePath)).toBe(false);
       expect(fs.readFileSync(databasePath)).toEqual(before);
+    });
+  });
+
+  it("continues across a page containing only hidden tool activity", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      await seed([{ role: "user", content: "Older conversation" }]);
+      await appendTranscriptMessages(scope, {
+        messages: Array.from({ length: 1001 }, (_, index) => ({
+          eventId: `tool-${index}`,
+          message: { role: "toolResult", content: "Hidden tool output" },
+        })),
+      });
+      const first = await read(200);
+      expect(first.items).toEqual([]);
+      expect(first.nextCursor).toBeDefined();
+      const second = await read(200, first.nextCursor);
+      expect(second.items).toMatchObject([{ type: "userMessage", text: "Older conversation" }]);
+      expect(second.nextCursor).toBeUndefined();
     });
   });
 
@@ -181,6 +213,26 @@ describe("native transcript catalog SDK", () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       await seed(["one", "two", "three"].map((content) => ({ role: "user", content })));
       const first = await read(2);
+      if (!first.nextCursor) {
+        throw new Error("missing fixture cursor");
+      }
+      const mixedProjectionCursor = JSON.parse(
+        Buffer.from(first.nextCursor, "base64url").toString("utf8"),
+      );
+      // Before the text-only projection, cursor offsets also counted tools and thinking.
+      mixedProjectionCursor.scope = createHash("sha256")
+        .update(
+          JSON.stringify([
+            scope.agentId,
+            scope.sessionKey,
+            scope.sessionId,
+            resolveSessionStorePathForScope(scope),
+          ]),
+        )
+        .digest("base64url");
+      await expect(
+        read(2, Buffer.from(JSON.stringify(mixedProjectionCursor)).toString("base64url")),
+      ).rejects.toThrow("no longer matches");
       await appendTranscriptMessage(scope, {
         eventId: "message-3",
         message: { role: "user", content: "four" },

@@ -348,6 +348,7 @@ describe("interrupted canonical user replay", () => {
               ),
             ).toHaveLength(1);
             if (toolProgress) {
+              expect(JSON.stringify(messages)).not.toContain("Nested read completed");
               expect(messages).toContainEqual(
                 expect.objectContaining({
                   role: "toolResult",

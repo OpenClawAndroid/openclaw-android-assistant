@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
+import { channel } from "node:diagnostics_channel";
+import fs from "node:fs";
 import { availableParallelism } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { WorkerTaskPool } from "./worker-task-pool.js";
 import type { PoolFixtureInput, PoolFixtureResult } from "./worker-task-pool.test-support.js";
@@ -13,6 +17,7 @@ import type { PoolFixtureInput, PoolFixtureResult } from "./worker-task-pool.tes
 const workerUrl = new URL("./worker-task-pool.test-support.ts", import.meta.url);
 const pools: WorkerTaskPool<PoolFixtureInput, PoolFixtureResult>[] = [];
 const workers = vi.hoisted(() => [] as Worker[]);
+const directories = createTempDirTracker();
 
 vi.mock("node:os", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:os")>()),
@@ -51,9 +56,131 @@ afterEach(async () => {
   for (const worker of workers.splice(0)) {
     expect(worker.threadId).toBe(-1);
   }
+  directories.cleanup();
 });
 
 describe("worker task pool", () => {
+  it.each(["factory", "options", "constructor"] as const)(
+    "joins cancellation during worker %s preparation before removing scratch",
+    async (phase) => {
+      const directory = directories.make("worker-reentrant-preparation-");
+      const controller = new AbortController();
+      const reason = new Error("canceled during worker preparation");
+      const createdBefore = workers.length;
+      const workerChannel = channel("worker_threads");
+      const cancel = () => controller.abort(reason);
+      if (phase === "constructor") {
+        workerChannel.subscribe(cancel);
+      }
+      const pool = createPool({
+        workerUrl,
+        workerOptions: {
+          get workerData() {
+            if (phase === "options") {
+              cancel();
+            }
+            return { prepared: true };
+          },
+        },
+        prepareWorker: () => {
+          if (phase === "factory") {
+            cancel();
+          }
+          return { options: {}, temporaryDirectory: directory };
+        },
+      });
+      try {
+        await expect(pool.run({ label: "canceled" }, { signal: controller.signal })).rejects.toBe(
+          reason,
+        );
+        await pool.close();
+        const created = workers.slice(createdBefore);
+        expect(created).toHaveLength(phase === "constructor" ? 1 : 0);
+        expect(created.map((worker) => worker.threadId)).toEqual(
+          phase === "constructor" ? [-1] : [],
+        );
+        expect(fs.existsSync(directory)).toBe(false);
+      } finally {
+        workerChannel.unsubscribe(cancel);
+        // A failed regression must still join any Worker created after cancellation.
+        await Promise.all(workers.slice(createdBefore).map((worker) => worker.terminate()));
+        await pool.close();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "preserves static Worker options with prepared overrides: %s",
+    async (prepared) => {
+      const pool = createPool({
+        workerUrl,
+        workerOptions: {
+          argv: ["shared-argument"],
+          workerData: { source: "static", retained: true },
+        },
+        ...(prepared
+          ? { prepareWorker: () => ({ options: { workerData: { source: "prepared" } } }) }
+          : {}),
+      });
+      const result = await pool.run({ label: "options", readStartupOptions: true }, {});
+      expect(result.startupOptions).toEqual({
+        argv: ["shared-argument"],
+        data: prepared ? { source: "prepared" } : { source: "static", retained: true },
+      });
+    },
+  );
+
+  it.each(["close", "abort", "exit", "startup-error", "clone-error"] as const)(
+    "reclaims only its exited worker's scratch after %s",
+    async (ending) => {
+      const directory = directories.make("worker-owned-scratch-");
+      const unrelated = directories.make("worker-unrelated-scratch-");
+      fs.writeFileSync(path.join(directory, "captured-module.js"), "synthetic capture");
+      fs.writeFileSync(path.join(unrelated, "retained-module.js"), "unrelated capture");
+      const controller = new AbortController();
+      const pool = createPool({
+        workerUrl:
+          ending === "startup-error" ? new URL("./missing-worker.mjs", import.meta.url) : workerUrl,
+        restartOnError: false,
+        prepareWorker: () => ({
+          temporaryDirectory: directory,
+          options: ending === "clone-error" ? { workerData: () => {} } : {},
+        }),
+      });
+      if (ending === "startup-error" || ending === "clone-error") {
+        await expect(pool.run({ label: ending }, {})).rejects.toMatchObject({
+          code: "unavailable",
+        });
+      } else {
+        await pool.run({ label: "warm" }, {});
+        expect(fs.existsSync(directory)).toBe(true);
+        const worker = workers.at(-1)!;
+        if (ending === "close") {
+          await pool.close();
+        } else if (ending === "exit") {
+          await worker.terminate();
+          await pool.close();
+        } else {
+          const counters = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
+          const active = pool.run(
+            { label: "blocked", counters, wait: true },
+            { signal: controller.signal },
+          );
+          void active.catch(() => {});
+          await expect.poll(() => Atomics.load(new Int32Array(counters), 0)).toBe(1);
+          expect(fs.existsSync(directory)).toBe(true);
+          controller.abort(new Error("scratch canceled"));
+          await expect(active).rejects.toThrow("scratch canceled");
+        }
+        expect(worker.threadId).toBe(-1);
+      }
+      await pool.close();
+      expect(fs.existsSync(directory)).toBe(false);
+      expect(fs.readFileSync(path.join(unrelated, "retained-module.js"), "utf8")).toBe(
+        "unrelated capture",
+      );
+    },
+  );
   it("keeps canceled preparation charged until its retained input is released", async () => {
     const pool = createPool({ workerUrl, maxPendingTasks: 1 });
     const gate = createDeferredCore<PoolFixtureInput>();

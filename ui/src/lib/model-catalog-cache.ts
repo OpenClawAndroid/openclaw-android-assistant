@@ -13,6 +13,7 @@ export type ModelCatalogRequest = {
   refresh: boolean;
   controller?: AbortController;
   promise: Promise<ModelCatalogResult>;
+  resolve: (result: ModelCatalogResult) => void;
   subscribers: Set<object>;
 };
 
@@ -33,6 +34,7 @@ export type ModelCatalogRead = {
 export type ModelCatalogEntry = {
   scope: ModelCatalogReadScope;
   result?: ModelCatalogResult;
+  invalidated?: boolean;
   expiresAt?: number;
   publishedRead?: number;
   pending: Map<GatewayProtocolRequestOptions["timeoutMs"], ModelCatalogRequest>;
@@ -40,6 +42,28 @@ export type ModelCatalogEntry = {
 
 // Application lifecycle invalidation must not eagerly load catalog readers or presentation.
 export const modelCatalogCache = new WeakMap<ModelCatalogClient, ModelCatalogCache>();
+const observers = new WeakMap<ModelCatalogClient, Set<() => void>>();
+
+export function subscribeModelCatalogCache(
+  client: ModelCatalogClient,
+  listener: () => void,
+): () => void {
+  const listeners = observers.get(client) ?? new Set();
+  observers.set(client, listeners);
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      observers.delete(client);
+    }
+  };
+}
+
+function notifyModelCatalogCache(client: ModelCatalogClient): void {
+  for (const listener of Array.from(observers.get(client) ?? [])) {
+    listener();
+  }
+}
 
 export function beginModelCatalogRead(
   client: ModelCatalogClient,
@@ -104,12 +128,7 @@ export function publishModelCatalogResult(
   result: ModelCatalogResult,
 ): boolean {
   const { cache, client } = read;
-  if (
-    modelCatalogCache.get(client) !== cache ||
-    !cache.reads.has(read) ||
-    read.signal?.aborted ||
-    result.refreshFailed
-  ) {
+  if (modelCatalogCache.get(client) !== cache || !cache.reads.has(read) || read.signal?.aborted) {
     return false;
   }
   const key = modelCatalogKey(modelCatalogParams(params));
@@ -123,12 +142,14 @@ export function publishModelCatalogResult(
     }
   }
   const entry: ModelCatalogEntry = cache.entries.get(key) ?? { scope: params, pending: new Map() };
-  if (!params.refresh && entry.publishedRead !== undefined && entry.publishedRead > read.order) {
+  if (!params.refresh && (entry.publishedRead ?? 0) > read.order) {
     return false;
   }
-  // A winner retires same-projection readers, but cannot retire explicit discovery.
+  const discoverySucceeded = !result.refreshFailed;
+  // Partial inventory updates display without settling another reader's discovery.
   for (const pending of cache.reads) {
     if (
+      discoverySucceeded &&
       pending !== read &&
       pending.scope &&
       modelCatalogKey(modelCatalogParams(pending.scope)) === key &&
@@ -137,43 +158,61 @@ export function publishModelCatalogResult(
       cache.reads.delete(pending);
     }
   }
-  for (const [budget, pending] of entry.pending) {
-    if (params.refresh || !pending.refresh) {
-      entry.pending.delete(budget);
-    }
-  }
   cache.reads.delete(read);
-  if (params.refresh) {
-    cache.entries.clear();
+  if (params.refresh && discoverySucceeded) {
+    for (const other of cache.entries.values()) {
+      if (other !== entry) {
+        invalidateModelCatalogEntry(other);
+      }
+    }
     cache.reads.clear();
   }
   entry.result = result;
+  entry.invalidated = !discoverySucceeded;
   entry.publishedRead = read.order;
   // Cooldown expiry changes readiness without publishing a new Gateway generation.
-  entry.expiresAt = result.models.reduce(
-    (expiresAt, model) => Math.min(expiresAt, model.unavailableUntil ?? Infinity),
-    Infinity,
-  );
+  entry.expiresAt = discoverySucceeded
+    ? result.models.reduce(
+        (expiresAt, model) => Math.min(expiresAt, model.unavailableUntil ?? Infinity),
+        Infinity,
+      )
+    : undefined;
   cache.entries.delete(key);
   cache.entries.set(key, entry);
+  for (const [budget, pending] of entry.pending) {
+    if (discoverySucceeded && (params.refresh || !pending.refresh)) {
+      pending.resolve(result);
+      entry.pending.delete(budget);
+    }
+  }
   trimModelCatalogCache(cache);
+  notifyModelCatalogCache(client);
   return true;
 }
 
-/** Retire display copies and sharing eligibility before any consumer starts its next read. */
+export function invalidateModelCatalogEntry(entry: ModelCatalogEntry): void {
+  entry.invalidated = true;
+  entry.expiresAt = undefined;
+  entry.pending.clear();
+}
+
+/** A connection boundary retires even the last accepted display snapshot. */
+export function clearModelCatalogCache(client: ModelCatalogClient): void {
+  modelCatalogCache.delete(client);
+  notifyModelCatalogCache(client);
+}
+
+/** Retire read eligibility while preserving the last accepted, scoped display snapshot. */
 export function invalidateModelCatalogCache(
   client: ModelCatalogClient,
   scope?: ModelCatalogReadScope & { sessionsOnly?: boolean },
 ): void {
-  if (!scope) {
-    modelCatalogCache.delete(client);
-    return;
-  }
   const cache = modelCatalogCache.get(client);
   if (!cache) {
     return;
   }
   const matches = (readScope: ModelCatalogReadScope | undefined) =>
+    !scope ||
     !readScope ||
     ((!scope.sessionsOnly || readScope.sessionKey !== undefined) &&
       (scope.agentId === undefined ||
@@ -186,9 +225,11 @@ export function invalidateModelCatalogCache(
       cache.reads.delete(read);
     }
   }
-  for (const [key, entry] of cache.entries) {
+  for (const entry of cache.entries.values()) {
     if (matches(entry.scope)) {
-      cache.entries.delete(key);
+      invalidateModelCatalogEntry(entry);
     }
   }
+  trimModelCatalogCache(cache);
+  notifyModelCatalogCache(client);
 }

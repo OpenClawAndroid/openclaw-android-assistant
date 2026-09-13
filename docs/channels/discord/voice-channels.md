@@ -77,7 +77,10 @@ Auto-join example:
 
 ### GPT-Live in Discord
 
-Discord can use the same GPT-Live model and voice as Talk. Unpinned Discord
+Discord can use the same GPT-Live model and voice as Talk,
+[Google Meet](/plugins/google-meet), and [Voice Call](/plugins/voice-call).
+These surfaces share provider resolution, native delegation, and interruption
+policy while retaining their own audio transports. Unpinned Discord
 configurations keep the provider's existing default; select GPT-Live explicitly.
 For the Codex
 GPT-Live route with `cove`, sign in with

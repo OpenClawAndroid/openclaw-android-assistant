@@ -23,6 +23,7 @@ import type {
   PreparedModelRuntimeInput,
   PreparedModelRuntimePluginGeneration,
 } from "./prepared-model-runtime.types.js";
+import type { ProviderCatalogInventoryCapture } from "./provider-model-membership.js";
 
 const MODEL_RUNTIME_PROVIDER_DISCOVERY_TIMEOUT_MS = 5_000;
 
@@ -88,6 +89,7 @@ export async function prepareAgentCatalogSource(
     authStore?: AuthProfileStore;
     providerDiscoveryProviderIds?: readonly string[];
     providerDiscoveryTimeoutMs?: number;
+    providerCatalogInventory?: ProviderCatalogInventoryCapture;
   } = {},
 ): Promise<PreparedModelRuntimeCatalogSource> {
   const { env, input, providerIds } = agentFacts;
@@ -130,6 +132,7 @@ export async function prepareAgentCatalogSource(
     if (!persist) {
       const source = await planOpenClawModelsJsonSource(input.config, input.agentDir, {
         ...options,
+        providerCatalogInventory: sourceOptions.providerCatalogInventory,
         ...(sourceOptions.authStore ? { authStore: sourceOptions.authStore } : {}),
         ...(catalogMode === "live" ? { onProviderCatalogOutcome: recordProviderOutcome } : {}),
       });

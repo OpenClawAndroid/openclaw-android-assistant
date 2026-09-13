@@ -162,7 +162,6 @@ it.each(["none", "middleware", "handler"] as const)(
       monitor = createTelegramTransportIngressMonitor({
         spoolDir,
         bot,
-        cfg,
         accountId: "default",
         botInfo: telegramBotInfoForTest,
         pollIntervalMs: 10,

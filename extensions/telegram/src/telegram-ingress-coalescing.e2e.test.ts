@@ -317,7 +317,6 @@ describe("Telegram durable ingress coalescing", () => {
     const monitor = createTelegramTransportIngressMonitor({
       spoolDir,
       bot,
-      cfg,
       accountId: "default",
       botInfo: telegramBotInfoForTest,
       ...(options.adoptionStallTimeoutMs === undefined

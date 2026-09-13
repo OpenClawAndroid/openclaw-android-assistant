@@ -30,7 +30,10 @@ import {
   type ActiveHandlerState,
   type ChannelIngressDrainDispatchResult,
 } from "./ingress-drain-state.js";
-import { supersedeActiveStatesIfNeeded } from "./ingress-drain-supersede.js";
+import {
+  supersedeActiveStatesIfNeeded,
+  type IngressSupersedeDecision,
+} from "./ingress-drain-supersede.js";
 import type {
   ChannelIngressQueue,
   ChannelIngressQueueClaim,
@@ -66,12 +69,13 @@ export type CreateChannelIngressDrainOptions<
     lifecycle: ChannelIngressDispatchLifecycle,
   ) => Promise<ChannelIngressDrainDispatchResult | void> | ChannelIngressDrainDispatchResult | void;
   resolveNonRetryableFailure?: (err: unknown) => IngressNonRetryableFailure | null;
+  /** A returned guard is checked synchronously before cancelling pre-adoption work. */
   shouldSupersedePending?: (
     newEvent:
       | ChannelIngressQueueRecord<TPayload, TMetadata>
       | ChannelIngressQueueClaim<TPayload, TMetadata>,
     pendingEvent: ChannelIngressQueueClaim<TPayload, TMetadata>,
-  ) => boolean | Promise<boolean>;
+  ) => IngressSupersedeDecision | Promise<IngressSupersedeDecision>;
   deriveLaneKey?: (record: ChannelIngressQueueRecord<TPayload, TMetadata>) => string | undefined;
   reconcileStoredLaneKey?: (
     record: ChannelIngressQueueRecord<TPayload, TMetadata>,

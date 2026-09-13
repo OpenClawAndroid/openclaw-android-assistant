@@ -19,7 +19,11 @@ type ReadEntry<T> = {
   pending: boolean;
 };
 
-function subscribe<T>(entry: ReadEntry<T>, signal?: AbortSignal): Promise<T> {
+function subscribe<T>(
+  entry: ReadEntry<T>,
+  clone: (value: T) => T,
+  signal?: AbortSignal,
+): Promise<T> {
   entry.subscribers += 1;
   return new Promise<T>((resolve, reject) => {
     let settled = false;
@@ -42,7 +46,7 @@ function subscribe<T>(entry: ReadEntry<T>, signal?: AbortSignal): Promise<T> {
     const abort = () => finish(() => reject(toErrorObject(signal?.reason, "Git read aborted")));
     signal?.addEventListener("abort", abort, { once: true });
     entry.promise.then(
-      (value) => finish(() => resolve(structuredClone(value))),
+      (value) => finish(() => resolve(clone(value))),
       (error: unknown) => finish(() => reject(toErrorObject(error, "Git read failed"))),
     );
     if (signal?.aborted) {
@@ -54,6 +58,7 @@ function subscribe<T>(entry: ReadEntry<T>, signal?: AbortSignal): Promise<T> {
 function createReadCache<Input, Output>(
   load: (input: Input, signal: AbortSignal) => Promise<Output>,
   freshnessMs: number,
+  clone: (value: Output) => Output = structuredClone,
 ) {
   const entries = createRetainedCache<ReadEntry<Output>>();
   const pending = new Set<ReadEntry<Output>>();
@@ -95,7 +100,7 @@ function createReadCache<Input, Output>(
         entries.set(key, next, options.cacheSignal);
         entry = next;
       }
-      return subscribe(entry, options.signal);
+      return subscribe(entry, clone, options.signal);
     },
     async close(): Promise<void> {
       const retiring = [...pending];
@@ -128,6 +133,13 @@ function createReadCaches() {
       (input: GitReadOperations["checkout.diff"]["input"], signal) =>
         runGitWorkerOperation({ type: "checkout.diff", input }, { signal }),
       0,
+      // Callers mutate transport fields; immutable patch strings can stay shared.
+      (diff) => ({
+        ...diff,
+        files: diff.files.map((file) => ({ ...file })),
+        ...(diff.commits ? { commits: diff.commits.map((commit) => ({ ...commit })) } : {}),
+        ...(diff.mergeBase ? { mergeBase: { ...diff.mergeBase } } : {}),
+      }),
     ),
     branches: createReadCache(
       (input: GitReadOperations["repository.branches"]["input"], signal) =>

@@ -5,6 +5,7 @@ import type {
   OpenClawPluginNodeHostCommand,
   OpenClawPluginNodeInvokePolicy,
 } from "openclaw/plugin-sdk/plugin-entry";
+import { isSubagentSessionKey } from "openclaw/plugin-sdk/routing";
 import {
   sessionCatalogPaging,
   type SessionCatalogSession,
@@ -55,6 +56,9 @@ function sharedEntries(api: OpenClawPluginApi) {
         groups.has(entry.category) &&
         entry.incognito !== true &&
         entry.visibility !== "draft" &&
+        !isSubagentSessionKey(sessionKey) &&
+        entry.createdVia !== "spawn" &&
+        !entry.spawnedBy?.trim() &&
         !/^agent:[^:]+:catalog:/i.test(sessionKey),
     );
 }

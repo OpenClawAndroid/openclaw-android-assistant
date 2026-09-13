@@ -56,12 +56,19 @@ export function* verifyAndRepairCanonicalSqliteIndexSteps(
   schemaSql: string,
   options: Omit<RepairCanonicalSqliteIndexesOptions, "verifyPhysicalIntegrity"> & {
     diagnostics?: SqliteIntegrityDiagnostics;
+    reuseIntegrity?: boolean;
   } = {},
 ): SqliteIntegrityOperation<string[]> {
-  const { diagnostics, ...repairOptions } = options;
+  const { diagnostics, reuseIntegrity, ...repairOptions } = options;
   let integrityFailure: Error | undefined;
   try {
-    yield* sqliteIntegrityCheckSteps(db, databaseLabel, diagnostics);
+    if (reuseIntegrity) {
+      if (diagnostics) {
+        diagnostics.integrityGateOutcome = "cached";
+      }
+    } else {
+      yield* sqliteIntegrityCheckSteps(db, databaseLabel, diagnostics);
+    }
   } catch (error) {
     if (!(error instanceof Error) || !isTerminalSqliteIntegrityError(error)) {
       throw error;

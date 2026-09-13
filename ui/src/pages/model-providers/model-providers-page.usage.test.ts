@@ -26,7 +26,7 @@ describe("ModelProvidersPage usage convergence", () => {
     snapshot.hello = {
       type: "hello-ok",
       protocol: 3,
-      features: { methods: ["codex.accountUsage"] },
+      features: { methods: ["config.get", "config.patch", "codex.accountUsage"] },
       auth: { role: "operator", scopes: ["operator.admin"] },
     };
     const original = request.getMockImplementation()!;
@@ -91,19 +91,19 @@ describe("ModelProvidersPage usage convergence", () => {
     page.context = harness.context;
     document.body.append(page);
     await page.updateComplete;
-    expect(harness.request).not.toHaveBeenCalled();
+    expect(harness.request.mock.calls.filter(([method]) => method !== "config.get")).toEqual([]);
 
     harness.publishPhase("offline");
     harness.publishPhase("connected");
     await page.updateComplete;
-    expect(harness.request).not.toHaveBeenCalled();
+    expect(harness.request.mock.calls.filter(([method]) => method !== "config.get")).toEqual([]);
 
     page.routeData = {
       gateway: harness.context.gateway,
       gatewaySnapshot: harness.context.gateway.snapshot,
       client: harness.context.gateway.snapshot.client,
       agentId: "main",
-      data: { ...EMPTY_MODEL_PROVIDERS_DATA, config: {}, updatedAt: Date.now() },
+      data: { ...EMPTY_MODEL_PROVIDERS_DATA, updatedAt: Date.now() },
     };
     await vi.waitFor(() => expect(page.data?.costByProvider).toEqual([]));
     expect(requestCount(harness.request, "models.authStatus")).toBe(0);

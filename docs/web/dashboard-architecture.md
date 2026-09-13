@@ -242,6 +242,11 @@ an inner `srcdoc` iframe with `allow-scripts allow-forms`, without
 access nor the proxy's origin. Inline views adopt only the wrapper's private
 prompt channel. Dashboard views initialize their separate ticket-bound bridge.
 
+The public proxy shell uses a URL fingerprint of its HTML and security headers.
+Browsers can cache that exact version for repeated widget mounts; changing the
+shell or its policy changes the URL. Unversioned or mismatched requests remain
+uncached. This cache contains no widget documents, credentials, or view tickets.
+
 The shared loader fetches board HTML while the sandbox proxy starts, then
 delivers it only after that exact proxy reports ready. Dashboard widgets keep a
 themed loading placeholder until the proxy confirms that the current inner

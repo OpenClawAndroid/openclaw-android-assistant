@@ -4,6 +4,7 @@ import type { TranslationMap } from "../lib/types.ts";
 import * as agentEn from "./en-agents.ts";
 
 export const en: TranslationMap & {
+  board: TranslationMap & { widget: TranslationMap };
   browser: TranslationMap & { errors: TranslationMap };
   configPage: TranslationMap;
   connection: TranslationMap;
@@ -1889,8 +1890,7 @@ export const en: TranslationMap & {
     applyChanges: "Apply changes",
     rawDiscard: "Discard",
     reloadBlocked: "Finish saving or discard pending config changes before reloading.",
-    rawDraftBlocksApply:
-      "Unsaved raw config edits — save or discard them in the Raw editor before restarting.",
+    rawDraftBlocksApply: "Save or discard edits in the Raw editor before applying changes.",
     rawDraftPendingFormTitle:
       "Unsaved raw config edits — save or discard them before switching to Form.",
     rawDraftBlocksFormEdit:
@@ -2791,7 +2791,7 @@ export const en: TranslationMap & {
     operatorCommands: "MCP operator commands",
     operatorCommandsHint: "Status, diagnostics, auth, probing, and runtime reload.",
     runtimeHint:
-      "Edits save automatically; runtime changes apply after a gateway restart, and active agents rebuild MCP runtimes on next use.",
+      "Edits save automatically. With automatic reload enabled, MCP connections rebuild on next use.",
     toolFilter: "tool filter",
     parallel: "parallel",
     tlsVerifyOff: "TLS verify off",
@@ -3754,10 +3754,6 @@ export const en: TranslationMap & {
       kindPlugin: "Plugin",
       kindReport: "Report",
       kindWebsite: "Website",
-      websiteOpen: "Open website",
-      websiteEmbedHint: "If this site does not load here, open it in a new tab.",
-      websiteSameOrigin:
-        "Open this website in a new tab. Gateway and Control UI pages cannot be embedded in a website widget.",
       pluginLoading: "Loading plugin widget…",
       disabledPlugin: "Widget from disabled plugin {pluginId}",
     },
@@ -5051,6 +5047,7 @@ export const en: TranslationMap & {
       sortBy: "Sort by",
       sortCreated: "Created",
       sortSessions: "Filter & sort",
+      sessionSources: "Session sources…",
       showOnlyPerson: "Show only {name}",
       showEveryone: "Show everyone",
       showAllSessions: "Show all sessions",
@@ -5058,7 +5055,8 @@ export const en: TranslationMap & {
       sessionMenu: "Actions for {session}",
       sessionMenuMany: "Actions for {count} sessions",
       toolActivity: "Using {tool}",
-      catalogDiscoveryHelp: "{error}. Configure native session discovery in Settings > Plugins.",
+      catalogDiscoveryHelp:
+        "{error}. Configure automatic session discovery in Settings > Appearance > Session sources.",
       catalogPaginationFailed: "Session catalog returned a repeated page cursor",
       catalogPageMissingHost: "Session catalog page did not include the requested host",
     },

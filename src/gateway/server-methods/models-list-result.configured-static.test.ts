@@ -80,7 +80,6 @@ describe("models.list configured static entries", () => {
           const params = {
             agentId: "worker",
             view: "configured",
-            includeDefaultModels: true,
             preparedOnly: true,
           };
           const respond = vi.fn<RespondFn>();
@@ -121,7 +120,12 @@ describe("models.list configured static entries", () => {
           staticEntries: [catalogEntry("gpt-5.6-luna", "openai-chatgpt-responses")],
         });
         const read = async (profileId?: string) => {
-          const params = { agentId: "main", view: "configured", preparedOnly: true };
+          const params = {
+            agentId: "main",
+            view: "configured",
+            preparedOnly: true,
+            includeDefaultModels: false,
+          };
           const respond = vi.fn<RespondFn>();
           await modelsHandlers["models.list"]!({
             req: { type: "req", id: "personal-catalog", method: "models.list", params },
@@ -268,6 +272,7 @@ describe("models.list configured static entries", () => {
         view: "configured",
       }),
     ).resolves.toEqual({
+      defaultModels: { automaticUtilityModel: "openai/gpt-5.6-luna" },
       models: [
         expect.objectContaining({
           id: "gpt-5.6-sol",

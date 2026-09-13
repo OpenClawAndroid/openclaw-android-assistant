@@ -54,11 +54,6 @@ const voiceMocks = vi.hoisted(() => ({
 
 vi.mock("../../talk/provider-resolver.js", () => ({
   resolveConfiguredRealtimeVoiceProvider: voiceMocks.resolveConfiguredRealtimeVoiceProvider,
-  resolveRealtimeVoiceProviderCapabilities: ({
-    provider,
-  }: {
-    provider: { capabilities: unknown };
-  }) => provider.capabilities,
 }));
 vi.mock("../../talk/provider-registry.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../talk/provider-registry.js")>()),
@@ -109,6 +104,7 @@ function configureDelegatedBrowserProvider(
   voiceMocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
     provider,
     providerConfig: {},
+    capabilities: provider.capabilities,
   });
   const client = { connId: "conn-close" };
   const clients = new Set([client]);

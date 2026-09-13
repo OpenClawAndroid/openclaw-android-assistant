@@ -6,11 +6,11 @@ const resolveTeamsMeetingsConfig = teamsMeetingsConfig.resolveConfig;
 
 const realtimeMocks = vi.hoisted(() => ({
   speak: vi.fn(),
-  startAgent: vi.fn(async () => ({
+  startAgent: vi.fn(async ({ transport }: { transport: { stop(): Promise<void> } }) => ({
     getHealth: () => ({}),
     providerId: "test",
     speak: realtimeMocks.speak,
-    stop: vi.fn(async () => {}),
+    stop: vi.fn(() => transport.stop()),
   })),
 }));
 
@@ -97,5 +97,8 @@ describe("Microsoft Teams meetings node realtime recovery", () => {
     );
     expect(realtimeMocks.speak).toHaveBeenCalledWith("hello");
     expect(joined.session.chrome?.audioBridge).toMatchObject({ type: "node-command-pair" });
+    expect(harness.state.audioCaptureId).toEqual(expect.any(String));
+    await runtime.leave(joined.session.id);
+    expect(harness.state.audioCaptureId).toBeUndefined();
   });
 });

@@ -25,6 +25,7 @@ import {
 } from "../../scripts/ci-run-node-test-shard.mts";
 import { encodeNodeTestGroups } from "../../scripts/lib/ci-node-test-groups-codec.mts";
 import { refitTestTimings } from "../../scripts/lib/ci-test-timings-refit.mts";
+import * as groupOwner from "../../scripts/vitest-process-group.mts";
 import { createDeferred } from "../helpers/promise.js";
 
 const scratchDirs: string[] = [];
@@ -164,6 +165,42 @@ describe("scripts/ci-run-node-test-shard.mts", () => {
     );
     expect(bare.OPENCLAW_VITEST_INCLUDE_FILE).toBeUndefined();
   });
+
+  it.each([
+    { key: "NODE_OPTIONS", shared: true },
+    { key: "NODE_OPTIONS", shared: false },
+    { key: "NODE_PATH", shared: true },
+    { key: "NODE_PATH", shared: false },
+  ])(
+    "reconciles compiler $key only for shared ownership (shared=$shared)",
+    async ({ key, shared }) => {
+      vi.spyOn(groupOwner, "shouldUseDetachedVitestProcessGroup").mockReturnValue(shared);
+      const scratchDir = makeScratchDir();
+      const runChild = vi.fn(async (_args: string[], _env: NodeJS.ProcessEnv) => 0);
+      const plans = resolveShardPlans({
+        OPENCLAW_NODE_TEST_GROUPS_JSON: JSON.stringify([
+          { configs: ["one.config.ts"], includePatterns: ["src/one.test.ts"] },
+          { configs: ["two.config.ts"], env: { [key]: "different-loader" } },
+        ]),
+      });
+      const pending = runShardPlans(plans, { env: {}, scratchDir, runChild });
+      if (shared) {
+        await expect(pending).rejects.toThrow(
+          `CI groups cannot share a compiler with differing ${key}`,
+        );
+        expect(runChild).not.toHaveBeenCalled();
+        expect(readdirSync(scratchDir)).toEqual([]);
+      } else {
+        await expect(pending).resolves.toBe(0);
+        const childEnvs = runChild.mock.calls.map(([, env]) => env);
+        expect(childEnvs.map((env) => env[key])).toEqual([undefined, "different-loader"]);
+        expect(
+          JSON.parse(readFileSync(childEnvs[0]!.OPENCLAW_VITEST_INCLUDE_FILE!, "utf8")),
+        ).toEqual(["src/one.test.ts"]);
+        expect(childEnvs[1]!.OPENCLAW_VITEST_INCLUDE_FILE).toBeUndefined();
+      }
+    },
+  );
 
   it.each([
     ["local explicit concurrency", 2, 16, undefined, undefined, 3, 3],

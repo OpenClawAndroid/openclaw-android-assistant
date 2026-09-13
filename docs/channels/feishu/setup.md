@@ -28,10 +28,13 @@ Requires OpenClaw 2026.5.29 or above. Run `openclaw --version` to check. Upgrade
 The wizard also asks for the API domain (Feishu vs Lark) and the group policy. If the domestic Feishu mobile app does not react to the QR code, rerun setup and choose manual setup.
 </Step>
 
-  <Step title="After setup completes, restart the gateway to apply the changes">
+  <Step title="Verify the channel after setup">
+  <a id="after-setup-completes%2C-restart-the-gateway-to-apply-the-changes" />
+  Config changes follow [hot reload](/gateway/configuration/hot-reload). Check that Feishu is ready:
   ```bash
-  openclaw gateway restart
+  openclaw channels status --probe
   ```
+  Start the Gateway if it is offline.
   </Step>
 </Steps>
 

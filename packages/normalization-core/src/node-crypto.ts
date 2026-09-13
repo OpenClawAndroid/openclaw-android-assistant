@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import { normalizeOptionalString } from "./string-coerce.js";
 
 export function sha256Hex(input: string | Uint8Array): string {
-  return createHash("sha256").update(input).digest("hex");
+  return hash("sha256", input, "hex");
 }
 
 export function sha256HexPrefixCore(input: string | Uint8Array, length: number): string {

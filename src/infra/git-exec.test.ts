@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { isMainThread, threadId } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
@@ -91,8 +92,18 @@ describe("Git ref mutation timing", () => {
         await releaseCallback.promise;
         return result;
       });
+      const abort = new AbortController();
       const queued = runWithDiagnosticTraceContext(trace, () =>
-        enqueueGitRefMutation("/private/linked-checkout", "../shared.git", callback),
+        enqueueGitRefMutation("/private/linked-checkout", "../shared.git", callback, abort.signal),
+      );
+      let callbackSettled = false;
+      void queued.then(
+        () => {
+          callbackSettled = true;
+        },
+        () => {
+          callbackSettled = true;
+        },
       );
       pending.push(queued);
       clock += 25;
@@ -107,6 +118,9 @@ describe("Git ref mutation timing", () => {
       clock += 1_200;
       releaseHolder.resolve();
       await callbackEntered.promise;
+      abort.abort(new Error("cancelled after ref mutation started"));
+      await nextTurn();
+      expect(callbackSettled).toBe(false);
       expect(refLogs.info).not.toHaveBeenCalled();
       clock += 175;
       releaseCallback.resolve();

@@ -35,6 +35,10 @@ All query commands use WebSocket RPC.
 When you set `--url`, the CLI does not fall back to config or environment credentials. Pass `--token` or `--password` explicitly. Missing explicit credentials is an error.
 </Note>
 
+WebSocket opening-handshake timeouts report a Gateway transport error with
+`ETIMEDOUT`, including the target and a status-check hint. JSON error output uses
+`error.type: "gateway_transport_error"`, as for other connection failures.
+
 ### `gateway health`
 
 ```bash

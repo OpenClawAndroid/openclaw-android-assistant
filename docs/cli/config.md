@@ -554,13 +554,20 @@ openclaw config set channels.discord.token \
 
 After every successful `config set` / `config patch` / `config unset`, the CLI prints one of three hints so you know whether the gateway needs a restart:
 
-| Hint                                                | Meaning                                |
-| --------------------------------------------------- | -------------------------------------- |
-| `Restart the gateway to apply.`                     | The changed path needs a full restart. |
-| `Change will apply without restarting the gateway.` | Hot reload picks it up automatically.  |
-| `No gateway restart needed.`                        | Nothing runtime-relevant changed.      |
+| Hint                                                | Meaning                                                               |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| `Restart the gateway to apply.`                     | The changed path needs a full restart, or passive reload is disabled. |
+| `Change will apply without restarting the gateway.` | Hot reload picks it up automatically.                                 |
+| `No gateway restart needed.`                        | Nothing runtime-relevant changed.                                     |
 
-Effective changes to `plugins.entries` (or any subpath) require a restart, since the CLI cannot prove every plugin's reload metadata is loaded. Successful `config set` or `config unset` operations that produce no effective config diff print `No change` and leave the JSON5 file byte-for-byte untouched. A `config unset` target that is absent from the authored config exits with status 1 and also leaves the file untouched. Setting an absent key to a value equal to its runtime default is still an authored change and persists the explicit value.
+Plugin entry changes use the same reload planner as other settings. In the default
+`hybrid` mode, ordinary `plugins.entries.<id>` edits replace the affected plugin
+instance automatically. A plugin's narrower restart policy or
+`gateway.reload.mode: "off"` can still require a Gateway restart. The CLI hint
+describes expected application; it is not a receipt from a running Gateway.
+See [Config hot reload](/gateway/configuration/hot-reload).
+
+Successful `config set` or `config unset` operations that produce no effective config diff print `No change` and leave the JSON5 file byte-for-byte untouched. A `config unset` target that is absent from the authored config exits with status 1 and also leaves the file untouched. Setting an absent key to a value equal to its runtime default is still an authored change and persists the explicit value.
 
 ## Write safety
 

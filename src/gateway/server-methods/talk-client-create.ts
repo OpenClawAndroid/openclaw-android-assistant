@@ -27,10 +27,7 @@ import {
   projectInternalRealtimeVoicePublicConfig,
   type InternalRealtimeVoiceBrowserSessionCreateRequest,
 } from "../../talk/provider-internal.js";
-import {
-  resolveConfiguredRealtimeVoiceProvider,
-  resolveRealtimeVoiceProviderCapabilities,
-} from "../../talk/provider-resolver.js";
+import { resolveConfiguredRealtimeVoiceProvider } from "../../talk/provider-resolver.js";
 import { resolveSandboxedSessionCreation } from "../operator-role-policy.js";
 import { SessionMutationAuthorizationChangedError } from "../session-sharing.js";
 import { readSessionPreviewItemsFromTranscript } from "../session-transcript-readers.js";
@@ -152,16 +149,9 @@ export const createTalkClient: GatewayRequestHandler = async ({
       defaultModel: realtimeConfig.model,
       surface: "browser-session",
       requiredCapabilities: { supportsVideoFrames: wantsCameraFrames },
+      clientControl,
     });
-    const providerCapabilities = resolveRealtimeVoiceProviderCapabilities({
-      provider: resolution.provider,
-      providerConfig: resolution.providerConfig,
-      cfg: runtimeConfig,
-      agentId,
-      model: launchOptions.model,
-      ...(clientControl ? { clientControl } : {}),
-      surface: "browser-session",
-    });
+    const providerCapabilities = resolution.capabilities;
     if (wantsGatewayControl && providerCapabilities?.supportsGatewayControl !== true) {
       rejectTalkClientRequest(
         respond,

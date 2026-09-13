@@ -76,6 +76,13 @@ The thread root is taken from the stored `threadId` on the conversation referenc
 
 When `replyStyle: "top-level"` is in effect, channel-thread inbounds are intentionally answered as new top-level posts; no thread suffix is attached. This is correct for Threads-style channels; top-level posts where you expected threaded replies means `replyStyle` is set incorrectly for that channel.
 
+## Outbound mentions
+
+Use `@[Name](id)` in outgoing text, replacing `id` with a Teams user/bot ID or
+Microsoft Entra object ID. Escape brackets inside the display name as `\[` and
+`\]`: `Alice \[Ops\]` becomes `Alice [Ops]` in the native mention. Use `\\` for
+an escaped backslash. The same formatting applies to message edits and file captions.
+
 ## Attachments and images
 
 **Current limitations:**

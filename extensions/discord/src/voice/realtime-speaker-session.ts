@@ -13,7 +13,6 @@ import {
   REALTIME_VOICE_AGENT_CONTROL_TOOL,
   REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
   resolveConfiguredRealtimeVoiceProvider,
-  resolveRealtimeVoiceProviderCapabilities,
   resolveRealtimeVoiceAgentConsultTools,
   resolveRealtimeVoiceBargeIn,
   resolveRealtimeVoiceInterruptResponseOnInputAudio,
@@ -259,30 +258,13 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       discordRealtimeVoiceSecretOwnerId(this.params.accountId, resolved.provider.id),
     );
     this.realtimeProviderId = resolved.provider.id;
-    const capabilities = resolveRealtimeVoiceProviderCapabilities({
-      ...resolved,
-      cfg: this.params.cfg,
-      agentId: this.params.entry.route.agentId,
-      surface: "gateway-relay",
-    });
-    this.handlesAgentConsult = capabilities?.handlesAgentConsult === true;
-    if (
-      this.handlesAgentConsult &&
-      (this.realtimeConfig?.requireWakeName === true ||
-        this.realtimeConfig?.consultPolicy === "always")
-    ) {
-      throw new Error(
-        "This realtime model owns voice responses and delegation. Remove requireWakeName: true and consultPolicy: always, or select a model that supports host-controlled turns.",
-      );
-    }
+    const capabilities = resolved.capabilities;
     const isAgentProxy = isDiscordAgentProxyVoiceMode(this.params.mode);
     const sessionPolicy = resolveRealtimeVoiceSessionPolicy({
       isAgentProxy,
-      supportsActivationNameGating: capabilities?.supportsActivationNameGating === true,
+      capabilities,
       configuredToolPolicy: this.realtimeConfig?.toolPolicy,
-      configuredConsultPolicy: this.handlesAgentConsult
-        ? "auto"
-        : this.realtimeConfig?.consultPolicy,
+      configuredConsultPolicy: this.realtimeConfig?.consultPolicy,
       requireWakeName: this.realtimeConfig?.requireWakeName,
       configuredWakeNames: this.realtimeConfig?.wakeNames,
       cfg: this.params.cfg,
@@ -296,6 +278,7 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       wakeNames,
       autoRespondToAudio,
     } = sessionPolicy;
+    this.handlesAgentConsult = sessionPolicy.handlesAgentConsult;
     this.consultToolPolicy = toolPolicy;
     this.consultToolsAllow = consultToolsAllow;
     this.consultPolicy = consultPolicy;
@@ -308,6 +291,7 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       this.wakeNamePolicy === "never" &&
       resolveRealtimeVoiceInterruptResponseOnInputAudio(providerInterruptResponseOnInputAudio);
     const bargeIn = resolveRealtimeVoiceBargeIn({
+      capabilities,
       configuredBargeIn: this.realtimeConfig?.bargeIn,
       interruptResponseOnInputAudio: providerInterruptResponseOnInputAudio,
     });
@@ -334,6 +318,7 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
     };
     this.bridge = this.harness.createBridge({
       provider: resolved.provider,
+      capabilities,
       cfg: this.params.cfg,
       agentId: this.params.entry.route.agentId,
       providerConfig: resolved.providerConfig,

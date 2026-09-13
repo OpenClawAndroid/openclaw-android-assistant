@@ -262,8 +262,8 @@ type TelegramIngressDrainDispatch = (
 
 type CreateTelegramIngressMonitorParams = {
   queue: ChannelIngressQueue<TelegramSpooledUpdatePayload>;
-  /** Required for authorization-gated supersede (numeric allowlist). */
-  cfg: OpenClawConfig;
+  /** Read committed policy for every supersession decision, including after reconnect. */
+  getConfig: () => OpenClawConfig;
   accountId: string;
   botInfo?: TelegramBotInfo;
   adoptionStallTimeoutMs?: number;
@@ -463,7 +463,7 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
       startLimit: TELEGRAM_SPOOLED_DRAIN_START_LIMIT,
       resolveNonRetryableFailure: resolveTelegramIngressNonRetryableFailure,
       shouldSupersedePending: createShouldSupersedeTelegramSpooledPending({
-        cfg: params.cfg,
+        getConfig: params.getConfig,
         accountId: params.accountId,
         ...(params.botInfo?.username ? { botUsername: params.botInfo.username } : {}),
       }),

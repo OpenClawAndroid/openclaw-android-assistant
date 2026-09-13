@@ -224,6 +224,7 @@ export {
 export {
   calculateMulawRms,
   createSpeechThresholdGate,
+  isRealtimeVoiceAudioAudible,
   readPcm16AudioStats,
   type AudioEnergyStats,
 } from "../talk/audio-energy.js";

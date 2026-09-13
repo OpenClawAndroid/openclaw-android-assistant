@@ -307,6 +307,7 @@ export function renderSettingsToggle(props: {
 /** Toggle row: one <label> wraps title, description, and switch, so the whole
  * row is clickable and the checkbox gets its accessible name from the title. */
 export function renderSettingsToggleRow(props: {
+  icon?: unknown;
   title: unknown;
   ariaLabel?: unknown;
   description?: unknown;
@@ -342,6 +343,7 @@ export function renderSettingsToggleRow(props: {
         props.onChange(checked);
       }}
     >
+      ${props.icon ?? nothing}
       <div class="settings-row__text">
         <span class="settings-row__title">${props.title}</span>
         ${

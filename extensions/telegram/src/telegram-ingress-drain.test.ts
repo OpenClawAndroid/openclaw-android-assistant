@@ -113,7 +113,12 @@ describe("createTelegramIngressMonitor", () => {
 
       const error = telegramSendError(403, "Forbidden: bot was blocked by the user");
       const dispatch = vi.fn(async () => ({ kind: "failed-retryable" as const, error }));
-      const monitor = createTelegramIngressMonitor({ queue, cfg, accountId: "default", dispatch });
+      const monitor = createTelegramIngressMonitor({
+        queue,
+        getConfig: () => cfg,
+        accountId: "default",
+        dispatch,
+      });
 
       monitor.start();
       await monitor.waitForIdle();
@@ -147,7 +152,7 @@ describe("createTelegramIngressMonitor", () => {
       const retryError = new Error("provider blip");
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async () => ({ kind: "failed-retryable", error: retryError }),
       });
@@ -207,7 +212,7 @@ describe("createTelegramIngressMonitor", () => {
       });
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         botInfo: { id: 999, has_topics_enabled: false } as never,
         dispatch,
@@ -236,7 +241,7 @@ describe("createTelegramIngressMonitor", () => {
       const participant: { current?: TelegramSpooledReplayDeferredParticipant } = {};
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async () => {
           participant.current =
@@ -275,7 +280,7 @@ describe("createTelegramIngressMonitor", () => {
       const participant: { current?: TelegramSpooledReplayDeferredParticipant } = {};
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async () => {
           participant.current =
@@ -316,7 +321,7 @@ describe("createTelegramIngressMonitor", () => {
         const participant: { current?: TelegramSpooledReplayDeferredParticipant } = {};
         const monitor = createTelegramIngressMonitor({
           queue,
-          cfg,
+          getConfig: () => cfg,
           accountId: "default",
           dispatch: async () => {
             participant.current =
@@ -359,7 +364,7 @@ describe("createTelegramIngressMonitor", () => {
       const participant: { current?: TelegramSpooledReplayDeferredParticipant } = {};
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async () => {
           participant.current =
@@ -413,7 +418,7 @@ describe("createTelegramIngressMonitor", () => {
       let ownerSignal: AbortSignal | undefined;
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async (_update, lifecycle) => {
           ownerSignal = lifecycle.abortSignal;
@@ -460,7 +465,7 @@ describe("createTelegramIngressMonitor", () => {
 
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async (_update, lifecycle) => {
           await lifecycle.onAdopted();
@@ -492,7 +497,7 @@ describe("createTelegramIngressMonitor", () => {
       const logs: string[] = [];
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg,
+        getConfig: () => cfg,
         accountId: "default",
         dispatch: async () => {},
         onLog: (message) => logs.push(message),

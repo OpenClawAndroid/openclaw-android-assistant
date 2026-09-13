@@ -23,7 +23,7 @@ export type SqliteIntegrityOperation<T> = Generator<SqliteIntegrityCheck, T, voi
 
 export type SqliteIntegrityDiagnostics = {
   integrityGateMs?: number;
-  integrityGateOutcome?: "healthy" | "failed";
+  integrityGateOutcome?: "healthy" | "failed" | "cached";
   integrityCheckSyncMs?: number;
   integrityOutsideCheckMs?: number;
   canonicalIndexMs?: number;

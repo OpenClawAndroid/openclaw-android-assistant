@@ -211,7 +211,7 @@ function renderSkillGroup(group: SkillGroup, props: SkillsProps) {
         <h2 class="settings-section__heading">
           ${group.label} <span class="settings-count">${group.skills.length}</span>
         </h2>
-        <span class="skills-group__chevron" aria-hidden="true">${icons.chevronDown}</span>
+        <span class="skills-group__chevron" aria-hidden="true">${icons.chevronRight}</span>
       </summary>
       <div class="settings-group">
         ${repeat(

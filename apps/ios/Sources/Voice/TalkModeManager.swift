@@ -4078,6 +4078,10 @@ extension TalkModeManager {
 
     private func handleRealtimeRelayTermination(_ termination: RealtimeTalkRelayTermination) {
         GatewayDiagnostics.log("talk realtime relay terminated reason=\(String(describing: termination))")
+        if case .outputCancelled = termination {
+            self.stop()
+            return
+        }
         self.realtimeRelaySession = nil
         guard self.captureMode != .pushToTalk else { return }
         self.handleRealtimeSessionFinish()

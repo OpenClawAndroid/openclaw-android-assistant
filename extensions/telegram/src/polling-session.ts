@@ -353,7 +353,6 @@ export class TelegramPollingSession {
     const ingressMonitor = createTelegramTransportIngressMonitor({
       spoolDir,
       bot,
-      cfg: this.opts.config,
       accountId: this.opts.accountId,
       botInfo,
       adoptionStallTimeoutMs: this.#spooledUpdateHandlerTimeoutMs,

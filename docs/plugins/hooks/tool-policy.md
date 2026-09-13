@@ -183,7 +183,8 @@ export default definePluginEntry({
 });
 ```
 
-Load the file directly and restart the Gateway:
+Add the file to `plugins.load.paths`; the default hybrid reload mode applies
+the change:
 
 ```json5
 {
@@ -214,6 +215,7 @@ Load the file directly and restart the Gateway:
 `AGENT_ID` must name the agent bound to the maintenance conversation. The
 binding selects that agent for normal messages and `/fix`; the standalone file
 remains the single owner of owner-versus-maintainer tool policy.
+After editing the file itself, run `openclaw plugins reload maintenance-access`.
 
 `requireAuth: true` reuses each channel's existing sender admission. For
 Discord, a guild or channel `users`/`roles` allowlist can authorize the

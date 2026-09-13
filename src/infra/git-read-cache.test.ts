@@ -35,7 +35,7 @@ describe("typed Git read ownership", () => {
     expect(runGitWorkerOperation).toHaveBeenCalledTimes(2);
   });
 
-  it("gives each coalesced response independent files for transport truncation", async () => {
+  it("gives each coalesced response independent files and commit metadata", async () => {
     const held = createDeferredCore<GitReadOperations["checkout.diff"]["output"]>();
     onTestFinished(() => held.resolve(emptyDiff));
     vi.mocked(runGitWorkerOperation).mockReturnValueOnce(held.promise);
@@ -47,15 +47,22 @@ describe("typed Git read ownership", () => {
       ],
       additions: 1,
       deletions: 0,
+      commits: [{ sha: "a".repeat(40), subject: "Branch commit" }],
+      mergeBase: { sha: "b".repeat(40), subject: "Base commit" },
     });
     const [truncated, complete] = await Promise.all([first, second]);
     const file = truncated.files[0]!;
     delete file.patch;
     file.truncated = true;
     truncated.files.push({ path: "other.txt", status: "added", additions: 1, deletions: 0 });
+    truncated.commits![0]!.subject = "Changed branch commit";
+    truncated.commits!.push({ sha: "c".repeat(40), subject: "Another commit" });
+    truncated.mergeBase!.subject = "Changed base commit";
     expect(complete.files).toEqual([
       { path: "file.txt", status: "modified", additions: 1, deletions: 0, patch: "full patch" },
     ]);
+    expect(complete.commits).toEqual([{ sha: "a".repeat(40), subject: "Branch commit" }]);
+    expect(complete.mergeBase).toEqual({ sha: "b".repeat(40), subject: "Base commit" });
     expect(runGitWorkerOperation).toHaveBeenCalledOnce();
   });
 

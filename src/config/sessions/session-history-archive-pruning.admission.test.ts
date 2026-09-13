@@ -9,6 +9,7 @@ import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import * as sqlite from "../../infra/node-sqlite.js";
 import * as integrity from "../../infra/sqlite-integrity-worker.js";
 import * as logging from "../../logging/logger.js";
+import { invalidateOpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import {
   closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabasesAsync,
@@ -266,6 +267,7 @@ it.each([
       inTransaction = database.db.isTransaction;
       if (cold) {
         closed = closeOpenClawAgentDatabaseByPath(database.path);
+        invalidateOpenClawAgentDatabaseValidation(database.path);
       }
       observing = true;
     };

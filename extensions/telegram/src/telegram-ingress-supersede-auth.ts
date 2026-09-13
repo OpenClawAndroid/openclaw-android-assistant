@@ -8,6 +8,7 @@ import {
   resolveTelegramGroupAllowFromContext,
   resolveTelegramMessageThreadSpec,
 } from "./bot/helpers.js";
+import { resolveTelegramEffectiveGroupPolicy } from "./group-access.js";
 import { resolveTelegramScopedGroupConfig } from "./group-config-helpers.js";
 import { resolveTelegramCommandIngressAuthorization } from "./ingress.js";
 
@@ -92,7 +93,6 @@ export type TelegramSupersedeAuthContext = {
   accountId: string;
   /** Bot username for @bot command targeting (from getMe / botInfo). */
   botUsername?: string;
-  /** Test seam / preloaded pairing-store ids; defaults to live pairing store. */
 };
 
 /**
@@ -131,6 +131,18 @@ export async function isTelegramSpooledUpdateSenderAuthorized(
 
   const { resolvedThreadId, storeAllowFrom, groupAllowOverride, effectiveGroupAllow } =
     groupAllowContext;
+
+  if (
+    facts.isGroup &&
+    resolveTelegramEffectiveGroupPolicy({
+      cfg: auth.cfg,
+      telegramCfg: accountCfg,
+      groupConfig: groupAllowContext.groupConfig,
+      topicConfig: groupAllowContext.topicConfig,
+    }) === "disabled"
+  ) {
+    return false;
+  }
 
   const dmAllow = await resolveTelegramDmAllow({
     cfg: auth.cfg,

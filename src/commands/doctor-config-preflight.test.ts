@@ -33,10 +33,8 @@ import {
 } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { resolveMigrationCheckpointIdentity } from "./doctor-config-preflight-checkpoint.js";
-import {
-  runDoctorConfigPreflight,
-  shouldSkipPluginValidationForDoctorConfigPreflight,
-} from "./doctor-config-preflight.js";
+import { shouldSkipPluginValidationForDoctorConfigPreflight } from "./doctor-config-preflight-plugin-index.js";
+import { runDoctorConfigPreflight } from "./doctor-config-preflight.js";
 import { startupCheckpointOptions } from "./doctor-config-preflight.state-migration.test-helpers.js";
 import { withDoctorConfigPreflightHome } from "./doctor-config-preflight.test-support.js";
 import { isStartupConfigRepairResult } from "./doctor/shared/automatic-startup-config-repair.js";

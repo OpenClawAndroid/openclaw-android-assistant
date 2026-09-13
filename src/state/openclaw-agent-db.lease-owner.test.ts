@@ -93,6 +93,7 @@ describe("agent database lease acquisition owner", () => {
       DROP INDEX idx_agent_cache_expiry;
     `);
     expect(closeOpenClawAgentDatabaseByPath(original.path)).toBe(true);
+    closeOpenClawAgentDatabasesForTest(owner.stateDir);
     const nativeOpen = nodeSqlite.openNodeSqliteDatabase;
     let opened: DatabaseSync | undefined;
     const open = vi

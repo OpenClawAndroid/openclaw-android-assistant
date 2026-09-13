@@ -19,10 +19,7 @@ import { REALTIME_VOICE_AGENT_CONTROL_TOOL } from "../../talk/agent-run-control-
 import { controlRealtimeVoiceAgentRun } from "../../talk/agent-run-control.js";
 import { ensureClientVoiceAgentSessionEntry } from "../../talk/client-voice-session.js";
 import { projectInternalRealtimeVoicePublicConfig } from "../../talk/provider-internal.js";
-import {
-  resolveConfiguredRealtimeVoiceProvider,
-  resolveRealtimeVoiceProviderCapabilities,
-} from "../../talk/provider-resolver.js";
+import { resolveConfiguredRealtimeVoiceProvider } from "../../talk/provider-resolver.js";
 import { resolveSandboxedSessionCreation } from "../operator-role-policy.js";
 import { ADMIN_SCOPE } from "../operator-scopes.js";
 import { SessionMutationAuthorizationChangedError } from "../session-sharing.js";
@@ -291,14 +288,7 @@ export const talkSessionHandlers: GatewayRequestHandlers = {
           // GPT-Live delegates natively; forced transcript consults are a GA-model mode.
           return respondInvalidRequest(respond, relayLaunch.error);
         }
-        const capabilities = resolveRealtimeVoiceProviderCapabilities({
-          provider: resolution.provider,
-          providerConfig: relayLaunch.providerConfig,
-          cfg: runtimeConfig,
-          agentId,
-          model: launchOptions.model,
-          surface: "gateway-relay",
-        });
+        const capabilities = resolution.capabilities;
         const controlSource =
           capabilities?.handlesAgentConsult === true ? "delegation" : "transcript";
         const providerInstructions = await resolveTalkRealtimeProviderInstructions({
@@ -332,7 +322,7 @@ export const talkSessionHandlers: GatewayRequestHandlers = {
           provider: resolution.provider,
           providerConfig: relayLaunch.providerConfig,
           controlSource,
-          supportsToolCalls: capabilities?.supportsToolCalls,
+          capabilities,
           instructions:
             controlSource === "delegation"
               ? (providerInstructions ?? "")

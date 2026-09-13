@@ -154,7 +154,7 @@ describe("telegram ingress spool mapping", () => {
       const queue = openTelegramIngressQueue(spoolDir);
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg: { channels: { telegram: { groupPolicy: "open" } } } as OpenClawConfig,
+        getConfig: () => ({ channels: { telegram: { groupPolicy: "open" } } }) as OpenClawConfig,
         accountId: "acct",
         onError,
         dispatch: async (update) => {
@@ -254,7 +254,7 @@ describe("telegram ingress spool mapping", () => {
       const queue = openTelegramIngressQueue(spoolDir);
       const monitor = createTelegramIngressMonitor({
         queue,
-        cfg: { channels: { telegram: { groupPolicy: "open" } } } as OpenClawConfig,
+        getConfig: () => ({ channels: { telegram: { groupPolicy: "open" } } }) as OpenClawConfig,
         accountId: "acct",
         dispatch: (update) => {
           const updateId = resolveTelegramUpdateId(update);

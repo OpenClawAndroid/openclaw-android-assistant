@@ -1,6 +1,7 @@
 import { formatErrorMessage } from "../infra/errors.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { PluginInstanceUnavailableError } from "./plugin-instance-error.js";
 import { pluginInstanceInvocation as invocation } from "./plugin-instance-invocation.js";
 import {
   pluginInstanceState,
@@ -99,7 +100,7 @@ export class PluginInstance {
       return scoped.run(run);
     }
     if (!this.accepting || this.owner?.revoked) {
-      throw new Error(`Plugin ${this.pluginId} was reloaded or disabled; use its current tools.`);
+      throw new PluginInstanceUnavailableError(this.pluginId);
     }
     return this.invoke(run);
   }
@@ -111,7 +112,7 @@ export class PluginInstance {
     }
     // Fresh ordinary calls never inherit a scope's retained-consumer admission.
     if (!this.accepting || this.owner?.revoked) {
-      throw new Error(`Plugin ${this.pluginId} was reloaded or disabled; use its current tools.`);
+      throw new PluginInstanceUnavailableError(this.pluginId);
     }
     return this.invoke(run, this.lease(true, registry));
   }

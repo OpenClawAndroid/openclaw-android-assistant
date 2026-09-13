@@ -7,6 +7,7 @@ import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import * as sqlite from "../../infra/node-sqlite.js";
 import * as integrity from "../../infra/sqlite-integrity-worker.js";
 import { isSessionLifecycleMutationActive } from "../../sessions/session-lifecycle-admission.js";
+import { invalidateOpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import {
   closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabasesAsync,
@@ -205,6 +206,7 @@ it.each([
       expect(database.db.isTransaction).toBe(false);
       if (cold) {
         closeOpenClawAgentDatabaseByPath(database.path);
+        invalidateOpenClawAgentDatabaseValidation(database.path);
         expect(getOpenClawAgentDatabaseIfOpen(options)).toBeUndefined();
         events.push("parent-handle-closed");
       }

@@ -11,6 +11,7 @@ import {
   loadConfigSchema,
   lookupConfigSchemaPath,
   openConfigFile,
+  type ConfigLoadOptions,
   type ConfigPatchBuilder,
   type ConfigWriteCoordinator,
   type ConfigMethod,
@@ -24,7 +25,6 @@ import {
   clearConfigRequestVersions,
   createInitialConfigState,
   type AgentConfigEntryTarget,
-  type LoadConfigOptions,
   type RuntimeConfigGateway,
   type RuntimeConfigState,
 } from "./config-state-model.ts";
@@ -38,7 +38,7 @@ export type RuntimeConfigCapability = {
   readonly canOpenFile?: boolean;
   ensureLoaded: () => Promise<void>;
   ensureSchemaLoaded: () => Promise<void>;
-  refresh: (options?: LoadConfigOptions) => Promise<void>;
+  refresh: (options?: ConfigLoadOptions) => Promise<void>;
   refreshSchema: () => Promise<void>;
   patchForm: (path: Array<string | number>, value: unknown) => void;
   removeFormValue: (path: Array<string | number>) => void;

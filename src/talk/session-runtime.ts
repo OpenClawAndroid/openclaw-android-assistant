@@ -4,6 +4,7 @@ import {
   buildRealtimeVoiceAgentControlSpeechMessage,
   REALTIME_VOICE_AGENT_CONTROL_FAILURE_MESSAGE,
 } from "./agent-run-control-shared.js";
+import type { InternalRealtimeVoiceProviderCapabilities } from "./provider-internal.js";
 import type {
   RealtimeVoiceBridge,
   RealtimeVoiceAgentConsultRunner,
@@ -21,6 +22,7 @@ import type {
   RealtimeVoiceToolCallEvent,
   RealtimeVoiceToolResultOptions,
 } from "./provider-types.js";
+import { resolveRealtimeVoiceBargeIn } from "./realtime-session-policy.js";
 
 /**
  * Transport-facing audio target used by realtime voice bridge sessions.
@@ -43,6 +45,7 @@ export type RealtimeVoiceMarkStrategy = "transport" | "ack-immediately" | "ignor
  */
 export type RealtimeVoiceBridgeSession = {
   bridge: RealtimeVoiceBridge;
+  readonly capabilities?: InternalRealtimeVoiceProviderCapabilities;
   acknowledgeMark(markName?: string): void;
   close(options?: RealtimeVoiceCloseOptions): void | Promise<void>;
   connect(): Promise<void>;
@@ -63,6 +66,7 @@ export type RealtimeVoiceBridgeSession = {
  */
 export type RealtimeVoiceBridgeSessionParams = {
   provider: RealtimeVoiceProviderPlugin;
+  capabilities?: InternalRealtimeVoiceProviderCapabilities;
   cfg?: OpenClawConfig;
   /** Host-selected agent scope for provider auth and agent-owned bridge state. */
   agentId?: string;
@@ -131,6 +135,7 @@ export function createRealtimeVoiceBridgeSession(
   // The provider may call callbacks during createBridge(); keep the public session facade
   // stable while blocking use until the bridge object has actually been returned.
   const session: RealtimeVoiceBridgeSession = {
+    capabilities: params.capabilities,
     get bridge() {
       return requireBridge();
     },
@@ -185,8 +190,19 @@ export function createRealtimeVoiceBridgeSession(
       }
     },
     handleBargeIn: (options) => {
-      if (isAdmitting()) {
-        requireBridge().handleBargeIn?.(options);
+      if (!isAdmitting()) {
+        return;
+      }
+      const bridge = requireBridge();
+      if (
+        resolveRealtimeVoiceBargeIn({
+          configuredBargeIn: true,
+          interruptResponseOnInputAudio: true,
+          capabilities: params.capabilities,
+          outputAudioMode: bridge.outputAudioMode,
+        })
+      ) {
+        bridge.handleBargeIn?.(options);
       }
     },
     setMediaTimestamp: (ts) => {

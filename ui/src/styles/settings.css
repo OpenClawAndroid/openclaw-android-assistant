@@ -509,6 +509,10 @@
   stroke-linejoin: round;
 }
 
+.cfg-object[open] > .cfg-object__summary .cfg-object__chevron {
+  transform: rotate(90deg);
+}
+
 /* Indented child rows (e.g. per-item options under a parent toggle). */
 .settings-subrows .settings-row {
   padding-left: var(--space-7);

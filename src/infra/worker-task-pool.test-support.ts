@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { threadId } from "node:worker_threads";
+import { threadId, workerData } from "node:worker_threads";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { serveWorkerTasks } from "./worker-task-pool.js";
 
 export type PoolFixtureInput = {
   label: string;
+  readStartupOptions?: boolean;
   exchanges?: number;
   counters?: SharedArrayBuffer;
   wait?: boolean;
@@ -18,6 +19,7 @@ export type PoolFixtureResult = {
   buffer?: ArrayBuffer;
   previousBufferBytes?: number;
   relayedBufferBytes?: number;
+  startupOptions?: { data: unknown; argv: string[] };
 };
 
 let previousBuffer: ArrayBuffer | undefined;
@@ -66,6 +68,9 @@ serveWorkerTasks<PoolFixtureResult>(
       buffer: input.buffer,
       previousBufferBytes,
       relayedBufferBytes,
+      ...(input.readStartupOptions
+        ? { startupOptions: { data: workerData, argv: process.argv.slice(2) } }
+        : {}),
     };
   },
   { transferList: (value) => (value.buffer ? [value.buffer] : []) },

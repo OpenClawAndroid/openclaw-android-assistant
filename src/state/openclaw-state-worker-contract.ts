@@ -6,6 +6,7 @@ import type {
 } from "../tasks/task-flow-registry.store.types.js";
 import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
 import type { TaskRecord, TaskRegistrySummary } from "../tasks/task-registry.types.js";
+import type { UserPreferenceWorkerOperations } from "./user-preferences.types.js";
 
 type TaskLookupRecords = {
   direct?: TaskRecord;
@@ -25,7 +26,7 @@ type TaskFlowReadQuery = {
 };
 
 /** Commands share one physical shared-state actor; bindings belong to commands, not open input. */
-export type OpenClawStateWorkerOperations = {
+export type OpenClawStateWorkerOperations = UserPreferenceWorkerOperations & {
   "flows.createManaged": {
     input: { flow: TaskFlowRecord };
     output: TaskFlowRecord;

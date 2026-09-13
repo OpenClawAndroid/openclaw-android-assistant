@@ -51,11 +51,31 @@ function linkDependencies(baseRoot: string): void {
       }
     }
   }
+  const workspaceRoots = new Map(
+    roots.map((root) => [fs.realpathSync(path.join(repoRoot, root)), root]),
+  );
   for (const root of roots) {
     const dependencies = path.join(repoRoot, root, "node_modules");
     const destinationRoot = path.join(baseRoot, root);
     if (fs.existsSync(dependencies) && fs.existsSync(destinationRoot)) {
-      fs.symlinkSync(dependencies, path.join(destinationRoot, "node_modules"), "junction");
+      // An outer node_modules link resolves workspace packages back into the candidate.
+      // Share installed third-party packages, but keep workspace source in the archived tree.
+      const packages = fs.readdirSync(dependencies).flatMap((name) => {
+        if (name.startsWith(".") && name !== ".bin") {
+          return [];
+        }
+        return name.startsWith("@")
+          ? fs.readdirSync(path.join(dependencies, name)).map((child) => path.join(name, child))
+          : [name];
+      });
+      for (const name of packages) {
+        const installed = fs.realpathSync(path.join(dependencies, name));
+        const workspace = workspaceRoots.get(installed);
+        const target = workspace === undefined ? installed : path.join(baseRoot, workspace);
+        const destination = path.join(destinationRoot, "node_modules", name);
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.symlinkSync(target, destination, "junction");
+      }
     }
   }
 }

@@ -2,7 +2,7 @@ import path from "node:path";
 import { createSessionProjection, reduceSessionProjection } from "@openclaw/gateway-client/browser";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
 import { composeTranscriptDisplay } from "../chat/transcript-display-position.js";
 import { clearConfigCache } from "../config/config.js";
@@ -20,7 +20,10 @@ import {
 import { waitForSessionTranscriptIndexReconcile } from "../config/sessions/session-transcript-reconcile.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { createNestedToolActivity } from "../sessions/nested-tool-activity.js";
-import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
+import {
+  closeOpenClawAgentDatabasesForTest,
+  openOpenClawAgentDatabase,
+} from "../state/openclaw-agent-db.js";
 import * as userProfiles from "../state/user-profiles.js";
 import { buildControlUiUserAvatarPath } from "./control-ui-contract.js";
 import * as managedOutgoingMedia from "./managed-image-attachments.js";
@@ -30,7 +33,7 @@ import { createTranscriptUpdateBroadcastHandler } from "./server-session-events.
 import { installGatewayTestHooks, testState, writeSessionStore } from "./test-helpers.js";
 
 installGatewayTestHooks({ scope: "suite" });
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = createTempDirTracker();
 
 type ChatMethod = "chat.history" | "chat.startup";
 type RpcResult<T = Record<string, unknown>> = {
@@ -129,8 +132,12 @@ function renderedMessages(messages: readonly unknown[]): unknown[] {
 }
 
 afterEach(() => {
+  for (const directory of tempDirs.dirs) {
+    closeOpenClawAgentDatabasesForTest(directory);
+  }
   testState.sessionStorePath = undefined;
   clearConfigCache();
+  tempDirs.cleanup();
 });
 
 describe("chat.history cursor catch-up", () => {

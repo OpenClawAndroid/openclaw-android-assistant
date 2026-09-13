@@ -35,6 +35,16 @@ export type SessionChangedResult = Omit<
   "reconciled" | "eventTs" | "ownershipChanged" | "disposition"
 > & { result: SessionsListResult | null };
 
+/** Retain result identity when a membership-preserving projection leaves every row unchanged. */
+export function projectSessionResultRows(
+  result: SessionsListResult | null,
+  sessions: GatewaySessionRow[],
+): SessionsListResult | null {
+  return result && sessions.some((row, index) => row !== result.sessions[index])
+    ? { ...result, sessions }
+    : result;
+}
+
 /** Merge canonical and filtered pages with the same cursor/deduplication contract. */
 export function appendSessionResults(
   previous: SessionsListResult,
@@ -72,13 +82,12 @@ export function reconcileRosterPresentationMetadata(
     return incoming;
   }
   const existingByKey = new Map(existing.sessions.map((session) => [session.key, session]));
-  let changed = false;
-  const sessions = incoming.sessions.map((session) => {
-    const reconciled = preserveRosterPresentationMetadata(session, existingByKey.get(session.key));
-    changed ||= reconciled !== session;
-    return reconciled;
-  });
-  return changed ? { ...incoming, sessions } : incoming;
+  return projectSessionResultRows(
+    incoming,
+    incoming.sessions.map((session) =>
+      preserveRosterPresentationMetadata(session, existingByKey.get(session.key)),
+    ),
+  );
 }
 
 export function preserveCurrentSessionRow(
