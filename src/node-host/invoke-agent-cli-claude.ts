@@ -39,6 +39,7 @@ export async function runClaudeCliNodeCommand(params: {
   secretInput?: SpawnSecretInput;
   timeoutMs: number | undefined;
   signal?: AbortSignal;
+  assertCurrent?: () => void;
   skillIo?: OpenClawPluginNodeHostCommandIo;
 }): Promise<RunResult> {
   const cancelledResult = (): RunResult => ({
@@ -149,6 +150,7 @@ export async function runClaudeCliNodeCommand(params: {
       const runPromise = supervisor.spawn({
         runId,
         mode: "child",
+        beforeSpawn: params.assertCurrent,
         argv,
         cwd: params.cwd,
         // Apply the cache-stable Git policy locally without extending the node wire contract.

@@ -34,6 +34,7 @@ import {
   startSessionTranscriptIndexReconcile,
   waitForSessionTranscriptIndexReconcile,
 } from "./session-transcript-reconcile.js";
+import { transcriptMessage } from "./transcript-message.test-support.js";
 
 const queuedSessionWrite = vi.hoisted(() => vi.fn());
 
@@ -84,21 +85,9 @@ describe("SQLite active transcript event projection", () => {
   it("defers branch rewind rebuilds off history and writer stacks", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "root",
-          parentId: null,
-          message: { role: "user", content: "root" },
-        },
-        {
-          eventId: "inactive",
-          parentId: "root",
-          message: { role: "assistant", content: "inactive" },
-        },
-        {
-          eventId: "active",
-          parentId: "root",
-          message: { role: "assistant", content: "active" },
-        },
+        transcriptMessage("root", null, { role: "user", content: "root" }),
+        transcriptMessage("inactive", "root", { role: "assistant", content: "inactive" }),
+        transcriptMessage("active", "root", { role: "assistant", content: "active" }),
       ],
       touchSessionEntry: false,
     });
@@ -171,11 +160,10 @@ describe("SQLite active transcript event projection", () => {
   it("stops counting discarded transcript bytes after a reset", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "discarded-old",
-          parentId: null,
-          message: { role: "user", content: `discarded ${"x".repeat(20_000)}` },
-        },
+        transcriptMessage("discarded-old", null, {
+          role: "user",
+          content: `discarded ${"x".repeat(20_000)}`,
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -188,11 +176,7 @@ describe("SQLite active transcript event projection", () => {
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "post-reset",
-          parentId: "reset-boundary",
-          message: { role: "user", content: "fresh turn" },
-        },
+        transcriptMessage("post-reset", "reset-boundary", { role: "user", content: "fresh turn" }),
       ],
       touchSessionEntry: false,
     });
@@ -251,11 +235,10 @@ describe("SQLite active transcript event projection", () => {
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "post-reset",
-          parentId: "reset-boundary",
-          message: { role: "user", content: "x".repeat(20_000) },
-        },
+        transcriptMessage("post-reset", "reset-boundary", {
+          role: "user",
+          content: "x".repeat(20_000),
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -265,13 +248,7 @@ describe("SQLite active transcript event projection", () => {
 
   it("defers mixed legacy and canonical rebuilds off request stacks", async () => {
     await persistSessionTranscriptTurn(scope, {
-      messages: [
-        {
-          eventId: "canonical-root",
-          parentId: null,
-          message: { role: "user", content: "canonical" },
-        },
-      ],
+      messages: [transcriptMessage("canonical-root", null, { role: "user", content: "canonical" })],
       touchSessionEntry: false,
     });
     const database = openOpenClawAgentDatabase({ agentId: scope.agentId, env: scope.env });
@@ -314,12 +291,8 @@ describe("SQLite active transcript event projection", () => {
   it("skips oversized tail rows before materializing a bounded message page", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        { eventId: "small", parentId: null, message: { role: "user", content: "keep" } },
-        {
-          eventId: "oversized",
-          parentId: "small",
-          message: { role: "assistant", content: "x".repeat(16_384) },
-        },
+        transcriptMessage("small", null, { role: "user", content: "keep" }),
+        transcriptMessage("oversized", "small", { role: "assistant", content: "x".repeat(16_384) }),
       ],
       touchSessionEntry: false,
     });
@@ -338,13 +311,7 @@ describe("SQLite active transcript event projection", () => {
 
   it("fails fast and schedules maintenance when out-of-band state is dirty", async () => {
     await persistSessionTranscriptTurn(scope, {
-      messages: [
-        {
-          eventId: "seed",
-          parentId: null,
-          message: { role: "user", content: "seed" },
-        },
-      ],
+      messages: [transcriptMessage("seed", null, { role: "user", content: "seed" })],
       touchSessionEntry: false,
     });
     const database = openOpenClawAgentDatabase({ agentId: scope.agentId, env: scope.env });
@@ -374,22 +341,16 @@ describe("SQLite active transcript event projection", () => {
   it("projects reset kept-tail and post-boundary messages without rewriting raw positions", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        { eventId: "old", parentId: null, message: { role: "user", content: "old" } },
-        {
-          eventId: "kept-user",
-          parentId: "old",
-          message: { role: "user", content: "kept question" },
-        },
-        {
-          eventId: "kept-tool",
-          parentId: "kept-user",
-          message: { role: "toolResult", content: `hidden tool ${"x".repeat(2_000)}` },
-        },
-        {
-          eventId: "kept-assistant",
-          parentId: "kept-tool",
-          message: { role: "assistant", content: "kept answer" },
-        },
+        transcriptMessage("old", null, { role: "user", content: "old" }),
+        transcriptMessage("kept-user", "old", { role: "user", content: "kept question" }),
+        transcriptMessage("kept-tool", "kept-user", {
+          role: "toolResult",
+          content: `hidden tool ${"x".repeat(2_000)}`,
+        }),
+        transcriptMessage("kept-assistant", "kept-tool", {
+          role: "assistant",
+          content: "kept answer",
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -403,11 +364,7 @@ describe("SQLite active transcript event projection", () => {
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "post-reset",
-          parentId: "reset-boundary",
-          message: { role: "user", content: "new turn" },
-        },
+        transcriptMessage("post-reset", "reset-boundary", { role: "user", content: "new turn" }),
       ],
       touchSessionEntry: false,
     });
@@ -467,12 +424,8 @@ describe("SQLite active transcript event projection", () => {
   it("fails closed when the latest indexed reset payload is malformed", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        { eventId: "old", parentId: null, message: { role: "user", content: "old" } },
-        {
-          eventId: "kept",
-          parentId: "old",
-          message: { role: "assistant", content: "kept" },
-        },
+        transcriptMessage("old", null, { role: "user", content: "old" }),
+        transcriptMessage("kept", "old", { role: "assistant", content: "kept" }),
       ],
       touchSessionEntry: false,
     });
@@ -495,17 +448,12 @@ describe("SQLite active transcript event projection", () => {
   it("recomputes a cached reset window after a branch-changing message", async () => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        { eventId: "old", parentId: null, message: { role: "user", content: "old" } },
-        {
-          eventId: "kept-user",
-          parentId: "old",
-          message: { role: "user", content: "kept" },
-        },
-        {
-          eventId: "kept-assistant",
-          parentId: "kept-user",
-          message: { role: "assistant", content: "kept answer" },
-        },
+        transcriptMessage("old", null, { role: "user", content: "old" }),
+        transcriptMessage("kept-user", "old", { role: "user", content: "kept" }),
+        transcriptMessage("kept-assistant", "kept-user", {
+          role: "assistant",
+          content: "kept answer",
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -519,11 +467,7 @@ describe("SQLite active transcript event projection", () => {
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "post-reset",
-          parentId: "reset-boundary",
-          message: { role: "user", content: "post reset" },
-        },
+        transcriptMessage("post-reset", "reset-boundary", { role: "user", content: "post reset" }),
       ],
       touchSessionEntry: false,
     });
@@ -531,11 +475,7 @@ describe("SQLite active transcript event projection", () => {
 
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "branch-message",
-          parentId: "old",
-          message: { role: "assistant", content: "branched" },
-        },
+        transcriptMessage("branch-message", "old", { role: "assistant", content: "branched" }),
       ],
       touchSessionEntry: false,
     });
@@ -555,11 +495,10 @@ describe("SQLite active transcript event projection", () => {
     for (const target of [scope, secondScope]) {
       await persistSessionTranscriptTurn(target, {
         messages: [
-          {
-            eventId: `${target.sessionId}-seed`,
-            parentId: null,
-            message: { role: "user", content: target.sessionId },
-          },
+          transcriptMessage(`${target.sessionId}-seed`, null, {
+            role: "user",
+            content: target.sessionId,
+          }),
         ],
         touchSessionEntry: false,
       });
@@ -601,13 +540,7 @@ describe("SQLite active transcript event projection", () => {
     "keeps projection state and rows on one snapshot during a concurrent %s writer append",
     async (writerVersion) => {
       await persistSessionTranscriptTurn(scope, {
-        messages: [
-          {
-            eventId: "seed",
-            parentId: null,
-            message: { role: "toolResult", content: "seed" },
-          },
-        ],
+        messages: [transcriptMessage("seed", null, { role: "toolResult", content: "seed" })],
         touchSessionEntry: false,
       });
       expect(readSessionTranscriptMessageEventCount(scope)).toBe(1);
@@ -981,11 +914,7 @@ describe("SQLite active transcript event projection", () => {
     expect(order).toEqual(["event-loop-responsive"]);
     const liveWrite = await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "m100001",
-          parentId: "m100000",
-          message: { role: "toolResult", content: "live-write" },
-        },
+        transcriptMessage("m100001", "m100000", { role: "toolResult", content: "live-write" }),
       ],
       touchSessionEntry: false,
     });

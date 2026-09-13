@@ -34,6 +34,19 @@ export type TuiChatSendResult = {
   status?: string;
 };
 
+export type TuiImageRequest = {
+  sessionKey: string;
+  agentId?: string;
+  source: string;
+  artifactId?: string;
+  signal: AbortSignal;
+};
+
+export type TuiImageData = {
+  data: string;
+  mimeType: string;
+};
+
 export type TuiApprovalDecision = "allow-once" | "allow-always" | "deny";
 
 type TuiTaskSuggestionActionCapabilities = {
@@ -198,6 +211,7 @@ export type TuiBackend = {
     runId?: string;
   }) => Promise<{ ok: boolean; aborted: boolean; runIds?: string[] }>;
   loadHistory: (opts: { sessionKey: string; agentId?: string; limit?: number }) => Promise<unknown>;
+  loadImage?: (opts: TuiImageRequest) => Promise<TuiImageData>;
   listSessions: (opts?: SessionsListParams) => Promise<TuiSessionList>;
   listAgents: () => Promise<TuiAgentsList>;
   patchSession: (opts: SessionsPatchParams) => Promise<SessionsPatchResult>;

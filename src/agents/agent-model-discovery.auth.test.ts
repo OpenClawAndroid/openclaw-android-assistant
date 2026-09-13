@@ -11,6 +11,7 @@ import {
 import { addEnvBackedAgentCredentials } from "./agent-auth-discovery-core.js";
 import { discoverAuthStorage } from "./agent-model-discovery.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { writePersistedAuthProfileStoreRaw } from "./auth-profiles/sqlite.js";
 
 vi.mock("./model-auth-env-vars.js", () => ({
@@ -73,11 +74,7 @@ describe("discoverAuthStorage", () => {
     const credentials = resolveAgentCredentialMapFromStore({
       version: 1,
       profiles: {
-        "openrouter:default": {
-          type: "api_key",
-          provider: "openrouter",
-          key: "sk-or-v1-runtime",
-        },
+        "openrouter:default": createApiKeyCredential("openrouter", "sk-or-v1-runtime"),
         "anthropic:default": {
           type: "token",
           provider: "anthropic",
@@ -170,11 +167,7 @@ describe("discoverAuthStorage", () => {
     const resolved = resolveAgentCredentialMapFromStore({
       version: 1,
       profiles: {
-        "openai:key": {
-          type: "api_key",
-          provider: "openai",
-          key: "test-key",
-        },
+        "openai:key": createApiKeyCredential("openai", "test-key"),
         "openai:expired": {
           type: "oauth",
           provider: "openai",
@@ -212,11 +205,7 @@ describe("discoverAuthStorage", () => {
             refresh: "sample",
             expires: Date.now() + 3600_000,
           },
-          "openai:key": {
-            type: "api_key",
-            provider: "openai",
-            key: "test-key",
-          },
+          "openai:key": createApiKeyCredential("openai", "test-key"),
         },
       });
       const authStorage = discoverAuthStorage(agentDir, {
@@ -323,26 +312,20 @@ describe("discoverAuthStorage", () => {
         writeAuthProfilesSqlite(inheritedAuthDir, {
           version: 1,
           profiles: {
-            "inherited-provider:default": {
-              type: "api_key",
-              provider: "inherited-provider",
-              key: "inherited-key",
-            },
-            "shared-provider:inherited": {
-              type: "api_key",
-              provider: "shared-provider",
-              key: "inherited-shared-key",
-            },
+            "inherited-provider:default": createApiKeyCredential(
+              "inherited-provider",
+              "inherited-key",
+            ),
+            "shared-provider:inherited": createApiKeyCredential(
+              "shared-provider",
+              "inherited-shared-key",
+            ),
           },
         });
         writeAuthProfilesSqlite(agentDir, {
           version: 1,
           profiles: {
-            "shared-provider:local": {
-              type: "api_key",
-              provider: "shared-provider",
-              key: "local-shared-key",
-            },
+            "shared-provider:local": createApiKeyCredential("shared-provider", "local-shared-key"),
           },
         });
 

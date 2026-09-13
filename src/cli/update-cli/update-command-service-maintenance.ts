@@ -338,6 +338,7 @@ type ManagedServiceStopParams = {
   >;
   allowInstallRootChange?: boolean;
   onStopped?: (state: PreManagedServiceStop) => void;
+  assertCurrent?: () => void;
   timeoutMs?: number;
 };
 
@@ -372,6 +373,7 @@ async function stopManagedServiceBeforeMutableUpdate(
     executorFence?.assertCurrent();
   };
   const assertCurrent = () => {
+    params.assertCurrent?.();
     assertNative?.();
     assertExecutor();
   };
@@ -526,16 +528,17 @@ async function stopManagedServiceBeforeMutableUpdate(
         before: inspected,
         timeoutMs: params.timeoutMs,
       }),
-      assertCurrent: updateRun
-        ? () => {
-            // Recovery outlives this preparation callback. Its later task
-            // operations acquire their own native lock, but retain this executor.
-            assertExecutor();
-            if (getUpdateRun(updateRun.runId, { env: updateRun.env })?.status !== "running") {
-              throw new Error("Update run no longer owns Windows task activation.");
-            }
-          }
-        : undefined,
+      assertCurrent: () => {
+        // Recovery reacquires its native lock, but retains the caller's authority.
+        params.assertCurrent?.();
+        assertExecutor();
+        if (
+          updateRun &&
+          getUpdateRun(updateRun.runId, { env: updateRun.env })?.status !== "running"
+        ) {
+          throw new Error("Update run no longer owns Windows task activation.");
+        }
+      },
     });
   };
   // A loaded LaunchAgent can be between KeepAlive respawns. Other supervisors

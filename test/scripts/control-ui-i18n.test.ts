@@ -30,6 +30,8 @@ import {
 import { loadControlUiSourceCatalog } from "../../scripts/lib/control-ui-i18n-catalog.ts";
 import { collectControlUiRawCopyFromSource } from "../../scripts/lib/control-ui-i18n-raw-copy.ts";
 import { flattenTranslations } from "../../scripts/lib/control-ui-i18n-sync-plan.ts";
+import { makeAgentAssistantMessage } from "../../src/agents/test-helpers/agent-message-fixtures.js";
+import { createZeroUsageFixture } from "../../src/agents/test-helpers/usage-fixtures.js";
 import { configHintTranslationKey } from "../../ui/src/i18n/lib/config-hint-translation.ts";
 import { registerTranscriptsEnglish } from "../../ui/src/i18n/locales/en-transcripts.ts";
 import { waitForChildClose, waitForPidFile } from "../helpers/process-wait.js";
@@ -53,29 +55,18 @@ describe("translation provider privacy and fallback", () => {
     source: "Open",
     sourcePath: "fixture.ts",
   }));
-  const response = (overrides: Partial<AssistantMessage> = {}): AssistantMessage => ({
-    role: "assistant",
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(Object.fromEntries(entries.map((entry) => [entry.id, "Ouvrir"]))),
-      },
-    ],
-    api: "openai-responses",
-    provider: "openai",
-    model: primary,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: 0,
-    ...overrides,
-  });
+  const response = (overrides: Partial<AssistantMessage> = {}): AssistantMessage =>
+    makeAgentAssistantMessage({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(Object.fromEntries(entries.map((entry) => [entry.id, "Ouvrir"]))),
+        },
+      ],
+      model: primary,
+      usage: createZeroUsageFixture(),
+      ...overrides,
+    });
   beforeEach(() => {
     llm.completeSimple.mockReset();
     vi.stubEnv("OPENAI_API_KEY", "test-key");

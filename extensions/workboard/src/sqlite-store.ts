@@ -27,6 +27,7 @@ import {
   iterateSqliteQuerySync,
   openNodeSqliteDatabase,
   runSqliteImmediateTransactionSync,
+  sqliteStringSet,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
@@ -492,27 +493,30 @@ function groupByCardId(rows: Iterable<Row>): Map<string, Row[]> {
   return grouped;
 }
 
-function loadCardChildRows(db: DatabaseSync): CardChildRows {
+function loadCardChildRows(db: DatabaseSync, cardIds?: string[]): CardChildRows {
   // Group raw rows only: every preload must finish before card decoding can fail.
   const query = getNodeSqliteKysely<WorkboardCardDatabase>(db);
+  // Scope to captured IDs so a concurrent board move cannot discard a selected card's children.
+  const selectedIds = cardIds ? sqliteStringSet(cardIds) : undefined;
   const byTable = new Map<string, Map<string, Row[]>>();
   for (const table of CARD_CHILD_TABLES) {
     // Same order the per-card query produces, so grouped buckets stay ordinal-sorted.
-    byTable.set(
-      table,
-      groupByCardId(
-        iterateSqliteQuerySync(
-          db,
-          query.selectFrom(table).selectAll().orderBy("card_id", "asc").orderBy("ordinal", "asc"),
-        ),
-      ),
-    );
+    let rows = query
+      .selectFrom(table)
+      .selectAll()
+      .orderBy("card_id", "asc")
+      .orderBy("ordinal", "asc");
+    if (selectedIds) {
+      rows = rows.where("card_id", "in", selectedIds);
+    }
+    byTable.set(table, groupByCardId(iterateSqliteQuerySync(db, rows)));
   }
   const workerProtocol = new Map<string, Row>();
-  for (const row of iterateSqliteQuerySync(
-    db,
-    query.selectFrom("workboard_worker_protocol").selectAll(),
-  )) {
+  let protocols = query.selectFrom("workboard_worker_protocol").selectAll();
+  if (selectedIds) {
+    protocols = protocols.where("card_id", "in", selectedIds);
+  }
+  for (const row of iterateSqliteQuerySync(db, protocols)) {
     const cardId = stringValue(row, "card_id");
     if (cardId) {
       workerProtocol.set(cardId, row);
@@ -1360,13 +1364,24 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     return this.db.prepare("DELETE FROM workboard_cards WHERE id = ?").run(key);
   }
 
-  async entries(): Promise<Array<{ key: string; value: PersistedWorkboardCard }>> {
-    const rows = this.db
-      .prepare("SELECT * FROM workboard_cards ORDER BY created_at ASC, id ASC")
-      .all() as Row[];
-    // One query per child table for the whole board instead of one per table per card.
-    // node:sqlite is synchronous, so those queries run on the event loop thread.
-    const preloaded = loadCardChildRows(this.db);
+  async entries(boardId?: string): Promise<Array<{ key: string; value: PersistedWorkboardCard }>> {
+    let query = getNodeSqliteKysely<WorkboardCardDatabase>(this.db)
+      .selectFrom("workboard_cards")
+      .selectAll()
+      .orderBy("created_at", "asc")
+      .orderBy("id", "asc");
+    if (boardId !== undefined) {
+      query = query.where("board_id", "=", boardId);
+    }
+    const rows = Array.from(iterateSqliteQuerySync(this.db, query));
+    if (boardId !== undefined && rows.length === 0) {
+      return [];
+    }
+    // One query per child table for the selected cards instead of one per table per card.
+    const preloaded = loadCardChildRows(
+      this.db,
+      boardId === undefined ? undefined : rows.map((row) => requiredString(row, "id")),
+    );
     return rows.map((row) => ({
       key: requiredString(row, "id"),
       value: { version: 1, card: readCard(this.db, row, preloaded) },

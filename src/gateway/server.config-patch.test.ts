@@ -10,7 +10,7 @@ import { resolveDefaultAgentDir } from "../agents/agent-scope.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { REDACTED_SENTINEL } from "../config/redact-snapshot.js";
 import { resetGatewayRestartStateForInProcessRestart } from "../infra/restart.js";
-import { resetLogger, setLoggerOverride } from "../logging/logger.js";
+import { applyLoggingConfig, resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import {
   activateSecretsRuntimeSnapshot,
@@ -91,7 +91,7 @@ function requireConfigObject(value: unknown, label: string): Record<string, unkn
   return value as Record<string, unknown>;
 }
 
-async function startConfigRpcGateway() {
+async function startConfigRpcGateway(configRelativePath?: string) {
   state = await createOpenClawTestState({
     label: "config-rpc",
     env: {
@@ -109,7 +109,14 @@ async function startConfigRpcGateway() {
     },
   });
   setLoggerOverride({ level: "silent", consoleLevel: "silent" });
-  await state.writeConfig({ agents: { entries: { main: {} } } });
+  const config = { agents: { entries: { main: {} } } };
+  if (configRelativePath) {
+    const configPath = state.statePath(configRelativePath);
+    await writeJsonFile(configPath, config);
+    process.env.OPENCLAW_CONFIG_PATH = configPath;
+  } else {
+    await state.writeConfig(config);
+  }
   hotReloadRecovery.mockClear();
   const port = await getFreePort();
   server = await startGatewayServerCore(port, {
@@ -275,8 +282,8 @@ async function writeUnresolvedAuthProfileTokenRef(missingEnvVar: string) {
   );
 }
 
-function installConfigWriteGatewayHooks() {
-  beforeEach(startConfigRpcGateway);
+function installConfigWriteGatewayHooks(configRelativePath?: string) {
+  beforeEach(() => startConfigRpcGateway(configRelativePath));
   beforeEach(() => {
     rateLimitEpochMs += 60_000;
     vi.spyOn(Date, "now").mockReturnValue(rateLimitEpochMs);
@@ -584,14 +591,23 @@ describe("gateway config methods", () => {
       expect(renameDenied).toBe(true);
       if (includedContent === "changed" || rootState === "deleted") {
         expect(result.ok).toBe(false);
-        expect(result.error?.code).toBe("INVALID_REQUEST");
+        expect(result.error?.code).toBe(
+          rootState === "removed-by-writer" ? "UNAVAILABLE" : "INVALID_REQUEST",
+        );
         expect(result.error?.message).toContain(
           includedContent === "changed" ? "included config" : "config changed since last load",
         );
-        if (rootState !== "retained") {
+        if (rootState === "deleted") {
           await expect(fs.stat(original.path)).rejects.toMatchObject({ code: "ENOENT" });
         } else {
           expect(await fs.readFile(original.path, "utf8")).toBe(rootBefore);
+        }
+        if (rootState === "removed-by-writer") {
+          expect(result.error?.message).toContain("The config write was rolled back.");
+          expect(result.error?.message).toContain(
+            `Inspect recovery backups at ${original.path}.bak.`,
+          );
+          expect(await fs.readFile(`${original.path}.bak`, "utf8")).toBe(rootBefore);
         }
         expect(JSON.parse(await fs.readFile(includePath, "utf8"))).toEqual({
           level: includedContent === "changed" ? "debug" : "info",
@@ -2099,9 +2115,107 @@ describe("gateway config.apply", () => {
   });
 });
 
+describe("gateway config recovery errors", () => {
+  installConfigWriteGatewayHooks(
+    path.join(
+      "long-config-location-".repeat(4),
+      "long-config-location-".repeat(4),
+      "long-config-location-".repeat(4),
+      "openclaw.json",
+    ),
+  );
+
+  it.each(["config.set", "config.patch", "config.apply"])(
+    "%s preserves the failed-recovery outcome and backup location with built-in and custom redaction",
+    async (method) => {
+      const original = await getCurrentConfigObject();
+      expect(original.path.length).toBeGreaterThan(240);
+      const includePath = path.join(path.dirname(original.path), "logging.json");
+      await writeJsonFile(includePath, { level: "info" });
+      await writeJsonFile(original.path, {
+        ...original.config,
+        logging: { $include: "logging.json" },
+        gateway: { reload: { mode: "off" } },
+      });
+      invalidateConfigGetResponseCache();
+      const draft = await getCurrentConfigObject();
+      const rootBefore = await fs.readFile(original.path, "utf8");
+      const credential = `synthetic-credential-${"x".repeat(32)}`;
+      const customDetail = "project-private-marker";
+      applyLoggingConfig({
+        level: "silent",
+        consoleLevel: "silent",
+        redactPatterns: [`/${customDetail}/g`],
+      });
+      const rename = fsNode.renameSync;
+      vi.spyOn(fsNode, "renameSync").mockImplementation((source, destination) => {
+        if (destination !== original.path) {
+          return rename(source, destination);
+        }
+        throw Object.assign(new Error("rename denied"), { code: "EPERM" });
+      });
+      let rootRemoved = false;
+      const remove = fsNode.rmSync;
+      vi.spyOn(fsNode, "rmSync").mockImplementation((filePath, options) => {
+        remove(filePath, options);
+        if (filePath === original.path) {
+          rootRemoved = true;
+          fsNode.writeFileSync(includePath, JSON.stringify({ level: "debug" }));
+        }
+      });
+      let recoveryStageDenied = false;
+      const open = fsNode.openSync;
+      vi.spyOn(fsNode, "openSync").mockImplementation((filePath, flags, mode) => {
+        if (
+          rootRemoved &&
+          typeof filePath === "string" &&
+          path.dirname(filePath) === path.dirname(original.path) &&
+          path.basename(filePath).startsWith(".fs-safe-replace.") &&
+          filePath.endsWith(".tmp")
+        ) {
+          recoveryStageDenied = true;
+          throw Object.assign(
+            new Error(
+              `recovery staging has no space; Authorization: Bearer ${credential}; ${customDetail}`,
+            ),
+            { code: "ENOSPC" },
+          );
+        }
+        return open(filePath, flags, mode);
+      });
+
+      const patch = { ui: { prefs: { locale: "fr" } } };
+      const result = await rpcReq(requireClient(), method, {
+        raw: JSON.stringify(method === "config.patch" ? patch : { ...draft.config, ...patch }),
+        baseHash: draft.hash,
+      });
+
+      expect(recoveryStageDenied).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatchObject({
+        code: "UNAVAILABLE",
+        details: {
+          publication: "partial",
+          rollbackStatus: "unknown",
+          configPath: original.path,
+          recoveryBackupPath: `${original.path}.bak`,
+        },
+      });
+      expect(result.error?.message).toContain("recovery staging has no space");
+      expect(result.error?.message).not.toContain(credential);
+      expect(result.error?.message).not.toContain(customDetail);
+      expect(result.error?.message).toContain("Rollback could not be confirmed.");
+      expect(result.error?.message).toContain(`Inspect recovery backups at ${original.path}.bak.`);
+      await expect(fs.stat(original.path)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await fs.readFile(`${original.path}.bak`, "utf8")).toBe(rootBefore);
+      expect(JSON.parse(await fs.readFile(includePath, "utf8"))).toEqual({ level: "debug" });
+    },
+  );
+});
+
 describe("gateway config schema lookup", () => {
   // Schema lookups leave config and runtime owners unchanged between cases.
-  beforeAll(startConfigRpcGateway);
+  beforeAll(() => startConfigRpcGateway());
   afterAll(stopConfigRpcGateway);
 
   it("returns a path-scoped config schema lookup", async () => {

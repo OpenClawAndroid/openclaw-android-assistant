@@ -113,6 +113,7 @@ export async function createChildAdapter(params: ChildAdapterInput): Promise<Wor
   if (params.anchoredShellCommand !== undefined) {
     return await createServiceChildRelayAdapter({
       assertCurrent: params.assertCurrent,
+      beforeSpawn: params.beforeSpawn,
       command: process.platform === "win32" ? params.anchoredShellCommand : "/bin/sh",
       args: process.platform === "win32" ? [] : ["-c", params.anchoredShellCommand],
       windowsShellCommand: process.platform === "win32" ? params.anchoredShellCommand : undefined,
@@ -153,6 +154,7 @@ export async function createChildAdapter(params: ChildAdapterInput): Promise<Wor
   ) {
     return await createServiceChildRelayAdapter({
       assertCurrent: params.assertCurrent,
+      beforeSpawn: params.beforeSpawn,
       command: preparedSpawn.command,
       args: preparedSpawn.args,
       argv0: preparedSpawn.argv0,
@@ -196,7 +198,10 @@ export async function createChildAdapter(params: ChildAdapterInput): Promise<Wor
     }
   };
   const spawned = await spawnWithFallback({
-    assertCurrent,
+    assertCurrent: () => {
+      assertCurrent();
+      params.beforeSpawn?.();
+    },
     argv: [preparedSpawn.command, ...preparedSpawn.args],
     options,
     fallbacks: useDetached && params.ownedWorker === undefined ? [{ detached: false }] : [],

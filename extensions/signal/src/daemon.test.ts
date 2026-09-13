@@ -80,8 +80,9 @@ describe("spawnSignalDaemon", () => {
         listener.close((error) => (error ? reject(error) : resolve()));
       });
     }
+    // The released port is unowned; let the kernel choose this free probe.
     await expect(
-      assertSignalDaemonEndpointAvailable({ httpHost: "127.0.0.1", httpPort: address.port }),
+      assertSignalDaemonEndpointAvailable({ httpHost: "127.0.0.1", httpPort: 0 }),
     ).resolves.toBeUndefined();
   });
 

@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"नियंत्रण"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"बात करें"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"घड़ी का ऑडियो विफल रहा"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"माइक्रोफ़ोन की अनुमति आवश्यक"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"सेटिंग्स खोलें"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"बोलकर लिखें"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"लाइव"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"थ्रेड"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"नवीनतम जवाब बोलकर सुनाएँ"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"बोलकर सुनाया जा रहा है"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सुन रहा है"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"कॉल समाप्त हो रही है…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कनेक्ट हो रहा है"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"विचार जारी है"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"टाइप किया जा रहा है"</string>

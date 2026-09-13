@@ -34,6 +34,7 @@ export function publishManagedList(
 }
 
 export type SessionListRefreshHost = {
+  background: (key: string | object, task: () => Promise<unknown>) => Promise<void>;
   connection: SessionConnectionOwner;
   snapshot: () => SessionGateway["snapshot"];
   readState: () => SessionState;
@@ -66,19 +67,28 @@ export function createSessionManagedListRefresh(
     isPageActive: () => boolean;
   },
 ) {
-  return (entry: ManagedSessionList, refresh: ManagedSessionListRefresh): Promise<void> => {
+  const refreshManagedList = (
+    entry: ManagedSessionList,
+    refresh: ManagedSessionListRefresh,
+  ): Promise<void> => {
     const scope = host.connection.capture();
     if (!scope) {
       return Promise.resolve();
     }
     if (entry.pending) {
-      if (refresh.invalidated) {
+      if (
+        refresh.invalidated &&
+        (!refresh.background || !entry.queued || entry.queued.background)
+      ) {
         entry.queued = refresh;
       }
       return entry.pending;
     }
     if (refresh.append && !entry.snapshot.result) {
       return Promise.resolve();
+    }
+    if (!refresh.append) {
+      entry.queued = null;
     }
     const isCurrent = () =>
       managedLists.get(entry.key) === entry && host.connection.isCurrent(scope);
@@ -167,6 +177,9 @@ export function createSessionManagedListRefresh(
           return;
         }
         const queued = entry.queued;
+        if (queued?.background) {
+          return;
+        }
         entry.queued = null;
         next = isPageActive() ? queued : null;
       }
@@ -177,10 +190,34 @@ export function createSessionManagedListRefresh(
     const pending = completion.promise.finally(() => {
       if (entry.pending === pending) {
         entry.pending = null;
+        if (entry.queued?.background && isCurrent() && isPageActive()) {
+          // Release this request's admission before scheduling its automatic successor.
+          void host.background(pending, async () => {
+            if (
+              isCurrent() &&
+              isPageActive() &&
+              entry.listeners.size > 0 &&
+              !entry.pending &&
+              entry.queued?.background
+            ) {
+              await refreshManagedList(entry, entry.queued);
+            }
+          });
+        }
       }
     });
     entry.pending = pending;
     completion.resolve(drain());
     return pending;
+  };
+  return (entry: ManagedSessionList, refresh: ManagedSessionListRefresh): Promise<void> => {
+    if (!refresh.background || entry.pending) {
+      return refreshManagedList(entry, refresh);
+    }
+    return host.background(entry, async () => {
+      if (managedLists.get(entry.key) === entry && entry.listeners.size > 0) {
+        await refreshManagedList(entry, refresh);
+      }
+    });
   };
 }

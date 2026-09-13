@@ -1341,7 +1341,7 @@ extensions/workboard/doctor-contract-api.ts	4
 extensions/workboard/src/cli.ts	2
 extensions/workboard/src/command.ts	1
 extensions/workboard/src/gateway-helpers.ts	1
-extensions/workboard/src/sqlite-store.ts	36
+extensions/workboard/src/sqlite-store.ts	35
 extensions/workboard/src/store-automation.ts	1
 extensions/workboard/src/store-card-helpers.ts	1
 extensions/workboard/src/store-core.ts	2
@@ -2137,7 +2137,7 @@ src/channels/model-overrides.ts	1
 src/channels/plugins/account-config-mutation.ts	1
 src/channels/plugins/account-helpers.ts	6
 src/channels/plugins/acp-configured-binding-consumer.ts	1
-src/channels/plugins/bootstrap-registry.ts	4
+src/channels/plugins/bootstrap-registry.ts	1
 src/channels/plugins/bundled-setup-policy.ts	2
 src/channels/plugins/bundled.ts	4
 src/channels/plugins/chat-target-prefixes.ts	2
@@ -2486,7 +2486,7 @@ src/config/io.session-store-owner.ts	2
 src/config/io.snapshot.ts	1
 src/config/io.warnings.ts	2
 src/config/io.write-prepare.ts	12
-src/config/io.write-safety.ts	4
+src/config/io.write-safety.ts	3
 src/config/io.write.ts	6
 src/config/issue-location.ts	2
 src/config/legacy.default-agent-roles.ts	1
@@ -2520,10 +2520,10 @@ src/config/sessions/legacy-main-session-migration-operations.ts	1
 src/config/sessions/legacy-main-session-migration.ts	6
 src/config/sessions/lifecycle.ts	1
 src/config/sessions/metadata.ts	1
-src/config/sessions/restart-recovery-state.ts	6
+src/config/sessions/restart-recovery-state.ts	5
 src/config/sessions/session-accessor.entry-mutation.ts	2
 src/config/sessions/session-accessor.entry.ts	1
-src/config/sessions/session-accessor.sqlite-active-events.ts	2
+src/config/sessions/session-accessor.sqlite-active-events.ts	1
 src/config/sessions/session-accessor.sqlite-archive-store.ts	1
 src/config/sessions/session-accessor.sqlite-archive.ts	2
 src/config/sessions/session-accessor.sqlite-archive.worker.ts	7
@@ -2573,7 +2573,6 @@ src/config/validation-plugin-config.ts	2
 src/config/validation.ts	3
 src/config/zod-schema.channel-messaging-common.ts	12
 src/config/zod-schema.channels-config.ts	3
-src/config/zod-schema.core.ts	1
 src/config/zod-schema.ts	2
 src/context-engine/delegate.ts	1
 src/context-engine/registry.ts	4
@@ -2733,8 +2732,7 @@ src/gateway/server-methods/chat-abort-handler.ts	2
 src/gateway/server-methods/chat-assistant-content.ts	1
 src/gateway/server-methods/chat-broadcast.ts	1
 src/gateway/server-methods/chat-history-budget.ts	6
-src/gateway/server-methods/chat-history-handler.ts	2
-src/gateway/server-methods/chat-message-get-handler.ts	2
+src/gateway/server-methods/chat-history-handler.ts	1
 src/gateway/server-methods/chat-send-attachments.ts	1
 src/gateway/server-methods/chat-send-reply-dispatch.ts	2
 src/gateway/server-methods/chat-send-request.ts	1
@@ -2742,14 +2740,13 @@ src/gateway/server-methods/chat-server-timing.ts	1
 src/gateway/server-methods/chat-transcript-inject.ts	1
 src/gateway/server-methods/chat-transcript-persistence.ts	7
 src/gateway/server-methods/chat-tts-markers.ts	1
-src/gateway/server-methods/chat.ts	1
 src/gateway/server-methods/config-write-flow.ts	1
 src/gateway/server-methods/config.ts	7
-src/gateway/server-methods/cron.ts	17
+src/gateway/server-methods/cron.ts	14
 src/gateway/server-methods/device-scope-upgrade.ts	2
-src/gateway/server-methods/devices.ts	6
+src/gateway/server-methods/devices.ts	4
 src/gateway/server-methods/doctor.ts	5
-src/gateway/server-methods/exec-approval.ts	3
+src/gateway/server-methods/exec-approval.ts	2
 src/gateway/server-methods/exec-approvals.ts	2
 src/gateway/server-methods/mcp-app.ts	1
 src/gateway/server-methods/memory-search.ts	3
@@ -2763,7 +2760,7 @@ src/gateway/server-methods/nodes.invoke-talk-events.ts	1
 src/gateway/server-methods/nodes.pending-work.ts	1
 src/gateway/server-methods/nodes.read.ts	2
 src/gateway/server-methods/open-path.ts	1
-src/gateway/server-methods/plugin-approval.ts	3
+src/gateway/server-methods/plugin-approval.ts	2
 src/gateway/server-methods/plugin-host-hooks.ts	1
 src/gateway/server-methods/question.ts	2
 src/gateway/server-methods/restart-request.ts	8
@@ -3290,7 +3287,7 @@ src/plugins/interactive.ts	4
 src/plugins/lazy-service-module.ts	1
 src/plugins/legacy-session-surfaces.ts	3
 src/plugins/loader-channel-runtime.ts	1
-src/plugins/loader-channel-setup.ts	17
+src/plugins/loader-channel-setup.ts	14
 src/plugins/loader-discovery.ts	1
 src/plugins/loader-load-context.ts	4
 src/plugins/loader-module-runtime.ts	7
@@ -3538,7 +3535,6 @@ src/tasks/task-flow-registry.store.ts	1
 src/tasks/task-flow-registry.ts	1
 src/tasks/task-flow-registry.types.ts	2
 src/tasks/task-registry-query.ts	4
-src/tasks/task-registry-state.ts	3
 src/tasks/task-registry.process-state.ts	1
 src/tasks/task-registry.sqlite.shared.ts	1
 src/tasks/task-registry.ts	1

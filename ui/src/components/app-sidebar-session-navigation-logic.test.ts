@@ -460,8 +460,12 @@ describe("sidebar navigation lineage ownership", () => {
     expect(tree?.runningChildCount).toBe(1);
   });
 
-  it("promotes an explicitly categorized child to a sidebar section root", () => {
-    const categorizedChild = { ...child, category: "P1 issues from beta feedback" };
+  it("promotes an explicitly categorized dashboard child to a sidebar section root", () => {
+    const categorizedChild = {
+      ...child,
+      key: "agent:main:dashboard:child",
+      category: "P1 issues from beta feedback",
+    };
     const projected = projectSessionTree({
       roots: [navigationParent, categorizedChild],
       rowsByKey: collectSidebarSessionRowsByKey({

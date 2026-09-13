@@ -15,6 +15,7 @@ import {
 } from "../../infra/update-run-ledger.js";
 import type { UpdateRunRecord } from "../../infra/update-run-record.js";
 import { ABANDONED_UPDATE_RUN_MS } from "../../infra/update-run-timeouts.js";
+import { getFileLockProcessStartTime } from "../../shared/pid-alive.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { runRegisteredCli } from "../../test-utils/command-runner.js";
 import { registerUpdateCli } from "../update-cli.js";
@@ -125,6 +126,101 @@ afterEach(() => {
 });
 
 describe("update repair ledger recovery", () => {
+  it.each(["self", "parent"] as const)(
+    "continues repair within its owning %s run",
+    async (owner) => {
+      const run = seedRun({ phase: "validating", driver: "live", ageMs: 60_000 });
+      if (owner === "parent") {
+        const driver = readUpdateRunDriver();
+        const start = getFileLockProcessStartTime(process.ppid);
+        if (!driver || start === null) {
+          throw new Error("Controlling parent identity is unavailable");
+        }
+        recordUpdateRunPhase(run.runId, "validating", {
+          origin: { driver: { ...driver, pid: process.ppid, startIdentity: String(start) } },
+        });
+      }
+      vi.stubEnv("OPENCLAW_UPDATE_RUN_ID", run.runId);
+
+      await updateRepairCommand({});
+
+      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, []);
+      expect(getUpdateRun(run.runId)).toMatchObject({
+        status: "running",
+        phase: "validating",
+        steps: expect.arrayContaining([
+          expect.objectContaining({ step: "finalize:repair-continuation", status: "completed" }),
+        ]),
+      });
+      expect(mocks.reachable).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["live", "unobserved"] as const)(
+    "names the %s owner when repair is refused",
+    async (owner) => {
+      const run = seedRun({ phase: "validating", driver: "live" });
+      const driver = run.origin.driver!;
+      if (owner === "unobserved") {
+        recordUpdateRunPhase(run.runId, "validating", {
+          origin: { driver: { ...driver, host: "other-host.invalid" } },
+        });
+      }
+      const current = getUpdateRun(run.runId)!;
+      const pending = updateRepairCommand({});
+      await expect(pending).rejects.toThrow(
+        `Update ${run.runId} is still in progress (validating)`,
+      );
+      for (const detail of [
+        `PID ${driver.pid}`,
+        current.origin.driver!.host,
+        owner === "live" ? "liveness: alive" : "liveness: not observed",
+        `started ${new Date(run.createdAtMs).toISOString()}`,
+        "age 3600s",
+        `last activity ${new Date(current.updatedAtMs).toISOString()}`,
+        "stop that driver",
+        "openclaw update repair",
+      ]) {
+        await expect(pending).rejects.toThrow(detail);
+      }
+      expect(getUpdateRun(run.runId)).toEqual(current);
+      expect(mocks.finalize).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not continue an unrelated run merely because its ID was inherited", async () => {
+    const run = seedRun({ phase: "validating", driver: "live" });
+    recordUpdateRunPhase(run.runId, "validating", {
+      origin: { driver: { ...run.origin.driver!, host: "other-host.invalid" } },
+    });
+    vi.stubEnv("OPENCLAW_UPDATE_RUN_ID", run.runId);
+
+    await expect(updateRepairCommand({})).rejects.toThrow("still in progress");
+    expect(mocks.finalize).not.toHaveBeenCalled();
+  });
+
+  it("preserves an unrecorded adopter while its known parent requests continuation", async () => {
+    const run = seedRun({ phase: "validating", driver: "live" });
+    recordUpdateRunStep(run.runId, { step: "driver:identity-unavailable", status: "completed" });
+    vi.stubEnv("OPENCLAW_UPDATE_RUN_ID", run.runId);
+
+    await expect(updateRepairCommand({})).rejects.toThrow("unrecorded adopter");
+
+    expect(mocks.finalize).not.toHaveBeenCalled();
+    expect(getUpdateRun(run.runId)?.steps).not.toContainEqual(
+      expect.objectContaining({ step: "finalize:repair-continuation" }),
+    );
+  });
+
+  it("repairs an old validating run after its driver exits", async () => {
+    const run = seedRun({ phase: "validating", driver: "exited" });
+
+    await updateRepairCommand({});
+
+    expect(getUpdateRun(run.runId)).toMatchObject({ status: "failed", reason: "abandoned" });
+    expect(mocks.finalize).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, "staging"] as const)(
     "repairs an abandoned %s row through the public command without maintenance",
     async (phase) => {
@@ -230,7 +326,7 @@ describe("update repair ledger recovery", () => {
     const run = seedRun(fixture);
 
     await expect(updateRepairCommand({})).rejects.toThrow(
-      `Update ${run.runId} is still in progress (${run.phase}); its driver is live or abandonment is not established. Wait for that update before running update repair.`,
+      `Update ${run.runId} is still in progress (${run.phase});`,
     );
 
     expect(getUpdateRun(run.runId)).toEqual(run);

@@ -38,6 +38,7 @@ import {
 } from "../../../tasks/task-registry.test-support.js";
 import { clearActiveEmbeddedRun, setActiveEmbeddedRun } from "../../embedded-agent-runner/runs.js";
 import { createEmbeddedRunHandle } from "../../embedded-agent-runner/runs.test-support.js";
+import { isAgentRunDirectAbortReason } from "../../run-termination.js";
 import type { AgentWaitResult } from "../../run-wait.js";
 import { resolveStoredSubagentCapabilities } from "../spawn/subagent-capabilities.js";
 import { enqueueSwarmRun, releaseSwarmRun } from "../swarm/swarm-scheduler.js";
@@ -300,11 +301,15 @@ it.each(
     registerAgentRunContext("parent", { sessionKey: parentKey, sessionId: "parent-session" });
     const entered = createDeferred();
     const resume = createDeferred();
+    let admissionStopReason: unknown;
     const admission = await sessionLifecycle.beginSessionWorkAdmission({
       scope: storePath,
       identities: [aKey, "a-session"],
       assertAllowed: () => {},
-      onInterrupt: () => admission.release(),
+      onInterrupt: (reason) => {
+        admissionStopReason = reason;
+        admission.release();
+      },
     });
     const interruptAdmissions = sessionLifecycle.interruptSessionWorkAdmissions;
     const drain = vi
@@ -313,6 +318,7 @@ it.each(
         const released = await interruptAdmissions(params);
         if (params.scope === storePath && Array.from(params.identities).includes(aKey)) {
           expect(released).toBe(true);
+          expect(isAgentRunDirectAbortReason(admissionStopReason)).toBe(true);
           // Recovery/reset runs after the real drain, before the kill owner finishes,
           // without holding an admission across its bounded deadline.
           entered.resolve();

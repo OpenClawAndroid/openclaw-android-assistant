@@ -5,7 +5,10 @@ import type { TtsAutoMode } from "../../config/types.tts.js";
 import type { WorkerSessionPlacementRecord } from "../../gateway/worker-environments/placement-record.js";
 import type { SessionWorkerPlacementContext } from "../../gateway/worker-environments/session-placement-lifecycle.js";
 import type { SessionBindingRecord } from "../../infra/outbound/session-binding-service.js";
-import { isPluginOwnedBindingMetadata } from "../../plugins/conversation-binding-metadata.js";
+import {
+  isPluginOwnedBindingMetadata,
+  type PluginBindingMetadata,
+} from "../../plugins/conversation-binding-metadata.js";
 import type {
   PluginHookBeforeDispatchResult,
   PluginHookReplyDispatchEvent,
@@ -144,6 +147,51 @@ const sessionBindingMocks = vi.hoisted(() => ({
   >(() => null),
   touch: vi.fn(),
 }));
+
+export function createPluginBindingRecord({
+  bindingId,
+  targetSessionKey,
+  conversation,
+  boundAt = 1710000000000,
+  pluginId = "openclaw-codex-app-server",
+  ...metadata
+}: Pick<SessionBindingRecord, "bindingId" | "targetSessionKey" | "conversation"> &
+  Partial<Pick<SessionBindingRecord, "boundAt">> &
+  Omit<PluginBindingMetadata, "pluginBindingOwner" | "pluginId"> & {
+    pluginId?: string;
+  }): SessionBindingRecord {
+  return {
+    bindingId,
+    targetSessionKey,
+    targetKind: "session",
+    conversation,
+    status: "active",
+    boundAt,
+    metadata: { pluginBindingOwner: "plugin", pluginId, ...metadata },
+  };
+}
+
+export function mockPluginBindingClaim(
+  outcome: PluginTargetedInboundClaimOutcome = { status: "handled", result: { handled: true } },
+  options: { pluginId?: string; pluginLoaded?: boolean; receiveMessages?: boolean } = {},
+) {
+  hookMocks.runner.hasHooks.mockImplementation(
+    (hookName) =>
+      hookName === "inbound_claim" ||
+      (options.receiveMessages !== false && hookName === "message_received"),
+  );
+  if (options.pluginLoaded !== false) {
+    hookMocks.registry.plugins = [
+      { id: options.pluginId ?? "openclaw-codex-app-server", status: "loaded" },
+    ];
+  }
+  hookMocks.runner.runInboundClaimForPluginOutcome.mockResolvedValue(outcome);
+}
+
+export function mockPluginBinding(params: Parameters<typeof createPluginBindingRecord>[0]) {
+  sessionBindingMocks.resolveByConversation.mockReturnValue(createPluginBindingRecord(params));
+}
+
 const pluginConversationBindingMocks = vi.hoisted(() => ({
   shownFallbackNoticeBindingIds: new Set<string>(),
 }));

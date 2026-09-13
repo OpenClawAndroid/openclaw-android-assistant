@@ -585,11 +585,9 @@ describe("AppSidebar agent chip", () => {
     expect(sidebar.querySelector(".nav-item--home .session-glyph__badge--unread")).not.toBeNull();
   });
 
-  it("promotes main-session children to top-level threads, including alias parent keys", async () => {
+  it("nests subagents under the main session, including alias parent keys", async () => {
     const gateway = createGateway({} as GatewayBrowserClient);
-    // The gateway row uses the unprefixed "main" alias; children index under
-    // that literal key, so promotion must follow the row's key, not only the
-    // synthesized agent:main:main form.
+    // The Gateway's literal parent key can differ from its canonical main key.
     const harness = createSessionsHarness("main", ["main"]);
     const { sidebar } = await mountSidebar(gateway, harness.sessions);
     harness.publishList({
@@ -617,12 +615,13 @@ describe("AppSidebar agent chip", () => {
     });
     await sidebar.updateComplete;
 
-    // The main row hides behind the identity card; its child surfaces as a
-    // top-level (non-child) thread row.
-    expect(sidebar.querySelector('[data-session-key="main"]')).toBeNull();
+    expect(sidebar.querySelector('[data-session-key="main"]')).not.toBeNull();
+    expect(sidebar.querySelector('[data-session-key="agent:main:subagent:thread-a"]')).toBeNull();
+    sidebar.querySelector<HTMLButtonElement>('[data-child-session-toggle="main"]')?.click();
+    await sidebar.updateComplete;
     const promoted = sidebar.querySelector('[data-session-key="agent:main:subagent:thread-a"]');
     expect(promoted).not.toBeNull();
-    expect(promoted?.classList.contains("sidebar-recent-session--child")).toBe(false);
+    expect(promoted?.classList.contains("sidebar-recent-session--child")).toBe(true);
     expect(promoted?.textContent).toContain("Spawned thread");
     expect(promoted?.querySelector("[data-sidebar-session-pin]")).toBeNull();
     promoted?.querySelector<HTMLButtonElement>("[data-session-menu]")?.click();

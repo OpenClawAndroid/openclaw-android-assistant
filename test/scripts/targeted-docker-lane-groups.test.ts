@@ -29,6 +29,30 @@ function expandedPlan(
 }
 
 describe("scripts/plan-targeted-docker-lane-groups", () => {
+  it("retains the reported 9.4 sibling-import cell when current-version baselines are omitted", () => {
+    const groups = planTargetedDockerLaneGroups({
+      lanes: "published-upgrade-survivor",
+      upgradeSurvivorBaseline: "2026.9.3",
+      upgradeSurvivorBaselines: "2026.9.3 2026.6.34",
+      upgradeSurvivorScenarios: "base legacy-operator-state custom-plugin-siblings",
+      upgradeSurvivorBaselineScope: "legacy-operator-state",
+    });
+    expect(
+      groups.flatMap((group) =>
+        expandedPlan(
+          group.docker_lanes,
+          group.published_upgrade_survivor_baselines ?? "",
+          group.published_upgrade_survivor_scenarios ?? "",
+        ).scheduledLanes.map((entry) => entry.name),
+      ),
+    ).toEqual([
+      "published-upgrade-survivor-2026.9.3",
+      "published-upgrade-survivor-2026.9.3-legacy-operator-state",
+      "published-upgrade-survivor-2026.6.34-legacy-operator-state",
+      "published-upgrade-survivor-2026.9.4-custom-plugin-siblings",
+    ]);
+  });
+
   it.each([
     { lane: "published-upgrade-survivor", scenario: "base" },
     { lane: "update-migration", scenario: "plugin-deps-cleanup" },
@@ -93,12 +117,13 @@ describe("scripts/plan-targeted-docker-lane-groups", () => {
     expect(pairs.toSorted()).toEqual(
       [
         ...synthetic.map((scenario) => `openclaw@2026.9.1:${scenario}`),
+        "openclaw@2026.9.4:custom-plugin-siblings",
         ...["2026.9.2", "2026.9.1", "2026.6.35", "2026.6.34"].map(
           (baseline) => `openclaw@${baseline}:legacy-operator-state`,
         ),
       ].toSorted(),
     );
-    expect(groups).toHaveLength(8);
+    expect(groups).toHaveLength(9);
     expect(
       groups.every(
         (group) => (group.published_upgrade_survivor_scenarios ?? "").split(" ").length <= 3,

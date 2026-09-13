@@ -2,7 +2,6 @@
 import fs, { type BigIntStats } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "../state/openclaw-state-db-contract.js";
 import { sameFileIdentity } from "./fs-safe-advanced.js";
 import {
   openNodeSqliteDatabase,
@@ -10,13 +9,16 @@ import {
   resolveSqliteFilesystemPath,
 } from "./node-sqlite.js";
 import { setSqliteBusyTimeout } from "./sqlite-busy-timeout.js";
-import { runWithSqliteCoordinator } from "./sqlite-coordinator.js";
 import {
   createPrivateSqliteTempDirectory,
   createPrivateSqliteTempDirectorySync,
   resolvePrivateSqliteSnapshotStagingRoot,
 } from "./sqlite-private-directory.js";
-import { readSqliteSchemaHeader, type SqliteSchemaHeader } from "./sqlite-schema-header.js";
+import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
+import {
+  readSqliteSchemaHeader,
+  readSqliteSchemaHeaderFromSnapshot,
+} from "./sqlite-schema-header.js";
 import {
   withSqliteSourceHandle,
   withSqliteSourceHandleAsync,
@@ -33,6 +35,12 @@ const SQLITE_JOURNAL_MAGIC = Buffer.from([0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x
 export const SQLITE_SNAPSHOT_STAGING_PREFIX = `openclaw-sqlite-readonly-${process.pid}-`;
 const pendingTempDirectoryCleanup = new Set<string>();
 let cleanupExitHandlerInstalled = false;
+const tempDirectoryRemovalOptions = {
+  force: true,
+  maxRetries: 3,
+  recursive: true,
+  retryDelay: 20,
+} as const;
 
 type PinnedFile = {
   descriptor: number;
@@ -48,12 +56,7 @@ type SourceSidecars = {
 
 type SourceJournalMode = "empty" | "rollback" | "unknown" | "wal";
 
-export type PreparedSqliteReadOnlyLocation = {
-  cleanup: () => boolean;
-  location: string;
-};
-
-class SqliteSourceChangedError extends Error {}
+export class SqliteSourceChangedError extends Error {}
 
 function sqliteSnapshotStagingError(tempDir: string, cause: unknown, allocation = false): unknown {
   for (let depth = 0, error = cause; depth < 8 && error instanceof Error; depth += 1) {
@@ -84,7 +87,7 @@ function statIfPresent(pathname: string): BigIntStats | undefined {
   }
 }
 
-function readSourceSidecars(pathname: string): SourceSidecars {
+export function readSourceSidecars(pathname: string): SourceSidecars {
   return {
     journal: Boolean(statIfPresent(`${pathname}-journal`)),
     shm: Boolean(statIfPresent(`${pathname}-shm`)),
@@ -119,7 +122,7 @@ function openPinnedFile(pathname: string): PinnedFile {
   }
 }
 
-function readSourceJournalMode(pathname: string): SourceJournalMode {
+export function readSourceJournalMode(pathname: string): SourceJournalMode {
   const source = openPinnedFile(pathname);
   try {
     const header = Buffer.alloc(SQLITE_HEADER_BYTES);
@@ -266,7 +269,7 @@ function replaceFile(sourcePath: string, targetPath: string): void {
   fs.renameSync(sourcePath, targetPath);
 }
 
-function isSqliteReadOnlyError(error: unknown): boolean {
+export function isSqliteReadOnlyError(error: unknown): boolean {
   let current = error;
   for (let depth = 0; depth < 8 && current && typeof current === "object"; depth += 1) {
     const details = current as { cause?: unknown; errcode?: unknown };
@@ -303,26 +306,42 @@ function rollbackJournalReferencesSuperJournal(journalPath: string): boolean {
   }
 }
 
-export function removeTempDirectory(tempDir: string): boolean {
-  try {
-    fs.rmSync(tempDir, { force: true, maxRetries: 3, recursive: true, retryDelay: 20 });
+function recordTempDirectoryCleanup(tempDir: string, removed: boolean): boolean {
+  if (removed) {
     pendingTempDirectoryCleanup.delete(tempDir);
     return true;
-  } catch {
-    pendingTempDirectoryCleanup.add(tempDir);
-    if (!cleanupExitHandlerInstalled) {
-      cleanupExitHandlerInstalled = true;
-      process.once("exit", () => {
-        for (const pendingDir of pendingTempDirectoryCleanup) {
-          try {
-            fs.rmSync(pendingDir, { force: true, recursive: true });
-          } catch {
-            // The directory is private and remains registered until process teardown completes.
-          }
+  }
+  pendingTempDirectoryCleanup.add(tempDir);
+  if (!cleanupExitHandlerInstalled) {
+    cleanupExitHandlerInstalled = true;
+    process.once("exit", () => {
+      for (const pendingDir of pendingTempDirectoryCleanup) {
+        try {
+          fs.rmSync(pendingDir, { force: true, recursive: true });
+        } catch {
+          // The directory is private and remains registered until process teardown completes.
         }
-      });
-    }
-    return false;
+      }
+    });
+  }
+  return false;
+}
+
+export function removeTempDirectory(tempDir: string): boolean {
+  try {
+    fs.rmSync(tempDir, tempDirectoryRemovalOptions);
+    return recordTempDirectoryCleanup(tempDir, true);
+  } catch {
+    return recordTempDirectoryCleanup(tempDir, false);
+  }
+}
+
+export async function removeTempDirectoryAsync(tempDir: string): Promise<boolean> {
+  try {
+    await fs.promises.rm(tempDir, tempDirectoryRemovalOptions);
+    return recordTempDirectoryCleanup(tempDir, true);
+  } catch {
+    return recordTempDirectoryCleanup(tempDir, false);
   }
 }
 
@@ -333,19 +352,42 @@ export function adoptPreparedLocation(
 ): PreparedSqliteReadOnlyLocation {
   const tempDir = ownedRoot ?? path.dirname(location);
   let active = true;
+  let pending: Promise<boolean> | undefined;
+  const complete = (removed: boolean) => {
+    if (removed) {
+      active = false;
+    } else if (requireCleanup) {
+      throw new Error(`SQLite read-only worker snapshot cleanup failed: ${tempDir}`);
+    }
+    return removed;
+  };
   return {
     location,
     cleanup: () => {
+      if (pending) {
+        return complete(false);
+      }
       if (!active) {
         return true;
       }
-      const removed = removeTempDirectory(tempDir);
-      if (removed) {
-        active = false;
-      } else if (requireCleanup) {
-        throw new Error(`SQLite read-only worker snapshot cleanup failed: ${tempDir}`);
+      return complete(removeTempDirectory(tempDir));
+    },
+    cleanupAsync: () => {
+      if (pending) {
+        return pending;
       }
-      return removed;
+      if (!active) {
+        return Promise.resolve(true);
+      }
+      // Register ownership before invoking native removal; concurrent callers
+      // join it, and synchronous callers cannot race or report early success.
+      pending = Promise.resolve()
+        .then(() => removeTempDirectoryAsync(tempDir))
+        .then(complete)
+        .finally(() => {
+          pending = undefined;
+        });
+      return pending;
     },
   };
 }
@@ -429,7 +471,7 @@ function createStableReadOnlyCopyInTempDirectory(
     }
     return adoptPreparedLocation(snapshotPath);
   } catch (error) {
-    if (tempDir) {
+    if (tempDir && existingTempDir === undefined) {
       removeTempDirectory(tempDir);
     }
     throw sqliteSnapshotStagingError(tempDir ?? stagingRoot, error, !tempDir);
@@ -452,7 +494,12 @@ async function createStableReadOnlyCopy(
   stagingRoot?: string,
 ): Promise<PreparedSqliteReadOnlyLocation> {
   const tempDir = await createSqliteSnapshotStagingDirectory(stagingRoot);
-  return createStableReadOnlyCopyInTempDirectory(pathname, journalMode, tempDir);
+  try {
+    return createStableReadOnlyCopyInTempDirectory(pathname, journalMode, tempDir);
+  } catch (error) {
+    await removeTempDirectoryAsync(tempDir);
+    throw error;
+  }
 }
 
 async function createOnlineReadOnlyBackup(
@@ -493,7 +540,7 @@ async function createOnlineReadOnlyBackup(
     }
     return adoptPreparedLocation(snapshotPath);
   } catch (error) {
-    removeTempDirectory(tempDir);
+    await removeTempDirectoryAsync(tempDir);
     throw sqliteSnapshotStagingError(tempDir, error);
   }
 }
@@ -624,34 +671,6 @@ function prepareReadOnlySourceSyncInProcess(
   });
 }
 
-/** Consume a private snapshot and retain both read and cleanup failures. */
-export function readSqliteSchemaHeaderFromSnapshot(
-  prepared: PreparedSqliteReadOnlyLocation,
-  signal?: AbortSignal,
-  agentSchemaVersionForOwnership?: number,
-): SqliteSchemaHeader {
-  return runWithSqliteCoordinator(
-    {
-      release: () => {
-        if (!prepared.cleanup()) {
-          throw new Error(`SQLite read-only worker snapshot cleanup failed: ${prepared.location}`);
-        }
-      },
-    },
-    "SQLite schema header snapshot",
-    () => {
-      signal?.throwIfAborted();
-      const database = openNodeSqliteDatabase(prepared.location, { readOnly: true });
-      try {
-        setSqliteBusyTimeout(database, OPENCLAW_SQLITE_BUSY_TIMEOUT_MS);
-        return readSqliteSchemaHeader(database, agentSchemaVersionForOwnership);
-      } finally {
-        database.close();
-      }
-    },
-  );
-}
-
 /** Fixed metadata inspection in the read-only child; no payload scan or backup
  * unless source journal state requires private recovery/artifact preservation. */
 export function inspectSqliteSchemaHeaderInProcess(
@@ -729,7 +748,7 @@ export async function prepareSqliteReadOnlyLocationFromOwnedDatabase(
     assertCurrent();
     return adoptPreparedLocation(location, directory);
   } catch (error) {
-    removeTempDirectory(directory);
+    await removeTempDirectoryAsync(directory);
     throw error;
   }
 }

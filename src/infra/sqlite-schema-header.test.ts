@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createDeferredCore } from "../shared/deferred.js";
+import { inspectAgentDatabaseSchemaInWorker } from "../state/openclaw-agent-schema-inspection-worker.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import { inspectSqliteSchemaHeader } from "./sqlite-snapshot-source.js";
 import { sqliteWorkerPreloadEnv } from "./sqlite-worker-preload.test-support.js";
@@ -10,6 +12,7 @@ import { acquireStateDatabaseHandleExclusion } from "./state-database-coordinato
 
 const dirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     cleanup();
   }),
@@ -27,6 +30,74 @@ function expectSourceExcluded(pathname: string) {
 }
 
 describe("schema-header native reader lifetime", () => {
+  it.each([
+    { route: "child", cancel: false },
+    { route: "child", cancel: true },
+    { route: "source-exclusion", cancel: false },
+    { route: "source-exclusion", cancel: true },
+  ] as const)(
+    "joins asynchronous staging removal for the $route header path (cancel=$cancel)",
+    async ({ route, cancel }) => {
+      const root = dirs.make("sqlite-header-async-cleanup-");
+      const pathname = path.join(root, "source.sqlite");
+      const cacheRoot = path.join(root, "cache");
+      fs.mkdirSync(cacheRoot);
+      vi.stubEnv("XDG_CACHE_HOME", cacheRoot);
+      const database = new (requireNodeSqlite().DatabaseSync)(pathname);
+      database.exec("PRAGMA user_version=7;");
+      database.close();
+      const exclusion =
+        route === "source-exclusion"
+          ? acquireStateDatabaseHandleExclusion({ databasePath: pathname, busyTimeoutMs: 0 })
+          : undefined;
+      const release = createDeferredCore();
+      const removalEntered = createDeferredCore();
+      const remove = fs.promises.rm;
+      const removal = vi.spyOn(fs.promises, "rm").mockImplementation(async (...args) => {
+        removalEntered.resolve();
+        await release.promise;
+        return remove(...args);
+      });
+      const synchronousRemoval = vi.spyOn(fs, "rmSync");
+      const controller = new AbortController();
+      const cancelled = new Error("header owner retired during cleanup");
+      let settled = false;
+      const inspect = () => inspectSqliteSchemaHeader(pathname, { signal: controller.signal });
+      const operation = (exclusion ? exclusion.runWithSourceReads(inspect) : inspect()).finally(
+        () => {
+          settled = true;
+        },
+      );
+      try {
+        await Promise.race([
+          removalEntered.promise,
+          operation.then(() => {
+            throw new Error("Header inspection completed before staged removal started");
+          }),
+        ]);
+        expect(removal).toHaveBeenCalled();
+        expect(settled).toBe(false);
+        expect(synchronousRemoval.mock.calls.filter(([, options]) => options?.recursive)).toEqual(
+          [],
+        );
+        if (cancel) {
+          controller.abort(cancelled);
+        }
+        release.resolve();
+        if (cancel) {
+          await expect(operation).rejects.toBe(cancelled);
+        } else {
+          await expect(operation).resolves.toEqual({ userVersion: 7 });
+        }
+        expect(fs.readdirSync(path.join(cacheRoot, "openclaw"))).toEqual([]);
+      } finally {
+        release.resolve();
+        await Promise.allSettled([operation]);
+        exclusion?.release();
+      }
+    },
+  );
+
   it("preserves the parent's rollback writer lock and excludes its uncommitted metadata", async () => {
     const root = dirs.make("sqlite-header-parent-lock-");
     const pathname = path.join(root, "source.sqlite");
@@ -152,9 +223,16 @@ describe("schema-header native reader lifetime", () => {
     },
   );
 
-  it.each(["success", "read-failure", "close-failure", "cancel"] as const)(
-    "keeps a consistent read and its child lease through native close: %s",
-    async (outcome) => {
+  it.each(
+    (["header", "agent-shape"] as const).flatMap((reader) =>
+      (["success", "read-failure", "close-failure", "cancel"] as const).map((outcome) => ({
+        reader,
+        outcome,
+      })),
+    ),
+  )(
+    "keeps a consistent $reader read and its child lease through native close: $outcome",
+    async ({ reader, outcome }) => {
       const root = dirs.make("sqlite-header-lifetime-");
       const pathname = path.join(root, "source.sqlite");
       const cacheRoot = path.join(root, "cache");
@@ -228,10 +306,16 @@ describe("schema-header native reader lifetime", () => {
       const controller = new AbortController();
       const cancellation = new Error("header inspection cancelled");
       let settled = false;
-      const operation = inspectSqliteSchemaHeader(pathname, {
-        signal: controller.signal,
-        agentSchemaVersionForOwnership: 8,
-      });
+      const operation =
+        reader === "header"
+          ? inspectSqliteSchemaHeader(pathname, {
+              signal: controller.signal,
+              agentSchemaVersionForOwnership: 8,
+            })
+          : inspectAgentDatabaseSchemaInWorker(
+              { pathname, supportedVersion: 8, inspectOwnership: true },
+              controller.signal,
+            );
       void operation.then(
         () => {
           settled = true;
@@ -270,14 +354,17 @@ describe("schema-header native reader lifetime", () => {
             await expect(operation).rejects.toThrow("native read failure");
           } else {
             await expect(operation).resolves.toEqual({
-              userVersion: 7,
-              writerAppVersion: "writer-7",
+              ...(reader === "header"
+                ? { userVersion: 7, writerAppVersion: "writer-7" }
+                : { version: 7 }),
               agentSchemaMeta: { role: "agent", agentId: "owner-7", schemaVersion: 7 },
             });
           }
         }
         acquireStateDatabaseHandleExclusion({ databasePath: pathname, busyTimeoutMs: 0 }).release();
-        expect(fs.readdirSync(path.join(cacheRoot, "openclaw"))).toEqual([]);
+        if (reader === "header") {
+          expect(fs.readdirSync(path.join(cacheRoot, "openclaw"))).toEqual([]);
+        }
         expect(writer.prepare("PRAGMA user_version").get()).toEqual({ user_version: 8 });
       } finally {
         controller.abort(cancellation);

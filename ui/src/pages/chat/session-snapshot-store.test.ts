@@ -409,7 +409,7 @@ describe("persistent chat session snapshots", () => {
     }
   });
 
-  it.each(["session", "all"])(
+  it.each(["session", "cache-eviction", "all"] as const)(
     "does not restore an in-flight transcript after %s invalidation",
     async (scope) => {
       const sessionKey = "agent:main:deleted";
@@ -420,7 +420,9 @@ describe("persistent chat session snapshots", () => {
 
         await Promise.all([
           writer.flush(),
-          scope === "session" ? writer.delete(sessionKey) : clearStoredChatSnapshots(),
+          scope === "all"
+            ? clearStoredChatSnapshots()
+            : writer.delete(sessionKey, scope === "cache-eviction" ? scope : undefined),
         ]);
 
         expect(await new SessionSnapshotStore().read(sessionKey)).toBeNull();
@@ -432,41 +434,44 @@ describe("persistent chat session snapshots", () => {
     },
   );
 
-  it("does not restore deleted metadata while seeding the snapshot index", async () => {
-    const sessionKey = "agent:main:deleted-during-seed";
-    const writer = new SessionSnapshotStore();
-    writer.write(sessionKey, snapshot("deleted transcript"));
-    await writer.flush();
+  it.each([undefined, "cache-eviction"] as const)(
+    "does not restore deleted metadata while seeding the snapshot index (%s)",
+    async (reason) => {
+      const sessionKey = "agent:main:deleted-during-seed";
+      const writer = new SessionSnapshotStore();
+      writer.write(sessionKey, snapshot("deleted transcript"));
+      await writer.flush();
 
-    const reader = new SessionSnapshotStore();
-    reader.connect();
-    try {
-      let deletion: Promise<void> | undefined;
-      const originalGetAll = Reflect.get(
-        IDBObjectStore.prototype,
-        "getAll",
-      ) as IDBObjectStore["getAll"];
-      vi.spyOn(IDBObjectStore.prototype, "getAll").mockImplementationOnce(function (
-        this: IDBObjectStore,
-        ...args
-      ) {
-        const request = originalGetAll.apply(this, args);
-        request.addEventListener("success", () => {
-          deletion = writer.delete(sessionKey);
+      const reader = new SessionSnapshotStore();
+      reader.connect();
+      try {
+        let deletion: Promise<void> | undefined;
+        const originalGetAll = Reflect.get(
+          IDBObjectStore.prototype,
+          "getAll",
+        ) as IDBObjectStore["getAll"];
+        vi.spyOn(IDBObjectStore.prototype, "getAll").mockImplementationOnce(function (
+          this: IDBObjectStore,
+          ...args
+        ) {
+          const request = originalGetAll.apply(this, args);
+          request.addEventListener("success", () => {
+            deletion = writer.delete(sessionKey, reason);
+          });
+          return request;
         });
-        return request;
-      });
 
-      await reader.loadSavedAtIndex();
-      expect(deletion).toBeDefined();
-      await deletion;
+        await reader.loadSavedAtIndex();
+        expect(deletion).toBeDefined();
+        await deletion;
 
-      expect(reader.readSavedAt(sessionKey)).toBeNull();
-    } finally {
-      reader.disconnect();
-      await reader.whenIdle();
-    }
-  });
+        expect(reader.readSavedAt(sessionKey)).toBeNull();
+      } finally {
+        reader.disconnect();
+        await reader.whenIdle();
+      }
+    },
+  );
 
   it("upgrades a version one database before deleting an invalidated snapshot", async () => {
     const sessionKey = "agent:main:legacy-delete";

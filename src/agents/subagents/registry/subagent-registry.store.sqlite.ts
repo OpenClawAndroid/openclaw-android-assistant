@@ -206,8 +206,11 @@ type SubagentRegistryReadScope =
   | { kind: "controller"; sessionKey: string }
   | { kind: "child"; sessionKey: string };
 
-function readSubagentRegistryRows(scope?: SubagentRegistryReadScope): SubagentRunSqliteRow[] {
-  const { db } = openOpenClawStateDatabase();
+function readSubagentRegistryRows(
+  scope?: SubagentRegistryReadScope,
+  database = openOpenClawStateDatabase(),
+): SubagentRunSqliteRow[] {
+  const { db } = database;
   const stateDb = getNodeSqliteKysely<SubagentRegistryDatabase>(db);
   let query = stateDb.selectFrom("subagent_runs").selectAll();
   if (scope?.kind === "child") {
@@ -361,12 +364,15 @@ function rowToSubagentRunReadRecord(row: SubagentRunReadSqliteRow): SubagentRunR
   ) as SubagentRunReadRecord;
 }
 
-function loadScopedSubagentRuns(scope: SubagentRegistryReadScope): SubagentRunRecord[] {
+function loadScopedSubagentRuns(
+  scope: SubagentRegistryReadScope,
+  database?: OpenClawStateDatabase,
+): SubagentRunRecord[] {
   const key = scope.sessionKey.trim();
   if (!key) {
     return [];
   }
-  return readSubagentRegistryRows({ ...scope, sessionKey: key }).flatMap((row) => {
+  return readSubagentRegistryRows({ ...scope, sessionKey: key }, database).flatMap((row) => {
     const run = rowToSubagentRunRecord(row);
     return run ? [run] : [];
   });
@@ -382,8 +388,9 @@ export function loadSubagentRunsForControllerFromSqlite(
 /** Loads all persisted generations for one child session through its existing index. */
 export function loadSubagentRunsForChildSessionFromSqlite(
   childSessionKey: string,
+  database?: OpenClawStateDatabase,
 ): SubagentRunRecord[] {
-  return loadScopedSubagentRuns({ kind: "child", sessionKey: childSessionKey });
+  return loadScopedSubagentRuns({ kind: "child", sessionKey: childSessionKey }, database);
 }
 
 /** Loads the canonical subagent registry from shared SQLite state. */

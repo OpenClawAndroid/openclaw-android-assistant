@@ -1,6 +1,7 @@
 // Auth-choice plugin provider tests cover loaded provider setup, plugin install, and credential routing.
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApiKeyCredential } from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
 import { createManagedPluginArtifactConsentHandler } from "../plugins/capability-consent.js";
 import { buildPluginCapabilityConsentReview } from "../plugins/capability-summary.js";
@@ -426,11 +427,7 @@ describe("applyAuthChoiceLoadedPluginProvider", () => {
             profiles: [
               {
                 profileId: "remote-alpha:default",
-                credential: {
-                  type: "api_key",
-                  provider: "remote-alpha",
-                  key: "sk-remote-alpha-test",
-                },
+                credential: createApiKeyCredential("remote-alpha", "sk-remote-alpha-test"),
               },
             ],
             configPatch: {

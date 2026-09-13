@@ -16,6 +16,7 @@ import {
   type DiagnosticEventPayload,
 } from "../../infra/diagnostic-events.js";
 import { runWithDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
+import { enqueueGitRefMutation } from "../../infra/git-exec.js";
 import { flushLogger, resetLogger, setLoggerOverride } from "../../logging/logger.js";
 import * as commandExec from "../../process/exec.js";
 import type { SpawnResult } from "../../process/exec.js";
@@ -123,6 +124,8 @@ describe("ManagedWorktreeService failure diagnostics", () => {
     repo = await initializeRepository(root);
     service = new ManagedWorktreeService({
       env: { ...process.env, OPENCLAW_STATE_DIR: path.join(root, "state") },
+      // Inject failures into the requested checkout rather than a source template.
+      getConfig: () => ({ worktreeAcceleration: false }),
     });
   });
 
@@ -356,7 +359,8 @@ describe("ManagedWorktreeService failure diagnostics", () => {
     vi.spyOn(commandExec, "runCommandWithTimeout").mockImplementation(async (argv, options) => {
       const result = await realRunCommand(argv, options);
       const args = gitCommandArgs(argv);
-      if (!checkoutFailed && args[0] === "worktree" && args[1] === "add") {
+      // Target the requested branch after any acceleration-template setup.
+      if (!checkoutFailed && args[0] === "worktree" && args[1] === "add" && args.includes(branch)) {
         checkoutFailed = true;
         allocatedPath = args.at(-2);
         expect(result.code).toBe(0);
@@ -672,6 +676,11 @@ describe("ManagedWorktreeService removal timing", { concurrent: false }, () => {
     expect(await Promise.all(pending)).toEqual(Array.from({ length: 62 }, () => operationError));
     await waitForDiagnosticEventsDrained();
     expect(records).toHaveLength(60);
+    await enqueueGitRefMutation(root, ".", async () => {
+      clock += 1_000;
+    });
+    await flushLogger();
+    expect(await fs.readFile(logFile, "utf8")).toContain("slow Git ref mutation");
     clock += 60_000;
     vi.spyOn(stateLease, "withOpenClawStateLease").mockImplementation(async () => {
       clock += 1_000;

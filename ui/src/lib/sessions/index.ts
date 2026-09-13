@@ -1,5 +1,6 @@
 import type { SessionCatalogPullRequestSummary } from "../../../../packages/gateway-protocol/src/schema/sessions-catalog.js";
 import type { SessionsListResult } from "../../api/types.ts";
+import type { ConnectionBootstrapCoordinator } from "../../app/connection-bootstrap.ts";
 import { formatUiError } from "../format-error.ts";
 import { createGatewayConnectionLifecycle } from "../gateway-connection-lifecycle.ts";
 import type { SessionCreateOutcome } from "./create.ts";
@@ -64,7 +65,9 @@ type SessionAgentSelection = {
 export function createSessionCapability(
   gateway: SessionGateway,
   agentSelection: SessionAgentSelection,
-  cacheOptions: SessionRosterCacheOptions = {},
+  cacheOptions: SessionRosterCacheOptions & {
+    connectionBootstrap?: ConnectionBootstrapCoordinator;
+  } = {},
 ): SessionCapability {
   let state: SessionState = {
     result: null,
@@ -85,6 +88,15 @@ export function createSessionCapability(
   });
 
   const connection = createGatewayConnectionLifecycle(gateway.snapshot);
+  const background = async (key: string | object, task: () => Promise<unknown>): Promise<void> => {
+    const scope = connection.capture();
+    const run = async () => {
+      if (scope && connection.isCurrent(scope) && gateway.snapshot.client === scope.client) {
+        await task();
+      }
+    };
+    await (cacheOptions.connectionBootstrap?.run(key, run, { background: true }) ?? run());
+  };
   const githubPublication = createSessionGitHubPublication({
     connection,
     snapshot: () => gateway.snapshot,
@@ -162,7 +174,11 @@ export function createSessionCapability(
       }
       if (previousError !== null && error === null) {
         // Observer outages do not replay events; every held query must close the gap.
-        void roster.refresh({ ...roster.lastOptions(), backgroundHydrate: true, force: true });
+        void roster.refreshAutomatic({
+          ...roster.lastOptions(),
+          backgroundHydrate: true,
+          force: true,
+        });
         roster.invalidateManagedLists();
       }
     },
@@ -171,12 +187,12 @@ export function createSessionCapability(
   const permissions = createSessionPermissionProjection(gateway, () => roster);
 
   const roster = createSessionRosterRefresh({
+    background,
     connection,
     snapshot: () => gateway.snapshot,
     readState: () => state,
     publish,
     observerError: () => sessionEventSubscriptionError,
-    bootstrap: (scope, list) => sessionEventSubscription.ensure(scope, list),
     decorate: decorateRows,
     reconcileList: (result, revision, agentId) => {
       const admitted = deletions.reconcileList(result, revision, agentId);
@@ -440,22 +456,25 @@ export function createSessionCapability(
         roster.scheduleEvent();
         return;
       }
-      const hydrate = async () => {
-        if (connection.isCurrent(scope)) {
-          await roster.bootstrap({
-            ...roster.lastOptions(), // Keep visible roster filters through reconnect hydration.
-            agentId: agentSelection.state.selectedId ?? undefined,
-            includeDerivedTitles: true,
-            includeLastMessage: true,
-            backgroundHydrate: true,
-            force: true,
-          });
+      // Register events before delaying bulk metadata; its later read reconciles
+      // anything observed while the selected transcript was loading.
+      void sessionEventSubscription.ensure(scope);
+      void roster
+        .bootstrap({
+          ...roster.lastOptions(), // Keep visible roster filters through reconnect hydration.
+          agentId: agentSelection.state.selectedId ?? undefined,
+          includeDerivedTitles: true,
+          includeLastMessage: true,
+          backgroundHydrate: true,
+          force: true,
+        })
+        .then(() => {
           if (connection.isCurrent(scope)) {
-            await roster.refreshManagedLists();
+            // Child jobs own their own slots; never wait for them inside a scheduler slot.
+            void roster.refreshManagedLists();
           }
-        }
-      };
-      void hydrate().catch(() => undefined);
+        })
+        .catch(() => undefined);
     }
   });
 
@@ -468,7 +487,7 @@ export function createSessionCapability(
     // Selection publishes before Gateway hydration. A new connection bootstraps
     // the current selection; route changes on a hydrated connection replace its roster.
     if (nextAgentId && hydratedClient === gateway.snapshot.client) {
-      void roster.refreshReplacement(nextAgentId);
+      void roster.refreshSelection(() => agentSelection.state.selectedId);
     }
   });
 

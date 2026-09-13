@@ -289,14 +289,13 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
 
   async list(options: WorkboardListOptions = {}): Promise<WorkboardCard[]> {
     const boardId = normalizeBoardId(options.boardId);
-    const entries = await this.store.entries();
+    const entries = await this.store.entries(boardId);
     return entries
       .map((entry) => entry.value)
       .filter(
         (entry): entry is PersistedWorkboardCard => entry?.version === 1 && Boolean(entry.card?.id),
       )
       .map((entry) => entry.card)
-      .filter((card) => !boardId || cardBoardId(card) === boardId)
       .toSorted(compareCards);
   }
 

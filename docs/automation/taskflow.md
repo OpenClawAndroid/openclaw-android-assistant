@@ -35,7 +35,7 @@ Launch ACP/subagent work through its supported runtime **before** calling `runTa
 
 For Gateway-backed plugin subagents, the public path is `api.runtime.subagent.run({ completionDelivery: "current-requester", ... })` inside a real requester-bound `before_dispatch` hook handling an authenticated inbound request. The host creates the canonical subagent task and mirrored flow. Ordinary plugin runs without this setting deliberately have `not_applicable` completion delivery and cannot supply that mirrored backing. Merely binding `managedFlows.fromToolContext(ctx)` does not grant requester launch authority.
 
-Use the returned identities and current owner-visible task facts, not invented status/timing. A child can finish before linkage; `runTask` does not replay past terminal events. Do not create a running projection of completed work. See the [SDK Tasks contract](/plugins/sdk-runtime) for the launch, synchronous pre-link check, result handling and revision rules.
+Use the returned identities and current owner-visible task facts, not invented status/timing. Prefer `await api.runtime.tasks.async.managedFlows.bindSession(...).runTask(...)`; its worker rereads current backing before linking and refuses a new active projection of completed work. A child can finish before linkage; `runTask` does not replay past terminal events. See the [SDK Tasks contract](/plugins/sdk-runtime) for launch, result handling, revision rules, and the deprecated synchronous contract.
 
 #### Run a managed Lobster workflow
 

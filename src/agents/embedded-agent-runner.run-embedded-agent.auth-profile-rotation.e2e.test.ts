@@ -12,6 +12,7 @@ import {
   resolveInlineProviderApiKeyUsageId,
   type AuthProfileFailureReason,
 } from "./auth-profiles.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./auth-profiles/store-runtime.js";
 import type { EmbeddedRunAttemptResult } from "./embedded-agent-runner/run/types.js";
 import type { AgentHarness } from "./harness/types.js";
@@ -319,11 +320,7 @@ const writeOpenAiCodexAuthStore = async (agentDir: string, includeBackup = false
     {
       version: 1,
       profiles: {
-        "openai:work": {
-          type: "api_key",
-          provider: "openai",
-          key: "sk-codex",
-        },
+        "openai:work": createApiKeyCredential("openai", "sk-codex"),
         ...(includeBackup
           ? {
               "openai:backup": {

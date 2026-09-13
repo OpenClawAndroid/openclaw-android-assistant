@@ -61,6 +61,7 @@ export function createPlacementStartupHarness(
     get state() {
       return state;
     },
+    invalidate: vi.fn(),
     refresh: vi.fn(async () => undefined),
     subscribe: vi.fn(() => () => undefined),
   } as unknown as SessionCapability;

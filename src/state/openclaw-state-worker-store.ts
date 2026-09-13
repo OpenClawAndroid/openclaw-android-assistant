@@ -22,6 +22,7 @@ import type {
   OpenClawStateWorkerOperations,
   OpenClawStateWorkerInspectionOperations,
 } from "./openclaw-state-worker-contract.js";
+import { hydrateOpenClawStateWorkerError } from "./openclaw-state-worker-error.js";
 
 type StoreOperations = OpenClawStateWorkerOperations & OpenClawStateWorkerInspectionOperations;
 type Store = SqliteWorkerStore<StoreOperations>;
@@ -212,19 +213,26 @@ export async function runOpenClawStateWorkerOperation<T>(
   operation: (scope: DomainScope) => Promise<T>,
   options?: { existingOnly: true },
 ): Promise<T | undefined> {
-  const failure = await getOpenClawStateDatabaseTerminalFailureAsync(context);
-  if (failure) {
-    throw failure;
-  }
-  const store = await owner().open(context, options?.existingOnly);
-  context.admission.assertCurrent();
-  if (!store) {
-    if (options?.existingOnly) {
-      return undefined;
+  try {
+    const failure = await getOpenClawStateDatabaseTerminalFailureAsync(context);
+    if (failure) {
+      throw failure;
     }
-    throw new Error("Canonical shared-state worker did not open its database");
+    const store = await owner().open(context, options?.existingOnly);
+    context.admission.assertCurrent();
+    if (!store) {
+      if (options?.existingOnly) {
+        return undefined;
+      }
+      throw new Error("Canonical shared-state worker did not open its database");
+    }
+    return await runWithOpenClawStateWorkerStore(store, context, operation);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw hydrateOpenClawStateWorkerError(error);
+    }
+    throw error;
   }
-  return runWithOpenClawStateWorkerStore(store, context, operation);
 }
 
 /** Inspect the existing file without recursively admitting a domain operation. */
@@ -235,17 +243,24 @@ export async function inspectOpenClawStateDatabase(
     input: OpenClawStateWorkerInspectionOperations["database.generationMatches"]["input"];
   },
 ): Promise<boolean | undefined> {
-  const store = await owner().open(context, true);
-  context.admission.assertCurrent();
-  if (!store) {
-    return undefined;
+  try {
+    const store = await owner().open(context, true);
+    context.admission.assertCurrent();
+    if (!store) {
+      return undefined;
+    }
+    return await runWithOpenClawStateWorkerStore(store, context, (scope) =>
+      scope.execute({
+        type: "database.generationMatches",
+        input: command.input,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      throw hydrateOpenClawStateWorkerError(error);
+    }
+    throw error;
   }
-  return runWithOpenClawStateWorkerStore(store, context, (scope) =>
-    scope.execute({
-      type: "database.generationMatches",
-      input: command.input,
-    }),
-  );
 }
 
 async function runWithOpenClawStateWorkerStore<T>(

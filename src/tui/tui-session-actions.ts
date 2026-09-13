@@ -21,6 +21,7 @@ import {
   formatTuiErrorMessage,
   isCommandMarkedMessage,
 } from "./tui-formatters.js";
+import { extractTuiImageSources } from "./tui-images.js";
 import { readTuiSessionUserMessage } from "./tui-session-events.js";
 import {
   sessionInfoUiEquals,
@@ -36,14 +37,10 @@ import {
 import * as submit from "./tui-submit-state.js";
 import type { TuiHistoryLoadResult, TuiOptions, TuiStateAccess } from "./tui-types.js";
 
-type SessionActionBtwPresenter = {
-  clear: () => void;
-};
-
 type SessionActionContext = {
   client: TuiBackend;
   chatLog: ChatLog;
-  btw: SessionActionBtwPresenter;
+  btw: { clear: () => void };
   tui: TUI;
   opts: TuiOptions;
   state: TuiStateAccess;
@@ -557,9 +554,17 @@ export function createSessionActions(context: SessionActionContext) {
             } else if (entry.live && liveUserMessage) {
               chatLog.addLiveUser(text, liveUserMessage);
             } else if (liveUserMessage) {
-              chatLog.addUser(text, { messageId: liveUserMessage.messageId });
+              chatLog.addUser(text, {
+                messageId: liveUserMessage.messageId,
+                ...(liveUserMessage.images ? { images: liveUserMessage.images } : {}),
+              });
             } else {
-              chatLog.addUser(text);
+              const images = extractTuiImageSources(message);
+              if (images.length > 0) {
+                chatLog.addUser(text, { images });
+              } else {
+                chatLog.addUser(text);
+              }
             }
           }
           continue;
@@ -569,7 +574,12 @@ export function createSessionActions(context: SessionActionContext) {
             includeThinking: state.showThinking,
           });
           if (text) {
-            chatLog.finalizeAssistant(text);
+            const images = extractTuiImageSources(message);
+            if (images.length > 0) {
+              chatLog.finalizeAssistant(text, undefined, images);
+            } else {
+              chatLog.finalizeAssistant(text);
+            }
           }
           continue;
         }

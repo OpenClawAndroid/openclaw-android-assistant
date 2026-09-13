@@ -541,6 +541,14 @@ suite.define(() => {
       expect(await firstCard.textContent()).toContain("Edited");
 
       await emitRemainingToolLifecycleFlood(page, runId, TOOL_FLOOD_PAIR_COUNT);
+      // Uninterrupted narration no longer separates tool cards. Expand the
+      // real grouped activity before counting its retained invocation rows.
+      const activity = page.getByRole("button", {
+        name: `Edited ${TOOL_STREAM_LIMIT_CONTRACT} files`,
+        exact: true,
+      });
+      await activity.waitFor();
+      await activity.click();
       const floodCards = page.locator('[data-message-id^="tool:assistant:call-"]');
       // Eviction drops the oldest entries and keeps the freshest ones.
       await expect

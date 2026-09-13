@@ -303,14 +303,17 @@ describe("chat history in-flight assistant recovery", () => {
     await loadHistoryWithBrowserTimers(state);
 
     expect(state.chatRunId).toBe("run-live");
-    expect(state.chatStream).toBeNull();
-    expect(state.chatStreamSegments).toContainEqual(
-      expect.objectContaining({
-        runId: "run-live",
-        text: "The active response survived reconnect.",
-        toolCallId: "call-reconnected",
-      }),
-    );
+    expect(state.chatStream).toBe("The active response survived reconnect.");
+    expect(state.chatStreamSegments).toEqual([]);
+    const continued = "The active response survived reconnect. Still streaming.";
+    handleChatGatewayEvent(state, {
+      runId: "run-live",
+      sessionKey: state.sessionKey,
+      state: "delta",
+      message: { role: "assistant", content: continued },
+    });
+    expect(renderedText(state)).toContain(continued);
+    expect(renderedText(state)).not.toContain("The active response survived reconnect.");
     expect(state.chatToolMessages[0]).toMatchObject({
       runId: "run-live",
       toolCallId: "call-reconnected",

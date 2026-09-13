@@ -19,6 +19,7 @@ import { listCliRuntimeModelBackendBindings } from "./cli-backends.js";
 import { resolveAgentHarnessAvailabilityDecision } from "./harness/availability.js";
 import { resolveAgentHarnessPolicy } from "./harness/policy.js";
 import { buildAgentHarnessSupportContext, resolveAutoAgentHarnessId } from "./harness/support.js";
+import { resolveLegacyInheritedAuthDir } from "./legacy-inherited-auth-dir.js";
 import {
   createModelAuthAvailabilityResolver,
   type ModelAuthAvailabilityResolver,
@@ -66,6 +67,10 @@ function createModelsListAuthResolver(params: {
     agentId: params.agentId,
     authStore: params.preparedAuthStore,
     agentDir,
+    preparedCliRuntimeAuthDirectories: {
+      agentDir,
+      inheritedAuthDir: resolveLegacyInheritedAuthDir(params.cfg),
+    },
     workspaceDir: params.workspaceDir,
     env: process.env,
     metadataSnapshot: params.metadataSnapshot,

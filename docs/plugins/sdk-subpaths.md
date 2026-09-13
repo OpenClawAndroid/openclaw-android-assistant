@@ -503,6 +503,13 @@ Use `isLoopbackHost(host)` when a plugin must accept only the local machine. It 
     | `plugin-sdk/test-state` | Repo-local isolated OpenClaw state, config, workspace, environment, and auth-profile fixtures for plugin tests |
     | `plugin-sdk/test-fixtures` | Repo-local generic CLI runtime capture, direct-import smoke, sandbox context, skill writer, agent-message, system-event, module reload, bundled plugin path, terminal-text, chunking, auth-token, and typed-case fixtures |
     | `plugin-sdk/test-node-mocks` | Repo-local focused Node builtin mock helpers for use inside Vitest `vi.mock("node:*")` factories |
+
+    For bundled plugins, `markdown-table-runtime` exposes `getMarkdownTableSource(table)` for tables returned by
+    `markdownToIRWithMeta(text, { tableMode: "block" })`. It returns source `start`/`end`
+    offsets, a continuation `prefix`, and the original cell Markdown in `headers`/`rows`.
+    Slice the same input string to preserve table bytes without reparsing Markdown containers.
+    This metadata is non-enumerable; the getter returns `undefined` for tables without it.
+
   </Accordion>
 
   <Accordion title="Memory subpaths">

@@ -191,7 +191,8 @@ vi.mock("@clack/prompts", () => ({
   note: vi.fn(),
 }));
 
-vi.mock("../infra/update-managed-service-handoff.js", () => ({
+vi.mock("../infra/update-managed-service-handoff.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../infra/update-managed-service-handoff.js")>()),
   startManagedServiceUpdateHandoff: managedUpdateHandoff.start,
   transferManagedServiceUpdateHandoff: managedUpdateHandoff.transfer,
   cancelManagedServiceUpdateHandoff: managedUpdateHandoff.cancel,
@@ -7329,6 +7330,90 @@ describe("update-cli", () => {
           serviceStop.mock.invocationCallOrder[0]!,
         );
       }
+    },
+  );
+
+  it.each([
+    {
+      packageInstallSpec: "file:/owned/candidate.tgz",
+      channel: "stable" as const,
+      expectedTag: "file:/owned/candidate.tgz",
+    },
+    {
+      packageInstallSpec: "https://example.invalid/candidate.tgz",
+      channel: "stable" as const,
+      expectedTag: "https://example.invalid/candidate.tgz",
+    },
+    {
+      packageInstallSpec: `openclaw@${VERSION}`,
+      channel: "stable" as const,
+      expectedTag: VERSION,
+    },
+    {
+      packageInstallSpec: `openclaw@${VERSION}`,
+      channel: "extended-stable" as const,
+      expectedTag: undefined,
+    },
+  ])(
+    "keeps the selected target through already-current managed handoff ($packageInstallSpec, $channel)",
+    async ({ packageInstallSpec, channel, expectedTag }) => {
+      const { finishAlreadyCurrentUpdate } = await import("./update-cli/update-command-noop.js");
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      const { pkgRoot: root, entryPath } = await setupInstalledPackageRoot(
+        createCaseDir("current-artifact-handoff"),
+        VERSION,
+      );
+      mockFileBackedPathExists();
+      vi.mocked(resolveGatewayInstallEntrypoint).mockResolvedValue(entryPath);
+      mockRunningManagedGateway([process.execPath, entryPath, "gateway", "run"]);
+      managedUpdateHandoff.start.mockResolvedValue({
+        status: "started",
+        handoffId: "current-artifact-handoff",
+        installRoot: root,
+        logPath: "/tmp/current-artifact-handoff.log",
+        command: "openclaw update --yes",
+        pid: 12345,
+      });
+      managedUpdateHandoff.transfer.mockResolvedValue(true);
+      const refuseUpdate = vi.fn();
+
+      await withEnvAsync({ INVOCATION_ID: "current-artifact-invocation" }, () =>
+        finishAlreadyCurrentUpdate({
+          root,
+          packageInstallSpec,
+          opts: { yes: true, json: true },
+          result: {
+            status: "skipped",
+            mode: "npm",
+            root,
+            reason: "already-current",
+            before: { version: VERSION },
+            after: { version: VERSION },
+            steps: [],
+            durationMs: 1,
+          },
+          requestedChannel: null,
+          storedChannel: channel,
+          channel,
+          shouldRestart: true,
+          updateStepTimeoutMs: 1000,
+          invocationCwd: process.cwd(),
+          startedAt: Date.now(),
+          controlPlaneUpdateSentinelMeta: null,
+          managedServiceRootRedirect: null,
+          stop: vi.fn(),
+          refuseUpdate,
+        }),
+      );
+
+      expect(refuseUpdate).not.toHaveBeenCalled();
+      expect(
+        managedUpdateHandoff.start.mock.calls.map(([params]) => ({
+          root: params.root,
+          tag: params.tag,
+        })),
+      ).toEqual([{ root, tag: expectedTag }]);
+      expectNoSideEffects(serviceStop, serviceRestart, updateNpmInstalledPlugins);
     },
   );
 

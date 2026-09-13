@@ -1,5 +1,6 @@
 // Install Cli tests cover install cli script behavior.
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -99,6 +100,170 @@ describe("install-cli.sh", () => {
     expect(result.stdout + result.stderr).toContain("unavailable on musl Linux");
     expect(result.stdout).not.toContain("unexpected-node-install");
   });
+
+  it.each(
+    ["directory", "missing", "file"].flatMap((tempBase) =>
+      [false, true].map((downloadFails) => ({ tempBase, downloadFails })),
+    ),
+  )(
+    "owns and cleans private temporary storage with $tempBase TMPDIR (download fails: $downloadFails)",
+    ({ tempBase, downloadFails }) => {
+      const root = tempDirs.make("openclaw-install-cli-temp-");
+      const inheritedTemp = join(root, "inherited temp");
+      if (tempBase === "directory") {
+        mkdirSync(inheritedTemp, { mode: 0o755 });
+      } else if (tempBase === "file") {
+        writeFileSync(inheritedTemp, "preserve this file");
+      }
+      const prefix = join(root, "prefix");
+      const payload = join(root, "node-payload");
+      mkdirSync(join(payload, "bin"), { recursive: true });
+      writeFileSync(
+        join(payload, "bin", "node"),
+        '#!/bin/bash\nif [[ "${1:-}" == "-v" ]]; then printf "v24.19.0\\n"; fi\n',
+        { mode: 0o755 },
+      );
+      writeFileSync(join(payload, "bin", "npm"), "#!/bin/bash\nexit 0\n", { mode: 0o755 });
+      const archive = join(root, "node.tgz");
+      const packed = spawnSync("tar", ["-czf", archive, "-C", root, "node-payload"], {
+        encoding: "utf8",
+      });
+      expect(packed.status, packed.stdout + packed.stderr).toBe(0);
+      const digest = createHash("sha256").update(readFileSync(archive)).digest("hex");
+      const observationPath = join(root, "temporary-storage.json");
+      const observer = join(root, "observe-temp.cjs");
+      writeFileSync(
+        observer,
+        `const fs = require("node:fs");
+const path = require("node:path");
+const tempDirectory = process.env.TMPDIR;
+const metadata = fs.statSync(tempDirectory);
+fs.mkdtempSync(path.join(tempDirectory, "child-"));
+fs.writeFileSync(process.env.FIXTURE_OBSERVATION, JSON.stringify({
+  tempDirectory, mode: metadata.mode & 0o777, uid: metadata.uid,
+  stagingDirectory: path.dirname(process.argv[2]),
+}));
+`,
+      );
+
+      try {
+        const result = runInstallCliShell(
+          `
+          source ${SCRIPT_PATH}
+          is_musl_linux() { return 1; }
+          detect_downloader() { :; }
+          download_file() {
+            "$FIXTURE_NODE" "$FIXTURE_OBSERVER" "$2" || return
+            if [[ "$FIXTURE_DOWNLOAD_FAILS" == 1 ]]; then return 42; fi
+            case "$1" in
+              */SHASUMS256.txt)
+                printf '%s  node-v24.19.0-%s-%s.tar.gz\\n' "$FIXTURE_SHA" "$(os_detect)" "$(arch_detect)" > "$2"
+                ;;
+              *) cp "$FIXTURE_ARCHIVE" "$2" ;;
+            esac
+          }
+          main --json --node-only --node-version 24.19.0 --prefix "$FIXTURE_PREFIX"
+          `,
+          {
+            HOME: root,
+            TMPDIR: inheritedTemp,
+            FIXTURE_PREFIX: prefix,
+            FIXTURE_NODE: nodeExecutable,
+            FIXTURE_OBSERVER: observer,
+            FIXTURE_OBSERVATION: observationPath,
+            FIXTURE_DOWNLOAD_FAILS: downloadFails ? "1" : "0",
+            FIXTURE_ARCHIVE: archive,
+            FIXTURE_SHA: digest,
+          },
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(downloadFails ? 42 : 0);
+        const observation = JSON.parse(readFileSync(observationPath, "utf8")) as {
+          tempDirectory: string;
+          mode: number;
+          uid: number;
+          stagingDirectory: string;
+        };
+        expect(observation.tempDirectory).not.toBe(inheritedTemp);
+        expect(observation.mode).toBe(0o700);
+        expect(observation.uid).toBe(process.getuid?.());
+        expect(observation.stagingDirectory.startsWith(`${observation.tempDirectory}/`)).toBe(true);
+        expect(existsSync(observation.tempDirectory)).toBe(false);
+        expect(existsSync(observation.stagingDirectory)).toBe(false);
+        expect(existsSync(join(prefix, "tools", "node", "bin", "node"))).toBe(!downloadFails);
+        if (tempBase === "directory") {
+          expect(readdirSync(inheritedTemp)).toEqual([]);
+        } else if (tempBase === "file") {
+          expect(readFileSync(inheritedTemp, "utf8")).toBe("preserve this file");
+        } else {
+          expect(existsSync(inheritedTemp)).toBe(false);
+        }
+      } finally {
+        if (existsSync(observationPath)) {
+          const observation = JSON.parse(readFileSync(observationPath, "utf8")) as {
+            tempDirectory: string;
+          };
+          if (observation.tempDirectory !== inheritedTemp) {
+            rmSync(observation.tempDirectory, { recursive: true, force: true });
+          }
+        }
+      }
+    },
+  );
+
+  it.each([true, false])(
+    "preserves the caller TMPDIR for service refresh and onboarding (originally set: %s)",
+    (originallySet) => {
+      const root = tempDirs.make("openclaw-install-cli-temp-lifecycle-");
+      const inheritedTemp = join(root, "inherited");
+      mkdirSync(inheritedTemp);
+      const cli = join(root, "cli");
+      writeFileSync(
+        cli,
+        `#!/bin/bash
+if [[ "$1" == --version ]]; then
+  printf '2026.9.12\\n'
+else
+  printf '%s' "\${TMPDIR-<unset>}" > "$FIXTURE_ONBOARD"
+fi
+`,
+        { mode: 0o755 },
+      );
+      const installTempPath = join(root, "install-temp");
+      const refreshPath = join(root, "refresh-temp");
+      const onboardPath = join(root, "onboard-temp");
+      const callerPath = join(root, "caller-temp");
+      const result = runInstallCliShell(
+        `
+        source ${SCRIPT_PATH}
+        install_node() { printf '%s' "$TMPDIR" > "$FIXTURE_INSTALL_TEMP"; }
+        ensure_git() { :; }
+        install_openclaw() { mkdir -p "$PREFIX/bin"; cp "$FIXTURE_CLI" "$PREFIX/bin/openclaw"; }
+        refresh_gateway_service_if_loaded() { printf '%s' "\${TMPDIR-<unset>}" > "$FIXTURE_REFRESH"; }
+        main --onboard --prefix "$FIXTURE_PREFIX"
+        printf '%s' "\${TMPDIR-<unset>}" > "$FIXTURE_CALLER"
+        `,
+        {
+          HOME: root,
+          TMPDIR: originallySet ? inheritedTemp : undefined,
+          OPENCLAW_NO_ONBOARD: "0",
+          FIXTURE_PREFIX: join(root, "prefix"),
+          FIXTURE_CLI: cli,
+          FIXTURE_INSTALL_TEMP: installTempPath,
+          FIXTURE_REFRESH: refreshPath,
+          FIXTURE_ONBOARD: onboardPath,
+          FIXTURE_CALLER: callerPath,
+        },
+      );
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const originalValue = originallySet ? inheritedTemp : "<unset>";
+      for (const observedPath of [refreshPath, onboardPath, callerPath]) {
+        expect(readFileSync(observedPath, "utf8")).toBe(originalValue);
+      }
+      const installTemp = readFileSync(installTempPath, "utf8");
+      expect(installTemp).not.toBe(inheritedTemp);
+      expect(existsSync(installTemp)).toBe(false);
+    },
+  );
 
   it("re-execs a streamed installer on Darwin Bash 5.3+ without leaving a temp file", (context) => {
     const bash = findDarwinReexecBash();

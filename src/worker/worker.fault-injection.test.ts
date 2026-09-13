@@ -113,7 +113,7 @@ describe("cloud worker milestone 2 fault injection", () => {
         branch: "openclaw/cleanup-fixture",
       };
       descriptor.assignment.skillResources = await prepareSkillResourceDelivery(
-        buildSkillSnapshot(harness.root, {
+        await buildSkillSnapshot(harness.root, {
           entries: loadWorkspaceSkills(harness.root, { workspaceOnly: true }),
         }),
         () => {},

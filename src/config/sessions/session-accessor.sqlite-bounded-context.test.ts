@@ -22,6 +22,7 @@ import {
   waitForSessionTranscriptIndexReconcile,
   waitForSessionTranscriptProjection,
 } from "./session-transcript-reconcile.js";
+import { transcriptMessage } from "./transcript-message.test-support.js";
 
 async function withBoundedContextScope(
   run: (scope: {
@@ -85,9 +86,9 @@ it("reads only the newest bounded active context and accounts for its header", a
   await withBoundedContextScope(async (scope) => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        { eventId: "old", parentId: null, message: { role: "user", content: "old" } },
-        { eventId: "middle", parentId: "old", message: { role: "assistant", content: "middle" } },
-        { eventId: "new", parentId: "middle", message: { role: "user", content: "new" } },
+        transcriptMessage("old", null, { role: "user", content: "old" }),
+        transcriptMessage("middle", "old", { role: "assistant", content: "middle" }),
+        transcriptMessage("new", "middle", { role: "user", content: "new" }),
       ],
       touchSessionEntry: false,
     });
@@ -115,7 +116,7 @@ it("reads only the newest bounded active context and accounts for its header", a
 it("reserves the transcript header inside the exact byte limit", async () => {
   await withBoundedContextScope(async (scope) => {
     await persistSessionTranscriptTurn(scope, {
-      messages: [{ eventId: "new", parentId: null, message: { role: "user", content: "new" } }],
+      messages: [transcriptMessage("new", null, { role: "user", content: "new" })],
       touchSessionEntry: false,
     });
     const database = openOpenClawAgentDatabase({ agentId: scope.agentId });
@@ -208,9 +209,7 @@ it("selects the session header by type when a mirror row precedes it", async () 
       message: { role: "assistant", content: [{ type: "text", text: "New session started." }] },
     });
     await persistSessionTranscriptTurn(scope, {
-      messages: [
-        { eventId: "new", parentId: mirror.messageId, message: { role: "user", content: "new" } },
-      ],
+      messages: [transcriptMessage("new", mirror.messageId, { role: "user", content: "new" })],
       touchSessionEntry: false,
     });
     // Settle the projection first, then reproduce the file-era import row order (delivery
@@ -313,7 +312,7 @@ it("selects the session header when an exact migrated transcript has no identity
 it("retains the latest boundary and counts earlier resets before a truncated tail", async () => {
   await withBoundedContextScope(async (scope) => {
     await persistSessionTranscriptTurn(scope, {
-      messages: [{ eventId: "old", parentId: null, message: { role: "user", content: "old" } }],
+      messages: [transcriptMessage("old", null, { role: "user", content: "old" })],
       touchSessionEntry: false,
     });
     await appendTranscriptEvent(scope, {
@@ -334,8 +333,8 @@ it("retains the latest boundary and counts earlier resets before a truncated tai
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        { eventId: "middle", parentId: "summary", message: { role: "user", content: "middle" } },
-        { eventId: "new", parentId: "middle", message: { role: "assistant", content: "new" } },
+        transcriptMessage("middle", "summary", { role: "user", content: "middle" }),
+        transcriptMessage("new", "middle", { role: "assistant", content: "new" }),
       ],
       touchSessionEntry: false,
     });
@@ -360,21 +359,18 @@ it("counts the retained tail instead of compacted transcript bytes", async () =>
   await withBoundedContextScope(async (scope) => {
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "discarded-old",
-          parentId: null,
-          message: { role: "user", content: `discarded ${"x".repeat(20_000)}` },
-        },
-        {
-          eventId: "kept-user",
-          parentId: "discarded-old",
-          message: { role: "user", content: `kept ${"k".repeat(3_000)}` },
-        },
-        {
-          eventId: "kept-assistant",
-          parentId: "kept-user",
-          message: { role: "assistant", content: "kept answer" },
-        },
+        transcriptMessage("discarded-old", null, {
+          role: "user",
+          content: `discarded ${"x".repeat(20_000)}`,
+        }),
+        transcriptMessage("kept-user", "discarded-old", {
+          role: "user",
+          content: `kept ${"k".repeat(3_000)}`,
+        }),
+        transcriptMessage("kept-assistant", "kept-user", {
+          role: "assistant",
+          content: "kept answer",
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -389,11 +385,10 @@ it("counts the retained tail instead of compacted transcript bytes", async () =>
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "post-compaction",
-          parentId: "compaction-boundary",
-          message: { role: "user", content: "fresh turn" },
-        },
+        transcriptMessage("post-compaction", "compaction-boundary", {
+          role: "user",
+          content: "fresh turn",
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -511,41 +506,28 @@ it("counts paired reset tool results without counting discarded orphan results",
     };
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "discarded-old",
-          parentId: null,
-          message: { role: "user", content: `discarded ${"x".repeat(12_000)}` },
-        },
-        {
-          eventId: "kept-user",
-          parentId: "discarded-old",
-          message: { role: "user", content: "kept question" },
-        },
-        { eventId: "kept-assistant", parentId: "kept-user", message: assistantMessage },
-        {
-          eventId: "kept-result",
-          parentId: "kept-assistant",
-          message: {
-            role: "toolResult",
-            toolCallId: "call-1",
-            toolName: "read",
-            content: [{ type: "text", text: `paired ${"p".repeat(3_000)}` }],
-            isError: false,
-            timestamp: Date.parse("2026-08-15T00:00:01.000Z"),
-          },
-        },
-        {
-          eventId: "discarded-orphan",
-          parentId: "kept-result",
-          message: {
-            role: "toolResult",
-            toolCallId: "orphan-call",
-            toolName: "read",
-            content: [{ type: "text", text: `orphan ${"o".repeat(20_000)}` }],
-            isError: false,
-            timestamp: Date.parse("2026-08-15T00:00:02.000Z"),
-          },
-        },
+        transcriptMessage("discarded-old", null, {
+          role: "user",
+          content: `discarded ${"x".repeat(12_000)}`,
+        }),
+        transcriptMessage("kept-user", "discarded-old", { role: "user", content: "kept question" }),
+        transcriptMessage("kept-assistant", "kept-user", assistantMessage),
+        transcriptMessage("kept-result", "kept-assistant", {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "read",
+          content: [{ type: "text", text: `paired ${"p".repeat(3_000)}` }],
+          isError: false,
+          timestamp: Date.parse("2026-08-15T00:00:01.000Z"),
+        }),
+        transcriptMessage("discarded-orphan", "kept-result", {
+          role: "toolResult",
+          toolCallId: "orphan-call",
+          toolName: "read",
+          content: [{ type: "text", text: `orphan ${"o".repeat(20_000)}` }],
+          isError: false,
+          timestamp: Date.parse("2026-08-15T00:00:02.000Z"),
+        }),
       ],
       touchSessionEntry: false,
     });
@@ -559,11 +541,7 @@ it("counts paired reset tool results without counting discarded orphan results",
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "post-reset",
-          parentId: "reset-boundary",
-          message: { role: "user", content: "fresh turn" },
-        },
+        transcriptMessage("post-reset", "reset-boundary", { role: "user", content: "fresh turn" }),
       ],
       touchSessionEntry: false,
     });
@@ -582,11 +560,10 @@ it("counts paired reset tool results without counting discarded orphan results",
 
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "second-post-reset",
-          parentId: "post-reset",
-          message: { role: "assistant", content: "fresh answer" },
-        },
+        transcriptMessage("second-post-reset", "post-reset", {
+          role: "assistant",
+          content: "fresh answer",
+        }),
       ],
       touchSessionEntry: false,
     });

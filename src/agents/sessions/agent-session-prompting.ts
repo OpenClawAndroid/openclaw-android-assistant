@@ -23,6 +23,7 @@ import {
 import type { CustomMessage } from "./messages.js";
 import { expandPromptTemplate } from "./prompt-templates.js";
 import type { ResourceLoader } from "./resource-loader.js";
+import { withSessionManagerWrite } from "./session-manager-write-admission.js";
 import { setSteeringMessageIdentity } from "./steering-message-identity.js";
 
 type PostAgentRunAction = "continue" | "settled" | "handoff";
@@ -584,13 +585,15 @@ export abstract class AgentSessionPrompting extends AgentSessionBase {
     } else if (options?.triggerTurn) {
       await this.runAgentPrompt(appMessage);
     } else {
-      this.agent.state.messages.push(appMessage);
-      this.sessionManager.appendCustomMessageEntry(
-        message.customType,
-        message.content,
-        message.display,
-        message.details,
-      );
+      await withSessionManagerWrite(this.sessionManager, () => {
+        this.sessionManager.appendCustomMessageEntry(
+          appMessage.customType,
+          appMessage.content,
+          appMessage.display,
+          appMessage.details,
+        );
+        this.agent.state.messages.push(appMessage);
+      });
       this.emit({ type: "message_start", message: appMessage });
       this.emit({ type: "message_end", message: appMessage });
     }

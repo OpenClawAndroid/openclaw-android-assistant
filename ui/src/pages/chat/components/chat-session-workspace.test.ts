@@ -85,7 +85,7 @@ describe("session workspace state", () => {
     expect(createSessionWorkspaceProps(state).filter).toBe("all");
   });
 
-  it("shows the Files skeleton only while a slow cloud workspace request is pending", async () => {
+  it("loads files and artifacts together while showing the Files skeleton until both settle", async () => {
     let resolveList!: (value: {
       sessionKey: string;
       root: string;
@@ -101,8 +101,15 @@ describe("session workspace state", () => {
           resolveList = resolve;
         }),
     );
+    let resolveArtifacts!: (value: { artifacts: [] }) => void;
+    const request = vi.fn(
+      () =>
+        new Promise<{ artifacts: [] }>((resolve) => {
+          resolveArtifacts = resolve;
+        }),
+    );
     const state = {
-      client: { request: vi.fn().mockResolvedValue({ artifacts: [] }) },
+      client: { request },
       connected: true,
       connectionEpoch: 1,
       handleOpenSidebar: vi.fn(),
@@ -123,6 +130,10 @@ describe("session workspace state", () => {
     );
 
     expect(listFiles).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledExactlyOnceWith("artifacts.list", {
+      sessionKey: state.sessionKey,
+      agentId: "main",
+    });
     const skeleton = mount.querySelector<HTMLElement & { variant: string }>(
       "openclaw-panel-loading-skeleton",
     );
@@ -135,6 +146,10 @@ describe("session workspace state", () => {
       root: "/workspace/cloud",
       files: [{ kind: "modified", name: "slow.ts", path: "src/slow.ts", missing: false }],
     });
+    await Promise.resolve();
+    expect(createSessionWorkspaceProps(state).loading).toBe(true);
+    expect(createSessionWorkspaceProps(state).list).toBeNull();
+    resolveArtifacts({ artifacts: [] });
     await vi.waitFor(() => expect(createSessionWorkspaceProps(state).loading).toBe(false));
     render(
       renderSessionWorkspaceRail(createSessionWorkspaceProps(state, { expanded: true }), {
@@ -174,6 +189,10 @@ describe("session workspace state", () => {
     }>((resolve) => {
       resolveOldFile = resolve;
     });
+    let resolveOldArtifacts!: (value: { artifacts: [] }) => void;
+    const oldArtifacts = new Promise<{ artifacts: [] }>((resolve) => {
+      resolveOldArtifacts = resolve;
+    });
     const listFiles = vi
       .fn()
       .mockResolvedValueOnce({
@@ -182,9 +201,20 @@ describe("session workspace state", () => {
         gitCheckout: true,
         files: [],
       })
+      .mockResolvedValueOnce({
+        sessionKey: "agent:main:current",
+        root: "/checkout/a-stale-refresh",
+        files: [],
+      })
       .mockReturnValueOnce(replacementList);
     const getFile = vi.fn().mockReturnValue(oldFile);
-    const client = { request: vi.fn().mockResolvedValue({ artifacts: [] }) };
+    const client = {
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ artifacts: [] })
+        .mockReturnValueOnce(oldArtifacts)
+        .mockResolvedValue({ artifacts: [] }),
+    };
     const state = {
       client,
       connected: true,
@@ -212,13 +242,15 @@ describe("session workspace state", () => {
     expect(state.sidebarContent).toBe(oldDiff);
     openSessionWorkspaceFile(state, { path: "README.md" });
     expect(handleOpenSidebar).toHaveBeenLastCalledWith({ kind: "loading" });
+    createSessionWorkspaceProps(state).onRefresh();
+    await vi.waitFor(() => expect(client.request).toHaveBeenCalledTimes(2));
 
     (state as SessionWorkspaceHost & { connectionEpoch: number }).connectionEpoch = 2;
     const pending = createSessionWorkspaceProps(state, { expanded: true });
 
     expect(pending.list).toBeNull();
     expect(pending.onOpenDiff).toBeTypeOf("function");
-    expect(listFiles).toHaveBeenCalledTimes(2);
+    expect(listFiles).toHaveBeenCalledTimes(3);
     expect(state.sidebarContent).toBeNull();
 
     resolveOldFile({
@@ -245,6 +277,13 @@ describe("session workspace state", () => {
     await vi.waitFor(() =>
       expect(createSessionWorkspaceProps(state).list?.root).toBe("/checkout/b"),
     );
+    const replacementWorkspace = state.sessionWorkspaceState;
+    const replacementContents = replacementWorkspace?.list;
+    resolveOldArtifacts({ artifacts: [] });
+    await oldArtifacts;
+    await Promise.resolve();
+    expect(state.sessionWorkspaceState).toBe(replacementWorkspace);
+    expect(state.sessionWorkspaceState?.list).toBe(replacementContents);
     expect(resolveSessionDiffSidebarContent(state)).not.toBe(oldDiff);
   });
 

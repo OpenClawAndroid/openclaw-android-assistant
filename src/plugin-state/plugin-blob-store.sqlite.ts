@@ -7,6 +7,7 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
+  iterateSqliteQuerySync,
 } from "../infra/kysely-sync.js";
 import {
   coerceRequiredSqliteNumber as sqliteNumber,
@@ -253,7 +254,7 @@ function selectEvictionCandidates(
   db: DatabaseSync,
   params: { pluginId: string; namespace: string; key: string; now: number },
 ) {
-  return executeSqliteQuerySync(
+  return iterateSqliteQuerySync(
     db,
     kysely(db)
       .selectFrom("plugin_blob_entries")
@@ -265,7 +266,7 @@ function selectEvictionCandidates(
       .where((eb) => eb.or([eb("expires_at", "is", null), eb("expires_at", ">", params.now)]))
       .orderBy("created_at", "asc")
       .orderBy("entry_key", "asc"),
-  ).rows;
+  );
 }
 
 function readStoredUsage(

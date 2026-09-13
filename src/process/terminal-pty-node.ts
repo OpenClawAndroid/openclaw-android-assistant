@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
+import { toErrorObject } from "../infra/errors.js";
 import { resolveExecutablePath } from "../infra/executable-path.js";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerArgv, resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
@@ -14,6 +15,7 @@ const CLEANUP_TIMEOUT_MS = 2_000;
 /** Keeps native PTY I/O on Node while the Gateway or node host runs on Bun. */
 export async function spawnNodeTerminalPty(
   params: TerminalPtySpawnParams,
+  beforeSpawn?: () => void,
 ): Promise<TerminalPtyHandle> {
   const node = resolveExecutablePath("node", { env: process.env });
   if (!node) {
@@ -127,7 +129,12 @@ export async function spawnNodeTerminalPty(
       return;
     }
     if (message.type === "boot") {
-      send({ type: "start", params });
+      try {
+        beforeSpawn?.();
+        send({ type: "start", params });
+      } catch (error) {
+        fail(toErrorObject(error, "PTY launch denied"));
+      }
     } else if (message.type === "ready") {
       ptyPid = message.pid;
       ready.resolve(message.pid);

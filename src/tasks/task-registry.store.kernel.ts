@@ -14,7 +14,7 @@ import {
   prepareSqliteQuerySync,
 } from "../infra/kysely-sync.js";
 import { assertSqliteTableIntegrity } from "../infra/sqlite-integrity.js";
-import { normalizeSqliteNumber } from "../infra/sqlite-number.js";
+import { coerceRequiredSqliteNumber, normalizeSqliteNumber } from "../infra/sqlite-number.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
 import { tableExists, tableHasColumns } from "../state/openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
@@ -24,7 +24,14 @@ import {
   normalizeTaskTimestamps,
 } from "./task-registry-records.js";
 import { parseDeliveryContextJson, parseSqliteJsonValue } from "./task-registry.sqlite.shared.js";
-import type { TaskRegistryStoreSnapshot } from "./task-registry.store.types.js";
+import type {
+  TaskRegistryStoreSnapshot,
+  TaskRegistryMutationScope,
+} from "./task-registry.store.types.js";
+import {
+  addTaskRegistrySummaryCounts,
+  createEmptyTaskRegistrySummary,
+} from "./task-registry.summary.js";
 import {
   parseOptionalTaskTerminalOutcome,
   parseTaskDeliveryStatus,
@@ -225,6 +232,9 @@ type TaskRegistryQueries = {
   viewOwner?: TaskRegistryQuery<string>;
   viewFlow?: TaskRegistryQuery<string>;
   viewRunId?: TaskRegistryQuery<string>;
+  flowSummary?: ReturnType<
+    typeof prepareSqliteQuerySync<string, { runtime: string; status: string; count: number }>
+  >;
 };
 const taskRegistryQueries = new WeakMap<DatabaseSync, TaskRegistryQueries>();
 
@@ -416,6 +426,37 @@ export function listTaskRecordsForFlowReadInDatabase(
   return read(flowId).rows.map(rowToTaskRecord).toSorted(compareTaskViewOrder);
 }
 
+export function summarizeTaskRecordsForFlowInDatabase(db: DatabaseSync, flowId: string) {
+  const queries = getTaskRegistryQueries(db);
+  const read = (queries.flowSummary ??= prepareSqliteQuerySync<
+    string,
+    { runtime: string; status: string; count: number }
+  >(db, (parameter) =>
+    getTaskRegistryKysely(db)
+      .selectFrom("task_runs")
+      .select(["runtime", "status"])
+      .select((eb) => eb.fn.countAll<number>().as("count"))
+      .where(
+        "parent_flow_id",
+        "=",
+        parameter((value) => value),
+      )
+      .groupBy(["runtime", "status"])
+      .orderBy((eb) => eb.fn.max("task_id"), "desc"),
+  ));
+  const summary = createEmptyTaskRegistrySummary();
+  // Summary reads validate count inputs; full record reads own other metadata diagnostics.
+  for (const row of read(flowId).rows) {
+    addTaskRegistrySummaryCounts(
+      summary,
+      parseTaskRuntime(row.runtime),
+      parseTaskStatus(row.status),
+      coerceRequiredSqliteNumber(row.count),
+    );
+  }
+  return summary;
+}
+
 export function findTaskRecordByRunIdForViewInDatabase(
   db: DatabaseSync,
   runId: string,
@@ -497,6 +538,50 @@ export function readTaskRegistrySnapshot({
     assertSqliteTableIntegrity(db, path, "task_delivery_state");
     const taskRows = selectTaskRows(db);
     const deliveryRows = selectTaskDeliveryStateRows(db);
+    return {
+      tasks: new Map(taskRows.map((row) => [row.task_id, rowToTaskRecord(row)])),
+      deliveryStates: new Map(
+        deliveryRows.map((row) => [row.task_id, rowToTaskDeliveryState(row)]),
+      ),
+    };
+  });
+}
+
+/** The caller holds shared writer custody across this snapshot and its mutation. */
+export function readTaskRegistryMutationSnapshotInDatabase(
+  db: DatabaseSync,
+  scope: TaskRegistryMutationScope,
+): TaskRegistryStoreSnapshot {
+  return runSqliteDeferredTransactionSync(db, () => {
+    const kysely = getTaskRegistryKysely(db);
+    const selected = kysely
+      .selectFrom("task_runs")
+      .where((eb) =>
+        eb.or([
+          eb("task_id", "=", scope.taskId),
+          eb(eb.fn<string>("trim", [eb.ref("run_id")]), "=", scope.runId?.trim() || null),
+          eb(
+            eb.fn<string>("trim", [eb.ref("child_session_key")]),
+            "=",
+            scope.childSessionKey?.trim() || null,
+          ),
+        ]),
+      );
+    const taskRows = executeSqliteQuerySync(
+      db,
+      selected
+        .select(TASK_RUN_SELECT_COLUMNS)
+        .orderBy("created_at", "asc")
+        .orderBy("task_id", "asc"),
+    ).rows;
+    const deliveryRows = executeSqliteQuerySync(
+      db,
+      kysely
+        .selectFrom("task_delivery_state")
+        .select(TASK_DELIVERY_STATE_SELECT_COLUMNS)
+        .where("task_id", "in", selected.select("task_id"))
+        .orderBy("task_id", "asc"),
+    ).rows;
     return {
       tasks: new Map(taskRows.map((row) => [row.task_id, rowToTaskRecord(row)])),
       deliveryStates: new Map(

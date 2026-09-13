@@ -34,6 +34,7 @@ import { createSuiteTempRootTracker } from "../../test-helpers/temp-dir.js";
 import { captureEnv, setTestEnvValue } from "../../test-utils/env.js";
 import { createTestPreparedRunAdmission } from "../admitted-run-context.test-support.js";
 import { buildAgentRunTerminalOutcomeFromLifecycleEvent } from "../agent-run-terminal-outcome.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import { clearRuntimeAuthProfileStoreSnapshots } from "../auth-profiles/runtime-snapshots.js";
 import { saveAuthProfileStore } from "../auth-profiles/store-runtime.js";
 import { testing as cliBackendsTesting } from "../cli-backends.test-support.js";
@@ -2306,11 +2307,7 @@ describe("CLI attempt execution", () => {
       {
         version: 1,
         profiles: {
-          "google:api-key": {
-            type: "api_key",
-            provider: "google",
-            key: "gemini-api-key",
-          },
+          "google:api-key": createApiKeyCredential("google", "gemini-api-key"),
         },
       },
       agentDir,
@@ -2354,11 +2351,7 @@ describe("CLI attempt execution", () => {
       {
         version: 1,
         profiles: {
-          "vercel-ai-gateway:default": {
-            type: "api_key",
-            provider: "vercel-ai-gateway",
-            key: "vercel-key",
-          },
+          "vercel-ai-gateway:default": createApiKeyCredential("vercel-ai-gateway", "vercel-key"),
         },
       },
       agentDir,
@@ -2408,11 +2401,7 @@ describe("CLI attempt execution", () => {
             refresh: "openai-refresh",
             expires: Date.now() + 60_000,
           },
-          "google:api-key": {
-            type: "api_key",
-            provider: "google",
-            key: "gemini-api-key",
-          },
+          "google:api-key": createApiKeyCredential("google", "gemini-api-key"),
         },
       },
       agentDir,
@@ -2459,11 +2448,7 @@ describe("CLI attempt execution", () => {
       {
         version: 1,
         profiles: {
-          "google:api-key": {
-            type: "api_key",
-            provider: "google",
-            key: "gemini-api-key",
-          },
+          "google:api-key": createApiKeyCredential("google", "gemini-api-key"),
         },
       },
       agentDir,
@@ -3076,11 +3061,7 @@ describe("CLI attempt execution", () => {
       {
         version: 1,
         profiles: {
-          "anthropic:work": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "test-key",
-          },
+          "anthropic:work": createApiKeyCredential("anthropic", "test-key"),
         },
       },
       agentDir,
@@ -4163,11 +4144,7 @@ describe("CLI attempt execution", () => {
       {
         version: 1,
         profiles: {
-          "openai:backup": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-test",
-          },
+          "openai:backup": createApiKeyCredential("openai", "sk-test"),
         },
       },
       agentDir,

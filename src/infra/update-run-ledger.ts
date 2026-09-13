@@ -5,7 +5,6 @@ import {
   UPDATE_RUN_DRIVER_LIMIT,
   UPDATE_RUN_PHASES,
 } from "../../packages/gateway-protocol/src/update-run-vocabulary.js";
-import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db-contract.js";
 import { runExistingOpenClawStateWriteTransaction } from "../state/openclaw-state-db-existing-write.js";
 import {
   withExistingOpenClawStateDatabaseArtifactPreservingReadOnly,
@@ -22,6 +21,7 @@ import {
 } from "./kysely-sync.js";
 import { assertSqliteSchemaContains } from "./sqlite-schema-contract.js";
 import {
+  inspectUpdateRepairDriverAdmission,
   isAbandonedUpdateRun,
   isStaleIdentitylessUpdateRun,
   recordedUpdateRunDrivers,
@@ -42,7 +42,6 @@ import {
 import { LEGACY_UPDATE_RUN_EXPIRED_REASON } from "./update-run-legacy-expiry.js";
 import {
   inspectUpdateRunReconciliation,
-  listUpdateRuns,
   readUpdateRunReconciliationCandidates,
   readUpdateRunRecord as readRun,
   type UpdateRunReconciliationCandidate,
@@ -57,9 +56,12 @@ import {
 } from "./update-run-record.js";
 import { isUpdateRecoveryPending } from "./update-run-recovery-schema.js";
 import { hasStoredUpdateRecovery, readRecoveries } from "./update-run-recovery-store.js";
+import { recordUpdateRunVerificationRecord } from "./update-run-verification.js";
 
 export {
+  findActiveUpdateRun,
   getLatestUpdateFetchFailure,
+  getUpdateRun,
   getUpdateRunAsync,
   listUpdateRuns,
   listUpdateRunsAsync,
@@ -293,7 +295,11 @@ export function adoptUpdateRun(runId: string, options: LedgerOptions = {}): Upda
       }
       record.origin.driver = driver;
       record.origin.previousDrivers = previousDrivers.length ? previousDrivers : undefined;
-      upsertStep(record, { step: "driver:adopted", status: "completed", endedAtMs: Date.now() });
+      upsertStep(record, {
+        step: "driver:adopted",
+        status: "completed",
+        endedAtMs: Date.now(),
+      });
     },
     options,
   );
@@ -547,6 +553,39 @@ export function recordUpdateRunStep(
   );
 }
 
+export function recordUpdateRunRepairContinuation(
+  runId: string,
+  inheritedRunId: string | undefined,
+  options: LedgerOptions = {},
+): void {
+  mutateRun(
+    runId,
+    (record) => {
+      const admission = inspectUpdateRepairDriverAdmission([record], inheritedRunId);
+      if (admission.kind === "conflict") {
+        throw new Error(admission.message);
+      }
+      const step =
+        admission.kind === "continuation"
+          ? "finalize:repair-continuation"
+          : "finalize:repair-takeover";
+      if (record.steps.some((entry) => entry.step === step)) {
+        return;
+      }
+      upsertStep(record, {
+        step,
+        status: "completed",
+        endedAtMs: Date.now(),
+        detail:
+          admission.kind === "continuation"
+            ? `Repair continued within the owning update by PID ${process.pid}.`
+            : `Repair took over Gateway activation by PID ${process.pid} under abandonment admission.`,
+      });
+    },
+    options,
+  );
+}
+
 /** A terminal process diagnostic adds evidence without reopening the recorded outcome. */
 export function recordUpdateRunDiagnostic(
   runId: string,
@@ -675,34 +714,7 @@ export function recordUpdateRunVerification(
 ): UpdateRunRecord {
   return mutateRun(
     runId,
-    (record) => {
-      // Startup observations cannot revise a terminal result, including one
-      // committed after the Gateway read the run but before this transaction.
-      if (options.onlyIfRunning && record.status !== "running") {
-        return;
-      }
-      record.verification = {
-        ...record.verification,
-        ...verification,
-        ...(verification.pluginErrors
-          ? { pluginErrors: verification.pluginErrors.slice(-32) }
-          : {}),
-      };
-      if (record.status === "running" && verification.serviceRunning === false) {
-        record.confirmedAtMs = null;
-      }
-      if (
-        record.verification.serviceRunning &&
-        record.verification.versionMatch &&
-        record.verification.settled === true &&
-        record.verification.readyz === true &&
-        record.verification.channelsReady === true &&
-        record.verification.pluginErrors?.length === 0 &&
-        record.confirmedAtMs === null
-      ) {
-        record.confirmedAtMs = Date.now();
-      }
-    },
+    (record) => recordUpdateRunVerificationRecord(record, verification, options),
     options,
   );
 }
@@ -725,20 +737,4 @@ export function recordUpdateRunRepairAttempt(
     },
     options,
   );
-}
-
-export function getUpdateRun(
-  runId: string,
-  options: OpenClawStateDatabaseOptions = {},
-): UpdateRunRecord | undefined {
-  return withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(
-    ({ db }) => (tableExists(db, "update_runs") ? readRun(db, runId) : undefined),
-    options,
-  );
-}
-
-export function findActiveUpdateRun(
-  options: OpenClawStateDatabaseOptions = {},
-): UpdateRunRecord | undefined {
-  return listUpdateRuns({ limit: 1, active: true }, options)[0];
 }

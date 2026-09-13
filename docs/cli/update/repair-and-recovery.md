@@ -95,7 +95,7 @@ openclaw update repair --accept-capabilities
 | `--timeout <seconds>`                            | Override each repair phase deadline in seconds. Defaults vary by phase (see below).                                                                                                                                                                                                              |
 | `--yes`                                          | Skip confirmation prompts.                                                                                                                                                                                                                                                                       |
 | `--accept-capabilities`                          | Accept each plugin's reviewed capability changes while repairing plugin state.                                                                                                                                                                                                                   |
-| `--no-restart`                                   | Accepted for parity; repair never restarts the Gateway.                                                                                                                                                                                                                                          |
+| `--no-restart`                                   | Accepted for parity; repair does not request update activation. Doctor can restore a Gateway it stopped for maintenance during a verified owning-run continuation.                                                                                                                               |
 
 Untouched, identityless 2026.9.2-era update admissions heal automatically after
 more than 24 hours. Gateway startup, `openclaw update status`, and `openclaw status`
@@ -114,19 +114,39 @@ finalization, so historical recovery cannot suppress plugin convergence.
 Explicit recovery does not wait 30 minutes when every recorded updater process
 is provably dead (its PID is gone or its process-start identity has changed).
 Identityless rows and runs with an unrecorded adopter still require more than
-30 minutes of inactivity; a recorded live or uninspectable driver blocks recovery.
+30 minutes of inactivity; a recorded live or uninspectable driver blocks
+abandonment recovery.
 JSON output identifies reconciled run IDs in
 `reconciledRuns`, with `status: "ok"`, `mode: "repair"`, and `restart: false`.
+
+Repair invoked within the owning update can continue when its inherited run ID
+and live process identity match that owner. The run records the continuation,
+and Doctor can use its normal maintenance lifecycle: stop the owned Gateway,
+repair state, then restore and verify the same service. Doctor only restarts a
+service that it stopped; an already stopped service stays stopped. The owning
+run remains active while its driver is alive. If that driver exits during
+maintenance, Doctor records an activation takeover under abandonment admission
+and restores the service, even if the driver already terminalized its ledger
+row. A restoration failure reports the cause and the commands to inspect and
+restart the Gateway. Normal update finalization without this explicit repair
+continuation still leaves activation to its parent.
+
+An unrelated update whose driver is live or cannot be inspected still blocks
+repair, even after a long period without activity. The refusal identifies the
+owning run, phase, driver PID, host, start and last-activity times and ages, and observed liveness (`alive` or
+`not observed`). Wait for that update to finish, or stop the named driver on its
+host and rerun `openclaw update repair` after it exits. Elapsed inactivity alone
+does not authorize taking over a live updater.
 
 Explicit channel or capability changes and known incomplete post-core work use
 full finalization. Recorded activation, restart, verification, or finalization steps require
 that convergence even if the Gateway has already reconciled the run. Repair
 checks newer abandoned history as well as active rows; an older stale row cannot
 hide unfinished work from a newer update. If the bounded history inspection is
-incomplete, repair also uses full finalization. If that
-work needs maintenance while the managed service is
+incomplete, repair also uses full finalization. Outside a verified owning-run
+continuation, if that work needs maintenance while the managed service is
 running, stop the service through its owner before retrying. Doctor cannot stop
-or restart the service on the update parent's behalf.
+or restart the service on an unrelated update parent's behalf.
 Successful full finalization then reconciles the selected stale rows before
 reporting completion. Failed convergence leaves the selected rows intact. If any
 selected run resumes before reconciliation, the whole selection is preserved.
@@ -140,7 +160,9 @@ refreshes the plugin registry, and writes converged install-record metadata.
 Configured runtime plugins whose versions follow OpenClaw are checked against
 the newly installed core during post-update repair, even when the updater process
 started on the previous version.
-It does not install a new core package and does not restart the Gateway.
+It does not install a new core package or request update activation. Standalone
+repair does not restart the Gateway; a verified owning-run continuation can
+restore the service after Doctor maintenance as described above.
 Human output ends with a finalization result that distinguishes completion,
 completion with warnings, and failure.
 
@@ -229,10 +251,10 @@ accept capability changes, and JSON mode does not prompt. An unresolved review
 preserves the previous plugin payload and appears in `postUpdate.plugins.warnings`
 with a `PLUGIN_CAPABILITY_CONSENT_REQUIRED` outcome. When required checks pass,
 `openclaw update` can complete the core update and requested Gateway restart with
-`status: "ok"`; `update repair` reports `status: "warning"` and never restarts the
-Gateway. Both commands exit successfully. This also applies when a bundled plugin
-moves to an external package or a missing configured plugin has no install record
-yet; the unreviewed replacement is not installed. Automatic repair can
+`status: "ok"`; `update repair` reports `status: "warning"` without requesting
+update activation. Both commands exit successfully. This also applies when a
+bundled plugin moves to an external package or a missing configured plugin has
+no install record yet; the unreviewed replacement is not installed. Automatic repair can
 report a deferred replacement as a notice when a usable, enabled artifact remains
 installed; that retained artifact still undergoes payload validation.
 

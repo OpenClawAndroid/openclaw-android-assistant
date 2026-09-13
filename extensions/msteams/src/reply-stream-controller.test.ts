@@ -1,5 +1,6 @@
 // Msteams tests cover reply stream controller plugin behavior.
 import { describe, expect, it, vi } from "vitest";
+import { teamsQuotedTableReply } from "./format.test-fixtures.js";
 import { createTeamsReplyStreamController } from "./reply-stream-controller.js";
 
 type StreamCloseResult = { id: string } | undefined;
@@ -487,6 +488,32 @@ describe("createTeamsReplyStreamController", () => {
       content: "streamed",
     });
     expect(stream.close).toHaveBeenCalled();
+  });
+
+  it("preserves disabled quoted tables when finalizing formatted replies", async () => {
+    const { source: text, expected } = teamsQuotedTableReply;
+    const stream = makeStream();
+    const ctrl = createTeamsReplyStreamController({
+      allowProviderPreview: true,
+      conversationType: "personal",
+      context: makeContext(stream),
+      feedbackLoopEnabled: false,
+      tableMode: "off",
+    });
+
+    ctrl.onPartialReply({ text });
+    expect(ctrl.preparePayload({ text })).toBeUndefined();
+    await expect(ctrl.finalize()).resolves.toEqual({
+      visibleReplySent: true,
+      messageId: "stream-final",
+      content: expected,
+      logicalContent: text,
+    });
+    expect(stream.clearText).toHaveBeenCalledTimes(1);
+    expect(stream.emit).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "message", text: expected }),
+    );
+    expect(stream.close).toHaveBeenCalledTimes(1);
   });
 
   it("returns suppressed final payload when stream close produces no final activity", async () => {

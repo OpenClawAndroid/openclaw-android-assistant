@@ -66,7 +66,7 @@ import type {
 import { createInternalSessionEffectsCleanup } from "./internal-session-effects.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import type { MainSessionRecoveryPendingTarget } from "./main-session-recovery/main-session-recovery-store.js";
-import { createAgentRunRestartAbortError } from "./run-termination.js";
+import { createAgentRunRestartAbortError, isAgentRunDirectAbortReason } from "./run-termination.js";
 import { withAgentPluginRegistry } from "./runtime-plugins.js";
 import { beginForegroundSessionMaintenance } from "./session-maintenance/coordinator.js";
 import {
@@ -184,7 +184,10 @@ async function agentCommandInternal(
       scope: storePath ?? `agent:${sessionAgentId}`,
       identities: [sessionKey, sessionId],
       signal: opts.abortSignal,
-      onInterrupt: () => lifecycleAbortController.abort(createAgentRunRestartAbortError()),
+      onInterrupt: (reason) =>
+        lifecycleAbortController.abort(
+          isAgentRunDirectAbortReason(reason) ? reason : createAgentRunRestartAbortError(),
+        ),
       assertAllowed: () => {
         const currentEntry =
           sessionStoreRuntime && storePath && sessionKey

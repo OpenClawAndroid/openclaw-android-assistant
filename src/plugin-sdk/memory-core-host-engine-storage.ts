@@ -57,6 +57,7 @@ export {
   resolveMemoryBackendConfig,
   resolveMemoryIndexIdentityDiagnostic,
   resolveMemoryIndexIdentityReason,
+  resolveMemoryIndexSearchDiagnostic,
   resolveMemorySearchStaleness,
   runWithConcurrency,
   splitCuratedMarkdownEntries,

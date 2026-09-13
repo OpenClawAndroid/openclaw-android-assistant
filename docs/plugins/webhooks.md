@@ -193,6 +193,11 @@ the managed flow id returned by `create_flow`, and the `childSessionKey` and
 `runId` from that existing run. Inventing a child key or run id does not start
 work or grant authority.
 
+The response waits for worker-backed SQLite linkage and registry reconciliation.
+The worker checks the current flow and backing before writing; a backing run
+that has already completed cannot create a new queued or running projection.
+Retrying an existing terminal projection can merge metadata without restarting it.
+
 ```json
 {
   "action": "run_task",

@@ -135,6 +135,101 @@ describe("chat metadata store", () => {
     await expect(first).resolves.toEqual(metadata("shared-model"));
   });
 
+  it.each([
+    { kind: "load", read: loadChatMetadata },
+    { kind: "revalidation", read: revalidateChatMetadata },
+  ])("keeps the replacement $kind pending after reentrant invalidation", async ({ read }) => {
+    const older = deferred<ChatMetadataResult>();
+    const newer = deferred<ChatMetadataResult>();
+    const request = vi.fn().mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    const client = clientWith(request);
+    const scope = { agentId: "main" };
+    let invalidated = false;
+    let replacement: Promise<ChatMetadataResult> | undefined;
+    const unsubscribe = subscribeChatMetadata(client, scope, (update) => {
+      if (update.type === "loading" && !invalidated) {
+        invalidated = true;
+        invalidateChatMetadataStore(client, scope);
+        replacement = read(client, scope);
+      }
+    });
+    const first = read(client, scope);
+    try {
+      expect(replacement).toBeDefined();
+      const following = read(client, scope);
+      newer.resolve(metadata("current"));
+      await replacement;
+      older.resolve(metadata("obsolete"));
+      await expect(following).resolves.toEqual(metadata("current"));
+      await first;
+      expect(peekChatMetadata(client, scope)).toEqual(metadata("current"));
+      expect(request).toHaveBeenCalledTimes(2);
+    } finally {
+      older.resolve(metadata("obsolete"));
+      newer.resolve(metadata("current"));
+      await Promise.allSettled([first, replacement]);
+      unsubscribe();
+    }
+  });
+
+  describe.each([
+    { kind: "load", read: loadChatMetadata },
+    { kind: "revalidation", read: revalidateChatMetadata },
+  ])("$kind publication boundaries", ({ read }) => {
+    it("lets a loading observer share the active request", async () => {
+      const pending = deferred<ChatMetadataResult>();
+      const request = vi.fn().mockReturnValue(pending.promise);
+      const client = clientWith(request);
+      const scope = { agentId: "main" };
+      let observed = false;
+      let following: Promise<ChatMetadataResult> | undefined;
+      const unsubscribe = subscribeChatMetadata(client, scope, (update) => {
+        if (update.type === "loading" && !observed) {
+          observed = true;
+          following = read(client, scope);
+        }
+      });
+      const first = read(client, scope);
+      try {
+        expect(request).toHaveBeenCalledOnce();
+        pending.resolve(metadata("current"));
+        await expect(following).resolves.toEqual(metadata("current"));
+        await first;
+      } finally {
+        pending.resolve(metadata("current"));
+        await Promise.allSettled([first, following]);
+        unsubscribe();
+      }
+    });
+
+    it.each([new Error("metadata failed"), undefined])(
+      "lets an error observer start a fresh request after %s",
+      async (failure) => {
+        const request = vi
+          .fn()
+          .mockRejectedValueOnce(failure)
+          .mockResolvedValue(metadata("current"));
+        const client = clientWith(request);
+        const scope = { agentId: "main" };
+        let retry: Promise<ChatMetadataResult> | undefined;
+        const unsubscribe = subscribeChatMetadata(client, scope, (update) => {
+          if (update.type === "error" && !retry) {
+            retry = read(client, scope);
+          }
+        });
+        const first = read(client, scope);
+        try {
+          await expect(first).rejects.toBe(failure);
+          await expect(retry).resolves.toEqual(metadata("current"));
+          expect(request).toHaveBeenCalledTimes(2);
+        } finally {
+          await Promise.allSettled([first, retry]);
+          unsubscribe();
+        }
+      },
+    );
+  });
+
   it("clears a failed pending load so a later read can retry", async () => {
     const result = metadata("recovered-model");
     const request = vi

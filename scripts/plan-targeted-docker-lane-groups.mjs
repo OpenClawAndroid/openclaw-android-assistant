@@ -2,6 +2,7 @@
 import { fileURLToPath } from "node:url";
 import { parsePositiveInt } from "./lib/numeric-options.mjs";
 import {
+  CUSTOM_PLUGIN_SIBLINGS_BASELINE,
   normalizeUpgradeSurvivorBaselineSpec,
   parseUpgradeSurvivorBaselineSpecs,
   parseUpgradeSurvivorScenarios,
@@ -87,9 +88,14 @@ export function planTargetedDockerLaneGroups({
     const requested = survivorScenarios.length > 0 ? survivorScenarios : ["base"];
     pairedScenarios = new Map(baselineSpecs.map((baseline) => [baseline, []]));
     for (const scenario of requested) {
-      // Synthetic fixtures keep their prior upgrade path; only CLI-authored
-      // operator state can validate clean refusal on an unfenced updater.
-      const baselines = scenario === "legacy-operator-state" ? baselineSpecs : [predecessor];
+      // Keep the reported first-hop driver even when source and published
+      // packages share a version and generic baseline resolution omits it.
+      const baselines =
+        scenario === "custom-plugin-siblings"
+          ? [CUSTOM_PLUGIN_SIBLINGS_BASELINE]
+          : scenario === "legacy-operator-state"
+            ? baselineSpecs
+            : [predecessor];
       for (const baseline of baselines) {
         if (!supportsUpgradeSurvivorScenarioAtBaseline(scenario, baseline)) {
           continue;

@@ -9,11 +9,12 @@ import * as agentDatabaseLeases from "../state/openclaw-agent-db-lease.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   listOpenClawAgentDatabasesForTest,
-  OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP,
 } from "../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { setStateDirEnv, withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import { resolveSessionGroupMutationTargetsByName } from "./session-groups.js";
+
+const EXPECTED_OPEN_HANDLE_CAP = 64;
 
 test("discovers groups across more than the handle cap without writable database maintenance", async () => {
   await withStateDirEnv("openclaw-session-group-readonly-", async ({ stateDir }) => {
@@ -22,7 +23,7 @@ test("discovers groups across more than the handle cap without writable database
     closeOpenClawStateDatabaseForTest();
 
     const agentIds = Array.from(
-      { length: OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP + 1 },
+      { length: EXPECTED_OPEN_HANDLE_CAP + 1 },
       (_, index) => `group-reader-${index}`,
     );
     const config = {

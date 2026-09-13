@@ -45,6 +45,7 @@ it.each([
         return;
       }
       requests++;
+      endpoint.emit("primary-provider-request");
       if (hold) {
         held.push(response);
       } else {
@@ -143,7 +144,7 @@ it.each([
         const initialRequests = requests;
         advertised = ["original", "newly-published"];
         hold = true;
-        const renewal = once(endpoint, "request");
+        const renewal = once(endpoint, "primary-provider-request");
         const saved = await withTestTimeout(
           list(),
           1_000,

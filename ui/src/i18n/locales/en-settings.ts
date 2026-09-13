@@ -4,6 +4,28 @@ import { en } from "./en.ts";
 // Settings copy loads with its lazy page or search, not the startup shell.
 const enSettings = {
   connection: {
+    ping: {
+      title: "Gateway ping",
+      latest: "Latest ping",
+      average: "Avg ping",
+      averageHint: "Average browser-to-Gateway round-trip time, including Gateway handling.",
+      p50: "p50",
+      p50Hint: "50% of measured pings completed in this time or less (median).",
+      p95: "p95",
+      p95Hint: "95% of measured pings completed in this time or less.",
+      p99: "p99",
+      p99Hint: "99% of measured pings completed in this time or less.",
+      unit: "ms",
+      samples: "Samples: {count}/100 · every 5 s while visible",
+      measuring: "Measuring ping…",
+      failed: "Last ping failed. Retrying…",
+    },
+    activity: {
+      title: "Gateway activity",
+      description: "Process CPU, memory, and event-loop delay · every 5 s while visible",
+      failed: "Activity refresh failed. Retrying…",
+      offline: "Connect to see Gateway activity.",
+    },
     access: {
       title: "Connection",
       descriptionOffline: "Not connected.",

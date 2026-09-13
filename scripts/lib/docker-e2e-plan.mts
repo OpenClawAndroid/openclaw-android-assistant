@@ -134,6 +134,10 @@ const UPGRADE_SURVIVOR_RUNTIME_COMPANION_PACKAGES = ["@openclaw/codex"];
 // closed instead of requiring a dependency or reimplementing a JavaScript parser.
 const LEGACY_UPGRADE_SURVIVOR_SCENARIO_CATALOGS = new Map([
   [
+    "a4246e4fc65d037c173b38976f115faea015e476211f845bf328937805d81193",
+    "base msteams-polls abandoned-update legacy-operator-state mobile-pairing-reconnect acpx-openclaw-tools-bridge feishu-channel bootstrap-persona channel-post-core-restore codex-allowlist-survival plugin-deps-cleanup configured-plugin-installs custom-plugin-siblings stale-source-plugin-shadow prerelease-plugin-registry tilde-log-path meeting-transcripts-sqlite versioned-runtime-deps cron-scheduled-authority sqlite-volume recovery-cleanup auth-profile-v2026-7-2-beta-5 watchos-direct-node",
+  ],
+  [
     "733fc9c5b6895a9497b759534ad507cf67894d04c57f7b2439350d2000612d55",
     "base msteams-polls abandoned-update legacy-operator-state mobile-pairing-reconnect acpx-openclaw-tools-bridge feishu-channel bootstrap-persona channel-post-core-restore codex-allowlist-survival plugin-deps-cleanup configured-plugin-installs stale-source-plugin-shadow prerelease-plugin-registry tilde-log-path meeting-transcripts-sqlite versioned-runtime-deps cron-scheduled-authority sqlite-volume recovery-cleanup auth-profile-v2026-7-2-beta-5 watchos-direct-node",
   ],
@@ -673,7 +677,7 @@ export function requiredPrepublishPluginPackagesForLanes(poolLanes: DockerE2eLan
       requiredPackages.add(packageName);
     }
     const scenario = upgradeSurvivorScenarioForLane(poolLane);
-    if (!scenario || scenario === "abandoned-update") {
+    if (!scenario || scenario === "abandoned-update" || scenario === "custom-plugin-siblings") {
       continue;
     }
     if (scenario === "legacy-operator-state") {

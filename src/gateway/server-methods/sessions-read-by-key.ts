@@ -2,7 +2,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import { validateSessionsDescribeParams } from "../../../packages/gateway-protocol/src/index.js";
 import { hasOperatorBoundary } from "../operator-role-policy.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
-import { createSessionListEntryFilter } from "../session-sharing.js";
+import { createSessionListEntryFilter, prepareSessionSharing } from "../session-sharing.js";
 import { readRecentSessionMessagesWithStatsAsync } from "../session-transcript-readers.js";
 import { buildSessionListRowMetadataContext } from "../session-utils-projection.js";
 import { createGatewaySessionEntryReader } from "../session-utils-store-lookup.js";
@@ -56,7 +56,8 @@ export const sessionByKeyReadHandlers: GatewayRequestHandlers = {
       includeStoreChildEntries: true,
       ...(requestedAgent.agentId ? { agentId: requestedAgent.agentId } : {}),
     });
-    const boundaryFilter = createRoleVisibilityFilter(client, cfg);
+    const sharing = prepareSessionSharing({ client, cfg });
+    const boundaryFilter = hasOperatorBoundary(client, cfg) ? sharing.entryFilter : undefined;
     if (!entry || boundaryFilter?.(target.canonicalKey, entry) === false) {
       respond(true, { session: null }, undefined);
       return;
@@ -84,7 +85,17 @@ export const sessionByKeyReadHandlers: GatewayRequestHandlers = {
       rowContext: buildSessionListRowMetadataContext({ now: Date.now() }),
       includeSwarmChildren: true,
     });
-    Object.assign(row, readSessionPlacementFields(context, row.sessionId));
+    Object.assign(row, {
+      sharingRole: sharing.roleForTarget({
+        agentId: target.agentId,
+        canonicalKey: target.canonicalKey,
+        entry,
+        storeKey: target.canonicalKey,
+        storeKeys: target.storeKeys,
+        storePath,
+      }),
+      ...readSessionPlacementFields(context, row.sessionId),
+    });
     respond(true, { session: row });
   },
   "sessions.get": async ({ params, respond, context, client }) => {

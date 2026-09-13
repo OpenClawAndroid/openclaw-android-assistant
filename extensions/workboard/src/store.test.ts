@@ -120,8 +120,8 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
         }
         return deleted;
       },
-      async entries() {
-        return await delegate.entries();
+      async entries(boardId) {
+        return await delegate.entries(boardId);
       },
       async listBoardAggregates() {
         return await delegate.listBoardAggregates();

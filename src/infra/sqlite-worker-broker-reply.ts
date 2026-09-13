@@ -1,5 +1,5 @@
 import { deserialize, serialize } from "node:v8";
-import { decodeOpenClawStateWorkerError } from "../state/openclaw-state-worker-error.js";
+import { retainOpenClawStateWorkerErrorPayload } from "../state/openclaw-state-worker-error.js";
 import type { Job } from "./sqlite-worker-broker.types.js";
 import {
   SQLITE_WORKER_MAX_MESSAGE_BYTES,
@@ -120,16 +120,13 @@ export function decodeSqliteWorkerReplyError(
   job: Job,
   error: Extract<SqliteWorkerReply, { ok: false }>["error"],
 ): Error {
-  const decoded =
-    job.request.stateContext && error.code !== "outcome-unknown"
-      ? decodeOpenClawStateWorkerError(error.sharedState)
-      : undefined;
-  const failure =
-    decoded ??
-    Object.assign(new Error(error.message), {
-      name: error.name,
-      ...(error.code === undefined ? {} : { code: error.code }),
-    });
+  const failure = Object.assign(new Error(error.message), {
+    name: error.name,
+    ...(error.code === undefined ? {} : { code: error.code }),
+  });
+  if (job.request.stateContext && error.code !== "outcome-unknown" && error.sharedState) {
+    retainOpenClawStateWorkerErrorPayload(failure, error.sharedState);
+  }
   return failure;
 }
 

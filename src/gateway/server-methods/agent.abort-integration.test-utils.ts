@@ -2397,7 +2397,9 @@ describe("gateway agent handler chat.abort integration", () => {
         execution: { status: "terminal", endedAt: 3 },
       }),
     );
-    mocks.replaceSubagentRunAfterSteer.mockRejectedValueOnce(new Error("reactivate boom"));
+    mocks.replaceSubagentRunAfterSteer.mockImplementationOnce(() => {
+      throw new Error("reactivate boom");
+    });
 
     const context = makeContext();
     const runId = "idem-abort-reactivation-fails";
@@ -2454,7 +2456,9 @@ describe("gateway agent handler chat.abort integration", () => {
         execution: { status: "terminal", endedAt: 3 },
       }),
     );
-    mocks.replaceSubagentRunAfterSteer.mockRejectedValueOnce(new Error("reactivate boom"));
+    mocks.replaceSubagentRunAfterSteer.mockImplementationOnce(() => {
+      throw new Error("reactivate boom");
+    });
 
     const respond = vi.fn();
     await invokeAgent(
@@ -2519,7 +2523,9 @@ describe("gateway agent handler chat.abort integration", () => {
         execution: { status: "terminal", endedAt: 3 },
       }),
     );
-    mocks.replaceSubagentRunAfterSteer.mockRejectedValueOnce(new Error("reactivate boom"));
+    mocks.replaceSubagentRunAfterSteer.mockImplementationOnce(() => {
+      throw new Error("reactivate boom");
+    });
 
     const respond = await invokeAgent(
       {

@@ -1,5 +1,6 @@
 // Verifies safe, user-facing auth labels without exposing credential values.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { resolveModelAuthLabel } from "./model-auth-label.js";
 
 const mocks = vi.hoisted(() => ({
@@ -288,11 +289,7 @@ describe("resolveModelAuthLabel", () => {
     const store = {
       version: 1,
       profiles: {
-        "openrouter:key-b": {
-          type: "api_key",
-          provider: "openrouter",
-          key: "sk-or-actual-key-b",
-        },
+        "openrouter:key-b": createApiKeyCredential("openrouter", "sk-or-actual-key-b"),
       },
     };
     mocks.ensureAuthProfileStore.mockReturnValue(store as never);

@@ -202,6 +202,10 @@ export function loadOpenClawPluginsCore(
         emitWarning: context.shouldActivate,
         warningCacheKey: context.cacheKey,
       });
+    const loaderCacheIdentity = Object.freeze({
+      requestKey: context.cacheKey,
+      resolvedKey: context.resolveManifestCacheKey(manifestRegistry),
+    });
     // Raw and prepared loads share one owner; absent workspace means shared-root scope.
     setPluginRuntimeLoadContext(
       registry,
@@ -218,10 +222,7 @@ export function loadOpenClawPluginsCore(
         preferBuiltPluginArtifacts: options.preferBuiltPluginArtifacts,
       },
       context.registrationConfigKey,
-      Object.freeze({
-        requestKey: context.cacheKey,
-        resolvedKey: context.resolveManifestCacheKey(manifestRegistry),
-      }),
+      loaderCacheIdentity,
     );
     const replacedIds = new Set(options.replacePluginIds ?? []);
     const memorySlot = context.normalized.slots.memory;
@@ -457,6 +458,9 @@ export function loadOpenClawPluginsCore(
     // then the catch below can discard this builder without poisoning a reusable cache value.
     if (cacheEnabled) {
       context.cacheState.set(context.cacheKey, registry);
+      if (loaderCacheIdentity.resolvedKey !== context.cacheKey) {
+        context.cacheState.set(loaderCacheIdentity.resolvedKey, registry);
+      }
     }
     registryInputs.set(registry, inputs);
     return registry;

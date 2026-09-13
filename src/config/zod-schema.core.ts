@@ -5,11 +5,9 @@ import { z } from "zod";
 import { isSafeExecutableValue } from "../infra/exec-safety.js";
 import type { OpenRouterRouting, VercelGatewayRouting } from "../llm/types.js";
 import { normalizeExactAllowedHost } from "../secrets/exact-hostname.js";
-import { SECRET_PROVIDER_ALIAS_PATTERN } from "../secrets/ref-contract.js";
+import { ENV_SECRET_REF_ID_RE, SECRET_PROVIDER_ALIAS_PATTERN } from "../secrets/ref-contract.js";
+import { MODEL_APIS, MODEL_THINKING_FORMATS } from "./model-config-vocabulary.js";
 import { isBuiltInModelProviderOverlayId } from "./model-provider-overlay-ids.js";
-import type { ModelCompatConfig } from "./types.models.js";
-import { MODEL_APIS, MODEL_THINKING_FORMATS } from "./types.models.js";
-import { ENV_SECRET_REF_ID_RE } from "./types.secrets.js";
 import { createAllowDenyChannelRulesSchema } from "./zod-schema.allowdeny.js";
 import { DmConfigSchema } from "./zod-schema.messages.js";
 import { SecretInputSchema } from "./zod-schema.secret-input.js";
@@ -50,6 +48,7 @@ export const SsrFPolicyConfigSchema = z
 const SecretsEnvProviderSchema = z
   .object({
     source: z.literal("env"),
+    /** Optional env var allowlist (exact names). */
     allowlist: z.array(z.string().regex(ENV_SECRET_REF_ID_RE)).max(256).optional(),
   })
   .strict();
@@ -245,51 +244,119 @@ const VercelGatewayRoutingSchema = z
 
 const ModelCompatSchema = z
   .object({
+    /** Whether the provider supports the `store` field. Default: auto-detected from URL. */
     supportsStore: z.boolean().optional(),
+    /** Whether provider accepts prompt-cache/session affinity keys. */
     supportsPromptCacheKey: z.boolean().optional(),
+    /** Whether the provider supports the `developer` role (vs `system`). Default: auto-detected from URL. */
     supportsDeveloperRole: z.boolean().optional(),
+    /** Whether the provider supports `reasoning_effort`. Default: auto-detected from URL. */
     supportsReasoningEffort: z.boolean().optional(),
+    /** Whether the model accepts the `temperature` parameter. Default: true. */
     supportsTemperature: z.boolean().optional(),
+    /**
+     * Whether the provider honors top-level `instructions`. Defaults to true only for verified
+     * native routes (OpenAI, xAI); every other route defaults to false and embeds the system
+     * prompt in `input` unless set true here after verifying against that endpoint.
+     */
     supportsInstructions: z.boolean().optional(),
+    /**
+     * Whether the provider supports `stream_options: { include_usage: true }` for token usage in
+     * streaming responses. Default: true.
+     */
     supportsUsageInStreaming: z.boolean().optional(),
+    /** Whether this model supports tool/function calling. */
     supportsTools: z.boolean().optional(),
+    /** Code-mode tier consumed by `tools.codeMode.enabled: "auto"`; absent means "capable". */
     codeMode: z.enum(["preferred", "capable"]).optional(),
+    /** Whether the provider supports the `strict` field in tool definitions. Default: true. */
     supportsStrictMode: z.boolean().optional(),
+    /**
+     * Whether the provider supports JSON Schema through `response_format`. Default: false for
+     * unknown compatible endpoints.
+     */
     supportsJsonSchemaResponseFormat: z.boolean().optional(),
+    /** Whether all message parts must be coerced to plain strings. */
     requiresStringContent: z.boolean().optional(),
+    /** Whether unknown message payload keys must be stripped before requests. */
     strictMessageKeys: z.boolean().optional(),
+    /** Reasoning detail block types safe to expose in visible transcripts. */
     visibleReasoningDetailTypes: z.array(z.string().min(1)).optional(),
+    /** Provider-accepted reasoning effort labels. */
     supportedReasoningEfforts: z.array(z.string().min(1)).optional(),
+    /** Per-level reasoning effort overrides, e.g. map "off" to "low" for models that cannot disable thinking. */
     reasoningEffortMap: z.record(z.string().min(1), z.string().min(1)).optional(),
+    /** Which field to use for max tokens. Default: auto-detected from URL. */
     maxTokensField: z
       .union([z.literal("max_completion_tokens"), z.literal("max_tokens")])
       .optional(),
+    /** Reasoning/thinking payload dialect for provider-compatible APIs. */
     thinkingFormat: z.enum(MODEL_THINKING_FORMATS).optional(),
+    /** Whether tool results require the `name` field. Default: auto-detected from URL. */
     requiresToolResultName: z.boolean().optional(),
+    /**
+     * Whether a user message after tool results requires an assistant message in between. Default:
+     * auto-detected from URL.
+     */
     requiresAssistantAfterToolResult: z.boolean().optional(),
+    /**
+     * Whether thinking blocks must be converted to text blocks with <thinking> delimiters.
+     * Default: auto-detected from URL.
+     */
     requiresThinkingAsText: z.boolean().optional(),
+    /**
+     * Whether all replayed assistant messages must include an empty reasoning_content field when
+     * reasoning is enabled. Default: auto-detected from URL.
+     */
     requiresReasoningContentOnAssistantMessages: z.boolean().optional(),
+    /** Named tool-schema profile used by provider adapters. */
     toolSchemaProfile: z.string().optional(),
+    /** JSON Schema keywords rejected by this provider's tool schema validator. */
     unsupportedToolSchemaKeywords: z.array(z.string().min(1)).optional(),
+    /** Encoding expected for tool-call arguments in provider payloads. */
     toolCallArgumentsEncoding: z.string().optional(),
+    /** Whether OpenAI-style calls must be reshaped to Anthropic-compatible tool payloads. */
     requiresOpenAiAnthropicToolPayload: z.boolean().optional(),
+    /** OpenRouter-specific routing preferences. Only used when baseUrl points to OpenRouter. */
     openRouterRouting: OpenRouterRoutingSchema.optional(),
+    /** Vercel AI Gateway routing preferences. Only used when baseUrl points to Vercel AI Gateway. */
     vercelGatewayRouting: VercelGatewayRoutingSchema.optional(),
+    /** Whether z.ai supports top-level `tool_stream: true` for streaming tool call deltas. Default: false. */
     zaiToolStream: z.boolean().optional(),
+    /**
+     * Cache control convention for prompt caching. "anthropic" applies Anthropic-style
+     * `cache_control` markers to the system prompt, last tool definition, and last user/assistant
+     * text content.
+     */
     cacheControlFormat: z.literal("anthropic").optional(),
+    /**
+     * Whether to send known session-affinity headers (`session_id`, `x-client-request-id`,
+     * `x-session-affinity`) from `options.sessionId` when caching is enabled. Default: false.
+     */
     sendSessionAffinityHeaders: z.boolean().optional(),
+    /**
+     * Whether to send the OpenAI `session_id` cache-affinity header from `options.sessionId` when
+     * caching is enabled. Default: true.
+     */
     sendSessionIdHeader: z.boolean().optional(),
+    /**
+     * Whether the provider accepts per-tool `eager_input_streaming`. When false, the Anthropic
+     * provider omits `tools[].eager_input_streaming` and sends the legacy
+     * `fine-grained-tool-streaming-2025-05-14` beta header for tool-enabled requests. Default:
+     * true.
+     */
     supportsEagerToolInputStreaming: z.boolean().optional(),
+    /**
+     * Whether the provider supports long prompt cache retention (`prompt_cache_retention: "24h"`
+     * or Anthropic-style `cache_control.ttl: "1h"`, depending on format). Default: true. Whether
+     * the provider supports `prompt_cache_retention: "24h"`. Default: true. Whether the provider
+     * supports Anthropic long cache retention (`cache_control.ttl: "1h"`). Default: true.
+     */
     supportsLongCacheRetention: z.boolean().optional(),
-  } satisfies Record<keyof ModelCompatConfig, z.ZodType>)
+  })
   .strict()
   .optional();
-type AssertAssignable<_Left extends _Right, _Right> = true;
-const modelCompatSchemaContract: [
-  AssertAssignable<z.infer<typeof ModelCompatSchema>, ModelCompatConfig | undefined>,
-  AssertAssignable<ModelCompatConfig | undefined, z.infer<typeof ModelCompatSchema>>,
-] = [] as never;
-void modelCompatSchemaContract;
+
 const ConfiguredProviderRequestTlsSchema = z
   .object({
     ca: SecretInputSchema.optional().register(sensitive),
@@ -404,9 +471,13 @@ const ThinkingLevelMapSchema = z
 
 const ModelDefinitionSchema = z
   .object({
+    /** Provider-facing model id. */
     id: z.string().min(1),
+    /** Human-readable display name. */
     name: z.string().min(1),
+    /** Optional API adapter override for this model. */
     api: ModelApiSchema.optional(),
+    /** Optional base URL override for this model. */
     baseUrl: z.string().min(1).optional(),
     reasoning: z.boolean().optional(),
     input: z
@@ -436,27 +507,47 @@ const ModelDefinitionSchema = z
       })
       .strict()
       .optional(),
+    /** Provider/native maximum context window in tokens. */
     contextWindow: z.number().positive().optional(),
+    /**
+     * Optional effective runtime cap used for compaction/session budgeting.
+     * Keeps provider/native contextWindow metadata intact while letting configs
+     * prefer a smaller practical window.
+     */
     contextTokens: z.number().int().positive().optional(),
     maxTokens: z.number().positive().optional(),
+    /** Maps OpenClaw thinking levels to provider/model-specific values. */
     thinkingLevelMap: ThinkingLevelMapSchema.optional(),
+    /** Provider-specific request/runtime parameters passed through to provider plugins. */
     params: z.record(z.string(), z.unknown()).optional(),
+    /** Optional agent execution runtime override for this provider/model pair. */
     agentRuntime: ModelAgentRuntimePolicySchema,
+    /** Static headers merged into requests for this model. */
     headers: z.record(z.string(), z.string()).optional(),
+    /** Provider compatibility flags for payload shaping and feature gating. */
     compat: ModelCompatSchema,
+    /** Media input limits used by routing and preflight compression. */
     mediaInput: ModelMediaInputSchema.optional(),
+    /** Metadata source marker for models added by CLI/catalog tooling. */
     metadataSource: z.literal("models-add").optional(),
   })
   .strict();
 
 const ModelProviderLocalServiceSchema = z
   .object({
+    /** Executable started before model requests are sent. */
     command: z.string().min(1),
+    /** Arguments passed without shell expansion. */
     args: z.array(z.string()).optional(),
+    /** Working directory for the local service process. */
     cwd: z.string().min(1).optional(),
+    /** Environment variables added to the service process. */
     env: z.record(z.string(), z.string().register(sensitive)).optional(),
+    /** Optional health endpoint polled before the provider is considered ready. */
     healthUrl: z.string().min(1).optional(),
+    /** Startup readiness timeout in milliseconds. */
     readyTimeoutMs: z.number().int().positive().optional(),
+    /** Idle timeout in milliseconds before stopping the local service. */
     idleStopMs: z.number().int().nonnegative().optional(),
   })
   .strict()
@@ -467,20 +558,32 @@ const ModelProviderSchema = z
     // Bundled provider overlays are materialized with an empty-string sentinel.
     // ModelProvidersSchema below still rejects empty baseUrl values for custom providers.
     baseUrl: z.string().optional(),
+    /** API key or secret reference for this provider. */
     apiKey: SecretInputSchema.optional().register(sensitive),
+    /** Authentication mode used when resolving credentials for this provider. */
     auth: z
       .union([z.literal("api-key"), z.literal("aws-sdk"), z.literal("oauth"), z.literal("token")])
       .optional(),
+    /** Default API adapter for models under this provider. */
     api: ModelApiSchema.optional(),
+    /** Provider-level default max output tokens. */
     maxTokens: z.number().positive().optional(),
+    /** Provider request timeout in seconds. */
     timeoutSeconds: z.number().int().positive().optional(),
+    /** Optional provider deployment/API region used by provider plugins that expose regional endpoints. */
     region: z.string().min(1).optional(),
     injectNumCtxForOpenAICompat: z.boolean().optional(),
+    /** Provider-specific runtime parameters interpreted by provider plugins. */
     params: z.record(z.string(), z.unknown()).optional(),
+    /** Optional default agent execution runtime for models under this provider. */
     agentRuntime: ModelAgentRuntimePolicySchema,
+    /** Optional local service to start before calling this provider. */
     localService: ModelProviderLocalServiceSchema,
+    /** Secret-bearing headers merged into provider requests. */
     headers: z.record(z.string(), SecretInputSchema.register(sensitive)).optional(),
+    /** Whether default Authorization header injection is enabled. */
     authHeader: z.boolean().optional(),
+    /** Provider request transport/retry overrides. */
     request: ConfiguredModelProviderRequestSchema,
     models: z.array(ModelDefinitionSchema).optional(),
   })
@@ -514,7 +617,9 @@ const ModelProvidersSchema = z
 
 const ModelCatalogRefreshConfigSchema = z
   .object({
+    /** Fetch model catalog updates from the hosted OpenClaw catalog. Default: true. */
     enabled: z.boolean().optional(),
+    /** Override the hosted catalog URL (HTTPS mirrors, or localhost HTTP for testing). */
     url: z
       .string()
       .refine(
@@ -541,8 +646,10 @@ const ModelCatalogRefreshConfigSchema = z
 
 export const ModelsConfigSchema = z
   .object({
+    /** Merge provider config with bundled catalogs or replace bundled catalogs entirely. */
     mode: z.union([z.literal("merge"), z.literal("replace")]).optional(),
     providers: ModelProvidersSchema.optional(),
+    /** Hosted model catalog refresh settings. */
     catalogRefresh: ModelCatalogRefreshConfigSchema,
   })
   .strict()

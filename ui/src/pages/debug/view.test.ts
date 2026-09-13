@@ -5,12 +5,12 @@ import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest"
 import { flattenTranslations } from "../../../../scripts/lib/control-ui-i18n-sync-plan.ts";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
+import type { SparklineSample } from "../../components/sparkline-tile.ts";
 import { i18n } from "../../i18n/index.ts";
 import { zh_CN } from "../../i18n/locales/zh-CN.ts";
-import { createStorageMock } from "../../test-helpers/storage.ts";
 import "./debug-overlay.ts";
 import "./debug-page.ts";
-import type { SparklineSample } from "./sparkline-tile.ts";
+import { createStorageMock } from "../../test-helpers/storage.ts";
 import { renderDebug } from "./view.ts";
 
 type DebugProps = Parameters<typeof renderDebug>[0];
@@ -48,7 +48,7 @@ type TestSparkline = LitElement & { samples: readonly SparklineSample[] };
 
 async function updateOverlayVitals(overlay: TestDebugOverlay): Promise<void> {
   await overlay.updateComplete;
-  for (const tile of overlay.querySelectorAll<TestSparkline>("openclaw-debug-sparkline")) {
+  for (const tile of overlay.querySelectorAll<TestSparkline>("openclaw-sparkline")) {
     await tile.updateComplete;
   }
 }
@@ -545,38 +545,30 @@ describe("DebugOverlay", () => {
       const vitalUpdated = () => updateOverlayVitals(overlay);
       await vitalUpdated();
       const diskTile = (mountPath: string) =>
-        overlay.querySelector<TestSparkline>(`.debug-overlay__vital--disk[title="${mountPath}"]`);
+        overlay.querySelector<TestSparkline>(`.gateway-vital--disk[title="${mountPath}"]`);
       const rootDisk = diskTile("/");
       const archiveDisk = diskTile("/Volumes/Archive");
 
       // One sample: tiles show current values, charts wait for a second point.
-      expect(overlay.querySelectorAll(".debug-overlay__vital")).toHaveLength(5);
-      expect(normalizedText(overlay.querySelector(".debug-overlay__vital--cpu"))).toContain(
-        "loop 42%",
-      );
-      expect(overlay.querySelector(".debug-vital__chart")).toBeNull();
+      expect(overlay.querySelectorAll(".gateway-vital")).toHaveLength(5);
+      expect(normalizedText(overlay.querySelector(".gateway-vital--cpu"))).toContain("loop 42%");
+      expect(overlay.querySelector(".sparkline-tile__chart")).toBeNull();
 
       await vi.advanceTimersByTimeAsync(2_000);
       await vitalUpdated();
 
-      expect(normalizedText(overlay.querySelector(".debug-overlay__vital--cpu"))).toContain("120%");
-      expect(normalizedText(overlay.querySelector(".debug-overlay__vital--memory"))).toContain(
-        "402 MB",
-      );
-      expect(normalizedText(overlay.querySelector(".debug-overlay__vital--memory"))).toContain(
+      expect(normalizedText(overlay.querySelector(".gateway-vital--cpu"))).toContain("120%");
+      expect(normalizedText(overlay.querySelector(".gateway-vital--memory"))).toContain("402 MB");
+      expect(normalizedText(overlay.querySelector(".gateway-vital--memory"))).toContain(
         "heap 100 MB",
       );
-      expect(normalizedText(overlay.querySelector(".debug-overlay__vital--delay"))).toContain(
-        "12ms",
-      );
-      expect(normalizedText(overlay.querySelector(".debug-overlay__vital--delay"))).toContain(
-        "max 87ms",
-      );
+      expect(normalizedText(overlay.querySelector(".gateway-vital--delay"))).toContain("12ms");
+      expect(normalizedText(overlay.querySelector(".gateway-vital--delay"))).toContain("max 87ms");
       expect(normalizedText(diskTile("/"))).toContain("698 GB free");
       expect(normalizedText(diskTile("/"))).toContain("1000 GB total");
-      expect(normalizedText(diskTile("/")?.querySelector(".debug-vital__label"))).toBe("Disk /");
+      expect(normalizedText(diskTile("/")?.querySelector(".sparkline-tile__label"))).toBe("Disk /");
       expect(
-        normalizedText(diskTile("/Volumes/Archive")?.querySelector(".debug-vital__label")),
+        normalizedText(diskTile("/Volumes/Archive")?.querySelector(".sparkline-tile__label")),
       ).toBe("Disk /Volumes/Archive");
       expect(normalizedText(diskTile("/Volumes/Archive"))).toContain("296 GB free");
       expect(normalizedText(diskTile("/Volumes/Archive"))).toContain("500 GB total");
@@ -586,15 +578,15 @@ describe("DebugOverlay", () => {
       expect(archiveDisk?.samples.map((sample) => sample.value / 1_073_741_824)).toEqual([
         298, 296,
       ]);
-      expect(overlay.querySelectorAll(".debug-vital__chart")).toHaveLength(5);
+      expect(overlay.querySelectorAll(".sparkline-tile__chart")).toHaveLength(5);
       // Healthy event loop: no tile carries the degraded tint.
-      expect(overlay.querySelector(".debug-overlay__vital[data-degraded]")).toBeNull();
+      expect(overlay.querySelector(".gateway-vital[data-degraded]")).toBeNull();
 
       await vi.advanceTimersByTimeAsync(180_000);
       await vitalUpdated();
 
       const points = overlay
-        .querySelector(".debug-overlay__vital--cpu polyline")
+        .querySelector(".gateway-vital--cpu polyline")
         ?.getAttribute("points")
         ?.split(" ");
       expect(points).toHaveLength(90);
@@ -604,13 +596,13 @@ describe("DebugOverlay", () => {
       await vi.advanceTimersByTimeAsync(0);
       await vitalUpdated();
 
-      expect(overlay.querySelectorAll(".debug-overlay__vital")).toHaveLength(5);
-      expect(overlay.querySelector(".debug-vital__chart")).toBeNull();
+      expect(overlay.querySelectorAll(".gateway-vital")).toHaveLength(5);
+      expect(overlay.querySelector(".sparkline-tile__chart")).toBeNull();
 
       diskResponse = "single";
       await vi.advanceTimersByTimeAsync(2_000);
       await vitalUpdated();
-      expect(overlay.querySelectorAll(".debug-overlay__vital--disk")).toHaveLength(1);
+      expect(overlay.querySelectorAll(".gateway-vital--disk")).toHaveLength(1);
       expect(diskTile("/")?.samples).toHaveLength(2);
       diskResponse = "available";
       await vi.advanceTimersByTimeAsync(2_000);
@@ -623,10 +615,10 @@ describe("DebugOverlay", () => {
         await vi.advanceTimersByTimeAsync(2_000);
         await vitalUpdated();
 
-        expect(overlay.querySelectorAll(".debug-overlay__vital")).toHaveLength(3);
-        expect(overlay.querySelector(".debug-overlay__vital--disk")).toBeNull();
+        expect(overlay.querySelectorAll(".gateway-vital")).toHaveLength(3);
+        expect(overlay.querySelector(".gateway-vital--disk")).toBeNull();
         for (const vital of ["cpu", "memory", "delay"]) {
-          expect(overlay.querySelector(`.debug-overlay__vital--${vital}`)).not.toBeNull();
+          expect(overlay.querySelector(`.gateway-vital--${vital}`)).not.toBeNull();
         }
       }
     } finally {
@@ -686,9 +678,9 @@ describe("DebugOverlay", () => {
         overlay.toggle();
         await vi.advanceTimersByTimeAsync(2_000);
         await updateOverlayVitals(overlay);
-        expect(
-          overlay.querySelector<TestSparkline>(".debug-overlay__vital--disk")?.samples,
-        ).toHaveLength(2);
+        expect(overlay.querySelector<TestSparkline>(".gateway-vital--disk")?.samples).toHaveLength(
+          2,
+        );
 
         infoResponse = pending.promise;
         await vi.advanceTimersByTimeAsync(2_000);
@@ -704,7 +696,7 @@ describe("DebugOverlay", () => {
         if (transition === "same-client reconnect") {
           publishSnapshot({ ...snapshot, phase: "reconnecting" });
           await overlay.updateComplete;
-          expect(overlay.querySelector(".debug-overlay__vital--disk")).toBeNull();
+          expect(overlay.querySelector(".gateway-vital--disk")).toBeNull();
           publishSnapshot({ ...snapshot, phase: "connected" });
         } else if (transition === "client replacement") {
           publishSnapshot({
@@ -724,7 +716,7 @@ describe("DebugOverlay", () => {
         pending.resolve(firstInfo);
         await vi.advanceTimersByTimeAsync(0);
         await updateOverlayVitals(overlay);
-        const disk = overlay.querySelector<TestSparkline>(".debug-overlay__vital--disk");
+        const disk = overlay.querySelector<TestSparkline>(".gateway-vital--disk");
         expect(normalizedText(disk)).toContain("200 GB free");
         expect(disk?.samples.map((sample) => sample.value / 1_073_741_824)).toEqual([200]);
         expect(disk?.querySelector("polyline")).toBeNull();

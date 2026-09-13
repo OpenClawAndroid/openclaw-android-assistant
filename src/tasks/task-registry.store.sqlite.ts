@@ -5,6 +5,7 @@ import {
   type ExecutionOwnerBindingResult,
 } from "../audit/execution-owner-binding.js";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
+import { withSharedStateWriteCoordinator } from "../state/openclaw-state-db-write-coordination.js";
 import {
   closeOpenClawStateDatabase,
   openOpenClawStateDatabase,
@@ -18,13 +19,17 @@ import {
   listTaskRecordsByOwnerKeyInDatabase,
   listTaskRecordsByRuntimeSourceIdInDatabase,
   readTaskRegistrySnapshot,
+  readTaskRegistryMutationSnapshotInDatabase,
   readTaskRegistrySnapshotIfReady,
   upsertTaskDeliveryStateInDatabase,
   upsertTaskWithDeliveryStateInDatabase,
   type TaskRegistryDatabase,
   type TaskRegistryReadOnlyLoadResult,
 } from "./task-registry.store.kernel.js";
-import type { TaskRegistryStoreSnapshot } from "./task-registry.store.types.js";
+import type {
+  TaskRegistryMutationScope,
+  TaskRegistryStoreSnapshot,
+} from "./task-registry.store.types.js";
 import type { TaskDeliveryState, TaskRecord, TaskRuntime } from "./task-registry.types.js";
 
 let cachedDatabase: TaskRegistryDatabase | null = null;
@@ -53,6 +58,20 @@ function withWriteTransaction(write: (database: OpenClawStateDatabase) => void) 
 
 export function loadTaskRegistryStateFromSqlite(): TaskRegistryStoreSnapshot {
   return readTaskRegistrySnapshot(openTaskRegistryDatabase());
+}
+
+export function withTaskRegistrySqliteMutation<T>(operation: () => T): T {
+  const database = openTaskRegistryDatabase();
+  return withSharedStateWriteCoordinator(
+    { databasePath: database.path, existing: database.db, operationLabel: "task.mutation" },
+    operation,
+  );
+}
+
+export function loadTaskRegistryMutationStateFromSqlite(
+  scope: TaskRegistryMutationScope,
+): TaskRegistryStoreSnapshot {
+  return readTaskRegistryMutationSnapshotInDatabase(openTaskRegistryDatabase().db, scope);
 }
 
 /** Loads task records without creating or migrating shared state. */

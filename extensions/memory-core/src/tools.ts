@@ -378,16 +378,17 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
           }
           const executed = attempted.value!;
           if (executed.pausedIndexIdentity) {
+            const unavailableResult = buildPausedMemoryIndexUnavailableResult(
+              executed.pausedIndexIdentity,
+              { agentId, status: executed.status },
+            );
             return unavailableMemoryCorpus(
               "memory",
               {
                 results: [],
-                unavailableResult: buildPausedMemoryIndexUnavailableResult(
-                  executed.pausedIndexIdentity,
-                  { agentId, status: executed.status },
-                ),
+                unavailableResult,
               },
-              executed.pausedIndexIdentity.reason,
+              unavailableResult.error,
             );
           }
           const status = executed.status;
@@ -500,9 +501,10 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                 ...(wiki ? [wiki] : []),
               ];
               const staleness = memoryValue?.staleness;
-              const recoveryAction = memoryValue?.unavailableResult?.action;
+              const recovery = memoryValue?.unavailableResult;
               const metadata = composeMemoryCorpusMetadata(attempts, [
                 ...(staleness?.warning ? [staleness.warning] : []),
+                ...(recovery?.warning ? [recovery.warning] : []),
                 ...(memory?.outcome === "partial"
                   ? [
                       "Only memory-file keyword matches are included; semantic memory retrieval did not finish within the search time limit. Session transcript results are not included.",
@@ -528,7 +530,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                 ...(attempts.length > 0 ? metadata : {}),
                 ...(memory?.outcome === "partial" ? { partial: true } : {}),
                 // Another corpus can succeed while primary memory still needs repair.
-                ...(recoveryAction ? { action: recoveryAction } : {}),
+                ...(recovery?.action ? { action: recovery.action } : {}),
                 debug,
               });
             },

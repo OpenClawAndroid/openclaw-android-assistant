@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { chromium } from "playwright";
 import { describe, expect, inject, it } from "vitest";
 import type { AuthHealthSummary } from "../../../src/agents/auth-health.js";
@@ -16,6 +17,7 @@ import {
 } from "../../../test/e2e/qa-lab/runtime/quota-reset.test-support.js";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.js";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.js";
+import { captureControlUiE2eFailureDiagnostics } from "../test-helpers/control-ui-e2e.js";
 
 type QuotaFixture = Awaited<ReturnType<typeof createQuotaResetFixture>>;
 type SavedState = {
@@ -164,6 +166,22 @@ async function captureFinalStatus(
         path: path.join(artifactDir, "provider-status.png"),
         animations: "disabled",
       });
+    } catch (error) {
+      const latestResponse = (method: string) => {
+        const observation = observations.findLast(
+          (entry) => isRecord(entry) && entry.action === "browser-rpc" && entry.method === method,
+        );
+        return isRecord(observation) ? observation.frame : undefined;
+      };
+      await captureControlUiE2eFailureDiagnostics(page, {
+        error: error instanceof Error ? error : new Error("Quota final-status failure"),
+        label: "quota-final-status",
+        modelResponses: {
+          list: latestResponse("models.list"),
+          authStatus: latestResponse("models.authStatus"),
+        },
+      });
+      throw error;
     } finally {
       await fs.writeFile(
         path.join(artifactDir, "rendered-page.json"),

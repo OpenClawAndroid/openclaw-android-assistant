@@ -289,11 +289,7 @@ describe("promoteAuthProfileInOrder", () => {
           {
             version: AUTH_STORE_VERSION,
             profiles: {
-              "openai:local": {
-                type: "api_key",
-                provider: "openai",
-                key: "sk-local-old",
-              },
+              "openai:local": createApiKeyCredential("openai", "sk-local-old"),
             },
           },
           customAgentDir,

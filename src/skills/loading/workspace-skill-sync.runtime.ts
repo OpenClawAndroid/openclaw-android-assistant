@@ -24,7 +24,7 @@ import { resolveSkillKey } from "./frontmatter.js";
 import { serializeByKey } from "./serialize.js";
 import { shouldSyncSkillPath } from "./skill-paths.js";
 import { resolveSkillTelemetrySource } from "./source.js";
-import { loadWorkspaceSkills } from "./workspace-skill-loader.js";
+import { prepareWorkspaceSkills } from "./workspace-skill-loader.js";
 
 const fsp = fs.promises;
 const skillsLogger = createSubsystemLogger("skills");
@@ -165,10 +165,9 @@ export async function syncWorkspaceSkills(params: {
         skillsSnapshot?.librarySelections,
       ]),
     );
-    const skillsVersion = getSkillsSnapshotVersion(skillRoots?.agentWorkspaceDir ?? sourceDir);
-
     await ensureSyncedSkillsDirectory(targetSkillsDir);
     const manifest = parseSyncedSkillsManifest(await tryReadJson<unknown>(manifestPath));
+    let skillsVersion = getSkillsSnapshotVersion(skillRoots?.agentWorkspaceDir ?? sourceDir);
     const expectedManifestKey =
       skillsSnapshot?.version === skillsVersion
         ? resolveSyncedSkillsManifestKey({
@@ -200,10 +199,17 @@ export async function syncWorkspaceSkills(params: {
       ...(skillsSnapshot?.skillFilter ? { skillFilter: skillsSnapshot.skillFilter } : {}),
       ...(skillsSnapshot?.skillOverrides ? { skillOverrides: skillsSnapshot.skillOverrides } : {}),
     };
-    const entries = loadWorkspaceSkills(skillRoots?.agentWorkspaceDir ?? sourceDir, {
-      ...loadOptions,
-      executionWorkspaceDir: skillRoots?.executionWorkspaceDir,
-    });
+    let entries: SkillEntry[];
+    for (;;) {
+      skillsVersion = getSkillsSnapshotVersion(skillRoots?.agentWorkspaceDir ?? sourceDir);
+      entries = await prepareWorkspaceSkills(skillRoots?.agentWorkspaceDir ?? sourceDir, {
+        ...loadOptions,
+        executionWorkspaceDir: skillRoots?.executionWorkspaceDir,
+      });
+      if (getSkillsSnapshotVersion(skillRoots?.agentWorkspaceDir ?? sourceDir) === skillsVersion) {
+        break;
+      }
+    }
     if (skillsSnapshot?.librarySelections?.length) {
       const selectedNames = new Set(skillsSnapshot.skills.map((skill) => skill.name));
       entries.push(

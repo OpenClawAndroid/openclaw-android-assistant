@@ -16,6 +16,7 @@ import {
   tryAcquireExclusiveSqliteCoordinator,
   tryAcquireSharedSqliteCoordinator,
 } from "./sqlite-coordinator.js";
+import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
 
 const heldCoordinators = new Map<
   string,
@@ -33,7 +34,7 @@ type SourceReadScope = {
   mutation?: boolean;
   assertCurrent: () => void;
   pin: () => { release: () => void };
-  snapshot?: () => Promise<{ location: string; cleanup: () => boolean }>;
+  snapshot?: () => Promise<PreparedSqliteReadOnlyLocation>;
   snapshots?: Promise<unknown>[];
 };
 const sourceReadScopes = new AsyncLocalStorage<ReadonlyMap<string, SourceReadScope>>();
@@ -552,9 +553,7 @@ export function acquireStateDatabaseHandleExclusion(params: CoordinatorOptions) 
     async runWithCanonicalMutation<T>(
       assertAuthority: () => void,
       operation: () => Promise<T>,
-      snapshot: (
-        assertCurrent: () => void,
-      ) => Promise<{ location: string; cleanup: () => boolean }>,
+      snapshot: (assertCurrent: () => void) => Promise<PreparedSqliteReadOnlyLocation>,
     ): Promise<T> {
       const retained = pin();
       const snapshots: Promise<unknown>[] = [];

@@ -9,6 +9,7 @@ import { writeConfigMachineState } from "../state/config-machine-state-write.js"
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { clearAuthProfileMigrationDiagnostics } from "./auth-profiles/legacy-source-diagnostic.js";
 import {
   clearRuntimeAuthProfileStoreSnapshots,
@@ -683,11 +684,7 @@ describe("getApiKeyForModelCore", () => {
           {
             version: 1,
             profiles: {
-              "xai:default": {
-                type: "api_key",
-                provider: "xai",
-                key: "process-default-key",
-              },
+              "xai:default": createApiKeyCredential("xai", "process-default-key"),
             },
           },
           "main",
@@ -696,11 +693,7 @@ describe("getApiKeyForModelCore", () => {
           {
             version: 1,
             profiles: {
-              "xai:default": {
-                type: "api_key",
-                provider: "xai",
-                key: "configured-agent-key",
-              },
+              "xai:default": createApiKeyCredential("xai", "configured-agent-key"),
             },
           },
           "configured",
@@ -992,11 +985,7 @@ describe("getApiKeyForModelCore", () => {
         store: {
           version: 1,
           profiles: {
-            "openai:default": {
-              type: "api_key",
-              provider: "openai",
-              key: "stored-openai-key",
-            },
+            "openai:default": createApiKeyCredential("openai", "stored-openai-key"),
           },
         },
       });
@@ -1014,11 +1003,7 @@ describe("getApiKeyForModelCore", () => {
         store: {
           version: 1,
           profiles: {
-            "openai:default": {
-              type: "api_key",
-              provider: "openai",
-              key: "stored-openai-key",
-            },
+            "openai:default": createApiKeyCredential("openai", "stored-openai-key"),
           },
         },
       });
@@ -2197,11 +2182,7 @@ describe("resolveApiKeyForProviderCore — per-entry apiKey as profile ID refere
       store: {
         version: 1,
         profiles: {
-          "openrouter:key-b": {
-            type: "api_key",
-            provider: "openrouter",
-            key: "sk-or-actual-key-b",
-          },
+          "openrouter:key-b": createApiKeyCredential("openrouter", "sk-or-actual-key-b"),
         },
       },
     });
@@ -2266,11 +2247,7 @@ describe("resolveApiKeyForProviderCore — per-entry apiKey as profile ID refere
         store: {
           version: 1,
           profiles: {
-            OPENROUTER_PROFILE: {
-              type: "api_key",
-              provider: "openrouter",
-              key: "sk-or-wrong-profile",
-            },
+            OPENROUTER_PROFILE: createApiKeyCredential("openrouter", "sk-or-wrong-profile"),
           },
         },
       });
@@ -2300,11 +2277,7 @@ describe("resolveApiKeyForProviderCore — per-entry apiKey as profile ID refere
         store: {
           version: 1,
           profiles: {
-            "openai:key-b": {
-              type: "api_key",
-              provider: "openai",
-              key: "sk-profile-key",
-            },
+            "openai:key-b": createApiKeyCredential("openai", "sk-profile-key"),
           },
         },
       });
@@ -2391,21 +2364,9 @@ describe("resolveApiKeyForProviderCore — per-entry apiKey as profile ID refere
       store: {
         version: 1,
         profiles: {
-          "openrouter:key-a": {
-            type: "api_key",
-            provider: "openrouter",
-            key: "sk-or-key-a",
-          },
-          "openrouter:key-b": {
-            type: "api_key",
-            provider: "openrouter",
-            key: "sk-or-actual-key-b",
-          },
-          "openrouter:key-c": {
-            type: "api_key",
-            provider: "openrouter",
-            key: "sk-or-key-c",
-          },
+          "openrouter:key-a": createApiKeyCredential("openrouter", "sk-or-key-a"),
+          "openrouter:key-b": createApiKeyCredential("openrouter", "sk-or-actual-key-b"),
+          "openrouter:key-c": createApiKeyCredential("openrouter", "sk-or-key-c"),
         },
       },
     });
@@ -2443,11 +2404,7 @@ describe("resolveApiKeyForProviderCore — per-entry apiKey as profile ID refere
       store: {
         version: 1,
         profiles: {
-          "openrouter:key-b": {
-            type: "api_key",
-            provider: "openrouter",
-            key: "sk-or-actual-key-b",
-          },
+          "openrouter:key-b": createApiKeyCredential("openrouter", "sk-or-actual-key-b"),
         },
       },
     });

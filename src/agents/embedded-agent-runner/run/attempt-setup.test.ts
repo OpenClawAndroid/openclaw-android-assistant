@@ -359,7 +359,7 @@ describe("prepareEmbeddedSkills", () => {
     await writeSkill(executionWorkspace, "execution-workspace-skill");
 
     try {
-      const prepared = prepareEmbeddedSkills({
+      const prepared = await prepareEmbeddedSkills({
         includeCodeModeSkills: true,
         attempt: {
           bootstrapWorkspaceDir: agentWorkspace,

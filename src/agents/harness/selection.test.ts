@@ -51,6 +51,7 @@ import {
   type PreparedAgentRunAdmission,
 } from "../admitted-run-context.js";
 import { isHostScopedAgentToolActive } from "../agent-tools.ring-zero-context.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import { testing as cliBackendsTesting } from "../cli-backends.test-support.js";
 import {
   createModelGenerationFixture,
@@ -4293,11 +4294,7 @@ describe("selectAgentHarness", () => {
     compactAuthMocks.ensureAuthProfileStoreWithoutExternalProfiles.mockReturnValue({
       version: 1,
       profiles: {
-        "local-proxy:stale": {
-          type: "api_key",
-          provider: "local-proxy",
-          key: "stale-key",
-        },
+        "local-proxy:stale": createApiKeyCredential("local-proxy", "stale-key"),
       },
     });
     const profilePlan = {

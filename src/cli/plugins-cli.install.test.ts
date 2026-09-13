@@ -6,6 +6,7 @@ import { installedPluginRoot } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { hashConfigIncludeRaw } from "../config/includes.js";
+import { resolveStateDir } from "../config/paths.js";
 import { parseClawHubPluginSpec } from "../infra/clawhub-spec.js";
 import type { InstallSafetyOverrides } from "../plugins/install-security-scan.types.js";
 import { loadInstalledPluginIndexInstallRecords } from "../plugins/installed-plugin-index-records.js";
@@ -77,11 +78,11 @@ vi.mock("../version.js", async (importOriginal) => ({
   },
 }));
 
-const CLI_STATE_ROOT = "/tmp/openclaw-state";
+const CLI_STATE_ROOT = resolveStateDir();
 const ORIGINAL_OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR;
 const ORIGINAL_OPENCLAW_NIX_MODE = process.env.OPENCLAW_NIX_MODE;
 const { set: setTty, restore: restoreTty } = createCliTtyMock();
-const PROFILE_STATE_ROOT = "/tmp/openclaw-ledger-profile";
+const PROFILE_STATE_ROOT = path.join(CLI_STATE_ROOT, "ledger-profile");
 
 function mockNpmChannelMetadata(name: string, beta?: string, latest?: string): void {
   resolveNpmSpecMetadataMock.mockImplementation(async ({ spec }) => {

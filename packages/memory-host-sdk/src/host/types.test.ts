@@ -43,6 +43,34 @@ describe("memory search staleness", () => {
     ).toMatchObject({ warning: expect.stringContaining("embedding model changed") });
   });
 
+  it.each(["provenance_version", "chunking_version"])(
+    "reports the failed repair prerequisite while %s is still incompatible",
+    (code) => {
+      expect(
+        resolveMemorySearchStaleness(
+          {
+            lastSyncError: "HTTP 400: embedding provider unavailable",
+            custom: {
+              indexIdentity: {
+                status: "mismatched",
+                reason: "runtime format changed",
+                code,
+                owner: "openclaw",
+              },
+            },
+          },
+          "main",
+        ),
+      ).toEqual({
+        stale: true,
+        warning:
+          "Memory index repair failed: HTTP 400: embedding provider unavailable. The existing index was left unchanged.",
+        action:
+          "Run: openclaw memory status --deep --agent main. Resolve the reported sync failure before retrying the search.",
+      });
+    },
+  );
+
   it("attributes an OpenClaw-owned format mismatch and names the repair cost", () => {
     const status: MemoryProviderStatus = {
       backend: "builtin",

@@ -22,6 +22,7 @@ import type { GatewaySessionRow } from "../../api/types.ts";
 import { createApplicationTheme } from "../../app/bootstrap-theme.ts";
 import { createChatAttachmentHandoff } from "../../app/chat-attachment-handoff.ts";
 import { createChatSubmissions } from "../../app/chat-submissions.ts";
+import { createConnectionBootstrapCoordinator } from "../../app/connection-bootstrap.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { ApplicationPlacementStartupStatus } from "../../app/session-placement-startup.ts";
 import { loadSettings } from "../../app/settings.ts";
@@ -202,19 +203,35 @@ export function createGatewayBrowserClientFixture(
   return client;
 }
 
-type FixtureContextServices = "theme" | "agentIdentity" | "agents" | "sessions";
+type FixtureContextServices =
+  | "theme"
+  | "agentIdentity"
+  | "agents"
+  | "sessions"
+  | "connectionBootstrap";
 
 function withLiveCapabilities(
   context: Omit<ApplicationContext, FixtureContextServices> & { sessions?: SessionCapability },
 ): ApplicationContext {
+  const connectionBootstrap = createConnectionBootstrapCoordinator();
+  const synchronizeBootstrap = (snapshot: ApplicationContext["gateway"]["snapshot"]) =>
+    connectionBootstrap.synchronize({
+      client: snapshot.client,
+      connected: snapshot.phase === "connected",
+    });
+  synchronizeBootstrap(context.gateway.snapshot);
+  const stopBootstrap = context.gateway.subscribe(synchronizeBootstrap);
   const theme = createApplicationTheme(
     loadSettings(context.gateway.connection.gatewayUrl),
     context.gateway,
   );
   const agents = createAgentCapability(context.gateway);
   const sessions =
-    context.sessions ?? createSessionCapability(context.gateway, context.agentSelection);
+    context.sessions ??
+    createSessionCapability(context.gateway, context.agentSelection, { connectionBootstrap });
   onTestFinished(() => {
+    stopBootstrap();
+    connectionBootstrap.reset();
     if (!context.sessions) {
       sessions.dispose();
     }
@@ -223,6 +240,7 @@ function withLiveCapabilities(
   });
   return {
     ...context,
+    connectionBootstrap,
     theme,
     agents,
     sessions,

@@ -1,21 +1,16 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { Bot } from "grammy";
-import {
-  createPluginStateKeyedStoreForTests,
-  createPluginStateSyncKeyedStoreForTests,
-  resetPluginStateStoreForTests,
-} from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { dispatchInboundMessage } from "openclaw/plugin-sdk/reply-runtime";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TelegramMessageContext } from "./bot-message-context.js";
 import { dispatchTelegramMessage } from "./bot-message-dispatch.js";
-import { setTelegramRuntime } from "./runtime.js";
+import { setTelegramPluginStateRuntimeForTests } from "./runtime-state.test-support.js";
 import {
   clearTelegramRuntimeForTest,
   resetTelegramReplyFenceForTest,
 } from "./runtime.test-support.js";
-import type { TelegramRuntime } from "./runtime.types.js";
 
 type RecordedBotApiCall = { method: string; fields: Record<string, unknown> };
 type ReplyResolver = NonNullable<Parameters<typeof dispatchInboundMessage>[0]["replyResolver"]>;
@@ -78,21 +73,7 @@ describe("Telegram progress command detail through the shared dispatcher and Tel
     nextMessageId = 0;
     resetPluginStateStoreForTests({ closeDatabase: false });
     resetTelegramReplyFenceForTest();
-    setTelegramRuntime({
-      state: {
-        openKeyedStore: ((options) =>
-          createPluginStateKeyedStoreForTests(
-            "telegram",
-            options,
-          )) as TelegramRuntime["state"]["openKeyedStore"],
-        openSyncKeyedStore: ((options) =>
-          createPluginStateSyncKeyedStoreForTests(
-            "telegram",
-            options,
-          )) as TelegramRuntime["state"]["openSyncKeyedStore"],
-      },
-      channel: {},
-    } as TelegramRuntime);
+    setTelegramPluginStateRuntimeForTests();
   });
 
   async function waitForBotApiCall(predicate: (call: RecordedBotApiCall) => boolean) {

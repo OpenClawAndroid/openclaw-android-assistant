@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString as normalizeRunId } from "@openclaw/normalization-core/string-coerce";
 import {
   normalizeDeliveryContext,
@@ -229,10 +230,10 @@ function normalizeRestartRecoveryTerminalDeliveryEvidence(
   }
   const evidence: RestartRecoveryTerminalDeliveryEvidence[] = [];
   for (const item of value) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
+    if (!isRecord(item)) {
       continue;
     }
-    const runId = normalizeRunId((item as Record<string, unknown>).runId);
+    const runId = normalizeRunId(item.runId);
     const result = normalizeTerminalDeliveryEvidenceResult(item);
     if (!runId || !result) {
       continue;
@@ -241,7 +242,8 @@ function normalizeRestartRecoveryTerminalDeliveryEvidence(
     if (previousIndex >= 0) {
       evidence.splice(previousIndex, 1);
     }
-    evidence.push({ runId, ...result });
+    const transcriptRunId = normalizeRunId(item.transcriptRunId);
+    evidence.push({ runId, ...result, ...(transcriptRunId ? { transcriptRunId } : {}) });
   }
   const bounded = evidence.slice(-MAX_TERMINAL_RUN_IDS);
   return bounded.length > 0 ? bounded : undefined;
@@ -484,7 +486,15 @@ export function buildRestartRecoveryClaimCleanupPatch(params: {
     params.recordTerminalSource && sourceRunId && params.terminalDeliveryEvidence
       ? mergeRestartRecoveryTerminalDeliveryEvidence(
           params.entry.restartRecoveryTerminalDeliveryEvidence,
-          [{ runId: sourceRunId, ...params.terminalDeliveryEvidence }],
+          [
+            {
+              runId: sourceRunId,
+              ...params.terminalDeliveryEvidence,
+              transcriptRunId:
+                normalizeRunId(params.terminalRunId) ??
+                normalizeRunId(params.entry.restartRecoveryDeliveryRunId),
+            },
+          ],
         )
       : undefined;
   return {

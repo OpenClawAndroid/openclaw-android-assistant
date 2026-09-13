@@ -110,6 +110,19 @@ afterEach(async () => {
 });
 
 describe("createMcpStdioClient", () => {
+  it("preserves the cleanup owner's error as the cause of uncertain shutdown", async () => {
+    const { client } = createFixture();
+    await vi.waitFor(() => expect(client.isAvailable()).toBe(true));
+    const failure = new Error("fixture cleanup failed");
+    closeMock.mockRejectedValue(failure);
+
+    await expect(client.stop()).rejects.toMatchObject({
+      message: "unavailable: proxy cleanup could not be confirmed",
+      cause: failure,
+    });
+    expect(client.isAvailable()).toBe(false);
+  });
+
   it("classifies an incompatible initialize version as a fatal protocol error", async () => {
     const { client, child, messages } = createFixture("2024-11-05");
     await expect(client.request("tools/call", {}, { timeoutMs: 1000 })).rejects.toThrow(

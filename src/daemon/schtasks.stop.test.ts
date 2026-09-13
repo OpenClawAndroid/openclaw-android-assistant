@@ -764,6 +764,37 @@ describe("Scheduled Task stop/restart cleanup", () => {
     });
   });
 
+  it.each(["routing", "activation"] as const)(
+    "refuses Scheduled Task restart after losing continuation authority during %s",
+    async (stage) => {
+      await withPreparedGatewayTask(async ({ env, stdout }) => {
+        pushSuccessfulSchtasksResponses(4);
+        let current = stage !== "routing";
+        inspectPortUsageMock.mockImplementation(async () => {
+          current = false;
+          return freePortUsage();
+        });
+
+        await expect(
+          restartScheduledTask({
+            env,
+            stdout,
+            assertCurrent: () => {
+              if (!current) {
+                throw new Error("repair continuation retired");
+              }
+            },
+          }),
+        ).rejects.toThrow("repair continuation retired");
+
+        expect(schtasksCalls.filter(([action]) => action === "/End" || action === "/Run")).toEqual(
+          stage === "routing" ? [] : [["/End", "/TN", "OpenClaw Gateway"]],
+        );
+        expect(killProcessTreeMock).not.toHaveBeenCalled();
+      });
+    },
+  );
+
   it("does not wait on or force-kill the gateway port when restarting a node Scheduled Task", async () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       pushSuccessfulSchtasksResponses(4);

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { detectBundleManifestFormat, loadBundleManifest } from "./bundle-manifest.js";
 import { discoverConfiguredPluginLoadPaths, discoverOpenClawPlugins } from "./discovery.js";
+import { resolvePluginDoctorContractArtifact } from "./doctor-contract-artifact.js";
 import { buildInstalledPluginIndexRecords } from "./installed-plugin-index-record-builder.js";
 import { loadPluginManifestRegistryCore } from "./manifest-registry.js";
 import {
@@ -17,6 +18,8 @@ import {
   createPluginCache,
   getPluginCacheRoot,
   getPluginCacheSource,
+  getProcessPluginCache,
+  invalidatePluginCacheMetadata,
   withPluginCache,
 } from "./plugin-cache.js";
 import { PluginInstance } from "./plugin-instance.js";
@@ -252,64 +255,110 @@ describe("plugin package facts", () => {
     fs.writeFileSync(path.join(root, "missing.json"), "{}");
     expect(pluginCacheExistsSync(path.join(root, "missing.json"))).toBe(false);
   });
-  it("carries the checked package generation through discovery, manifests, and index hashes", () => {
-    const root = fs.realpathSync(tempDirs.make("openclaw-plugin-cache-"));
-    const bundledDir = path.join(root, "bundled");
-    const pluginDir = path.join(bundledDir, "generation-owner");
-    fs.mkdirSync(pluginDir, { recursive: true });
-    const manifestPath = path.join(pluginDir, "openclaw.plugin.json");
-    const packagePath = path.join(pluginDir, "package.json");
-    const writeGeneration = (version: string) => {
-      const manifest = JSON.stringify({
-        id: "generation-owner",
-        version,
-        configSchema: { type: "object" },
+  it.each(["missing", "empty"])(
+    "carries package facts and %s artifact directories until refresh",
+    (directory) => {
+      const root = fs.realpathSync(tempDirs.make("openclaw-plugin-cache-"));
+      const bundledDir = path.join(root, "bundled");
+      const pluginDir = path.join(bundledDir, "generation-owner");
+      fs.mkdirSync(pluginDir, { recursive: true });
+      const manifestPath = path.join(pluginDir, "openclaw.plugin.json");
+      const packagePath = path.join(pluginDir, "package.json");
+      const distDir = path.join(pluginDir, "dist");
+      if (directory === "empty") {
+        fs.mkdirSync(distDir);
+      }
+      const writeGeneration = (version: string) => {
+        const manifest = JSON.stringify({
+          id: "generation-owner",
+          version,
+          configSchema: { type: "object" },
+        });
+        const packageJson = JSON.stringify({
+          name: "@fixture/generation-owner",
+          version,
+          openclaw: { extensions: ["./index.js"] },
+        });
+        fs.writeFileSync(manifestPath, manifest);
+        fs.writeFileSync(packagePath, packageJson);
+        return { manifest, packageJson };
+      };
+      const first = writeGeneration("1.0.0");
+      fs.writeFileSync(
+        path.join(pluginDir, "index.js"),
+        'throw new Error("metadata executed runtime");',
+      );
+      const env = {
+        OPENCLAW_HOME: path.join(root, "home"),
+        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
+        OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
+      };
+      const discovery = discoverOpenClawPlugins({ env, installRecords: {} });
+      expect(
+        discovery.candidates.find((candidate) => candidate.idHint === "generation-owner"),
+      ).toBeDefined();
+      writeGeneration("2.0.0");
+      const open = vi.spyOn(fs, "openSync");
+      const read = vi.spyOn(fs, "readFileSync");
+      expect(discoverOpenClawPlugins({ env, installRecords: {} })).toBe(discovery);
+      const registry = loadPluginManifestRegistryCore({ env, discovery, installRecords: {} });
+      const exists = vi.spyOn(fs, "existsSync");
+      const records = buildInstalledPluginIndexRecords({
+        candidates: discovery.candidates,
+        registry,
+        config: {},
+        diagnostics: [],
+        installRecords: {},
       });
-      const packageJson = JSON.stringify({
-        name: "@fixture/generation-owner",
-        version,
-        openclaw: { extensions: ["./index.js"] },
+      expect(registry.plugins.find((plugin) => plugin.id === "generation-owner")?.version).toBe(
+        "1.0.0",
+      );
+      expect(records.find((record) => record.pluginId === "generation-owner")).toMatchObject({
+        manifestHash: crypto.createHash("sha256").update(first.manifest).digest("hex"),
+        packageJson: { hash: crypto.createHash("sha256").update(first.packageJson).digest("hex") },
       });
-      fs.writeFileSync(manifestPath, manifest);
-      fs.writeFileSync(packagePath, packageJson);
-      return { manifest, packageJson };
-    };
-    const first = writeGeneration("1.0.0");
-    fs.writeFileSync(
-      path.join(pluginDir, "index.js"),
-      'throw new Error("metadata executed runtime");',
-    );
-    const env = {
-      OPENCLAW_HOME: path.join(root, "home"),
-      OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
-      OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
-    };
-    const discovery = discoverOpenClawPlugins({ env, installRecords: {} });
-    expect(
-      discovery.candidates.find((candidate) => candidate.idHint === "generation-owner"),
-    ).toBeDefined();
-    writeGeneration("2.0.0");
-    const open = vi.spyOn(fs, "openSync");
-    const read = vi.spyOn(fs, "readFileSync");
-    expect(discoverOpenClawPlugins({ env, installRecords: {} })).toBe(discovery);
-    const registry = loadPluginManifestRegistryCore({ env, discovery, installRecords: {} });
-    const records = buildInstalledPluginIndexRecords({
-      candidates: discovery.candidates,
-      registry,
-      config: {},
-      diagnostics: [],
-      installRecords: {},
-    });
-    expect(registry.plugins.find((plugin) => plugin.id === "generation-owner")?.version).toBe(
-      "1.0.0",
-    );
-    expect(records.find((record) => record.pluginId === "generation-owner")).toMatchObject({
-      manifestHash: crypto.createHash("sha256").update(first.manifest).digest("hex"),
-      packageJson: { hash: crypto.createHash("sha256").update(first.packageJson).digest("hex") },
-    });
-    for (const filePath of [manifestPath, packagePath]) {
-      expect(open.mock.calls.filter(([file]) => String(file) === filePath)).toEqual([]);
-      expect(read.mock.calls.filter(([file]) => String(file) === filePath)).toEqual([]);
-    }
-  });
+      for (const filePath of [manifestPath, packagePath]) {
+        expect(open.mock.calls.filter(([file]) => String(file) === filePath)).toEqual([]);
+        expect(read.mock.calls.filter(([file]) => String(file) === filePath)).toEqual([]);
+      }
+      expect(
+        exists.mock.calls.filter(([file]) => String(file).startsWith(`${distDir}${path.sep}`)),
+      ).toEqual([]);
+      expect(records[0]?.doctorContractHash).toBeUndefined();
+      fs.mkdirSync(distDir, { recursive: true });
+      const contract = "module.exports = {};";
+      fs.writeFileSync(path.join(distDir, "doctor-contract-api.cjs"), contract);
+      const buildRecords = () =>
+        buildInstalledPluginIndexRecords({
+          candidates: discovery.candidates,
+          registry,
+          config: {},
+          diagnostics: [],
+          installRecords: {},
+        });
+      expect(buildRecords()[0]?.doctorContractHash).toBeUndefined();
+      invalidatePluginCacheMetadata(getProcessPluginCache());
+      expect(buildRecords()[0]?.doctorContractHash).toBe(
+        crypto.createHash("sha256").update(contract).digest("hex"),
+      );
+    },
+  );
+
+  it.each(["EACCES", "EPERM"])(
+    "finds Doctor artifacts when directory listing fails with %s",
+    (code) => {
+      const rootDir = fs.realpathSync(tempDirs.make("plugin-artifact-list-denied-"));
+      const distDir = path.join(rootDir, "dist");
+      fs.mkdirSync(distDir);
+      const modulePath = path.join(distDir, "doctor-contract-api.cjs");
+      fs.writeFileSync(modulePath, "module.exports = {};");
+      vi.spyOn(fs, "readdirSync").mockImplementation(() => {
+        throw Object.assign(new Error("directory listing denied"), { code });
+      });
+      expect(resolvePluginDoctorContractArtifact({ rootDir, origin: "global" })).toEqual({
+        modulePath,
+        boundaryRoot: rootDir,
+      });
+    },
+  );
 });

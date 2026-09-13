@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { SecretRef } from "../config/types.secrets.js";
 import type { ProviderModelRouteCandidate } from "../plugin-sdk/provider-model-types.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { createModelAuthAvailabilityResolver } from "./model-auth-availability.js";
 import {
   authStore,
@@ -371,11 +372,7 @@ describe("createModelAuthAvailabilityResolver", () => {
   it("projects route-independent auth-order failures for indeterminate routes", () => {
     const resolution = { kind: "indeterminate" as const, defaultRuntimeId: "codex" };
     const cooldownStore = authStore({
-      "openai:cooldown": {
-        type: "api_key",
-        provider: "openai",
-        key: "platform-key",
-      },
+      "openai:cooldown": createApiKeyCredential("openai", "platform-key"),
     });
     cooldownStore.usageStats = {
       "openai:cooldown": { cooldownUntil: Date.now() + 60_000 },

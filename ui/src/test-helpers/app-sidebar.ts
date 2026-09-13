@@ -564,11 +564,12 @@ export function createContext(
     ensureList: async (): Promise<AgentsListResult | null> => agents.state.agentsList,
     subscribe: () => () => undefined,
   };
-  const { theme, agentSelection } = createSidebarContextLifecycle(gateway, agents, selectedAgentId);
-  sidebarSessionGatewayBindings.get(sessions)?.(gateway, agentSelection);
+  const lifecycle = createSidebarContextLifecycle(gateway, agents, selectedAgentId);
+  sidebarSessionGatewayBindings.get(sessions)?.(gateway, lifecycle.agentSelection);
   return {
     config: createApplicationConfigCapability({ resourceBasePath: "" }),
     gateway,
+    ...lifecycle,
     sessions,
     plugins: {
       registrations: () => [],
@@ -579,8 +580,6 @@ export function createContext(
     placementStartup: { pause: vi.fn<ApplicationContext["placementStartup"]["pause"]>() },
     agents,
     agentIdentity,
-    agentSelection,
-    theme,
     scopeUpgrade: hiddenScopeUpgradeCapability,
     overlays: {
       snapshot: { approvalQueue },

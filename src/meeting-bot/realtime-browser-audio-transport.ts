@@ -142,9 +142,7 @@ export async function createBrowserMeetingRealtimeAudioTransport(params: {
             }
             const audio =
               params.audioFormat === "pcm16-24khz" ? pcm : convertPcmToMulaw8k(pcm, 24_000);
-            if (!stopped) {
-              onAudio(audio);
-            }
+            onAudio(audio);
           }
           if (!stopped) {
             timer = setTimeout(() => void pull(), 50);

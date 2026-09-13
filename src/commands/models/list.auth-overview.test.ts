@@ -1,5 +1,6 @@
 // Model auth overview tests cover provider auth overview rows for model listings.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createApiKeyCredential } from "../../agents/auth-profiles/credential-fixtures.test-support.js";
 import { resolveEnvApiKey } from "../../agents/model-auth.js";
 import {
   createConfigResolutionFacts,
@@ -233,11 +234,7 @@ describe("resolveProviderAuthOverview", () => {
         store: {
           version: 1,
           profiles: {
-            "custom:models-json": {
-              type: "api_key",
-              provider: "custom",
-              key: "stale-provider-key",
-            },
+            "custom:models-json": createApiKeyCredential("custom", "stale-provider-key"),
           },
         } as never,
         modelsPath: "/tmp/models.json",

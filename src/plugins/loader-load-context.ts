@@ -23,10 +23,7 @@ import type {
   PluginRuntimeSubagentMode,
 } from "./loader-types.js";
 import { getPluginCache } from "./plugin-cache.js";
-import {
-  fingerprintPluginDiscoveryContext,
-  resolvePluginDiscoveryContext,
-} from "./plugin-control-plane-context.js";
+import { resolvePluginDiscoveryContext } from "./plugin-control-plane-context.js";
 import {
   resolvePluginRuntimeArtifactPreference,
   type PluginRuntimeArtifactPreference,
@@ -112,7 +109,6 @@ function buildCacheKeys(params: {
   manifestRegistry?: PluginLoadOptions["manifestRegistry"];
   discovery?: PluginLoadOptions["discovery"];
   env: NodeJS.ProcessEnv;
-  devSourceRoot?: string | null;
   onlyPluginIds?: string[];
   includeSetupOnlyChannelPlugins?: boolean;
   forceSetupOnlyChannelPlugins?: boolean;
@@ -132,12 +128,11 @@ function buildCacheKeys(params: {
   cliMetadata: boolean;
   expectedSourceDigests?: Readonly<Record<string, string>>;
 }) {
-  const discoveryContext = resolvePluginDiscoveryContext({
+  const { roots, loadPaths, devSourceRoot } = resolvePluginDiscoveryContext({
     workspaceDir: params.workspaceDir,
     loadPaths: params.plugins.loadPaths,
     env: params.env,
   });
-  const { roots, loadPaths } = discoveryContext;
   const installs = Object.fromEntries(
     Object.entries(params.installs ?? {}).map(([pluginId, install]) => [
       pluginId,
@@ -156,8 +151,7 @@ function buildCacheKeys(params: {
   );
   const cacheIdentity = {
     roots,
-    devSourceRoot: params.devSourceRoot ?? "",
-    discoveryFingerprint: fingerprintPluginDiscoveryContext(discoveryContext),
+    devSourceRoot,
     plugins: {
       ...params.plugins,
       loadPaths,
@@ -372,7 +366,6 @@ export function resolvePluginLoadCacheContext(options: PluginLoadOptions = {}) {
       (options.discovery === undefined ? currentMetadataSnapshot?.manifestRegistry : undefined),
     discovery: options.manifestRegistry ? undefined : options.discovery,
     env,
-    devSourceRoot,
     onlyPluginIds,
     includeSetupOnlyChannelPlugins,
     forceSetupOnlyChannelPlugins,

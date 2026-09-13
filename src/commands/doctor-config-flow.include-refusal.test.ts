@@ -5,6 +5,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createModelVisibilityPolicy } from "../agents/model-visibility-policy.js";
+import { readConfigFileSnapshot, transformConfigFile } from "../config/config.js";
 import { hashConfigRaw } from "../config/io.read-helpers.js";
 import { ConfigMutationConflictError } from "../config/mutation-conflict.js";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
@@ -27,6 +29,142 @@ describe("doctor --fix include write ownership", () => {
     noteMock.mockClear();
     closeOpenClawStateDatabaseForTest();
   });
+
+  it.each([
+    { shape: "nested-defaults", authority: false },
+    { shape: "nested-defaults", authority: true },
+    { shape: "included-roster", authority: false },
+    { shape: "included-roster", authority: true },
+  ] as const)(
+    "migrates a published $shape config without flattening includes (authority=$authority)",
+    async ({ shape, authority }) => {
+      await withDoctorConfigPreflightHome(async (home) => {
+        await withEnvAsync({ OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" }, async () => {
+          const configPath = await writeOpenClawConfig(home, {
+            agents: { $include: "./agents.json5" },
+            gateway: { mode: "local" },
+            plugins: { enabled: false },
+          });
+          const dir = path.dirname(configPath);
+          const defaults = { models: { "openai/gpt-5.5": { alias: "Config Lab" } } };
+          const agents =
+            shape === "nested-defaults"
+              ? { defaults: { $include: "./defaults.json5" }, entries: { ops: {} } }
+              : {
+                  defaults,
+                  list: [
+                    {
+                      id: "ops",
+                      default: true,
+                      memorySearch: { enabled: false, query: { maxResults: 7 } },
+                    },
+                  ],
+                };
+          const agentsPath = path.join(dir, "agents.json5");
+          const agentsRaw = JSON.stringify(agents);
+          await fs.writeFile(agentsPath, agentsRaw);
+          const defaultsPath = path.join(dir, "defaults.json5");
+          if (shape === "nested-defaults") {
+            await fs.writeFile(defaultsPath, JSON.stringify(defaults));
+          }
+          const rootRaw = await fs.readFile(configPath, "utf8");
+          const ctx = await prepareDoctorContext(configPath);
+          await captureUpdateDoctorConfigWrites(
+            configPath,
+            () => runWriteConfigHealth(ctx, { runPostWriteRepairs: false }),
+            authority ? { inputHash: hashConfigRaw(rootRaw), assertCurrent: () => {} } : undefined,
+          );
+
+          expect(ctx.configWriteRefusal).toBeUndefined();
+          expect(ctx.configResultWriteCommitted).toBe(true);
+          await expect(fs.readFile(configPath, "utf8")).resolves.toBe(rootRaw);
+          const savedAgents = JSON.parse(await fs.readFile(agentsPath, "utf8"));
+          const savedDefaults =
+            shape === "nested-defaults"
+              ? JSON.parse(await fs.readFile(defaultsPath, "utf8"))
+              : savedAgents.defaults;
+          expect(savedDefaults.models).toEqual(defaults.models);
+          expect(savedDefaults.modelPolicy).toEqual({ allow: ["openai/gpt-5.5"] });
+          if (shape === "nested-defaults") {
+            await expect(fs.readFile(agentsPath, "utf8")).resolves.toBe(agentsRaw);
+          } else {
+            expect(savedAgents).not.toHaveProperty("list");
+            expect(savedAgents.entries.ops.memory).toEqual({
+              search: { enabled: false, query: { maxResults: 7 } },
+            });
+          }
+          expect((await prepareDoctorContext(configPath)).configResult.shouldWriteConfig).toBe(
+            false,
+          );
+
+          await transformConfigFile({
+            transform: (current) => {
+              const nextConfig = structuredClone(current);
+              const agentConfig = nextConfig.agents;
+              if (!agentConfig?.defaults) {
+                throw new Error("expected migrated agent defaults");
+              }
+              if (shape === "included-roster") {
+                delete agentConfig.defaults;
+              } else {
+                delete agentConfig.defaults.modelPolicy;
+                delete agentConfig.defaults.models;
+              }
+              return { nextConfig };
+            },
+          });
+          await transformConfigFile({
+            transform: (current) => ({
+              nextConfig: {
+                ...current,
+                agents: {
+                  ...current.agents,
+                  defaults: {
+                    ...current.agents?.defaults,
+                    models: { "openai/gpt-5.5": { alias: "New metadata" } },
+                  },
+                },
+              },
+            }),
+          });
+          const reloaded = await readConfigFileSnapshot();
+          expect(reloaded.valid).toBe(true);
+          expect(reloaded.config.agents?.defaults?.modelPolicy).toEqual({});
+          expect(reloaded.legacyIssues).toEqual([]);
+          expect(
+            createModelVisibilityPolicy({
+              cfg: reloaded.config,
+              catalog: [],
+              defaultProvider: "openai",
+              agentId: "ops",
+            }).allowAny,
+          ).toBe(true);
+          await expect(
+            transformConfigFile({
+              transform: (current) => ({
+                nextConfig: {
+                  ...current,
+                  meta: { migrations: { modelPolicyAllowlist: true } },
+                  agents: {
+                    ...current.agents,
+                    defaults: {
+                      ...current.agents?.defaults,
+                      models: { "openai/gpt-5.5": { alias: "Explicit marker edit" } },
+                    },
+                  },
+                },
+              }),
+              writeOptions: {
+                explicitSetPaths: [["meta", "migrations", "modelPolicyAllowlist"]],
+              },
+            }),
+          ).rejects.toThrow("flatten $include-owned config");
+          expect((await readConfigFileSnapshot()).sourceConfig).toEqual(reloaded.sourceConfig);
+          await expect(fs.readFile(configPath, "utf8")).resolves.toBe(rootRaw);
+        });
+      });
+    },
+  );
 
   it.each([
     { authority: false, refusal: undefined },

@@ -16,6 +16,7 @@ import {
   formatExternalSupervisorUpdateRequired,
   isGatewayExternallySupervised,
 } from "../../infra/gateway-supervision.js";
+import { resolveOpenClawPackageRootSync } from "../../infra/openclaw-root.js";
 import { assertNoPendingPackageActivation } from "../../infra/package-update-activation.js";
 import { normalizeUpdateChannel } from "../../infra/update-channels.js";
 import { resolveUpdateInstallKind } from "../../infra/update-check.js";
@@ -28,10 +29,7 @@ import {
   type DevUpdateTarget,
   UPDATE_DEV_TARGET_REF_ENV,
 } from "../../infra/update-dev-target.js";
-import {
-  resolveUpdateInstallRoot,
-  updateInstallRootsMatch,
-} from "../../infra/update-install-root.js";
+import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
 import {
   POST_CORE_UPDATE_CHANNEL_ENV,
   POST_CORE_UPDATE_ENV,
@@ -516,6 +514,8 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
   if (!postCoreUpdateResume && opts.dryRun !== true && isGatewayExternallySupervised()) {
     throw new Error(formatExternalSupervisorUpdateRequired());
   }
+  // The shim can move during preparation; the loaded module owns the executing generation.
+  const executingRoot = resolveOpenClawPackageRootSync({ moduleUrl: import.meta.url });
   const discoveredRoot = await resolveUpdateRoot();
   const installKind = await resolveUpdateInstallKind(discoveredRoot);
   // A post-core marker cannot bypass pending recovery without the live original
@@ -542,10 +542,16 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
   const controlPlaneUpdateSentinelMeta = await readControlPlaneUpdateSentinelMeta();
   opts.run?.executorFence?.assertCurrent();
   const handoffRoot = controlPlaneUpdateSentinelMeta?.root;
-  if (handoffRoot && !updateInstallRootsMatch(handoffRoot, discoveredRoot)) {
-    throw new Error(
-      `Managed update handoff root mismatch: expected ${handoffRoot}, running from ${discoveredRoot}.`,
-    );
+  if (handoffRoot) {
+    const { assertManagedServiceUpdateHandoffRoot } =
+      await import("../../infra/update-managed-service-handoff.js");
+    await assertManagedServiceUpdateHandoffRoot({
+      expectedRoot: handoffRoot,
+      root: discoveredRoot,
+      executingRoot,
+      postCore: postCoreUpdateResume,
+    });
+    opts.run?.executorFence?.assertCurrent();
   }
   if (opts.dryRun !== true) {
     try {

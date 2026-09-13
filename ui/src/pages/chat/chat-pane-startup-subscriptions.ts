@@ -29,9 +29,11 @@ export function subscribeChatPaneStartup(
 export function subscribeChatPaneSnapshotInvalidation(
   getState: () => ChatPageHost | undefined,
 ): () => void {
-  return subscribeSnapshotInvalidation(({ sessionKey }) => {
+  return subscribeSnapshotInvalidation(({ sessionKey, reason }) => {
+    // Cache eviction must preserve the active transcript and its completed load.
     const state = getState();
     if (
+      reason === "cache-eviction" ||
       !state ||
       (sessionKey && resolveChatSnapshotKey(state, { sessionKey: state.sessionKey }) !== sessionKey)
     ) {

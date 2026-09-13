@@ -26,6 +26,7 @@ export const CALL_RECORD_CHUNK_MAX_ENTRIES =
   MAX_CALL_RECORD_EVENTS * MAX_CHUNKS_PER_CALL_RECORD_EVENT + MAX_CHUNKS_PER_CALL_RECORD_EVENT;
 /** Raw UTF-8 bytes stored per call record chunk before base64 encoding. */
 const RAW_CALL_RECORD_CHUNK_BYTES = 47 * 1024;
+const CALL_RECORD_READ_BATCH_KEYS = 128;
 let callRecordEventSequence = 0;
 
 /** Metadata row for a chunked call record event. */
@@ -55,6 +56,10 @@ type CallRecordStateStores = {
   events: PluginStateKeyedStore<CallRecordEventMeta>;
   chunks: PluginStateKeyedStore<CallRecordEventChunk>;
 };
+
+type CallRecordChunkResults = Awaited<
+  ReturnType<NonNullable<CallRecordStateStores["chunks"]["lookupMany"]>>
+>;
 
 /** Return the pre-SQLite JSONL call log path for migration/compat checks. */
 export function resolveVoiceCallLegacyCallLogPath(storePath: string): string {
@@ -291,23 +296,24 @@ async function pruneCallRecordEvents(stores: CallRecordStateStores): Promise<voi
   }
 }
 
+function isValidCallRecordChunkCount(chunkCount: number): boolean {
+  return (
+    Number.isSafeInteger(chunkCount) &&
+    chunkCount >= 1 &&
+    chunkCount <= MAX_CHUNKS_PER_CALL_RECORD_EVENT
+  );
+}
+
 /** Read and reassemble one chunked call record event. */
 async function readCallRecordEvent(
   stores: CallRecordStateStores,
   eventKey: string,
   meta: CallRecordEventMeta,
+  records?: CallRecordChunkResults,
 ): Promise<CallRecord | null> {
-  if (
-    !Number.isSafeInteger(meta.chunkCount) ||
-    meta.chunkCount < 1 ||
-    meta.chunkCount > MAX_CHUNKS_PER_CALL_RECORD_EVENT
-  ) {
+  if (!isValidCallRecordChunkCount(meta.chunkCount)) {
     return null;
   }
-  // Preserve compatibility with published hosts exposing point reads only.
-  const records = await stores.chunks.lookupMany?.(
-    Array.from({ length: meta.chunkCount }, (_, index) => buildChunkKey(eventKey, index)),
-  );
   const chunks: Buffer[] = [];
   for (let index = 0; index < meta.chunkCount; index += 1) {
     const result = records?.[index];
@@ -332,8 +338,39 @@ async function readCallRecordEvents(stores: CallRecordStateStores): Promise<Call
     (a, b) => a.createdAt - b.createdAt || a.key.localeCompare(b.key),
   );
   const sqliteCalls: PersistedCallRecord[] = [];
-  for (const entry of entries) {
-    const call = await readCallRecordEvent(stores, entry.key, entry.value);
+  let batchEnd = 0;
+  let chunkOffset = 0;
+  let chunkRecords: CallRecordChunkResults | undefined;
+  for (const [entryIndex, entry] of entries.entries()) {
+    if (entryIndex >= batchEnd && stores.chunks.lookupMany) {
+      const keys: string[] = [];
+      for (let next = entryIndex; ; next++) {
+        const row = entries[next];
+        if (!row) {
+          break;
+        }
+        const chunkCount = row.value?.chunkCount;
+        // Stop before malformed metadata so it cannot overtake an earlier chunk error.
+        if (
+          !isValidCallRecordChunkCount(chunkCount) ||
+          keys.length + chunkCount > CALL_RECORD_READ_BATCH_KEYS
+        ) {
+          break;
+        }
+        for (let index = 0; index < chunkCount; index++) {
+          keys.push(buildChunkKey(row.key, index));
+        }
+        batchEnd = next + 1;
+      }
+      chunkRecords = keys.length > 0 ? await stores.chunks.lookupMany(keys) : undefined;
+      chunkOffset = 0;
+    }
+    // Published hosts without lookupMany keep their point-read path.
+    const records = chunkRecords?.slice(chunkOffset, chunkOffset + entry.value.chunkCount);
+    const call = await readCallRecordEvent(stores, entry.key, entry.value, records);
+    if (chunkRecords) {
+      chunkOffset += entry.value.chunkCount;
+    }
     if (call) {
       sqliteCalls.push({
         call,

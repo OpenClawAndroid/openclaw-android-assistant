@@ -9,6 +9,7 @@ import {
   PROVIDER_POST_DISPATCH_AMBIGUITY_ERROR_CODE,
 } from "../../../llm/types.js";
 import { buildAgentRunTerminalOutcomeFromLifecycleEvent } from "../../agent-run-terminal-outcome.js";
+import { createApiKeyCredential } from "../../auth-profiles/credential-fixtures.test-support.js";
 import { classifyAssistantFailoverReason } from "../../embedded-agent-helpers/assistant-message-failures.js";
 import { FailoverError } from "../../failover-error.js";
 import { runWithModelFallback } from "../../model-fallback-runner.js";
@@ -81,16 +82,8 @@ function makeExhaustedCredentialFailureInput(options?: { replaySafe?: boolean })
     authProfileStore: {
       version: 1,
       profiles: {
-        "anthropic:p1": {
-          type: "api_key",
-          provider: "anthropic",
-          key: "test-key",
-        },
-        "anthropic:p2": {
-          type: "api_key",
-          provider: "anthropic",
-          key: "test-key-2",
-        },
+        "anthropic:p1": createApiKeyCredential("anthropic", "test-key"),
+        "anthropic:p2": createApiKeyCredential("anthropic", "test-key-2"),
       },
       usageStats: {
         "anthropic:p1": { lastUsed: 1 },

@@ -6,6 +6,8 @@ import * as nodeSqlite from "../../infra/node-sqlite.js";
 import { beginSessionWorkAdmission } from "../../sessions/session-lifecycle-admission.js";
 import { onSessionIdentityMutation } from "../../sessions/session-lifecycle-events.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
+import { loadSqliteTrajectoryRuntimeEvents } from "../../trajectory/runtime-store.sqlite.js";
+import { createTrajectoryRuntimeRecorder } from "../../trajectory/runtime.js";
 import {
   deleteSessionEntryLifecycle,
   loadSessionEntry,
@@ -76,6 +78,69 @@ describe("SQLite reclamation admission races", () => {
     archiveMaterializationHook.afterCommitRequest = undefined;
     vi.restoreAllMocks();
     closeOpenClawAgentDatabasesForTest();
+  });
+
+  it("queues unrelated trajectory flushes while the worker awaits commit authorization", async () => {
+    const sessionKey = "agent:main:reclamation-trajectory";
+    const sessionId = "reclamation-trajectory";
+    const unrelated = {
+      agentId: "main",
+      sessionKey: "agent:main:trajectory-writer",
+      sessionId: "trajectory-writer",
+      storePath,
+    };
+    const updatedAt = Date.now();
+    await replaceSessionEntry({ sessionKey, storePath }, { sessionId, updatedAt });
+    await replaceTranscriptEvents({ sessionKey, sessionId, storePath }, [
+      { type: "session", id: sessionId, content: "retire this session" },
+    ]);
+    await replaceSessionEntry(unrelated, { sessionId: unrelated.sessionId, updatedAt });
+    const recorders = [0, 1, 2].map((index) => {
+      const recorder = createTrajectoryRuntimeRecorder({
+        sessionId: unrelated.sessionId,
+        sessionTarget: unrelated,
+        runId: `trajectory-writer-${index}`,
+      });
+      if (!recorder) {
+        throw new Error("expected SQLite trajectory recorder");
+      }
+      recorder.recordEvent("admission-proof", { index });
+      return recorder;
+    });
+    const writes: Promise<void>[] = [];
+    let pendingBeforeAuthorization: Array<string | undefined> = [];
+    archiveMaterializationHook.beforeCommitRequest = () => {
+      // Start real asynchronous producers in the observed order, but leave the
+      // parent free to authorize the worker whose transaction already owns SQLite.
+      for (const recorder of recorders) {
+        for (let flush = 0; flush < 2; flush += 1) {
+          const write = recorder.flush();
+          void write.catch(() => {});
+          writes.push(write);
+        }
+      }
+      pendingBeforeAuthorization = recorders.map((recorder) => recorder.describeFlushState());
+    };
+    const deletion = await deleteSessionEntryLifecycle({
+      archiveTranscript: true,
+      commitGuard: () => {},
+      storePath,
+      target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
+    }).then(
+      (result) => ({ result }),
+      (error: unknown) => ({ error }),
+    );
+    const outcomes = await Promise.allSettled(writes);
+    expect(deletion).toMatchObject({ result: { deleted: true } });
+    expect(pendingBeforeAuthorization).toEqual(
+      recorders.map(() => expect.stringContaining("pendingRows=1")),
+    );
+    expect(writes).toHaveLength(6);
+    expect(outcomes).toEqual(writes.map(() => ({ status: "fulfilled", value: undefined })));
+    expect(loadSessionEntry({ sessionKey, storePath })).toBeUndefined();
+    const events = await loadSqliteTrajectoryRuntimeEvents(unrelated);
+    expect(events.map((event) => event.data?.index)).toEqual([0, 1, 2]);
+    expect(loadSessionEntry(unrelated)).toMatchObject({ sessionId: unrelated.sessionId });
   });
 
   it.runIf(process.platform !== "win32")(

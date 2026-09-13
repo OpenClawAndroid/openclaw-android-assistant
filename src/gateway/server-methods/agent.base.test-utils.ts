@@ -3,7 +3,12 @@ import fs from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import type { CronCreatorAuthorityCapability } from "../../agents/cron-creator-authority-context.js";
-import { isAgentRunRestartAbortReason } from "../../agents/run-termination.js";
+import {
+  createAgentRunDirectAbortError,
+  createAgentRunRestartAbortError,
+  isAgentRunDirectAbortReason,
+  isAgentRunRestartAbortReason,
+} from "../../agents/run-termination.js";
 import {
   beginSessionWorkAdmission,
   cancelSessionWorkAdmissionHandoff,
@@ -1064,128 +1069,162 @@ describe("gateway agent handler", () => {
     expect(mocks.agentCommand).toHaveBeenCalledOnce();
   });
 
-  it("adopts a recovery admission when a lifecycle mutation interposes before the RPC", async () => {
-    const sessionKey = "agent:main:main";
-    const sessionId = "existing-session-id";
-    const runId = "idem-recovery-admission-handoff";
-    const scope = "/tmp/sessions.json";
-    primeMainAgentRun({ sessionId });
-    mocks.agentCommand.mockClear();
-    const admission = await beginSessionWorkAdmission({
-      scope,
-      identities: [sessionKey, sessionId],
-      assertAllowed: () => {},
-    });
-    const handoffId = admission.createHandoff();
-    let markMutationStarted = () => {};
-    const mutationStarted = new Promise<void>((resolve) => {
-      markMutationStarted = resolve;
-    });
-    let mutationRan = false;
-    const mutation = runExclusiveSessionLifecycleMutation({
-      scope,
-      identities: [sessionKey, sessionId],
-      prepare: async () => {
-        markMutationStarted();
-        expect(
-          await interruptSessionWorkAdmissions({
-            scope,
-            identities: [sessionKey, sessionId],
-            timeoutMs: 1_000,
-          }),
-        ).toBe(true);
-      },
-      run: async () => {
-        mutationRan = true;
-      },
-    });
-    await mutationStarted;
-    const respond = vi.fn();
-
-    try {
-      await invokeAgent(
-        {
-          message: "resume the admitted turn",
-          agentId: "main",
-          sessionKey,
-          expectedExistingSessionId: sessionId,
-          internalRuntimeHandoffId: handoffId,
-          idempotencyKey: runId,
+  it.each(["restart", "rpc"] as const)(
+    "adopts a recovery admission interrupted by %s before the RPC",
+    async (stopReason) => {
+      const reason = stopReason === "rpc" ? createAgentRunDirectAbortError() : undefined;
+      const sessionKey = "agent:main:main";
+      const sessionId = "existing-session-id";
+      const runId = "idem-recovery-admission-handoff";
+      const scope = "/tmp/sessions.json";
+      primeMainAgentRun({ sessionId });
+      mocks.agentCommand.mockClear();
+      const admission = await beginSessionWorkAdmission({
+        scope,
+        identities: [sessionKey, sessionId],
+        assertAllowed: () => {},
+      });
+      const handoffId = admission.createHandoff();
+      let markMutationStarted = () => {};
+      const mutationStarted = new Promise<void>((resolve) => {
+        markMutationStarted = resolve;
+      });
+      let mutationRan = false;
+      const mutation = runExclusiveSessionLifecycleMutation({
+        scope,
+        identities: [sessionKey, sessionId],
+        prepare: async () => {
+          markMutationStarted();
+          expect(
+            await interruptSessionWorkAdmissions({
+              scope,
+              identities: [sessionKey, sessionId],
+              reason,
+              timeoutMs: 1_000,
+            }),
+          ).toBe(true);
         },
-        {
-          client: backendGatewayClient(),
-          flushDispatch: false,
-          reqId: runId,
-          respond,
+        run: async () => {
+          mutationRan = true;
         },
-      );
-      await mutation;
+      });
+      await mutationStarted;
+      const respond = vi.fn();
 
-      expect(cancelSessionWorkAdmissionHandoff(handoffId)).toBe(false);
-      expect(mutationRan).toBe(true);
-      expect(mocks.agentCommand).not.toHaveBeenCalled();
-      expect(respond).toHaveBeenCalledWith(
-        true,
-        expect.objectContaining({ runId, status: "timeout", stopReason: "restart" }),
-        undefined,
-        expect.objectContaining({ cached: true, runId }),
-      );
-    } finally {
-      cancelSessionWorkAdmissionHandoff(handoffId);
-      admission.release();
-      await mutation;
-    }
-  });
+      try {
+        await invokeAgent(
+          {
+            message: "resume the admitted turn",
+            agentId: "main",
+            sessionKey,
+            expectedExistingSessionId: sessionId,
+            internalRuntimeHandoffId: handoffId,
+            idempotencyKey: runId,
+          },
+          {
+            client: backendGatewayClient(),
+            flushDispatch: false,
+            reqId: runId,
+            respond,
+          },
+        );
+        await mutation;
 
-  it("classifies gateway lifecycle interruption as restart", async () => {
-    primeMainAgentRun();
-    const sessionKey = "agent:main:main";
-    const sessionId = "existing-session-id";
-    let observedAbortReason: unknown;
-    mocks.agentCommand.mockImplementationOnce(
-      async (opts: { abortSignal?: AbortSignal }) =>
-        await new Promise((_resolve, reject) => {
+        expect(cancelSessionWorkAdmissionHandoff(handoffId)).toBe(false);
+        expect(mutationRan).toBe(true);
+        expect(mocks.agentCommand).not.toHaveBeenCalled();
+        expect(respond).toHaveBeenCalledWith(
+          true,
+          expect.objectContaining({ runId, status: "timeout", stopReason, providerStarted: false }),
+          undefined,
+          expect.objectContaining({ cached: true, runId }),
+        );
+      } finally {
+        cancelSessionWorkAdmissionHandoff(handoffId);
+        admission.release();
+        await mutation;
+      }
+    },
+  );
+
+  it.each(["generic", "explicit restart", "terminal Stop", "already stopped"] as const)(
+    "preserves Gateway lifecycle interruption semantics: %s",
+    async (interruption) => {
+      primeMainAgentRun();
+      const sessionKey = "agent:main:main";
+      const sessionId = "existing-session-id";
+      const terminal = interruption === "terminal Stop" || interruption === "already stopped";
+      const reason = terminal
+        ? createAgentRunDirectAbortError()
+        : interruption === "explicit restart"
+          ? createAgentRunRestartAbortError()
+          : undefined;
+      const settled = createDeferredCore();
+      let observedAbortReason: unknown;
+      mocks.agentCommand.mockImplementationOnce(async (opts: { abortSignal?: AbortSignal }) => {
+        await new Promise<void>((resolve) => {
           const finish = () => {
             observedAbortReason = opts.abortSignal?.reason;
-            reject(
-              observedAbortReason instanceof Error
-                ? observedAbortReason
-                : new Error("agent lifecycle interrupted"),
-            );
+            resolve();
           };
           if (opts.abortSignal?.aborted) {
             finish();
             return;
           }
           opts.abortSignal?.addEventListener("abort", finish, { once: true });
-        }),
-    );
-    const context = makeContext();
-    const runId = "idem-agent-lifecycle-restart";
-    await invokeAgent(
-      {
-        message: "interrupt as restart",
-        agentId: "main",
-        sessionKey,
-        idempotencyKey: runId,
-      },
-      { context, reqId: runId },
-    );
-    await waitForAgentCommandCall();
+        });
+        await settled.promise;
+        throw observedAbortReason;
+      });
+      const context = makeContext();
+      const runId = `idem-agent-lifecycle-${interruption}`;
+      await invokeAgent(
+        {
+          message: "interrupt this admitted turn",
+          agentId: "main",
+          sessionKey,
+          idempotencyKey: runId,
+        },
+        { context, reqId: runId },
+      );
+      await waitForAgentCommandCall();
 
-    await interruptSessionWorkAdmissions({
-      scope: "/tmp/sessions.json",
-      identities: [sessionKey, sessionId],
-    });
-    await flushScheduledDispatchStep();
+      const abortEntry = requireValue(
+        context.chatAbortControllers.get(runId),
+        "admitted controller",
+      );
+      if (interruption === "already stopped") {
+        abortEntry.abortStopReason = "rpc";
+        abortEntry.controller.abort(reason);
+      }
+      const draining = interruptSessionWorkAdmissions({
+        scope: "/tmp/sessions.json",
+        identities: [sessionKey, sessionId],
+        reason: interruption === "already stopped" ? createAgentRunRestartAbortError() : reason,
+      });
+      try {
+        expect(abortEntry.abortStopReason).toBe(terminal ? "rpc" : "restart");
+        if (terminal) {
+          expect(abortEntry.controller.signal.reason).toBe(reason);
+        }
+      } finally {
+        settled.resolve();
+        await draining;
+      }
+      await flushScheduledDispatchStep();
 
-    expect(isAgentRunRestartAbortReason(observedAbortReason)).toBe(true);
-    expectRecordFields(context.dedupe.get(`agent:${runId}`)?.payload, {
-      runId,
-      status: "timeout",
-      stopReason: "restart",
-    });
-  });
+      expect(isAgentRunRestartAbortReason(observedAbortReason)).toBe(!terminal);
+      expect(isAgentRunDirectAbortReason(observedAbortReason)).toBe(terminal);
+      if (terminal) {
+        expect(observedAbortReason).toBe(reason);
+      }
+      expectRecordFields(context.dedupe.get(`agent:${runId}`)?.payload, {
+        runId,
+        status: "timeout",
+        stopReason: terminal ? "rpc" : "restart",
+      });
+    },
+  );
 
   it("does not mutate a session archived before the initial store update", async () => {
     primeMainAgentRun();

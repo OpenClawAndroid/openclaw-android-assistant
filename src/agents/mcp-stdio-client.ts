@@ -54,6 +54,7 @@ export function createMcpStdioClient(params: McpStdioClientParams): McpStdioClie
   let stopped = false;
   let failure: Error | undefined;
   let shutdown: Promise<void> | undefined;
+  let cleanupError: unknown;
   let inFlight = 0;
   let stderr = Buffer.alloc(0);
 
@@ -163,9 +164,12 @@ export function createMcpStdioClient(params: McpStdioClientParams): McpStdioClie
       transport,
       transportType: "stdio",
       detachStderr: () => transport.stderr?.off("data", onStderr),
+      onCleanupError: (error) => {
+        cleanupError = error;
+      },
     }).then((outcome) => {
       if (outcome !== "closed") {
-        throw errors.unavailable("proxy cleanup could not be confirmed");
+        throw errors.unavailable("proxy cleanup could not be confirmed", cleanupError);
       }
     });
     void shutdown.catch(() => {});

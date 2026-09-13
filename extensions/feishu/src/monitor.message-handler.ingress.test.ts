@@ -127,6 +127,7 @@ function createHarness(params: {
   for (const handle of params.claims) {
     claim.mockResolvedValueOnce({ kind: "claimed", handle });
   }
+  const hasProcessedMessage = vi.fn(async (_messageId: string | undefined | null) => false);
   const handler = createFeishuMessageReceiveHandler({
     cfg: {} as ClawdbotConfig,
     channelRuntime,
@@ -134,8 +135,9 @@ function createHarness(params: {
     runtime: { ...createNonExitingRuntimeEnv(), error: runtimeError } satisfies RuntimeEnv,
     chatHistories: new Map(),
     handleMessage,
-    resolveDebounceText: () => "hello",
-    hasProcessedMessage: vi.fn(async () => false),
+    resolveDebounceText: ({ event }) =>
+      (JSON.parse(event.message.content) as { text: string }).text,
+    hasProcessedMessage,
     getBotOpenId: () => "ou-bot",
     resolveIngressLifecycle: (data) => {
       const eventId = (data as { event_id?: string }).event_id;
@@ -147,6 +149,7 @@ function createHarness(params: {
     entries,
     handler,
     handleMessage,
+    hasProcessedMessage,
     flush: async () => {
       if (!onFlush) {
         throw new Error("debouncer flush callback missing");
@@ -235,36 +238,52 @@ describe("Feishu durable ingress debounce lifecycle", () => {
     expect(transport.calls.adopted).not.toHaveBeenCalled();
   });
 
-  it("returns deferred and fans merged adoption to every constituent claim", async () => {
-    const first = createLifecycle();
-    const second = createLifecycle();
-    const firstClaim = createClaim("first");
-    const secondClaim = createClaim("second");
-    const harness = createHarness({
-      lifecycles: new Map([
-        ["evt-a", first.lifecycle],
-        ["evt-b", second.lifecycle],
-      ]),
-      claims: [firstClaim, secondClaim],
-      adoptTurn: true,
-    });
+  it.each([undefined, 0, 1])(
+    "rechecks replay state and adopts every constituent (processed index: %s)",
+    async (processedIndex) => {
+      const first = createLifecycle();
+      const second = createLifecycle();
+      const firstClaim = createClaim("first");
+      const secondClaim = createClaim("second");
+      const events = [
+        createTextEvent("evt-a", "om-a", "alpha"),
+        createTextEvent("evt-b", "om-b", "beta"),
+      ];
+      const harness = createHarness({
+        lifecycles: new Map([
+          ["evt-a", first.lifecycle],
+          ["evt-b", second.lifecycle],
+        ]),
+        claims: [firstClaim, secondClaim],
+        adoptTurn: true,
+      });
+      for (const event of events) {
+        await expect(harness.handler(event)).resolves.toEqual({ kind: "deferred" });
+      }
+      const keys = harness.claim.mock.calls.map(([params]) => params.messageId);
+      if (processedIndex !== undefined) {
+        harness.hasProcessedMessage.mockImplementation(async (key) => key === keys[processedIndex]);
+      }
+      await harness.flush();
 
-    await expect(harness.handler(createTextEvent("evt-a", "om-a", "alpha"))).resolves.toEqual({
-      kind: "deferred",
-    });
-    await expect(harness.handler(createTextEvent("evt-b", "om-b", "beta"))).resolves.toEqual({
-      kind: "deferred",
-    });
-    await harness.flush();
-
-    expect(harness.handleMessage).toHaveBeenCalledTimes(1);
-    expect(firstClaim.commit).toHaveBeenCalledTimes(1);
-    expect(secondClaim.commit).toHaveBeenCalledTimes(1);
-    expect(first.calls.finalizing).toHaveBeenCalledTimes(1);
-    expect(second.calls.finalizing).toHaveBeenCalledTimes(1);
-    expect(first.calls.adopted).toHaveBeenCalledTimes(1);
-    expect(second.calls.adopted).toHaveBeenCalledTimes(1);
-  });
+      const dispatchIndex = processedIndex === 1 ? 0 : 1;
+      expect(harness.handleMessage).toHaveBeenCalledTimes(1);
+      expect(harness.handleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: events[dispatchIndex],
+          messageDedupeKey: keys[dispatchIndex],
+          preparedContent:
+            processedIndex === undefined ? "alpha\nbeta" : processedIndex === 0 ? "beta" : "alpha",
+        }),
+      );
+      expect(firstClaim.commit).toHaveBeenCalledTimes(1);
+      expect(secondClaim.commit).toHaveBeenCalledTimes(1);
+      expect(first.calls.finalizing).toHaveBeenCalledTimes(1);
+      expect(second.calls.finalizing).toHaveBeenCalledTimes(1);
+      expect(first.calls.adopted).toHaveBeenCalledTimes(1);
+      expect(second.calls.adopted).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("completes gated no-dispatch transport claims and releases the logical guard", async () => {
     const transport = createLifecycle();

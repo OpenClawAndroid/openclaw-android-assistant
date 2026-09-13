@@ -1,6 +1,7 @@
 // Model auth-list tests cover provider auth listing and output formatting.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthProfileStore } from "../../agents/auth-profiles.js";
+import { createApiKeyCredential } from "../../agents/auth-profiles/credential-fixtures.test-support.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { OutputRuntimeEnv } from "../../runtime.js";
 import { modelsAuthListCommand } from "./auth-list.js";
@@ -252,11 +253,7 @@ describe("modelsAuthListCommand", () => {
           expires: 1_800_000_000_000,
           email: "user@example.com",
         },
-        "openai:api-key-backup": {
-          type: "api_key",
-          provider: "openai",
-          key: "sk-secret",
-        },
+        "openai:api-key-backup": createApiKeyCredential("openai", "sk-secret"),
         "anthropic:manual": {
           type: "token",
           provider: "anthropic",

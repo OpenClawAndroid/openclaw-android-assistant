@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import type { AnyChunk, TaskUpdateChunk } from "@slack/types";
 import type { Block, KnownBlock } from "@slack/web-api";
 import {
@@ -159,7 +159,7 @@ function stableTaskIdPart(value: string, slugValue = value): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  const suffix = createHash("sha256").update(value).digest("hex").slice(0, 8);
+  const suffix = hash("sha256", value, "hex").slice(0, 8);
   return `${(slug || "task").slice(0, 48)}_${suffix}`;
 }
 

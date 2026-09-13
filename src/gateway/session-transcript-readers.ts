@@ -142,7 +142,6 @@ function readRecentSqliteMessageRecords(
   deltaCursor?: string;
   displaySource?: string;
   messages: unknown[];
-  transcriptEvents: TranscriptEvent[];
   totalMessages: number;
 } {
   const normalized = normalizeRecentSqliteReadOptions(opts);
@@ -154,7 +153,6 @@ function readRecentSqliteMessageRecords(
     ...(page.deltaCursor ? { deltaCursor: page.deltaCursor } : {}),
     displaySource: page.displaySource,
     messages: projectSqliteHistoryEvents(page.events),
-    transcriptEvents: page.events.map((entry) => entry.event),
     totalMessages: page.totalMessages,
   };
 }
@@ -351,16 +349,10 @@ export async function readRecentSessionMessagesWithStatsAsync(
   opts: ReadRecentSessionMessagesOptions,
 ): Promise<ReadRecentSessionMessagesResult> {
   const target = resolveTranscriptReadTarget(scope);
-  const {
-    activeLeafEntryId,
-    deltaCursor,
-    displaySource,
-    messages,
-    transcriptEvents,
-    totalMessages,
-  } = await readRestoredSessionTranscript(toTranscriptReadScope(target), () =>
-    readRecentSqliteMessageRecords(target, opts),
-  );
+  const { activeLeafEntryId, deltaCursor, displaySource, messages, totalMessages } =
+    await readRestoredSessionTranscript(toTranscriptReadScope(target), () =>
+      readRecentSqliteMessageRecords(target, opts),
+    );
   if (totalMessages === 0 && messages.length === 0 && opts.allowResetArchiveFallback === true) {
     return await archivedTranscriptReader(target).readRecentWithStats({
       ...opts,
@@ -372,7 +364,6 @@ export async function readRecentSessionMessagesWithStatsAsync(
     ...(deltaCursor ? { deltaCursor } : {}),
     displaySource,
     messages,
-    transcriptEvents,
     totalMessages,
     transcriptPath: target.sessionFile,
     transcriptSource: "active",
@@ -403,7 +394,6 @@ export async function readSessionMessagesPageWithStatsAsync(
     ...(page.olderOffset !== undefined ? { olderOffset: page.olderOffset } : {}),
     ...(page.omittedOversized ? { omittedOversized: true } : {}),
     messages: projectSqliteHistoryEvents(page.events),
-    transcriptEvents: page.events.map((entry) => entry.event),
     displaySource: page.displaySource,
     totalMessages: page.totalMessages,
     transcriptPath: target.sessionFile,

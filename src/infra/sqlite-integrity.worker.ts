@@ -45,6 +45,9 @@ try {
   readSqliteIntegrityFileIdentity(input.pathname, input.identity);
   database = openNodeSqliteDatabase(input.pathname, { readOnly: true });
   setSqliteBusyTimeout(database, input.busyTimeoutMs);
+  // Full index checks revisit pages. Keep their cache in this disposable child,
+  // without raising the memory budget of the Gateway's retained connections.
+  database.exec("PRAGMA cache_size = -65536;"); // sqlite-allow-raw -- Connection-local page-cache policy for this disposable integrity child.
   readSqliteIntegrityFileIdentity(input.pathname, input.identity);
   await sendPhase("checking");
   assertSqliteIntegrity(database, input.pathname);

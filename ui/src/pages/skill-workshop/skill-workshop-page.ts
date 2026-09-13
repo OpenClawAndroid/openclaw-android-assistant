@@ -4,6 +4,7 @@ import { property } from "lit/decorators.js";
 import { applicationContext, type ApplicationGatewaySnapshot } from "../../app/context.ts";
 import "../../components/tooltip.ts";
 import { t } from "../../i18n/index.ts";
+import { registerSkillWorkshopEnglish } from "../../i18n/locales/en-skill-workshop.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import type { SkillWorkshopProposalDecision } from "../../lib/skill-workshop/index.ts";
@@ -40,6 +41,8 @@ import {
   type SkillWorkshopSourceScope,
 } from "./source-scope.ts";
 import { loadSkillWorkshopMode } from "./storage.ts";
+
+registerSkillWorkshopEnglish();
 
 class SkillWorkshopPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })

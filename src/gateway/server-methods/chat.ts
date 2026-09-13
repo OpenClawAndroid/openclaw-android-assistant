@@ -58,12 +58,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateChatInjectParams, "chat.inject", respond)) {
       return;
     }
-    const p = params as {
-      sessionKey: string;
-      agentId?: string;
-      message: string;
-      label?: string;
-    };
+    const p = params;
 
     // Load session to find transcript file
     const rawSessionKey = p.sessionKey;

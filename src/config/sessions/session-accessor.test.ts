@@ -99,6 +99,7 @@ import {
   trimTranscriptForManualCompact,
 } from "./session-accessor.sqlite-transcript-write.js";
 import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
+import { transcriptMessage } from "./transcript-message.test-support.js";
 import {
   SessionTranscriptWriterClaimReboundError,
   withOwnedSessionTranscriptWrites,
@@ -3868,11 +3869,10 @@ describe("session accessor seam", () => {
     });
     await persistSessionTranscriptTurn(scope, {
       messages: [
-        {
-          eventId: "legacy-unsequenced-root",
-          parentId: null,
-          message: { role: "user", content: "canonical root" },
-        },
+        transcriptMessage("legacy-unsequenced-root", null, {
+          role: "user",
+          content: "canonical root",
+        }),
       ],
       updateMode: "none",
     });
@@ -3975,11 +3975,10 @@ describe("session accessor seam", () => {
     await persistSessionTranscriptTurn(scope, {
       ...expectedSession,
       messages: [
-        {
-          eventId: "diverging-turn-root",
-          parentId: null,
-          message: { role: "user", content: "common branch root" },
-        },
+        transcriptMessage("diverging-turn-root", null, {
+          role: "user",
+          content: "common branch root",
+        }),
       ],
       updateMode: "none",
     });
@@ -3996,24 +3995,16 @@ describe("session accessor seam", () => {
       result = await persistSessionTranscriptTurn(scope, {
         ...expectedSession,
         messages: [
-          {
-            eventId: "diverging-turn-abandoned",
-            parentId: "diverging-turn-root",
-            message: {
-              role: "assistant",
-              content: "abandoned branch",
-              idempotencyKey: "diverging-turn-abandoned",
-            },
-          },
-          {
-            eventId: "diverging-turn-active",
-            parentId: "diverging-turn-root",
-            message: {
-              role: "assistant",
-              content: "final active branch",
-              idempotencyKey: "diverging-turn-active",
-            },
-          },
+          transcriptMessage("diverging-turn-abandoned", "diverging-turn-root", {
+            role: "assistant",
+            content: "abandoned branch",
+            idempotencyKey: "diverging-turn-abandoned",
+          }),
+          transcriptMessage("diverging-turn-active", "diverging-turn-root", {
+            role: "assistant",
+            content: "final active branch",
+            idempotencyKey: "diverging-turn-active",
+          }),
         ],
         updateMode: "inline",
       });

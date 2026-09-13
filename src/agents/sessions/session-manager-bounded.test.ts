@@ -23,6 +23,7 @@ import {
 import { runWithSessionTranscriptReadFence } from "../../config/sessions/session-transcript-read-fence.js";
 import { waitForSessionTranscriptIndexReconcile } from "../../config/sessions/session-transcript-reconcile.js";
 import {
+  closeOpenClawAgentDatabasesForTest,
   deferOpenClawAgentPostCommitPublication,
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
@@ -41,7 +42,14 @@ vi.mock("node:crypto", async (importOriginal) => {
   };
 });
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(() => {
+    for (const dir of tempDirs.dirs) {
+      closeOpenClawAgentDatabasesForTest(dir);
+    }
+    cleanup();
+  }),
+);
 
 function buildAssistantMessage(text: string) {
   return {

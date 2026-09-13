@@ -117,6 +117,7 @@ function mergeFeishuDebounceMentions(
 
 type FeishuMessageDebounceEntry = {
   event: FeishuMessageEvent;
+  messageDedupeKey: string | undefined;
   processingClaim?: FeishuMessageProcessingClaim;
   turnAdoptionLifecycle?: FeishuIngressLifecycle;
   abandoned?: boolean;
@@ -128,7 +129,7 @@ function dedupeFeishuDebounceEntriesByDedupeKey(
   const seen = new Set<string>();
   const deduped: FeishuMessageDebounceEntry[] = [];
   for (const entry of entries) {
-    const dedupeKey = resolveFeishuMessageDedupeKey(entry.event);
+    const dedupeKey = entry.messageDedupeKey;
     if (!dedupeKey) {
       deduped.push(entry);
       continue;
@@ -260,7 +261,7 @@ export function createFeishuMessageReceiveHandler({
     const suppressedIds = new Set(
       entries
         .map((entry) => ({
-          id: resolveFeishuMessageDedupeKey(entry.event),
+          id: entry.messageDedupeKey,
           claim: entry.processingClaim,
         }))
         .filter(({ id }) => Boolean(id) && (!keepDedupeKey || id !== keepDedupeKey)),
@@ -324,7 +325,7 @@ export function createFeishuMessageReceiveHandler({
               if (activeEntries.length === 1) {
                 await dispatchFeishuMessage(
                   last.event,
-                  resolveFeishuMessageDedupeKey(last.event),
+                  last.messageDedupeKey,
                   last.processingClaim,
                   admissionLifecycle,
                 );
@@ -334,13 +335,7 @@ export function createFeishuMessageReceiveHandler({
               const dedupedEntries = dedupeFeishuDebounceEntriesByDedupeKey(activeEntries);
               const freshEntries: FeishuMessageDebounceEntry[] = [];
               for (const entry of dedupedEntries) {
-                if (
-                  !(await hasProcessedMessage(
-                    resolveFeishuMessageDedupeKey(entry.event),
-                    accountId,
-                    log,
-                  ))
-                ) {
+                if (!(await hasProcessedMessage(entry.messageDedupeKey, accountId, log))) {
                   freshEntries.push(entry);
                 }
               }
@@ -349,7 +344,7 @@ export function createFeishuMessageReceiveHandler({
                 await settle();
                 return;
               }
-              const dispatchDedupeKey = resolveFeishuMessageDedupeKey(dispatchEntry.event);
+              const dispatchDedupeKey = dispatchEntry.messageDedupeKey;
               if (!lifecycle) {
                 await recordSuppressedMessageIds(dedupedEntries, dispatchDedupeKey);
               }
@@ -453,6 +448,7 @@ export function createFeishuMessageReceiveHandler({
     }
     const debounceEntry: FeishuMessageDebounceEntry = {
       event,
+      messageDedupeKey,
       ...(claim.kind === "claimed" ? { processingClaim: claim.handle } : {}),
       ...(turnAdoptionLifecycle ? { turnAdoptionLifecycle } : {}),
     };

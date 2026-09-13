@@ -1,6 +1,11 @@
+import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 // Coordinates queue-media filesystem staging with durable SQLite ownership.
 import type { ReplyPayload } from "../../auto-reply/types.js";
-import type { OpenClawStateDatabase } from "../../state/openclaw-state-db.js";
+import type { DB } from "../../state/openclaw-state-db.generated.js";
+import {
+  openOpenClawStateDatabase,
+  type OpenClawStateDatabase,
+} from "../../state/openclaw-state-db.js";
 import {
   deleteDeliveryQueueEntry,
   expireStagingAndLoadDeliveryQueueEntries,
@@ -8,6 +13,7 @@ import {
   upsertDeliveryQueueEntryInDatabase,
   type DeliveryQueueEntryState,
 } from "../delivery-queue-sqlite.js";
+import { executeSqliteQuerySync, getNodeSqliteKysely } from "../kysely-sync.js";
 import { generateSecureUuid } from "../secure-random.js";
 
 export const LEGACY_OUTBOUND_DELIVERY_QUEUE_NAME = "outbound";
@@ -89,13 +95,39 @@ export function loadDeliveryQueueMediaRetentionSnapshot(params: {
     expireBeforeMs: params.expireBeforeMs,
     stateDir: params.stateDir,
   });
+  // A failed migration backup still owns its original media, even without a runnable row.
+  // The migration receipt releases this custody only after all copies are verified and recorded.
+  const database = openOpenClawStateDatabase({
+    env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+  }).db;
+  const { rows: migrationRows } = executeSqliteQuerySync(
+    database,
+    getNodeSqliteKysely<Pick<DB, "migration_sources">>(database)
+      .selectFrom("migration_sources")
+      .select("report_json")
+      .where("migration_kind", "=", "delivery-queues")
+      .where("removed_source", "=", 0),
+  );
+  const migrationMedia = migrationRows.flatMap((row) => {
+    const report = asNullableRecord(JSON.parse(row.report_json));
+    if (report?.mediaPreserved === true) {
+      return [];
+    }
+    const paths = report?.mediaPaths;
+    if (!Array.isArray(paths) || !paths.every((value) => typeof value === "string")) {
+      throw new Error("Cannot safely collect queue media with an invalid migration receipt");
+    }
+    return paths;
+  });
   return {
     payloads: snapshot.entries.map((entry) => entryPayloads(entry as OutboundMediaEntry)),
-    stagedArtifacts: snapshot.stagingEntries.flatMap((entry) => {
-      const artifacts = (entry as MediaStageEntry).artifacts;
-      return Array.isArray(artifacts)
-        ? artifacts.filter((artifact): artifact is string => typeof artifact === "string")
-        : [];
-    }),
+    stagedArtifacts: snapshot.stagingEntries
+      .flatMap((entry) => {
+        const artifacts = (entry as MediaStageEntry).artifacts;
+        return Array.isArray(artifacts)
+          ? artifacts.filter((artifact): artifact is string => typeof artifact === "string")
+          : [];
+      })
+      .concat(migrationMedia),
   };
 }

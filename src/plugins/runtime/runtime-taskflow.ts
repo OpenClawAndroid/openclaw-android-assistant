@@ -21,7 +21,11 @@ import {
 } from "../../tasks/task-flow-runtime-internal.js";
 import type { TaskDeliveryState } from "../../tasks/task-registry.types.js";
 import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
-import { asManagedTaskFlowRecord, mapFlowUpdateResult } from "./runtime-managed-flow-result.js";
+import {
+  asManagedTaskFlowRecord,
+  mapFlowTaskRunResult,
+  mapFlowUpdateResult,
+} from "./runtime-managed-flow-result.js";
 import type {
   BoundTaskFlowRuntime,
   ManagedTaskFlowMutationResult,
@@ -217,36 +221,7 @@ function createBoundTaskFlowRuntime(params: {
         lastEventAt: input.lastEventAt,
         progressSummary: input.progressSummary,
       });
-      if (!created.created) {
-        return {
-          created: false,
-          found: created.found,
-          reason: created.reason ?? "Task was not created.",
-          ...(created.flow ? { flow: created.flow } : {}),
-        };
-      }
-      const managed = asManagedTaskFlowRecord(created.flow);
-      if (!managed) {
-        return {
-          created: false,
-          found: true,
-          reason: "TaskFlow does not accept managed child tasks.",
-          flow: created.flow,
-        };
-      }
-      if (!created.task) {
-        return {
-          created: false,
-          found: true,
-          reason: "Task was not created.",
-          flow: created.flow,
-        };
-      }
-      return {
-        created: true,
-        flow: managed,
-        task: created.task,
-      };
+      return mapFlowTaskRunResult(created);
     },
   };
 }

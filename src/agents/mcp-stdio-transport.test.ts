@@ -273,6 +273,7 @@ describe("OpenClawStdioClientTransport", () => {
   it("keeps failed owner cleanup uncertain through repeated disposal", async () => {
     const fixture = createChild();
     const failure = new Error("cleanup owner lost");
+    const cleanupErrors: unknown[] = [];
     const cleanupScope = createAgentCleanupScope();
     const transport = createTransport({ command: "node" });
     await transport.start();
@@ -285,12 +286,21 @@ describe("OpenClawStdioClientTransport", () => {
         disposeMcpClient({
           transport,
           transportType: "stdio",
-          client: { close: () => transport.close() },
+          client: {
+            close: async () => {
+              throw new Error("later client cleanup failure");
+            },
+          },
+          onCleanupError: (error) => {
+            cleanupErrors.push(error);
+            throw new Error("diagnostic observer failed");
+          },
         }),
       ).resolves.toBe("uncertain");
       await expect(transport.close()).rejects.toBe(failure);
     });
     expect(cleanupScope.outcome).toBe("uncertain");
+    expect(cleanupErrors).toEqual([failure]);
   });
 
   it.each(["initialize-error", "aborted"] as const)(

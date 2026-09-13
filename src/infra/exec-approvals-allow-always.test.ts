@@ -545,6 +545,37 @@ describe("resolveAllowAlwaysPatterns", () => {
     ).toBe("sha256:cwd-argv:v1:2b4f4aed226aa1fd771c852b8f74e4c162d440aafaf60bfef19746f3b2ee5890");
   });
 
+  it("keeps argument grant precedence and rechecks mutable argv on each call", () => {
+    const tool = "/usr/bin/tool";
+    const cwd = "/workspace";
+    const argv = [tool, "allowed"];
+    const resolution = makeMockExecutableResolution({
+      rawExecutable: tool,
+      resolvedPath: tool,
+      executableName: "tool",
+    });
+    const fallback = { pattern: tool };
+    const previous = Array.from({ length: 16 }, (_, index) => ({
+      pattern: tool,
+      source: "allow-always" as const,
+      argPattern: buildCwdBoundHashedArgPattern([tool, `previous-${index}`], cwd, "linux"),
+    }));
+    const allowed = {
+      pattern: tool,
+      source: "allow-always" as const,
+      argPattern: buildCwdBoundHashedArgPattern(argv, cwd, "linux"),
+    };
+    const entries = [fallback, ...previous, allowed, { ...allowed }];
+
+    expect(matchAllowlist(entries, resolution, argv, "linux", cwd)).toBe(allowed);
+    argv[1] = "changed";
+    expect(matchAllowlist(entries, resolution, argv, "linux", cwd)).toBe(fallback);
+    argv[1] = "previous-0";
+    expect(matchAllowlist(entries, resolution, argv, "linux", cwd)).toBe(previous[0]);
+    expect(matchAllowlist(entries, resolution, argv, "linux", "/other")).toBe(fallback);
+    expect(matchAllowlist(entries, resolution, argv, "linux")).toBe(fallback);
+  });
+
   it.each([
     {
       name: "empty PowerShell file argument",

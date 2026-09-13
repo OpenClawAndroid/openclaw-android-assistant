@@ -33,6 +33,257 @@ function installRuntimeSchemaReadHook(hook: () => void | Promise<void>): void {
 }
 
 describe("config cli integration", () => {
+  it.each(["restore", "external replacement", "empty external replacement", "recovery failure"])(
+    "openclaw config set reports owned root removal with %s",
+    async (recovery) => {
+      const raw = '{"gateway":{"mode":"local"},"logging":{"$include":"logging.json"}}\n';
+      await withConfigFileHarness(
+        "openclaw-config-cli-recovery-",
+        raw,
+        async ({ configPath, tempDir }) => {
+          const includePath = path.join(tempDir, "logging.json");
+          fs.writeFileSync(includePath, '{"level":"info"}\n');
+          const rename = fs.renameSync;
+          vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+            if (to === configPath) {
+              throw Object.assign(new Error("rename denied"), { code: "EPERM" });
+            }
+            return rename(from, to);
+          });
+          const concurrentRaw =
+            recovery === "empty external replacement"
+              ? ""
+              : '{"gateway":{"mode":"local","port":19003}}\n';
+          let removed = false;
+          const remove = fs.rmSync;
+          vi.spyOn(fs, "rmSync").mockImplementation((file, options) => {
+            remove(file, options);
+            if (file === configPath) {
+              removed = true;
+              fs.writeFileSync(includePath, '{"level":"warn"}\n');
+              if (
+                recovery === "external replacement" ||
+                recovery === "empty external replacement"
+              ) {
+                fs.writeFileSync(configPath, concurrentRaw);
+              }
+            }
+          });
+          const open = fs.openSync;
+          vi.spyOn(fs, "openSync").mockImplementation((file, flags, mode) => {
+            if (removed && recovery === "recovery failure" && String(file).endsWith(".tmp")) {
+              throw Object.assign(new Error("recovery stage full"), { code: "ENOSPC" });
+            }
+            return open(file, flags, mode);
+          });
+          await expect(
+            runRegisteredConfigCommand(["config", "set", "messages.responsePrefix", "changed"]),
+          ).rejects.toMatchObject({ name: "ExitError", code: 1 });
+          expect(removed).toBe(true);
+          expect(fs.readFileSync(`${configPath}.bak`, "utf8")).toBe(raw);
+          expect(fs.readFileSync(includePath, "utf8")).toBe('{"level":"warn"}\n');
+          const error = registeredRuntimeErrors.join("\n");
+          expect(error).toContain("Config publication failed after removing");
+          expect(error).toContain(`${configPath}.bak`);
+          expect(error).not.toContain("nothing was changed");
+          expect(error).not.toContain("Re-run the same command");
+          if (recovery === "recovery failure") {
+            expect(fs.existsSync(configPath)).toBe(false);
+            expect(error).toContain("Rollback could not be confirmed");
+          } else {
+            expect(fs.readFileSync(configPath, "utf8")).toBe(
+              recovery === "restore" ? raw : concurrentRaw,
+            );
+          }
+        },
+      );
+    },
+  );
+
+  it.each(["root", "include"])(
+    "openclaw config set preserves all five %s backups after five failed stages",
+    async (location) => {
+      const includeRaw = '{"level":"info"}\n';
+      const raw =
+        JSON.stringify({
+          gateway: { mode: "local" },
+          logging: location === "include" ? { $include: "logging.json" } : { level: "info" },
+        }) + "\n";
+      await withConfigFileHarness("openclaw-config-cli-backups-", raw, async ({ configPath }) => {
+        const target =
+          location === "include" ? path.join(path.dirname(configPath), "logging.json") : configPath;
+        if (location === "include") {
+          fs.writeFileSync(target, includeRaw);
+        }
+        const publication = await import("../config/backup-rotation.js");
+        const prepare = vi.spyOn(publication, "prepareConfigFileWrite");
+        const backups = Array.from({ length: 5 }, (_, i) => `${target}.bak${i ? `.${i}` : ""}`);
+        backups.forEach((file, i) => fs.writeFileSync(file, `recovery-${i}`));
+        const open = fs.openSync;
+        vi.spyOn(fs, "openSync").mockImplementation((file, flags, mode) => {
+          if (
+            path.dirname(String(file)) === path.dirname(target) &&
+            path.basename(String(file)).startsWith(".fs-safe-") &&
+            String(file).endsWith(".tmp")
+          ) {
+            throw Object.assign(new Error("stage full"), { code: "ENOSPC" });
+          }
+          return open(file, flags, mode);
+        });
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await expect(
+            runRegisteredConfigCommand(["config", "set", "logging.level", "debug"]),
+          ).rejects.toMatchObject({ name: "ExitError", code: 1 });
+          expect(fs.readFileSync(configPath, "utf8")).toBe(raw);
+          expect(fs.readFileSync(target, "utf8")).toBe(location === "include" ? includeRaw : raw);
+          expect(prepare.mock.calls.at(-1)?.[0].configPath).toBe(target);
+          expect(backups.map((file) => fs.readFileSync(file, "utf8"))).toEqual([
+            "recovery-0",
+            "recovery-1",
+            "recovery-2",
+            "recovery-3",
+            "recovery-4",
+          ]);
+        }
+      });
+    },
+  );
+
+  it("openclaw config set preserves the parent mode when saving a long include filename", async () => {
+    const name = "a".repeat(230) + ".json";
+    const raw =
+      JSON.stringify({ gateway: { mode: "local" }, logging: { $include: "shared/" + name } }) +
+      "\n";
+    await withConfigFileHarness(
+      "openclaw-config-cli-long-include-",
+      raw,
+      async ({ configPath, tempDir }) => {
+        const parent = path.join(tempDir, "shared");
+        fs.mkdirSync(parent, { mode: 0o750 });
+        const mode = fs.statSync(parent).mode;
+        const include = path.join(parent, name);
+        const original = '{"level":"info"}\n';
+        fs.writeFileSync(include, original);
+        await runRegisteredConfigCommand(["config", "set", "logging.level", "debug"]);
+        expect(JSON.parse(fs.readFileSync(include, "utf8"))).toEqual({ level: "debug" });
+        expect(fs.readFileSync(include + ".bak", "utf8")).toBe(original);
+        expect(fs.readFileSync(configPath, "utf8")).toBe(raw);
+        expect(fs.statSync(parent).mode).toBe(mode);
+      },
+    );
+  });
+
+  it.skipIf(process.platform === "win32").each(
+    ["direct", "chain", "parent", "relative"].flatMap((alias) =>
+      ["save", "root conflict", "alias replacement", "same target replacement"].map((outcome) => ({
+        alias,
+        outcome,
+      })),
+    ),
+  )(
+    "openclaw config set preserves $alias include identity during fallback: $outcome",
+    async ({ alias, outcome }) => {
+      const raw =
+        JSON.stringify({
+          gateway: { mode: "local" },
+          logging: {
+            $include:
+              alias === "parent"
+                ? "alias/actual.json"
+                : alias === "relative"
+                  ? "links/logging.json"
+                  : "logging.json",
+          },
+        }) + "\n";
+      await withConfigFileHarness(
+        "openclaw-config-cli-alias-",
+        raw,
+        async ({ configPath, tempDir }) => {
+          const directory = alias === "parent" ? path.join(tempDir, "real") : tempDir;
+          fs.mkdirSync(directory, { recursive: true });
+          if (alias === "relative") {
+            fs.mkdirSync(path.join(tempDir, "links"));
+          }
+          const target = path.join(directory, "actual.json");
+          const original = '{"level":"info"}\n';
+          fs.writeFileSync(target, original);
+          const link = path.join(
+            tempDir,
+            alias === "parent"
+              ? "alias"
+              : alias === "chain"
+                ? "next.json"
+                : alias === "relative"
+                  ? "links/logging.json"
+                  : "logging.json",
+          );
+          const linkTarget =
+            alias === "parent" ? "real" : alias === "relative" ? "../actual.json" : "actual.json";
+          fs.symlinkSync(linkTarget, link);
+          if (alias === "chain") {
+            fs.symlinkSync("next.json", path.join(tempDir, "logging.json"));
+          }
+          const other = path.join(tempDir, "other");
+          fs.mkdirSync(other);
+          const external = path.join(other, "actual.json");
+          const externalRaw = '{"level":"warn"}\n';
+          fs.writeFileSync(external, externalRaw);
+          const concurrentRoot =
+            JSON.stringify({ ...JSON.parse(raw), messages: { responsePrefix: "external" } }) + "\n";
+          const rename = fs.renameSync;
+          vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+            if (to === target) {
+              throw Object.assign(new Error("include rename denied"), { code: "EPERM" });
+            }
+            return rename(from, to);
+          });
+          let removed = false;
+          const remove = fs.rmSync;
+          vi.spyOn(fs, "rmSync").mockImplementation((file, options) => {
+            remove(file, options);
+            if (file === target && !removed) {
+              removed = true;
+              if (outcome === "root conflict") {
+                fs.writeFileSync(configPath, concurrentRoot);
+              } else if (outcome.endsWith("replacement")) {
+                rename(link, `${link}.original`);
+                fs.symlinkSync(
+                  outcome === "same target replacement"
+                    ? linkTarget
+                    : path.relative(path.dirname(link), alias === "parent" ? other : external),
+                  link,
+                );
+              }
+            }
+          });
+          const save = runRegisteredConfigCommand(["config", "set", "logging.level", "debug"]);
+          if (outcome === "save") {
+            await save;
+            expect(JSON.parse(fs.readFileSync(target, "utf8"))).toEqual({ level: "debug" });
+          } else {
+            await expect(save).rejects.toMatchObject({ name: "ExitError", code: 1 });
+            expect(registeredRuntimeErrors.join("\n")).toContain(
+              "Config publication failed after removing",
+            );
+            if (outcome === "root conflict") {
+              expect(fs.readFileSync(target, "utf8")).toBe(original);
+              expect(registeredRuntimeErrors.join("\n")).toContain("rolled back");
+            } else {
+              expect(fs.existsSync(target)).toBe(false);
+              expect(registeredRuntimeErrors.join("\n")).toContain(`${target}.bak`);
+              expect(fs.readFileSync(external, "utf8")).toBe(externalRaw);
+            }
+          }
+          expect(removed).toBe(true);
+          expect(fs.readFileSync(`${target}.bak`, "utf8")).toBe(original);
+          expect(fs.readFileSync(configPath, "utf8")).toBe(
+            outcome === "root conflict" ? concurrentRoot : raw,
+          );
+        },
+      );
+    },
+  );
+
   it.each([
     {
       name: "empty inline batch",

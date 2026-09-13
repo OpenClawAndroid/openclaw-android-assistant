@@ -172,7 +172,7 @@ describe("resolveSandboxSkillRuntimeInputs", () => {
         skillsAnchorWorkspace: effectiveWorkspace,
         skillsSnapshot,
       });
-      const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
+      const { shouldLoadSkillEntries, skillEntries } = await resolveEmbeddedRunSkillEntries({
         workspaceDir: skillsWorkspaceDir,
         eligibility: skillsEligibilityForRun,
         skillsSnapshot: skillsSnapshotForRun,
@@ -183,7 +183,7 @@ describe("resolveSandboxSkillRuntimeInputs", () => {
         skillsWorkspaceDir,
         skillsPromptWorkspaceDir,
       });
-      const prompt = resolveSkillsPrompt({
+      const prompt = await resolveSkillsPrompt({
         skillsSnapshot: skillsSnapshotForRun,
         entries: promptSkillEntries,
         workspaceDir: skillsPromptWorkspaceDir,
@@ -234,12 +234,12 @@ describe("resolveSandboxSkillRuntimeInputs", () => {
         },
       };
 
-      const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
+      const { shouldLoadSkillEntries, skillEntries } = await resolveEmbeddedRunSkillEntries({
         workspaceDir: root,
         eligibility: skillsEligibility,
         workspaceOnly: true,
       });
-      const prompt = resolveSkillsPrompt({
+      const prompt = await resolveSkillsPrompt({
         entries: shouldLoadSkillEntries ? skillEntries : undefined,
         workspaceDir: root,
         eligibility: skillsEligibility,

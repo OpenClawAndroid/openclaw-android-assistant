@@ -176,6 +176,61 @@ function createWritableRelayChild() {
   return { ...stub, control };
 }
 
+it.each(["before", "after"] as const)(
+  "checks launch policy %s relay start dispatch",
+  async (timing) => {
+    platformMock = mockProcessPlatform("linux");
+    const stub = createWritableRelayChild();
+    let allowed = true;
+    mocks.spawn.mockImplementation(() => {
+      if (timing === "before") {
+        allowed = false;
+      }
+      return stub.child;
+    });
+    const starting = createServiceChildRelayAdapter({
+      command: "synthetic-command",
+      args: [],
+      stdinMode: "pipe-closed",
+      oomScoreWrapperSelected: false,
+      beforeSpawn: () => {
+        if (!allowed) {
+          throw new Error("relay launch policy revoked");
+        }
+      },
+    });
+    try {
+      if (timing === "before") {
+        await expect(starting).rejects.toThrow("relay launch policy revoked");
+        expect(stub.sendMock.mock.calls.length).toBe(0);
+      } else {
+        const start = firstMockArg(stub.sendMock, "service start");
+        if (!isRecord(start) || typeof start.generation !== "string") {
+          throw new Error("Expected an admitted service generation");
+        }
+        const generation = start.generation;
+        allowed = false;
+        const emit = (payload: ServiceChildAnchorPayload, sequence: number) => {
+          stub.control.push(
+            Buffer.from(encodeServiceChildMessage({ ...payload, generation, sequence })),
+          );
+        };
+        emit({ type: "ready", commandPid: 1234, anchorPid: 1235 }, 1);
+        const adapter = await starting;
+        emit({ type: "root-result", code: 0, signal: null }, 2);
+        stub.child.stdout?.emit("end");
+        stub.child.stderr?.emit("end");
+        expect((await adapter.wait()).code).toBe(0);
+        expect(stub.killMock.mock.calls.length).toBe(0);
+      }
+    } finally {
+      stub.control.destroy();
+      stub.disconnectMock();
+      stub.emitExit(0);
+    }
+  },
+);
+
 it.each([
   { name: "construction aborts before ready", deferredStart: false },
   { name: "deferred start delivery fails after abort", deferredStart: true },

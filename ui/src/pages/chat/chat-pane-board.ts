@@ -198,37 +198,63 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
   }
 
   protected refreshSwarmRoster(): void {
+    const context = this.context;
+    let retry = false;
+    void context.connectionBootstrap
+      .run(
+        this,
+        async () => {
+          if (this.context === context) {
+            retry = await this.hydrateSwarmRoster();
+          }
+        },
+        { background: true },
+      )
+      .then(() => {
+        if (retry && this.context === context && this.presented && this.isConnected) {
+          this.refreshSwarmRoster();
+        }
+      });
+  }
+
+  private async hydrateSwarmRoster(): Promise<boolean> {
     const state = this.state;
-    if (!state || !this.presented) {
-      return;
+    const context = this.context;
+    if (!state || !this.presented || !this.isConnected) {
+      return false;
     }
     const target = this.resolveChatReadTarget();
     if (!target) {
       this.swarmHydrator?.dispose();
       this.swarmHydrator = null;
-      return;
+      return false;
     }
     const { sessionKey: parentKey, agentId } = target;
     const client = state.client;
     if (!client) {
-      return;
+      return false;
     }
     const sourceEpoch = state.connectionEpoch;
     const isCurrent = () =>
+      this.context === context &&
       this.state === state &&
       this.presented &&
+      this.isConnected &&
       state.client === client &&
       state.connectionEpoch === sourceEpoch &&
       parentKey === this.resolveChatReadTarget()?.sessionKey &&
       agentId === this.resolveChatReadTarget()?.agentId;
-    void import("../../lib/sessions/swarm-roster.ts").then(
+    let retry = false;
+    await import("../../lib/sessions/swarm-roster.ts").then(
       ({ isSwarmEnabledInConfig, SwarmRosterHydrator }) => {
         if (!isCurrent()) {
+          // The latest target must pass admission again after this import's task settles.
+          retry = true;
           return;
         }
         const enabled =
           state.connected &&
-          isSwarmEnabledInConfig(this.context.runtimeConfig?.state.configSnapshot?.config, agentId);
+          isSwarmEnabledInConfig(context.runtimeConfig?.state.configSnapshot?.config, agentId);
         if (!enabled) {
           if (this.swarmHydrator) {
             this.swarmHydrator.dispose();
@@ -239,7 +265,7 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
         }
         this.swarmHydrator ??= new SwarmRosterHydrator();
         this.swarmHydrator.update({
-          sessions: this.context.sessions,
+          sessions: context.sessions,
           parentKey,
           agentId,
           sourceEpoch,
@@ -259,6 +285,7 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
         });
       },
     );
+    return retry;
   }
 
   protected resolveBoardView(): ResolvedBoardView {

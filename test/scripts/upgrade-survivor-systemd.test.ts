@@ -134,6 +134,18 @@ setInterval(() => {}, 1000);
     ).rejects.toThrow("could not be inspected");
     expect(existsSync(`${unit}.loaded-unit`)).toBe(false);
     const command = await readSystemdServiceExecStart(env, { requireEffective: true });
+    const maintenanceInspection = {
+      requireEffective: true,
+      requireLoaded: true,
+      loadForInspection: {
+        managerUid: process.getuid!(),
+        assertCurrent: () => undefined,
+      },
+    };
+    expect(await readSystemdServiceExecStart(env, maintenanceInspection)).toEqual(command);
+    rmSync(`${unit}.loaded-unit`);
+    expect(await readSystemdServiceExecStart(env, maintenanceInspection)).toEqual(command);
+    expect(existsSync(paths.pid)).toBe(false);
     const stoppedRuntime = await readSystemdServiceRuntime(env);
     expect(stoppedRuntime).toMatchObject({
       status: "stopped",

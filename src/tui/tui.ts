@@ -906,7 +906,17 @@ async function runTuiUnlocked(opts: RunTuiOptions): Promise<TuiResult> {
   const statusContainer = new Container();
   const footer = new Text("", 1, 0);
   const questionStatus = new Text("", 1, 0);
-  const chatLog = new ChatLog();
+  const loadImage = client.loadImage?.bind(client);
+  const chatLog = new ChatLog(
+    180,
+    loadImage
+      ? {
+          loadImage,
+          getScope: () => ({ sessionKey: state.currentSessionKey, agentId: state.currentAgentId }),
+          requestRender: () => tui.requestRender(),
+        }
+      : undefined,
+  );
   const connectionNotices: string[] = [];
   const addConnectionNotice = (text: string) => {
     connectionNotices.push(text);
@@ -1588,6 +1598,7 @@ async function runTuiUnlocked(opts: RunTuiOptions): Promise<TuiResult> {
     pluginApprovals?.dispose();
     questions.dispose();
     taskSuggestions?.dispose();
+    chatLog.dispose();
     beginTuiShutdown({
       stopCommandScopes: () => localShell.shutdown(),
       stopClient: () => client.stop(),

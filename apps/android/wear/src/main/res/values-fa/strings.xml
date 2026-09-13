@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"کنترل‌ها"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"گفتگو"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"صدای ساعت با خطا مواجه شد"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"مجوز دسترسی به میکروفون لازم است"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"باز کردن تنظیمات"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"تایپ صوتی"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"زنده"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"رشته گفتگو"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"خواندن آخرین پاسخ با صدا"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"در حال صحبت"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"در حال گوش دادن"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"در حال پایان دادن به تماس…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"در حال اتصال"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"در حال فکر کردن"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"در حال تایپ"</string>

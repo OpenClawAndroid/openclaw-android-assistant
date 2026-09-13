@@ -1019,15 +1019,11 @@ describe("provider auth profile helpers", () => {
 
   it("accepts plus-signed Copilot token expiry strings", async () => {
     const saved: unknown[] = [];
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            token: "token;proxy-ep=proxy.individual.githubcopilot.com",
-            expires_at: "+2000000000",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        token: "token;proxy-ep=proxy.individual.githubcopilot.com",
+        expires_at: "+2000000000",
+      }),
     );
 
     const result = await resolveCopilotApiToken({
@@ -1471,15 +1467,11 @@ describe("provider auth profile helpers", () => {
 
   it("does not reuse a cached Copilot token from another GitHub credential", async () => {
     const saved: unknown[] = [];
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            token: "fresh;proxy-ep=proxy.individual.githubcopilot.com",
-            expires_at: "+2000000000",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        token: "fresh;proxy-ep=proxy.individual.githubcopilot.com",
+        expires_at: "+2000000000",
+      }),
     );
     const result = await resolveCopilotApiToken({
       githubToken: TEST_GITHUB_TOKEN,
@@ -1608,13 +1600,7 @@ describe("Copilot data-residency domain resolution", () => {
     const { resolveCopilotApiToken: resolveCopilotApiTokenWithLoggerMock } =
       await import("./provider-auth.js");
 
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ token: "tok", expires_at: "+2000000000" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
+    const fetchImpl = vi.fn(async () => Response.json({ token: "tok", expires_at: "+2000000000" }));
     const withDomain = (githubDomain: string) =>
       ({
         models: { providers: { "github-copilot": { params: { githubDomain } } } },
@@ -1672,13 +1658,9 @@ describe("Copilot data-residency domain resolution", () => {
   });
 
   it("targets the tenant token endpoint and copilot-api fallback for a GHE domain", async () => {
-    const fetchImpl = vi.fn(
-      async () =>
-        // GHE data-residency tokens carry a stamp but no proxy-ep hint.
-        new Response(JSON.stringify({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+    const fetchImpl = vi.fn(async () =>
+      // GHE data-residency tokens carry a stamp but no proxy-ep hint.
+      Response.json({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }),
     );
 
     const result = await resolveCopilotApiToken({
@@ -1698,12 +1680,8 @@ describe("Copilot data-residency domain resolution", () => {
   });
 
   it("lets COPILOT_GITHUB_DOMAIN override the caller-provided domain", async () => {
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }),
     );
 
     const result = await resolveCopilotApiToken({
@@ -1723,12 +1701,8 @@ describe("Copilot data-residency domain resolution", () => {
 
   it("does not reuse a cached token minted for a different domain", async () => {
     const saved: unknown[] = [];
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }),
     );
 
     // A valid, unexpired public-github.com token sits in the cache, but the
@@ -1757,15 +1731,11 @@ describe("Copilot data-residency domain resolution", () => {
 
   it("re-exchanges legacy cache entries without a source credential fingerprint", async () => {
     const saved: unknown[] = [];
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            token: "fresh-public;proxy-ep=proxy.individual.githubcopilot.com",
-            expires_at: "+2000000000",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        token: "fresh-public;proxy-ep=proxy.individual.githubcopilot.com",
+        expires_at: "+2000000000",
+      }),
     );
     const result = await resolveCopilotApiToken({
       githubToken: "github-token",
@@ -1794,12 +1764,8 @@ describe("Copilot data-residency domain resolution", () => {
 
   it("does not reuse a legacy pre-domain cache entry for a tenant domain", async () => {
     const saved: unknown[] = [];
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ token: "ghe;st=prod-sdc-01", expires_at: "+2000000000" }),
     );
 
     const result = await resolveCopilotApiToken({

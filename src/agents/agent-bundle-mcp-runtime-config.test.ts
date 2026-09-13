@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 /** Tests live session MCP projections and launch config isolation. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
@@ -92,10 +93,7 @@ describe("session MCP config projection", () => {
     expect(filtered.fingerprint).not.toBe(full.fingerprint);
 
     const alpha = filtered.loaded.mcpServers.alpha;
-    expect(alpha).toBeDefined();
-    if (!alpha) {
-      throw new Error("expected filtered alpha server");
-    }
+    assert(alpha, "expected filtered alpha server");
     alpha.command = "mutated";
     const isolated = loadSessionMcpConfig({
       workspaceDir: "/reuse-workspace",

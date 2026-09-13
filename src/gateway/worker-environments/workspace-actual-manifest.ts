@@ -54,12 +54,14 @@ export async function readWorkspaceFileSnapshotWithLimit(
   maxBytes: number | ((openedSize: number) => number),
   root?: string,
   signal?: AbortSignal,
+  readBuffers?: Buffer[],
 ): Promise<WorkspaceFileSnapshot> {
   signal?.throwIfAborted();
   const handle = await fs.open(
     expectedPath,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
+  let buffer: Buffer | undefined;
   try {
     signal?.throwIfAborted();
     const { memo: hashMemo, metrics, owner = "gateway" } = activeWorkspaceHashContext() ?? {};
@@ -84,11 +86,16 @@ export async function readWorkspaceFileSnapshotWithLimit(
     } else {
       const hashStartedAt = performance.now();
       const hash = createHash("sha256");
-      const buffer = Buffer.allocUnsafe(64 * 1024);
+      buffer = readBuffers?.pop() ?? Buffer.allocUnsafe(readBuffers ? 256 * 1024 : 64 * 1024);
       size = 0;
       for (;;) {
         signal?.throwIfAborted();
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, size);
+        const { bytesRead } = await handle.read(
+          buffer,
+          0,
+          Math.min(buffer.length, byteLimit - size + 1),
+          size,
+        );
         if (bytesRead === 0) {
           break;
         }
@@ -120,6 +127,9 @@ export async function readWorkspaceFileSnapshotWithLimit(
       sha256,
     };
   } finally {
+    if (buffer && readBuffers) {
+      readBuffers.push(buffer);
+    }
     await handle.close();
   }
 }
@@ -181,6 +191,9 @@ export async function readActualWorkspaceManifestImpl(params: {
     }
   };
   const filePaths: string[] = [];
+  // A buffer is borrowed only on a hash miss and returned after its reads settle.
+  // The scan's bounded admission limits the pool to its active file readers.
+  const readBuffers: Buffer[] = [];
   const runScans = async (
     start: number,
     end: number,
@@ -223,6 +236,7 @@ export async function readActualWorkspaceManifestImpl(params: {
       },
       root,
       scanSignal,
+      readBuffers,
     );
     if (snapshot.type === "file") {
       addEntry({

@@ -29,6 +29,7 @@ import {
 } from "../../plugins/runtime.js";
 import type { CommandQueueEnqueueOptions } from "../../process/command-queue.types.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import { createProcessSessionFixture } from "../bash-process-registry.test-helpers.js";
 import { getRegisteredAgentHarness, registerAgentHarness } from "../harness/registry.js";
 import type { AgentHarness } from "../harness/types.js";
@@ -933,11 +934,7 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
           token: "subscription-token",
           expires: Date.now() + 60_000,
         },
-        "openai:platform": {
-          type: "api_key",
-          provider: "openai",
-          key: "platform-key",
-        },
+        "openai:platform": createApiKeyCredential("openai", "platform-key"),
       },
       order: { openai: ["openai:subscription", "openai:platform"] },
     });
@@ -997,11 +994,7 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     ensureAuthProfileStoreMock.mockReturnValue({
       version: 1,
       profiles: {
-        "openai:broken": {
-          type: "api_key",
-          provider: "openai",
-          key: "broken-profile-key",
-        },
+        "openai:broken": createApiKeyCredential("openai", "broken-profile-key"),
       },
       order: { openai: ["openai:broken"] },
     });
@@ -1067,11 +1060,7 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     ensureAuthProfileStoreMock.mockReturnValue({
       version: 1,
       profiles: {
-        "openai:platform": {
-          type: "api_key",
-          provider: "openai",
-          key: "platform-key",
-        },
+        "openai:platform": createApiKeyCredential("openai", "platform-key"),
       },
       order: { openai: ["openai:platform"] },
     });
@@ -4710,11 +4699,7 @@ describe("compactEmbeddedAgentSession hooks (ownsCompaction engine)", () => {
     ensureAuthProfileStoreMock.mockReturnValue({
       version: 1,
       profiles: {
-        "openai:p1": {
-          type: "api_key",
-          provider: "openai",
-          key: "platform-key",
-        },
+        "openai:p1": createApiKeyCredential("openai", "platform-key"),
       },
     });
     maybeCompactAgentHarnessSessionMock.mockResolvedValueOnce({

@@ -20,7 +20,7 @@ import {
   PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
   readPackageDistInventoryIfPresent,
 } from "./package-dist-inventory.js";
-import { readPackageVersion } from "./package-json.js";
+import { readPackageName, readPackageVersion } from "./package-json.js";
 import { applyPathPrepend } from "./path-prepend.js";
 import { parseSemver } from "./runtime-guard.js";
 import { collectGitRuntimeErrors, type GitRuntimeIdentity } from "./update-git-runtime.js";
@@ -1047,6 +1047,36 @@ async function isPnpmGlobalPackageRoot(pkgRoot?: string | null): Promise<boolean
     (await pathExists(path.join(layoutDir, "pnpm-lock.yaml"))) ||
     (await pathExists(path.join(layoutDir, "package.json")))
   );
+}
+
+/** Resolves an installed pnpm project's identity and its active OpenClaw package link. */
+export async function resolvePnpmGlobalInstallOwner(
+  pkgRoot: string,
+): Promise<{ ownerRoot: string; packageRoot: string } | null> {
+  const globalRoot = inferPnpmGlobalRootFromPackageRoot(pkgRoot);
+  if (!globalRoot || (await readPackageName(pkgRoot)) !== PRIMARY_PACKAGE_NAME) {
+    return null;
+  }
+  let ownerRoot: string | null;
+  let packageRoot: string;
+  if (inferPnpmIsolatedGlobalRootFromPackageRoot(pkgRoot)) {
+    const active = await resolvePnpmIsolatedGlobalPackage({ globalRoot, pkgRoot });
+    if (!active) {
+      return null;
+    }
+    ownerRoot = await resolvePnpmIsolatedInstallOwner(active.packageRoot);
+    packageRoot = active.packageRoot;
+  } else {
+    if (!(await isPnpmGlobalPackageRoot(pkgRoot))) {
+      return null;
+    }
+    ownerRoot = await fs.realpath(path.dirname(globalRoot)).catch(() => null);
+    packageRoot = resolvePackageRootFromGlobalRoot({ globalRoot });
+  }
+  if (!ownerRoot || (await readPackageName(packageRoot)) !== PRIMARY_PACKAGE_NAME) {
+    return null;
+  }
+  return { ownerRoot, packageRoot };
 }
 
 function resolvePreferredGlobalManagerCommand(

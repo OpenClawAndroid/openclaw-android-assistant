@@ -9,6 +9,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { createPreparedModelCatalogWorkerInput } from "./prepared-model-catalog-worker.js";
 import { runPreparedModelCatalogWorkerRequest } from "./prepared-model-catalog.worker.js";
 import { prepareWorkspaceBuildGroup } from "./prepared-model-runtime.facts.js";
@@ -154,11 +155,7 @@ describe("ClawRouter cold prepared catalog", () => {
         {
           version: 1,
           profiles: {
-            "clawrouter:default": {
-              type: "api_key",
-              provider: "clawrouter",
-              key: "catalog-test-key",
-            },
+            "clawrouter:default": createApiKeyCredential("clawrouter", "catalog-test-key"),
           },
         },
         agentId,

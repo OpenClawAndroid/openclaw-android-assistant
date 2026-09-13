@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"控制項"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"語音對話"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"手錶音訊失敗"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"需要麥克風權限"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"開啟設定"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"聽寫"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"即時"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"討論串"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"朗讀最新回覆"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"正在朗讀"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"正在聆聽"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"正在結束通話…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"正在連線"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"思考中"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"輸入中"</string>

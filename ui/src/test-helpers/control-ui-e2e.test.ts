@@ -15,16 +15,121 @@ import {
 
 describe("shared proof capture", () => {
   const tempDirs = useAutoCleanupTempDirTracker(afterEach);
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+  });
 
   it.each([
-    { shardIndex: "5", shardCount: "6" },
-    { shardIndex: undefined, shardCount: undefined },
+    { shardIndex: "5", shardCount: "6", failure: "none", sendLabel: "Send message" },
+    { shardIndex: undefined, shardCount: undefined, failure: "none", sendLabel: "Loading chat" },
+    {
+      shardIndex: undefined,
+      shardCount: undefined,
+      failure: "screenshot",
+      sendLabel: "private-label",
+    },
+    {
+      shardIndex: undefined,
+      shardCount: undefined,
+      failure: "storage",
+      sendLabel: "Sending message...",
+    },
   ])(
-    "retains each failure capture with its shard provenance ($shardIndex/$shardCount)",
-    async ({ shardIndex, shardCount }) => {
+    "retains safe failure state despite $failure failure ($sendLabel; $shardIndex/$shardCount)",
+    async ({ shardIndex, shardCount, failure, sendLabel }) => {
       const parent = tempDirs.make("control-ui-failure-proof-");
-      vi.stubEnv("OPENCLAW_UI_E2E_DIAGNOSTIC_DIR", parent);
+      const diagnosticParent = failure === "storage" ? path.join(parent, "blocked") : parent;
+      if (failure === "storage") {
+        writeFileSync(diagnosticParent, "not a directory");
+      }
+      vi.stubEnv("OPENCLAW_UI_E2E_DIAGNOSTIC_DIR", diagnosticParent);
+      const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(performance, "getEntriesByType").mockReturnValue([]);
+      const app = document.createElement("openclaw-app");
+      Object.assign(app, {
+        runtime: {
+          context: {
+            gateway: {
+              snapshot: {
+                phase: failure === "storage" ? "private-phase" : "connected",
+                hello: { token: "private-hello" },
+              },
+            },
+            agents: { state: { connected: true } },
+          },
+        },
+      });
+      const composer = document.createElement("div");
+      composer.className = "agent-chat__composer-combobox";
+      const textarea = document.createElement("textarea");
+      textarea.value = failure === "storage" ? "" : "private-draft";
+      textarea.disabled = failure === "storage";
+      composer.append(textarea);
+      const send = document.createElement("button");
+      send.className = "chat-send-btn--send";
+      send.setAttribute("aria-label", sendLabel);
+      send.setAttribute("aria-busy", failure === "storage" ? "true" : "false");
+      send.disabled = failure !== "none" || sendLabel === "Loading chat";
+      const providerHead = document.createElement("div");
+      providerHead.className = "model-providers__head";
+      const badge = document.createElement("span");
+      badge.className = "settings-status";
+      badge.textContent = failure === "none" ? "Ready" : "private-badge";
+      providerHead.append(badge);
+      document.body.append(app, composer, send, providerHead);
+      const modelResponses =
+        failure === "none"
+          ? {}
+          : {
+              list: {
+                ok: true,
+                payload: {
+                  models:
+                    failure === "screenshot"
+                      ? []
+                      : [
+                          { id: "private-model", available: true },
+                          { available: false, unavailableReason: "private-reason" },
+                          { available: "private-availability" },
+                        ],
+                  pendingProviders: [],
+                  providerOutcomes:
+                    failure === "screenshot"
+                      ? []
+                      : [
+                          {
+                            provider: "private-provider",
+                            profileId: "private-profile",
+                            status: "ready",
+                          },
+                          { status: "private-outcome" },
+                        ],
+                },
+              },
+              authStatus: {
+                ok: true,
+                payload: {
+                  providers:
+                    failure === "screenshot"
+                      ? []
+                      : [
+                          {
+                            profiles: [
+                              {
+                                profileId: "private-profile",
+                                status: "ok",
+                                token: "private-token",
+                              },
+                              { status: "expired" },
+                              { status: "private-health" },
+                            ],
+                          },
+                        ],
+                },
+              },
+            };
       vi.stubEnv("VITEST_SHARD_INDEX", shardIndex);
       vi.stubEnv("VITEST_SHARD_COUNT", shardCount);
       vi.stubEnv("SHARD_INDEX", shardIndex ? undefined : "unrelated-shard");
@@ -34,34 +139,113 @@ describe("shared proof capture", () => {
       writeFileSync(path.join(parent, "prior.png"), "prior-proof");
       // SAFETY: this fixture implements the Page boundary used by failure diagnostics.
       const page = {
-        evaluate: async () => ({ marker: "failed-page" }),
+        evaluate: async (read: () => unknown) => read(),
         isClosed: () => false,
         url: () => "http://127.0.0.1/chat",
         screenshot: async (options: { path: string }) => {
+          expect(
+            logs.mock.calls.some(([message]) => message === "[control-ui-e2e] failure state"),
+          ).toBe(true);
+          if (failure === "screenshot") {
+            throw new Error("private-screenshot-error");
+          }
           writeFileSync(options.path, "failure-proof");
           return Buffer.from("failure-proof");
         },
       } as unknown as Page;
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        await captureControlUiE2eFailureDiagnostics(page, {
-          error: new Error("Synthetic request timeout"),
-          label: "chat.send",
-        });
+        const original = new Error("private-original-error");
+        const failedAction = async () => {
+          try {
+            throw original;
+          } catch (error) {
+            await captureControlUiE2eFailureDiagnostics(page, {
+              error: original,
+              label: "chat.send",
+              modelResponses,
+            });
+            throw error;
+          }
+        };
+        await expect(failedAction()).rejects.toBe(original);
       }
       const directories = readdirSync(parent, { withFileTypes: true }).filter((entry) =>
         entry.isDirectory(),
       );
-      expect(directories).toHaveLength(2);
+      const summaries = logs.mock.calls
+        .filter(([message]) => message === "[control-ui-e2e] failure state")
+        .map(([, summary]) => summary);
+      expect(summaries).toHaveLength(2);
+      for (const summary of summaries) {
+        expect(summary).toMatchObject({
+          browser: {
+            gatewayPhase: failure === "storage" ? "unknown" : "connected",
+            connected: true,
+            documentReadyState: expect.stringMatching(/^(?:loading|interactive|complete)$/u),
+            providerStatuses: [
+              {
+                status: failure === "none" ? "Ready" : "unknown",
+                length: badge.textContent.length,
+              },
+            ],
+            composer: {
+              draftLength: failure === "storage" ? 0 : 13,
+              nonempty: failure !== "storage",
+              disabled: failure === "storage",
+              send: {
+                label: sendLabel === "private-label" ? "unknown" : sendLabel,
+                labelLength: sendLabel.length,
+                disabled: failure !== "none" || sendLabel === "Loading chat",
+                busy: failure === "storage",
+              },
+            },
+          },
+          models: {
+            listSeen: failure !== "none",
+            listOk: failure === "none" ? null : true,
+            models: failure === "none" ? null : failure === "screenshot" ? 0 : 3,
+            available: failure === "none" ? null : failure === "screenshot" ? 0 : 1,
+            unavailable: failure === "none" ? null : failure === "screenshot" ? 0 : 1,
+            unknownAvailability: failure === "none" ? null : failure === "screenshot" ? 0 : 1,
+            pendingProviders: failure === "none" ? null : 0,
+            providerOutcomes:
+              failure === "none"
+                ? null
+                : {
+                    ready: failure === "storage" ? 1 : 0,
+                    "auth-rejected": 0,
+                    unavailable: 0,
+                    unknown: failure === "storage" ? 1 : 0,
+                  },
+            authSeen: failure !== "none",
+            authOk: failure === "none" ? null : true,
+            profiles:
+              failure === "none"
+                ? null
+                : {
+                    ok: failure === "storage" ? 1 : 0,
+                    expiring: 0,
+                    expired: failure === "storage" ? 1 : 0,
+                    missing: 0,
+                    static: 0,
+                    unknown: failure === "storage" ? 1 : 0,
+                  },
+          },
+        });
+      }
+      expect(JSON.stringify(logs.mock.calls)).not.toContain("private-");
+      expect(directories).toHaveLength(failure === "storage" ? 0 : 2);
       for (const directory of directories) {
         const root = path.join(parent, directory.name);
         const files = readdirSync(root);
-        expect(files).toHaveLength(2);
+        expect(files).toHaveLength(failure === "screenshot" ? 1 : 2);
         const reportFile = files.find((file) => file.endsWith(".json"));
         expect(reportFile).toBeDefined();
         const report = JSON.parse(readFileSync(path.join(root, reportFile!), "utf8"));
         expect(report).toMatchObject({
           label: "chat.send",
-          captureErrors: [],
+          captureErrors:
+            failure === "screenshot" ? [expect.stringContaining("private-screenshot-error")] : [],
           ci: {
             githubJob: "checks-ui-e2e",
             runAttempt: "2",
@@ -70,8 +254,12 @@ describe("shared proof capture", () => {
             vitestShardCount: shardCount ?? null,
           },
         });
-        expect(files).toContain(report.screenshot);
-        expect(readFileSync(path.join(root, report.screenshot), "utf8")).toBe("failure-proof");
+        if (failure === "screenshot") {
+          expect(report.screenshot).toBeNull();
+        } else {
+          expect(files).toContain(report.screenshot);
+          expect(readFileSync(path.join(root, report.screenshot), "utf8")).toBe("failure-proof");
+        }
       }
       expect(readFileSync(path.join(parent, "prior.png"), "utf8")).toBe("prior-proof");
     },

@@ -289,6 +289,14 @@ live drivers are protected. Identityless rows outside the legacy-expiry shape
 require explicit recovery; the Control UI's configuration-write suspension clears
 after reconciliation.
 
+Repair started within the owning update can continue with a matching inherited
+run ID and live process identity; the run records that continuation. Repair
+still refuses an unrelated live or stalled updater. The error identifies its
+run, phase, driver PID, host, start and last-activity ages, and observed liveness.
+Wait for that update to finish, or stop the named driver on its host and rerun
+repair after it exits. See [Update repair](/cli/update/repair-and-recovery#update-repair)
+for maintenance and recovery behavior.
+
 OpenClaw 2026.9.2 does not reject a new CLI update because an older running row
 exists: its [admission path](https://github.com/openclaw/openclaw/blob/v2026.9.2/src/cli/update-cli/update-command-run.ts#L77)
 creates a new run, and its [ledger](https://github.com/openclaw/openclaw/blob/v2026.9.2/src/infra/update-run-ledger.ts#L250)

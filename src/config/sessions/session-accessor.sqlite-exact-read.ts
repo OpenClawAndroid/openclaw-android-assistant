@@ -7,6 +7,7 @@ import {
   type OpenClawAgentDatabaseOptions,
 } from "../../state/openclaw-agent-db.js";
 import type { ExactSessionEntry } from "./session-accessor.sqlite-contract.js";
+import { prepareExactSessionEntryRowReads } from "./session-accessor.sqlite-entry-read.js";
 import { readExactSessionEntryRowValidated } from "./session-accessor.sqlite-entry-store.js";
 import {
   resolveSqliteScope,
@@ -124,6 +125,11 @@ export function loadExactSessionEntryCandidatesReadOnlyBatch(
         assertCanonicalSqliteSessionKeysCurrent(database);
         const source = { agentId: database.agentId, path: database.path };
         const entries = new Map<string, Result<ExactSessionEntry | undefined, unknown>>();
+        const readPrepared = prepareExactSessionEntryRowReads(
+          database,
+          [...new Set(group.requests.flatMap((request) => request.sessionKeys))],
+          group.projection,
+        );
         const readEntry = (sessionKey: string): Result<ExactSessionEntry | undefined, unknown> => {
           const cached = entries.get(sessionKey);
           if (cached) {
@@ -131,11 +137,7 @@ export function loadExactSessionEntryCandidatesReadOnlyBatch(
           }
           let result: Result<ExactSessionEntry | undefined, unknown>;
           try {
-            const entry = readExactSessionEntryRowValidated(
-              database,
-              sessionKey,
-              group.projection,
-            )?.entry;
+            const entry = readPrepared(sessionKey)?.entry;
             result = ok(entry ? { sessionKey, entry } : undefined);
           } catch (error) {
             result = err(error);

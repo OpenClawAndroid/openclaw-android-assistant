@@ -16,11 +16,13 @@ import {
   acpMocks,
   agentEventMocks,
   createDispatcher,
+  createPluginBindingRecord,
   diagnosticMocks,
   emptyConfig,
   hookMocks,
   internalHookMocks,
   messageAuditMocks,
+  mockPluginBinding,
   mocks,
   replyMediaPathMocks,
   sessionBindingMocks,
@@ -464,23 +466,17 @@ describe("dispatchReplyFromConfig", () => {
       handled: true,
       aborted: true,
     });
-    sessionBindingMocks.resolveByConversation.mockReturnValue({
+    mockPluginBinding({
       bindingId: "binding-fast-abort",
       targetSessionKey: "plugin-binding:test:fast-abort",
-      targetKind: "session",
       conversation: {
         channel: "telegram",
         accountId: "default",
         conversationId: "direct:stop-hook",
       },
-      status: "active",
-      boundAt: 1710000000000,
-      metadata: {
-        pluginBindingOwner: "plugin",
-        pluginId: "test-plugin",
-        pluginRoot: "/tmp/test-plugin",
-      },
-    } satisfies SessionBindingRecord);
+      pluginId: "test-plugin",
+      pluginRoot: "/tmp/test-plugin",
+    });
     const cfg = emptyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
@@ -1012,24 +1008,19 @@ describe("dispatchReplyFromConfig", () => {
         parentConversationId?: string;
       }) =>
         ref.channel === "discord" && ref.accountId === "work" && ref.conversationId === "thread-1"
-          ? ({
+          ? createPluginBindingRecord({
               bindingId: "plugin:work:thread-1",
               targetSessionKey: "plugin-binding:missing-plugin",
-              targetKind: "session",
               conversation: {
                 channel: "discord",
                 accountId: "work",
                 conversationId: "thread-1",
               },
-              status: "active",
               boundAt: Date.now(),
-              metadata: {
-                pluginBindingOwner: "plugin",
-                pluginId: "missing-plugin",
-                pluginRoot: "/plugins/missing-plugin",
-                pluginName: "Missing Plugin",
-              },
-            } satisfies SessionBindingRecord)
+              pluginId: "missing-plugin",
+              pluginRoot: "/plugins/missing-plugin",
+              pluginName: "Missing Plugin",
+            })
           : null,
     );
 

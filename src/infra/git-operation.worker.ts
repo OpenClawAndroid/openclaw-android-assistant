@@ -23,6 +23,7 @@ serveWorkerTasks<GitWorkerReply<GitWorkerResult>>(async (input, channel) => {
         case "worktree.provisioning-inspection":
         case "worktree.cleanup-inspection":
         case "worktree.git-size":
+        case "worktree.checkout-transition-size":
         case "worktree.directory-size":
           return executeGitWorktreeOperation(command);
         default:

@@ -4,12 +4,10 @@ import { clearNodeSqliteKyselyCacheForDatabase } from "../infra/kysely-sync.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { prepareSqliteReadOnlyLocation } from "../infra/sqlite-snapshot-source.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../runtime.js";
-import { OPENCLAW_AGENT_SCHEMA_VERSION } from "../state/openclaw-agent-db-contract.js";
 import {
   preflightOpenClawDatabaseSchemas,
   type OpenClawDatabaseSchemaPreflight,
 } from "../state/openclaw-database-preflight.js";
-import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
 import { tableExists } from "../state/openclaw-state-db-schema-helpers.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { readStateSchemaPublicationBlocker } from "../state/openclaw-state-schema-publication.js";
@@ -39,7 +37,7 @@ async function readDrivingUpdater(): Promise<
       database.close();
     }
   } finally {
-    snapshot.cleanup();
+    await snapshot.cleanupAsync();
   }
 }
 
@@ -56,10 +54,6 @@ export async function guardUpdateDoctorSchemaUpgrade(options: {
     options.schemas ??
     (await preflightOpenClawDatabaseSchemas({
       env: process.env,
-      supportedVersions: {
-        state: OPENCLAW_STATE_SCHEMA_VERSION,
-        agent: OPENCLAW_AGENT_SCHEMA_VERSION,
-      },
     }));
   if (!schemas.pendingMigrations?.length) {
     return;

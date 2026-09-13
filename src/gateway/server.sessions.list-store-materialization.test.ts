@@ -12,10 +12,7 @@ import * as sessionAccessor from "../config/sessions/session-accessor.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import * as agentDatabaseRegistry from "../state/openclaw-agent-db-registry.js";
-import {
-  OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP,
-  openOpenClawAgentDatabase,
-} from "../state/openclaw-agent-db.js";
+import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { scheduleGatewayHandlerPrewarm } from "./server-startup-handler-prewarm.js";
 import type { SessionsListResult } from "./session-utils.types.js";
 import { testState, writeSessionStore } from "./test-helpers.js";
@@ -25,6 +22,8 @@ import {
   sessionStoreEntry,
   setupGatewaySessionsHandlerTestHarness,
 } from "./test/server-sessions.test-helpers.js";
+
+const EXPECTED_OPEN_HANDLE_CAP = 64;
 
 const { createSessionStoreDir } = setupGatewaySessionsHandlerTestHarness();
 
@@ -121,7 +120,7 @@ test("sessions.list keeps cold and warm transcript title batches valid beyond th
     throw new Error("OPENCLAW_STATE_DIR is required for gateway session tests");
   }
   const agentIds = Array.from(
-    { length: OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP + 1 },
+    { length: EXPECTED_OPEN_HANDLE_CAP + 1 },
     (_, index) => `batch-agent-${index}`,
   );
   const storeTemplate = path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json");

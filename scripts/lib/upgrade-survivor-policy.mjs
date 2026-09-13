@@ -10,6 +10,7 @@ const UPGRADE_SURVIVOR_SCENARIOS = Object.freeze([
   "channel-post-core-restore",
   "plugin-deps-cleanup",
   "configured-plugin-installs",
+  "custom-plugin-siblings",
   "stale-source-plugin-shadow",
   "prerelease-plugin-registry",
   "tilde-log-path",
@@ -24,6 +25,7 @@ const UPGRADE_SURVIVOR_SCENARIOS = Object.freeze([
 
 // Oldest release line supported by the operator-state upgrade regression gate.
 export const OLDEST_SUPPORTED_UPGRADE_SURVIVOR_BASELINE = "2026.6.34";
+export const CUSTOM_PLUGIN_SIBLINGS_BASELINE = "openclaw@2026.9.4";
 
 // These black-box scenarios are implemented entirely by the current trusted
 // release harness and treat the selected tree only as the package under test.
@@ -188,7 +190,14 @@ function supportsUpgradeSurvivorLegacyOperatorState(baselineSpec) {
 }
 
 export function supportsUpgradeSurvivorScenarioAtBaseline(scenario, baselineSpec) {
+  const version = parsePublishedReleaseVersion(baselineSpec);
   return (
+    (scenario !== "custom-plugin-siblings" ||
+      !version ||
+      comparePublishedReleaseVersion(
+        version,
+        parsePublishedReleaseVersion(CUSTOM_PLUGIN_SIBLINGS_BASELINE),
+      ) >= 0) &&
     (scenario !== "abandoned-update" || baselineSpec === "openclaw@2026.9.2") &&
     (scenario !== "legacy-operator-state" ||
       supportsUpgradeSurvivorLegacyOperatorState(baselineSpec)) &&

@@ -35,8 +35,8 @@ function createFlowBindings(sessionKey: string) {
     finish: async (params) => legacy.finish(params),
     fail: async (params) => legacy.fail(params),
     requestCancel: async (params) => legacy.requestCancel(params),
+    runTask: async (params) => legacy.runTask(params),
     cancel: legacy.cancel,
-    runTask: legacy.runTask,
   };
   return { taskFlow };
 }

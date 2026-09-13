@@ -66,7 +66,9 @@ Related model-config surfaces:
 
 Full key reference, defaults, and JSON5 examples: [Configuration reference](/gateway/config-agents#agent-defaults).
 
-Explicit `modelPolicy.allow` restrictions were introduced in v2026.8.1. For directly authored legacy model maps, `openclaw doctor --fix` copies the complete restriction into `modelPolicy.allow` when every ref is valid. If any ref needs provider qualification, Doctor preserves the entire legacy restriction and reports how to set an explicit policy. Until then, model-map edits still change the legacy restriction. No keys are silently dropped, and no empty policy is substituted. Include-owned migrations retain the existing edit-owning-file requirement.
+Explicit `modelPolicy.allow` restrictions were introduced in v2026.8.1. For legacy model maps, `openclaw doctor --fix` copies the complete restriction into `modelPolicy.allow` when every ref is valid. When one supported include file owns the repair, Doctor updates that file and preserves its ancestor include directives, including during an update. Repairs spanning multiple owners still require editing the owning files. If any ref needs provider qualification, Doctor preserves the entire legacy restriction and reports how to set an explicit policy. Until then, model-map edits still change the legacy restriction. No keys are silently dropped, and no empty policy is substituted for an unresolved restriction.
+
+Removing an explicit default model policy from an included config preserves an empty `modelPolicy: {}`. This keeps the policy unrestricted when aliases or model settings are added later.
 
 <a id="selection-source-and-fallback-behavior" />
 

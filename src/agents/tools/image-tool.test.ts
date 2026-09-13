@@ -22,6 +22,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import type { AuthProfileCredential, AuthProfileStore } from "../auth-profiles/types.js";
 import {
   createModelGenerationFixture,
@@ -1669,11 +1670,7 @@ describe("image tool implicit imageModel config", () => {
       await writeAuthProfiles(agentDir, {
         version: 1,
         profiles: {
-          "amazon-bedrock:default": {
-            type: "api_key",
-            provider: "amazon-bedrock",
-            key: "sk-test",
-          },
+          "amazon-bedrock:default": createApiKeyCredential("amazon-bedrock", "sk-test"),
         },
       });
       const cfg: OpenClawConfig = {

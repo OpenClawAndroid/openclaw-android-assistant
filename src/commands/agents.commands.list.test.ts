@@ -6,6 +6,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { OutputRuntimeEnv } from "../runtime.js";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { createTestRuntime } from "./test-runtime-config-helpers.js";
 
 const {
   buildProviderStatusIndexMock,
@@ -54,17 +55,11 @@ vi.mock("../state/agent-provenance.js", () => ({
 
 const { agentsListCommand } = await import("./agents.commands.list.js");
 
-function createRuntime(): OutputRuntimeEnv & { json: unknown[] } {
-  const json: unknown[] = [];
+function createRuntime() {
   return {
-    json,
-    log: vi.fn(),
-    error: vi.fn(),
-    exit: vi.fn(),
-    writeStdout: vi.fn(),
-    writeJson: vi.fn((value: unknown) => {
-      json.push(value);
-    }),
+    ...createTestRuntime(),
+    writeStdout: vi.fn<OutputRuntimeEnv["writeStdout"]>(),
+    writeJson: vi.fn<OutputRuntimeEnv["writeJson"]>(),
   };
 }
 
@@ -101,7 +96,8 @@ describe("agentsListCommand", () => {
     await agentsListCommand({ json: true }, runtime);
 
     expect(buildProviderStatusIndexMock).not.toHaveBeenCalled();
-    const summary = (runtime.json[0] as Array<Record<string, unknown>>)[0];
+    const output = runtime.writeJson.mock.calls[0]?.[0];
+    const summary = (output as Array<Record<string, unknown>>)[0];
     expect(summary?.id).toBe("main");
     expect(summary).toMatchObject({
       createdVia: "operator",
@@ -132,7 +128,7 @@ describe("agentsListCommand", () => {
 
     await agentsListCommand({ tree: true }, runtime);
 
-    expect(vi.mocked(runtime.log)).toHaveBeenCalledWith(
+    expect(runtime.log).toHaveBeenCalledWith(
       [
         "Agents:",
         "- main (Main)",
@@ -167,7 +163,8 @@ describe("agentsListCommand", () => {
       providerStatus,
       providerMetadata: providerSummaryMetadataMock,
     });
-    const [summary] = runtime.json[0] as Array<Record<string, unknown>>;
+    const output = runtime.writeJson.mock.calls[0]?.[0];
+    const [summary] = output as Array<Record<string, unknown>>;
     expect(summary?.id).toBe("main");
     expect(summary?.routes).toEqual(["Telegram default"]);
     expect(summary?.providers).toEqual(["Telegram default: configured"]);
@@ -183,7 +180,7 @@ describe("agentsListCommand", () => {
 
     expect(buildProviderStatusIndexMock).toHaveBeenCalledOnce();
     expect(buildProviderSummaryMetadataIndexMock).toHaveBeenCalledOnce();
-    expect(vi.mocked(runtime.log).mock.calls).toEqual([
+    expect(runtime.log.mock.calls).toEqual([
       [
         [
           "Agents:",
@@ -251,12 +248,12 @@ describe("agentsListCommand", () => {
       } satisfies OpenClawConfig);
       const jsonRuntime = createRuntime();
       await agentsListCommand({ json: true }, jsonRuntime);
-      expect(jsonRuntime.json[0]).toEqual([expect.objectContaining(expected)]);
+      expect(jsonRuntime.writeJson.mock.calls[0]?.[0]).toEqual([expect.objectContaining(expected)]);
 
       const textRuntime = createRuntime();
       await agentsListCommand({}, textRuntime);
       const source = expected.identitySource === "config" ? "config" : "IDENTITY.md";
-      expect(vi.mocked(textRuntime.log).mock.calls.flat().join("\n")).toContain(
+      expect(textRuntime.log.mock.calls.flat().join("\n")).toContain(
         `Identity: ${expected.identityEmoji} ${expected.identityName} (${source})`,
       );
       expect(fs.readFileSync(identityPath, "utf8")).toBe(identityFile);
@@ -289,7 +286,7 @@ describe("agentsListCommand", () => {
     const textRuntime = createRuntime();
     await agentsListCommand({ bindings: true }, textRuntime);
 
-    const textOutput = vi.mocked(textRuntime.log).mock.calls.flat().join("\n");
+    const textOutput = textRuntime.log.mock.calls.flat().join("\n");
     expect(textOutput).not.toContain("\u001B");
     expect(textOutput).not.toContain("\nforged-row");
     expect(textOutput).toContain("Operator 🦞\\r\\nforged-row");
@@ -301,8 +298,9 @@ describe("agentsListCommand", () => {
 
     // Workspace paths are platform-normalized before JSON, so assert the
     // non-sanitization invariant on it rather than byte equality.
-    expect(jsonRuntime.json[0]).toEqual([expect.objectContaining({ identityName, model })]);
-    expect((jsonRuntime.json[0] as Array<{ workspace: string }>)[0]?.workspace).toContain(control);
+    const jsonOutput = jsonRuntime.writeJson.mock.calls[0]?.[0];
+    expect(jsonOutput).toEqual([expect.objectContaining({ identityName, model })]);
+    expect((jsonOutput as Array<{ workspace: string }>)[0]?.workspace).toContain(control);
   });
 
   it.skipIf(process.platform !== "win32")(
@@ -334,7 +332,7 @@ describe("agentsListCommand", () => {
           await agentsListCommand({}, runtime);
         });
 
-        const output = vi.mocked(runtime.log).mock.calls.flat().join("\n");
+        const output = runtime.log.mock.calls.flat().join("\n");
         expect(output).toContain(`Workspace: $OPENCLAW_HOME${path.sep}workspace`);
         expect(output).toContain(
           `Agent dir: $OPENCLAW_HOME${path.sep}agents${path.sep}main${path.sep}agent`,

@@ -514,7 +514,7 @@ function renderIdentityGateways(onClose: SidebarIdentityMenuParams["onClose"]) {
         <span class="sidebar-customize-menu__text">${gateway.name}</span>
         <span slot="details" class="sidebar-gateway-details">
           ${gateway.isPrimary ? html`<span class="sidebar-gateway-primary">${t("nav.gateway.primaryTag")}</span>` : nothing}
-          ${index < 9 ? html`<kbd class="session-menu__shortcut" aria-hidden="true">⌘${index + 1}</kbd>` : nothing}
+          ${!selected && index < 9 ? html`<kbd class="session-menu__shortcut" aria-hidden="true">⌘${index + 1}</kbd>` : nothing}
           ${selected ? html`<span class="sidebar-gateway-check" aria-hidden="true">${icons.check}</span>` : nothing}
         </span>
       </wa-dropdown-item>`;

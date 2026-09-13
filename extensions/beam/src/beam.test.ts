@@ -763,15 +763,17 @@ describe("Beam session catalog", () => {
       receivedAt: 200,
     }));
 
-    await expect(
-      catalog.read({
-        agentId: "main",
-        hostId: "gateway",
-        threadId: "0123456789abcdef0123456789abcdef",
-        limit: 1,
-        cursor: transcript.nextCursor,
-      }),
-    ).rejects.toThrow("stale Beam transcript cursor");
+    for (const limit of [1, 2]) {
+      await expect(
+        catalog.read({
+          agentId: "main",
+          hostId: "gateway",
+          threadId: "0123456789abcdef0123456789abcdef",
+          limit,
+          cursor: transcript.nextCursor,
+        }),
+      ).rejects.toThrow("stale Beam transcript cursor");
+    }
     expect(catalog.openTerminal).toBeUndefined();
   });
 });

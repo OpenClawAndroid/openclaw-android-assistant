@@ -101,6 +101,7 @@ type ChatMediaSubscriber = {
 };
 
 type ManagedImageBlobUrl = {
+  blob: Blob;
   url: string;
   retainCount: number;
 };
@@ -352,6 +353,10 @@ export function readManagedImageBlobUrl(cacheKey: string): string | undefined {
   return cached.url;
 }
 
+export function readManagedImageBlob(cacheKey: string): Blob | undefined {
+  return managedImageBlobUrls.get(cacheKey)?.blob;
+}
+
 function trimManagedImageBlobUrlCache() {
   while (managedImageBlobUrls.size > CHAT_MEDIA_CACHE_MAX_ENTRIES) {
     const evictable = [...managedImageBlobUrls].find(([, cached]) => cached.retainCount === 0);
@@ -391,10 +396,15 @@ export function retainManagedImageBlobUrl(cacheKey: string): (() => void) | unde
   };
 }
 
-export function cacheManagedImageBlobUrl(cacheKey: string, blobUrl: string) {
+export function cacheManagedImageBlob(cacheKey: string, blob: Blob): string {
+  const blobUrl = URL.createObjectURL(blob);
   const previous = managedImageBlobUrls.get(cacheKey);
   managedImageBlobUrls.delete(cacheKey);
-  managedImageBlobUrls.set(cacheKey, { url: blobUrl, retainCount: previous?.retainCount ?? 0 });
+  managedImageBlobUrls.set(cacheKey, {
+    blob,
+    url: blobUrl,
+    retainCount: previous?.retainCount ?? 0,
+  });
   if (previous && previous.url !== blobUrl) {
     URL.revokeObjectURL(previous.url);
   }
@@ -402,6 +412,7 @@ export function cacheManagedImageBlobUrl(cacheKey: string, blobUrl: string) {
   // Blob URLs retain browser-managed image data. Keep recent previews reusable,
   // but protect an image while its lightbox still uses that object URL.
   trimManagedImageBlobUrlCache();
+  return blobUrl;
 }
 
 function appendImageBlock(images: ImageBlock[], block: ImageBlock) {

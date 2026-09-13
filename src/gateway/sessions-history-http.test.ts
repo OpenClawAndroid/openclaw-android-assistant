@@ -6,6 +6,8 @@ import path from "node:path";
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { makeAgentAssistantMessage } from "../agents/test-helpers/agent-message-fixtures.js";
+import { createZeroUsageFixture } from "../agents/test-helpers/usage-fixtures.js";
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
 import { replaceTranscriptEvents } from "../config/sessions/session-accessor.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
@@ -165,29 +167,13 @@ function makeTranscriptAssistantMessage(params: {
   provider?: string;
   model?: string;
 }): AssistantMessage {
-  return {
-    role: "assistant" as const,
+  return makeAgentAssistantMessage({
     content: params.content ?? [{ type: "text", text: params.text }],
-    api: "openai-responses",
     provider: params.provider ?? "openai",
     model: params.model ?? "gpt-5.5",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        total: 0,
-      },
-    },
-    stopReason: "stop" as const,
+    usage: createZeroUsageFixture(),
     timestamp: Date.now(),
-  };
+  });
 }
 
 function makeDeliveryMirrorAssistantMessage(

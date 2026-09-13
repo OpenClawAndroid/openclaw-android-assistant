@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAuthHealthSummary } from "../../../agents/auth-health.js";
+import { createApiKeyCredential } from "../../../agents/auth-profiles/credential-fixtures.test-support.js";
 import { testing as externalAuthTesting } from "../../../agents/auth-profiles/external-auth.test-support.js";
 import { resolveAuthProfileOrder } from "../../../agents/auth-profiles/order.js";
 import {
@@ -773,11 +774,7 @@ describe("repairStaleConfiguredAuthOrders", () => {
         {
           version: 1,
           profiles: {
-            "openai:main-seed": {
-              type: "api_key",
-              provider: "openai",
-              key: "api-key",
-            },
+            "openai:main-seed": createApiKeyCredential("openai", "api-key"),
           },
         },
         path.join(stateDir, "agents", "main", "agent"),

@@ -41,7 +41,11 @@ export type RestartRecoveryTerminalDeliveryEvidenceResult = {
 };
 
 export type RestartRecoveryTerminalDeliveryEvidence =
-  RestartRecoveryTerminalDeliveryEvidenceResult & { runId: string };
+  RestartRecoveryTerminalDeliveryEvidenceResult & {
+    runId: string;
+    /** Actual completion run; a resumed run can differ from its queued source. */
+    transcriptRunId?: string;
+  };
 
 /** Durable ownership and idempotency state for gateway restart recovery. */
 export type SessionRestartRecoveryState = {

@@ -189,9 +189,11 @@ describe("triageCommand", () => {
 
   it.each([
     { answer: "y", run: false, launches: true },
-    { answer: "\r", run: true, launches: true },
-    { answer: "timeout", run: false, launches: true },
-    { answer: "timeout", run: true, launches: true },
+    { answer: "y", run: true, launches: true },
+    { answer: "\r", run: false, launches: false },
+    { answer: "\r", run: true, launches: false },
+    { answer: "timeout", run: false, launches: false },
+    { answer: "timeout", run: true, launches: false },
     { answer: "n", run: false, launches: false },
     { answer: "\u0003", run: false, launches: false },
     { answer: "abort", run: false, launches: false },
@@ -234,7 +236,7 @@ describe("triageCommand", () => {
             `Agent: ${agent}. This will use your own account/tokens.`,
           );
           expect(mocks.confirm.mock.calls[0]?.[0].message).toContain(
-            `Open ${agent} to diagnose and repair the installation now? [Y/n]`,
+            `Open ${agent} to diagnose and repair the installation now? [y/N]`,
           );
           if (answer === "timeout") {
             await vi.advanceTimersByTimeAsync(29_999);
@@ -253,7 +255,10 @@ describe("triageCommand", () => {
           expect(mocks.spawn).toHaveBeenCalledTimes(launches && !run ? 1 : 0);
           expect(mocks.runUpdateRepairLoop).toHaveBeenCalledTimes(launches && run ? 1 : 0);
           expect(
-            runtime.log.mock.calls.flat().join("\n").includes("No answer; continuing with"),
+            runtime.log.mock.calls
+              .flat()
+              .join("\n")
+              .includes("No answer; skipping automatic repair."),
           ).toBe(answer === "timeout");
           expect(input.listenerCount("keypress")).toBe(0);
           expect(output.listenerCount("resize")).toBe(0);

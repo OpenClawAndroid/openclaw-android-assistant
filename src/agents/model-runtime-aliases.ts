@@ -182,8 +182,14 @@ function resolveConfiguredRuntime(params: {
   };
 }
 
+export type CliRuntimeAuthDirectories = {
+  agentDir: string;
+  inheritedAuthDir?: string;
+};
+
 type RuntimeAuthAliasParams = {
   cfg?: OpenClawConfig;
+  preparedAuthDirectories?: CliRuntimeAuthDirectories;
   metadataSnapshot?: ProviderAuthAliasLookupParams["metadataSnapshot"];
 };
 
@@ -236,8 +242,13 @@ function resolveCliRuntimeFromAuthProfile(
   // Login and auth-order commands own the credential store, not config metadata.
   // Reuse its published snapshot without reopening SQLite on a request path.
   const store = getPreparedRuntimeAuthProfileStoreSnapshotCore(
-    params.agentId ? resolveAgentDir(params.cfg ?? {}, params.agentId) : undefined,
-    resolveLegacyInheritedAuthDir(params.cfg ?? {}),
+    params.preparedAuthDirectories?.agentDir ??
+      (params.agentId ? resolveAgentDir(params.cfg ?? {}, params.agentId) : undefined),
+    resolveLegacyInheritedAuthDir(
+      params.cfg ?? {},
+      process.env,
+      params.preparedAuthDirectories?.inheritedAuthDir,
+    ),
   );
   if (params.authProfileId?.trim()) {
     const profileId = params.authProfileId.trim();

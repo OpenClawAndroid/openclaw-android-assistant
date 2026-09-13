@@ -5,6 +5,7 @@ import type { PrepareAssistantTranscriptMessage } from "../config/sessions/trans
  * Installs message-write hooks, input provenance handling, and pending tool-result flush behavior once per manager.
  */
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { prepareModelVisibleToolTextBlock } from "../logging/redact.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import {
   applyInputProvenanceToUserMessage,
@@ -30,10 +31,12 @@ import { projectAgentHarnessTranscriptMessageForDisplay } from "./harness/transc
 import type { AgentMessage } from "./runtime/index.js";
 import { installSessionToolResultGuard } from "./session-tool-result-guard.js";
 import type { SessionManager } from "./sessions/index.js";
+import { setSessionToolTextPreparer } from "./sessions/session-tool-result-redaction.js";
 import {
   copyCodeModeSourceAppend,
   type CodeModeSourceAppend,
 } from "./transcript-code-mode-source.js";
+import { resolveTranscriptLoggingConfig } from "./transcript-redact-text.js";
 import { redactTranscriptMessage } from "./transcript-redact.js";
 
 type GuardedSessionManager = SessionManager & {
@@ -275,7 +278,7 @@ export function guardSessionManager(
     missingToolResultText: opts?.missingToolResultText,
     allowedToolNames: opts?.allowedToolNames,
     beforeMessageWriteHook: beforeMessageWrite,
-    redactLoggingConfig: opts?.config?.logging,
+    config: opts?.config,
     maxToolResultChars:
       typeof opts?.contextWindowTokens === "number"
         ? resolveLiveToolResultMaxChars({
@@ -304,6 +307,9 @@ export function guardSessionManager(
     },
     onUserMessageBlocked: opts?.onUserMessageBlocked,
   });
+  setSessionToolTextPreparer(guardedSessionManager, (block) =>
+    prepareModelVisibleToolTextBlock(block, resolveTranscriptLoggingConfig(opts?.config)),
+  );
   guardedSessionManager.flushPendingToolResults = guard.flushPendingToolResults;
   guardedSessionManager.clearPendingToolResults = guard.clearPendingToolResults;
   guardedSessionManager.clearNextUserMessagePersistenceSuppression =

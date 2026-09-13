@@ -11,7 +11,6 @@ import {
   closeOpenClawAgentDatabasesForTest,
   isOpenClawAgentDatabaseOpen,
   openOpenClawAgentDatabase,
-  OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP,
   resolveOpenClawAgentSqlitePath,
   withAgentDatabaseMaintenanceLease,
   type OpenClawAgentDatabaseOptions,
@@ -34,6 +33,9 @@ import {
   waitForSessionTranscriptProjection,
 } from "./session-transcript-reconcile.js";
 import type { SessionTranscriptReconcileWorkerMessage } from "./session-transcript-reconcile.worker.js";
+import { transcriptMessage } from "./transcript-message.test-support.js";
+
+const EXPECTED_OPEN_HANDLE_CAP = 64;
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -97,7 +99,7 @@ function createCleanupFenceProbe() {
 }
 
 function openCachePressureAgents(): void {
-  for (let index = 0; index < OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP; index += 1) {
+  for (let index = 0; index < EXPECTED_OPEN_HANDLE_CAP; index += 1) {
     openOpenClawAgentDatabase({ agentId: `pressure-${index}` });
   }
 }
@@ -243,11 +245,10 @@ describe("session transcript reconcile worker lifecycle", () => {
       for (const target of [scope, secondScope]) {
         await persistSessionTranscriptTurn(target, {
           messages: [
-            {
-              eventId: `${target.sessionId}-seed`,
-              parentId: null,
-              message: { role: "user", content: target.sessionId },
-            },
+            transcriptMessage(`${target.sessionId}-seed`, null, {
+              role: "user",
+              content: target.sessionId,
+            }),
           ],
           touchSessionEntry: false,
         });

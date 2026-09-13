@@ -4,9 +4,10 @@ import {
 } from "../../config/config.js";
 import { resolveGatewayPort } from "../../config/paths.js";
 import { readPackageVersion } from "../../infra/package-json.js";
+import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
 import { readBuiltGatewayBuildId } from "../../infra/update-git-runtime.js";
 import {
-  inspectUpdateRunAbandonment,
+  inspectUpdateRepairDriverAdmission,
   isAbandonedUpdateRun,
   isUnacknowledgedAbandonedUpdateRun,
 } from "../../infra/update-run-activity.js";
@@ -14,6 +15,7 @@ import {
   acknowledgeAbandonedUpdateRun,
   listUpdateRuns,
   reconcileAbandonedUpdateRuns,
+  recordUpdateRunRepairContinuation,
 } from "../../infra/update-run-ledger.js";
 import type { UpdateRunRecord } from "../../infra/update-run-record.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -66,15 +68,6 @@ function inspectNewerRecoveryHistory(recoveryRuns: UpdateRunRecord[], env: NodeJ
   return { postCoreRuns, incomplete };
 }
 
-function assertNoActiveDriver(runs: UpdateRunRecord[]): void {
-  const active = runs.find((run) => !inspectUpdateRunAbandonment(run, { explicit: true }));
-  if (active) {
-    throw new Error(
-      `Update ${active.runId} is still in progress (${active.phase}); its driver is live or abandonment is not established. Wait for that update before running update repair.`,
-    );
-  }
-}
-
 /** Public repair can clear a stale ledger without entering post-core maintenance. */
 export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<void> {
   const timeoutMs = parseTimeoutMsOrExit(opts.timeout);
@@ -90,7 +83,20 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
     recoverOrphanedSidecars: false,
   });
   const activeRuns = listUpdateRuns({ active: true, limit: 100 }, options);
-  assertNoActiveDriver(activeRuns);
+  const inheritedRunId = env[UPDATE_RUN_ID_ENV];
+  const admission = inspectUpdateRepairDriverAdmission(activeRuns, inheritedRunId);
+  if (admission.kind === "conflict") {
+    throw new Error(admission.message);
+  }
+  if (admission.kind === "continuation") {
+    const continuation = admission.run;
+    recordUpdateRunRepairContinuation(continuation.runId, inheritedRunId, options);
+    await updateFinalizeCommand(
+      opts,
+      activeRuns.filter((run) => run.runId !== continuation.runId).map((run) => run.runId),
+    );
+    return;
+  }
   const lastRun = listUpdateRuns({ limit: 1 }, options)[0];
   const recoveryRuns = activeRuns.length
     ? activeRuns
@@ -155,7 +161,10 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
   // transaction revalidates each captured run's inactivity and driver identity.
   assertConfigWriteAllowedInCurrentMode({ env });
   const currentRuns = listUpdateRuns({ active: true, limit: 100 }, options);
-  assertNoActiveDriver(currentRuns);
+  const currentAdmission = inspectUpdateRepairDriverAdmission(currentRuns, inheritedRunId);
+  if (currentAdmission.kind === "conflict") {
+    throw new Error(currentAdmission.message);
+  }
   const currentHistory = inspectNewerRecoveryHistory(recoveryRuns, env);
   if (
     currentRuns.some(needsPostCoreRepair) ||

@@ -7,29 +7,22 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import type { ContextEngine } from "../../../context-engine/types.js";
 import { Agent, type AgentMessage } from "../../runtime/index.js";
+import { makeAgentAssistantMessage } from "../../test-helpers/agent-message-fixtures.js";
+import { makeProviderModelFixture } from "../../test-helpers/provider-model-fixture.js";
+import { createZeroUsageFixture } from "../../test-helpers/usage-fixtures.js";
 import { createToolResultPromptProjectionState } from "../session-prompt-state.js";
 import { installEmbeddedAttemptContextGuards } from "./attempt-setup.js";
 
-const model: Model = {
+const model: Model = makeProviderModelFixture({
   id: "synthetic-model",
   name: "Synthetic",
   api: "openai-responses",
   provider: "synthetic",
   baseUrl: "http://127.0.0.1:1",
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 8192,
   maxTokens: 1024,
-};
-const usage = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-};
+});
+const usage = createZeroUsageFixture();
 
 describe("context advancement through embedded attempt guards", () => {
   it.each(
@@ -48,16 +41,13 @@ describe("context advancement through embedded attempt guards", () => {
       const remembered: AgentMessage[] = [];
       const history: AgentMessage[] = [
         { role: "user", content: "Earlier accepted request.", timestamp: 0 },
-        {
-          role: "assistant",
+        makeAgentAssistantMessage({
           content: [{ type: "text", text: "Earlier accepted answer." }],
           api: model.api,
           provider: model.provider,
           model: model.id,
           usage,
-          timestamp: 0,
-          stopReason: "stop",
-        },
+        }),
       ];
       const storedPrefix: AgentMessage[] = [
         { role: "user", content: "Summary of accepted history.", timestamp: 0 },
@@ -136,8 +126,7 @@ describe("context advancement through embedded attempt guards", () => {
           if (stopReason === "aborted") {
             agent.abort();
           }
-          const message: AssistantMessage = {
-            role: "assistant",
+          const message: AssistantMessage = makeAgentAssistantMessage({
             api: model.api,
             provider: model.provider,
             model: model.id,
@@ -148,7 +137,7 @@ describe("context advancement through embedded attempt guards", () => {
                 ? [{ type: "toolCall", id: "read-1", name: "read_fixture", arguments: {} }]
                 : [{ type: "text", text: "done" }],
             stopReason,
-          };
+          });
           const stream = createAssistantMessageEventStream();
           stream.push(
             stopReason === "error" || stopReason === "aborted"

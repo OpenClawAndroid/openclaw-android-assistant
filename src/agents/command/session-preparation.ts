@@ -68,7 +68,7 @@ export async function prepareEmbeddedSessionState(params: {
     sessionKey: params.sessionKey,
     agentId: params.sessionAgentId,
   });
-  const skillSnapshotState = resolveReusableWorkspaceSkillSnapshot({
+  const skillSnapshotState = await resolveReusableWorkspaceSkillSnapshot({
     workspaceDir: params.workspaceDir,
     executionWorkspaceDir: params.executionWorkspaceDir,
     config: params.cfg,
@@ -76,12 +76,13 @@ export async function prepareEmbeddedSessionState(params: {
     existingSnapshot: params.isNewSession ? undefined : currentSkillsSnapshot,
     librarySelections: sessionEntry?.skillLibrarySelections,
     skillFilter,
-    eligibility: {
+    assertCurrent: () => assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration),
+    resolveEligibility: () => ({
       nodeSkills: nodeSkillsEligibility,
       remote: getRemoteSkillEligibility({
         advertiseExecNode: nodeSkillsEligibility.canExec,
       }),
-    },
+    }),
     // A one-shot caller has no later turn to consume invalidations; persistent
     // watchers would keep its process alive after the reply has completed.
     watch: params.watchSkills && params.opts.oneShotCliRun !== true,

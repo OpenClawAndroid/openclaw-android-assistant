@@ -1,6 +1,8 @@
 // Covers package dist inventory collection and validation.
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { __setFsSafeTestHooksForTest } from "@openclaw/fs-safe/test-hooks";
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,11 +14,86 @@ import {
 import { PACKAGE_LIFECYCLE_PENDING_RELATIVE_PATH } from "../../scripts/lib/package-lifecycle-marker.mjs";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 import {
+  collectPackageDistContentInventory,
   collectPackageDistInventory,
   readPackageDistInventoryIfPresent,
 } from "./package-dist-inventory.js";
 
 describe("package dist inventory", () => {
+  it("retains binary digests, byte counts, modes, and allowed package hardlinks", async () => {
+    await withTestDir({ prefix: "openclaw-dist-content-inventory-" }, async (packageRoot) => {
+      const distDir = path.join(packageRoot, "dist");
+      const binaryPath = path.join(distDir, "binary.js");
+      const binary = Buffer.alloc(128 * 1024 + 7, 0xa5);
+      binary[0] = 0;
+      binary[binary.length - 1] = 0xff;
+      await fs.mkdir(distDir);
+      await fs.writeFile(binaryPath, binary);
+      await fs.chmod(binaryPath, 0o751);
+      await fs.link(binaryPath, path.join(distDir, "linked.js"));
+      await fs.writeFile(path.join(distDir, "empty.js"), "", { mode: 0o600 });
+      const binaryEntry = {
+        sha256: createHash("sha256").update(binary).digest("hex"),
+        size: binary.byteLength,
+        mode: process.platform === "win32" ? (await fs.stat(binaryPath)).mode & 0o777 : 0o751,
+      };
+      await expect(collectPackageDistContentInventory(packageRoot)).resolves.toEqual([
+        { path: "dist/binary.js", ...binaryEntry },
+        {
+          path: "dist/empty.js",
+          sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          size: 0,
+          mode:
+            process.platform === "win32"
+              ? (await fs.stat(path.join(distDir, "empty.js"))).mode & 0o777
+              : 0o600,
+        },
+        { path: "dist/linked.js", ...binaryEntry },
+      ]);
+    });
+  });
+
+  it("rejects symlinks in a supplied content inventory", async () => {
+    await withTestDir({ prefix: "openclaw-dist-content-link-" }, async (packageRoot) => {
+      await fs.mkdir(path.join(packageRoot, "dist"));
+      await fs.writeFile(path.join(packageRoot, "outside.js"), "outside");
+      await fs.symlink("../outside.js", path.join(packageRoot, "dist", "entry.js"));
+      await expect(
+        collectPackageDistContentInventory(packageRoot, ["dist/entry.js"]),
+      ).rejects.toMatchObject({ code: "symlink" });
+    });
+  });
+
+  it("hashes the complete file when it outgrows the admitted small-file buffer", async () => {
+    await withTestDir({ prefix: "openclaw-dist-content-growth-" }, async (packageRoot) => {
+      const filePath = path.join(packageRoot, "dist", "growing.js");
+      const grown = Buffer.alloc(128 * 1024 + 7, 0x71);
+      await fs.mkdir(path.dirname(filePath));
+      await fs.writeFile(filePath, "small");
+      let replaced = false;
+      __setFsSafeTestHooksForTest({
+        afterOpenedPathIdentityCheck: async (openedPath) => {
+          if (!replaced && path.basename(openedPath) === "growing.js") {
+            replaced = true;
+            await fs.writeFile(filePath, grown);
+          }
+        },
+      });
+      try {
+        await expect(collectPackageDistContentInventory(packageRoot)).resolves.toEqual([
+          expect.objectContaining({
+            path: "dist/growing.js",
+            sha256: createHash("sha256").update(grown).digest("hex"),
+            size: grown.byteLength,
+          }),
+        ]);
+        expect(replaced).toBe(true);
+      } finally {
+        __setFsSafeTestHooksForTest();
+      }
+    });
+  });
+
   it("tracks missing and stale dist files", async () => {
     await withTestDir({ prefix: "openclaw-dist-inventory-" }, async (packageRoot) => {
       const currentFile = path.join(packageRoot, "dist", "current-BR6xv1a1.js");

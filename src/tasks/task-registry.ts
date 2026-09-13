@@ -9,7 +9,7 @@ import {
   setTaskRegistryDeliveryRuntimeForTests,
 } from "./task-registry-query.js";
 
-export { isParentFlowLinkError } from "./task-registry-common.js";
+export { isParentFlowLinkError } from "./task-registry-flow-link.js";
 export { assertTaskCancellationReadyById, cancelTaskById } from "./task-registry-cancel.js";
 export { maybeDeliverTaskTerminalUpdate } from "./task-registry-delivery.js";
 export {

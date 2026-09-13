@@ -531,57 +531,8 @@ describe("Control UI E2E resource ownership", () => {
       }
       expect(result.files.filter((entry) => entry.phase === 1)).toEqual([
         {
-          file: "ui/src/e2e/chat-agent-avatar.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/chat-composer-websearch-kill-switch.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/chat-flow.catalog-bootstrap.e2e.test.ts",
-          project: "ui-e2e-serial",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/chat-stop-finished-run.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/chat-thinking-metadata.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/command-palette-catalog.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
           file: "ui/src/e2e/desktop-resize.real-gateway.e2e.test.ts",
           project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/device-alias-rename.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial",
           phase: 1,
           workers: 1,
           fileParallelism: false,
@@ -608,43 +559,15 @@ describe("Control UI E2E resource ownership", () => {
           fileParallelism: false,
         },
         {
-          file: "ui/src/e2e/model-catalog-partial-refresh.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/model-picker-search.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial-standalone",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
-          file: "ui/src/e2e/profile-page.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
-        {
           file: "ui/src/e2e/quota-reset-status.real-gateway.e2e.test.ts",
           project: "ui-e2e-serial-standalone",
           phase: 1,
           workers: 1,
           fileParallelism: false,
         },
-        {
-          file: "ui/src/e2e/worker-initial-setup.real-gateway.e2e.test.ts",
-          project: "ui-e2e-serial",
-          phase: 1,
-          workers: 1,
-          fileParallelism: false,
-        },
       ]);
       const parallel = result.files.filter((entry) => entry.phase === 2);
-      expect(parallel).toHaveLength(13);
+      expect(parallel).toHaveLength(24);
       expect(parallel.every((entry) => entry.fileParallelism)).toBe(true);
       expect(parallel.every((entry) => entry.workers === result.rootWorkers)).toBe(true);
       for (const entry of parallel) {

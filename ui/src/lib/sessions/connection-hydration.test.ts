@@ -82,7 +82,7 @@ describe("session connection hydration", () => {
         },
       ],
     };
-    const bootstrap = createDeferred<{ subscribed: true; list: SessionsListResult }>();
+    const bootstrap = createDeferred<SessionsListResult>();
     const queuedResult: SessionsListResult = {
       ...sessionsResult([], 1),
       count: 1,
@@ -91,10 +91,10 @@ describe("session connection hydration", () => {
     const queuedList = createDeferred<SessionsListResult>();
     const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
       if (method === "sessions.subscribe") {
-        return await bootstrap.promise;
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
-        return params?.search === "queued" ? await queuedList.promise : sessionsResult([], 1);
+        return params?.search === "queued" ? queuedList.promise : bootstrap.promise;
       }
       throw new Error(`Unexpected request: ${method}`);
     });
@@ -124,24 +124,28 @@ describe("session connection hydration", () => {
 
     await waitForFast(() =>
       expect(request).toHaveBeenCalledWith(
-        "sessions.subscribe",
+        "sessions.list",
         expect.objectContaining({
           agentId: "main",
           ownerFirst: true,
           limit: SIDEBAR_SESSION_ROSTER_LIMIT,
         }),
-        { timeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS },
       ),
     );
-    expect(request.mock.calls.filter(([method]) => method === "sessions.list")).toHaveLength(0);
+    expect(request).toHaveBeenCalledWith(
+      "sessions.subscribe",
+      {},
+      { timeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS },
+    );
+    expect(request.mock.calls.filter(([method]) => method === "sessions.list")).toHaveLength(1);
     expect(sessions.state.result).toBeNull();
     const queuedRefresh = sessions.refresh({ agentId: "other", search: "queued", force: true });
     snapshot = { ...snapshot, selfUser: { id: "collaborator", name: "Collaborator" } };
     gatewayListener?.(snapshot);
 
-    bootstrap.resolve({ subscribed: true, list: roster });
+    bootstrap.resolve(roster);
     await waitForFast(() =>
-      expect(request.mock.calls.filter(([method]) => method === "sessions.list")).toHaveLength(1),
+      expect(request.mock.calls.filter(([method]) => method === "sessions.list")).toHaveLength(2),
     );
     expect(sessions.state.result).toBeNull();
     expect(request.mock.calls.at(-1)?.[1]).toEqual(
@@ -490,14 +494,17 @@ describe("session connection hydration", () => {
 
     try {
       connect();
-      expect(sent).toEqual([{ id: "1:request", method: "sessions.subscribe" }]);
-
-      await vi.advanceTimersByTimeAsync(DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS);
-      expect(sent).toContainEqual({ id: "2:request", method: "sessions.list" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sent).toEqual([
+        { id: "1:request", method: "sessions.subscribe" },
+        { id: "2:request", method: "sessions.list" },
+      ]);
       respond("2:request", initialResult);
       await vi.advanceTimersByTimeAsync(0);
       expect(sessions.state.result).toEqual(initialResult);
 
+      await vi.advanceTimersByTimeAsync(DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS);
+      expect(sessions.state.error).not.toBeNull();
       await vi.advanceTimersByTimeAsync(500);
       expect(sent).toContainEqual({ id: "3:request", method: "sessions.subscribe" });
 
@@ -637,6 +644,9 @@ describe("session connection hydration", () => {
           retryable: true,
           retryAfterMs: 100,
         });
+      }
+      if (method === "sessions.list") {
+        return sessionsResult([], 1);
       }
       throw new Error(`Unexpected request: ${method}`);
     });
@@ -899,7 +909,7 @@ describe("session connection hydration", () => {
 
       expect(sessions.state.error).toBeNull();
       expect(subscriptionCalls).toBe(2);
-      expect(request.mock.calls.filter(([method]) => method === "sessions.list")).toHaveLength(1);
+      expect(request.mock.calls.filter(([method]) => method === "sessions.list")).toHaveLength(2);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       settleRetiredSubscription({ subscribed: false });

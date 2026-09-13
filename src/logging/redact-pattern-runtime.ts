@@ -23,7 +23,7 @@ export function readRedactMatch(args: unknown[]) {
   return { match, groups, input, offset };
 }
 
-export type RedactMatch = ReturnType<typeof readRedactMatch>;
+export type RedactMatch = ReturnType<typeof readRedactMatch> & { replacement?: string };
 
 /**
  * Programmatic synchronous rule; never serialized into logging.redactPatterns.
@@ -31,6 +31,7 @@ export type RedactMatch = ReturnType<typeof readRedactMatch>;
  * matches in order without overlap, with UTF-16 offsets and that same input.
  * groups uses "" for unmatched captures; the last nonempty capture selects the
  * secret's last occurrence in match, or an empty array selects the whole match.
+ * replacement carries a fixed policy mask; absent values use the caller's token hints.
  */
 type RedactMatcher = {
   readonly source: string;
@@ -38,6 +39,8 @@ type RedactMatcher = {
 };
 export type ResolvedRedactPattern = RegExp | RedactMatcher;
 export type RedactPattern = string | ResolvedRedactPattern;
+
+const globalPatterns = new WeakMap<RegExp, RegExp>();
 
 export function* iterateRedactMatches(
   text: string,
@@ -47,8 +50,34 @@ export function* iterateRedactMatches(
     yield* pattern.exec(text);
     return;
   }
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
-  for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
+  let regex = pattern;
+  if (!pattern.global) {
+    const cached = globalPatterns.get(pattern);
+    regex = cached ?? new RegExp(pattern.source, `${pattern.flags}g`);
+    if (!cached) {
+      globalPatterns.set(pattern, regex);
+    }
+  }
+  const unicode = regex.unicode || regex.flags.includes("v");
+  let cursor = 0;
+  while (cursor <= text.length) {
+    const previousIndex = regex.lastIndex;
+    let match: RegExpExecArray | null;
+    // A yielded match can re-enter this scanner with the same compiled expression.
+    try {
+      regex.lastIndex = cursor;
+      match = regex.exec(text);
+    } finally {
+      regex.lastIndex = previousIndex;
+    }
+    if (!match) {
+      return;
+    }
+    cursor = match.index + match[0].length;
+    if (!match[0]) {
+      const codePoint = text.codePointAt(cursor);
+      cursor += unicode && codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+    }
     yield {
       match: match[0],
       groups: match.slice(1).map((group) => group ?? ""),

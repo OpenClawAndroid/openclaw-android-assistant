@@ -32,6 +32,38 @@ describe("runCommand", () => {
     });
   });
 
+  it.each(["before", "after"] as const)(
+    "checks node launch policy %s native execution",
+    async (timing) => {
+      let allowed = timing === "after";
+      const pending = testing.runCommand(
+        [
+          process.execPath,
+          "-e",
+          "process.stdin.resume(); process.stdin.once('end', () => process.stdout.write('completed'))",
+        ],
+        undefined,
+        { PATH: process.env.PATH ?? "" },
+        5_000,
+        undefined,
+        () => {
+          if (!allowed) {
+            throw new Error("exec approval changed before execution");
+          }
+        },
+      );
+      // The canonical node runner spawns synchronously before returning its promise.
+      allowed = false;
+      if (timing === "before") {
+        await expect(pending).rejects.toThrow("exec approval changed before execution");
+      } else {
+        const result = await pending;
+        expect(result.success).toBe(true);
+        expect(result.stdout).toBe("completed");
+      }
+    },
+  );
+
   it("closes stdin for commands that wait for EOF", async () => {
     await expect(
       testing.runCommand(

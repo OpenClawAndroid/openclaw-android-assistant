@@ -2359,6 +2359,50 @@ describe("Windows startup fallback", () => {
     });
   });
 
+  it.each(["termination", "activation"] as const)(
+    "refuses Startup fallback restart after losing continuation authority before %s",
+    async (stage) => {
+      await withWindowsEnv("openclaw-win-startup-", async ({ env }) => {
+        addStartupFallbackMissingResponses();
+        await writeGatewayScript(env);
+        await writeStartupFallbackEntry(env);
+        let current = true;
+        inspectPortUsageMock.mockImplementation(async () => {
+          current = false;
+          return {
+            port: 18789,
+            status: stage === "termination" ? "busy" : "free",
+            listeners:
+              stage === "termination"
+                ? [
+                    {
+                      pid: 5151,
+                      commandLine: 'node "C:\\openclaw\\dist\\index.js" gateway --port 18789',
+                    },
+                  ]
+                : [],
+            hints: [],
+          };
+        });
+
+        await expect(
+          restartScheduledTask({
+            env,
+            stdout: new PassThrough(),
+            assertCurrent: () => {
+              if (!current) {
+                throw new Error("repair continuation retired");
+              }
+            },
+          }),
+        ).rejects.toThrow("repair continuation retired");
+
+        expect(killProcessTreeMock).not.toHaveBeenCalled();
+        expect(spawn).not.toHaveBeenCalled();
+      });
+    },
+  );
+
   it("audits Startup fallback termination when relaunch fails", async () => {
     useListenerBackedFallbackOwnership();
     await withWindowsEnv("openclaw-win-startup-", async ({ env }) => {

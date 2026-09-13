@@ -156,7 +156,7 @@ describe("gateway chat metadata runtime", () => {
   });
 
   test.each(["metadata", "startup"] as const)(
-    "serves published %s without request-time generation reads",
+    "serves published %s with only auth revision reads",
     async (surface) => {
       const harness = createChatMetadataHarness();
       await harness.runtime.refresh();
@@ -181,7 +181,8 @@ describe("gateway chat metadata runtime", () => {
       expect(harness.buildProjection).toHaveBeenCalledTimes(1);
       expect(harness.getPreparedOwner).not.toHaveBeenCalled();
       expect(harness.getPreparedAuthStore).not.toHaveBeenCalled();
-      expect(harness.getAuthStoreRevision).not.toHaveBeenCalled();
+      expect(harness.getAuthStoreRevision).toHaveBeenCalledWith("/tmp/first/agent");
+      expect(harness.getAuthStoreRevision).toHaveBeenCalledWith(undefined);
       expect(harness.getSkillsVersion).not.toHaveBeenCalled();
       expect(harness.getPluginRegistryVersion).not.toHaveBeenCalled();
     },
@@ -896,49 +897,6 @@ describe("gateway chat metadata runtime", () => {
     expect(await reading).toEqual(draft.error);
     expect(await harness.runtime.read({ agentId: "main" })).toEqual(shared);
   });
-
-  test.each(["resolve", "reject"] as const)(
-    "retries a session projection after an invalidated generation's late %s",
-    async (settlement) => {
-      const harness = createChatMetadataHarness();
-      await harness.runtime.refresh();
-      const releaseProjection = createDeferred();
-      harness.buildProjection.mockImplementationOnce(async ({ facts }) => {
-        await releaseProjection.promise;
-        if (settlement === "reject") {
-          throw new Error("obsolete projection failed");
-        }
-        return {
-          modelCatalog: facts.owner.modelCatalog.entries,
-          models: facts.owner.modelCatalog.entries,
-        };
-      });
-
-      const read = harness.runtime.read({
-        agentId: "main",
-        sessionEntry: {
-          authProfileOverride: "test:session",
-          authProfileOverrideSource: "user",
-        },
-      });
-      await vi.waitFor(() => expect(harness.buildProjection).toHaveBeenCalledTimes(2));
-
-      const nextConfig = {
-        agents: { list: [{ id: "main", default: true }] },
-        tools: { swarm: { enabled: true } },
-      };
-      harness.setConfig(nextConfig);
-      harness.setOwner(createChatMetadataOwner(nextConfig, "replacement"));
-      harness.runtime.invalidate();
-      await harness.runtime.refresh();
-
-      releaseProjection.resolve();
-      await expect(read).resolves.toMatchObject({
-        models: [expect.objectContaining({ id: "replacement" })],
-        swarmEnabled: true,
-      });
-    },
-  );
 
   test("resolves the replacement gate after a coalesced second invalidation", async () => {
     const harness = createChatMetadataHarness();

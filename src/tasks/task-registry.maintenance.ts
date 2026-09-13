@@ -63,6 +63,7 @@ import {
 import { readTaskBackingInstance } from "./task-backing-authority.js";
 import { runTaskFlowRegistryMaintenance } from "./task-flow-registry.maintenance.js";
 import { getTaskRegistryMaintenanceSnapshot } from "./task-registry-maintenance-snapshot.js";
+import { withTaskRegistryMutation } from "./task-registry-state.js";
 import {
   configureTaskAuditTaskProvider,
   listTaskAuditFindings,
@@ -1145,39 +1146,32 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
         task: current,
         now,
       });
-      const freshAfterHook = taskRegistryMaintenanceRuntime.getTaskById(current.taskId);
-      if (!freshAfterHook) {
-        processed += 1;
-        if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-          await yieldToEventLoop();
-        }
-        continue;
-      }
-      // Recovery yields to runtime owners. Recheck every liveness source from a
-      // fresh snapshot when recovery could have changed persisted backing.
-      const lostContext =
-        recoveryHookRegistered || hasTaskLostDecisionInputChanged(current, freshAfterHook)
-          ? createBackingSessionLookupContext()
-          : backingSessionContext;
-      if (!shouldMarkLost(freshAfterHook, now, lostContext)) {
-        processed += 1;
-        if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-          await yieldToEventLoop();
-        }
-        continue;
-      }
-      if (recovery.recovered) {
-        recovered += 1;
-        processed += 1;
-        if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-          await yieldToEventLoop();
-        }
-        continue;
-      }
-      const next = markTaskLost(freshAfterHook, now, lostContext);
-      if (next.status === "lost") {
-        reconciled += 1;
-      }
+      withTaskRegistryMutation(
+        () => {
+          const freshAfterHook = taskRegistryMaintenanceRuntime.getTaskById(current.taskId);
+          if (!freshAfterHook) {
+            return;
+          }
+          // Recovery yields to runtime owners. Recheck persisted backing while
+          // retaining writer custody through the decision and lost-task update.
+          const lostContext =
+            recoveryHookRegistered || hasTaskLostDecisionInputChanged(current, freshAfterHook)
+              ? createBackingSessionLookupContext()
+              : backingSessionContext;
+          if (!shouldMarkLost(freshAfterHook, now, lostContext)) {
+            return;
+          }
+          if (recovery.recovered) {
+            recovered += 1;
+            return;
+          }
+          const next = markTaskLost(freshAfterHook, now, lostContext);
+          if (next.status === "lost") {
+            reconciled += 1;
+          }
+        },
+        () => undefined,
+      );
       processed += 1;
       if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
         await yieldToEventLoop();

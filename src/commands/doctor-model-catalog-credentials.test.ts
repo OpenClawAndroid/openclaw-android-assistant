@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createApiKeyCredential } from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import {
   loadPersistedAuthProfileStore,
   loadPersistedSharedAuthProfileStore,
@@ -205,11 +206,7 @@ describe("doctor model catalog credential migration", () => {
       params.prompter = {
         ...createDoctorPrompter({ runtime: params.runtime, options: {} }),
         confirmAutoFix: async () => {
-          store.profiles["custom:default"] = {
-            type: "api_key",
-            provider: "custom",
-            key: "replacement-secret",
-          };
+          store.profiles["custom:default"] = createApiKeyCredential("custom", "replacement-secret");
           saveAuthProfileStore(store, agentDir);
           return true;
         },
@@ -251,11 +248,7 @@ describe("doctor model catalog credential migration", () => {
       {
         version: 1,
         profiles: {
-          "custom:default": {
-            type: "api_key",
-            provider: "custom",
-            key: "existing-secret",
-          },
+          "custom:default": createApiKeyCredential("custom", "existing-secret"),
         },
         order: { custom: ["custom:default"] },
       },

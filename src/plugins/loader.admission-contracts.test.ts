@@ -234,15 +234,13 @@ it.each(["cold", "cached-discovery", "retained-discovery"] as const)(
     useNoBundledPlugins();
     const plugin = writePlugin({
       id: "runtime-intent",
-      body: `module.exports = { id: "runtime-intent", register(api) {
-        if (api.registrationMode !== "full") return;
-        api.registerContextEngine("runtime-intent", () => ({
-          info: { id: "runtime-intent", name: "Runtime Intent" },
-          ingest: async () => ({ ingested: true }),
-          assemble: async () => ({ messages: [], estimatedTokens: 0, systemPromptAddition: "runtime-ready" }),
-          compact: async () => ({ ok: true, compacted: false }),
-        }));
-      } };`,
+      registration: `if (api.registrationMode !== "full") return;
+      api.registerContextEngine("runtime-intent", () => ({
+        info: { id: "runtime-intent", name: "Runtime Intent" },
+        ingest: async () => ({ ingested: true }),
+        assemble: async () => ({ messages: [], estimatedTokens: 0, systemPromptAddition: "runtime-ready" }),
+        compact: async () => ({ ok: true, compacted: false }),
+      }));`,
     });
     const config: OpenClawConfig = {
       plugins: {

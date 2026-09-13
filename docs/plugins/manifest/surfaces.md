@@ -134,6 +134,22 @@ restore. The backup planner reads this metadata without loading plugin runtime
 or modifying plugin files. Only effectively activated, loadable plugins
 contribute resources; disabled or unloadable plugins cannot exclude data.
 
+An `include` declaration also asks OpenClaw to manage SQLite backups for that
+resource. SQLite files at or below the declared path receive verified online
+snapshots and offline compaction, with their committed write-ahead log (WAL)
+content included and sidecars omitted. Creation refuses a declared database
+when its required SQLite capabilities are unavailable. Declare every hardlink
+alias within these resources so backup can identify its journal owner.
+
+Other plugin SQLite files remain opaque byte copies, including their sidecars,
+unless they alias a canonical OpenClaw database. Backup reports each opaque
+SQLite file and sidecar in `warnings`; verification and restore preserve its bytes
+without applying SQLite validation or compaction. Merely placing a database
+under the state or agent directory does not opt it into managed snapshots.
+Undeclared SQLite symbolic links that exceed the link-resolution limit (`ELOOP`),
+including loops, are skipped with filename warnings. Declared database links still
+fail closed if they cannot be captured safely.
+
 ```json
 {
   "backupResources": [

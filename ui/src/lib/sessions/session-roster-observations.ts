@@ -34,7 +34,7 @@ type RegisteredSessionRow = {
     retired: boolean;
   };
   listener: (row: GatewaySessionRow | null) => void;
-  onInvalidate?: () => void;
+  onInvalidate?: (reason?: string) => void;
   isValid: (sessionId: string) => boolean;
   decorate: (row: GatewaySessionRow) => GatewaySessionRow | null;
 };
@@ -42,7 +42,7 @@ type RegisteredSessionRow = {
 type RowProjection = (entry: ObservedSessionRow) => {
   row: GatewaySessionRow | null;
   invalidateRevision?: number;
-  readRevision?: number;
+  observationRevision?: number;
 };
 
 type SessionRowAdmission = { row: GatewaySessionRow; revision: number };
@@ -227,7 +227,10 @@ export function createSessionRosterObservations(
     projectRow?: RowProjection,
     admitRead = false,
     admittedRows: readonly SessionRowAdmission[] = [],
-  ): { changed: boolean; notify: (publishedRows?: readonly SessionRowAdmission[]) => void } => {
+  ): {
+    changed: boolean;
+    notify: (publishedRows?: readonly SessionRowAdmission[], reason?: string) => void;
+  } => {
     if (!scope || !host.connection.isCurrent(scope)) {
       return { changed: false, notify: () => {} };
     }
@@ -274,7 +277,7 @@ export function createSessionRosterObservations(
           acceptsRow(
             entry,
             projected.row,
-            projected.readRevision ?? rowRevision(projected.row),
+            projected.observationRevision ?? rowRevision(projected.row),
             admitRead,
           ))
           ? projected.row
@@ -331,7 +334,7 @@ export function createSessionRosterObservations(
         changed = true;
       }
     }
-    const notify = (publishedRows: readonly SessionRowAdmission[] = []) => {
+    const notify = (publishedRows: readonly SessionRowAdmission[] = [], reason?: string) => {
       if (!host.connection.isCurrent(scope)) {
         return;
       }
@@ -369,7 +372,7 @@ export function createSessionRosterObservations(
             entry.snapshot === snapshot &&
             snapshot.invalidatedRevision > previous.invalidatedRevision
           ) {
-            entry.onInvalidate?.();
+            entry.onInvalidate?.(reason);
           }
         }
       }
@@ -406,7 +409,9 @@ export function createSessionRosterObservations(
               ? mergeRow(entry.row, project(matching, agentId), entry.target.agentId)
               : project(matching, agentId)
             : entry.row,
-          ...(!entry.row && matching ? { readRevision: readRevisions.get(matching) ?? 0 } : {}),
+          ...(!entry.row && matching
+            ? { observationRevision: readRevisions.get(matching) ?? 0 }
+            : {}),
         };
       },
       true,
@@ -470,7 +475,24 @@ export function createSessionRosterObservations(
     inheritRow,
     currentRow,
     mergeRows: merge,
-    publishedRow(matches: (row: GatewaySessionRow, agentId?: string | null) => boolean) {
+    publishedRow(
+      this: void,
+      matches: (row: GatewaySessionRow, agentId?: string | null) => boolean,
+    ) {
+      const state = host.readState();
+      // Primary rows own shared presentation before managed and descriptor-only rows.
+      const primary = state.result?.sessions.find((row) => matches(row, state.agentId));
+      if (primary) {
+        return primary;
+      }
+      for (const entry of lists.values()) {
+        const row = entry.snapshot.result?.sessions.find((candidate) =>
+          matches(candidate, entry.scope.agentId),
+        );
+        if (row) {
+          return row;
+        }
+      }
       for (const entry of registeredRows) {
         const row = registeredRow(entry);
         if (row && matches(row, entry.target.agentId)) {
@@ -550,6 +572,7 @@ export function createSessionRosterObservations(
           });
           return {
             row: entry.row && matches ? reconcileRow(entry.target.agentId)(entry.row) : entry.row,
+            observationRevision: event.revision,
             ...(!entry.row && matches ? { invalidateRevision: event.revision } : {}),
           };
         },

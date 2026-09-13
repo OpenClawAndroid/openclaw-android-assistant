@@ -8,12 +8,10 @@ import { createTestRuntime } from "./test-runtime-config-helpers.js";
 const createBackupArchiveMock = vi.hoisted(() => vi.fn());
 const backupVerifyCommandMock = vi.hoisted(() => vi.fn());
 const writeRuntimeJsonMock = vi.hoisted(() => vi.fn());
-const formatBackupCreateSummaryMock = vi.hoisted(() => vi.fn(() => ["backup ok"]));
 const recordBackupRunOutcomeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../infra/backup-create.js", () => ({
   createBackupArchive: createBackupArchiveMock,
-  formatBackupCreateSummary: formatBackupCreateSummaryMock,
 }));
 
 vi.mock("./backup-verify.js", () => ({
@@ -45,8 +43,6 @@ describe("backupCreateCommand verify wrapper", () => {
     createBackupArchiveMock.mockReset();
     backupVerifyCommandMock.mockReset();
     writeRuntimeJsonMock.mockReset();
-    formatBackupCreateSummaryMock.mockReset();
-    formatBackupCreateSummaryMock.mockReturnValue(["backup ok"]);
     recordBackupRunOutcomeMock.mockReset();
   });
 
@@ -59,6 +55,8 @@ describe("backupCreateCommand verify wrapper", () => {
       assetCount: 1,
       entryCount: 2,
       assets: [],
+      skipped: [],
+      skippedVolatileCount: 0,
       verified: false,
       dryRun: false,
       includeWorkspace: false,
@@ -81,7 +79,9 @@ describe("backupCreateCommand verify wrapper", () => {
     expect(runtime.log).not.toHaveBeenCalled();
     recording.resolve();
     const result = await pending;
-    expect(runtime.log).toHaveBeenCalledWith("backup ok");
+    expect(runtime.log).toHaveBeenCalledWith(
+      expect.stringContaining("Archive verification: passed"),
+    );
 
     expect(result.verified).toBe(true);
     expect(backupVerifyCommandMock).toHaveBeenCalledOnce();

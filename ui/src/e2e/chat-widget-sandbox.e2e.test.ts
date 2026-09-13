@@ -348,15 +348,24 @@ suite.define(() => {
             expect(await boardNote.inputValue()).toBe("Dashboard state survives swaps");
           }
           const originalHeight = (await outer.boundingBox())?.height ?? 0;
-          await inline.getByRole("button", { name: "Toggle details" }).click();
+          await clickBoardWidgetControl(
+            page,
+            inline.getByRole("button", { name: "Toggle details" }),
+          );
           await expect
             .poll(async () => (await outer.boundingBox())?.height ?? 0)
             .toBeGreaterThan(originalHeight + 400);
           expect(await retainedFrame?.evaluate((frame) => frame.isConnected)).toBe(true);
           expect(await note.inputValue()).toBe("State survives rerenders");
-          await inline.getByRole("button", { name: "Toggle details" }).click();
+          await clickBoardWidgetControl(
+            page,
+            inline.getByRole("button", { name: "Toggle details" }),
+          );
 
-          await inline.getByRole("button", { name: "Refresh via chat" }).click();
+          await clickBoardWidgetControl(
+            page,
+            inline.getByRole("button", { name: "Refresh via chat" }),
+          );
           const sent = asRecord((await gateway.waitForRequest("chat.send")).params);
           expect(sent).toMatchObject({
             sessionKey,

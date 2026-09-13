@@ -23,6 +23,7 @@ import {
   type WindowsProcessArgsResult,
   type WindowsListeningPidsResult,
 } from "./windows-port-pids.js";
+import { readWindowsProcessAncestorsSync } from "./windows-process-start.js";
 
 // macOS lsof needs seconds on hosts with many mounted volumes; keep that
 // allowance separate so process and ancestor probes retain their tighter bound.
@@ -152,7 +153,7 @@ function readParentPidFromPs(pid: number, spawnTimeoutMs: number): number | null
  *
  * The walk is best-effort. `process.ppid` is provided by Node via a direct
  * syscall and is always available; transitive ancestors are read on Linux via
- * `/proc` and on macOS via `ps`. Windows stops at ppid.
+ * `/proc`, on macOS via `ps`, and on Windows from one process snapshot.
  *
  * The function exposes no runtime hooks. Tests exercise the real walk by
  * stubbing `process.ppid` (and, on Linux, by mocking `node:fs` to inject
@@ -161,13 +162,28 @@ function readParentPidFromPs(pid: number, spawnTimeoutMs: number): number | null
  */
 export function getSelfAndAncestorPidsSync(
   spawnTimeoutMs = PROCESS_INSPECTION_TIMEOUT_MS,
+  options: { requireVerifiedParent?: boolean } = {},
 ): Set<number> {
   const pids = new Set<number>([process.pid]);
   const immediateParent = process.ppid;
   if (!Number.isFinite(immediateParent) || immediateParent <= 0) {
     return pids;
   }
-  pids.add(immediateParent);
+  // Windows retains an inherited PID after parent exit. Cleanup can exclude it
+  // conservatively, but callers granting authority need the creation-ordered snapshot.
+  if (process.platform !== "win32" || !options.requireVerifiedParent) {
+    pids.add(immediateParent);
+  }
+  if (process.platform === "win32") {
+    for (const pid of readWindowsProcessAncestorsSync(
+      process.pid,
+      MAX_ANCESTOR_WALK_DEPTH,
+      spawnTimeoutMs,
+    )) {
+      pids.add(pid);
+    }
+    return pids;
+  }
   const readTransitiveParent =
     process.platform === "linux"
       ? readParentPidFromProc
@@ -209,8 +225,7 @@ function getExcludedGatewayPidsSync(spawnTimeoutMs: number, protectedPid?: numbe
  * `MAX_ANCESTOR_WALK_DEPTH` entries from `/proc/<pid>/status`; each read is
  * a virtual-filesystem access (no disk I/O, no external process), wrapped
  * in try/catch and degrades silently. On macOS the lookup shells out to `ps`
- * with the process-inspection timeout. Windows only uses the in-memory direct
- * parent from `process.ppid`.
+ * with the process-inspection timeout.
  */
 function parseLsofEntries(stdout: string): Array<{ pid: number; cmd?: string }> {
   const entries: Array<{ pid: number; cmd?: string }> = [];

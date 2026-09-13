@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
 
 const chmodFailHook = vi.hoisted(() => ({
@@ -52,21 +53,13 @@ describe("auth-profile database permission repair", () => {
     const initial: AuthProfileStore = {
       version: 1,
       profiles: {
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          key: "fake-initial",
-        },
+        "openai:default": createApiKeyCredential("openai", "fake-initial"),
       },
     };
     const next: AuthProfileStore = {
       version: 1,
       profiles: {
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          key: "fake-next",
-        },
+        "openai:default": createApiKeyCredential("openai", "fake-next"),
       },
     };
     writePersistedAuthProfileStoreRaw(initial, agentDir);

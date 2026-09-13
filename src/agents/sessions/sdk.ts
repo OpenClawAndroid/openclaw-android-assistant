@@ -41,6 +41,7 @@ import { getModelRegistryRuntime } from "./model-registry-runtime.js";
 import { ModelRegistry } from "./model-registry.js";
 import { findInitialModel } from "./model-resolver.js";
 import { DefaultResourceLoader, type ResourceLoader } from "./resource-loader.js";
+import { withSessionManagerWrite } from "./session-manager-write-admission.js";
 import { SessionManager } from "./session-manager.js";
 import { SettingsManager } from "./settings-manager.js";
 import { isInstallTelemetryEnabled } from "./telemetry.js";
@@ -510,19 +511,21 @@ async function createAgentSessionImpl(
     bindStreamLlmRuntime(agent.streamFn, modelRegistryRuntime.llmRuntime);
   }
 
-  // Restore messages if session has existing data
-  if (hasExistingSession) {
-    agent.state.messages = sanitizeCompactionReplayMessages(existingSession.messages);
-    if (!hasThinkingEntry) {
+  await withSessionManagerWrite(sessionManager, () => {
+    // Restore messages if session has existing data.
+    if (hasExistingSession) {
+      agent.state.messages = sanitizeCompactionReplayMessages(existingSession.messages);
+      if (!hasThinkingEntry) {
+        sessionManager.appendThinkingLevelChange(thinkingLevel);
+      }
+    } else {
+      // Persist initial settings before exposing the new session to callers.
+      if (model) {
+        sessionManager.appendModelChange(model.provider, model.id);
+      }
       sessionManager.appendThinkingLevelChange(thinkingLevel);
     }
-  } else {
-    // Save initial model and thinking level for new sessions so they can be restored on resume
-    if (model) {
-      sessionManager.appendModelChange(model.provider, model.id);
-    }
-    sessionManager.appendThinkingLevelChange(thinkingLevel);
-  }
+  });
 
   const session = new AgentSession({
     agent,

@@ -3,8 +3,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { recordInboundSession } from "../../channels/session.js";
 import {
+  isSessionLifecycleMutationActive,
+  runExclusiveSessionLifecycleMutation,
+} from "../../sessions/session-lifecycle-admission.js";
+import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
+  runOpenClawAgentWriteTransaction,
 } from "../../state/openclaw-agent-db.js";
 import {
   applySessionEntryLifecycleMutation,
@@ -14,7 +19,10 @@ import {
   replaceSessionEntrySync,
   replaceTranscriptEventsSync,
 } from "./session-accessor.js";
+import { readSessionStateDeleteSnapshot } from "./session-accessor.sqlite-delete-snapshot.js";
+import { applySessionEntryMaintenance } from "./session-accessor.sqlite-maintenance.js";
 import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
+import { resolveMaintenanceConfigFromInput } from "./store-maintenance.js";
 
 const archiveMaterializationHook = vi.hoisted(() => ({
   beforeMaterialize: undefined as (() => Promise<void> | void) | undefined,
@@ -60,6 +68,57 @@ function createPlannerStore(entryCount: number) {
   database.db.exec("ANALYZE; PRAGMA analysis_limit = 37;");
   return { database, storePath };
 }
+
+it.each(["session-key", "session-id"] as const)(
+  "preserves aged sessions during a lifecycle mutation and resumes retention afterward (%s)",
+  async (identityKind) => {
+    const { database, storePath } = createPlannerStore(2);
+    const target = { sessionKey: "agent:main:planner-0", sessionId: "planner-0", storePath };
+    const sibling = { sessionKey: "agent:main:planner-1", storePath };
+    const transcript = [{ type: "session", id: target.sessionId, content: "retained history" }];
+    replaceTranscriptEventsSync(target, transcript);
+    const before = readSessionStateDeleteSnapshot(database.db, target.sessionId);
+    const maintain = () =>
+      runOpenClawAgentWriteTransaction(
+        (owner) =>
+          applySessionEntryMaintenance(owner, {
+            archiveDirectory: path.join(path.dirname(database.path), "archives"),
+            maintenanceConfig: resolveMaintenanceConfigFromInput(),
+            storePath,
+          }),
+        { agentId: "main", path: database.path },
+      );
+    const identity = identityKind === "session-key" ? target.sessionKey : target.sessionId;
+
+    await runExclusiveSessionLifecycleMutation({
+      scope: storePath,
+      identities: [identity],
+      run: async () => {
+        expect(isSessionLifecycleMutationActive(storePath, [identity])).toBe(true);
+        const plan = maintain();
+        expect(
+          loadSessionEntry(target)?.archivedAt,
+          "active lifecycle target must remain unarchived",
+        ).toBeUndefined();
+        expect(loadSessionEntry(sibling)).toMatchObject({
+          archivedAt: expect.any(Number),
+          archiveReason: "age-retention",
+        });
+        expect(plan.archived).toBe(1);
+        expect(readSessionStateDeleteSnapshot(database.db, target.sessionId)).toEqual(before);
+        expect(loadTranscriptEventsSync(target)).toEqual(transcript);
+      },
+    });
+
+    expect(isSessionLifecycleMutationActive(storePath, [identity])).toBe(false);
+    expect(maintain().archived).toBe(1);
+    expect(loadSessionEntry(target)).toMatchObject({
+      archivedAt: expect.any(Number),
+      archiveReason: "age-retention",
+    });
+    expect(loadTranscriptEventsSync(target)).toEqual(transcript);
+  },
+);
 
 it.each([false, true])(
   "does not rescan unrelated rows when no lifecycle removal matches (requested: %s)",

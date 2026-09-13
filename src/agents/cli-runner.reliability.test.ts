@@ -4605,9 +4605,15 @@ describe("runCliAgent reliability", () => {
     };
     setHookRunnerForTest(hookRunner);
 
+    const admission = prepareSystemAgentRunAdmission(
+      config,
+      "run-history-hook",
+      "main",
+      "cli-history-hook-fixture",
+    );
     try {
       const context = await prepareCliRunContext({
-        admittedRunContext: createTestAdmittedRunContext("run-history-hook"),
+        preparedRunAdmission: admission,
         sessionId: "s1",
         sessionFile,
         sessionTarget,
@@ -4627,6 +4633,7 @@ describe("runCliAgent reliability", () => {
       expect(context.openClawHistoryPrompt).toContain("hook context");
       expect(context.openClawHistoryPrompt).toContain("current ask");
     } finally {
+      admission.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -4662,9 +4669,15 @@ describe("runCliAgent reliability", () => {
     };
     setHookRunnerForTest(hookRunner);
 
+    const admission = prepareSystemAgentRunAdmission(
+      config,
+      "run-native-compact",
+      "main",
+      "cli-native-control-fixture",
+    );
     try {
       const context = await prepareCliRunContext({
-        admittedRunContext: createTestAdmittedRunContext("run-native-compact"),
+        preparedRunAdmission: admission,
         sessionId: "s1",
         sessionFile,
         sessionTarget,
@@ -4694,6 +4707,7 @@ describe("runCliAgent reliability", () => {
       expect(context.contextEngine).toBeUndefined();
       expect(context.claudeSkillsPluginArgs).toEqual([]);
     } finally {
+      admission.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

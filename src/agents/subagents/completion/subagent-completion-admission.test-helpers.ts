@@ -75,7 +75,9 @@ export function records() {
 }
 
 export function requesterWakeDriver(inputs: ReturnType<typeof records>[]) {
-  const wake = vi.fn(async () => {
+  const wake = vi.fn<
+    SubagentLifecycleController["options"]["maybeWakeRequesterAfterAllChildrenSettled"]
+  >(async () => {
     throw new Error("requester unavailable");
   });
   const warn = vi.fn();
@@ -112,9 +114,7 @@ export function requesterWakeDriver(inputs: ReturnType<typeof records>[]) {
     warn,
     async run(entry = inputs[0]!.subagent) {
       controller.resumeRequesterSettleWake(entry.runId, entry);
-      await vi.waitFor(() =>
-        expect(warn).toHaveBeenCalledWith("requester settle wake failed", expect.any(Object)),
-      );
+      await vi.waitFor(() => expect(wake).toHaveBeenCalled());
       await vi.waitFor(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
     },
   };

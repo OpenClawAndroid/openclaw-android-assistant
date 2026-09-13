@@ -267,6 +267,7 @@ describe.each(["cjs", "ts"] as const)("%s capability factory registration", (ext
       'api.logger.info("inside registration");' + registerFactories,
       (options, root) => {
         let inFlightAtRegistration: boolean | undefined;
+        let registrations = 0;
         const authored: PluginLoadOptions = Object.freeze({
           ...options,
           activate: true,
@@ -274,6 +275,7 @@ describe.each(["cjs", "ts"] as const)("%s capability factory registration", (ext
           logger: {
             info: (message) => {
               if (message.includes("inside registration")) {
+                registrations += 1;
                 inFlightAtRegistration = isPluginRegistryLoadInFlight(authored);
               }
             },
@@ -293,6 +295,10 @@ describe.each(["cjs", "ts"] as const)("%s capability factory registration", (ext
         const bound = getPluginRuntimeLoadContext(registry)!;
         const prepared = { ...authored, manifestRegistry: bound.manifestRegistry };
         expect(resolveCompatibleRuntimePluginRegistry(prepared)).toBe(registry);
+        expect(loadOpenClawPlugins(prepared) === registry).toBe(true);
+        expect(resolveCompatibleRuntimePluginRegistry(authored) === registry).toBe(true);
+        expect(resolveCompatibleRuntimePluginRegistry(prepared) === registry).toBe(true);
+        expect(registrations).toBe(1);
         expect(loadOpenClawPlugins(authored)).toBe(registry);
         expect(resolveCompatibleRuntimePluginRegistry(prepared)).toBe(registry);
         const changedManifest = {

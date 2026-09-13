@@ -571,18 +571,25 @@ describe("memory manager reindex recovery", () => {
     });
   });
 
-  it("rejects a full reindex while another process owns the build lock", async () => {
+  it("waits for an active reindex beyond the reset lock budget", async () => {
     const memoryManager = await openManager(createCfg({ provider: "none", sources: ["memory"] }));
     const databasePath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
     const lock = await waitForMemoryReindexLock(databasePath);
 
+    let settled = false;
+    const sync = memoryManager.sync({ reason: "test", force: true }).finally(() => {
+      settled = true;
+    });
+    const outcome = sync.catch((error: unknown) => error);
     try {
-      await expect(memoryManager.sync({ reason: "test", force: true })).rejects.toThrow(
-        /another reindex is active/,
-      );
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 2_100);
+      });
+      expect(settled).toBe(false);
     } finally {
       await lock.release();
     }
+    await expect(outcome).resolves.toBeUndefined();
   });
 
   it("refuses reset during incremental embeddings, then clears and rebuilds their writes", async () => {

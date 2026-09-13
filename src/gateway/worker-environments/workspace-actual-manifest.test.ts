@@ -1,4 +1,5 @@
 import { createHook } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -448,6 +449,84 @@ it("reserves aggregate inventory bytes even when every file hits the hash memo",
     ),
   ).rejects.toThrow("eligible byte limit");
   expect(metrics).toMatchObject({ contentHashCount: 0, memoHitCount: 1 });
+});
+
+it("bounds scratch memory across concurrent inventories and skips reads on memo hits", async () => {
+  const roots = await Promise.all(
+    [0, 1].map(() => fs.realpath(tempDirs.make("workspace-inventory-scratch-"))),
+  );
+  const fixtures = await Promise.all(
+    roots.map(async (root, owner) => {
+      const files = await Promise.all(
+        Array.from({ length: 32 }, async (_, index) => {
+          const file = `file-${index}.bin`;
+          const bytes = Buffer.alloc(
+            index % 7 === 0 ? 270_001 + index : 17 + index,
+            owner * 32 + index,
+          );
+          await fs.writeFile(path.join(root, file), bytes);
+          return {
+            file,
+            size: bytes.length,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+          };
+        }),
+      );
+      return { root, files, memo: new Map<string, string>(), buffers: new Set<Buffer>() };
+    }),
+  );
+  const activeBuffers = new Set<Buffer>();
+  let readCount = 0;
+  const open = fs.open.bind(fs);
+  vi.spyOn(fs, "open").mockImplementation(async (...args) => {
+    const handle = await open(...args);
+    const fixture = fixtures.find(({ root }) => String(args[0]).startsWith(root + path.sep));
+    if (fixture) {
+      const read = handle.read.bind(handle);
+      vi.spyOn(handle, "read").mockImplementation(async (...readArgs) => {
+        const buffer = readArgs[0];
+        if (!Buffer.isBuffer(buffer)) {
+          throw new Error("Expected a caller-owned inventory buffer");
+        }
+        expect(activeBuffers.has(buffer)).toBe(false);
+        activeBuffers.add(buffer);
+        fixture.buffers.add(buffer);
+        readCount++;
+        try {
+          return await read(...readArgs);
+        } finally {
+          activeBuffers.delete(buffer);
+        }
+      });
+    }
+    return handle;
+  });
+  const capture = (fixture: (typeof fixtures)[number]) =>
+    withWorkspaceHashMemo(fixture.memo, () =>
+      readActualWorkspaceManifest({ root: fixture.root, baseCommit: null }),
+    );
+  const manifests = await Promise.all(fixtures.map(capture));
+  for (const [index, fixture] of fixtures.entries()) {
+    expect(manifests[index]!.manifest.entries).toEqual(
+      fixture.files
+        .map(({ file, size, sha256 }) => ({
+          path: file,
+          type: "file",
+          mode: 0o644,
+          size,
+          sha256,
+        }))
+        .toSorted((left, right) => left.path.localeCompare(right.path)),
+    );
+    expect(
+      [...fixture.buffers].reduce((bytes, buffer) => bytes + buffer.byteLength, 0),
+    ).toBeLessThanOrEqual(1024 * 1024);
+  }
+  expect([...fixtures[0]!.buffers].some((buffer) => fixtures[1]!.buffers.has(buffer))).toBe(false);
+  const coldReadCount = readCount;
+  expect(coldReadCount).toBeGreaterThan(0);
+  expect(await Promise.all(fixtures.map(capture))).toEqual(manifests);
+  expect(readCount).toBe(coldReadCount);
 });
 
 it.each(["inventory", "fixed limit"] as const)(

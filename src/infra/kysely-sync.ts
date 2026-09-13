@@ -166,6 +166,20 @@ export function prepareSqliteQuerySync<Params, Row = unknown>(
     });
 }
 
+/** Compile once and capture fresh bindings before lazily opening each private iterator. */
+export function prepareSqliteQueryIterator<Params, Row = unknown>(
+  db: DatabaseSync,
+  build: SqliteQueryBindingBuilder<Params, Row>,
+): (params: Params) => IterableIterator<Row> {
+  const { compiled, bind } = compileSqliteQueryBindings(build);
+  return (params) => {
+    const parameters = bind(params);
+    return iterateSqliteQuerySync(db, {
+      compile: () => ({ ...compiled, parameters }),
+    });
+  };
+}
+
 /** Compile and lazily iterate a Kysely query synchronously against node:sqlite. */
 export function* iterateSqliteQuerySync<Row>(
   db: DatabaseSync,

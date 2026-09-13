@@ -129,15 +129,9 @@ export async function evaluateAgentDatabaseAdmissions(
   const { preflightOpenClawDatabaseSchemas } = await import("./openclaw-database-preflight.js");
   const { resolveConfiguredAgentDatabaseCandidatePaths } =
     await import("../config/sessions/targets.js");
-  const { OPENCLAW_AGENT_SCHEMA_VERSION } = await import("./openclaw-agent-db-contract.js");
-  const { OPENCLAW_STATE_SCHEMA_VERSION } = await import("./openclaw-state-db-contract.js");
   const env = options.env ?? process.env;
   const result = await preflightOpenClawDatabaseSchemas({
     env,
-    supportedVersions: {
-      state: OPENCLAW_STATE_SCHEMA_VERSION,
-      agent: OPENCLAW_AGENT_SCHEMA_VERSION,
-    },
     configuredAgentDatabaseTargets: [],
     configuredAgentDatabaseCandidatePaths: resolveConfiguredAgentDatabaseCandidatePaths(config, {
       env,

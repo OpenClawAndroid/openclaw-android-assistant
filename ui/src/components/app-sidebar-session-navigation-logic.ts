@@ -25,6 +25,7 @@ import {
   areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
   isAcpSessionKey,
+  isSubagentSessionKey,
   isPinnableUiSessionRow,
   isUiGlobalScopeConfigured,
   normalizeAgentId,
@@ -458,6 +459,7 @@ export function collectPromotedMainChildRows(input: {
       parentKey != null &&
       input.mainSessionKeys.has(parentKey) &&
       !input.scopedRootKeys.has(row.key) &&
+      !isSubagentSessionKey(row.key) &&
       !row.archived &&
       (input.showCron || !isCronSessionKey(row.key)) &&
       (input.showSystem || !isSystemCreatedSessionRow(row))
@@ -474,6 +476,7 @@ export function collectCategorizedChildRootRows(input: {
   return input.rows.filter(
     (row) =>
       !scopedRootKeys.has(row.key) &&
+      !isSubagentSessionKey(row.key) &&
       normalizeOptionalString(row.category) != null &&
       resolveUiSessionNavigationParentKey(row) != null &&
       sessionMatchesVisibleSessionScope(row, input.visibilityOptions),

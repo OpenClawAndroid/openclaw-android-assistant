@@ -167,41 +167,7 @@ export function createExecApprovalHandlers(
       ) {
         return;
       }
-      const p = params as {
-        id?: string;
-        command: string;
-        commandArgv?: string[];
-        env?: Record<string, string>;
-        cwd?: string;
-        systemRunPlan?: unknown;
-        nodeId?: string;
-        host?: string;
-        security?: string;
-        ask?: string;
-        warningText?: string | null;
-        scope?: ApprovalScope;
-        unavailableDecisions?: string[];
-        commandSpans?: {
-          startIndex: number;
-          endIndex: number;
-        }[];
-        agentId?: string;
-        resolvedPath?: string;
-        sessionKey?: string;
-        sessionId?: string;
-        runId?: string;
-        toolCallId?: string;
-        turnSourceChannel?: string;
-        turnSourceTo?: string;
-        turnSourceAccountId?: string;
-        turnSourceThreadId?: string | number;
-        approvalReviewerDeviceIds?: string[];
-        requireDeliveryRoute?: boolean;
-        suppressDelivery?: boolean;
-        deliverToApprovalClientsOnly?: boolean;
-        timeoutMs?: number;
-        twoPhase?: boolean;
-      };
+      const p = params;
       const twoPhase = p.twoPhase === true;
       const timeoutMs =
         typeof p.timeoutMs === "number" ? p.timeoutMs : DEFAULT_EXEC_APPROVAL_TIMEOUT_MS;

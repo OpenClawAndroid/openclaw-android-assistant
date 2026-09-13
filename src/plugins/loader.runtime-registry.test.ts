@@ -60,6 +60,10 @@ import {
   setActivePluginRegistry,
   stageActivePluginRegistry,
 } from "./runtime.js";
+import {
+  buildPluginRuntimeLoadOptions,
+  getPluginRuntimeLoadContext,
+} from "./runtime/load-context.js";
 import type { PluginRuntime } from "./runtime/types.js";
 import * as sdkAlias from "./sdk-alias.js";
 
@@ -478,6 +482,46 @@ it("keeps version and injected instance surfaces independent of the broad runtim
   // Object.prototype names are not declared runtime metadata.
   expect(() => Reflect.has(runtime, "toString")).toThrow("broad runtime should stay lazy");
   expect(loadPluginModule).toHaveBeenCalledTimes(1);
+});
+
+it("reuses discovered registrations through prepared load options until invalidated", () => {
+  useNoBundledPlugins();
+  const plugin = writePlugin({
+    id: "prepared-cache",
+    body: 'module.exports = { id: "prepared-cache", register() {} };',
+  });
+  const options = {
+    config: {
+      plugins: {
+        allow: [plugin.id],
+        load: { paths: [plugin.file] },
+        slots: { memory: "none" },
+      },
+    },
+  };
+  const first = loadPluginRegistryHandle(options);
+  expect(first.plugins).toContainEqual(
+    expect.objectContaining({ id: plugin.id, status: "loaded" }),
+  );
+  const context = getPluginRuntimeLoadContext(first);
+  if (!context) {
+    throw new Error("Expected loader-owned context");
+  }
+  const prepared = buildPluginRuntimeLoadOptions(context);
+  expect(loadPluginRegistryHandle(prepared) === first).toBe(true);
+  expect(loadPluginRegistryHandle({ ...prepared, cache: false })).not.toBe(first);
+  expect(
+    loadPluginRegistryHandle({
+      ...prepared,
+      config: { ...options.config, plugins: { ...options.config.plugins, enabled: false } },
+    }).plugins,
+  ).toContainEqual(expect.objectContaining({ id: plugin.id, status: "disabled" }));
+  clearPluginRegistryLoadCache();
+  const refreshed = loadPluginRegistryHandle(prepared);
+  expect(refreshed).not.toBe(first);
+  expect(refreshed.plugins).toContainEqual(
+    expect.objectContaining({ id: plugin.id, status: "loaded" }),
+  );
 });
 
 describe("cached plugin load failures", () => {

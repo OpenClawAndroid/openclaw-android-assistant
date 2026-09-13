@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"การควบคุม"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"พูดคุย"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"เสียงจากนาฬิกาล้มเหลว"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"ต้องให้สิทธิ์เข้าถึงไมโครโฟน"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"เปิดการตั้งค่า"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ป้อนด้วยเสียง"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"สด"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"เธรด"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"อ่านคำตอบล่าสุดออกเสียง"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"กำลังพูด"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"กำลังฟัง"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"กำลังวางสาย…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"กำลังเชื่อมต่อ"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"กำลังคิด"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"กำลังพิมพ์"</string>

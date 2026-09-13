@@ -403,9 +403,11 @@ export interface AssistantMessage {
   responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
   providerReplay?: ProviderReplayState; // Opaque provider state carried into a compatible later request.
   turnId?: string; // Runtime-assigned stable turn identity when the provider does not expose one
-  diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
+  diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime completion, failure, and recovery diagnostics.
   usage: Usage;
   stopReason: StopReason;
+  /** A completed provider response can explicitly request another inference with false. */
+  endTurn?: boolean;
   errorMessage?: string;
   errorCode?: string;
   errorType?: string;

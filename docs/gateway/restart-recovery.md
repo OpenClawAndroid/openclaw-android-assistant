@@ -421,6 +421,11 @@ Subagent runs are persisted in the shared SQLite state database, so the
 subagent registry survives the process. On boot the registry is restored and
 interrupted subagent sessions are resumed with their original task context.
 
+Resumption notices use the requester's outbound channel when one exists.
+Control UI sessions and internal wakes observe recovery through session state;
+they do not enqueue outbound notices. Previously saved internal notice obligations
+are settled when the registry resumes, without sending or replaying the task.
+
 If a parent yielded while waiting for children, recovery first resumes the
 interrupted children. Their saved completion batch follows replacement run IDs,
 so the parent receives its follow-up after the batch settles, including when some
@@ -431,6 +436,9 @@ follow-up is waiting to retry or is interrupted by restart, the saved
 obligation survives and resumes after startup. Restart admission rejection
 does not consume an attempt, and cancellation of an admitted attempt does
 not exhaust the obligation. Existing delivery retry limits still apply.
+Settling a yielded turn's wake leaves its unfinished task and final delivery
+intact. A completed cancellation can also finish wake bookkeeping after its
+task record expires, without recreating the task or repeating cleanup.
 
 Two safety valves apply:
 

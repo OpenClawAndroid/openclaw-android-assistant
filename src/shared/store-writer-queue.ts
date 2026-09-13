@@ -1,7 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { performance } from "node:perf_hooks";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { createDeferredCore } from "./deferred.js";
 import { resolveGlobalSingleton } from "./global-singleton.js";
+
+const MAX_WRITERS_PER_TURN = 4;
+const WRITER_TURN_BUDGET_MS = 4;
 
 /** Pending exclusive store write plus the promise hooks for its caller. */
 type StoreWriterTask = {
@@ -13,7 +17,7 @@ type StoreWriterTask = {
   reject: (reason: unknown) => void;
 };
 
-/** Per-store-path FIFO queue that serializes file writes within one process. */
+/** Per-store-path FIFO queue that serializes writes within one process. */
 export type StoreWriterQueue = {
   /** Writes waiting behind the active drain. */
   pending: StoreWriterTask[];
@@ -99,26 +103,26 @@ async function drainStoreWriterQueue(queues: StoreWriterQueues, storePath: strin
   // Publish ownership before the first writer can enqueue more work, without
   // yielding its place to a competing lifecycle admission on an idle lane.
   queue.drainPromise = drain.promise;
+  let completed = 0;
+  let turnStarted = performance.now();
   try {
     while (queue.pending.length > 0) {
       const task = queue.pending.shift();
       if (!task) {
         continue;
       }
-      let result: unknown;
-      let failed: unknown;
-      let hasFailure = false;
-      try {
-        result = await task.fn();
-      } catch (err) {
-        hasFailure = true;
-        failed = err;
+      await task.fn().then(task.resolve, task.reject);
+      // Amortize short writes without letting a ready backlog starve I/O.
+      // Only settled writers yield, and this drain retains FIFO ownership.
+      if (
+        queue.pending.length > 0 &&
+        (++completed >= MAX_WRITERS_PER_TURN ||
+          performance.now() - turnStarted >= WRITER_TURN_BUDGET_MS)
+      ) {
+        await nextTurn();
+        completed = 0;
+        turnStarted = performance.now();
       }
-      if (hasFailure) {
-        task.reject(failed);
-        continue;
-      }
-      task.resolve(result);
     }
   } finally {
     queue.drainPromise = null;

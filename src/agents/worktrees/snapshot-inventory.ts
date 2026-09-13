@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isMissingPathError } from "../../infra/errors.js";
@@ -20,6 +21,8 @@ import {
 } from "./git-path-inventory.js";
 import type { GitWorktreeOperations } from "./git-worktree-operations.js";
 import { commandError, requireGit, requireGitBuffer, runGit } from "./git.js";
+
+type SnapshotIndexEnvironment = NodeJS.ProcessEnv & { GIT_INDEX_FILE: string };
 
 type SnapshotInput = GitWorktreeOperations["worktree.snapshot"]["input"];
 type SnapshotInventory = {
@@ -123,10 +126,76 @@ async function collectSnapshotInventory(input: SnapshotInput): Promise<SnapshotI
   return { head, headPaths, paths };
 }
 
+// These settings apply only to the private snapshot index. Cached entries must
+// still detect mode/ctime changes, regardless of the checkout's performance policy.
+const snapshotIndexArgs = [
+  "-c",
+  "core.splitIndex=false",
+  "-c",
+  "core.sparseCheckout=false",
+  "-c",
+  "index.sparse=false",
+  "-c",
+  "core.ignoreStat=false",
+  "-c",
+  "core.trustctime=true",
+  "-c",
+  "core.checkStat=default",
+  ...(process.platform === "win32" ? [] : ["-c", "core.filemode=true"]),
+];
+
+async function seedSnapshotIndex(
+  input: SnapshotInput,
+  inventory: SnapshotInventory,
+  indexEnv: SnapshotIndexEnvironment,
+): Promise<void> {
+  const source = path.resolve(
+    input.checkoutPath,
+    normalizeGitPathForFilesystem(
+      await requireGit(input.checkoutPath, ["rev-parse", "--git-path", "index"]),
+    ),
+  );
+  const destination = indexEnv.GIT_INDEX_FILE;
+  try {
+    const stat = await fs.stat(source);
+    await fs.copyFile(source, destination, constants.COPYFILE_FICLONE);
+    // A newly dated copy would make Git trust entries that were racy against the
+    // original index. Round down rather than lose precision toward a newer time.
+    const timestamp = Math.floor(stat.mtimeMs / 1000);
+    await fs.utimes(destination, timestamp, timestamp);
+  } catch (error) {
+    if (!isMissingPathError(error)) {
+      throw error;
+    }
+  }
+  await requireGit(
+    input.checkoutPath,
+    [...snapshotIndexArgs, "read-tree", "--reset", inventory.head],
+    {
+      env: indexEnv,
+    },
+  );
+  // Reset staged content to HEAD while retaining Git's matching stat entries.
+  // Hidden flags belong to the live checkout, never to its lossless snapshot.
+  const paths = Buffer.concat(
+    inventory.headPaths.flatMap((entry) => [entry.path, Buffer.from([0])]),
+  );
+  for (const flag of ["--no-assume-unchanged", "--no-skip-worktree"]) {
+    await requireGit(
+      input.checkoutPath,
+      [...snapshotIndexArgs, "update-index", flag, "-z", "--stdin"],
+      {
+        env: indexEnv,
+        input: paths,
+      },
+    );
+  }
+}
+
 async function prepareSnapshotIndex(
   input: SnapshotInput,
   inventory: SnapshotInventory,
-  indexEnv: NodeJS.ProcessEnv,
+  indexEnv: SnapshotIndexEnvironment,
   temporaryDirectory: string,
 ): Promise<{ missing: Set<string>; tracked: Set<string> }> {
   const metadataBytes = [
@@ -140,14 +209,15 @@ async function prepareSnapshotIndex(
       purpose: "worktree safety snapshot index",
     },
   });
-  await requireGit(input.checkoutPath, ["read-tree", inventory.head], { env: indexEnv });
-  // read-tree owns this fresh index; its full path set is the already captured immutable tree.
+  await seedSnapshotIndex(input, inventory, indexEnv);
+  // read-tree resets the private index to the already captured immutable tree.
   const tracked = new Set(inventory.headPaths.map((entry) => gitPathKey(entry.path)));
   const changed = new Set(
     splitNullBuffer(
       await requireGitBuffer(
         input.checkoutPath,
         [
+          ...snapshotIndexArgs,
           "-c",
           "diff.autoRefreshIndex=true",
           "diff",
@@ -236,7 +306,7 @@ export async function snapshotWorktree(
   });
   const snapshotRef = `refs/openclaw/snapshots/${input.worktreeId}`;
   const filemodeArgs = process.platform === "win32" ? [] : ["-c", "core.filemode=true"];
-  const env: NodeJS.ProcessEnv = {
+  const env: SnapshotIndexEnvironment = {
     GIT_INDEX_FILE: path.join(temporaryDirectory, "index"),
     GIT_AUTHOR_NAME: "OpenClaw",
     GIT_AUTHOR_EMAIL: "openclaw@localhost",
@@ -271,7 +341,7 @@ export async function snapshotWorktree(
   await assertCurrent();
   await requireGit(
     input.checkoutPath,
-    [...filemodeArgs, "update-index", "--add", "--remove", "-z", "--stdin"],
+    [...snapshotIndexArgs, "update-index", "--add", "--remove", "-z", "--stdin"],
     {
       env,
       input: Buffer.concat(
@@ -283,7 +353,7 @@ export async function snapshotWorktree(
     },
   );
   await assertCurrent();
-  const tree = await requireGit(input.checkoutPath, [...filemodeArgs, "write-tree"], { env });
+  const tree = await requireGit(input.checkoutPath, [...snapshotIndexArgs, "write-tree"], { env });
   assertNoProvisionedTreePaths(
     parseGitTreePaths(await requireGitBuffer(input.checkoutPath, ["ls-tree", "-r", "-z", tree])),
     input.provisionedPaths,

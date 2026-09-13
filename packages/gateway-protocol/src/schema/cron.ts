@@ -144,7 +144,7 @@ const CronCommonOptionalFields = {
   deleteAfterRun: Type.Optional(Type.Boolean()),
 };
 
-function cronIdOrJobIdParams(extraFields: Record<string, TSchema>) {
+function cronIdOrJobIdParams<const Fields extends Record<string, TSchema>>(extraFields: Fields) {
   return Type.Union([
     closedObject({
       id: NonEmptyString,

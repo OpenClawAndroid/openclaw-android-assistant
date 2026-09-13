@@ -454,10 +454,8 @@ describe("setActivePluginRegistry", () => {
     };
     const plugin = writePlugin({
       id: "loaded-retirement",
-      body: `module.exports = { id: "loaded-retirement", register(api) {
-        const read = globalThis[Symbol.for("openclaw.test.loadedRetirementCleanup")].read;
-        api.lifecycle.registerRuntimeLifecycle({ id: "native-cleanup", cleanup: read });
-      } };`,
+      registration: `const read = globalThis[Symbol.for("openclaw.test.loadedRetirementCleanup")].read;
+      api.lifecycle.registerRuntimeLifecycle({ id: "native-cleanup", cleanup: read });`,
     });
     const options = {
       config: {

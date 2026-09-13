@@ -3541,6 +3541,8 @@ describe("state migrations", () => {
   });
 
   it("migrates legacy delivery queue files into shared SQLite state", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1_000);
     const root = await createTempDir();
     const stateDir = path.join(root, ".openclaw");
     const env = createEnv(stateDir);
@@ -3694,8 +3696,12 @@ describe("state migrations", () => {
         failed_at: 30,
       },
     ]);
-    await expectMissingPath(path.join(stateDir, "delivery-queue"));
-    await expectMissingPath(path.join(stateDir, "session-delivery-queue"));
+    await expect(
+      fs.readFile(path.join(stateDir, "delivery-queue", "outbound-1.json.migrated"), "utf8"),
+    ).resolves.toContain("hi");
+    await expect(
+      fs.readFile(path.join(stateDir, "session-delivery-queue", "session-1.json.migrated"), "utf8"),
+    ).resolves.toContain("resume");
   });
 
   it("migrates legacy voice wake JSON settings into shared SQLite state", async () => {
@@ -5838,7 +5844,11 @@ describe("state migrations", () => {
       }),
       "utf8",
     );
-    await fs.writeFile(path.join(queueDir, "outbound-1.delivered"), '{"id":"done"}\n', "utf8");
+    await fs.writeFile(
+      path.join(queueDir, "outbound-completed.delivered"),
+      '{"id":"done"}\n',
+      "utf8",
+    );
     await fs.writeFile(
       path.join(queueDir, "outbound-2.json"),
       JSON.stringify({
@@ -5887,14 +5897,16 @@ describe("state migrations", () => {
     expect(result.changes).toContain(
       "Migrated 2 outbound delivery queue entries → shared SQLite state",
     );
-    expect(result.changes).toContain("Removed 1 outbound delivery queue delivered marker");
+    expect(result.changes).toContain(
+      `Archived outbound delivery queue legacy source → ${path.join(queueDir, "outbound-completed.delivered.migrated")}`,
+    );
     expect(result.warnings).toStrictEqual([
       "Left outbound delivery queue in place because 1 entry already existed in shared state: outbound-1",
     ]);
     await expect(fs.readFile(path.join(queueDir, "outbound-1.json"), "utf8")).resolves.toContain(
       '"retryCount":2',
     );
-    await expectMissingPath(path.join(queueDir, "outbound-1.delivered"));
+    await expectMissingPath(path.join(queueDir, "outbound-completed.delivered"));
     expect(
       db
         .prepare(

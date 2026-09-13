@@ -1,9 +1,10 @@
 /* @vitest-environment jsdom */
 
 import { html, render, type nothing, type TemplateResult } from "lit";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { createApplicationTheme } from "../../app/bootstrap-theme.ts";
+import { createConnectionBootstrapCoordinator } from "../../app/connection-bootstrap.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { createGatewayStoreTestStore } from "../../app/gateway-store.test-support.ts";
 import { loadSettings, patchSettings, saveSettings } from "../../app/settings.ts";
@@ -38,18 +39,15 @@ vi.mock("../../components/board/board-view.ts", () => {
   return {};
 });
 
-const swarmModuleImport = vi.hoisted(() => {
-  let markStarted!: () => void;
-  let release!: () => void;
+const swarmModuleImport = await vi.hoisted(async () => {
+  const { createDeferred } = await import("../../../../test/helpers/promise.js");
+  const started = createDeferred();
+  const pending = createDeferred();
   return {
-    started: new Promise<void>((resolve) => {
-      markStarted = resolve;
-    }),
-    pending: new Promise<void>((resolve) => {
-      release = resolve;
-    }),
-    markStarted,
-    release,
+    started: started.promise,
+    pending: pending.promise,
+    markStarted: started.resolve,
+    release: pending.resolve,
   };
 });
 
@@ -101,9 +99,13 @@ function createTestPane(sessions: SessionCapability = {} as SessionCapability) {
   const client = {
     request: vi.fn(async () => ({ session: { key: "agent:main:current", kind: "direct" } })),
   } as unknown as GatewayBrowserClient;
+  const connectionBootstrap = createConnectionBootstrapCoordinator();
+  connectionBootstrap.synchronize({ client, connected: true });
+  onTestFinished(() => connectionBootstrap.reset());
   Object.defineProperty(pane, "isConnected", { configurable: true, value: true });
   pane.context = {
     theme,
+    connectionBootstrap,
     sessions,
     gateway: { snapshot: { client, phase: "connected", hello: sessionMutationGatewayHello() } },
   } as unknown as ApplicationContext;
@@ -178,6 +180,7 @@ function createGatewayBoardPane(params: {
       },
     },
   } as unknown as ApplicationContext;
+  pane.context.connectionBootstrap.synchronize({ client, connected: true });
   return { pane, snapshot, client, request, addEventListener, removeListener };
 }
 
@@ -925,8 +928,7 @@ describe("chat pane board shell", () => {
       expect(request).toHaveBeenCalledOnce();
       expect(addEventListener).toHaveBeenCalledOnce();
     } finally {
-      const release = Reflect.get(pane, "releaseBoardProviderLease") as () => void;
-      release.call(pane);
+      (Reflect.get(pane, "releaseBoardProviderLease") as () => void).call(pane);
     }
 
     expect(removeListener).toHaveBeenCalledOnce();
@@ -1056,13 +1058,11 @@ describe("chat pane board shell", () => {
 
       approvals.release();
       expect(removeListener).not.toHaveBeenCalled();
-      const release = Reflect.get(pane, "releaseBoardProviderLease") as () => void;
-      release.call(pane);
+      (Reflect.get(pane, "releaseBoardProviderLease") as () => void).call(pane);
       expect(removeListener).toHaveBeenCalledOnce();
     } finally {
       approvals.release();
-      const release = Reflect.get(pane, "releaseBoardProviderLease") as () => void;
-      release.call(pane);
+      (Reflect.get(pane, "releaseBoardProviderLease") as () => void).call(pane);
     }
   });
 

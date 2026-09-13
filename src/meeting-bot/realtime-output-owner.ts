@@ -19,8 +19,7 @@ export function createMeetingRealtimeOutputQueue(params: {
 }) {
   let stopped = false;
   let generation = 0;
-  let writeActive = false;
-  let transportWriteStarted = false;
+  let writePhase: "idle" | "scheduled" | "writing" = "idle";
   let clearPending = 0;
   let clearAfterActive = false;
   let pendingBytes = 0;
@@ -69,7 +68,7 @@ export function createMeetingRealtimeOutputQueue(params: {
       });
   };
   const pump = () => {
-    if (stopped || writeActive || clearPending > 0) {
+    if (stopped || writePhase !== "idle" || clearPending > 0) {
       return;
     }
     const next = queue.shift();
@@ -98,7 +97,7 @@ export function createMeetingRealtimeOutputQueue(params: {
             batch.map((entry) => entry.audio),
             batchBytes,
           );
-    writeActive = true;
+    writePhase = "scheduled";
     void Promise.resolve()
       .then(async () => {
         if (stopped || next.generation !== generation) {
@@ -107,7 +106,7 @@ export function createMeetingRealtimeOutputQueue(params: {
         if (next.beginsOutput) {
           params.transport.beginOutput?.();
         }
-        transportWriteStarted = true;
+        writePhase = "writing";
         await params.transport.writeOutput(audio);
         if (!stopped && next.generation === generation) {
           // Native write completion admits audio to playback; it does not mean it was heard.
@@ -126,8 +125,7 @@ export function createMeetingRealtimeOutputQueue(params: {
         }
       })
       .finally(() => {
-        writeActive = false;
-        transportWriteStarted = false;
+        writePhase = "idle";
         if (next.generation === generation) {
           pendingBytes -= batchBytes;
           pendingFrames -= batchFrames;
@@ -160,7 +158,7 @@ export function createMeetingRealtimeOutputQueue(params: {
     },
     invalidate(): void {
       // A node command can complete after a clear; clear once more before new writes.
-      clearAfterActive ||= transportWriteStarted;
+      clearAfterActive ||= writePhase === "writing";
       reset();
     },
     clear,

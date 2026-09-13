@@ -147,6 +147,10 @@ export function createSessionRowProvenance() {
     offered: GatewaySessionRow,
     agentId?: string | null,
   ): GatewaySessionRow => {
+    // An unobserved self-merge still binds its fallback owner.
+    if (current === offered && observationsByRow.has(current)) {
+      return current;
+    }
     const key = identity(current, agentId);
     if (!key || key !== identity(offered, agentId)) {
       return current;
@@ -238,19 +242,36 @@ export function createSessionRowProvenance() {
         observationsByRow.set(row, metadata(row, agentId));
       }
     },
-    rowRevision: (row: GatewaySessionRow) => metadata(row).read.revision,
+    rowRevision: (row: GatewaySessionRow) => observationsByRow.get(row)?.read.revision ?? 0,
     hasObservation: (row: GatewaySessionRow) => {
-      const observed = metadata(row);
-      return (
-        observed.read.revision > 0 ||
-        [...observed.fields.values()].some((field) => field.event === true)
-      );
+      const observed = observationsByRow.get(row);
+      if (!observed) {
+        return false;
+      }
+      if (observed.read.revision > 0) {
+        return true;
+      }
+      for (const field of observed.fields.values()) {
+        if (field.event === true) {
+          return true;
+        }
+      }
+      return false;
     },
     hasNewerFacts: (row: GatewaySessionRow, revision: number) => {
-      const observed = metadata(row);
-      return [observed.read, ...observed.fields.values()].some(
-        (field) => field.revision > revision,
-      );
+      const observed = observationsByRow.get(row);
+      if (!observed) {
+        return revision < 0;
+      }
+      if (observed.read.revision > revision) {
+        return true;
+      }
+      for (const field of observed.fields.values()) {
+        if (field.revision > revision) {
+          return true;
+        }
+      }
+      return false;
     },
   };
 }

@@ -1,6 +1,12 @@
 // Tracks task process state transitions used to reconcile running work.
 import type { Result } from "@openclaw/normalization-core/result";
+import type { TaskRegistryMutationScope } from "./task-registry.store.types.js";
 import type { TaskDeliveryState, TaskRecord } from "./task-registry.types.js";
+
+export type PendingTaskRegistryMutation = {
+  scope: TaskRegistryMutationScope;
+  published: Map<string, Omit<TaskRecord, "detail"> | undefined>;
+};
 
 export type TaskRunOwner = {
   task: Readonly<
@@ -39,6 +45,13 @@ type TaskRegistryProcessState = {
   runOwners: Map<string, TaskRunOwner>;
   // Listener ownership must survive module reloads alongside the task indexes it updates.
   listenerStop?: (() => void) | null;
+  projection: {
+    epoch: number;
+    dirty: boolean;
+    mutationDepth: number;
+    pending: Set<PendingTaskRegistryMutation>;
+    dirtyScopes: Set<TaskRegistryMutationScope>;
+  };
 };
 
 const TASK_REGISTRY_PROCESS_STATE_KEY = Symbol.for("openclaw.taskRegistry.state");
@@ -58,6 +71,13 @@ export function getTaskRegistryProcessState(): TaskRegistryProcessState {
     tasksWithPendingDelivery: new Set<string>(),
     taskActivityByTaskId: new Map<string, TaskActivityOverlayState>(),
     runOwners: new Map<string, TaskRunOwner>(),
+    projection: {
+      epoch: 0,
+      dirty: false,
+      mutationDepth: 0,
+      pending: new Set(),
+      dirtyScopes: new Set(),
+    },
   };
   return globalState[TASK_REGISTRY_PROCESS_STATE_KEY];
 }

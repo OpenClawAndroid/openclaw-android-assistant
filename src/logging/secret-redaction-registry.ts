@@ -5,10 +5,12 @@ const MIN_SECRET_VALUE_LENGTH = 6;
 const MAX_SECRET_VALUES = 512;
 
 const registeredValues = new Map<string, true>();
+let registryRevision = 0;
 let compiledMatcher: { prefixes: RegExp; buckets: Map<string, string[]> } | undefined;
 let firstChars: Set<string> | undefined;
 
 function invalidateMatcher(): void {
+  registryRevision += 1;
   firstChars = undefined;
   compiledMatcher = undefined;
 }
@@ -53,10 +55,15 @@ export function hasRegisteredSecretValuesForRedaction(): boolean {
   return registeredValues.size > 0;
 }
 
+/** Changes with registry membership, including bounded eviction and test resets. */
+export function getSecretRedactionRegistryRevision(): number {
+  return registryRevision;
+}
+
 /** Replaces registered exact values while preserving the caller's mask convention. */
 export function redactRegisteredSecretValues(
   text: string,
-  mask: (value: string) => string,
+  mask: (value: string, index: number) => string,
 ): string {
   if (!text || registeredValues.size === 0) {
     return text;
@@ -110,7 +117,7 @@ export function redactRegisteredSecretValues(
   let result = "";
   let cursor = 0;
   for (const match of matches) {
-    result += `${text.slice(cursor, match.index)}${mask(match.value)}`;
+    result += `${text.slice(cursor, match.index)}${mask(match.value, match.index)}`;
     cursor = match.index + match.value.length;
   }
   return result + text.slice(cursor);

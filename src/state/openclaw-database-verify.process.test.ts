@@ -446,6 +446,7 @@ describe("database verifier bounded diagnostics", () => {
     vi.spyOn(sqliteLocation, "prepareSqliteReadOnlyLocationInProcess").mockResolvedValueOnce({
       location: ":memory:",
       cleanup,
+      cleanupAsync: async () => cleanup(),
     });
     vi.spyOn(nodeSqlite, "openNodeSqliteDatabase").mockReturnValueOnce(database);
     if (errcode !== undefined) {

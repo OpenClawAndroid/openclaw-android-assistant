@@ -291,52 +291,60 @@ describe("SQLite trajectory runtime store", () => {
     await expect(runtimeEventTypes("history")).resolves.toEqual(["recent"]);
   });
 
-  it("evicts oldest runs to the global byte budget without touching the current session", async () => {
-    const now = Date.parse("2026-07-26T00:00:00.000Z");
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-    appendSqliteTrajectoryRuntimeEvents({ sessionId: "session-1", storePath }, [
-      createTrajectoryEvent({ payloadSize: 200, type: "current-initial" }),
-    ]);
-    for (const [index, sessionId] of ["oldest", "middle", "newest"].entries()) {
-      await addSession(sessionId);
-      appendSqliteTrajectoryRuntimeEvents({ sessionId, storePath }, [
-        createTrajectoryEvent({
-          payloadSize: 200,
-          runId: `${sessionId}-run`,
-          sessionId,
-          type: sessionId,
-          ts: new Date(now - (3 - index) * 24 * 60 * 60 * 1_000).toISOString(),
-        }),
+  it.each([0, -1])(
+    "evicts complete runs at the global UTF-8 byte budget (%i-byte adjustment)",
+    async (delta) => {
+      const now = Date.parse("2026-07-26T00:00:00.000Z");
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      appendSqliteTrajectoryRuntimeEvents({ sessionId: "session-1", storePath }, [
+        createTrajectoryEvent({ payloadSize: 200, type: "current-initial" }),
       ]);
-    }
-    const bytesBefore = runtimeBytesBySession();
-    const trigger = createTrajectoryEvent({
-      payloadSize: 200,
-      type: "current-newest",
-      ts: new Date(now + 60 * 60 * 1_000).toISOString(),
-    });
-    const triggerBytes = Buffer.byteLength(JSON.stringify(trigger), "utf8") + 1;
-    const maxGlobalRuntimeBytes =
-      [...bytesBefore.values()].reduce((total, bytes) => total + bytes, 0) +
-      triggerBytes -
-      (bytesBefore.get("oldest") ?? 0) -
-      (bytesBefore.get("middle") ?? 0);
+      for (const [index, sessionId] of ["oldest", "middle", "newest"].entries()) {
+        await addSession(sessionId);
+        const events = [0, 1].map((part) => {
+          const event = createTrajectoryEvent({
+            sessionId,
+            type: `${sessionId}-${part}`,
+            ts: new Date(now - (3 - index) * 24 * 60 * 60 * 1_000 + part).toISOString(),
+          });
+          event.runId = sessionId === "middle" ? undefined : "shared-run";
+          event.data = { payload: "日本語🦞".repeat(40) };
+          return event;
+        });
+        appendSqliteTrajectoryRuntimeEvents({ sessionId, storePath }, events);
+      }
+      const bytesBefore = runtimeBytesBySession();
+      const trigger = createTrajectoryEvent({
+        payloadSize: 200,
+        type: "current-newest",
+        ts: new Date(now + 60 * 60 * 1_000).toISOString(),
+      });
+      const triggerBytes = Buffer.byteLength(JSON.stringify(trigger), "utf8") + 1;
+      const maxGlobalRuntimeBytes =
+        [...bytesBefore.values()].reduce((total, bytes) => total + bytes, 0) +
+        triggerBytes -
+        (bytesBefore.get("oldest") ?? 0) -
+        (bytesBefore.get("middle") ?? 0) +
+        delta;
 
-    vi.advanceTimersByTime(60 * 60 * 1_000);
-    appendSqliteTrajectoryRuntimeEvents(
-      { maxGlobalRuntimeBytes, sessionId: "session-1", storePath },
-      [trigger],
-    );
+      vi.advanceTimersByTime(60 * 60 * 1_000);
+      appendSqliteTrajectoryRuntimeEvents(
+        { maxGlobalRuntimeBytes, sessionId: "session-1", storePath },
+        [trigger],
+      );
 
-    await expect(runtimeEventTypes("oldest")).resolves.toEqual([]);
-    await expect(runtimeEventTypes("middle")).resolves.toEqual([]);
-    await expect(runtimeEventTypes("newest")).resolves.toEqual(["newest"]);
-    await expect(runtimeEventTypes("session-1")).resolves.toEqual([
-      "current-initial",
-      "current-newest",
-    ]);
-  });
+      await expect(runtimeEventTypes("oldest")).resolves.toEqual([]);
+      await expect(runtimeEventTypes("middle")).resolves.toEqual([]);
+      await expect(runtimeEventTypes("newest")).resolves.toEqual(
+        delta === 0 ? ["newest-0", "newest-1"] : [],
+      );
+      await expect(runtimeEventTypes("session-1")).resolves.toEqual([
+        "current-initial",
+        "current-newest",
+      ]);
+    },
+  );
 
   it("rate-limits the global sweep instead of running it on every insert", async () => {
     const now = Date.parse("2026-07-26T00:00:00.000Z");

@@ -47,7 +47,7 @@ export function resolvePluginSkillRoots(params: {
   pluginSkillsDir?: string;
 }): PluginSkillRoot[] {
   const workspaceDir = (params.workspaceDir ?? "").trim();
-  if (!workspaceDir) {
+  if (!workspaceDir || params.config?.plugins?.enabled === false) {
     publishPluginSkills([], {
       pluginSkillsDir: params.pluginSkillsDir,
     });

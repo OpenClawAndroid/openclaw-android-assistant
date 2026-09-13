@@ -64,8 +64,8 @@ const mockLoadPluginManifestRegistry = vi.hoisted(() =>
     plugins: [],
   })),
 );
-const mockMaintainConfigBackups = vi.hoisted(() =>
-  vi.fn<typeof import("./backup-rotation.js").maintainConfigBackups>(async () => {}),
+const mockPrepareConfigFileWrite = vi.hoisted(() =>
+  vi.fn<typeof import("./backup-rotation.js").prepareConfigFileWrite>(),
 );
 
 vi.mock("../plugins/manifest-registry.js", () => ({
@@ -91,9 +91,10 @@ vi.mock("../plugins/doctor-contract-registry.js", async (importOriginal) => {
 
 vi.mock("./backup-rotation.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./backup-rotation.js")>();
+  mockPrepareConfigFileWrite.mockImplementation(actual.prepareConfigFileWrite);
   return {
     ...actual,
-    maintainConfigBackups: mockMaintainConfigBackups,
+    prepareConfigFileWrite: mockPrepareConfigFileWrite,
   };
 });
 
@@ -168,10 +169,12 @@ describe("config io write", () => {
     } satisfies PluginManifestRegistry);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     resetConfigRuntimeState();
-    mockMaintainConfigBackups.mockReset();
-    mockMaintainConfigBackups.mockResolvedValue(undefined);
+    mockPrepareConfigFileWrite.mockReset();
+    const actual =
+      await vi.importActual<typeof import("./backup-rotation.js")>("./backup-rotation.js");
+    mockPrepareConfigFileWrite.mockImplementation(actual.prepareConfigFileWrite);
   });
 
   afterAll(async () => {
@@ -1822,7 +1825,7 @@ describe("config io write", () => {
         ),
       ).rejects.toThrow("config changed since last load");
 
-      expect(mockMaintainConfigBackups).not.toHaveBeenCalled();
+      expect(mockPrepareConfigFileWrite).not.toHaveBeenCalled();
       await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(concurrentRaw);
     },
   );
@@ -1834,8 +1837,12 @@ describe("config io write", () => {
     const io = createFastConfigIO(home);
     const snapshot = await io.readConfigFileSnapshot();
     const concurrentRaw = formatConfig({ gateway: { mode: "local", port: 19001 } });
-    mockMaintainConfigBackups.mockImplementationOnce(async () => {
-      await fs.writeFile(configPath, concurrentRaw, "utf-8");
+    mockPrepareConfigFileWrite.mockImplementationOnce(async (params) => {
+      const actual =
+        await vi.importActual<typeof import("./backup-rotation.js")>("./backup-rotation.js");
+      const prepared = await actual.prepareConfigFileWrite(params);
+      fsNode.writeFileSync(configPath, concurrentRaw, "utf-8");
+      return prepared;
     });
 
     await expect(
@@ -3824,10 +3831,13 @@ describe("config io write", () => {
         },
         refresh: () => true,
       });
-      mockMaintainConfigBackups.mockImplementationOnce(async () => {
-        await Promise.resolve();
+      mockPrepareConfigFileWrite.mockImplementationOnce(async (params) => {
+        const actual =
+          await vi.importActual<typeof import("./backup-rotation.js")>("./backup-rotation.js");
+        const prepared = await actual.prepareConfigFileWrite(params);
         events.push("backup");
         active = false;
+        return prepared;
       });
       await withEnvAsync(
         { OPENCLAW_CONFIG_PATH: configPath, OPENCLAW_TEST_FAST: "1" },
@@ -3842,6 +3852,8 @@ describe("config io write", () => {
               {
                 beforeCommit: async () => {
                   events.push("commit");
+                },
+                assertCurrent: () => {
                   if (!active) {
                     throw new Error("approval expired");
                   }
@@ -4066,7 +4078,10 @@ describe("config io write", () => {
             configPath,
             fs: {
               ...fsNode,
-              renameSync: () => {
+              renameSync: (source, destination) => {
+                if (destination !== configPath) {
+                  return fsNode.renameSync(source, destination);
+                }
                 releaseUpdateCommandPreflightForHandoff(fence);
                 revoked = true;
                 throw primaryError;
@@ -4092,7 +4107,9 @@ describe("config io write", () => {
           if (!(failure instanceof AggregateError)) {
             throw new Error("expected the write and authority failures");
           }
-          expect(failure.message).toBe("Config write failed after source ownership changed");
+          expect(failure.message).toBe(
+            "Config write failed after source ownership changed: rename failed before publication",
+          );
           expect(failure.errors).toHaveLength(2);
           expect(failure.errors[0]).toBe(primaryError);
           expect(failure.errors[1]).toHaveProperty(

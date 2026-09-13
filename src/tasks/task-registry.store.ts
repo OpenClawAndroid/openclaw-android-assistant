@@ -1,19 +1,28 @@
+import { createSubsystemLogger } from "../logging/subsystem.js";
+import { getTaskRegistryProcessState } from "./task-registry.process-state.js";
 // Stores task registry records in memory and bridges persistence runtime hooks.
 import {
   closeTaskRegistryDatabase,
   deleteTaskAndDeliveryStateFromSqlite,
   loadTaskRegistryStateFromSqlite,
+  loadTaskRegistryMutationStateFromSqlite,
   listTaskRegistryRecordsByOwnerKeyFromSqlite,
   upsertTaskWithDeliveryStateToSqlite,
   upsertTaskDeliveryStateToSqlite,
+  withTaskRegistrySqliteMutation,
 } from "./task-registry.store.sqlite.js";
-import type { TaskRegistryStoreSnapshot } from "./task-registry.store.types.js";
+import type {
+  TaskRegistryMutationScope,
+  TaskRegistryStoreSnapshot,
+} from "./task-registry.store.types.js";
 import type { TaskDeliveryState, TaskRecord } from "./task-registry.types.js";
 
 export type { TaskRegistryStoreSnapshot } from "./task-registry.store.types.js";
 
 export type TaskRegistryStore = {
   loadSnapshot: () => TaskRegistryStoreSnapshot;
+  loadMutationSnapshot?: (scope: TaskRegistryMutationScope) => TaskRegistryStoreSnapshot;
+  withMutation?: <T>(operation: () => T) => T;
   listTasksForOwnerKey?: (ownerKey: string) => Promise<TaskRecord[]>;
   upsertTaskWithDeliveryState: (params: {
     task: TaskRecord;
@@ -48,6 +57,8 @@ type TaskRegistryObservers = {
 
 const defaultTaskRegistryStore: TaskRegistryStore = {
   loadSnapshot: loadTaskRegistryStateFromSqlite,
+  loadMutationSnapshot: loadTaskRegistryMutationStateFromSqlite,
+  withMutation: withTaskRegistrySqliteMutation,
   listTasksForOwnerKey: listTaskRegistryRecordsByOwnerKeyFromSqlite,
   upsertTaskWithDeliveryState: upsertTaskWithDeliveryStateToSqlite,
   deleteTaskWithDeliveryState: deleteTaskAndDeliveryStateFromSqlite,
@@ -82,4 +93,56 @@ export function resetTaskRegistryRuntimeForTests() {
   configuredTaskRegistryStore.close?.();
   configuredTaskRegistryStore = defaultTaskRegistryStore;
   configuredTaskRegistryObservers = null;
+}
+
+const storeLog = createSubsystemLogger("tasks/registry");
+
+export function tryPersistTaskUpsert(
+  task: TaskRecord,
+  operation: string,
+  pendingDeliveryState?: TaskDeliveryState,
+): boolean {
+  try {
+    const deliveryState =
+      pendingDeliveryState ?? getTaskRegistryProcessState().taskDeliveryStates.get(task.taskId);
+    getTaskRegistryStore().upsertTaskWithDeliveryState({
+      task,
+      ...(deliveryState ? { deliveryState } : {}),
+    });
+    return true;
+  } catch (error) {
+    storeLog.warn("Failed to persist task registry upsert", {
+      operation,
+      taskId: task.taskId,
+      runId: task.runId,
+      error,
+    });
+    return false;
+  }
+}
+
+export function tryPersistTaskDelete(taskId: string): boolean {
+  try {
+    getTaskRegistryStore().deleteTaskWithDeliveryState(taskId);
+    return true;
+  } catch (error) {
+    storeLog.warn("Failed to persist task registry delete", {
+      taskId,
+      error,
+    });
+    return false;
+  }
+}
+
+export function tryPersistTaskDeliveryStateUpsert(state: TaskDeliveryState): boolean {
+  try {
+    getTaskRegistryStore().upsertDeliveryState(state);
+    return true;
+  } catch (error) {
+    storeLog.warn("Failed to persist task delivery state", {
+      taskId: state.taskId,
+      error,
+    });
+    return false;
+  }
 }

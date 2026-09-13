@@ -12,6 +12,7 @@ type LifecycleSession = {
   transport: Transport & { terminateSession?: () => Promise<void> };
   transportType: "stdio" | "sse" | "streamable-http";
   detachStderr?: () => void;
+  onCleanupError?: (error: unknown) => void;
 };
 
 export class McpClientConnectTimeoutError extends Error {}
@@ -112,8 +113,16 @@ export async function disposeMcpClient(
   const ignoreCloseFailure = async (close: () => void | PromiseLike<unknown>) => {
     try {
       await close();
-    } catch {
+    } catch (error) {
+      const firstFailure = !failed;
       markFailed();
+      if (firstFailure) {
+        try {
+          session.onCleanupError?.(error);
+        } catch {
+          // Diagnostic observers cannot interrupt resource cleanup.
+        }
+      }
     }
   };
   try {

@@ -26,6 +26,9 @@ async function readMountedDiskPaths(platform: NodeJS.Platform): Promise<string[]
         continue;
       }
       const mountPath = decodeMountInfoPath(encodedPath);
+      if (mountPath === "/boot/efi" || mountPath === "/efi") {
+        continue;
+      }
       // Containers expose their writable storage through overlay at /; other
       // roots must meet the same local-disk predicate as ordinary mounts.
       const localDisk = source.startsWith("/dev/") || type === "zfs";

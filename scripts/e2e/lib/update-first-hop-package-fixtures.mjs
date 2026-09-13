@@ -217,7 +217,7 @@ function stampFixtureVersion(packageRoot, version) {
       entry.path === "dist/build-info.json"
         ? createPackageDistContentInventoryEntry(
             entry.path,
-            bytes,
+            { bytes: bytes.byteLength, digest: createHash("sha256").update(bytes).digest("hex") },
             fs.statSync(paths.buildInfo).mode,
           )
         : entry,

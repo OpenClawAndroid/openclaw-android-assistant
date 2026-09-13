@@ -2212,25 +2212,35 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     );
   });
 
-  it("uses assembled context as the default precheck authority", async () => {
+  async function runContextAuthorityAttempt(
+    options: { ownsCompaction?: true; promptAuthority?: "preassembly_may_overflow" } = {},
+  ) {
     let sawPrompt = false;
     const hugeHistory = "large raw history ".repeat(2_000);
-
     const result = await createContextEngineAttemptRunner({
       contextEngine: createTestContextEngine({
+        ...(options.ownsCompaction
+          ? {
+              info: {
+                id: "test-context-engine",
+                name: "Test Context Engine",
+                version: "0.0.1",
+                ownsCompaction: true,
+              },
+            }
+          : {}),
         assemble: async () => ({
           messages: [
             { role: "user", content: "small assembled context", timestamp: 1 },
           ] as AgentMessage[],
           estimatedTokens: 8,
+          ...(options.promptAuthority ? { promptAuthority: options.promptAuthority } : {}),
         }),
       }),
       sessionKey,
       tempPaths,
       sessionMessages: [{ role: "user", content: hugeHistory, timestamp: 1 }] as AgentMessage[],
-      attemptOverrides: {
-        contextTokenBudget: 500,
-      },
+      attemptOverrides: { contextTokenBudget: 500 },
       sessionPrompt: async (session) => {
         sawPrompt = true;
         session.messages = [
@@ -2239,6 +2249,11 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
         ];
       },
     });
+    return { result, sawPrompt, hugeHistory };
+  }
+
+  it("uses assembled context as the default precheck authority", async () => {
+    const { result, sawPrompt } = await runContextAuthorityAttempt();
 
     expect(sawPrompt).toBe(true);
     expect(projectAgentRunAttemptTerminal(result.terminal).promptError).toBeNull();
@@ -2248,38 +2263,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
   });
 
   it("defers ordinary admission when the context engine owns compaction", async () => {
-    let sawPrompt = false;
-    const hugeHistory = "large raw history ".repeat(2_000);
-
-    const result = await createContextEngineAttemptRunner({
-      contextEngine: createTestContextEngine({
-        info: {
-          id: "test-context-engine",
-          name: "Test Context Engine",
-          version: "0.0.1",
-          ownsCompaction: true,
-        },
-        assemble: async () => ({
-          messages: [
-            { role: "user", content: "small assembled context", timestamp: 1 },
-          ] as AgentMessage[],
-          estimatedTokens: 8,
-        }),
-      }),
-      sessionKey,
-      tempPaths,
-      sessionMessages: [{ role: "user", content: hugeHistory, timestamp: 1 }] as AgentMessage[],
-      attemptOverrides: {
-        contextTokenBudget: 500,
-      },
-      sessionPrompt: async (session) => {
-        sawPrompt = true;
-        session.messages = [
-          ...session.messages,
-          { role: "assistant", content: "done", timestamp: 2 },
-        ];
-      },
-    });
+    const { result, sawPrompt } = await runContextAuthorityAttempt({ ownsCompaction: true });
 
     expect(sawPrompt).toBe(true);
     expect(projectAgentRunAttemptTerminal(result.terminal).promptError).toBeNull();
@@ -2376,32 +2360,8 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
   });
 
   it("treats preassembly overflow authority as diagnostic before provider submission", async () => {
-    let sawPrompt = false;
-    const hugeHistory = "large raw history ".repeat(2_000);
-
-    const result = await createContextEngineAttemptRunner({
-      contextEngine: createTestContextEngine({
-        assemble: async () => ({
-          messages: [
-            { role: "user", content: "small assembled context", timestamp: 1 },
-          ] as AgentMessage[],
-          estimatedTokens: 8,
-          promptAuthority: "preassembly_may_overflow",
-        }),
-      }),
-      sessionKey,
-      tempPaths,
-      sessionMessages: [{ role: "user", content: hugeHistory, timestamp: 1 }] as AgentMessage[],
-      attemptOverrides: {
-        contextTokenBudget: 500,
-      },
-      sessionPrompt: async (session) => {
-        sawPrompt = true;
-        session.messages = [
-          ...session.messages,
-          { role: "assistant", content: "done", timestamp: 2 },
-        ];
-      },
+    const { result, sawPrompt, hugeHistory } = await runContextAuthorityAttempt({
+      promptAuthority: "preassembly_may_overflow",
     });
 
     expect(sawPrompt).toBe(true);
@@ -2416,38 +2376,9 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
   });
 
   it("submits owning context-engine preassembly pressure to the provider once", async () => {
-    let sawPrompt = false;
-    const hugeHistory = "large raw history ".repeat(2_000);
-
-    const result = await createContextEngineAttemptRunner({
-      contextEngine: createTestContextEngine({
-        info: {
-          id: "test-context-engine",
-          name: "Test Context Engine",
-          version: "0.0.1",
-          ownsCompaction: true,
-        },
-        assemble: async () => ({
-          messages: [
-            { role: "user", content: "small assembled context", timestamp: 1 },
-          ] as AgentMessage[],
-          estimatedTokens: 8,
-          promptAuthority: "preassembly_may_overflow",
-        }),
-      }),
-      sessionKey,
-      tempPaths,
-      sessionMessages: [{ role: "user", content: hugeHistory, timestamp: 1 }] as AgentMessage[],
-      attemptOverrides: {
-        contextTokenBudget: 500,
-      },
-      sessionPrompt: async (session) => {
-        sawPrompt = true;
-        session.messages = [
-          ...session.messages,
-          { role: "assistant", content: "done", timestamp: 2 },
-        ];
-      },
+    const { result, sawPrompt, hugeHistory } = await runContextAuthorityAttempt({
+      ownsCompaction: true,
+      promptAuthority: "preassembly_may_overflow",
     });
 
     expect(sawPrompt).toBe(true);

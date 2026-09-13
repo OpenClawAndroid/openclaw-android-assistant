@@ -228,7 +228,9 @@ describe("sessions.send completed subagent follow-up status", () => {
       createdAt: 1,
       execution: { status: "terminal", startedAt: 2, endedAt: 3 },
     });
-    replaceSubagentRunAfterSteerMock.mockRejectedValueOnce(new Error("database unavailable"));
+    replaceSubagentRunAfterSteerMock.mockImplementationOnce(() => {
+      throw new Error("database unavailable");
+    });
     terminateAcceptedCollectorRunMock.mockResolvedValueOnce(undefined);
     chatSendMock.mockImplementation(async ({ respond }: { respond: RespondFn }) => {
       respond(true, { runId: "run-new", status: "started" }, undefined, undefined);

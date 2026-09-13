@@ -137,20 +137,19 @@ export function loadSessionWorkspace(
   const client = state.client;
   void (async () => {
     try {
-      const files = await state.sessions.listFiles(sessionKey, {
-        path: workspace.browserSearch ? "" : workspace.browserPath,
-        search: workspace.browserSearch,
-        agentId,
-      });
-      if (!isCurrentSessionWorkspace(state, workspace)) {
-        return;
-      }
-      const artifacts = await client.request<{
-        artifacts?: SessionWorkspaceListResult["artifacts"];
-      } | null>("artifacts.list", {
-        sessionKey,
-        ...(agentId ? { agentId } : {}),
-      });
+      const [files, artifacts] = await Promise.all([
+        state.sessions.listFiles(sessionKey, {
+          path: workspace.browserSearch ? "" : workspace.browserPath,
+          search: workspace.browserSearch,
+          agentId,
+        }),
+        client.request<{
+          artifacts?: SessionWorkspaceListResult["artifacts"];
+        } | null>("artifacts.list", {
+          sessionKey,
+          ...(agentId ? { agentId } : {}),
+        }),
+      ]);
       if (!isCurrentSessionWorkspace(state, workspace)) {
         return;
       }

@@ -9,13 +9,13 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildModelsListResult } from "../gateway/server-methods/models-list-result.js";
 import { registerGatewayModelCatalogPrivateAccess } from "../gateway/server-model-catalog-auth.js";
 import { loadPreparedGatewayModelCatalogSnapshot } from "../gateway/server-model-catalog.js";
-import { loadPluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { unregisterResolvedAgentDir } from "./agent-dir-registry.js";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "./agent-scope-config.js";
 import { getRuntimeExternalCliProfileIds } from "./auth-profiles/runtime-external-profile-references.js";
 import { saveAuthProfileStore } from "./auth-profiles/store-runtime.js";
+import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { preparePublishedModelCatalogOwnerIdentity } from "./prepared-model-catalog-owner.js";
 import { createPreparedModelCatalogWorker } from "./prepared-model-catalog-worker.js";
 import {
@@ -39,6 +39,7 @@ import {
   writeCodexAuth,
   writeFixturePlugin,
 } from "./prepared-model-catalog-worker.test-support.js";
+import { materializePreparedModelCatalogOwner } from "./prepared-model-catalog.js";
 import {
   getPreparedModelFullCatalogAuth,
   getPreparedModelRuntimeAuthStore,
@@ -52,8 +53,8 @@ import {
 } from "./prepared-model-runtime.js";
 import { retainPreparedPluginGeneration } from "./prepared-model-runtime.plugin-lifetime.js";
 import { AuthStorage } from "./sessions/auth-storage.js";
+import { createStaticCatalogSnapshotFixture } from "./test-helpers/prepared-model-catalog-static-fixture.js";
 import {
-  markPluginMetadataSnapshotProvided,
   loadCompletedFullCatalog,
   readCatalogDiscoveryCaptures,
   usePreparedCatalogWorkerFixtures,
@@ -62,81 +63,7 @@ import {
 const { makeTempDir, retireAfterTest, waitForWorkers, waitForMarker } =
   usePreparedCatalogWorkerFixtures();
 
-async function createStaticSnapshot(
-  spinMs: number,
-  envOverride: NodeJS.ProcessEnv = {},
-  options?: {
-    hydrateExternalCliProviderIds?: readonly string[];
-    codexNativeOwner?: boolean;
-    builtPluginVersion?: string;
-    asyncSyntheticAuth?: boolean;
-    prepareInboundPluginRegistry?: boolean;
-    readOnly?: boolean;
-    metadataWorkspace?: "gateway" | "none" | "activation";
-    provideMetadataToWorker?: boolean;
-  },
-) {
-  const fixture = createCatalogFixture(makeTempDir, spinMs, envOverride, options);
-  const { agentDir, workspaceDir, config, env, root } = fixture;
-  const input = {
-    agentId: "main",
-    agentDir,
-    inheritedAuthDir: agentDir,
-    workspaceDir,
-    config,
-    env,
-    ...(options?.readOnly ? { readOnly: true } : {}),
-  };
-  let current = true;
-  const isCurrent = () => current;
-  const supersede = () => {
-    current = false;
-  };
-  retireAfterTest(supersede);
-  const loadedMetadataSnapshot = options?.metadataWorkspace
-    ? loadPluginMetadataSnapshot({
-        config:
-          options.metadataWorkspace === "activation"
-            ? { ...config, plugins: { ...config.plugins, entries: {} } }
-            : config,
-        env,
-        ...(options.metadataWorkspace === "gateway"
-          ? { workspaceDir: path.join(root, "gateway-workspace") }
-          : {}),
-      })
-    : undefined;
-  const providedMetadataSnapshot =
-    options?.provideMetadataToWorker && loadedMetadataSnapshot
-      ? markPluginMetadataSnapshotProvided(loadedMetadataSnapshot)
-      : loadedMetadataSnapshot;
-  const results = await startSerializedSnapshotBuildBatch(
-    [
-      {
-        input,
-        catalogOwner: preparePublishedModelCatalogOwnerIdentity(input),
-        isGenerationCurrent: isCurrent,
-        isBuildCurrent: isCurrent,
-        prepareInboundPluginRegistry: options?.prepareInboundPluginRegistry,
-      },
-    ],
-    new Map(),
-    30_000,
-    "static",
-    undefined,
-    providedMetadataSnapshot,
-  ).pending;
-  const build = results[0]!;
-  const releaseGeneration = retainPreparedPluginGeneration(build.pluginGeneration);
-  retireAfterTest(releaseGeneration);
-  return {
-    ...fixture,
-    pluginMetadataSnapshot: build.pluginGeneration.pluginMetadataSnapshot,
-    snapshot: build.snapshot,
-    isCurrent,
-    supersede,
-    releaseGeneration,
-  };
-}
+const createStaticSnapshot = createStaticCatalogSnapshotFixture({ makeTempDir, retireAfterTest });
 
 async function createReadyWorkerFixture(spinMs: number) {
   const fixture = await createStaticSnapshot(spinMs);
@@ -660,23 +587,26 @@ describe("prepared model catalog worker boundary", () => {
       config,
       modelCatalog: { entries: [route], routeVariants: [route] },
     });
-    const project = async () => {
-      const fullCatalog = await loadCompletedFullCatalog(fixture.snapshot, { refresh: true });
-      const fullAuth = fullCatalog && getPreparedModelFullCatalogAuth(fullCatalog);
-      if (!fullAuth) {
+    const project = async (refresh = true) => {
+      const fullCatalog = refresh
+        ? await loadCompletedFullCatalog(fixture.snapshot, { refresh: true })
+        : fixture.snapshot.readFullModelCatalog?.();
+      const materialized = materializePreparedModelCatalogOwner(fixture.snapshot, fullCatalog);
+      const authStore = getPreparedModelRuntimeAuthStore(materialized);
+      if (!authStore) {
         throw new Error("full catalog omitted prepared auth");
       }
       return await loadPreparedGatewayModelCatalogSnapshot({
         getConfig: () => config,
         loadPublishedPreparedModelCatalogOwnerSnapshot: async () => ({
           ...owner,
-          authModes: fullAuth.authModes,
-          authStore: fullAuth.authStore,
+          authModes: materialized.authModes,
+          authStore,
         }),
       });
     };
-    const projectModels = async () => {
-      const projected = await project();
+    const projectModels = async (refresh = true) => {
+      const projected = await project(refresh);
       const loadProjectedCatalogSnapshot = async () => projected;
       registerGatewayModelCatalogPrivateAccess(loadProjectedCatalogSnapshot, {
         loadDeferred: async () => projected,
@@ -695,10 +625,11 @@ describe("prepared model catalog worker boundary", () => {
         }),
       };
     };
-    const writeDurableProfile = (key?: string) =>
+    const writeDurableProfile = (key?: string, usageStats?: AuthProfileStore["usageStats"]) =>
       saveAuthProfileStore(
         {
           version: 1,
+          usageStats,
           profiles: key
             ? {
                 [`${DURABLE_AUTH_PROVIDER_ID}:default`]: {
@@ -745,6 +676,59 @@ describe("prepared model catalog worker boundary", () => {
       },
     });
 
+    const fullCatalog = fixture.snapshot.readFullModelCatalog?.();
+    if (!fullCatalog) {
+      throw new Error("expected published catalog");
+    }
+    const fullAuth = getPreparedModelFullCatalogAuth(fullCatalog)!;
+    const discoveryBeforeUsage = fs.readFileSync(fixture.marker, "utf8");
+    for (const cooldownUntil of [Date.now() + 60_000, undefined, Date.now() + 120_000]) {
+      writeDurableProfile(
+        "second-key-not-real",
+        cooldownUntil === undefined
+          ? {}
+          : {
+              [`${DURABLE_AUTH_PROVIDER_ID}:default`]: { cooldownUntil },
+            },
+      );
+      const current = await projectModels(false);
+      expect(current.result.models).toContainEqual(
+        expect.objectContaining({
+          id: "durable-model",
+          available: cooldownUntil === undefined,
+        }),
+      );
+      const currentAuth = getPreparedModelFullCatalogAuth(fullCatalog)!;
+      expect(currentAuth.authStore.profiles).toBe(fullAuth.authStore.profiles);
+      expect(currentAuth.authModes).toBe(fullAuth.authModes);
+      expect(currentAuth.providerAuthLabels).toBe(fullAuth.providerAuthLabels);
+      expect(currentAuth.credentials).toBe(fullAuth.credentials);
+    }
+    expect(fs.readFileSync(fixture.marker, "utf8")).toBe(discoveryBeforeUsage);
+
+    // The worker has captured a block before its provider hook waits at the barrier.
+    const hold = fixture.marker + ".hold";
+    fs.writeFileSync(hold, "hold");
+    const pending = loadCompletedFullCatalog(fixture.snapshot, { refresh: true });
+    try {
+      await expect
+        .poll(() => fs.readFileSync(fixture.marker, "utf8"), { timeout: 30_000 })
+        .not.toBe(discoveryBeforeUsage);
+      writeDurableProfile("second-key-not-real", {});
+      fs.rmSync(hold);
+      await pending;
+      const recovered = await projectModels(false);
+      expect(recovered.result.models).toContainEqual(
+        expect.objectContaining({
+          id: "durable-model",
+          available: true,
+        }),
+      );
+    } finally {
+      fs.rmSync(hold, { force: true });
+      await pending;
+    }
+
     writeDurableProfile();
     const removed = await projectModels();
     expectCatalogAuth(fixture.snapshot, DURABLE_AUTH_PROVIDER_ID).toBe("missing");
@@ -755,6 +739,8 @@ describe("prepared model catalog worker boundary", () => {
     expect(
       removed.projected.authStore?.profiles[`${DURABLE_AUTH_PROVIDER_ID}:default`],
     ).toBeUndefined();
+    fixture.supersede();
+    expect(getPreparedModelFullCatalogAuth(fullCatalog)?.authStore).toBe(fullAuth.authStore);
   });
 
   it("refreshes plugin external auth without changing the prepared plugin generation", async () => {

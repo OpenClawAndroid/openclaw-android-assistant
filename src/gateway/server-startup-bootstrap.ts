@@ -140,29 +140,18 @@ export async function prepareGatewayServerBootstrap(input: {
   await startupTrace.measure("state.ownership", () =>
     opts.startupOperation ? opts.startupOperation(inspectStateOwnership) : inspectStateOwnership(),
   );
-  const [
-    {
-      OPENCLAW_DATABASE_SCHEMA_DOCS_URL,
-      OpenClawDatabaseSchemaPreflightError,
-      preflightOpenClawDatabaseSchemas,
-    },
-    agentDatabase,
-    stateDatabase,
-  ] = await startupTrace.measure("state.runtime-imports", () =>
-    Promise.all([
-      import("../state/openclaw-database-preflight.js"),
-      import("../state/openclaw-agent-db.js"),
-      import("../state/openclaw-state-db-contract.js"),
-    ]),
+  const {
+    OPENCLAW_DATABASE_SCHEMA_DOCS_URL,
+    OpenClawDatabaseSchemaPreflightError,
+    preflightOpenClawDatabaseSchemas,
+  } = await startupTrace.measure(
+    "state.runtime-imports",
+    () => import("../state/openclaw-database-preflight.js"),
   );
   const inspectDatabaseSchemas = (signal?: AbortSignal) =>
     preflightOpenClawDatabaseSchemas({
       signal,
       env: process.env,
-      supportedVersions: {
-        state: stateDatabase.OPENCLAW_STATE_SCHEMA_VERSION,
-        agent: agentDatabase.OPENCLAW_AGENT_SCHEMA_VERSION,
-      },
     });
   const databaseSchemas = await startupTrace.measure("state.schema-preflight", () =>
     opts.startupOperation

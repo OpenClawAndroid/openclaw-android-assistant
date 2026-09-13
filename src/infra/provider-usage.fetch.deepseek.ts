@@ -1,6 +1,10 @@
 // Fetches and normalizes DeepSeek provider usage records.
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { fetchUsageJson, parseFiniteNumber } from "./provider-usage.fetch.shared.js";
+import {
+  buildUsageErrorSnapshot,
+  fetchUsageJson,
+  parseFiniteNumber,
+} from "./provider-usage.fetch.shared.js";
 import { PROVIDER_LABELS } from "./provider-usage.shared.js";
 import type { ProviderUsageSnapshot } from "./provider-usage.types.js";
 
@@ -92,12 +96,7 @@ export async function fetchDeepSeekUsage(
     ];
   });
   if (!summary) {
-    return {
-      provider: "deepseek",
-      displayName: PROVIDER_LABELS.deepseek,
-      windows: [],
-      error: "No balance data",
-    };
+    return buildUsageErrorSnapshot("deepseek", "No balance data");
   }
 
   return {

@@ -984,7 +984,7 @@ describe("chat pane composer controls", () => {
           state: { modelOverrides: {} },
           think: () => undefined,
           patch: vi.fn(),
-          refresh: vi.fn().mockResolvedValue(undefined),
+          invalidate: vi.fn(),
         },
         chatModelSwitchPromises: {},
         sessionKey: "main",
@@ -1037,6 +1037,7 @@ describe("chat pane composer controls", () => {
       const freshModels = [{ id: "fresh-model", name: "Fresh Model", provider: "openai" }];
       catalog.resolve({ models: freshModels });
       await vi.waitFor(() => expect(state.chatModelCatalog).toEqual(freshModels));
+      expect(state.sessions.invalidate).toHaveBeenCalledOnce();
     },
   );
 });

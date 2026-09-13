@@ -7,11 +7,11 @@ import { createDeferred } from "../../test/helpers/promise.js";
 import { listAgentIds } from "../agents/agent-scope.js";
 import { type AgentsConfig, getRuntimeConfig as getMockedRuntimeConfig } from "../config/config.js";
 import { loadSessionEntry, updateSessionEntry } from "../config/sessions/session-accessor.js";
-import { SQLITE_SESSION_WRITER_QUEUES } from "../config/sessions/store-writer-state.js";
 import {
   disposeOpenClawAgentDatabaseByPath,
   listOpenClawAgentDatabasesForTest,
 } from "../state/openclaw-agent-db.js";
+import { SQLITE_SESSION_WRITER_QUEUES } from "../state/openclaw-agent-write-admission.js";
 import { createGatewayConfigOverrides } from "./test-helpers.config-runtime.js";
 import {
   installGatewayTestHooks,

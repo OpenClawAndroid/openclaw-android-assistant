@@ -52,6 +52,7 @@ openclaw tui --local
 - Header: connection URL, current agent, current session.
 - Chat log: user messages, assistant replies, system notices, tool cards.
 - On terminals with hyperlink support, Markdown links open their authored destination, including wrapped links and URL-shaped labels.
+- On terminals with image support, image attachments appear as inline previews in messages and tool output.
 - Status line: connection/run state (connecting, running, streaming, idle, error).
 - Footer: agent + session + model + goal state + think/fast/verbose/trace/reasoning + token counts + deliver.
 - Input: text editor with autocomplete.
@@ -254,6 +255,30 @@ Tips:
 - Tool calls show as cards with args + results.
 - Ctrl+O toggles between collapsed/expanded views.
 - While tools run, partial updates stream into the same card.
+
+## Image previews
+
+The TUI displays static previews of received and generated image attachments in
+compatible terminals, including Ghostty, iTerm2, and Kitty. Previews also appear
+when reopening a conversation or reconnecting. Tool image results appear in
+their tool cards; restored tool output follows the session's verbose setting.
+
+Gateway mode retrieves managed attachments from the connected Gateway using the
+same media access rules as the Control UI. Local mode reads managed attachments
+through the local media store. Image links in ordinary Markdown do not trigger
+downloads.
+
+Gateway image previews work even when Control UI hosting is disabled.
+
+Previews preserve aspect ratio and fit within 60 columns and 20 rows. The TUI
+keeps up to four previews per message and the 24 most recent previews in the
+visible transcript. PNG, JPEG, GIF, and WebP inputs are displayed as static PNG
+thumbnails; GIF animation is not supported. Large or unavailable images show a
+preview notice. Use the Control UI to inspect the original image or resolve a
+media access failure.
+
+Terminals without a supported graphics protocol keep text output. Images are
+disabled by default inside tmux and GNU Screen. Sixel is not supported.
 
 ## Terminal colors
 

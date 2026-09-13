@@ -3,6 +3,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthProfileCredential, AuthProfileStore } from "../../agents/auth-profiles.js";
+import { createApiKeyCredential } from "../../agents/auth-profiles/credential-fixtures.test-support.js";
 import { registerModelsCli } from "../../cli/models-cli.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createDirectChatContext } from "../../gateway/server-chat.agent-events.test-helpers.js";
@@ -363,11 +364,7 @@ describe("models auth logout", () => {
     { name: "throws", failure: new Error("store write failed"), throws: true },
   ])("restores surviving config when store removal $name", async ({ failure, throws }) => {
     const profileId = "openai:manual";
-    const credential: AuthProfileCredential = {
-      type: "api_key",
-      provider: "openai",
-      key: "synthetic-key",
-    };
+    const credential: AuthProfileCredential = createApiKeyCredential("openai", "synthetic-key");
     let liveConfig: OpenClawConfig = {
       auth: {
         profiles: { [profileId]: { provider: "openai", mode: "api_key" } },
@@ -419,11 +416,7 @@ describe("models auth logout", () => {
   it("restores only surviving references after partial multi-store removal", async () => {
     const removedId = "openai:removed";
     const survivorId = "openai:survivor";
-    const survivor: AuthProfileCredential = {
-      type: "api_key",
-      provider: "openai",
-      key: "synthetic-survivor",
-    };
+    const survivor: AuthProfileCredential = createApiKeyCredential("openai", "synthetic-survivor");
     let liveConfig: OpenClawConfig = {
       auth: {
         profiles: {
@@ -492,11 +485,7 @@ describe("models auth logout", () => {
   it("preserves an untargeted token binding through failed API-key removal and retry", async () => {
     const keyId = "openai:key";
     const tokenId = "openai:token";
-    const key: AuthProfileCredential = {
-      type: "api_key",
-      provider: "openai",
-      key: "synthetic-key",
-    };
+    const key: AuthProfileCredential = createApiKeyCredential("openai", "synthetic-key");
     const token: AuthProfileCredential = {
       type: "token",
       provider: "openai",

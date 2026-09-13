@@ -130,6 +130,7 @@ export type BoundTaskFlowRuntime = {
     cancelRequestedAt?: number;
   }) => ManagedTaskFlowMutationResult;
   cancel: (params: { flowId: string; cfg: OpenClawConfig }) => Promise<BoundTaskFlowCancelResult>;
+  /** @deprecated Use the same method on api.runtime.tasks.async.managedFlows. */
   runTask: (params: {
     flowId: string;
     runtime: TaskRuntime;

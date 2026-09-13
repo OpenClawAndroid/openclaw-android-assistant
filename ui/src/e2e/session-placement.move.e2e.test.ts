@@ -604,8 +604,9 @@ suite.define(() => {
         ).runnerFreshnessPresentation = state;
         inspect();
       });
-      const rosterMatch = { includeGlobal: true, agentId: "main" };
-      const listCount = (await gateway.getRequests("sessions.list", rosterMatch)).length;
+      const descriptorMatch = { key: available.key };
+      const descriptorCount = (await gateway.getRequests("sessions.describe", descriptorMatch))
+        .length;
       // Current primary, child, and descriptor reads share one offline fixture owner.
       await gateway.setSessionsListResponse(chatSessionListResponse([parent, offline]));
       await gateway.setMethodResponse("sessions.list", {
@@ -614,10 +615,22 @@ suite.define(() => {
           { response: chatSessionListResponse([parent, offline]) },
         ],
       });
-      await gateway.deferNext("sessions.list", rosterMatch);
+      await gateway.deferNext("sessions.describe", descriptorMatch);
       await gateway.emitGatewayEvent("sessions.changed", { reason: "runner-availability" });
-      await gateway.waitForRequest("sessions.list", { after: listCount, match: rosterMatch });
-      await gateway.resolveDeferred("sessions.list", chatSessionListResponse([parent, offline]));
+      await gateway.waitForRequest("sessions.describe", {
+        after: descriptorCount,
+        match: descriptorMatch,
+      });
+      await page.getByRole("button", { name: "Runs on device" }).waitFor();
+      await gateway.emitGatewayEvent("sessions.changed", { reason: "runner-availability" });
+      expect(await gateway.getRequests("sessions.describe", descriptorMatch)).toHaveLength(
+        descriptorCount + 1,
+      );
+      await gateway.resolveDeferred("sessions.describe", { session: available });
+      await gateway.waitForRequest("sessions.describe", {
+        after: descriptorCount + 1,
+        match: descriptorMatch,
+      });
       await page.getByRole("button", { name: "Device offline" }).waitFor();
       expect(
         await page.evaluate(() => {

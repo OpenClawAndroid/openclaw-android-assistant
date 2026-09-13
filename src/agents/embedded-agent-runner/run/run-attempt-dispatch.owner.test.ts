@@ -158,7 +158,7 @@ it.each([
       const skillsSnapshot =
         skillCatalog === "none"
           ? undefined
-          : buildSkillSnapshot(state.workspaceDir, {
+          : await buildSkillSnapshot(state.workspaceDir, {
               agentId,
               bundledSkillsDir: state.path("missing-bundled-skills"),
               managedSkillsDir: state.path("missing-managed-skills"),

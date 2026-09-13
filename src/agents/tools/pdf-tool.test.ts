@@ -11,6 +11,7 @@ import * as webMedia from "../../media/web-media.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import { getPluginRuntimeGenerationRegistry } from "../../plugins/runtime/generation-scope.js";
 import { withEnvAsync } from "../../test-utils/env.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
 import * as modelAuth from "../model-auth.js";
 import { createContainerWorkspaceSandboxFsBridge } from "../test-helpers/host-sandbox-fs-bridge.js";
@@ -220,11 +221,7 @@ describe("createPdfTool", () => {
     const authProfileStore = {
       version: 1,
       profiles: {
-        "anthropic:default": {
-          type: "api_key",
-          provider: "anthropic",
-          key: "fixture",
-        },
+        "anthropic:default": createApiKeyCredential("anthropic", "fixture"),
       },
     } satisfies AuthProfileStore;
     const createTool = await loadCreatePdfTool();

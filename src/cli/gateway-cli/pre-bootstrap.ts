@@ -270,7 +270,7 @@ async function guardGatewayRunSelectedConfig(
     import("../../infra/env.js"),
     import("../../config/paths.js"),
     import("../../utils.js"),
-    import("../../config/types.secrets.js"),
+    import("../../config/resolution-facts.js"),
     import("../../daemon/service-managed-env.js"),
   ]);
   const invocationDestructiveOverride = resolveInvocationDestructiveOverride();

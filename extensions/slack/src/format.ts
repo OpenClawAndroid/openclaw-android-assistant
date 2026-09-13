@@ -211,7 +211,10 @@ function tokenizeSlackMrkdwn(text: string): string[] {
       index += 3;
       continue;
     }
-    const entity = ["&amp;", "&lt;", "&gt;"].find((candidate) => text.startsWith(candidate, index));
+    const entity =
+      text[index] === "&"
+        ? ["&amp;", "&lt;", "&gt;"].find((candidate) => text.startsWith(candidate, index))
+        : undefined;
     if (entity) {
       tokens.push(entity);
       index += entity.length;

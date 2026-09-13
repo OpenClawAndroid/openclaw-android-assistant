@@ -1,5 +1,6 @@
 import { lstatSync, statSync } from "node:fs";
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import { resolveSqliteDatabaseFilePaths } from "../infra/sqlite-files.js";
 import { normalizeAgentId } from "../routing/session-key.js";
@@ -115,6 +116,24 @@ type AgentDatabaseRegistryListOptions = OpenClawStateDatabaseOptions & {
   includeIncompatibleSchemaVersions?: boolean;
 };
 
+/** Read durable registrations from an already opened live or captured database. */
+export function readOpenClawAgentDatabaseRegistryRows(database: DatabaseSync, pathname: string) {
+  const registryTable = database
+    .prepare("SELECT type FROM sqlite_master WHERE name = 'agent_databases'")
+    .get() as { type?: unknown } | undefined;
+  if (!registryTable) {
+    return [];
+  }
+  if (registryTable.type !== "table") {
+    throw new Error(`OpenClaw state database ${pathname} has an invalid agent registry.`);
+  }
+  const db = getNodeSqliteKysely<OpenClawAgentRegistryDatabase>(database);
+  return executeSqliteQuerySync(
+    database,
+    db.selectFrom("agent_databases").selectAll().orderBy("agent_id", "asc").orderBy("path", "asc"),
+  ).rows;
+}
+
 function readRegisteredAgentDatabases(
   options: AgentDatabaseRegistryListOptions,
   artifactPreserving: boolean,
@@ -130,24 +149,7 @@ function readRegisteredAgentDatabases(
         `OpenClaw state database ${pathname} has a legacy agent database registry schema; run openclaw doctor --fix to migrate it.`,
       );
     }
-    const registryTable = database
-      .prepare("SELECT type FROM sqlite_master WHERE name = 'agent_databases'")
-      .get() as { type?: unknown } | undefined;
-    if (!registryTable) {
-      return [];
-    }
-    if (registryTable.type !== "table") {
-      throw new Error(`OpenClaw state database ${pathname} has an invalid agent registry.`);
-    }
-    const db = getNodeSqliteKysely<OpenClawAgentRegistryDatabase>(database);
-    return executeSqliteQuerySync(
-      database,
-      db
-        .selectFrom("agent_databases")
-        .selectAll()
-        .orderBy("agent_id", "asc")
-        .orderBy("path", "asc"),
-    ).rows.map((row) => ({
+    return readOpenClawAgentDatabaseRegistryRows(database, pathname).map((row) => ({
       agentId: normalizeAgentId(row.agent_id),
       path: resolveOpenClawRegisteredAgentDatabasePath(pathname, row.path),
       schemaVersion: row.schema_version,

@@ -95,7 +95,13 @@ const authLoaderBySnapshot = new WeakMap<
   object,
   (scope: PreparedModelRuntimeAuthScope) => Promise<PreparedModelRuntimeAuth>
 >();
-const authByFullCatalog = new WeakMap<object, PreparedModelCatalogAuth>();
+const authByFullCatalog = new WeakMap<
+  object,
+  {
+    auth: PreparedModelCatalogAuth;
+    readUsage?: (store: AuthProfileStore) => AuthProfileStore;
+  }
+>();
 
 // Secret-bearing state stays lifecycle-owned without becoming part of the public snapshot shape.
 export function setPreparedModelRuntimeAuthStore(
@@ -127,12 +133,28 @@ export function getPreparedModelRuntimeAuthLabels(snapshot: object): ModelCatalo
 export function setPreparedModelFullCatalogAuth(
   snapshot: object,
   auth: PreparedModelCatalogAuth,
+  readUsage?: (store: AuthProfileStore) => AuthProfileStore,
 ): void {
-  authByFullCatalog.set(snapshot, auth);
+  authByFullCatalog.set(snapshot, {
+    auth,
+    readUsage: readUsage ?? authByFullCatalog.get(snapshot)?.readUsage,
+  });
 }
 
 export function getPreparedModelFullCatalogAuth(snapshot: object) {
-  return authByFullCatalog.get(snapshot);
+  const binding = authByFullCatalog.get(snapshot);
+  if (!binding) {
+    return undefined;
+  }
+  const authStore = binding.readUsage?.(binding.auth.authStore) ?? binding.auth.authStore;
+  return authStore === binding.auth.authStore ? binding.auth : { ...binding.auth, authStore };
+}
+
+export function copyPreparedModelFullCatalogAuth(source: object, target: object): void {
+  const binding = authByFullCatalog.get(source);
+  if (binding) {
+    authByFullCatalog.set(target, binding);
+  }
 }
 
 export function setPreparedModelRuntimeAuthLoader(

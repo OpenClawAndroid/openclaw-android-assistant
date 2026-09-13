@@ -25,6 +25,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { guardModelFixtureWorkspace } from "./embedded-agent-runner/model.fixture.test-support.js";
 import {
   createModelGenerationFixture,
@@ -711,11 +712,7 @@ function mockOpenAIPlatformProfile(): void {
   ensureAuthProfileStoreMock.mockReturnValue({
     version: 1,
     profiles: {
-      "profile-1": {
-        type: "api_key",
-        provider: "openai",
-        key: "platform-key",
-      },
+      "profile-1": createApiKeyCredential("openai", "platform-key"),
     },
     order: { openai: ["profile-1"] },
   });
@@ -1672,11 +1669,7 @@ describe("runBtwSideQuestion", () => {
           token: "unresolved-token",
           expires: Date.now() + 60_000,
         },
-        "openai:platform": {
-          type: "api_key",
-          provider: "openai",
-          key: "platform-key",
-        },
+        "openai:platform": createApiKeyCredential("openai", "platform-key"),
       },
       order: { openai: ["openai:subscription", "openai:platform"] },
     });

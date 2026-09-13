@@ -54,55 +54,57 @@ suite.define(() => {
       viewport: { height: 900, width: 1280 },
     });
     const page = await context.newPage();
+    const children = [
+      sessionRow(childOneKey, "Research sources", baseTime - 1_000, {
+        hasActiveRun: true,
+        spawnedBy: parentKey,
+        startedAt: baseTime - 61_000,
+        status: "running",
+      }),
+      sessionRow(childTwoKey, "Verify tests", baseTime - 2_000, {
+        endedAt: baseTime - 2_000,
+        spawnedBy: parentKey,
+        startedAt: baseTime - 62_000,
+        status: "done",
+      }),
+      {
+        ...sessionRow(staleRunningChildKey, "Stale activity", baseTime - 3_000, {
+          hasActiveRun: false,
+          spawnedBy: parentKey,
+          startedAt: baseTime - 64_000,
+          status: "running",
+        }),
+        runtimeMs: 61_000,
+        runtimeSampledAt: baseTime,
+      },
+      {
+        ...sessionRow(failedChildKey, "Failed checks", baseTime - 4_000, {
+          endedAt: baseTime - 4_000,
+          hasActiveRun: true,
+          spawnedBy: parentKey,
+          startedAt: baseTime - 64_000,
+          status: "failed",
+        }),
+        lastReadAt: baseTime,
+        runtimeMs: 60_000,
+        runtimeSampledAt: baseTime,
+      },
+    ];
+    const parentRow = sessionRow(parentKey, "Plan release", baseTime, {
+      childSessions: [childOneKey, childTwoKey, staleRunningChildKey, failedChildKey],
+    });
     const gateway = await installMockGateway(page, {
+      // Direct routes resolve canonical identity before the sidebar list arrives.
+      sessions: [parentRow, ...children],
       methodResponses: {
         "sessions.list": {
           cases: [
             {
               match: { spawnedBy: parentKey },
-              response: sessionsListResponse([
-                sessionRow(childOneKey, "Research sources", baseTime - 1_000, {
-                  hasActiveRun: true,
-                  spawnedBy: parentKey,
-                  startedAt: baseTime - 61_000,
-                  status: "running",
-                }),
-                sessionRow(childTwoKey, "Verify tests", baseTime - 2_000, {
-                  endedAt: baseTime - 2_000,
-                  spawnedBy: parentKey,
-                  startedAt: baseTime - 62_000,
-                  status: "done",
-                }),
-                {
-                  ...sessionRow(staleRunningChildKey, "Stale activity", baseTime - 3_000, {
-                    hasActiveRun: false,
-                    spawnedBy: parentKey,
-                    startedAt: baseTime - 64_000,
-                    status: "running",
-                  }),
-                  runtimeMs: 61_000,
-                  runtimeSampledAt: baseTime,
-                },
-                {
-                  ...sessionRow(failedChildKey, "Failed checks", baseTime - 4_000, {
-                    endedAt: baseTime - 4_000,
-                    hasActiveRun: true,
-                    spawnedBy: parentKey,
-                    startedAt: baseTime - 64_000,
-                    status: "failed",
-                  }),
-                  lastReadAt: baseTime,
-                  runtimeMs: 60_000,
-                  runtimeSampledAt: baseTime,
-                },
-              ]),
+              response: sessionsListResponse(children),
             },
             {
-              response: sessionsListResponse([
-                sessionRow(parentKey, "Plan release", baseTime, {
-                  childSessions: [childOneKey, childTwoKey, staleRunningChildKey, failedChildKey],
-                }),
-              ]),
+              response: sessionsListResponse([parentRow]),
             },
           ],
         },

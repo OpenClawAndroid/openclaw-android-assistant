@@ -90,6 +90,7 @@ async function createRealMetadataLifecycle(
   let revision = 0;
   let latestRefresh = Promise.resolve();
   const buildCommands = vi.fn(async () => ({ commands: [] }));
+  const broadcast = vi.fn();
   mocks.createRuntime.mockImplementation(
     (params: Parameters<typeof actual.createGatewayChatMetadataRuntime>[0]) => {
       const runtime = actual.createGatewayChatMetadataRuntime({
@@ -121,7 +122,7 @@ async function createRealMetadataLifecycle(
   const lifecycle = await pendingLifecycle;
   const attach = () =>
     lifecycle.attachContext(
-      { broadcast: vi.fn() } as unknown as GatewayRequestContext,
+      { broadcast } as unknown as GatewayRequestContext,
       sidecarOwner.publish,
     );
   if (options.attach !== false) {
@@ -134,6 +135,7 @@ async function createRealMetadataLifecycle(
     lifecycle,
     attach,
     buildCommands,
+    broadcast,
     warn,
     modelEvent,
     queueRefresh(stage: "queued" | "building") {
@@ -178,6 +180,22 @@ async function createRealMetadataLifecycle(
 }
 
 describe("gateway chat metadata lifecycle", () => {
+  it("does not rebuild or broadcast unchanged metadata after unrelated skill and catalog events", async () => {
+    const harness = await createRealMetadataLifecycle();
+    try {
+      const before = await harness.lifecycle.read({ agentId: "main" });
+      for (let event = 0; event < 14; event += 1) {
+        harness.events.skills();
+        harness.events.catalog();
+        expect(await harness.lifecycle.read({ agentId: "main" })).toEqual(before);
+      }
+      expect(harness.buildCommands).toHaveBeenCalledOnce();
+      expect(harness.broadcast).toHaveBeenCalledOnce();
+    } finally {
+      await harness.stop();
+    }
+  });
+
   it.each(["queued", "building"] as const)(
     "keeps readers waiting when %s metadata refresh is superseded by owner publication",
     async (stage) => {
@@ -688,7 +706,7 @@ describe("gateway chat metadata lifecycle", () => {
 
     modelListener({ phase: "catalog-published" });
 
-    expect(mocks.invalidate).toHaveBeenCalledOnce();
+    expect(mocks.invalidate).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(3));
   });
 

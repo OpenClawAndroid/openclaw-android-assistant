@@ -23,7 +23,10 @@ import {
   loadTranscriptSuffixEventsBoundedSync,
   readPreviousIndexedTranscriptEventSync,
 } from "./session-accessor.sqlite-suffix-read.js";
-import { rewriteTranscriptMessageAtAnchor } from "./session-accessor.sqlite-transcript-message-rewrite.js";
+import {
+  rewriteAssistantTranscriptMessageForRun,
+  rewriteTranscriptMessageAtAnchor,
+} from "./session-accessor.sqlite-transcript-message-rewrite.js";
 import {
   appendTranscriptEvent,
   appendTranscriptEventSync,
@@ -81,6 +84,7 @@ export {
   replaceTranscriptSuffixEventsSync,
   rewriteTranscriptEventRowsExact,
   rewriteTranscriptMessageAtAnchor,
+  rewriteAssistantTranscriptMessageForRun,
   resolveTranscriptSessionKeyBySessionId,
   withTranscriptWriteLock,
   withTranscriptWriteTransaction,

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { resolveAuthProfileOrder } from "./auth-profiles/order.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
 
@@ -42,16 +43,8 @@ function makeApiKeyProfilesByProviderProvider(
 const ANTHROPIC_STORE = {
   version: 1,
   profiles: {
-    "anthropic:default": {
-      type: "api_key",
-      provider: "anthropic",
-      key: "sk-default",
-    },
-    "anthropic:work": {
-      type: "api_key",
-      provider: "anthropic",
-      key: "sk-work",
-    },
+    "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
+    "anthropic:work": createApiKeyCredential("anthropic", "sk-work"),
   },
 } satisfies AuthProfileStore;
 
@@ -245,11 +238,7 @@ describe("resolveAuthProfileOrder", () => {
     const mixedStore: AuthProfileStore = {
       version: 1,
       profiles: {
-        "anthropic:default": {
-          type: "api_key",
-          provider: "anthropic",
-          key: "sk-default",
-        },
+        "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
         "anthropic:oauth": {
           type: "oauth",
           provider: "anthropic",
@@ -315,11 +304,7 @@ describe("resolveAuthProfileOrder", () => {
       store: {
         version: 1,
         profiles: {
-          "minimax:prod": {
-            type: "api_key",
-            provider: "minimax",
-            key: "sk-prod",
-          },
+          "minimax:prod": createApiKeyCredential("minimax", "sk-prod"),
         },
       },
       provider: "minimax",
@@ -406,16 +391,8 @@ describe("resolveAuthProfileOrder", () => {
       store: {
         version: 1,
         profiles: {
-          "openai:default": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-openai",
-          },
-          "minimax:prod": {
-            type: "api_key",
-            provider: "minimax",
-            key: "sk-mini",
-          },
+          "openai:default": createApiKeyCredential("openai", "sk-openai"),
+          "minimax:prod": createApiKeyCredential("minimax", "sk-mini"),
         },
       },
       provider: "minimax",
@@ -434,16 +411,8 @@ describe("resolveAuthProfileOrder", () => {
             refresh: "refresh-token",
             expires: Date.now() + 60_000,
           },
-          "anthropic:b": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "sk-b",
-          },
-          "anthropic:c": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "sk-c",
-          },
+          "anthropic:b": createApiKeyCredential("anthropic", "sk-b"),
+          "anthropic:c": createApiKeyCredential("anthropic", "sk-c"),
         },
         usageStats: {
           "anthropic:a": { lastUsed: 200 },
@@ -461,11 +430,7 @@ describe("resolveAuthProfileOrder", () => {
       store: {
         version: 1,
         profiles: {
-          "anthropic:ready": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "sk-ready",
-          },
+          "anthropic:ready": createApiKeyCredential("anthropic", "sk-ready"),
           "anthropic:cool1": {
             type: "oauth",
             provider: "anthropic",
@@ -473,11 +438,7 @@ describe("resolveAuthProfileOrder", () => {
             refresh: "refresh-token",
             expires: now + 60_000,
           },
-          "anthropic:cool2": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "sk-cool",
-          },
+          "anthropic:cool2": createApiKeyCredential("anthropic", "sk-cool"),
         },
         usageStats: {
           "anthropic:ready": { lastUsed: 50 },
@@ -593,16 +554,8 @@ describe("resolveAuthProfileOrder", () => {
           version: 1,
           ...(orderSource === "store" ? { order: { openrouter: explicitOrder } } : {}),
           profiles: {
-            "openrouter:default": {
-              type: "api_key",
-              provider: "openrouter",
-              key: "sk-or-default",
-            },
-            "openrouter:work": {
-              type: "api_key",
-              provider: "openrouter",
-              key: "sk-or-work",
-            },
+            "openrouter:default": createApiKeyCredential("openrouter", "sk-or-default"),
+            "openrouter:work": createApiKeyCredential("openrouter", "sk-or-work"),
           },
           usageStats: {
             "openrouter:default": {

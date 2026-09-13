@@ -2,6 +2,7 @@
 summary: "Config snapshot, SQLite-backed plugin state, system utilities, events, and logging"
 read_when:
   - You need durable keyed or blob storage scoped to your plugin
+  - You maintain a bundled or official plugin that writes through per-agent SQLite handles
   - You are buffering channel ingress across restarts
   - You need the config snapshot, system utilities, events, or a scoped logger
 title: "Plugin runtime state and system"
@@ -188,3 +189,67 @@ the runtime openers remain limited to bundled plugins and trusted official
 installations. Runtime warnings should wait for an actionable supported upgrade.
 The async interface does not promise off-thread SQL or change callback execution;
 callback-free worker capabilities are a separate contract.
+
+## Per-agent SQLite writes
+
+Bundled and official plugins that already use the private `sqlite-runtime`
+facade can import `withOpenClawAgentDatabaseWrite` from
+`openclaw/plugin-sdk/sqlite-runtime`. This remains an internal runtime facade,
+not a typed public SDK entrypoint for third-party plugins.
+
+Call it from an asynchronous producer before entering synchronous SQLite. It
+shares the agent database's in-process write admission with session writers and
+off-thread reclamation, leaving the Gateway thread available to authorize a
+reclamation commit.
+
+Asynchronous AgentSession message, model, compaction, and tree operations use
+this admission for their transcript writes. Model-selection hooks run after
+write admission releases. Synchronous SessionManager and extension APIs,
+including `setThinkingLevel`, retain their existing synchronous contracts and
+still need an appropriate caller-owned write boundary.
+
+The signature is `withOpenClawAgentDatabaseWrite(options, operation, expectedDatabase?)`.
+`options` uses the existing agent database options, including the required
+`agentId` and optional concrete `path`. The synchronous `operation` receives the
+`OpenClawAgentDatabase`; the returned promise resolves to its result after the
+operation settles. Without `expectedDatabase`, the helper also owns asynchronous
+database-open admission. The helper captures the environment, selected state
+directory, and database path before waiting, so changing the working directory does not retarget
+a queued write. Opening or borrowing a handle alone does not admit a write.
+
+For an already borrowed handle, pass its exact `DatabaseSync` as the third
+argument. After waiting, the helper rejects a closed or replaced handle rather
+than opening a replacement on its behalf. Keep the original borrow alive until
+the operation settles. The caller still owns transactions and authorization.
+For example, given an existing `borrowedDb`, a live-owner `assertCurrent()` check,
+and synchronous `applyPreparedChanges(db)`:
+
+```typescript
+import {
+  runSqliteImmediateTransactionSync,
+  withOpenClawAgentDatabaseWrite,
+} from "openclaw/plugin-sdk/sqlite-runtime";
+
+await withOpenClawAgentDatabaseWrite(
+  { agentId, path: databasePath },
+  ({ db }) =>
+    runSqliteImmediateTransactionSync(db, () => {
+      assertCurrent();
+      applyPreparedChanges(db);
+    }),
+  borrowedDb,
+);
+```
+
+Prepare files, embeddings, network results, and hook decisions before requesting
+write admission. Keep the admitted callback synchronous; do not return a promise
+or hold admission across a provider call or an entire asynchronous hook. Recheck
+applicable manager/run ownership and cancellation inside the callback, immediately
+before mutation. Agent identity and handle equality are not authorization.
+
+`withOpenClawAgentDatabaseWrite` does not start a transaction, grant an authority
+lease, or coordinate unrelated processes. Raw SQLite calls outside admission bypass it, and existing
+synchronous APIs do not become asynchronous automatically. A rejected stale-owner
+write must return to its lifecycle owner for recovery, not retry with a replacement
+handle. For storage design and migration requirements, see
+[Database schemas](/reference/database-schemas).

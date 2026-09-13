@@ -61,7 +61,11 @@ describe("ManagedWorktreeService capacity", () => {
     repo = await initializeRepository(root);
     stateDir = path.join(root, "state");
     env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
-    service = new ManagedWorktreeService({ env });
+    // Exercise full-checkout admission; clone allowances have their own suite.
+    service = new ManagedWorktreeService({
+      env,
+      getConfig: () => ({ worktreeAcceleration: false }),
+    });
     const stats = fsSync.statfsSync(root);
     availableBytes = 100 * GiB;
     totalBytes = 1024 * GiB;
@@ -155,7 +159,10 @@ describe("ManagedWorktreeService capacity", () => {
 
   it("serializes distinct repositories competing for disk headroom", async () => {
     const otherRepo = await initializeRepository(path.join(root, "other"));
-    const otherService = new ManagedWorktreeService({ env });
+    const otherService = new ManagedWorktreeService({
+      env,
+      getConfig: () => ({ worktreeAcceleration: false }),
+    });
     const realRun = commandExec.runCommandWithTimeout;
     let pressureInjected = false;
     vi.spyOn(commandExec, "runCommandWithTimeout").mockImplementation(async (argv, options) => {

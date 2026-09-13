@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Các tùy chọn điều khiển"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Trò chuyện bằng giọng nói"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Âm thanh trên đồng hồ gặp lỗi"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Cần có quyền truy cập micrô"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Mở cài đặt"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Nhập bằng giọng nói"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Trực tiếp"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Luồng"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Đọc câu trả lời mới nhất"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Đang nói"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Đang lắng nghe"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Đang kết thúc cuộc gọi…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Đang kết nối"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Đang suy nghĩ"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Đang nhập"</string>

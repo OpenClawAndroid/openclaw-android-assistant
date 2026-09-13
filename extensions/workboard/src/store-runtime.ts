@@ -78,6 +78,7 @@ export class WorkboardStoreRuntime {
   protected trackCardStore(store: WorkboardCardStore): WorkboardCardStore {
     return {
       ...this.track(store),
+      entries: (boardId) => this.runOperation(() => store.entries(boardId)),
       registerIfAbsent: (key, value) =>
         this.runOperation(async () => {
           const inserted = await store.registerIfAbsent(key, value);

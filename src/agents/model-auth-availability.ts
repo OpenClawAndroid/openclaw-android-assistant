@@ -73,7 +73,10 @@ import {
 import { resolveManagedSecretRefRuntimeProviderAuth } from "./model-auth-runtime-config.js";
 import { hasAuthoredProviderRequestParams } from "./model-extra-params.js";
 import { splitTrailingAuthProfile } from "./model-ref-profile.js";
-import { resolveCliRuntimeExecutionProvider } from "./model-runtime-aliases.js";
+import {
+  resolveCliRuntimeExecutionProvider,
+  type CliRuntimeAuthDirectories,
+} from "./model-runtime-aliases.js";
 import { resolveDefaultModelForAgent } from "./model-selection-config.js";
 import {
   createOpenAIModelRoutesResolver,
@@ -177,6 +180,7 @@ function evaluateCliRuntimeModelAuthAvailability(
           modelId: ref.modelId,
           authProfileId: selectedProfileId,
           metadataSnapshot: params.metadataSnapshot,
+          preparedAuthDirectories: params.preparedCliRuntimeAuthDirectories,
         }) ?? normalizeProviderId(provider));
   const binding = resolveCliRuntimeModelBackendBinding({ provider, runtime: runtimeProvider });
   const runtimeOwners = params.metadataSnapshot?.owners?.cliBackends.get(
@@ -246,6 +250,7 @@ function evaluateCliRuntimeModelAuthAvailability(
 }
 type CreateModelAuthAvailabilityResolverParams = {
   cfg: OpenClawConfig;
+  preparedCliRuntimeAuthDirectories?: CliRuntimeAuthDirectories;
   agentId?: string;
   authStore: AuthProfileStore;
   agentDir?: string;

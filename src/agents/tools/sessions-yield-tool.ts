@@ -4,6 +4,7 @@
  * Ends the current turn after subagent spawning so completion events can resume the session later.
  */
 import { Type } from "typebox";
+import { getAgentToolExecutionContext } from "../../../packages/agent-core/src/tool-execution-context.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readToolStringParam } from "./common.js";
 
@@ -47,6 +48,13 @@ export function createSessionsYieldTool(opts?: {
       }
       if (!opts?.onYield) {
         return jsonResult({ status: "error", error: "Yield not supported in this context" });
+      }
+      if (getAgentToolExecutionContext()?.hasUnobservedAsyncToolResults) {
+        return jsonResult({
+          status: "error",
+          error:
+            "Yield deferred because earlier async tool results have not reached the model yet. Finish this model response to receive those results, then reconsider whether external work still requires yielding.",
+        });
       }
       const claim = await opts.claimYield?.();
       if (claim !== true) {

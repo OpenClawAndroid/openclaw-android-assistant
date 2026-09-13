@@ -187,7 +187,7 @@ async function withStateDatabaseSnapshot<T>(
   } catch (cause) {
     outcome = { cause };
   }
-  if (!snapshot.cleanup()) {
+  if (!(await snapshot.cleanupAsync())) {
     // The exit retry is best-effort, not proof that this private copy was removed.
     const readFailure =
       "cause" in outcome

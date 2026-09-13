@@ -482,7 +482,7 @@ describe("application session placement startup", () => {
       );
       expect(admitChatSubmission(pane)).toBe(false);
       expect(pane.chatMessages).toEqual([]);
-      expect(sessions.refresh).not.toHaveBeenCalled();
+      expect(sessions.invalidate).not.toHaveBeenCalled();
       startup.dispose();
     },
   );
@@ -645,7 +645,8 @@ describe("application session placement startup", () => {
         target,
         messageId: input.recovery.messageId,
       });
-      expect(sessions.refresh).toHaveBeenCalledOnce();
+      expect(sessions.invalidate).toHaveBeenCalledOnce();
+      expect(sessions.refresh).not.toHaveBeenCalled();
       expect(request).not.toHaveBeenCalledWith("sessions.send", expect.anything());
       startup.dispose();
       const reloaded = createApplicationPlacementStartup(dependencies);
@@ -788,7 +789,7 @@ describe("application session placement startup", () => {
     startup.dispose();
   });
 
-  it("refreshes after active placement failure without replacing the visible error", async () => {
+  it("invalidates lists after active placement failure without replacing the visible error", async () => {
     const activePlacement = createStartupPlacement("active", 2);
     const request = vi.fn((method: string) => {
       if (method === "sessions.dispatch") {
@@ -804,7 +805,6 @@ describe("application session placement startup", () => {
       ...state.result.sessions[0],
       placement: activePlacement,
     } as GatewaySessionRow;
-    vi.mocked(sessions.refresh).mockRejectedValueOnce(new Error("refresh unavailable"));
 
     startup.start(input);
     await vi.waitFor(() => {
@@ -814,7 +814,8 @@ describe("application session placement startup", () => {
         retryable: true,
       });
     });
-    expect(sessions.refresh).toHaveBeenCalledOnce();
+    expect(sessions.invalidate).toHaveBeenCalledOnce();
+    expect(sessions.refresh).not.toHaveBeenCalled();
     startup.dispose();
   });
 

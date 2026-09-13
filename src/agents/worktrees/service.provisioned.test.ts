@@ -581,7 +581,13 @@ describe("ManagedWorktreeService provisioned state", () => {
     const commandSpy = vi.spyOn(commandRunner, "runCommandBuffersWithTimeout");
     commandSpy.mockImplementation(async (...args) => {
       const argv = args[0];
-      if (argv[0] === "git" && argv.includes("update-index") && argv.includes("--stdin")) {
+      if (
+        argv[0] === "git" &&
+        argv.includes("update-index") &&
+        argv.includes("--add") &&
+        argv.includes("--remove") &&
+        argv.includes("--stdin")
+      ) {
         expect(reappeared).toBe(false);
         await expect(fs.stat(localPath)).rejects.toMatchObject({ code: "ENOENT" });
         await fs.writeFile(localPath, "reappeared contents\n");
@@ -638,7 +644,13 @@ describe("ManagedWorktreeService provisioned state", () => {
         disappeared = true;
         return result;
       }
-      if (argv[0] === "git" && argv.includes("update-index") && argv.includes("--stdin")) {
+      if (
+        argv[0] === "git" &&
+        argv.includes("update-index") &&
+        argv.includes("--add") &&
+        argv.includes("--remove") &&
+        argv.includes("--stdin")
+      ) {
         expect(disappeared).toBe(true);
         expect(reappeared).toBe(false);
         await expect(fs.stat(childPath)).rejects.toMatchObject({ code: "ENOENT" });

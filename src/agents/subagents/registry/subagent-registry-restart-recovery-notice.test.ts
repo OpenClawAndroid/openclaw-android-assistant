@@ -73,15 +73,59 @@ describe("subagent registry restart recovery notices", () => {
     expect(entry.resumptionNotice).toBeUndefined();
   });
 
-  it("keeps non-announcing recovery silent", async () => {
-    const entry = run({ expectsCompletionMessage: false });
+  it.each([
+    { label: "non-announcing", overrides: { expectsCompletionMessage: false } },
+    {
+      label: "Control UI",
+      overrides: { requesterOrigin: { channel: "webchat", to: "native-requester" } },
+    },
+    {
+      label: "internal wake",
+      overrides: { requesterOrigin: { channel: "heartbeat", to: "native-requester" } },
+    },
+  ])("keeps $label recovery off outbound delivery", async ({ overrides }) => {
+    const entry = run(overrides);
 
     await expect(recover(entry)).resolves.toEqual({ status: "accepted" });
 
     expect(gatewayRuntime.sendRecoveryNotice).not.toHaveBeenCalled();
     expect(clearAcceptedRecovery).toHaveBeenCalledOnce();
     expect(resumeAcceptedRecovery).toHaveBeenCalledOnce();
+    expect(entry.resumptionNotice).toBeUndefined();
   });
+
+  it.each([false, true])(
+    "retires restored Control UI notice debt without replaying work (terminal=$0)",
+    async (terminal) => {
+      const now = Date.now();
+      const entry = run({
+        requesterOrigin: { channel: "webchat", to: "native-requester" },
+        resumptionNotice: { idempotencyKey: "subagent-recovery:native-notice" },
+        execution: terminal
+          ? {
+              status: "terminal",
+              startedAt: now - 60_000,
+              endedAt: now,
+              outcome: { status: "ok" },
+            }
+          : {
+              status: "running",
+              startedAt: now - 60_000,
+              lifecycleGeneration: getAgentEventLifecycleGeneration(),
+            },
+      });
+
+      await expect(recover(entry, { now })).resolves.toEqual({
+        status: terminal ? "accepted" : "handled",
+      });
+
+      expect(gatewayRuntime.sendRecoveryNotice).not.toHaveBeenCalled();
+      expect(clearPendingNotice).toHaveBeenCalledOnce();
+      expect(resumeAcceptedRecovery).toHaveBeenCalledTimes(terminal ? 1 : 0);
+      expect(entry.resumptionNotice).toBeUndefined();
+      expect(dispatchAgent).not.toHaveBeenCalled();
+    },
+  );
 
   it("retains notice debt when outbound delivery is suppressed", async () => {
     vi.mocked(gatewayRuntime.sendRecoveryNotice).mockResolvedValueOnce({ suppressed: true });

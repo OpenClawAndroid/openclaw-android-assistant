@@ -8,6 +8,7 @@ import {
   patchSessionEntryCore,
   publishTranscriptUpdate,
   readSessionTranscriptWatermark,
+  rewriteAssistantTranscriptMessageForRun,
   rewriteTranscriptEventRowsExact,
   withTranscriptWriteLock,
   type SessionTranscriptWriteScope,
@@ -657,6 +658,32 @@ export async function rewriteAssistantTranscriptMessageByTurnIndexAndMedia(param
     ],
   });
   return rewritten ? { generation: rewritten.generation, messageId: target.messageId } : null;
+}
+
+/** Adds managed display media to the completion reply without rewriting model content. */
+export async function enrichAssistantTranscriptMediaForRun(params: {
+  content: AssistantDisplayContentBlock[];
+  mediaUrls: readonly string[];
+  runId: string;
+  expectedLifecycleRevision: SessionLifecycleRevisionExpectation;
+  scope: ResolvedAssistantTranscriptScope;
+}): Promise<{ messageId: string } | null> {
+  return await rewriteAssistantTranscriptMessageForRun({
+    scope: params.scope,
+    runId: params.runId,
+    expectedLifecycleRevision: params.expectedLifecycleRevision,
+    rewriteMessage: (message) => ({
+      ...buildAssistantDisplayRewrite({
+        message,
+        displayContent: params.content,
+        managedMediaUrls: params.mediaUrls,
+        retainOriginalText: true,
+      }),
+      // The display projection owns MEDIA stripping; transcript signatures and
+      // prompt-prefix bytes must remain identical to the model's original reply.
+      content: message.content,
+    }),
+  });
 }
 
 export async function publishAssistantTranscriptRewrite(params: {

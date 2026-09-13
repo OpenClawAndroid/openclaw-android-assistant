@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { Model } from "../../llm/types.js";
 import { createPluginMetadataSnapshotFixture } from "../../plugins/plugin-metadata.test-support.js";
 import type { AuthProfileStore } from "../auth-profiles.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import { createOAuthRefreshFence } from "../auth-profiles/oauth-refresh-marker.js";
 import { resolveAgentHarnessPreparedAuthSupport } from "../harness/support.js";
 import { getApiKeyForModelCore } from "../model-auth.js";
@@ -86,12 +87,8 @@ function virtualCodexAuthFixture() {
   } as const;
 }
 
-function apiKeyProfile(provider: string, key: string) {
-  return { type: "api_key" as const, provider, key };
-}
-
 function openAIApiKeyProfile(key: string) {
-  return apiKeyProfile("openai", key);
+  return createApiKeyCredential("openai", key);
 }
 
 function openAITokenProfile(token: string, expires?: number) {
@@ -244,8 +241,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       metadataSnapshot,
       env: {},
       authProfileStore: authStore({
-        "arcee:direct": apiKeyProfile("arcee", "direct-model-key"),
-        "openrouter:routed": apiKeyProfile("openrouter", "router-model-key"),
+        "arcee:direct": createApiKeyCredential("arcee", "direct-model-key"),
+        "openrouter:routed": createApiKeyCredential("openrouter", "router-model-key"),
       }),
     });
 
@@ -300,8 +297,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       env: {},
       authProfileStore: authStore(
         {
-          "xai:bound": apiKeyProfile("xai", "bound-key"),
-          "xai:backup": apiKeyProfile("xai", "backup-key"),
+          "xai:bound": createApiKeyCredential("xai", "bound-key"),
+          "xai:backup": createApiKeyCredential("xai", "backup-key"),
         },
         { xai: ["xai:backup", "xai:bound"] },
       ),
@@ -322,8 +319,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
   it("rejects a cooldowned generic provider-entry binding instead of using a backup", () => {
     const store = authStore(
       {
-        "xai:bound": apiKeyProfile("xai", "bound-key"),
-        "xai:backup": apiKeyProfile("xai", "backup-key"),
+        "xai:bound": createApiKeyCredential("xai", "bound-key"),
+        "xai:backup": createApiKeyCredential("xai", "backup-key"),
       },
       { xai: ["xai:backup", "xai:bound"] },
     );
@@ -349,8 +346,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       config: providerConfig("xai", { auth: "aws-sdk", apiKey: "xai:bound" }),
       env: {},
       authProfileStore: authStore({
-        "xai:bound": apiKeyProfile("xai", "bound-key"),
-        "xai:backup": apiKeyProfile("xai", "backup-key"),
+        "xai:bound": createApiKeyCredential("xai", "bound-key"),
+        "xai:backup": createApiKeyCredential("xai", "backup-key"),
       }),
       sessionAuthProfileId: "xai:backup",
       sessionAuthProfileSource: "auto",
@@ -370,9 +367,9 @@ describe("prepareAgentRuntimeAuthPlan", () => {
   it("rotates a generic automatic profile past a model cooldown", () => {
     const store = authStore(
       {
-        "xai:p1": apiKeyProfile("xai", "p1-key"),
-        "xai:p2": apiKeyProfile("xai", "p2-key"),
-        "xai:p3": apiKeyProfile("xai", "p3-key"),
+        "xai:p1": createApiKeyCredential("xai", "p1-key"),
+        "xai:p2": createApiKeyCredential("xai", "p2-key"),
+        "xai:p3": createApiKeyCredential("xai", "p3-key"),
       },
       { xai: ["xai:p1", "xai:p2", "xai:p3"] },
     );
@@ -406,8 +403,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       env: {},
       authProfileStore: authStore(
         {
-          "xai:p1": apiKeyProfile("xai", "p1-key"),
-          "xai:p2": apiKeyProfile("xai", "p2-key"),
+          "xai:p1": createApiKeyCredential("xai", "p1-key"),
+          "xai:p2": createApiKeyCredential("xai", "p2-key"),
         },
         { xai: ["xai:p1", "xai:p2"] },
       ),
@@ -440,8 +437,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
             provider: "xai",
             keyRef: { source: "env", provider: "vault", id: "XAI_API_KEY" },
           },
-          "xai:p2": apiKeyProfile("xai", "p2-key"),
-          "xai:p3": apiKeyProfile("xai", "p3-key"),
+          "xai:p2": createApiKeyCredential("xai", "p2-key"),
+          "xai:p3": createApiKeyCredential("xai", "p3-key"),
         },
         { xai: ["xai:missing", "xai:p2", "xai:p3"] },
       ),
@@ -459,8 +456,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
   it("fails closed before resolving an all-cooldown generic order", () => {
     const store = authStore(
       {
-        "xai:p1": apiKeyProfile("xai", "p1-key"),
-        "xai:p2": apiKeyProfile("xai", "p2-key"),
+        "xai:p1": createApiKeyCredential("xai", "p1-key"),
+        "xai:p2": createApiKeyCredential("xai", "p2-key"),
       },
       { xai: ["xai:p1", "xai:p2"] },
     );
@@ -489,7 +486,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         } as OpenClawConfig,
         env: {},
         authProfileStore: authStore({
-          "xai:backup": apiKeyProfile("xai", "backup-key"),
+          "xai:backup": createApiKeyCredential("xai", "backup-key"),
         }),
       }),
     ).toThrow(/explicit auth order.*no usable profiles/iu);
@@ -505,7 +502,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         } as OpenClawConfig,
         env: {},
         authProfileStore: authStore({
-          "xai:backup": apiKeyProfile("xai", "backup-key"),
+          "xai:backup": createApiKeyCredential("xai", "backup-key"),
         }),
       }),
     ).toThrow(/explicit auth order.*no usable profiles/iu);
@@ -514,8 +511,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
   it("skips a cooldowned user pin and selects the next same-provider profile", () => {
     const store = authStore(
       {
-        "xai:p1": apiKeyProfile("xai", "p1-key"),
-        "xai:p2": apiKeyProfile("xai", "p2-key"),
+        "xai:p1": createApiKeyCredential("xai", "p1-key"),
+        "xai:p2": createApiKeyCredential("xai", "p2-key"),
       },
       { xai: ["xai:p1", "xai:p2"] },
     );
@@ -545,8 +542,8 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       env: {},
       authProfileStore: authStore(
         {
-          "xai:p1": apiKeyProfile("xai", "p1-key"),
-          "xai:p2": apiKeyProfile("xai", "p2-key"),
+          "xai:p1": createApiKeyCredential("xai", "p1-key"),
+          "xai:p2": createApiKeyCredential("xai", "p2-key"),
         },
         { xai: ["xai:p2", "xai:p1"] },
       ),
@@ -583,7 +580,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       authProfileStore: authStore(
         {
           [pendingProfileId]: pending,
-          [backupProfileId]: apiKeyProfile("xai", "backup-key"),
+          [backupProfileId]: createApiKeyCredential("xai", "backup-key"),
         },
         { xai: [pendingProfileId, backupProfileId] },
       ),
@@ -617,7 +614,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       authProfileStore: authStore(
         {
           [pendingProfileId]: pending,
-          [backupProfileId]: apiKeyProfile("xai", "backup-key"),
+          [backupProfileId]: createApiKeyCredential("xai", "backup-key"),
         },
         { xai: [backupProfileId] },
       ),
@@ -804,7 +801,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         harnessId: "codex",
         harnessRuntime: "codex",
         authProfileStore: authStore({
-          "relay:key": apiKeyProfile("relay", "relay-secret"),
+          "relay:key": createApiKeyCredential("relay", "relay-secret"),
         }),
       }),
     ).toThrow(/has no usable credentials/u);
@@ -834,7 +831,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         harnessId: "codex",
         harnessRuntime: "codex",
         authProfileStore: authStore({
-          "relay:key": apiKeyProfile("relay", "relay-secret"),
+          "relay:key": createApiKeyCredential("relay", "relay-secret"),
         }),
       }),
     ).toThrow(/has no usable credentials/u);
@@ -1160,7 +1157,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       config: providerConfig("xai", { auth: "api-key", apiKey: "xai-key" }),
       env: {},
       authProfileStore: authStore({
-        "xai:auto": apiKeyProfile("xai", "profile-key"),
+        "xai:auto": createApiKeyCredential("xai", "profile-key"),
       }),
       sessionAuthProfileId: "xai:auto",
       sessionAuthProfileSource: "auto",
@@ -1507,11 +1504,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
   it("does not unlock direct fallback when every prepared profile cools down before dispatch", () => {
     const store = authStore(
       {
-        "openai:platform": {
-          type: "api_key",
-          provider: "openai",
-          key: "profile-platform-key",
-        },
+        "openai:platform": openAIApiKeyProfile("profile-platform-key"),
       },
       { openai: ["openai:platform"] },
     );
@@ -2095,7 +2088,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       prepareAgentRuntimeAuthPlan({
         ...virtualCodexAuthFixture(),
         authProfileStore: authStore({
-          "anthropic:work": apiKeyProfile("anthropic", "anthropic-key"),
+          "anthropic:work": createApiKeyCredential("anthropic", "anthropic-key"),
         }),
         sessionAuthProfileId: "anthropic:work",
         sessionAuthProfileSource: "user",

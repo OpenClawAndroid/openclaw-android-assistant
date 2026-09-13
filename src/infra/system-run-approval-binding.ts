@@ -247,11 +247,18 @@ export type SystemRunMutableFileBinding = {
   commands: string[][];
   operands: Array<
     { argv: string[]; pathSearch?: { path?: string; pathExt?: string } } & (
-      | { kind: "mutable"; snapshot: SystemRunApprovalFileOperand; executable?: true }
+      | { kind: "mutable"; snapshot: SystemRunApprovalFileOperand; executable?: never }
+      | {
+          kind: "mutable";
+          snapshot: SystemRunApprovalFileOperand;
+          executable: true;
+          invocationPath: string;
+        }
       | {
           kind: "identity";
           snapshot: { argvIndex: number; path: string; sha256?: never };
           executable: true;
+          invocationPath: string;
         }
     )
   >;
@@ -426,6 +433,12 @@ export function prepareSystemRunExecutableIdentityBinding(params: {
       if (!execution || !resolvedExecutable) {
         continue;
       }
+      // Python virtualenvs and other launchers depend on the selected symlink path.
+      // Keep that invocation separate from the canonical identity we validate.
+      const invocationPath = path.resolve(
+        params.cwd ?? process.cwd(),
+        execution.resolvedPath ?? resolvedExecutable,
+      );
       let realPath: string;
       try {
         realPath = fs.realpathSync(resolvedExecutable);
@@ -454,6 +467,7 @@ export function prepareSystemRunExecutableIdentityBinding(params: {
           argv: [...argv],
           snapshot: snapshot.snapshot,
           executable: true,
+          invocationPath,
           pathSearch,
         });
       } else {
@@ -462,6 +476,7 @@ export function prepareSystemRunExecutableIdentityBinding(params: {
           argv: [...argv],
           snapshot: { argvIndex: 0, path: realPath },
           executable: true,
+          invocationPath,
           pathSearch,
         });
       }
@@ -614,7 +629,14 @@ export async function revalidateSystemRunMutableFileBinding(params: {
     );
     const resolvedPath =
       resolution?.execution.resolvedRealPath ?? resolution?.execution.resolvedPath;
-    if (!resolvedPath || resolvedPath !== operand.snapshot.path) {
+    if (
+      !resolvedPath ||
+      resolvedPath !== operand.snapshot.path ||
+      path.resolve(
+        params.cwd ?? process.cwd(),
+        resolution?.execution.resolvedPath ?? resolvedPath,
+      ) !== operand.invocationPath
+    ) {
       return { ok: false, message: APPROVAL_SCRIPT_OPERAND_DRIFT_DENIED_MESSAGE };
     }
     if (operand.kind === "mutable") {

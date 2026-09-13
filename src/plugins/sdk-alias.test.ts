@@ -1255,6 +1255,112 @@ describe("plugin sdk alias helpers", () => {
     });
   });
 
+  it.each([
+    { preference: "src", layout: "both", expected: "srcFile" },
+    { preference: "dist", layout: "both", expected: "distFile" },
+    { preference: "dist", layout: "source-only", expected: "srcFile" },
+    { preference: "src", layout: "dist-only", expected: "distFile" },
+    { preference: "src", layout: "missing-diagnostics", expected: "srcFile" },
+    { preference: "src", layout: "no-package", expected: null },
+    { preference: "dist", layout: "no-package", expected: null },
+  ] as const)(
+    "resolves llm-core exports without flattening paths ($preference/$layout)",
+    ({ preference, layout, expected }) => {
+      const fixture = createPluginSdkAliasFixture();
+      const workspace = writeWorkspaceAliasFixtures(fixture.root, [
+        ["@openclaw/llm-core", "llm-core", "index"],
+        ["@openclaw/llm-core/diagnostics", "llm-core", "utils/diagnostics"],
+        ["@openclaw/llm-core/event-stream", "llm-core", "utils/event-stream"],
+        ["@openclaw/llm-core/types", "llm-core", "types"],
+        ["@openclaw/llm-core/validation", "llm-core", "validation"],
+      ]);
+      const manifest = path.join(fixture.root, "packages", "llm-core", "package.json");
+      fs.writeFileSync(
+        manifest,
+        JSON.stringify({
+          name: "@openclaw/llm-core",
+          type: "module",
+          exports: {
+            ".": {
+              types: "./dist/index.d.mts",
+              import: "./dist/index.mjs",
+              default: "./dist/index.mjs",
+            },
+            "./types": {
+              types: "./dist/types.d.mts",
+              import: "./dist/types.mjs",
+              default: "./dist/types.mjs",
+            },
+            "./diagnostics": {
+              types: "./dist/utils/diagnostics.d.mts",
+              import: "./dist/utils/diagnostics.mjs",
+              default: "./dist/utils/diagnostics.mjs",
+            },
+            "./event-stream": {
+              types: "./dist/utils/event-stream.d.mts",
+              import: "./dist/utils/event-stream.mjs",
+              default: "./dist/utils/event-stream.mjs",
+            },
+            "./validation": {
+              types: "./dist/validation.d.mts",
+              import: "./dist/validation.mjs",
+              default: "./dist/validation.mjs",
+            },
+          },
+        }),
+        "utf-8",
+      );
+      writeWorkspacePackageEntry({
+        root: fixture.root,
+        packageDir: "llm-core",
+        srcFile: "internal.ts",
+        distFile: "internal.mjs",
+      });
+      if (layout === "no-package") {
+        fs.unlinkSync(manifest);
+      }
+      for (const entry of workspace) {
+        if (
+          layout === "dist-only" ||
+          (layout === "missing-diagnostics" && entry.alias === "@openclaw/llm-core/diagnostics")
+        ) {
+          fs.unlinkSync(entry.srcFile);
+        }
+        if (
+          layout === "source-only" ||
+          (layout === "missing-diagnostics" && entry.alias === "@openclaw/llm-core/diagnostics")
+        ) {
+          fs.unlinkSync(entry.distFile);
+        }
+      }
+      const sourcePluginEntry = writePluginEntry(
+        fixture.root,
+        bundledPluginFile("demo", "src/index.ts"),
+      );
+      const prepared = withEnv({ NODE_ENV: undefined }, () =>
+        preparePluginLoaderAliases({
+          modulePath: sourcePluginEntry,
+          pluginSdkResolution: preference,
+        }),
+      );
+      for (const entry of workspace) {
+        const target = prepared.resolveAlias(entry.alias);
+        const missing =
+          expected === null ||
+          (layout === "missing-diagnostics" && entry.alias === "@openclaw/llm-core/diagnostics");
+        if (missing) {
+          expect(target, entry.alias).toBeUndefined();
+        } else {
+          expect(target, entry.alias).toBeDefined();
+          expect(fs.realpathSync(target ?? ""), entry.alias).toBe(fs.realpathSync(entry[expected]));
+        }
+        expect(prepared.getAliasMap()[entry.alias], entry.alias).toBe(target);
+      }
+      expect(prepared.resolveAlias("@openclaw/llm-core/internal")).toBeUndefined();
+      expect(prepared.getAliasMap()["@openclaw/llm-core/internal"]).toBeUndefined();
+    },
+  );
+
   it("aliases workspace packages to source when dist artifacts are missing", () => {
     const fixture = createPluginSdkAliasFixture();
     writeWorkspacePackageExports(fixture.root, "media-core", ["", "attachment-classify", "mime"]);

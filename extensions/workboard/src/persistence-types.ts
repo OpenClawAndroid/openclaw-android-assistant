@@ -53,7 +53,8 @@ export type WorkboardCardStatsAggregate = {
 
 export type WorkboardOwnerClaimResult = "updated" | "conflict" | "owner_busy";
 
-export type WorkboardCardStore = WorkboardKeyedStore & {
+export type WorkboardCardStore = Omit<WorkboardKeyedStore, "entries"> & {
+  entries(boardId?: string): Promise<Array<{ key: string; value: PersistedWorkboardCard }>>;
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
   registerIfUpdatedAt(
     key: string,

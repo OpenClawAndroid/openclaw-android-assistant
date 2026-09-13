@@ -243,7 +243,7 @@ export function createExecTool(
       }
       const startedAt = Date.now();
       let execCommandOverride: string | undefined;
-      let revalidateGatewayApproval: GatewayApprovalResult["revalidateBeforeExecution"];
+      let gatewayApproval: GatewayApprovalResult | undefined;
       let approvalReview: ExecToolApprovalReview | undefined;
       const foregroundFallbackWarning =
         !allowBackground && (params.background === true || typeof params.yieldMs === "number")
@@ -563,7 +563,7 @@ export function createExecTool(
             return attachExecApprovalReview(immediateResult, approvalReview);
           }
           signal?.throwIfAborted();
-          revalidateGatewayApproval = gatewayResult.revalidateBeforeExecution;
+          gatewayApproval = gatewayResult;
           execCommandOverride = gatewayResult.allowWithoutEnforcedCommand
             ? undefined
             : gatewayResult.execCommandOverride;
@@ -612,7 +612,8 @@ export function createExecTool(
           processContinuationAvailable: allowBackground,
           startupSignal: signal,
           onUpdate,
-          beforeSpawn: revalidateGatewayApproval,
+          beforeSpawn: gatewayApproval?.revalidateBeforeExecution,
+          assertCurrent: gatewayApproval?.assertCurrent,
           onSettledBeforeNotify: settlement.settle,
         });
         discardPreparedSandboxWorkdir = null;

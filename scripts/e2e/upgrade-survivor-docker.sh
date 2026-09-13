@@ -323,7 +323,7 @@ if [ "${OPENCLAW_UPGRADE_SURVIVOR_PUBLISHED_BASELINE:-0}" = "1" ]; then
     CANDIDATE_SPEC="$(normalize_npm_candidate "$CANDIDATE_RAW")"
   fi
 
-  if [ "$CANDIDATE_IS_CURRENT" = "1" ] && [ -z "${OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_DIR:-}" ]; then
+  if [ "$CANDIDATE_IS_CURRENT" = "1" ] && [ "$SCENARIO" != "custom-plugin-siblings" ] && [ -z "${OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_DIR:-}" ]; then
     AUTO_PREPUBLISH_PLUGIN_REGISTRY_ROOT="$(
       mktemp -d "${TMPDIR:-/tmp}/openclaw-upgrade-survivor-plugin-registry.XXXXXX"
     )"

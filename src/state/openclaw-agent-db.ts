@@ -109,8 +109,6 @@ export {
   OPENCLAW_AGENT_SCHEMA_VERSION,
   type OpenClawAgentDatabase,
   type OpenClawAgentDatabaseOptions,
-  type OpenClawAgentDatabaseOwnerInspection,
-  type OpenClawRegisteredAgentDatabase,
 } from "./openclaw-agent-db-contract.js";
 export {
   assertOpenClawAgentDatabaseForMaintenance,
@@ -128,7 +126,7 @@ export {
   resolveOpenClawAgentSqlitePath,
 } from "./openclaw-agent-db.paths.js";
 
-export class IncognitoAgentDatabasePathCollisionError extends Error {
+class IncognitoAgentDatabasePathCollisionError extends Error {
   readonly path: string;
 
   constructor(pathname: string) {
@@ -653,7 +651,6 @@ export function closeOpenClawAgentDatabasesForTest(rootPath?: string): void {
 }
 
 export {
-  OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP,
   closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabases,
   closeOpenClawAgentDatabasesAsync,

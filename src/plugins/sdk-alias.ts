@@ -588,11 +588,10 @@ const WORKSPACE_PACKAGE_ALIAS_ENTRIES: WorkspacePackageAliasEntry[] =
       distFile: `${subpath || "index"}.mjs`,
     })),
   );
+const WORKSPACE_PACKAGE_EXPORT_DIRS = ["media-core", "normalization-core", "acp-core", "llm-core"];
 const WORKSPACE_PACKAGE_ALIAS_NAMES = new Set([
   ...WORKSPACE_PACKAGE_ALIAS_SUBPATHS.map(([name]) => `@openclaw/${name}`),
-  "@openclaw/media-core",
-  "@openclaw/normalization-core",
-  "@openclaw/acp-core",
+  ...WORKSPACE_PACKAGE_EXPORT_DIRS.map((name) => `@openclaw/${name}`),
 ]);
 const ROOT_PACKAGED_WORKSPACE_PACKAGE_DIRS = new Set([
   "acp-core",
@@ -937,7 +936,7 @@ function resolveWorkspacePackageAliasMap(
   const aliasMap: Record<string, string> = {};
   const workspacePackageAliasEntries = [
     ...WORKSPACE_PACKAGE_ALIAS_ENTRIES,
-    ...["media-core", "normalization-core", "acp-core"].flatMap((packageDir) =>
+    ...WORKSPACE_PACKAGE_EXPORT_DIRS.flatMap((packageDir) =>
       listWorkspacePackageExportAliasEntries({
         packageRoot,
         packageName: `@openclaw/${packageDir}`,

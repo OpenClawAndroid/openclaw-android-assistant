@@ -66,6 +66,8 @@ Credentials reserved for Control UI link previews are excluded from both agent a
 
 Set an agent's display name, emoji, and avatar under **Agent settings → Overview → Identity**. The identity is stored with that agent and is shared by Control UI clients. Where the transcript shows avatars, saved and streaming assistant replies use the configured agent image or text avatar. Agents without a configured avatar omit the repeated fallback icon.
 
+Elsewhere, agents without a custom image or emoji use a generated face that fills the circular avatar. Its color, eyes, mouth, and solid or pastel background come from the agent ID, so the same agent keeps the same face across reloads and clients. Renaming the agent's display name does not change its face. Generated faces are decorative and do not indicate activity or model choice.
+
 ## Gateway host status
 
 The connection settings use one **Gateway secret** field for the configured
@@ -89,7 +91,24 @@ Gateway in this browser without reconnecting. Session edits and connection edits
 have independent Save/Apply and Discard actions. Switching Gateways restores
 that Gateway's saved session selection.
 
-Open **Settings → Gateway** to see the **Gateway Host** card with the Gateway machine, LAN address, operating system, runtime, uptime, CPU load, memory, and space for each mounted local disk. The card refreshes every 10 seconds while visible through the `system.info` Gateway RPC, which requires the `operator.read` scope. If mounted-disk discovery is unavailable, the card retains the state-directory disk reading when available. Connections without the required scope omit the card. A loading indicator appears while stats are being fetched; refreshes keep the previous readings visible. Disk paths appear in their labels without duplicate tooltips.
+Open **Settings → Gateway** to see the **Gateway Host** card with the Gateway machine, LAN address, operating system, runtime, uptime, CPU load, memory, and space for each mounted local disk. Linux EFI boot partitions mounted at `/boot/efi` or `/efi` are omitted. The card refreshes every 10 seconds while visible through the `system.info` Gateway RPC, which requires the `operator.read` scope. If mounted-disk discovery is unavailable, the card retains the state-directory disk reading when available. Connections without the required scope omit the card. Shimmer placeholders appear while the first stats are being fetched and remain still with reduced motion enabled; refreshes keep the previous readings and uptime visible. Disk paths appear in their labels without duplicate tooltips.
+
+The **Connection** card also shows average ping and p50, p95, and p99 round-trip
+times in milliseconds. It samples every five seconds while the page is visible
+and summarizes the last 100 successful samples from the current connection.
+The sample count makes small sets visible; p95 and p99 become more useful as
+samples accumulate. Reconnecting, switching Gateways, or leaving the page resets
+the readings. Failed requests are excluded and shown as a retry notice.
+
+The ping graph shows individual round trips. **Gateway activity** uses the same
+CPU, process memory, and event-loop delay graphs as the debug overlay, with up to
+100 snapshots sampled every five seconds while visible. CPU includes event-loop
+utilization, memory shows process RSS and used heap, and delay shows the Gateway's
+event-loop p99 and maximum delay. These are Gateway process measurements, separate
+from connection ping and the machine-wide **Gateway Host** readings below.
+
+Ping measures a lightweight `last-heartbeat` request over the existing WebSocket,
+including Gateway request handling. It is not ICMP ping or model response time.
 
 ## Language support
 

@@ -9,11 +9,12 @@ title: "Update troubleshooting"
 Failed updates enter built-in triage after update recovery settles. In an
 interactive terminal, OpenClaw shows the selected agent, saved prompt path when
 available, and use of your own account/tokens, then asks before launching
-[triage](/cli/triage). Enter or `y` proceeds, `n` preserves diagnostics and prints
-handoff commands, and no answer within 30 seconds proceeds as Yes with a notice.
-With `--yes`, `--json`, or no interactive
-terminal, it prepares diagnostics and handoff commands without launching an
-agent. The original update failure and exit status remain authoritative;
+[triage](/cli/triage). Only an affirmative Yes proceeds. Enter, `n`, cancellation,
+or no answer within 30 seconds skips the launch and preserves diagnostics and
+a manual recovery command. Use `openclaw triage --agent codex` to choose another
+agent. With `--yes`, `--json`, or no interactive terminal, eligible failures can
+start one owned automatic repair; other failures retain diagnostics and handoff
+commands. See [automatic recovery](/cli/triage#automatic-failure-handoff). The original update failure and exit status remain authoritative;
 diagnostics do not turn a failed update into a successful one.
 
 In the Control UI, a failed attempt opens **Ask OpenClaw** with its recorded

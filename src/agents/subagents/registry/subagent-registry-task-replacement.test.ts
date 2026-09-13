@@ -164,7 +164,7 @@ it.each(["end", "error"] as const)(
         event: { kind: "lifecycle", payload: { phase: "start", startedAt } },
       } as const;
       expect(Value.Check(WorkerLiveEventParamsSchema, startRequest)).toBe(true);
-      expect(receiver.apply({ identity, request: startRequest })).toEqual({
+      expect(await receiver.apply({ identity, request: startRequest })).toEqual({
         ok: true,
         result: { ackedSeq: 1 },
       });
@@ -172,7 +172,7 @@ it.each(["end", "error"] as const)(
       const owner = getAgentRunContext(previous.runId)!;
       expect(claimId).toBeDefined();
       expect(
-        receiver.apply({
+        await receiver.apply({
           identity,
           request: {
             runId: previous.runId,
@@ -235,7 +235,7 @@ it.each(["end", "error"] as const)(
         expect(placementGate.validateWorkerTurn(turnClaim)).toBe(true);
         expect(identity.runId).toBe(terminalRequest.runId);
         expect(Value.Check(WorkerLiveEventParamsSchema, terminalRequest)).toBe(true);
-        expect(receiver.apply({ identity, request: terminalRequest })).toEqual({
+        expect(await receiver.apply({ identity, request: terminalRequest })).toEqual({
           ok: true,
           result: { ackedSeq: 3 },
         });

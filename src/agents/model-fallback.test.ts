@@ -18,6 +18,7 @@ import { GatewayDrainingError } from "../process/gateway-work-admission.js";
 import { AgentRunTerminalOutcomeError } from "./agent-run-terminal-error.js";
 import { resolveEffectiveModelFallbacks } from "./agent-scope.js";
 import { AUTH_STORE_VERSION, MINIMAX_CLI_PROFILE_ID } from "./auth-profiles/constants.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import {
   createOAuthRefreshFence,
   isOAuthRefreshFence,
@@ -580,11 +581,7 @@ async function expectSkippedUnavailableProvider(params: {
     ...primaryStore,
     profiles: {
       ...primaryStore.profiles,
-      "fallback:default": {
-        type: "api_key",
-        provider: "fallback",
-        key: "test-key",
-      },
+      "fallback:default": createApiKeyCredential("fallback", "test-key"),
     },
   };
   const run = createFallbackOnlyRun();
@@ -1890,11 +1887,7 @@ describe("runWithModelFallback", () => {
     setAuthRuntimeStore(tempDir, {
       version: AUTH_STORE_VERSION,
       profiles: {
-        "claude-cli:default": {
-          type: "api_key",
-          provider: "claude-cli",
-          key: "test-key",
-        },
+        "claude-cli:default": createApiKeyCredential("claude-cli", "test-key"),
         "openai:default": { type: "api_key", provider: "openai", key: "test-key" },
       },
       usageStats: {
@@ -2204,49 +2197,28 @@ describe("runWithModelFallback", () => {
   });
 
   it.each([
-    ["direct", () => new GatewayDrainingError()],
-    ["cause", () => new Error("session send failed", { cause: new GatewayDrainingError() })],
+    ["aborts fallback on direct gateway drain failures", () => new GatewayDrainingError()],
     [
-      "aggregate",
+      "aborts fallback on cause gateway drain failures",
+      () => new Error("session send failed", { cause: new GatewayDrainingError() }),
+    ],
+    [
+      "aborts fallback on aggregate gateway drain failures",
       () =>
         new AggregateError(
           [new Error("cleanup failed"), new GatewayDrainingError()],
           "agent run failed",
         ),
     ],
-  ])("aborts fallback on %s gateway drain failures", async (_label, makeError) => {
-    const error = makeError();
-    const run = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce("too late");
-    const onError = vi.fn();
-    const onFallbackStep = vi.fn();
-
-    await expect(
-      runWithModelFallback({
-        cfg: undefined,
-        provider: "openai",
-        model: "gpt-5.6-sol",
-        fallbacksOverride: ["openai/gpt-5.4-mini"],
-        skipAuthProfileRuntime: true,
-        run,
-        onError,
-        onFallbackStep,
-      }),
-    ).rejects.toBe(error);
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(onError).not.toHaveBeenCalled();
-    expect(onFallbackStep).not.toHaveBeenCalled();
-  });
-
-  it.each([
     [
-      "direct",
+      "aborts fallback on direct worker coordination failures",
       () =>
         Object.assign(new Error("device worker capacity remained full"), {
           name: "WorkerRunnerCapacityError",
         }),
     ],
     [
-      "wrapped",
+      "aborts fallback on wrapped worker coordination failures",
       () =>
         new Error("worker turn failed", {
           cause: Object.assign(new Error("device worker capacity remained full"), {
@@ -2255,14 +2227,14 @@ describe("runWithModelFallback", () => {
         }),
     ],
     [
-      "workspace reconciliation",
+      "aborts fallback on workspace reconciliation worker coordination failures",
       () =>
         Object.assign(new Error("cloud worker workspace result could not be reconciled"), {
           name: "WorkerWorkspaceReconciliationError",
         }),
     ],
     [
-      "wrapped workspace reconciliation",
+      "aborts fallback on wrapped workspace reconciliation worker coordination failures",
       () =>
         new Error("worker turn failed", {
           cause: Object.assign(new Error("cloud worker workspace result could not be reconciled"), {
@@ -2271,14 +2243,14 @@ describe("runWithModelFallback", () => {
         }),
     ],
     [
-      "active turn claim",
+      "aborts fallback on active turn claim worker coordination failures",
       () =>
         Object.assign(new Error("session already has an active turn claim"), {
           name: "ActiveTurnClaimError",
         }),
     ],
     [
-      "wrapped active turn claim",
+      "aborts fallback on wrapped active turn claim worker coordination failures",
       () =>
         new Error("worker turn failed", {
           cause: Object.assign(new Error("session already has an active turn claim"), {
@@ -2286,7 +2258,7 @@ describe("runWithModelFallback", () => {
           }),
         }),
     ],
-  ])("aborts fallback on %s worker coordination failures", async (_label, makeError) => {
+  ])("%s", async (_label, makeError) => {
     const error = makeError();
     const run = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce("too late");
     const onError = vi.fn();
@@ -3776,11 +3748,7 @@ describe("runWithModelFallback", () => {
         },
       };
       if (kind === "cross-provider") {
-        store.profiles[userLockedAuthProfileId] = {
-          type: "api_key",
-          provider: "other",
-          key: "other-key",
-        };
+        store.profiles[userLockedAuthProfileId] = createApiKeyCredential("other", "other-key");
       } else if (kind === "ineligible") {
         store.profiles[userLockedAuthProfileId] = {
           type: "token",

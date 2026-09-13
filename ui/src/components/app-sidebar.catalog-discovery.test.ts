@@ -49,9 +49,16 @@ describe("AppSidebar hidden catalog discovery", () => {
           : catalogPage([], `page-${page + 1}`),
       );
     });
-    const { sidebar } = await mountDiscovery(request);
+    const { sidebar, context } = await mountDiscovery(request);
     expect(furthestPage).toBe(2);
-    for (let page = 3; page <= 8; page += 1) {
+    context.connectionBootstrap.setForegroundRoute(undefined);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settle(sidebar);
+    expect(furthestPage).toBe(2);
+    context.connectionBootstrap.setForegroundRoute(null);
+    await settle(sidebar);
+    expect(furthestPage).toBe(3);
+    for (let page = 4; page <= 8; page += 1) {
       expect(sidebar.querySelector('[data-session-section="catalog:codex"]')).toBeNull();
       await vi.advanceTimersByTimeAsync(4_999);
       expect(furthestPage).toBe(page - 1);

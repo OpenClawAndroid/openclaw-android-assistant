@@ -43,6 +43,7 @@ export {
   isMemoryOriginEligibleForAutomaticInjection,
   resolveMemoryIndexIdentityDiagnostic,
   resolveMemoryIndexIdentityReason,
+  resolveMemoryIndexSearchDiagnostic,
   resolveMemorySearchStaleness,
 } from "./host/types.js";
 export type { ResolvedMemoryBackendConfig } from "./host/backend-config.js";

@@ -106,7 +106,7 @@ export async function copyApfsCloneIndex(
   destination: string,
   sourceIndex: string,
   destinationIndex: string,
-  options: WorktreeFilesystemOptions,
+  options: WorktreeFilesystemOptions & { cloneCompletedAtMs: number },
 ): Promise<boolean> {
   const handle = await fs.open(sourceIndex, "r");
   const { data, stamp } = await (async () => {
@@ -133,9 +133,18 @@ export async function copyApfsCloneIndex(
   }
   // Some Git builds compare timestamps only to whole seconds. Let the clone's
   // ctime second end BEFORE taking provenance snapshots: later same-size edits
-  // must then change ctime even when their original mtime is restored.
-  await setTimeout(1000 - (Date.now() % 1000), undefined, { signal: options.signal });
+  // must then change ctime even when their original mtime is restored. Git
+  // metadata preparation already counts toward this deadline. Keep the wait
+  // bounded if the wall clock moves backward; the ctime check below still applies.
+  const deadline = (Math.floor(options.cloneCompletedAtMs / 1_000) + 1) * 1_000;
+  const remainingMs = Math.min(1_000, deadline - Date.now());
+  if (remainingMs > 0) {
+    await setTimeout(remainingMs, undefined, { signal: options.signal });
+  }
   const updated = Buffer.from(data.subarray(0, parsed.entriesEnd));
+  const sourcePrefix = path.join(source, ".") + path.sep;
+  const destinationPrefix = path.join(destination, ".") + path.sep;
+  const indexSecond = Number(stamp.mtimeNs / 1_000_000_000n);
   for (const [i, entry] of parsed.entries.entries()) {
     if (i % 256 === 0) {
       await setImmediate();
@@ -145,13 +154,13 @@ export async function copyApfsCloneIndex(
     const offset = entry.offset;
     if (
       (data.readUInt32BE(offset + 24) & 0xf000) !== 0x8000 ||
-      BigInt(data.readUInt32BE(offset + 8)) >= stamp.mtimeNs / 1_000_000_000n
+      data.readUInt32BE(offset + 8) >= indexSecond
     ) {
       continue;
     }
     const snapshotSecond = Math.floor(Date.now() / 1000);
-    const original = apfsFilesystem.readFileMetadata(path.join(source, entry.name));
-    const cloned = apfsFilesystem.readFileMetadata(path.join(destination, entry.name));
+    const original = apfsFilesystem.readFileMetadata(sourcePrefix + entry.name);
+    const cloned = apfsFilesystem.readFileMetadata(destinationPrefix + entry.name);
     if (
       !original ||
       !cloned ||

@@ -125,7 +125,21 @@ suite.define(() => {
       await route.continue();
     });
     const sessionKey = "agent:cloud:cloud-e2e";
+    const initialSessions = createdSessionListResult(sessionKey);
+    const initialSession = {
+      ...initialSessions.sessions[0],
+      key: sessionKey,
+      sessionId: "session-cloud-e2e",
+      placement: {
+        state: "requested",
+        generation: 1,
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        stateChangedAtMs: 1,
+      },
+    };
     const gateway = await installMockGateway(page, {
+      sessions: [initialSession],
       defaultAgentId: "cloud",
       models: NEW_SESSION_MODEL_CATALOG,
       operatorScopes: ["operator.admin", "operator.read", "operator.write"],
@@ -183,7 +197,7 @@ suite.define(() => {
           repositoryStatus: "git",
         },
         "sessions.create": { key: sessionKey },
-        "sessions.list": createdSessionListResult(sessionKey),
+        "sessions.list": { ...initialSessions, sessions: [initialSession] },
         "sessions.dispatch": {
           ok: true,
           key: sessionKey,
@@ -199,17 +213,6 @@ suite.define(() => {
             workerBundleHash: "a".repeat(64),
             workspaceBaseManifestRef: "manifest-1",
             remoteWorkspaceDir: "/workspace",
-          },
-        },
-        "sessions.describe": {
-          session: {
-            placement: {
-              state: "requested",
-              generation: 1,
-              createdAtMs: 1,
-              updatedAtMs: 1,
-              stateChangedAtMs: 1,
-            },
           },
         },
         "sessions.delete": { ok: true, deleted: true },

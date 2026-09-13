@@ -299,7 +299,7 @@ type NativeConsultState = {
   startedAt: number;
   promise: Promise<unknown>;
   cancellation: Promise<void>;
-  cancelled: boolean;
+  readonly cancelled: boolean;
   cancel: () => void;
   partialUserTranscript?: string;
 };
@@ -897,7 +897,7 @@ export class RealtimeCallHandler {
           });
       },
     });
-    let providerHandlesInputAudioBargeIn =
+    const providerHandlesInputAudioBargeIn =
       (capabilities ?? realtimeProvider.capabilities)?.handlesInputAudioBargeIn === true;
     const cancelOutputAudioForBargeIn = (
       source: "local" | "provider",
@@ -1394,14 +1394,14 @@ export class RealtimeCallHandler {
     const session = candidate;
     this.commitUserTranscriptOwnerAdoption(callId, userTranscriptAdoption);
     nativeConsultOwner.current = session;
-    providerHandlesInputAudioBargeIn =
-      session.bridge.handlesInputAudioBargeIn ?? providerHandlesInputAudioBargeIn;
-    const hostBargeIn = resolveRealtimeVoiceBargeIn({
-      configuredBargeIn: undefined,
-      interruptResponseOnInputAudio,
-      capabilities,
-      outputAudioMode: session.bridge.outputAudioMode,
-    });
+    const localBargeIn =
+      !(session.bridge.handlesInputAudioBargeIn ?? providerHandlesInputAudioBargeIn) &&
+      resolveRealtimeVoiceBargeIn({
+        configuredBargeIn: undefined,
+        interruptResponseOnInputAudio,
+        capabilities,
+        outputAudioMode: session.bridge.outputAudioMode,
+      });
     const previousConsultSession = this.consultSessionsByCallId.get(callId);
     if (previousConsultSession && previousConsultSession.owner !== session) {
       this.cancelConsultSession(callId, previousConsultSession.owner);
@@ -1419,7 +1419,7 @@ export class RealtimeCallHandler {
         console.log(
           `[voice-call] realtime local speech detected callId=${callId} providerCallId=${callSid}`,
         );
-        if (hostBargeIn && !providerHandlesInputAudioBargeIn) {
+        if (localBargeIn) {
           cancelOutputAudioForBargeIn("local", (audioPlaybackActive) => {
             session.handleBargeIn({ audioPlaybackActive });
           });
@@ -1711,7 +1711,6 @@ export class RealtimeCallHandler {
     if (!state || state.owner !== owner) {
       return;
     }
-    state.cancelled = true;
     this.nativeConsultsInFlightByCallId.delete(callId);
     state.cancel();
   }
@@ -2231,21 +2230,19 @@ export class RealtimeCallHandler {
         startedAt,
         promise: consult,
         cancellation,
-        cancelled: false,
+        get cancelled() {
+          return abortController.signal.aborted;
+        },
         // Provider continuity owns the consult lifetime, not only its eventual result.
         cancel: () => {
           abortController.abort(new Error("Realtime native consult owner was cancelled."));
           releaseCancellation();
         },
       };
-      const abortDelegation = () => {
-        state.cancelled = true;
-        state.cancel();
-      };
       if (delegation?.signal?.aborted) {
-        abortDelegation();
+        state.cancel();
       } else {
-        delegation?.signal?.addEventListener("abort", abortDelegation, { once: true });
+        delegation?.signal?.addEventListener("abort", state.cancel, { once: true });
       }
       this.nativeConsultsInFlightByCallId.set(callId, state);
       void (async () => {
@@ -2298,7 +2295,7 @@ export class RealtimeCallHandler {
         }
         return result;
       } finally {
-        delegation?.signal?.removeEventListener("abort", abortDelegation);
+        delegation?.signal?.removeEventListener("abort", state.cancel);
         if (this.nativeConsultsInFlightByCallId.get(callId) === state) {
           this.nativeConsultsInFlightByCallId.delete(callId);
         }

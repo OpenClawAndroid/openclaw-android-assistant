@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelChoice } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
+import { createApiKeyCredential } from "../../agents/auth-profiles/credential-fixtures.test-support.js";
 import * as catalog from "../../agents/prepared-model-catalog.js";
 import { setPreparedModelRuntimeAuthStore } from "../../agents/prepared-model-runtime-auth.js";
 import { markPreparedModelCatalogFull } from "../../agents/prepared-model-runtime.full-catalog.js";
@@ -80,11 +81,7 @@ function createOwner(): PreparedModelRuntimeSnapshot {
   setPreparedModelRuntimeAuthStore(owner, {
     version: 1,
     profiles: {
-      "catalog-provider:test": {
-        type: "api_key",
-        provider: "catalog-provider",
-        key: "synthetic-catalog-key",
-      },
+      "catalog-provider:test": createApiKeyCredential("catalog-provider", "synthetic-catalog-key"),
     },
   });
   return owner;

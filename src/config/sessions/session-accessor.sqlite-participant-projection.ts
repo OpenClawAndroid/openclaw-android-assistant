@@ -72,6 +72,15 @@ function readParticipantRows(database: DatabaseSync, sessionKeys?: readonly stri
   return executeSqliteQuerySync(database, query).rows;
 }
 
+function readParticipantRecord(row: SessionParticipantRow): SessionParticipantRecord {
+  return {
+    identity: readParticipantIdentity(row.identity_namespace, row.actor_id),
+    contributionCount: row.contribution_count,
+    firstPromptedAt: row.first_prompted_at,
+    lastPromptedAt: row.last_prompted_at,
+  };
+}
+
 function participantRecordsBySessionKey(
   database: DatabaseSync,
   sessionKeys?: readonly string[],
@@ -82,12 +91,7 @@ function participantRecordsBySessionKey(
   }
   for (const row of readParticipantRows(database, sessionKeys)) {
     const participants = records.get(row.session_key) ?? [];
-    participants.push({
-      identity: readParticipantIdentity(row.identity_namespace, row.actor_id),
-      contributionCount: row.contribution_count,
-      firstPromptedAt: row.first_prompted_at,
-      lastPromptedAt: row.last_prompted_at,
-    });
+    participants.push(readParticipantRecord(row));
     records.set(row.session_key, participants);
   }
   return records;
@@ -116,6 +120,40 @@ export function projectSqliteSessionParticipants(
     entry,
     participantRecordsBySessionKey(database, [sessionKey]).get(sessionKey) ?? [],
   );
+}
+
+/** Acquire one fresh cohort lazily, then decode only the requested session's participants. */
+export function prepareSqliteSessionParticipantProjection(
+  database: DatabaseSync,
+  sessionKeys: readonly string[],
+): (sessionKey: string, entry: SessionEntry) => SessionEntry {
+  let rowsByKey: Map<string, SessionParticipantRow[]> | undefined;
+  let acquisitionFailed = false;
+  return (sessionKey, entry) => {
+    if (!rowsByKey && !acquisitionFailed) {
+      try {
+        const rows = tableExists(database, SESSION_PARTICIPANTS_TABLE)
+          ? readParticipantRows(database, sessionKeys)
+          : [];
+        rowsByKey = new Map();
+        for (const row of rows) {
+          const participants = rowsByKey.get(row.session_key) ?? [];
+          participants.push(row);
+          rowsByKey.set(row.session_key, participants);
+        }
+      } catch {
+        // A native row-conversion failure must not poison healthy siblings.
+        acquisitionFailed = true;
+      }
+    }
+    if (acquisitionFailed) {
+      return projectSqliteSessionParticipants(database, sessionKey, entry);
+    }
+    return withProjectedParticipants(
+      entry,
+      (rowsByKey?.get(sessionKey) ?? []).map(readParticipantRecord),
+    );
+  };
 }
 
 export function projectSqliteSessionParticipantsBatch(

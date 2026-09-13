@@ -7,6 +7,7 @@ import { attachModelProviderRuntimePluginHandle } from "../../../plugins/provide
 import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
 import { createAgentHarnessTaskRuntimeScope } from "../../../tasks/agent-harness-task-runtime-scope.js";
 import { createTrajectoryRuntimeRecorder } from "../../../trajectory/runtime.js";
+import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
 import type { ToolOutcomeObserver } from "../../agent-tools.before-tool-call.js";
 import { resolveDelegationCapability } from "../../delegation-capability.js";
 import { resolveSessionGitCoauthorPrompt } from "../../git-coauthor-prompt.js";
@@ -350,7 +351,15 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     readPath: path.posix.join(mount.containerPath, "SKILL.md"),
   }));
   if (pluginSandbox?.enabled && !pluginSandbox.readOnlyResourceMounts?.length && skillsSnapshot) {
-    const prepared = prepareEmbeddedSkills({
+    const assertActiveRun = resolveAdmittedRunActiveAssertion(
+      admittedRunContext,
+      attemptAbortController.signal,
+    );
+    const prepared = await prepareEmbeddedSkills({
+      assertCurrent: () => {
+        attemptAbortController.signal.throwIfAborted();
+        assertActiveRun?.();
+      },
       applySkillEnvironment: false,
       includeCodeModeSkills: false,
       attempt: {

@@ -7,7 +7,6 @@ import type { PluginStateKeyedStore } from "openclaw/plugin-sdk/plugin-state-run
 import {
   closeOpenClawStateDatabaseForTest,
   createPluginStateKeyedStoreForTests,
-  createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createNonExitingRuntimeEnv } from "openclaw/plugin-sdk/plugin-test-runtime";
@@ -56,6 +55,7 @@ import {
 } from "./message-cache-persistence.js";
 import { buildTelegramOpaqueCallbackData } from "./native-command-callback-data.js";
 import { recordTelegramPollRegistryEntry } from "./poll-registry.js";
+import { setTelegramPluginStateRuntimeForTests } from "./runtime-state.test-support.js";
 import { setTelegramRuntime } from "./runtime.js";
 import { clearTelegramRuntimeForTest as clearTelegramRuntime } from "./runtime.test-support.js";
 import type { TelegramRuntime } from "./runtime.types.js";
@@ -240,24 +240,6 @@ function waitForReplyCalls(count: number) {
     return undefined;
   });
   return done.promise;
-}
-
-function setTelegramPluginStateRuntimeForTests() {
-  setTelegramRuntime({
-    state: {
-      openKeyedStore: ((options) =>
-        createPluginStateKeyedStoreForTests(
-          "telegram",
-          options,
-        )) as TelegramRuntime["state"]["openKeyedStore"],
-      openSyncKeyedStore: ((options) =>
-        createPluginStateSyncKeyedStoreForTests(
-          "telegram",
-          options,
-        )) as TelegramRuntime["state"]["openSyncKeyedStore"],
-    },
-    channel: {},
-  } as TelegramRuntime);
 }
 
 function getTelegramCallbackHandlerForTests() {
@@ -4735,21 +4717,7 @@ describe("createTelegramBot", () => {
         }),
     );
     const ssrfMock = mockPinnedHostnameResolution();
-    setTelegramRuntime({
-      state: {
-        openKeyedStore: ((options) =>
-          createPluginStateKeyedStoreForTests(
-            "telegram",
-            options,
-          )) as TelegramRuntime["state"]["openKeyedStore"],
-        openSyncKeyedStore: ((options) =>
-          createPluginStateSyncKeyedStoreForTests(
-            "telegram",
-            options,
-          )) as TelegramRuntime["state"]["openSyncKeyedStore"],
-      },
-      channel: {},
-    } as TelegramRuntime);
+    setTelegramPluginStateRuntimeForTests();
 
     try {
       const replyDelivered = waitForReplyCalls(1);

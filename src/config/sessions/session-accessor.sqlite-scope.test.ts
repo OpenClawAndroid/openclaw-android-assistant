@@ -258,6 +258,7 @@ test.each([false, true])(
         clock = 1_600;
         release.resolve();
         expect(await first).toBe("first");
+        expect(order).toEqual(["first:start", "first:end"]);
         expect(await settled).toEqual(fail ? { error: failure } : { value: "second" });
         expect(await queuedSuccessor).toBe("queued-successor");
         expect(order).toEqual(["first:start", "first:end", "second:start", "queued-successor"]);
@@ -280,10 +281,10 @@ test.each([false, true])(
             isMainThread,
             reclamationKind: "history-eviction",
             workerThreadId: 7,
-            elapsedMs: 2_000,
+            elapsedMs: 1_600,
             queueWaitMs: 0,
             writerExecutionMs: 1_600,
-            completionDelayMs: 400,
+            completionDelayMs: 0,
           }),
         );
         expect(records.find((entry) => entry.owner === "first")?.args[1]).not.toHaveProperty(

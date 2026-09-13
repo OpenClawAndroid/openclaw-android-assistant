@@ -1892,6 +1892,18 @@ phase validate-update-restart-mode validate_update_restart_mode
 phase reset-run-state reset_run_state
 phase install-baseline install_baseline
 phase initialize-state initialize_state
+if [ "$SCENARIO" = "custom-plugin-siblings" ]; then
+  phase seed-sibling-plugin node scripts/e2e/lib/upgrade-survivor/custom-plugin-siblings.mjs seed
+  phase validate-baseline-config validate_baseline_config
+  phase baseline-sibling-runtime node scripts/e2e/lib/upgrade-survivor/custom-plugin-siblings.mjs baseline
+  phase resolve-sibling-candidate resolve_candidate_version
+  phase update-sibling-candidate update_candidate
+  phase canary-sibling-runtime node scripts/e2e/lib/upgrade-survivor/custom-plugin-siblings.mjs assert-canary
+  phase candidate-sibling-runtime node scripts/e2e/lib/upgrade-survivor/custom-plugin-siblings.mjs candidate
+  run_completed="1"
+  echo "Upgrade survivor Docker E2E passed baseline=${baseline_spec} scenario=${SCENARIO} candidate=${candidate_version}."
+  exit 0
+fi
 if [ "$SCENARIO" = "abandoned-update" ]; then
   source scripts/e2e/lib/upgrade-survivor/abandoned-update.sh
   run_abandoned_update_survivor

@@ -98,20 +98,19 @@ export async function spawnTerminalPty(
   params: TerminalPtySpawnParams,
   lifecycle?: { abortSignal?: AbortSignal; assertCurrent?: () => void },
 ): Promise<TerminalPtyHandle> {
-  if (process.versions.bun && process.platform !== "win32") {
-    // Bun closes node-pty's nonblocking tty.ReadStream on EAGAIN, hanging up the child.
-    const { spawnNodeTerminalPty } = await import("./terminal-pty-node.js");
+  const assertCurrent = () => {
     lifecycle?.assertCurrent?.();
     if (lifecycle?.abortSignal?.aborted) {
       throw new Error("PTY construction aborted");
     }
-    return await spawnNodeTerminalPty(params);
+  };
+  if (process.versions.bun && process.platform !== "win32") {
+    // Bun closes node-pty's nonblocking tty.ReadStream on EAGAIN, hanging up the child.
+    const { spawnNodeTerminalPty } = await import("./terminal-pty-node.js");
+    assertCurrent();
+    return await spawnNodeTerminalPty(params, assertCurrent);
   }
   const { spawn } = await import("@lydell/node-pty");
-  lifecycle?.assertCurrent?.();
-  if (lifecycle?.abortSignal?.aborted) {
-    throw new Error("PTY construction aborted");
-  }
   const env = params.env ? { ...params.env } : undefined;
   // Ambient TERM=dumb describes the gateway/node host, not this real PTY.
   // Passing it through makes interactive CLIs refuse to start in the web terminal.
@@ -126,6 +125,7 @@ export async function spawnTerminalPty(
     args: params.args,
     env: env ?? process.env,
   });
+  assertCurrent();
   const pty = spawn(invocation.file, invocation.args, {
     name: terminalName,
     cols: params.cols,

@@ -27,11 +27,12 @@ import {
   isLocalAssistantAttachmentSource,
 } from "./chat-message-local-media.ts";
 import {
-  cacheManagedImageBlobUrl,
+  cacheManagedImageBlob,
   isChatMediaResourceCurrent,
   notifyChatMediaResourceSubscribers,
   observeChatMediaResource,
   observeChatMediaResourceSubscriber,
+  readManagedImageBlob,
   readManagedImageBlobUrl,
   releaseChatMediaResourceSubscriber,
   retainManagedImageBlobUrl,
@@ -444,6 +445,7 @@ function resolveManagedOutgoingImageResource(
   opts?: ImageRenderOptions,
   artifactId?: string,
   variant: ManagedImageVariant = "thumbnail",
+  retryFailed = false,
 ): ChatMediaResource<string | null> {
   const variantUrl = buildManagedOutgoingImageVariantUrl(source, variant, opts?.resourceBasePath);
   const authToken = opts?.authToken?.trim() ?? "";
@@ -464,9 +466,10 @@ function resolveManagedOutgoingImageResource(
   }
   if (resource.value === null) {
     if (
-      resource.retryAttempted ||
-      resource.unavailableAt === undefined ||
-      Date.now() - resource.unavailableAt < MANAGED_OUTGOING_IMAGE_RETRY_MS
+      !retryFailed &&
+      (resource.retryAttempted ||
+        resource.unavailableAt === undefined ||
+        Date.now() - resource.unavailableAt < MANAGED_OUTGOING_IMAGE_RETRY_MS)
     ) {
       return resource;
     }
@@ -490,8 +493,7 @@ function resolveManagedOutgoingImageResource(
       if (!isChatMediaResourceCurrent(resource)) {
         return null;
       }
-      const blobUrl = URL.createObjectURL(blob);
-      cacheManagedImageBlobUrl(cacheKey, blobUrl);
+      const blobUrl = cacheManagedImageBlob(cacheKey, blob);
       resource.value = blobUrl;
       resource.retryAttempted = false;
       resource.unavailableAt = undefined;
@@ -593,8 +595,12 @@ async function readManagedOutgoingImageBlob(
   opts?: ImageRenderOptions,
   artifactId?: string,
 ): Promise<Blob> {
-  const blob = await fetchManagedOutgoingImageBlob(source, opts, artifactId, "full");
-  if (!blob) {
+  const resource = resolveManagedOutgoingImageResource(source, opts, artifactId, "full", true);
+  if (resource.pending) {
+    await resource.pending;
+  }
+  const blob = readManagedImageBlob(resource.cacheKey);
+  if (!blob || !isChatMediaResourceCurrent(resource)) {
     throw new Error("managed image is unavailable");
   }
   return blob;

@@ -1,15 +1,9 @@
-import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
-import { renderTextInput } from "./config-form.node.scalar.ts";
-import { analyzeConfigSchema, renderConfigForm as renderConfigFormBase } from "./config-form.ts";
-
-function renderConfigForm(
-  props: Omit<Parameters<typeof renderConfigFormBase>[0], "onShowAdvanced"> & {
-    onShowAdvanced?: () => void;
-  },
-) {
-  return renderConfigFormBase({ showAdvanced: true, onShowAdvanced: () => {}, ...props });
-}
+import {
+  renderAnalyzedFormFixture,
+  renderTextInputFixture,
+} from "../test-helpers/config-form-fixtures.ts";
+import { analyzeConfigSchema } from "./config-form.ts";
 
 function expectElement<T extends Element>(element: T | null | undefined, label: string): T {
   expect(element instanceof Element, label).toBe(true);
@@ -48,16 +42,10 @@ describe("config form primitive union integrity", () => {
           },
         });
         expect(analysis.unsupportedPaths).toEqual([]);
-        render(
-          renderConfigForm({
-            schema: analysis.schema,
-            value: { providerOptions: { deepgram: { temperature: value } } },
-            uiHints: {},
-            unsupportedPaths: analysis.unsupportedPaths,
-            onPatch,
-          }),
-          container,
-        );
+        renderAnalyzedFormFixture(container, analysis, {
+          value: { providerOptions: { deepgram: { temperature: value } } },
+          onPatch,
+        });
         return expectElement(
           container.querySelector<HTMLInputElement>("input[type='text']"),
           "mixed primitive union input",
@@ -161,25 +149,19 @@ describe("config form primitive union integrity", () => {
       let value: unknown = initial;
 
       const renderValue = () => {
-        render(
-          renderTextInput({
-            schema,
-            value,
-            path: ["allowFrom"],
-            hints: {},
-            unsupported: new Set(),
-            disabled: false,
-            inputType: "text",
-            onPatch: (_path, nextValue) => {
-              patches.push(nextValue);
-              persisted = nextValue;
-              value = nextValue;
-              // Model application immediately refreshes the rendered field.
-              renderValue();
-            },
-          }),
-          container,
-        );
+        renderTextInputFixture(container, {
+          schema,
+          value,
+          path: ["allowFrom"],
+          inputType: "text",
+          onPatch: (_path, nextValue) => {
+            patches.push(nextValue);
+            persisted = nextValue;
+            value = nextValue;
+            // Model application immediately refreshes the rendered field.
+            renderValue();
+          },
+        });
       };
 
       try {

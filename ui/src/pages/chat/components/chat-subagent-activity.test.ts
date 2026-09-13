@@ -128,8 +128,8 @@ describe("subagent activity rows", () => {
     });
 
     const snippet = container.querySelector(".chat-subagent-activity__snippet");
-    expect(snippet?.textContent).toBe(expected);
-    expect(snippet?.getAttribute("title")).toBe(expected);
+    expect(snippet?.textContent).toBe(`Map codebase · ${expected}`);
+    expect(snippet?.getAttribute("title")).toBe(`Map codebase · ${expected}`);
     expect(snippet?.childElementCount).toBe(0);
   });
 
@@ -152,6 +152,9 @@ describe("subagent activity rows", () => {
     );
     expect(row?.tagName).toBe("BUTTON");
     expect(row?.querySelector(".chat-subagent-activity__label")?.textContent).toBe("Subagent");
+    expect(row?.querySelector(".chat-subagent-activity__snippet")?.textContent).toBe(
+      "Map codebase",
+    );
     expect(row?.getAttribute("aria-label")).toBe("Open subagent details for Map codebase");
     row?.click();
     expect(onOpenTaskDetail).toHaveBeenCalledWith(task);

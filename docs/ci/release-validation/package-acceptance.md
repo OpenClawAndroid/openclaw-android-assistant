@@ -58,7 +58,7 @@ versions and unsupported extended-stable correction versions fail before Docker.
 
 Docker seed CI resolves an exact published stable predecessor of the selected source package version before running `published-upgrade-survivor`. It uses the release baseline resolver and selected release context, so publishing `latest` never turns the first upgrade into an already-current operation. Missing predecessors fail before Docker starts; the separate already-current control remains unchanged.
 
-The `published-upgrade-survivor` Docker lane validates one published package baseline per scenario. In Package Acceptance, the resolved `package-under-test` tarball is always the candidate and `published_upgrade_survivor_baseline` selects the fallback published baseline, defaulting to `openclaw@latest`; failed-lane rerun commands preserve that baseline. Current source release checks set `published_upgrade_survivor_baselines=supported-lines` for `legacy-operator-state`: npm's current `latest`, the preceding stable version, `extended-stable` when that tag exists, and the documented oldest supported baseline `2026.6.34`. The resolver reads `npm view openclaw versions` and `npm view openclaw dist-tags` at run time, pins exact versions before fanout, and deduplicates overlapping lines. Normal current-source release checks retain `base` and add `legacy-operator-state`; release soak selects `reported-issues`, including legacy operator state and the existing issue-shaped fixtures.
+The `published-upgrade-survivor` Docker lane validates one published package baseline per scenario. In Package Acceptance, the resolved `package-under-test` tarball is always the candidate and `published_upgrade_survivor_baseline` selects the fallback published baseline, defaulting to `openclaw@latest`; failed-lane rerun commands preserve that baseline. Current source release checks set `published_upgrade_survivor_baselines=supported-lines` for `legacy-operator-state`: npm's current `latest`, the preceding stable version, `extended-stable` when that tag exists, and the documented oldest supported baseline `2026.6.34`. The resolver reads `npm view openclaw versions` and `npm view openclaw dist-tags` at run time, pins exact versions before fanout, and deduplicates overlapping lines. Normal current-source release checks retain `base` and add `legacy-operator-state` and `custom-plugin-siblings`; release soak selects `reported-issues`, including these and the existing issue-shaped fixtures. The sibling-source scenario uses baselines from 2026.9.4 onward and requires actual custom-plugin Doctor contract execution from the private update canary, plus intact source files and plugin loading after the update.
 
 Expanded release qualification requires the candidate's `YYYY.M.PATCH` base version
 to be at least the trusted workflow package's base version, ignoring prerelease
@@ -69,6 +69,11 @@ scenario inventory because their qualification path does not prepare the
 registry required by the operator-state fixture.
 A separate `package_acceptance_package_spec` override resolves its predecessor
 from the override's actual package version inside Package Acceptance.
+
+Within the supported-lines release profile, `custom-plugin-siblings` always uses
+the exact published `openclaw@2026.9.4` regression driver. This retains the
+reported first hop when the source candidate has the same version; base and
+legacy-operator scenarios keep their existing baseline selection.
 
 The child workflow prepares or reuses the prerelease plugin registry required
 by the new scenario's artifact assertions, so that scenario runs only for

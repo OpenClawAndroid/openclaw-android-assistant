@@ -1,5 +1,6 @@
 // Defines base configuration types shared by multiple config sections.
 import type { z } from "zod";
+import type { DiagnosticsConfigSchema, LoggingConfigSchema } from "./zod-schema.logging.js";
 import type { SessionSchema } from "./zod-schema.session-config.js";
 
 /** Reply handling mode for chat command surfaces. */
@@ -162,78 +163,6 @@ export type SessionConfig = SessionSchemaInput;
 export type SessionMaintenanceConfig = NonNullable<SessionSchemaInput["maintenance"]>;
 export type SessionMaintenanceMode = NonNullable<SessionMaintenanceConfig["mode"]>;
 
-export type LoggingConfig = {
-  level?: "silent" | "fatal" | "error" | "warn" | "info" | "debug" | "trace";
-  file?: string;
-  /** Maximum size of a single log file in bytes before rotation. Default: 100 MB. */
-  maxFileBytes?: number;
-  consoleLevel?: "silent" | "fatal" | "error" | "warn" | "info" | "debug" | "trace";
-  consoleStyle?: "pretty" | "json";
-  /** Redact sensitive tokens in log sinks and persisted transcript text. Default: "tools". Safety-boundary UI/tool/diagnostic payloads may still redact when this is "off". */
-  /** Regex patterns used to redact sensitive tokens from logs and transcripts. */
-  redactPatterns?: string[];
-  /** Metadata-only agent activity audit ledger settings. */
-  audit?: AuditConfig;
-};
-
-export type DiagnosticsOtelConfig = {
-  enabled?: boolean;
-  endpoint?: string;
-  tracesEndpoint?: string;
-  metricsEndpoint?: string;
-  logsEndpoint?: string;
-  protocol?: "http/protobuf";
-  headers?: Record<string, string>;
-  serviceName?: string;
-  /** Replacement prefix for OpenClaw-owned metric names. Empty removes the prefix; defaults to "openclaw.". */
-  metricNamePrefix?: string;
-  traces?: boolean;
-  metrics?: boolean;
-  logs?: boolean;
-  /** Log export sink: OTLP by default, stdout JSONL, or both. */
-  logsExporter?: "otlp" | "stdout" | "both";
-  /** Trace sample rate (0.0 - 1.0). */
-  sampleRate?: number;
-  /** Metric export interval (ms). */
-  flushIntervalMs?: number;
-  /** Opt in to raw non-system message/tool content in OTEL span attributes. */
-  captureContent?: boolean;
-};
-
-export type DiagnosticsCacheTraceConfig = {
-  /** Write prompt-cache trace artifacts for debugging deterministic cache input. */
-  enabled?: boolean;
-};
-
-export type AuditConfig = {
-  /**
-   * Record metadata-only run, tool, and enabled message lifecycle events into
-   * the shared state database. Content is never stored. Default: true. This is
-   * startup-scoped; disabling stops new event inserts after restart while retained
-   * records stay readable until they expire.
-   */
-  enabled?: boolean;
-  /**
-   * Retain bounded execution-identity attribution for exact-run inspection.
-   * Default: false. Requires the audit ledger and takes effect after Gateway restart.
-   */
-  executionIdentity?: boolean;
-  /**
-   * Record content-free message lifecycle metadata. `direct` records only
-   * known direct conversations; `all` also records group, channel, and
-   * unknown conversation kinds. Default: `off`.
-   */
-  messages?: "off" | "direct" | "all";
-};
-
-export type DiagnosticsConfig = {
-  enabled?: boolean;
-  /** Optional ad-hoc diagnostics flags (e.g. "telegram.http"). */
-  flags?: string[];
-  otel?: DiagnosticsOtelConfig;
-  cacheTrace?: DiagnosticsCacheTraceConfig;
-};
-
 // Provider docking: allowlists keyed by provider id (and internal "webchat").
 export type AgentElevatedAllowFromConfig = Partial<Record<string, Array<string | number>>>;
 
@@ -244,3 +173,13 @@ export type IdentityConfig = {
   /** Avatar image: workspace-relative path, http(s) URL, or data URI. */
   avatar?: string;
 };
+
+export type LoggingConfig = NonNullable<z.input<typeof LoggingConfigSchema>>;
+
+export type DiagnosticsConfig = NonNullable<z.input<typeof DiagnosticsConfigSchema>>;
+
+export type DiagnosticsOtelConfig = NonNullable<DiagnosticsConfig["otel"]>;
+
+export type DiagnosticsCacheTraceConfig = NonNullable<DiagnosticsConfig["cacheTrace"]>;
+
+export type AuditConfig = NonNullable<LoggingConfig["audit"]>;

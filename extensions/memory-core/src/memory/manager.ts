@@ -441,9 +441,8 @@ export class MemoryIndexManager extends MemorySearchOrchestration implements Mem
       const runGeneration = async (keywordOnly: boolean) => {
         // Reset must not overtake embeddings awaiting their final incremental writes.
         // All sync generations own the existing maintenance lease through cleanup.
-        const lock = await waitForMemoryReindexLock(
-          resolveUserPath(this.settings.store.databasePath),
-        );
+        const dbPath = resolveUserPath(this.settings.store.databasePath);
+        const lock = await waitForMemoryReindexLock(dbPath, { waitForActive: true });
         try {
           this.beginSyncProviderGeneration({ forceFtsOnly: keywordOnly });
           try {

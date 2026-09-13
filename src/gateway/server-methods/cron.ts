@@ -517,12 +517,7 @@ export const cronHandlers: GatewayRequestHandlers = {
     // instead of the heartbeat / main default. Empty strings are dropped
     // (schema permits omission; presence with empty payload should not
     // override the default).
-    const p = params as {
-      mode: "now" | "next-heartbeat";
-      text: string;
-      sessionKey?: string;
-      agentId?: string;
-    };
+    const p = params;
     const sessionKey = p.sessionKey?.trim() || undefined;
     const agentId = p.agentId?.trim() || undefined;
     const callerScope = readCronCallerScope(client);
@@ -785,10 +780,7 @@ export const cronHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateCronScratchSetParams, "cron.scratch.set", respond)) {
       return;
     }
-    const p = params as CronJobIdParams & {
-      content: string | null;
-      expectedRevision?: number;
-    };
+    const p = params;
     const jobId = resolveCronJobId(p);
     if (!jobId) {
       respondMissingCronJobId(respond, "cron.scratch.set");
@@ -1337,10 +1329,7 @@ export const cronHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateCronRunParams, "cron.run", respond)) {
       return;
     }
-    const p = params as CronJobIdParams & {
-      mode?: "due" | "force" | "if-enabled";
-      expectedProcessInstanceId?: string;
-    };
+    const p = params;
     const callerScope = readCronCallerScope(client);
     const jobId = resolveCronJobId(p);
     if (!jobId) {

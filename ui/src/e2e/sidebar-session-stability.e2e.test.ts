@@ -153,6 +153,7 @@ suite.define(() => {
       const activeKey = "agent:main:loading-active";
       const parentKey = "agent:main:loading-parent";
       const childKey = "agent:main:loading-child";
+      const activeRow = sessionRow(activeKey, "Active session", baseTime + 1);
       const parentRow = sessionRow(parentKey, "Research handoff", baseTime, {
         childSessions: [childKey],
       });
@@ -181,6 +182,7 @@ suite.define(() => {
         );
       }
       const gateway = await installMockGateway(page, {
+        sessions: [activeRow, parentRow, childRow],
         methodResponses: {
           "sessions.list": {
             cases: [
@@ -189,10 +191,7 @@ suite.define(() => {
                 response: sessionsListResponse([childRow]),
               },
               {
-                response: sessionsListResponse([
-                  sessionRow(activeKey, "Active session", baseTime + 1),
-                  parentRow,
-                ]),
+                response: sessionsListResponse([activeRow, parentRow]),
               },
             ],
           },

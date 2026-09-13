@@ -173,6 +173,8 @@ beyond the grace period.
 
     Per-agent `memorySearch` migrations work with both old `agents.list` rosters and keyed `agents.entries`. Doctor preserves explicit `memory.search` settings when merging legacy values, including environment references moved to the new paths. When repairs affect only per-agent settings, single-file agent includes stay in their included file.
 
+    When model-policy migration accompanies an agent repair in the same included file, Doctor keeps the explicit policy and repaired settings in that file. A policy-only repair can target a deeper defaults include without rewriting its parent files. Existing include ownership, backup, and conflict checks still apply.
+
     The retired `tools.message.allowCrossContextSend` flag migrates at both root and per-agent scopes. Doctor preserves the effective cross-context permissions, including an agent's `false` override of a root `true` flag.
 
     Account-default guidance for multi-account channels:

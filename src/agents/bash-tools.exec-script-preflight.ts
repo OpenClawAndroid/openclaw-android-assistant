@@ -197,13 +197,8 @@ async function readLiteralTildePreflightScript(params: {
     if (!params.fsSafe.isPathInside(params.workspaceRoot.rootReal, realPath)) {
       throw new params.fsSafe.FsSafeError("outside-workspace", "file is outside workspace root");
     }
-    const buffer = await handle.readFile();
-    if (buffer.byteLength > SCRIPT_PREFLIGHT_MAX_BYTES) {
-      throw new params.fsSafe.FsSafeError(
-        "too-large",
-        `file exceeds limit of ${SCRIPT_PREFLIGHT_MAX_BYTES} bytes (got ${buffer.byteLength})`,
-      );
-    }
+    const { readFileHandleBounded } = await import("../infra/fs-safe-advanced.js");
+    const buffer = await readFileHandleBounded(handle, SCRIPT_PREFLIGHT_MAX_BYTES);
     return buffer.toString("utf-8");
   } finally {
     await handle?.close().catch(() => undefined);

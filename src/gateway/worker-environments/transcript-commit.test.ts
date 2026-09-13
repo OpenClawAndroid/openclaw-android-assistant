@@ -10,6 +10,7 @@ import type {
 import { createNoisyPngBuffer } from "../../../test/helpers/image-fixtures.js";
 import { makeTextToolResult } from "../../../test/helpers/text-tool-result.js";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
+import { createZeroUsageFixture } from "../../agents/test-helpers/usage-fixtures.js";
 import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "../../config/io.js";
 import {
   loadSessionEntry,
@@ -60,20 +61,7 @@ const IDENTITY: WorkerConnectionIdentity = {
 
 const ADMITTED_OWNER = { identity: IDENTITY, assertCurrent: () => undefined };
 
-const ZERO_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-};
+const ZERO_USAGE = createZeroUsageFixture();
 const PROVIDER_REPLAY = {
   v: 1 as const,
   type: "openai-responses-compaction",

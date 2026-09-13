@@ -976,7 +976,7 @@ export function prepareOutgoingMediaFromReplyPayload(
   });
 }
 
-function parseManagedOutgoingRoute(value: string) {
+export function parseManagedOutgoingRoute(value: string) {
   try {
     const parsed = new URL(value, "http://localhost");
     const match = parsed.pathname.match(/^\/api\/chat\/media\/outgoing\/([^/]+)\/([^/]+)\/full$/);
@@ -1273,6 +1273,69 @@ export async function resolveManagedOutgoingMediaUrlDownload(params: {
     return null;
   }
   return await resolveManagedOutgoingMediaArtifactDownloadForRecord(record, params.stateDir);
+}
+
+async function readManagedImageThumbnailFromFile(
+  opened: Awaited<ReturnType<typeof openLocalFileSafely>>,
+  maxBytes?: number,
+): Promise<Buffer> {
+  if (maxBytes !== undefined && opened.stat.size > maxBytes) {
+    throw new Error("Managed image exceeds the preview byte limit");
+  }
+  const cacheKey = `${opened.realPath}\0${opened.stat.mtimeMs}\0${opened.stat.size}`;
+  return await resolveManagedImageThumbnail(cacheKey, async () => {
+    const source = await opened.handle.readFile();
+    if (maxBytes !== undefined && source.byteLength > maxBytes) {
+      throw new Error("Managed image exceeds the preview byte limit");
+    }
+    return (
+      await createImageProcessor().encode(source, {
+        format: "png",
+        resize: { maxSide: MANAGED_IMAGE_THUMBNAIL_MAX_SIDE, enlarge: false },
+        compressionLevel: 8,
+      })
+    ).data;
+  });
+}
+
+/** Read a local preview through the same transcript ownership and thumbnail cache as HTTP. */
+export async function readManagedOutgoingImageThumbnail(
+  params: Parameters<typeof resolveManagedOutgoingMediaArtifactDownload>[0] & {
+    maxBytes: number;
+    signal: AbortSignal;
+  },
+): Promise<Buffer | null> {
+  params.signal.throwIfAborted();
+  const download = await resolveManagedOutgoingMediaArtifactDownload(params);
+  const parsed = parseManagedOutgoingArtifactId(params.artifactId);
+  if (!download || download.type !== "image" || !parsed) {
+    return null;
+  }
+  params.signal.throwIfAborted();
+  const record = readManagedImageRecord(parsed.attachmentId, params.stateDir);
+  if (!record || record.sessionKey !== params.sessionKey) {
+    return null;
+  }
+  const opened = await openLocalFileSafely({ filePath: resolveManagedImageOriginalPath(record) });
+  try {
+    const thumbnail = await readManagedImageThumbnailFromFile(opened, params.maxBytes);
+    params.signal.throwIfAborted();
+    if (
+      (await recordMatchesTranscriptMessage(
+        record,
+        undefined,
+        undefined,
+        undefined,
+        params.stateDir,
+      )) !== "match"
+    ) {
+      return null;
+    }
+    params.signal.throwIfAborted();
+    return thumbnail;
+  } finally {
+    await opened.handle.close();
+  }
 }
 
 export function attachManagedOutgoingMediaToMessage(params: {
@@ -1715,17 +1778,7 @@ export async function handleManagedOutgoingMediaHttpRequest(
     try {
       // A full-image ticket already authorizes these original bytes; the thumbnail
       // is a lower-fidelity representation of the same transcript attachment.
-      const cacheKey = `${opened.realPath}\0${opened.stat.mtimeMs}\0${opened.stat.size}`;
-      const thumbnail = await resolveManagedImageThumbnail(cacheKey, async () => {
-        const source = await opened.handle.readFile();
-        return (
-          await createImageProcessor().encode(source, {
-            format: "png",
-            resize: { maxSide: MANAGED_IMAGE_THUMBNAIL_MAX_SIDE, enlarge: false },
-            compressionLevel: 8,
-          })
-        ).data;
-      });
+      const thumbnail = await readManagedImageThumbnailFromFile(opened);
       await opened.handle.close();
       const sourceName = path.parse(responseFilename ?? "generated-image").name;
       res.statusCode = 200;

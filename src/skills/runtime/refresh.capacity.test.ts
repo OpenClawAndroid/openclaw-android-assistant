@@ -97,20 +97,22 @@ describe("ensureSkillsWatcher", () => {
       const secondWorkspace = await createFixtureDirectory("second-workspace");
       const skillDir = path.join(sharedRoot, "capacity-proof");
       const config = { skills: { load: { extraDirs: [sharedRoot] } } };
-      const resolveSnapshot = (workspaceDir: string, existingSnapshot?: SkillSnapshot) =>
-        resolveReusableWorkspaceSkillSnapshot({
-          workspaceDir,
-          config,
-          skillFilter: ["capacity-proof", "added-proof"],
-          existingSnapshot,
-        }).snapshot;
+      const resolveSnapshot = async (workspaceDir: string, existingSnapshot?: SkillSnapshot) =>
+        (
+          await resolveReusableWorkspaceSkillSnapshot({
+            workspaceDir,
+            config,
+            skillFilter: ["capacity-proof", "added-proof"],
+            existingSnapshot,
+          })
+        ).snapshot;
       await writeSkill({
         dir: skillDir,
         name: "capacity-proof",
         description: "Amber lantern catalog description.",
       });
-      const first = resolveSnapshot(fixtureWorkspaceDir);
-      const second = resolveSnapshot(secondWorkspace);
+      const first = await resolveSnapshot(fixtureWorkspaceDir);
+      const second = await resolveSnapshot(secondWorkspace);
       expect(first.prompt).toContain("Amber lantern catalog description.");
       expect(second.prompt).toContain("Amber lantern catalog description.");
       const failedWatcher = watchForSkillRoot(sharedRoot).watcher;
@@ -127,8 +129,8 @@ describe("ensureSkillsWatcher", () => {
         name: "capacity-proof",
         description: "Cobalt heron catalog description.",
       });
-      const editedFirst = resolveSnapshot(fixtureWorkspaceDir, first);
-      const editedSecond = resolveSnapshot(secondWorkspace, second);
+      const editedFirst = await resolveSnapshot(fixtureWorkspaceDir, first);
+      const editedSecond = await resolveSnapshot(secondWorkspace, second);
       for (const snapshot of [editedFirst, editedSecond]) {
         expect(snapshot.prompt).toContain("Cobalt heron catalog description.");
         expect(snapshot.prompt).not.toContain("Amber lantern catalog description.");
@@ -139,14 +141,16 @@ describe("ensureSkillsWatcher", () => {
         name: "added-proof",
         description: "Silver otter new catalog entry.",
       });
-      expect(resolveSnapshot(fixtureWorkspaceDir, editedFirst).prompt).toContain(
+      expect((await resolveSnapshot(fixtureWorkspaceDir, editedFirst)).prompt).toContain(
         "Silver otter new catalog entry.",
       );
-      expect(resolveSnapshot(secondWorkspace, editedSecond).prompt).toContain(
+      expect((await resolveSnapshot(secondWorkspace, editedSecond)).prompt).toContain(
         "Silver otter new catalog entry.",
       );
       const lateWorkspace = await createFixtureDirectory("late-workspace");
-      expect(resolveSnapshot(lateWorkspace).prompt).toContain("Silver otter new catalog entry.");
+      expect((await resolveSnapshot(lateWorkspace)).prompt).toContain(
+        "Silver otter new catalog entry.",
+      );
       expect(createdWatchers).toHaveLength(watcherCount);
 
       const disabled = {

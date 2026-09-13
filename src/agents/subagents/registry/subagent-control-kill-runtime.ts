@@ -19,6 +19,7 @@ import {
 import { createLazyImportLoader } from "../../../shared/lazy-promise.js";
 import { SUBAGENT_KILL_TASK_ERROR } from "../../../tasks/detached-task-runtime-contract.js";
 import type { SubagentKillTargetState } from "../../../tasks/task-registry-control.types.js";
+import { createAgentRunDirectAbortError } from "../../run-termination.js";
 import { isCurrentSubagentRun } from "./subagent-control-scope.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "./subagent-lifecycle-events.js";
 import {
@@ -282,6 +283,7 @@ export async function killSubagentRun(params: {
       const released = await interruptSessionWorkAdmissions({
         scope: resolved.storePath,
         identities: [childSessionKey, sessionId],
+        reason: createAgentRunDirectAbortError(),
         timeoutMs: SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
       });
       admission = released ? "ready" : "busy";

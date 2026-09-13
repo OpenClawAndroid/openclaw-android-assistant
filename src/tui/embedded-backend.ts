@@ -127,6 +127,8 @@ import type {
   TuiModelChoice,
   TuiSessionList,
   TuiSessionCreateOptions,
+  TuiImageRequest,
+  TuiImageData,
 } from "./tui-backend.js";
 import { formatTuiErrorMessage } from "./tui-formatters.js";
 
@@ -624,6 +626,11 @@ export class EmbeddedTuiBackend implements TuiBackend {
     }
     run.controller.abort();
     return { ok: true, aborted: true, runIds: [opts.runId] };
+  }
+
+  async loadImage(opts: TuiImageRequest): Promise<TuiImageData> {
+    const { loadEmbeddedImage } = await import("./embedded-image-loader.js");
+    return await loadEmbeddedImage(opts);
   }
 
   async loadHistory(opts: { sessionKey: string; agentId?: string; limit?: number }) {

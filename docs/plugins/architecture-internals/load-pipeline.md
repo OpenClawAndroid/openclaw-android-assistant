@@ -161,6 +161,11 @@ Bounded loaded-owner lookups retain the owner's artifact policy when no preferen
 is specified. An explicit preference is checked; exact loader requests apply the
 full cache identity and cold-load defaults.
 
+A completed registry is cached under both its original request and its resolved
+manifest selection. Reusing those prepared manifests does not repeat plugin
+registration. Both keys share the existing bounded cache and are removed when
+the registry retires or the load cache is cleared.
+
 Provider lookup uses an explicit caller workspace first, then the workspace
 recorded by its metadata snapshot, including an explicitly shared-root scope.
 Only narrowed metadata views without a workspace field inherit the active

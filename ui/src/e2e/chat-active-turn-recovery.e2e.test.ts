@@ -349,7 +349,11 @@ suite.define(() => {
   it.each([true, false])(
     "keeps an owned reconnect prompt before a durable reply while history recovery is pending (active=%s)",
     async (active) => {
-      const { context, page, gateway } = await openActiveTurn({ deferredMethods: ["chat.send"] });
+      const { context, page, gateway } = await openActiveTurn({
+        deferredMethods: ["chat.send"],
+        // Terminal events can request ordinary history alongside outbox recovery.
+        heldMethods: ["chat.history"],
+      });
       const readPane = () =>
         page.locator("openclaw-chat-pane").evaluate((element) => {
           const state = (element as HTMLElement & { state: ChatPageHost }).state;
@@ -443,7 +447,6 @@ suite.define(() => {
         const historyCount = (await gateway.getRequests("chat.history")).length;
         const subscriptionCount = (await gateway.getRequests("sessions.messages.subscribe")).length;
         await gateway.deferNext("chat.startup", { sessionKey });
-        await gateway.deferNext("chat.history", { sessionKey, limit: 1000 });
         await gateway.setOnline(true);
         await waitForGatewayConnected(page);
         await gateway.waitForRequest("sessions.messages.subscribe", { after: subscriptionCount });

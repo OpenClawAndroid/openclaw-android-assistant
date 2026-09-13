@@ -34,6 +34,7 @@ import {
   waitForSessionTranscriptIndexReconcilesInStateDir,
   waitForSessionTranscriptProjection,
 } from "./session-transcript-reconcile.js";
+import { transcriptMessage } from "./transcript-message.test-support.js";
 
 const agentId = "secondary";
 const sessionId = "memory-reconcile";
@@ -86,17 +87,12 @@ describe("incognito transcript reconciliation", () => {
       const { scope, options } = target(environment === "ambient" ? undefined : explicit.env);
       const turn = await persistSessionTranscriptTurn(scope, {
         messages: [
-          { eventId: "root", parentId: null, message: { role: "user", content: "root" } },
-          {
-            eventId: "abandoned",
-            parentId: "root",
-            message: { role: "assistant", content: "🦞".repeat(262_144) },
-          },
-          {
-            eventId: "active",
-            parentId: "root",
-            message: { role: "assistant", content: "active" },
-          },
+          transcriptMessage("root", null, { role: "user", content: "root" }),
+          transcriptMessage("abandoned", "root", {
+            role: "assistant",
+            content: "🦞".repeat(262_144),
+          }),
+          transcriptMessage("active", "root", { role: "assistant", content: "active" }),
         ],
         touchSessionEntry: false,
       });
@@ -440,17 +436,9 @@ describe("incognito transcript reconciliation", () => {
       closeOpenClawAgentDatabaseByPath(database.path);
       await persistSessionTranscriptTurn(scope, {
         messages: [
-          { eventId: "root", parentId: null, message: { role: "user", content: "root" } },
-          {
-            eventId: "abandoned",
-            parentId: "root",
-            message: { role: "assistant", content: "abandoned" },
-          },
-          {
-            eventId: "active",
-            parentId: "root",
-            message: { role: "assistant", content: "active" },
-          },
+          transcriptMessage("root", null, { role: "user", content: "root" }),
+          transcriptMessage("abandoned", "root", { role: "assistant", content: "abandoned" }),
+          transcriptMessage("active", "root", { role: "assistant", content: "active" }),
         ],
         touchSessionEntry: false,
       });

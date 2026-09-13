@@ -127,12 +127,13 @@ export async function startMeetingRealtimeEngine(params: {
   let bridgeClosed = false;
   let transportStopped = false;
   let transportDisposed = false;
-  // Not const: the synchronous onFatal replay can run stop() (and its bridge?.close())
-  // before createBridge() below executes; a later `const` would throw at that read.
-  let bridge: RealtimeVoiceBridgeSession | undefined = undefined;
-  let realtimeReady = false;
-  let outputGenerationActive = false;
-  let continuityResetActive = false;
+  // Fatal transport callbacks can stop the session before its bridge exists.
+  let bridge: RealtimeVoiceBridgeSession | undefined;
+  const lifecycle = {
+    realtimeReady: false,
+    outputGenerationActive: false,
+    continuityResetActive: false,
+  };
   const outputOwner = createMeetingRealtimeOutputOwner();
   const toolContinuity = createMeetingRealtimeToolContinuity(params.handleToolCall);
   const realtimeLogScope = params.logPrefix ? `${params.logPrefix} realtime` : "realtime";
@@ -153,7 +154,7 @@ export async function startMeetingRealtimeEngine(params: {
       stopped = true;
       outputOwner.reset();
       outputQueue.stop();
-      outputGenerationActive = false;
+      lifecycle.outputGenerationActive = false;
       toolContinuity.reset("meeting realtime stopped");
       harness.talkback?.close();
       harness.forcedConsults.clear();
@@ -214,14 +215,13 @@ export async function startMeetingRealtimeEngine(params: {
       );
     });
   };
-  const clearOutputPlayback = () => outputQueue.clear();
   const invalidateOutputPlayback = (): void => {
     outputQueue.invalidate();
-    outputGenerationActive = false;
+    lifecycle.outputGenerationActive = false;
   };
   const invalidateAndClearOutputPlayback = (): void => {
     blockOutput();
-    clearOutputPlayback();
+    outputQueue.clear();
   };
 
   const blockOutput = (): { blocked: boolean; token: symbol } => {
@@ -232,48 +232,27 @@ export async function startMeetingRealtimeEngine(params: {
 
   const handleOutputBackpressure = () => {
     const { pendingBytes, pendingFrames } = outputQueue.pending();
-    if (bridge?.bridge.outputAudioMode === "continuous") {
-      params.logger.warn(
-        `${params.platform.logScope} ${realtimeLogScope} audio output backpressured: pendingBytes=${pendingBytes} pendingFrames=${pendingFrames}`,
-      );
-      invalidateOutputPlayback();
-      harness.flushOutput(clearOutputPlayback);
-      harness.finishOutputAudio("output-backpressure");
-      return;
-    }
-    const { blocked, token } = blockOutput();
-    if (!blocked) {
+    const block = bridge?.bridge.outputAudioMode === "continuous" ? undefined : blockOutput();
+    if (block && !block.blocked) {
       return;
     }
     params.logger.warn(
       `${params.platform.logScope} ${realtimeLogScope} audio output backpressured: pendingBytes=${pendingBytes} pendingFrames=${pendingFrames}`,
     );
-    harness.flushOutput(clearOutputPlayback);
+    if (!block) {
+      invalidateOutputPlayback();
+    }
+    harness.flushOutput(outputQueue.clear);
     harness.finishOutputAudio("output-backpressure");
+    if (!block) {
+      return;
+    }
     queueMicrotask(() => {
-      if (stopped || !outputOwner.isBlockedBy(token)) {
+      if (stopped || !outputOwner.isBlockedBy(block.token)) {
         return;
       }
       harness.handleBargeIn({ audioPlaybackActive: true, force: true }, () => {});
     });
-  };
-
-  const queueOutputAudio = (
-    audio: Buffer,
-    responseId: string | undefined,
-    audible: boolean,
-  ): boolean => {
-    if (
-      stopped ||
-      (bridge?.bridge.outputAudioMode !== "continuous" && !outputOwner.accept(responseId))
-    ) {
-      return false;
-    }
-    if (!outputQueue.enqueue(audio, audible, !outputGenerationActive)) {
-      handleOutputBackpressure();
-      return false;
-    }
-    return true;
   };
 
   const startHumanBargeInMonitor = () => {
@@ -393,8 +372,8 @@ export async function startMeetingRealtimeEngine(params: {
     );
   }
   const lifecycleHandlers = createMeetingRealtimeLifecycleHandlers({
-    clearOutputPlayback,
-    getContinuityResetActive: () => continuityResetActive,
+    clearOutputPlayback: outputQueue.clear,
+    lifecycle,
     harness,
     invalidateOutputPlayback,
     logger: params.logger,
@@ -403,9 +382,6 @@ export async function startMeetingRealtimeEngine(params: {
     outputTalkPayload,
     realtimeLogScope,
     resetToolContinuity: (reason) => toolContinuity.reset(reason),
-    setContinuityResetActive: (active) => (continuityResetActive = active),
-    setOutputGenerationActive: (active) => (outputGenerationActive = active),
-    setRealtimeReady: (ready) => (realtimeReady = ready),
   });
   try {
     const requireIsolatedInput = () => {
@@ -459,33 +435,37 @@ export async function startMeetingRealtimeEngine(params: {
         isOpen: () => !stopped,
         sendAudio: (audio) => {
           const responseId = outputOwner.takeNextResponseId();
-          const audible =
-            bridge?.bridge.outputAudioMode !== "continuous" ||
-            isRealtimeVoiceAudioAudible(audio, audioFormat);
+          const continuous = bridge?.bridge.outputAudioMode === "continuous";
+          const audible = !continuous || isRealtimeVoiceAudioAudible(audio, audioFormat);
           if (!audible && !outputQueue.hasUnplayedAudibleAudio()) {
-            if (outputGenerationActive) {
-              outputGenerationActive = false;
+            if (lifecycle.outputGenerationActive) {
+              lifecycle.outputGenerationActive = false;
               harness.finishOutputAudio("silence");
             }
             return;
           }
-          if (!queueOutputAudio(audio, responseId, audible)) {
+          if (stopped || (!continuous && !outputOwner.accept(responseId))) {
             return;
           }
-          outputGenerationActive = true;
+          if (!outputQueue.enqueue(audio, audible, !lifecycle.outputGenerationActive)) {
+            handleOutputBackpressure();
+            return;
+          }
+          lifecycle.outputGenerationActive = true;
           harness.outputActivity.markPlaybackStarted();
           harness.recordOutputAudio(audio);
         },
         clearAudio: () => {
           const continuous = bridge?.bridge.outputAudioMode === "continuous";
-          if (continuous || outputOwner.providerClear()) {
-            if (continuous) {
-              outputOwner.reset();
-            }
-            invalidateOutputPlayback();
-            harness.flushOutput(clearOutputPlayback);
-            harness.finishOutputAudio("clear");
+          if (!continuous && !outputOwner.providerClear()) {
+            return;
           }
+          if (continuous) {
+            outputOwner.reset();
+          }
+          invalidateOutputPlayback();
+          harness.flushOutput(outputQueue.clear);
+          harness.finishOutputAudio("clear");
         },
       },
       onTranscript: (role, text, isFinal) => {
@@ -513,29 +493,31 @@ export async function startMeetingRealtimeEngine(params: {
             final: true,
           });
         }
-        if (isFinal) {
+        if (!isFinal) {
+          return;
+        }
+        params.logger.info(
+          formatMeetingTranscriptSummaryLog(
+            params.platform.logScope,
+            `${realtimeLogScope} ${role}`,
+            text,
+          ),
+        );
+        if (role !== "user" || strategy !== "agent") {
+          return;
+        }
+        if (harness.isLikelyAssistantEchoTranscript(text)) {
           params.logger.info(
             formatMeetingTranscriptSummaryLog(
               params.platform.logScope,
-              `${realtimeLogScope} ${role}`,
+              `${realtimeLogScope} ignored assistant echo transcript`,
               text,
             ),
           );
-          if (role === "user" && strategy === "agent") {
-            if (harness.isLikelyAssistantEchoTranscript(text)) {
-              params.logger.info(
-                formatMeetingTranscriptSummaryLog(
-                  params.platform.logScope,
-                  `${realtimeLogScope} ignored assistant echo transcript`,
-                  text,
-                ),
-              );
-              return;
-            }
-          }
-          if (!stopped && role === "user" && strategy === "agent") {
-            harness.talkback?.enqueue(text);
-          }
+          return;
+        }
+        if (!stopped) {
+          harness.talkback?.enqueue(text);
         }
       },
       onEvent: lifecycleHandlers.onEvent,
@@ -568,8 +550,8 @@ export async function startMeetingRealtimeEngine(params: {
         );
       },
       onClose: (reason) => {
-        outputGenerationActive = false;
-        realtimeReady = false;
+        lifecycle.outputGenerationActive = false;
+        lifecycle.realtimeReady = false;
         harness.finishOutputAudio(reason);
         harness.emit({
           type: "session.closed",
@@ -579,8 +561,8 @@ export async function startMeetingRealtimeEngine(params: {
         stopAfterFailure("voice bridge close");
       },
       onReady: () => {
-        realtimeReady = true;
-        continuityResetActive = false;
+        lifecycle.realtimeReady = true;
+        lifecycle.continuityResetActive = false;
         harness.emit({
           type: "session.ready",
           payload: outputTalkPayload,
@@ -637,7 +619,7 @@ export async function startMeetingRealtimeEngine(params: {
     getHealth: () => ({
       ...harness.getHealth({
         providerConnected: bridge?.bridge.isConnected() ?? false,
-        realtimeReady,
+        realtimeReady: lifecycle.realtimeReady,
       }),
       ...(bridge?.bridge.outputAudioMode === "continuous"
         ? { audioOutputActive: outputQueue.hasUnplayedAudibleAudio() }

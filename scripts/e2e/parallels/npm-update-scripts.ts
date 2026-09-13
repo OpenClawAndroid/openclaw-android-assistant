@@ -16,7 +16,7 @@ import {
   modelProviderConfigBatchJson,
   resolveParallelsModelTimeoutSeconds,
 } from "./provider-auth.ts";
-import { posixStopGatewayScript } from "./smoke-common.ts";
+import { posixAgentTurnScript, posixStopGatewayScript } from "./smoke-common.ts";
 import type { Platform, ProviderAuth } from "./types.ts";
 
 interface NpmUpdateScriptInput {
@@ -109,41 +109,12 @@ function posixAssertAgentOkScript(
     modelId: input.auth.modelId,
   })}
 ${posixCodexPlatformPackageRepairFunction()}
-agent_ok=false
-for attempt in 1 2; do
-  session_id=${shellQuote(sessionId)}
-  if [ "$attempt" -gt 1 ]; then session_id=${shellQuote(`${sessionId}-retry`)}"-$attempt"; fi
-  rm -f "$HOME/.openclaw/agents/main/sessions/$session_id.jsonl"
-  output_file="$(mktemp)"
-  set +e
-  OPENCLAW_ALLOW_ROOT="\${OPENCLAW_ALLOW_ROOT:-}" with_provider_api_key ${command} agent --local --agent main --session-id "$session_id" --message 'Reply with exact ASCII text OK only.' --thinking off --timeout ${resolveParallelsModelTimeoutSeconds(platform)} --json >"$output_file" 2>&1
-  rc=$?
-  set -e
-  print_log_tail "$output_file"
-  if [ "$rc" -ne 0 ]; then
-    if [ "$attempt" -lt 2 ] && repair_missing_codex_platform_package "$output_file"; then
-      rm -f "$output_file"
-      echo "agent turn attempt $attempt hit a missing Codex platform package; retrying"
-      continue
-    fi
-    rm -f "$output_file"
-    exit "$rc"
-  fi
-  if grep -Eq '"finalAssistant(Raw|Visible)Text"[[:space:]]*:[[:space:]]*"OK"' "$output_file"; then
-    agent_ok=true
-    rm -f "$output_file"
-    break
-  fi
-  rm -f "$output_file"
-  if [ "$attempt" -lt 2 ]; then
-    echo "agent turn attempt $attempt finished without OK response; retrying"
-    sleep 3
-  fi
-done
-if [ "$agent_ok" != true ]; then
-  echo "openclaw agent finished without OK response" >&2
-  exit 1
-fi`;
+${posixAgentTurnScript({
+  command: `OPENCLAW_ALLOW_ROOT="\${OPENCLAW_ALLOW_ROOT:-}" with_provider_api_key ${command} agent --local --agent main --session-id "$session_id" --message 'Reply with exact ASCII text OK only.' --thinking off --timeout ${resolveParallelsModelTimeoutSeconds(platform)} --json`,
+  sessionIdExpression: shellQuote(sessionId),
+  retrySessionIdExpression: `${shellQuote(`${sessionId}-retry`)}"-$attempt"`,
+  printOutput: "print_log_tail",
+})}`;
 }
 
 function windowsUpdateWithScopedEnv(input: NpmUpdateScriptInput): string {

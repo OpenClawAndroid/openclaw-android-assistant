@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Steuerelemente"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Sprechen"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Audio der Uhr fehlgeschlagen"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Mikrofonberechtigung erforderlich"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Einstellungen öffnen"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Diktieren"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Live"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Thread"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Letzte Antwort vorlesen"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Sprachausgabe läuft"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Hört zu"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Anruf wird beendet…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Verbindung wird hergestellt"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Nachdenken"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Tippt"</string>

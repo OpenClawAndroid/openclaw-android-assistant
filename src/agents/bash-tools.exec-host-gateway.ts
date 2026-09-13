@@ -37,11 +37,15 @@ import {
   resolveExecApprovalUnavailableDecisions,
   requiresExecApproval,
 } from "../infra/exec-approvals.js";
-import { buildAuthorizedShellCommandFromPlan } from "../infra/exec-authorization-render.js";
+import {
+  buildAuthorizedShellCommandFromPlan,
+  buildReviewedShellCommandFromPlan,
+} from "../infra/exec-authorization-render.js";
 import { resolveUnpinnedAutoApprovalEligibility } from "../infra/exec-auto-approval-eligibility.js";
 import {
   defaultExecAutoReviewer,
   EXEC_AUTO_REVIEW_SHELL_STARTUP_WARNING,
+  EXEC_AUTO_REVIEW_DISPATCH_IDENTITY_WARNING,
   formatExecAutoReviewAssessment,
   resolveExecAutoReviewDecision,
   type ExecAutoReviewDecision,
@@ -156,6 +160,7 @@ type ProcessGatewayAllowlistResult = {
   execCommandOverride?: string;
   allowWithoutEnforcedCommand?: boolean;
   revalidateBeforeExecution?: () => Promise<AgentToolResult<ExecToolDetails> | undefined>;
+  assertCurrent?: () => void;
   pendingResult?: AgentToolResult<ExecToolDetails>;
   deniedResult?: AgentToolResult<ExecToolDetails>;
 };
@@ -665,7 +670,14 @@ export async function processGatewayAllowlist(
     }
     return { ...state, approvedByAsk: true, deniedReason: null };
   };
-  const commitExecutionAuthorization = (options: {
+  let assertCommittedAuthorization: (() => void) | undefined;
+  const assertCurrent = () => {
+    if (!assertCommittedAuthorization) {
+      throw new Error("Exec authorization has not been committed");
+    }
+    assertCommittedAuthorization();
+  };
+  const commitExecutionAuthorization = async (options: {
     source: ExecApprovalUsageAuthorization["source"];
     resolvedPath?: string;
     allowAlwaysDecision?: AllowAlwaysPersistenceDecision;
@@ -693,7 +705,7 @@ export async function processGatewayAllowlist(
     });
     const delayedAuthorization =
       options.source === "explicit-approval" || options.source === "auto-review";
-    return commitExecAuthorizationLocked({
+    assertCommittedAuthorization = await commitExecAuthorizationLocked({
       agentId: params.agentId,
       matches: allowlistMatches,
       command: params.command,
@@ -941,13 +953,29 @@ export async function processGatewayAllowlist(
   const autoReviewBlockedByShellStartup = allowlistEval.segments.some((segment) =>
     hasPosixShellStartupBeforeInlineCommand(segment.argv),
   );
+  const dispatchEligibility = resolveUnpinnedAutoApprovalEligibility({
+    authorizationPlan: allowlistEval.authorizationPlan,
+    binding: mutableFileBinding,
+  });
+  const reviewedCommand =
+    dispatchEligibility.eligible && allowlistEval.authorizationPlan && mutableFileBinding
+      ? buildReviewedShellCommandFromPlan({
+          plan: allowlistEval.authorizationPlan,
+          binding: mutableFileBinding,
+          segmentSatisfiedBy: allowlistEval.segmentSatisfiedBy,
+        })
+      : undefined;
+  const boundApprovedCommand = reviewedCommand?.ok ? reviewedCommand.command : undefined;
+  const approvedEnforcedCommand = boundApprovedCommand ?? autoReviewEnforcedCommand;
   const unpinnedEligibility =
     autoReviewEnforcedCommand !== undefined
       ? { eligible: true as const }
-      : resolveUnpinnedAutoApprovalEligibility({
-          authorizationPlan: allowlistEval.authorizationPlan,
-          binding: mutableFileBinding,
-        });
+      : dispatchEligibility.eligible && approvedEnforcedCommand === undefined
+        ? {
+            eligible: false as const,
+            reason: EXEC_AUTO_REVIEW_DISPATCH_IDENTITY_WARNING,
+          }
+        : dispatchEligibility;
   // Mutable operands and unenforceable patterns cannot authorize later cwd/env bindings.
   const approvalAllowAlwaysPersistence =
     mutableFileApprovalRequiresOneShot ||
@@ -1123,9 +1151,8 @@ export async function processGatewayAllowlist(
             resolvedPath: autoReviewResolvedPath,
           });
           return {
-            ...(autoReviewEnforcedCommand === undefined
-              ? { allowWithoutEnforcedCommand: true }
-              : { execCommandOverride: autoReviewEnforcedCommand }),
+            execCommandOverride: approvedEnforcedCommand,
+            assertCurrent,
             ...(revalidateBeforeExecution ? { revalidateBeforeExecution } : {}),
           };
         }
@@ -1313,6 +1340,7 @@ export async function processGatewayAllowlist(
       return {
         execCommandOverride,
         allowWithoutEnforcedCommand: execCommandOverride === undefined,
+        assertCurrent,
         ...(revalidateBeforeExecution ? { revalidateBeforeExecution } : {}),
       };
     }
@@ -1427,7 +1455,7 @@ export async function processGatewayAllowlist(
         execCommandOverride:
           decision === null && fallbackSecurity === "allowlist"
             ? fallbackEnforcedCommand
-            : enforcedCommand,
+            : (boundApprovedCommand ?? enforcedCommand),
       };
     };
 
@@ -1489,6 +1517,7 @@ export async function processGatewayAllowlist(
       return {
         execCommandOverride: approvalDecision.execCommandOverride,
         allowWithoutEnforcedCommand: approvalDecision.execCommandOverride === undefined,
+        assertCurrent,
         ...(revalidateBeforeExecution ? { revalidateBeforeExecution } : {}),
       };
     }
@@ -1620,6 +1649,7 @@ export async function processGatewayAllowlist(
               sessionKey: params.notifySessionKey ?? params.sessionKey,
               timeoutSec: effectiveTimeout,
               startupSignal: params.signal,
+              assertCurrent,
               beforeSpawn: async () => {
                 finalBindingDenied = await resolveGatewayExecApprovalDrift({
                   binding: approvalMutableFileBinding,
@@ -1754,6 +1784,7 @@ export async function processGatewayAllowlist(
 
   return {
     execCommandOverride: enforcedCommand,
+    assertCurrent,
     ...(approvedCwdSnapshot
       ? {
           revalidateBeforeExecution: () =>

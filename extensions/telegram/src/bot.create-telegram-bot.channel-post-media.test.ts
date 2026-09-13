@@ -1,8 +1,4 @@
 import { KeyedAsyncQueue } from "openclaw/plugin-sdk/keyed-async-queue";
-import {
-  createPluginStateKeyedStoreForTests,
-  createPluginStateSyncKeyedStoreForTests,
-} from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { withTimeout } from "openclaw/plugin-sdk/text-utility-runtime";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,8 +10,7 @@ import {
   type TelegramMentionCaseForTest,
   type TelegramMentionPolicyForTest,
 } from "./bot.create-telegram-bot.test-support.js";
-import { setTelegramRuntime } from "./runtime.js";
-import type { TelegramRuntime } from "./runtime.types.js";
+import { setTelegramPluginStateRuntimeForTests } from "./runtime-state.test-support.js";
 
 const saveRemoteMedia = vi.fn();
 const rootRead = vi.fn();
@@ -408,21 +403,7 @@ describe("createTelegramBot channel_post media", () => {
   });
 
   beforeEach(() => {
-    setTelegramRuntime({
-      state: {
-        openKeyedStore: ((options) =>
-          createPluginStateKeyedStoreForTests(
-            "telegram",
-            options,
-          )) as TelegramRuntime["state"]["openKeyedStore"],
-        openSyncKeyedStore: ((options) =>
-          createPluginStateSyncKeyedStoreForTests(
-            "telegram",
-            options,
-          )) as TelegramRuntime["state"]["openSyncKeyedStore"],
-      },
-      channel: {},
-    } as TelegramRuntime);
+    setTelegramPluginStateRuntimeForTests();
     triggerInternalHookMock.mockClear();
     saveRemoteMedia.mockReset();
     saveRemoteMedia.mockImplementation(

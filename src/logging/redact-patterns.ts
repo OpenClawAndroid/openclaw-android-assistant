@@ -255,6 +255,10 @@ const TELEGRAM_TOKEN_REDACT_PATTERN = String.raw`\b(\d{6,}:[A-Za-z0-9_-]{20,})\b
 const CREDENTIAL_STYLE_HEADER_KEYS = "x-goog-api-key|api-key|apikey|x-api-token|x-access-token";
 const GATEWAY_SECURITY_HEADER_KEYS =
   "X-OpenClaw-Token|x-pomerium-jwt-assertion|X-Api-Key|X-Auth-Token";
+export const CREDENTIAL_HEADER_FIELD_RE = new RegExp(
+  `^(?:${CREDENTIAL_STYLE_HEADER_KEYS}|${GATEWAY_SECURITY_HEADER_KEYS})$`,
+  "i",
+);
 // Colons identify HTTP headers. Equals assignments may be form bodies, so stop only before an
 // actual following `&key=` pair; otherwise opaque credential punctuation stays fully masked.
 const LOG_HEADER_BOUNDARY_PATTERN = String.raw`(^|[^A-Za-z0-9_?&-]|\\{1,64}[rn])`;

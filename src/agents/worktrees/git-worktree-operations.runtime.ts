@@ -1,5 +1,9 @@
 import path from "node:path";
-import { estimateCheckoutObjectBytes, measureDirectoryTreeBytes } from "./capacity.runtime.js";
+import {
+  estimateCheckoutObjectBytes,
+  estimateCheckoutTransitionBytes,
+  measureDirectoryTreeBytes,
+} from "./capacity.runtime.js";
 import { splitNullBuffer } from "./git-path-inventory.js";
 import type {
   GitWorktreeOperation,
@@ -113,7 +117,18 @@ export async function executeGitWorktreeOperation(
     case "worktree.cleanup-inspection":
       return await inspectCleanup(operation.input);
     case "worktree.git-size":
-      return await estimateCheckoutObjectBytes(operation.input.repoRoot, operation.input.ref);
+      return await estimateCheckoutObjectBytes(
+        operation.input.repoRoot,
+        operation.input.ref,
+        operation.input.replacementRefBase,
+      );
+    case "worktree.checkout-transition-size":
+      return await estimateCheckoutTransitionBytes(
+        operation.input.repoRoot,
+        operation.input.baseRef,
+        operation.input.targetRef,
+        operation.input.replacementRefBase,
+      );
     case "worktree.directory-size":
       return await measureDirectoryTreeBytes(operation.input.root, operation.input.excludeGit);
     default:

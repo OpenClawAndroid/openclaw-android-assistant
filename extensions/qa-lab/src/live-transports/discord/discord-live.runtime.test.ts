@@ -484,18 +484,10 @@ describe("discord live qa runtime", () => {
       vi.fn(async (_input: string | URL | globalThis.Request, init?: RequestInit) => {
         expect(init?.headers).toBeInstanceOf(Headers);
         expect((init!.headers as Headers).get("authorization")).toBe("Bot token");
-        return new Response(
-          JSON.stringify([
-            { id: "623456789012345678", name: "help" },
-            { id: "623456789012345679", name: "commands" },
-          ]),
-          {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-            },
-          },
-        );
+        return Response.json([
+          { id: "623456789012345678", name: "help" },
+          { id: "623456789012345679", name: "commands" },
+        ]);
       }),
     );
 
@@ -513,21 +505,12 @@ describe("discord live qa runtime", () => {
   it("discovers the first visible Discord voice channel for the voice smoke", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify([
-              { id: "123456789012345678", name: "general", position: 0, type: 0 },
-              { id: "523456789012345678", name: "qa-voice", position: 1, type: 2 },
-              { id: "623456789012345678", name: "stage", position: 2, type: 13 },
-            ]),
-            {
-              status: 200,
-              headers: {
-                "content-type": "application/json",
-              },
-            },
-          ),
+      vi.fn(async () =>
+        Response.json([
+          { id: "123456789012345678", name: "general", position: 0, type: 0 },
+          { id: "523456789012345678", name: "qa-voice", position: 1, type: 2 },
+          { id: "623456789012345678", name: "stage", position: 2, type: 13 },
+        ]),
       ),
     );
 
@@ -542,15 +525,7 @@ describe("discord live qa runtime", () => {
   it("normalizes missing current Discord voice state to null", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ message: "Unknown Voice State" }), {
-            status: 404,
-            headers: {
-              "content-type": "application/json",
-            },
-          }),
-      ),
+      vi.fn(async () => Response.json({ message: "Unknown Voice State" }, { status: 404 })),
     );
 
     await expect(
@@ -568,27 +543,12 @@ describe("discord live qa runtime", () => {
         "fetch",
         vi
           .fn()
+          .mockResolvedValueOnce(Response.json([{ id: "623456789012345679", name: "commands" }]))
           .mockResolvedValueOnce(
-            new Response(JSON.stringify([{ id: "623456789012345679", name: "commands" }]), {
-              status: 200,
-              headers: {
-                "content-type": "application/json",
-              },
-            }),
-          )
-          .mockResolvedValueOnce(
-            new Response(
-              JSON.stringify([
-                { id: "623456789012345679", name: "commands" },
-                { id: "623456789012345678", name: "help" },
-              ]),
-              {
-                status: 200,
-                headers: {
-                  "content-type": "application/json",
-                },
-              },
-            ),
+            Response.json([
+              { id: "623456789012345679", name: "commands" },
+              { id: "623456789012345678", name: "help" },
+            ]),
           ),
       );
 
@@ -642,21 +602,12 @@ describe("discord live qa runtime", () => {
       vi
         .fn()
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ message: "You are being rate limited.", retry_after: 0 }), {
-            status: 429,
-            headers: {
-              "content-type": "application/json",
-            },
-          }),
+          Response.json(
+            { message: "You are being rate limited.", retry_after: 0 },
+            { status: 429 },
+          ),
         )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ id: "423456789012345678" }), {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-            },
-          }),
-        ),
+        .mockResolvedValueOnce(Response.json({ id: "423456789012345678" })),
     );
 
     await expect(testing.getCurrentDiscordUser("token")).resolves.toEqual({

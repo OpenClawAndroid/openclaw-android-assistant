@@ -497,6 +497,7 @@ async function commitPluginInstallRecordsWithWriter<T extends ConfigReplaceResul
         indexWrite: tentativeWrite,
       };
     } catch (error) {
+      const failures: unknown[] = [error];
       const tentative = tentativeWrite;
       if (tentative) {
         try {
@@ -515,11 +516,15 @@ async function commitPluginInstallRecordsWithWriter<T extends ConfigReplaceResul
             await removeCreatedRetainedManagedNpmInstallMarkers(retainedMarkerPaths);
           }
         } catch (rollbackError) {
-          throw new Error(
-            "Failed to commit plugin install records and could not roll back tentative plugin state",
-            { cause: rollbackError },
-          );
+          failures.push(rollbackError);
         }
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          `${String(error)}; Failed to commit plugin install records and could not roll back tentative plugin state`,
+          { cause: error },
+        );
       }
       throw error;
     }

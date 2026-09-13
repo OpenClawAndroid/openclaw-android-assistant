@@ -32,13 +32,11 @@ import {
   isValidExecSecretRefId,
   secretRefKey,
 } from "../secrets/ref-contract.js";
-import { resolveSecretRefValue } from "../secrets/resolve.js";
 import { discoverConfigSecretTargets } from "../secrets/target-registry.js";
 import { shortenHomePath } from "../utils.js";
 import { formatCliCommand } from "./command-format.js";
 import type { ConfigMutationOptions, ConfigSetOperation } from "./config-cli-input.js";
 import { getAtPath } from "./config-cli-path.js";
-import { checkTouchedTextModelRefs } from "./config-model-validation.js";
 import { formatPluginPackagingRuntimeOutputRecoveryHint } from "./config-recovery-hints.js";
 import type { ConfigSetDryRunError, ConfigSetDryRunResult } from "./config-set-dryrun.js";
 import { formatCliJsonFailure } from "./failure-output.js";
@@ -202,6 +200,7 @@ async function collectDryRunResolvabilityErrors(params: {
   refs: SecretRef[];
   config: OpenClawConfig;
 }): Promise<ConfigSetDryRunError[]> {
+  const { resolveSecretRefValue } = await import("../secrets/resolve.js");
   const failures: ConfigSetDryRunError[] = [];
   for (const ref of params.refs) {
     try {
@@ -411,6 +410,7 @@ export async function validateConfigMutation(params: {
     }
   }
 
+  const { checkTouchedTextModelRefs } = await import("./config-model-validation.js");
   const modelCheck = await checkTouchedTextModelRefs({
     config,
     previousConfig: params.previousConfig,

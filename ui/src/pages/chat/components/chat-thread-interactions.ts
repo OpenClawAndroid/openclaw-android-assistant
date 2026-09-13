@@ -462,7 +462,11 @@ function selectionIntersectsElement(selection: Selection | null, element: Elemen
 }
 
 export function handleTranscriptContextMenu(event: MouseEvent, props: TranscriptInteractionProps) {
-  if (event.composedPath().some((target) => target instanceof HTMLAnchorElement)) {
+  if (
+    event
+      .composedPath()
+      .some((target) => target instanceof HTMLAnchorElement || target instanceof HTMLImageElement)
+  ) {
     return;
   }
   const bubble = (event.target as HTMLElement).closest<

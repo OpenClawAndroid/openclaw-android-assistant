@@ -33,6 +33,46 @@ afterAll(() => {
 });
 
 describe("app-tool-stream approval lifecycle", () => {
+  it.each([
+    ...["start", "input_delta", "update", "result", "review"].map((phase) => ({
+      phase,
+      parentToolCallId: "outer",
+    })),
+    ...["start", "input_delta", "update", "result", "review"].map((phase) => ({
+      phase,
+      parentToolCallId: undefined,
+    })),
+  ])(
+    "keeps text streaming through $phase activity (parent: $parentToolCallId)",
+    ({ phase, parentToolCallId }) => {
+      useToolStreamFakeTimers();
+      const host = createHost({
+        chatRunId: "run-1",
+        chatStream: "I'll check",
+        chatStreamStartedAt: TOOL_STREAM_TEST_NOW,
+      });
+      try {
+        handleAgentEvent(
+          host,
+          agentEvent("run-1", 1, "tool", {
+            phase,
+            toolCallId: "call",
+            parentToolCallId,
+            name: "read",
+            review: { id: "review", label: "Approval", status: "approved" },
+          }),
+        );
+        expect(host.chatStream).toBe("I'll check");
+        expect(host.chatStreamStartedAt).toBe(TOOL_STREAM_TEST_NOW);
+        expect(host.chatStreamSegments).toEqual([]);
+        expect(host.toolStreamById.size).toBe(1);
+      } finally {
+        resetToolStream(host);
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("preserves producer parent identity through live completion without reading arguments", () => {
     const host = createHost();
     handleAgentEvent(

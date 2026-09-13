@@ -1,5 +1,6 @@
 import type { LegacyConfigUpdatePlan } from "../../commands/doctor/legacy-config-repair.js";
 import { normalizeUpdateChannel } from "../../infra/update-channels.js";
+import { canResolveRegistryVersionForPackageTarget } from "../../infra/update-global.js";
 import { withPluginLifecycleLease } from "../../plugins/plugin-lifecycle-lease.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
@@ -51,6 +52,7 @@ export async function finishAlreadyCurrentUpdate(
     | "packageUpdateNodeRunner"
     | "ownedManagedUpdateEnv"
   > & {
+    packageInstallSpec: string | null;
     managedServiceRootRedirect: ManagedServiceRootRedirect | null;
     legacyConfigPlan?: LegacyConfigUpdatePlan;
     runtimeTarget?: { version: string; nodeEngine: string | null };
@@ -134,7 +136,10 @@ export async function finishAlreadyCurrentUpdate(
             tag:
               params.channel === "extended-stable"
                 ? undefined
-                : (result.after.version ?? undefined),
+                : params.packageInstallSpec &&
+                    !canResolveRegistryVersionForPackageTarget(params.packageInstallSpec)
+                  ? params.packageInstallSpec
+                  : (result.after.version ?? undefined),
             timeoutMs: params.updateStepTimeoutMs,
             nodeRunner: packageUpdateNodeRunner,
             invocationCwd: params.invocationCwd,

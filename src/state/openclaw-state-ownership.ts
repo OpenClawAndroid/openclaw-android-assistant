@@ -322,7 +322,7 @@ export async function assertOpenClawStateWriteAllowedAtPath(options: {
       env,
     );
   } finally {
-    prepared.cleanup();
+    await prepared.cleanupAsync();
   }
 }
 

@@ -763,6 +763,8 @@ export function reconcileChatRunFromSessionRow(
     clearChatStream: true,
     clearToolStreamForRun: true,
     publishRunStatus: options.publishRunStatus,
+    // Shared rows can finish this run before its persisted reply event arrives.
+    armLocalTerminalReconcile: Boolean(host.chatRunId && row.lastRunId === host.chatRunId),
   });
   return true;
 }

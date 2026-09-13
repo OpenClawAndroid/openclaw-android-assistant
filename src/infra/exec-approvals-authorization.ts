@@ -12,6 +12,7 @@ import type { ExecApprovalsFile, ExecAsk, ExecSecurity } from "./exec-approvals-
 import { maxAsk, minSecurity } from "./exec-approvals-policy.js";
 import { resolveExecApprovalsFromFileInternal } from "./exec-approvals-resolver.js";
 import {
+  loadExecApprovalsReadOnly,
   replaceExecApprovalsSnapshot,
   updateExecApprovals,
   updateExecApprovalsSync,
@@ -254,7 +255,7 @@ export async function commitExecAuthorizationLocked(params: {
   resolvedPath?: string;
   authorization: ExecApprovalUsageAuthorization;
   allowAlwaysDecision?: AllowAlwaysPersistenceDecision;
-}): Promise<void> {
+}): Promise<() => void> {
   if (
     (params.authorization.source === "explicit-approval" ||
       params.authorization.source === "auto-review") &&
@@ -267,11 +268,11 @@ export async function commitExecAuthorizationLocked(params: {
       throw new Error("Allow-always persistence requires explicit approval");
     }
   }
-  await updateExecApprovals({
+  const matchKeys = new Set(
+    params.matches.filter((entry) => entry.pattern).map(buildAllowlistEntryMatchKey),
+  );
+  const snapshot = await updateExecApprovals({
     update: (file) => {
-      const matchKeys = new Set(
-        params.matches.filter((entry) => entry.pattern).map(buildAllowlistEntryMatchKey),
-      );
       assertCurrentUsageAuthorization({
         file,
         agentId: params.agentId,
@@ -297,4 +298,24 @@ export async function commitExecAuthorizationLocked(params: {
       return recorded ?? (changed ? next : null);
     },
   });
+  if (!snapshot) {
+    throw new Error("Exec approval changed before execution");
+  }
+  // Our own allow-always write is part of the committed policy. Later checks
+  // only read; a PTY retry must neither replay that write nor reject its result.
+  const authorization = {
+    ...params.authorization,
+    policySnapshot: createExecApprovalPolicySnapshot({
+      file: snapshot.file,
+      agentId: params.agentId,
+    }),
+  };
+  return () =>
+    assertCurrentUsageAuthorization({
+      file: loadExecApprovalsReadOnly(),
+      agentId: params.agentId,
+      command: params.command,
+      matchKeys,
+      authorization,
+    });
 }

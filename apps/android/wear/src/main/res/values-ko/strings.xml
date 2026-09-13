@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"제어"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"음성 대화"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"워치 오디오 실패"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"마이크 권한 필요"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"설정 열기"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"받아쓰기"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"실시간"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"스레드"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"최근 답변 읽어주기"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"말하는 중"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"듣는 중"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"통화 종료 중…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"연결 중"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"생각 중"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"입력 중"</string>

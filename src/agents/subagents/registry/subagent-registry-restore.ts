@@ -331,7 +331,7 @@ export function createSubagentRegistryRestorer(config: {
     activated = true;
   }
 
-  function restoreSubagentRunsOnce(retryDelayMs = RESTORE_RETRY_DELAY_MS) {
+  function restoreSubagentRunsOnce(retryDelayMs = RESTORE_RETRY_DELAY_MS, throwOnError = false) {
     if (restoreState !== "idle") {
       return;
     }
@@ -370,6 +370,9 @@ export function createSubagentRegistryRestorer(config: {
         `failed to restore subagent runs from disk: ${err instanceof Error ? err.message : String(err)}`,
       );
       scheduleRestoreRetry(retryDelayMs);
+      if (throwOnError) {
+        throw err;
+      }
     }
   }
 

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { Client as TeamsApiClient } from "@microsoft/teams.api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../runtime-api.js";
+import { teamsQuotedRawTable } from "./format.test-fixtures.js";
 import {
   editMessageMSTeams,
   sendAdaptiveCardMSTeams,
@@ -33,9 +34,11 @@ vi.mock("openclaw/plugin-sdk/outbound-media", () => ({
   loadOutboundMediaFromUrl: mockState.loadOutboundMediaFromUrl,
 }));
 
-vi.mock("openclaw/plugin-sdk/markdown-table-runtime", () => ({
-  resolveMarkdownTableMode: vi.fn(() => "off"),
-}));
+vi.mock("openclaw/plugin-sdk/markdown-table-runtime", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("openclaw/plugin-sdk/markdown-table-runtime")>();
+  return { ...actual, resolveMarkdownTableMode: vi.fn(() => "off") };
+});
 
 vi.mock("openclaw/plugin-sdk/text-chunking", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/text-chunking")>();
@@ -529,8 +532,8 @@ describe.each([
     displayName: "Alice [Ops]",
   },
 ])("Teams text preparation at the SDK HTTP boundary ($label)", ({ sourceName, displayName }) => {
-  const source = `# Deployment status\n\n@[${sourceName}](11111111-2222-3333-4444-555555555555)`;
-  const expectedText = `**Deployment status**\n\n<at>${displayName}</at>`;
+  const source = `# Deployment status\n\n${teamsQuotedRawTable}\n\n@[${sourceName}](11111111-2222-3333-4444-555555555555)`;
+  const expectedText = `**Deployment status**\n\n${teamsQuotedRawTable}\n\n<at>${displayName}</at>`;
   const expectedMention = {
     type: "mention",
     text: `<at>${displayName}</at>`,

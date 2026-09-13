@@ -1,5 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 import type { AuthProfileStore } from "../../agents/auth-profiles.js";
+import {
+  clearRuntimeAuthProfileStoreSnapshots,
+  createPreparedRuntimeAuthProfileUsageReader,
+  setRuntimeAuthProfileStoreSnapshot,
+} from "../../agents/auth-profiles/runtime-snapshots.js";
+import { setPreparedModelFullCatalogAuth } from "../../agents/prepared-model-runtime-auth.js";
+import { materializePreparedModelCatalog } from "../../agents/prepared-model-runtime.full-catalog.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   createChatMetadataHarness,
@@ -7,6 +14,76 @@ import {
 } from "./chat-metadata-runtime.test-support.js";
 
 describe("gateway chat metadata auth deadlines", () => {
+  test("reads cleared and renewed usage from a retained full catalog", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const config: OpenClawConfig = {
+      auth: { order: { acme: ["acme:primary"] } },
+      agents: {
+        defaults: { model: { primary: "acme/model" }, models: { "acme/model": {} } },
+        list: [{ id: "main", default: true }],
+      },
+    };
+    const prepared = createChatMetadataOwner(
+      config,
+      "model",
+      { acme: { type: "api_key", key: "synthetic-key" } },
+      "acme",
+    );
+    const original: AuthProfileStore = {
+      version: 1,
+      profiles: { "acme:primary": { type: "api_key", provider: "acme", key: "synthetic-key" } },
+      usageStats: { "acme:primary": { cooldownUntil: 20_000 } },
+    };
+    setRuntimeAuthProfileStoreSnapshot(original, prepared.agentDir);
+    setPreparedModelFullCatalogAuth(
+      prepared.modelCatalog,
+      {
+        authStore: original,
+        authModes: prepared.authModes,
+        providerAuthLabels: new Map(),
+      },
+      createPreparedRuntimeAuthProfileUsageReader(prepared.agentDir, prepared.agentDir),
+    );
+    const fullCatalog = materializePreparedModelCatalog(prepared.modelCatalog, []);
+    const owner = { ...prepared, readFullModelCatalog: () => fullCatalog };
+    const harness = createChatMetadataHarness(config, {
+      useDefaultProjection: true,
+      refreshOnRead: false,
+    });
+    harness.setOwner(owner);
+    try {
+      await harness.runtime.refresh();
+      await expect(harness.runtime.read({ agentId: "main" })).resolves.toMatchObject({
+        models: [{ id: "model", provider: "acme", available: false }],
+      });
+      for (const [revision, cooldownUntil] of [
+        [2, undefined],
+        [3, 30_000],
+      ] as const) {
+        setRuntimeAuthProfileStoreSnapshot(
+          {
+            ...original,
+            usageStats: cooldownUntil === undefined ? {} : { "acme:primary": { cooldownUntil } },
+          },
+          prepared.agentDir,
+        );
+        harness.setAuthStoreRevision(revision);
+        expect(
+          await harness.runtime.readStartup({ agentId: "main", readPolicy: "ready" }),
+        ).toBeUndefined();
+        await expect(harness.runtime.read({ agentId: "main" })).resolves.toMatchObject({
+          models: [{ id: "model", provider: "acme", available: cooldownUntil === undefined }],
+        });
+      }
+      expect(harness.getPreparedAuthStore).not.toHaveBeenCalled();
+      expect(original.usageStats).toEqual({ "acme:primary": { cooldownUntil: 20_000 } });
+    } finally {
+      await harness.runtime.stop();
+      clearRuntimeAuthProfileStoreSnapshots();
+      clock.mockRestore();
+    }
+  });
+
   test.each([
     { at: 19_999, available: true },
     { at: 20_000, available: false },

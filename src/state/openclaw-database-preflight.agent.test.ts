@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
+import { preflightOpenClawAgentDatabasePath as preflight } from "./openclaw-agent-schema-inspection.js";
 import { OPENCLAW_AGENT_SCHEMA_SQL } from "./openclaw-agent-schema.js";
-import { preflightOpenClawAgentDatabasePath as preflight } from "./openclaw-database-preflight.js";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 function fixture() {
   const root = fs.realpathSync(tempDirs.make("explicit-agent-reader-"));

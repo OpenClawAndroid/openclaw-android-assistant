@@ -26,7 +26,7 @@ import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db.js";
 
 // Target 64 cached handles (roughly three WAL FDs each). Live borrowers,
 // transactions and incognito sessions keep their handles until owner release.
-export const OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP = 64;
+const OPENCLAW_AGENT_DB_OPEN_HANDLE_CAP = 64;
 const agentDbLog = createSubsystemLogger("state/agent-db");
 const OPENCLAW_AGENT_DB_SLOW_OPEN_MS = 1_000;
 // Native and transformed SDK graphs must share the complete owner lifecycle;

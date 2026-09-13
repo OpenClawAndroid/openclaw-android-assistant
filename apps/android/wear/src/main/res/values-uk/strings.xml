@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Елементи керування"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Розмова"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Помилка аудіо з годинника"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Потрібен дозвіл на доступ до мікрофона"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Відкрити налаштування"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Диктувати"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Наживо"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Гілка"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Озвучити останню відповідь"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Озвучування"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Слухання"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Завершення виклику…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Підключення"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Обмірковування"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Набирає текст"</string>

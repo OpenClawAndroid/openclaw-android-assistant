@@ -3,6 +3,7 @@ import {
   OPENCLAW_EMBEDDED_CONTEXT_ENGINE_HOST,
 } from "../../../context-engine/host-compat.js";
 import { resolveContextEngineOwnerPluginId } from "../../../context-engine/registry.js";
+import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
 import { createBundleLspToolRuntime } from "../../agent-bundle-lsp-runtime.js";
 import { materializeBundleMcpToolsForRun } from "../../agent-bundle-mcp-tools.js";
 import { AgentRunTerminalOutcomeError } from "../../agent-run-terminal-error.js";
@@ -132,9 +133,17 @@ export async function runEmbeddedAttempt(
     config: params.config,
     assertCurrent: externalAbortController.throwIfFired,
   });
+  const assertActiveRun = resolveAdmittedRunActiveAssertion(
+    params.admittedRunContext,
+    params.abortSignal,
+  );
   try {
     const preparedSkills = await prepare("attempt.skills", () =>
       prepareEmbeddedSkills({
+        assertCurrent: () => {
+          externalAbortController.throwIfFired();
+          assertActiveRun?.();
+        },
         includeCodeModeSkills: true,
         attempt: params,
         effectiveWorkspace,

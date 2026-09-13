@@ -1,9 +1,14 @@
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { RouteLocation } from "@openclaw/uirouter";
-import type { SessionsResolveResult } from "../../../packages/gateway-protocol/src/index.js";
+import type {
+  ModelCatalogTarget,
+  SessionsResolveResult,
+} from "../../../packages/gateway-protocol/src/index.js";
 import type { AgentsListResult } from "../api/types.ts";
 import { pathForRoute, pluginSlugCandidate } from "../app-route-paths.ts";
-import { routeIdFromPath } from "../app-routes.ts";
+import { routeIdFromPath, type ApplicationRouter } from "../app-routes.ts";
 import { pathForSession } from "../app-session-path-builder.ts";
+import { sessionRefFromPath } from "../app-session-route-paths.ts";
 import type { BoardFace } from "../lib/board/settings.ts";
 import { parseCatalogSessionKey } from "../lib/sessions/catalog-key.ts";
 import { sessionNavigationTarget } from "../lib/sessions/route-navigation.ts";
@@ -16,8 +21,12 @@ import {
   resolveUiConfiguredMainKey,
   resolveUiDefaultAgentId,
 } from "../lib/sessions/session-key.ts";
-import type { ApplicationGateway } from "./context.ts";
+import { resolveChatSnapshotKey } from "../pages/chat/session-snapshot-key.ts";
+import { isDefaultChatLanding } from "../pages/model-setup/first-run.ts";
+import { newSessionLocationFromSearch } from "../pages/new-session/location.ts";
+import type { ApplicationContext, ApplicationGateway } from "./context.ts";
 import { waitForGatewayClient } from "./gateway-readiness.ts";
+import { loadGatewaySessionSelection } from "./settings.ts";
 
 type ReleasedSessionQuery = {
   face: BoardFace;
@@ -149,6 +158,50 @@ export function normalizeInitialApplicationLocation(
   return { ...location, pathname: options.pathname, search: search.size ? `?${search}` : "" };
 }
 
+export function resolveBootstrapModelCatalogTarget(
+  location: RouteLocation,
+  basePath: string,
+  gatewayUrl: string,
+): ModelCatalogTarget | undefined {
+  if (routeIdFromPath(location.pathname, basePath) === "new-session") {
+    const agentId = newSessionLocationFromSearch(location.search).agentId;
+    return agentId ? { agentId } : {};
+  }
+  const selection = loadGatewaySessionSelection(gatewayUrl);
+  if (routeIdFromPath(location.pathname, basePath) === "model-providers") {
+    return selection.selectedAgentId ? { agentId: selection.selectedAgentId } : {};
+  }
+  const initial = normalizeInitialApplicationLocation(
+    location,
+    basePath,
+    selection.sessionKey,
+    selection.selectedAgentId ?? "",
+  );
+  const target = sessionRefFromPath(initial.pathname, basePath);
+  if (target?.kind === "literal") {
+    return { agentId: target.agentId, sessionKey: target.sessionKey };
+  }
+  if (target?.kind === "main") {
+    return {
+      agentId: target.agentId,
+      sessionKey: buildAgentMainSessionKey({ agentId: target.agentId }),
+    };
+  }
+  if (target?.kind === "short") {
+    return {
+      agentId: target.agentId,
+      shortId: target.shortId,
+      ...(target.slugHint ? { slugHint: target.slugHint } : {}),
+    };
+  }
+  if (isDefaultChatLanding(location, basePath, routeIdFromPath)) {
+    const agentId =
+      parseAgentSessionKey(selection.sessionKey)?.agentId ?? selection.selectedAgentId;
+    return { sessionKey: selection.sessionKey, ...(agentId ? { agentId } : {}) };
+  }
+  return undefined;
+}
+
 export function createInitialApplicationLocationResolver(params: {
   fallback: RouteLocation;
   signal: AbortSignal;
@@ -254,4 +307,60 @@ export async function resolveInitialApplicationLocation(params: {
     row?.agentId ?? agentId,
     mainKey,
   );
+}
+
+/** Bind route and selection facts to the connection scheduler before roster hydration subscribes. */
+export function subscribeForegroundChatBootstrap({
+  router,
+  gateway,
+  agents,
+  agentSelection,
+  connectionBootstrap,
+  initialChatRoute,
+}: Pick<ApplicationContext, "gateway" | "agents" | "agentSelection" | "connectionBootstrap"> & {
+  router: ApplicationRouter;
+  initialChatRoute: boolean;
+}): () => void {
+  connectionBootstrap.setForegroundRoute(initialChatRoute ? undefined : null);
+  const stopConnection = gateway.subscribe((snapshot) => {
+    connectionBootstrap.synchronize({
+      client: snapshot.client,
+      connected: snapshot.phase === "connected",
+    });
+  });
+  const synchronizeRoute = (state: ReturnType<ApplicationRouter["getState"]>) => {
+    const match = state.pendingMatches[0] ?? state.matches[0];
+    if (!match && state.status === "idle") {
+      return;
+    }
+    const data = asOptionalRecord(match?.data);
+    const key =
+      data?.kind === "session" && typeof data.sessionKey === "string" ? data.sessionKey : null;
+    connectionBootstrap.setForegroundRoute(
+      match?.routeId !== "chat"
+        ? null
+        : match.status === "pending"
+          ? undefined
+          : match.status === "success" && key && !parseCatalogSessionKey(key)
+            ? resolveChatSnapshotKey(
+                {
+                  agentsList: agents.state.agentsList,
+                  hello: gateway.snapshot.hello,
+                  assistantAgentId: agentSelection.state.selectedId,
+                },
+                {
+                  sessionKey: key,
+                  agentId: typeof data?.agentId === "string" ? data.agentId : undefined,
+                },
+              )
+            : null,
+    );
+  };
+  const stopRoute = router.subscribe(synchronizeRoute);
+  const stopSelection = agentSelection.subscribe(() => synchronizeRoute(router.getState()));
+  return () => {
+    stopConnection();
+    stopRoute();
+    stopSelection();
+  };
 }

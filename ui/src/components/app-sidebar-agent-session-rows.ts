@@ -4,6 +4,7 @@ import type { ApplicationContext } from "../app/context.ts";
 import { filterVisibleSessionRows, sessionMatchesArchivedFilter } from "../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
+  isSubagentSessionKey,
   normalizeAgentId,
   normalizeDefaultMainSessionAliasForUi,
   parseAgentSessionKey,
@@ -108,7 +109,21 @@ export function projectSidebarAgentSessionRows({
     archiveVisibility: (key) => host.sessionDataContext?.sessions.archiveVisibility(key),
   });
   const rowsByKey = new Map(rows.map((row) => [row.key, row]));
-  // Chip Home replaces the main row; team groups keep it in the session tree.
+  const sessionRowsByKey = collectSidebarSessionRowsByKey({
+    rows,
+    childRowsByParent: childSessionRowsByParent,
+  });
+  const subagentParentKeys = new Set(
+    [...sessionRowsByKey.values()]
+      .filter((row) => isSubagentSessionKey(row.key))
+      .map((row) =>
+        normalizeDefaultMainSessionAliasForUi(resolveUiSessionNavigationParentKey(row)),
+      ),
+  );
+  const ownsSubagents = (row: GatewaySessionRow) =>
+    row.childSessions?.some(isSubagentSessionKey) ||
+    subagentParentKeys.has(normalizeDefaultMainSessionAliasForUi(row.key));
+  // Home replaces an ordinary main row, but subagents need an expandable parent.
   const canonicalMainKeys = agentIds.map((agentId) => host.selectedAgentMainSessionKey(agentId));
   const isMainSession = (key: string) =>
     canonicalMainKeys.some((mainKey) => areUiSessionKeysEquivalent(key, mainKey));
@@ -119,12 +134,13 @@ export function projectSidebarAgentSessionRows({
           return row ? [row] : [];
         })
       : filterVisibleSessionRows(rows.filter(inScope), visibilityOptions).toSorted(compareSessions);
-  if (grouped) {
+  if (grouped || rows.some((row) => isMainSession(row.key) && ownsSubagents(row))) {
     // The generic chat filter excludes global streams; their canonical main
     // conversation still belongs to its agent in team mode.
     for (const row of rows) {
       if (
         row.kind === "global" &&
+        (grouped || ownsSubagents(row)) &&
         inScope(row) &&
         isMainSession(row.key) &&
         sessionMatchesArchivedFilter(row, host.sessionsStatusFilter) &&
@@ -152,7 +168,7 @@ export function projectSidebarAgentSessionRows({
   const scopedRootRows = rootRows.filter((row) => {
     if (isMainSession(row.key)) {
       mainSessionKeys.add(row.key);
-      return grouped;
+      return grouped || ownsSubagents(row);
     }
     return true;
   });
@@ -169,15 +185,12 @@ export function projectSidebarAgentSessionRows({
       : lineageAgentId === selected || lineageRouteAgentId === selected) &&
     !adopted.has(lineageRoot.key) &&
     (!isMainSession(lineageRoot.key) ||
+      ownsSubagents(lineageRoot) ||
       (grouped && navigationState.toSidebarSession(lineageRoot).visuallyActive)) &&
     !scopedRootRows.some((row) => row.key === lineageRoot.key)
   ) {
     scopedRootRows.push(lineageRoot);
   }
-  const sessionRowsByKey = collectSidebarSessionRowsByKey({
-    rows,
-    childRowsByParent: childSessionRowsByParent,
-  });
   // The shared window includes archives; supplemental child loads must obey
   // the same status and Gateway-owned involvement membership as group roots.
   const visibleRowsByKey = new Map(
@@ -282,6 +295,7 @@ export function projectSidebarAgentSessionRows({
   });
   if (
     selectedFallback &&
+    !isSubagentSessionKey(selectedFallback.key) &&
     (!grouped || visibleRowsByKey.has(selectedFallback.key)) &&
     !someSidebarSessionInTree(projected, (row) => row.key === selectedFallback.key)
   ) {

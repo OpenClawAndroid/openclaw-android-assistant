@@ -13,6 +13,7 @@ import {
 import { loadWebMedia } from "../../media/web-media.js";
 import { fileStore } from "../file-store.js";
 import { generateSecureUuid } from "../secure-random.js";
+import { ARTIFACT_NAME_RE, spoolRelativePath } from "./delivery-queue-media-paths.js";
 import {
   cancelDeliveryQueueMediaRetention,
   createDeliveryQueueMediaRetention,
@@ -20,8 +21,6 @@ import {
 } from "./delivery-queue-media-staging.js";
 
 const ARTIFACT_EXT_RE = /^\.[A-Za-z0-9]{1,10}$/;
-const ARTIFACT_NAME_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.[A-Za-z0-9]{1,10})?(?:\.part)?$/;
 const PART_SUFFIX = ".part";
 const ORPHAN_GRACE_MS = 24 * 60 * 60_000;
 
@@ -173,15 +172,6 @@ export async function stageQueuePayloadMedia(params: {
     artifacts,
     ...(mediaStageId ? { mediaStageId } : {}),
   };
-}
-
-function spoolRelativePath(absolutePath: string, stateDir: string | undefined): string | null {
-  const spoolRoot = path.resolve(resolveDeliveryQueueMediaDir(stateDir));
-  const candidate = path.resolve(absolutePath);
-  const relative = path.relative(spoolRoot, candidate);
-  return relative && !relative.includes(path.sep) && ARTIFACT_NAME_RE.test(relative)
-    ? relative
-    : null;
 }
 
 async function removeArtifact(absolutePath: string, stateDir: string | undefined): Promise<void> {

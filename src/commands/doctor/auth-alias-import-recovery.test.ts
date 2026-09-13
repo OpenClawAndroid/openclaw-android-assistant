@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { createApiKeyCredential } from "../../agents/auth-profiles/credential-fixtures.test-support.js";
 import { loadPersistedSharedAuthProfileStore } from "../../agents/auth-profiles/persisted.js";
 import {
   readPersistedAuthProfileStoreRaw,
@@ -200,11 +201,7 @@ it.each(["main", "worker"])(
         const local = {
           version: 1,
           profiles: {
-            "anthropic:default": {
-              type: "api_key",
-              provider: "anthropic",
-              key: "different-local-account",
-            },
+            "anthropic:default": createApiKeyCredential("anthropic", "different-local-account"),
           },
         };
         runAuthProfileWriteTransaction(

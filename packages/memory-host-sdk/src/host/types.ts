@@ -292,15 +292,52 @@ export function formatMemoryIndexRebuildGuidance(
   return `${command}. ${disclosure}`;
 }
 
+export function resolveMemoryIndexSearchDiagnostic(
+  diagnostic: MemoryIndexIdentityDiagnostic,
+  status: Partial<Pick<MemoryProviderStatus, "provider" | "requestedProvider" | "lastSyncError">>,
+  agentId?: string,
+) {
+  const repairFailure = diagnostic.owner === "openclaw" && status.lastSyncError?.trim();
+  if (repairFailure) {
+    const guidance = {
+      warning: `Memory index repair failed: ${repairFailure}. The existing index was left unchanged.`,
+      action: `Run: openclaw memory status --deep${agentId?.trim() ? ` --agent ${agentId.trim()}` : ""}. Resolve the reported sync failure before retrying the search.`,
+    };
+    return {
+      error: repairFailure,
+      ...guidance,
+      staleness: { stale: true as const, ...guidance },
+    };
+  }
+  const cause =
+    diagnostic.owner === "configuration"
+      ? `the current memory configuration no longer matches the index (${diagnostic.reason})`
+      : diagnostic.code === "metadata_missing"
+        ? `the memory index metadata is missing (${diagnostic.reason}); no configuration change is needed`
+        : `this OpenClaw version changed the memory index format (${diagnostic.reason}); no configuration change is needed`;
+  const guidance = formatMemoryIndexRebuildGuidance(status, agentId);
+  return {
+    error: diagnostic.reason,
+    warning: `Tell the user: memory search is paused because ${cause}.`,
+    action: `Tell the user to run: ${guidance}`,
+    staleness: {
+      stale: true as const,
+      warning: `Memory index is stale: ${diagnostic.reason} (owner: ${diagnostic.owner}, code: ${diagnostic.code}). Search results may be incomplete.`,
+      action: `Run: ${guidance}`,
+    },
+  };
+}
+
 export function resolveMemorySearchStaleness(
   status: Pick<MemoryProviderStatus, "custom" | "lastSyncError"> &
     Partial<Pick<MemoryProviderStatus, "provider" | "requestedProvider">>,
   agentId?: string,
 ): { stale: true; warning: string; action: string } | null {
   const diagnostic = resolveMemoryIndexIdentityDiagnostic(status);
-  const reason = diagnostic
-    ? `${diagnostic.reason} (owner: ${diagnostic.owner}, code: ${diagnostic.code})`
-    : status.lastSyncError?.trim();
+  if (diagnostic) {
+    return resolveMemoryIndexSearchDiagnostic(diagnostic, status, agentId).staleness;
+  }
+  const reason = status.lastSyncError?.trim();
   if (!reason) {
     return null;
   }

@@ -157,16 +157,33 @@ pnpm test:docker:published-upgrade-survivor
 OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC=openclaw@2026.6.34 \
 OPENCLAW_UPGRADE_SURVIVOR_SCENARIO=legacy-operator-state \
 pnpm test:docker:published-upgrade-survivor
+
+OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPECS=openclaw@2026.9.4 \
+OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS=custom-plugin-siblings \
+pnpm test:docker:published-upgrade-survivor
 ```
 
 Available scenarios: `base`, `acpx-openclaw-tools-bridge`, `feishu-channel`,
 `bootstrap-persona`, `channel-post-core-restore`, `plugin-deps-cleanup`,
-`configured-plugin-installs`, `stale-source-plugin-shadow`, `tilde-log-path`,
+`configured-plugin-installs`, `custom-plugin-siblings`, `stale-source-plugin-shadow`, `tilde-log-path`,
 `meeting-transcripts-sqlite`, `versioned-runtime-deps`, `cron-scheduled-authority`,
 `legacy-operator-state`, and `sqlite-volume`. In aggregate runs,
 `OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS=reported-issues` expands the release-soak
 fixtures but excludes the expensive `sqlite-volume` scenario. Use
 `OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS=far-reaching` to include it.
+
+The `custom-plugin-siblings` scenario starts from published 2026.9.4 or later
+with an enabled custom memory plugin importing `../shared/value.mjs` from both
+its runtime entry and Doctor config-repair contract. It runs the published
+updater against the selected candidate tarball and requires both that contract
+and Gateway plugin registration to execute with the expected sibling value from
+private canary state. Readiness alone is insufficient. It also checks actual plugin loading
+before and after the update, preserved enablement, and unchanged original source
+files. Current-source Full Release Validation includes this scenario in its
+normal Package Acceptance coverage and in release soak.
+Those default release runs pin this scenario to the published 2026.9.4 driver,
+including when the source candidate still reports version 2026.9.4; other
+scenarios retain their existing baseline selection.
 
 The `legacy-operator-state` scenario uses the published baseline's own CLI to
 create a second agent, allowlist exec approvals, and two command cron jobs: one

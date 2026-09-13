@@ -1,7 +1,8 @@
+import "../styles/gateway-vitals.css";
 import { html, nothing, svg } from "lit";
 import { property, state as litState } from "lit/decorators.js";
-import { formatDurationCompact } from "../../lib/format.ts";
-import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import { formatDurationCompact } from "../lib/format.ts";
+import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 
 export type SparklineSample = { value: number; at: number };
 
@@ -11,17 +12,16 @@ const CHART_WIDTH = 100;
 const CHART_HEIGHT = 40;
 const CHART_TOP_PAD = 4;
 
-// Gradient defs need document-unique ids: the overlay renders one tile per vital
-// into the light DOM, so a shared static id would collide across instances.
+// Gradient defs need document-unique ids because tiles render into the light DOM.
 let gradientCounter = 0;
 
 function nextGradientId(): string {
   gradientCounter += 1;
-  return `debug-vital-gradient-${gradientCounter}`;
+  return `sparkline-tile-gradient-${gradientCounter}`;
 }
 
 /** Stat tile with an embedded area sparkline and pointer scrubbing. */
-class DebugSparklineTile extends OpenClawLightDomElement {
+class SparklineTile extends OpenClawLightDomElement {
   @property() label = "";
   @property() sub = "";
   @property({ attribute: false }) samples: readonly SparklineSample[] = [];
@@ -102,7 +102,7 @@ class DebugSparklineTile extends OpenClawLightDomElement {
     const hoverLeft = this.hoverIndex !== null ? (this.hoverIndex / (samples.length - 1)) * 100 : 0;
     return html`
       <div
-        class="debug-vital__chart"
+        class="sparkline-tile__chart"
         @pointermove=${this.handlePointerMove}
         @pointerleave=${this.handlePointerLeave}
       >
@@ -128,15 +128,15 @@ class DebugSparklineTile extends OpenClawLightDomElement {
         ${
           hover
             ? html`
-                <div class="debug-vital__hairline" style="left: ${hoverLeft}%"></div>
+                <div class="sparkline-tile__hairline" style="left: ${hoverLeft}%"></div>
                 <div
-                  class="debug-vital__dot debug-vital__dot--hover"
+                  class="sparkline-tile__dot sparkline-tile__dot--hover"
                   style="left: ${hoverLeft}%; top: ${(this.toY(hover.value) / CHART_HEIGHT) * 100}%"
                 ></div>
               `
             : html`
                 <div
-                  class="debug-vital__dot debug-vital__dot--now"
+                  class="sparkline-tile__dot sparkline-tile__dot--now"
                   style="left: calc(100% - 3px); top: ${(lastY / CHART_HEIGHT) * 100}%"
                 ></div>
               `
@@ -155,19 +155,19 @@ class DebugSparklineTile extends OpenClawLightDomElement {
         ? formatDurationCompact(current.at - hover.at)
         : null;
     return html`
-      <div class="debug-vital__head">
-        <span class="debug-vital__label">${this.label}</span>
-        ${this.sub ? html`<span class="debug-vital__sub mono">${this.sub}</span>` : nothing}
+      <div class="sparkline-tile__head">
+        <span class="sparkline-tile__label">${this.label}</span>
+        ${this.sub ? html`<span class="sparkline-tile__sub mono">${this.sub}</span>` : nothing}
       </div>
-      <div class="debug-vital__value mono">
+      <div class="sparkline-tile__value mono">
         ${shown ? this.format(shown.value) : "–"}
-        ${age ? html`<span class="debug-vital__age">−${age}</span>` : nothing}
+        ${age ? html`<span class="sparkline-tile__age">−${age}</span>` : nothing}
       </div>
       ${this.renderChart()}
     `;
   }
 }
 
-if (!customElements.get("openclaw-debug-sparkline")) {
-  customElements.define("openclaw-debug-sparkline", DebugSparklineTile);
+if (!customElements.get("openclaw-sparkline")) {
+  customElements.define("openclaw-sparkline", SparklineTile);
 }

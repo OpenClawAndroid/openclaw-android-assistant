@@ -1,5 +1,6 @@
 import { isMainThread } from "node:worker_threads";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
+import { hydrateOpenClawStateWorkerError } from "../state/openclaw-state-worker-error.js";
 import { SqliteWorkerBroker } from "./sqlite-worker-broker.js";
 import type { SqliteWorkerStoreOptions } from "./sqlite-worker-broker.types.js";
 import {
@@ -8,6 +9,28 @@ import {
   type SqliteWorkerStore,
 } from "./sqlite-worker-contract.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
+
+function withCallerErrors<T>(result: Promise<T>): Promise<T> {
+  return result.catch((error: unknown) => {
+    if (error instanceof Error) {
+      throw hydrateOpenClawStateWorkerError(error);
+    }
+    throw error;
+  });
+}
+
+function bindCallerExecute<Operations extends SqliteWorkerOperations>(
+  scope: Pick<SqliteWorkerStore<Operations>, "execute">,
+): Pick<SqliteWorkerStore<Operations>, "execute"> {
+  return {
+    execute: (command, options) => {
+      const result = withCallerErrors(scope.execute(command, options));
+      // The broker also observes abandoned command rejections while draining them.
+      void result.catch(() => undefined);
+      return result;
+    },
+  };
+}
 
 export {
   SqliteWorkerError,
@@ -24,14 +47,21 @@ export function runSqliteWorkerStoreOperation<Operations extends SqliteWorkerOpe
   stateContext?: SqliteWorkerStateContext,
   assertCurrent?: (commandType: PropertyKey) => void,
 ): Promise<T> {
-  return resolveSqliteWorkerBroker().runOperation(store, operation, stateContext, assertCurrent);
+  return withCallerErrors(
+    resolveSqliteWorkerBroker().runOperation(
+      store,
+      (scope) => operation(bindCallerExecute(scope)),
+      stateContext,
+      assertCurrent,
+    ),
+  );
 }
 
 function resolveSqliteWorkerBroker() {
   return resolveGlobalSingleton(
     Symbol.for("openclaw.sqliteWorkerBroker"),
     () => new SqliteWorkerBroker(),
-    (broker) => broker.close(),
+    (broker) => withCallerErrors(broker.close()),
   );
 }
 
@@ -47,7 +77,7 @@ export function hasUnclaimedSharedStateSqliteCleanup(databasePath: string): bool
 
 /** Explicit cleanup only; referenced actors and other opening scopes are untouched. */
 export function closeUnclaimedSharedStateSqliteWorkers(databasePath: string): Promise<void> {
-  return resolveSqliteWorkerBroker().closeUnclaimedSharedState(databasePath);
+  return withCallerErrors(resolveSqliteWorkerBroker().closeUnclaimedSharedState(databasePath));
 }
 
 export function openSqliteWorkerStore<Operations extends SqliteWorkerOperations>(
@@ -84,9 +114,20 @@ export function openSharedStateSqliteWorkerStore<Operations extends SqliteWorker
       new SqliteWorkerError("Shared-state admission requires the host broker", "unavailable"),
     );
   }
-  return resolveSqliteWorkerBroker().open<Operations>(
-    { ...options, input: undefined },
-    stateContext,
-    assertCurrent,
-  );
+  return withCallerErrors(
+    resolveSqliteWorkerBroker().open<Operations>(
+      { ...options, input: undefined },
+      stateContext,
+      assertCurrent,
+    ),
+  ).then((store) => {
+    if (store) {
+      const execute = store.execute.bind(store);
+      const close = store.close.bind(store);
+      // Keep the broker's binding identity while owning errors at this API boundary.
+      store.execute = bindCallerExecute<Operations>({ execute }).execute;
+      store.close = () => withCallerErrors(close());
+    }
+    return store;
+  });
 }

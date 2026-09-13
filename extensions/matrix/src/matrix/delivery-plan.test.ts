@@ -362,20 +362,23 @@ describe("Matrix durable delivery plans", () => {
   });
 
   it("removes all plans for a committed queue without touching another queue", async () => {
-    await persist({ queueId: "queue-clean" });
+    await persist({ queueId: "queue-clean", partIndex: 0, partCount: 2 });
+    await persist({ queueId: "queue-clean", partIndex: 1, partCount: 2 });
     await persist({ queueId: "queue-keep" });
 
     await cleanupMatrixDeliveryPlans({ queueId: "queue-clean" });
 
-    await expect(
-      loadMatrixDeliveryPlan({
-        identity: identity("queue-clean"),
-        accountId: "default",
-        roomId: "!room:example.org",
-        transactionScopeId: "scope-1",
-        wireEventType: "m.room.message",
-      }),
-    ).resolves.toBeNull();
+    for (const partIndex of [0, 1]) {
+      await expect(
+        loadMatrixDeliveryPlan({
+          identity: identity("queue-clean", partIndex, 2),
+          accountId: "default",
+          roomId: "!room:example.org",
+          transactionScopeId: "scope-1",
+          wireEventType: "m.room.message",
+        }),
+      ).resolves.toBeNull();
+    }
     await expect(
       loadMatrixDeliveryPlan({
         identity: identity("queue-keep"),
@@ -386,4 +389,38 @@ describe("Matrix durable delivery plans", () => {
       }),
     ).resolves.not.toBeNull();
   });
+
+  it.each([false, true])(
+    "preserves blank queue handling with a populated store: %s",
+    async (populated) => {
+      if (populated) {
+        await persist({ queueId: "queue-keep" });
+        await expect(cleanupMatrixDeliveryPlans({ queueId: " " })).rejects.toThrow(
+          "requires a queue id",
+        );
+      } else {
+        await expect(cleanupMatrixDeliveryPlans({ queueId: " " })).resolves.toBeUndefined();
+      }
+
+      await expect(reconcileMatrixUnknownSend(reconciliationContext(" "))).resolves.toMatchObject({
+        status: "unresolved",
+        retryable: populated,
+        error: expect.stringContaining(
+          populated ? "requires a queue id" : "no persisted event plan",
+        ),
+      });
+      expect(client.sendMessage).not.toHaveBeenCalled();
+      if (populated) {
+        await expect(
+          loadMatrixDeliveryPlan({
+            identity: identity("queue-keep"),
+            accountId: "default",
+            roomId: "!room:example.org",
+            transactionScopeId: "scope-1",
+            wireEventType: "m.room.message",
+          }),
+        ).resolves.not.toBeNull();
+      }
+    },
+  );
 });

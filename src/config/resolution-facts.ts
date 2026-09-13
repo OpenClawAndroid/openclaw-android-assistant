@@ -1,5 +1,10 @@
 import type { EnvSubstitutionWarning } from "./env-substitution.js";
-import { coerceSecretRef, DEFAULT_SECRET_PROVIDER_ALIAS, type SecretRef } from "./types.secrets.js";
+import {
+  coerceSecretRef,
+  DEFAULT_SECRET_PROVIDER_ALIAS,
+  isValidEnvSecretRefId,
+  type SecretRef,
+} from "./types.secrets.js";
 
 /** `null` means this value has not passed through authoritative config env substitution. */
 export type ConfigResolutionFacts = ReadonlySet<string> | null;
@@ -149,15 +154,45 @@ export function getResolvedConfigEnvSecretRef(target: unknown, path: string): Se
   return fact?.state === "resolved" ? fact.ref : null;
 }
 
+/** Collect authored env references, including shorthand already materialized by config loading. */
+export function collectEnvSecretRefIds(value: unknown): Set<string> {
+  const facts = getConfigResolutionFacts(value);
+  const ids = new Set<string>();
+  for (const { ref } of (facts && envSecretRefsByFacts.get(facts))?.values() ?? []) {
+    ids.add(ref.id);
+  }
+  const seen = new WeakSet<object>();
+  const visit = (candidate: unknown): void => {
+    // Loaded strings are decoded literals; only their recorded provenance can name a reference.
+    const ref = typeof candidate === "string" && facts !== null ? null : coerceSecretRef(candidate);
+    if (ref?.source === "env" && isValidEnvSecretRefId(ref.id)) {
+      ids.add(ref.id);
+      return;
+    }
+    if (typeof candidate !== "object" || candidate === null || seen.has(candidate)) {
+      return;
+    }
+    seen.add(candidate);
+    for (const child of Array.isArray(candidate) ? candidate : Object.values(candidate)) {
+      visit(child);
+    }
+  };
+  visit(value);
+  return ids;
+}
+
 /** Reads inline references from authored facts and structured references from their values. */
 export function resolveConfigSecretRef(params: {
   config: unknown;
   path: string;
   value: unknown;
   defaults?: Parameters<typeof coerceSecretRef>[1];
+  /** Authoring and audit consumers also need the source of materialized values. */
+  includeResolved?: boolean;
 }): SecretRef | null {
   return typeof params.value === "string" && getConfigResolutionFacts(params.config) !== null
-    ? getAuthoredConfigSecretRef(params.config, params.path)
+    ? (getAuthoredConfigSecretRef(params.config, params.path) ??
+        (params.includeResolved ? getResolvedConfigEnvSecretRef(params.config, params.path) : null))
     : coerceSecretRef(params.value, params.defaults);
 }
 

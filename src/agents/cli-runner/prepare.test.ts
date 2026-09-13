@@ -82,11 +82,11 @@ import {
   prepareSystemAgentRunAdmission,
 } from "../admitted-run-context.js";
 import {
-  createTestAdmittedRunContext,
   createTestPreparedRunAdmission,
   withTestRunAdmission,
   wrapRunWithTestPreparedAdmission,
 } from "../admitted-run-context.test-support.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 import { resolveApiKeyForProfile as resolveApiKeyForProfileImpl } from "../auth-profiles/oauth.js";
 import {
   loadAuthProfileStoreWithoutExternalProfiles,
@@ -1103,11 +1103,7 @@ describe("prepareCliRunContext", () => {
       {
         version: 1,
         profiles: {
-          [authProfileId]: {
-            type: "api_key",
-            provider: "google",
-            key: "stored-api-key",
-          },
+          [authProfileId]: createApiKeyCredential("google", "stored-api-key"),
         },
       },
       agentDir,
@@ -1297,11 +1293,7 @@ describe("prepareCliRunContext", () => {
       {
         version: 1,
         profiles: {
-          [authProfileId]: {
-            type: "api_key",
-            provider: "test-cli",
-            key: "secret-key",
-          },
+          [authProfileId]: createApiKeyCredential("test-cli", "secret-key"),
         },
       },
       agentDir,
@@ -5698,8 +5690,11 @@ describe("prepareCliRunContext", () => {
       },
     });
 
+    const config = createCliBackendConfig();
+    const runId = "run-test-openclaw-mcp";
+    const admission = prepareSystemAgentRunAdmission(config, runId, "main", "cli-ring-zero-test");
     const params: RunCliAgentParams & { systemAgentTool: SystemAgentToolOptions } = {
-      admittedRunContext: createTestAdmittedRunContext("run-test-openclaw-mcp"),
+      preparedRunAdmission: admission,
       sessionId: "session-test",
       sessionFile,
       sessionTarget,
@@ -5708,45 +5703,50 @@ describe("prepareCliRunContext", () => {
       provider: "claude-cli",
       model: "test-model",
       timeoutMs: 1_000,
-      runId: "run-test-openclaw-mcp",
-      config: createCliBackendConfig(),
+      runId,
+      config,
       systemAgentTool: { surface: "cli" },
       cliToolAvailability: {
         native: [],
         openClaw: ["openclaw"],
       },
     };
-    const context = await prepareCliRunContext(params);
-
-    // Ring-zero runs never touch the loopback surface (no message tools).
-    expect(getActiveMcpLoopbackRuntime).not.toHaveBeenCalled();
-    expect(context.mcpDeliveryCapture).toBeUndefined();
-    const args = context.preparedBackend.backend.args ?? [];
-    expect(args).toContain("--strict-mcp-config");
-    expect(args).not.toContain("--tools");
-    expect(args).not.toContain("--allowedTools");
-    expect(context.preparedBackend.backend.resumeArgs).toEqual(
-      expect.arrayContaining(["--strict-mcp-config"]),
-    );
-    expect(resolveExecutionArgs).not.toHaveBeenCalled();
-    expect(context.params.cliToolAvailability).toEqual({
-      native: [],
-      openClaw: ["openclaw"],
-    });
-    const mcpConfigPath = expectDefined(
-      args[args.indexOf("--mcp-config") + 1],
-      'args[args.indexOf("--mcp-config") + 1] test invariant',
-    );
-    const raw = JSON.parse(fs.readFileSync(mcpConfigPath, "utf-8")) as {
-      mcpServers?: Record<string, { env?: Record<string, string> }>;
-    };
-    expect(Object.keys(raw.mcpServers ?? {})).toEqual(["openclaw"]);
-    expect(raw.mcpServers?.openclaw?.env).toMatchObject({
-      OPENCLAW_TOOLS_MCP_TOOLS: "openclaw",
-      OPENCLAW_TOOLS_MCP_SYSTEM_AGENT_SURFACE: "cli",
-    });
-
-    await context.preparedBackend.cleanup?.();
+    try {
+      const context = await prepareCliRunContext(params);
+      try {
+        // Ring-zero runs never touch the loopback surface (no message tools).
+        expect(getActiveMcpLoopbackRuntime).not.toHaveBeenCalled();
+        expect(context.mcpDeliveryCapture).toBeUndefined();
+        const args = context.preparedBackend.backend.args ?? [];
+        expect(args).toContain("--strict-mcp-config");
+        expect(args).not.toContain("--tools");
+        expect(args).not.toContain("--allowedTools");
+        expect(context.preparedBackend.backend.resumeArgs).toEqual(
+          expect.arrayContaining(["--strict-mcp-config"]),
+        );
+        expect(resolveExecutionArgs).not.toHaveBeenCalled();
+        expect(context.params.cliToolAvailability).toEqual({
+          native: [],
+          openClaw: ["openclaw"],
+        });
+        const mcpConfigPath = expectDefined(
+          args[args.indexOf("--mcp-config") + 1],
+          'args[args.indexOf("--mcp-config") + 1] test invariant',
+        );
+        const raw = JSON.parse(fs.readFileSync(mcpConfigPath, "utf-8")) as {
+          mcpServers?: Record<string, { env?: Record<string, string> }>;
+        };
+        expect(Object.keys(raw.mcpServers ?? {})).toEqual(["openclaw"]);
+        expect(raw.mcpServers?.openclaw?.env).toMatchObject({
+          OPENCLAW_TOOLS_MCP_TOOLS: "openclaw",
+          OPENCLAW_TOOLS_MCP_SYSTEM_AGENT_SURFACE: "cli",
+        });
+      } finally {
+        await context.preparedBackend.cleanup?.();
+      }
+    } finally {
+      admission.close();
+    }
   });
 
   it("fails closed for native tool-capable CLI backends when tools are disabled", async () => {
@@ -6357,6 +6357,66 @@ describe("prepareCliRunContext", () => {
     });
   });
 
+  it.each(["prepared", "admitted"] as const)(
+    "stops CLI skill preparation before sandbox materialization when %s authority is revoked",
+    async (phase) => {
+      const { dir } = fixture.session;
+      const skillDir = path.join(dir, "skills", "awaited-probe");
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, "SKILL.md"),
+        '---\nname: awaited-probe\ndescription: Probe before sandbox setup\nmetadata: {"openclaw":{"requires":{"bins":["cli-preparation-fixture-tool"]}}}\n---\n',
+      );
+      const started = createDeferred();
+      const release = createDeferred();
+      const originalAccess = fs.promises.access;
+      const access = vi.spyOn(fs.promises, "access").mockImplementation(async (file, mode) => {
+        if (String(file).includes("cli-preparation-fixture-tool")) {
+          started.resolve();
+          await release.promise;
+          throw new Error("fixture executable is absent");
+        }
+        return originalAccess(file, mode);
+      });
+      const revoked = new Error("skill preparation source revoked");
+      let current = true;
+      const admission = prepareAgentRunAdmission({
+        cfg: {},
+        facts: {
+          runId: "cli-skills-revocation",
+          agentId: "main",
+          ingress: { kind: "system", boundary: "skills-test", state: "present" },
+        },
+        operationalRunInstance: createOperationalRunInstanceRef("cli-skills-revocation"),
+        assertSourceCurrent: () => {
+          if (!current) {
+            throw revoked;
+          }
+        },
+      });
+      try {
+        const pending = fixture.prepare({
+          runId: "cli-skills-revocation",
+          ...(phase === "prepared"
+            ? { preparedRunAdmission: admission }
+            : { admittedRunContext: await admission.admit("embedded") }),
+          workspaceDir: dir,
+          config: { plugins: { enabled: false }, skills: { load: { watch: false } } },
+        });
+        const rejected = expect(pending).rejects.toThrow(/revoked|authority/);
+        await started.promise;
+        current = false;
+        release.resolve();
+        await rejected;
+        expect(ensureSandboxWorkspaceForSessionMock).not.toHaveBeenCalled();
+      } finally {
+        release.resolve();
+        admission.close();
+        access.mockRestore();
+      }
+    },
+  );
+
   it.each(["agent:main:sandboxed-user", "global"])(
     "renders sandbox-readable CLI skills for the prepared owner of %s",
     async (sessionKey) => {
@@ -6455,7 +6515,7 @@ describe("prepareCliRunContext", () => {
         "utf-8",
       );
     }
-    const snapshot = buildSkillSnapshot(dir, {
+    const snapshot = await buildSkillSnapshot(dir, {
       bundledSkillsDir: path.join(dir, "missing-bundled-skills"),
       managedSkillsDir: path.join(dir, "missing-managed-skills"),
     });

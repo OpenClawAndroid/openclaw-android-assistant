@@ -50,11 +50,6 @@ export function resolvePluginDiscoveryContext(
     loadPaths: [...(params.loadPaths ?? resolveConfiguredPluginLoadPaths(params.config) ?? [])],
   });
 }
-/** Hashes an already resolved plugin discovery context. */
-export function fingerprintPluginDiscoveryContext(context: PluginDiscoveryContext): string {
-  return hashJson(context);
-}
-
 /** Resolves all inputs that determine plugin control-plane activation state. */
 function resolvePluginControlPlaneContext(
   params: ResolvePluginControlPlaneContextParams = {},

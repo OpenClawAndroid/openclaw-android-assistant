@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Elementy sterujące"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Rozmowa"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Dźwięk na zegarku nie zadziałał"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Wymagane uprawnienie do mikrofonu"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Otwórz ustawienia"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Dyktuj"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Na żywo"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Wątek"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Odczytaj najnowszą odpowiedź"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Odczytywanie"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Nasłuchiwanie"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Kończenie połączenia…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Łączenie"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Myślenie"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Pisanie"</string>

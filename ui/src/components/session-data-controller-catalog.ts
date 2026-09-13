@@ -76,6 +76,27 @@ function visibleSessionCatalogClient(owner: SessionCatalogDataOwner): GatewayBro
   return sessionCatalogListClient(owner.context?.gateway.snapshot, owner.sessionDataHostConnected);
 }
 
+function refreshSessionCatalogsInBackground(owner: SessionCatalogDataOwner): void {
+  const context = owner.context;
+  if (!context) {
+    return;
+  }
+  const scope = owner.sessionCatalogLive.refreshScope;
+  void context.connectionBootstrap.run(
+    scope,
+    async () => {
+      if (
+        owner.context === context &&
+        owner.sessionCatalogLive.refreshScope === scope &&
+        owner.isSessionDataHostConnected
+      ) {
+        await owner.refreshSessionCatalogs();
+      }
+    },
+    { background: true },
+  );
+}
+
 export function resolveSessionCatalogAgentId(
   owner: SessionCatalogDataOwner,
   candidateAgentId: string | null | undefined = owner.expandedAgentId(),
@@ -149,7 +170,7 @@ export function requestSessionCatalogRefresh(
       Boolean(sessionCatalogListClient(snapshot, owner.sessionDataHostConnected)),
     generation: owner.sessionScopeGeneration,
     queueIfActive,
-    refresh: () => void owner.refreshSessionCatalogs(),
+    refresh: () => refreshSessionCatalogsInBackground(owner),
   });
 }
 
@@ -168,7 +189,7 @@ export function updateSessionCatalogData(owner: SessionCatalogDataOwner, defer =
     scheduleSessionCatalogRefresh(owner);
     return;
   }
-  void owner.refreshSessionCatalogs();
+  refreshSessionCatalogsInBackground(owner);
 }
 
 export function applySessionCatalogPresence(
@@ -205,7 +226,7 @@ export function applySessionCatalogHostEvent(
     owner.sessionCatalogLive.schedule(
       SESSION_CATALOG_CHANGED_REFRESH_MS,
       owner.isSessionDataHostConnected,
-      () => void owner.refreshSessionCatalogs(),
+      () => refreshSessionCatalogsInBackground(owner),
     );
   }
 }
@@ -278,7 +299,7 @@ export async function refreshSessionCatalogs(owner: SessionCatalogDataOwner): Pr
       );
       owner.requestSessionDataUpdate();
     },
-    refresh: () => void owner.refreshSessionCatalogs(),
+    refresh: () => refreshSessionCatalogsInBackground(owner),
   });
   if (
     refreshed &&
@@ -334,10 +355,8 @@ async function discoverHiddenSessionCatalogPages(owner: SessionCatalogDataOwner)
             ? SESSION_CATALOG_CHANGED_REFRESH_MS
             : SESSION_CATALOG_STABLE_REFRESH_MS;
         live.refreshPending = false;
-        live.schedule(
-          delayMs,
-          owner.isSessionDataHostConnected,
-          () => void owner.refreshSessionCatalogs(),
+        live.schedule(delayMs, owner.isSessionDataHostConnected, () =>
+          refreshSessionCatalogsInBackground(owner),
         );
       }
     }

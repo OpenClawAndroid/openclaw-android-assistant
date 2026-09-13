@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"コントロール"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"会話"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ウォッチの音声に失敗しました"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"マイクの使用許可が必要"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"設定を開く"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"音声入力する"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ライブ"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"スレッド"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"最新の返信を読み上げる"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"読み上げ中"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"聞き取り中"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"通話を終了中…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"接続中"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"思考中"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"入力中"</string>

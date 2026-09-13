@@ -84,6 +84,48 @@ describe("sandbox fs bridge anchored ops", () => {
   });
 
   it.each([
+    { name: "uncapped", maxBytes: undefined },
+    { name: "bounded", maxBytes: 5 },
+  ])("yields during $name reads while retaining the opened file", async ({ maxBytes }) => {
+    await withTempDir("openclaw-fs-bridge-async-read-", async (stateDir) => {
+      const { bridge, workspaceDir } = await createSeededSandboxFsBridge(stateDir);
+      const openRootFile = mockedOpenRootFile.getMockImplementation();
+      if (!openRootFile) {
+        throw new Error("expected the real sandbox root-file opener");
+      }
+      const events: string[] = [];
+      let heartbeat: Promise<void> | undefined;
+      mockedOpenRootFile.mockImplementationOnce(async (params) => {
+        const opened = await openRootFile(params);
+        if (opened.ok) {
+          await fs.rename(
+            path.join(workspaceDir, "from.txt"),
+            path.join(workspaceDir, "pinned.txt"),
+          );
+          await fs.writeFile(path.join(workspaceDir, "from.txt"), "replacement");
+          heartbeat = new Promise<void>((resolve) => {
+            setImmediate(() => {
+              events.push("event-loop");
+              resolve();
+            });
+          });
+        }
+        return opened;
+      });
+
+      let contents: Buffer;
+      try {
+        contents = await bridge.readFile({ filePath: "from.txt", maxBytes });
+        events.push("read-complete");
+      } finally {
+        await heartbeat;
+      }
+      expect(contents).toEqual(Buffer.from("hello"));
+      expect(events).toEqual(["event-loop", "read-complete"]);
+    });
+  });
+
+  it.each([
     { name: "empty files", contents: "", maxBytes: 0 },
     { name: "files at the exact limit", contents: "hello", maxBytes: 5 },
     {

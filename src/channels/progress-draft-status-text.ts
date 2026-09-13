@@ -2,7 +2,7 @@
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { formatReasoningMessage } from "../agents/embedded-agent-utils.js";
 import { compactProgressText } from "../shared/text-truncate.js";
-import { findCodeRegions, isInsideCode } from "../shared/text/code-regions.js";
+import { type CodeRegion, findCodeRegions, isInsideCode } from "../shared/text/code-regions.js";
 import { stripInlineDirectiveTagsForDelivery } from "../utils/directive-tags.js";
 
 const REASONING_PROGRESS_TAG_RE =
@@ -34,7 +34,7 @@ export function normalizeReasoningProgressLine(text: string): string {
       /^\s*(?:>\s*)?(?:Reasoning:\s*(?:\r?\n|\r)\s*|Thinking\.{0,3}\s*(?:\r?\n|\r)\s*(?:\r?\n|\r)\s*)/i,
       "",
     )
-    .replace(/\s+/g, " ")
+    .replace(/\s{2,}|[^\S ]/g, " ")
     .trim();
 }
 
@@ -44,14 +44,14 @@ function readReasoningProgressTextOutsideCode(text: string): string | undefined 
     // fragment can flash as user-visible progress.
     return undefined;
   }
-  const codeRegions = findCodeRegions(text);
+  let codeRegions: CodeRegion[] | undefined;
   let hasTags = false;
   let inReasoning = false;
   let cursor = 0;
   const chunks: string[] = [];
   for (const match of text.matchAll(REASONING_PROGRESS_TAG_RE)) {
     const offset = match.index ?? 0;
-    if (isInsideCode(offset, codeRegions)) {
+    if (isInsideCode(offset, (codeRegions ??= findCodeRegions(text)))) {
       // Preserve code examples that mention reasoning tags; only actual model
       // wrapper tags outside code delimit private reasoning progress.
       continue;
@@ -81,20 +81,20 @@ function readReasoningProgressTextOutsideCode(text: string): string | undefined 
 }
 
 function isPartialReasoningProgressTagPrefix(text: string): boolean {
-  const normalized = text.trimStart().toLowerCase();
-  return (
-    normalized.startsWith("<") &&
-    !normalized.includes(">") &&
-    REASONING_PROGRESS_TAG_PREFIXES.some(
-      (prefix) => prefix.startsWith(normalized) || normalized.startsWith(prefix),
-    )
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith("<") || trimmed.includes(">")) {
+    return false;
+  }
+  const normalized = trimmed.toLowerCase();
+  return REASONING_PROGRESS_TAG_PREFIXES.some(
+    (prefix) => prefix.startsWith(normalized) || normalized.startsWith(prefix),
   );
 }
 
 function stripReasoningProgressTagsOutsideCode(text: string): string {
-  const codeRegions = findCodeRegions(text);
+  let codeRegions: CodeRegion[] | undefined;
   return text.replace(REASONING_PROGRESS_TAG_RE, (match, _closing: string, offset: number) =>
-    isInsideCode(offset, codeRegions) ? match : "",
+    isInsideCode(offset, (codeRegions ??= findCodeRegions(text))) ? match : "",
   );
 }
 
@@ -194,9 +194,9 @@ function shouldAppendEmptyReasoningProgressDelta(current: string, incoming: stri
 }
 
 function hasReasoningProgressTagOutsideCode(text: string): boolean {
-  const codeRegions = findCodeRegions(text);
+  let codeRegions: CodeRegion[] | undefined;
   for (const match of text.matchAll(REASONING_PROGRESS_TAG_RE)) {
-    if (!isInsideCode(match.index ?? 0, codeRegions)) {
+    if (!isInsideCode(match.index ?? 0, (codeRegions ??= findCodeRegions(text)))) {
       return true;
     }
   }

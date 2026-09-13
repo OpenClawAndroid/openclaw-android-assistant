@@ -9,6 +9,7 @@ import { resolveAuthProfileSecretOwnerId } from "../secrets/runtime-auth-profile
 import type { SecretSurfaceUnavailableError } from "../secrets/runtime-degraded-state.js";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import { CUSTOM_LOCAL_AUTH_MARKER, GCP_VERTEX_CREDENTIALS_MARKER } from "./model-auth-markers.js";
 import {
   attachModelProviderRequestTransport,
@@ -534,11 +535,7 @@ describe("resolveModelAuthMode", () => {
           provider: "openai",
           token: "token-value",
         },
-        "openai:key": {
-          type: "api_key",
-          provider: "openai",
-          key: "api-key",
-        },
+        "openai:key": createApiKeyCredential("openai", "api-key"),
       },
     };
 

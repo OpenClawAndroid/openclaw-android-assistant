@@ -112,11 +112,13 @@ type ChannelAccountLifetime = {
 type ChannelRuntimeStore = {
   startFence?: {
     paused: boolean;
-    snapshot?: () => {
-      accounts: Record<string, ChannelAccountSnapshot>;
-      listedAccountIds: readonly string[];
-      defaultAccountId: string;
-      defaultAccount: ChannelAccountSnapshot;
+    snapshot?: {
+      listedAccountIds: ReadonlySet<string>;
+      read: () => {
+        accounts: Record<string, ChannelAccountSnapshot>;
+        defaultAccountId: string;
+        defaultAccount: ChannelAccountSnapshot;
+      };
     };
   };
   lifetimes: Map<string, ChannelAccountLifetime>;
@@ -1646,17 +1648,21 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
         );
       };
     });
-    return () => {
-      const snapshots = Object.fromEntries(accountIds.map((id, index) => [id, accounts[index]!()]));
-      return {
-        accounts: snapshots,
-        listedAccountIds: configuredAccountIds,
-        defaultAccountId,
-        defaultAccount: snapshots[defaultAccountId] ?? {
-          ...defaultRuntime,
-          accountId: defaultAccountId,
-        },
-      };
+    return {
+      listedAccountIds: configuredAccountIdSet,
+      read: () => {
+        const snapshots = Object.fromEntries(
+          accountIds.map((id, index) => [id, accounts[index]!()]),
+        );
+        return {
+          accounts: snapshots,
+          defaultAccountId,
+          defaultAccount: snapshots[defaultAccountId] ?? {
+            ...defaultRuntime,
+            accountId: defaultAccountId,
+          },
+        };
+      },
     };
   };
 
@@ -1674,7 +1680,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
       const fence = getStore(plugin.id).startFence;
       const snapshot = (
         fence?.paused ? fence.snapshot : captureChannelSnapshot(plugin, inspectAccounts)
-      )?.();
+      )?.read();
       if (fence?.paused) {
         reloadingChannels.set(plugin.id, snapshot?.defaultAccountId);
       }
@@ -1768,7 +1774,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
       const fence = channelStores.get(channelId)?.startFence;
       // Health and thaw read captured configuration while plugin callbacks are paused.
       return fence?.paused
-        ? (fence.snapshot?.().listedAccountIds.includes(accountId) ?? false)
+        ? (fence.snapshot?.listedAccountIds.has(accountId) ?? false)
         : withRegistry(
             (registry) =>
               getLoadedChannelPluginEntryById(channelId, registry)

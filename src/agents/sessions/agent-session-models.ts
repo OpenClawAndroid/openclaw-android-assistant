@@ -7,6 +7,8 @@ import type { Model } from "../../llm/types.js";
 import type { ThinkingLevel } from "../runtime/index.js";
 import { AgentSessionPrompting } from "./agent-session-prompting.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
+import type { ThinkingLevelSelectEvent } from "./extensions/types.js";
+import { withSessionManagerWrite } from "./session-manager-write-admission.js";
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 
@@ -27,27 +29,29 @@ export abstract class AgentSessionModels extends AgentSessionPrompting {
     });
   }
 
-  private async applyModelSwitch(model: Model, thinkingLevel: ThinkingLevel): Promise<void> {
-    const previousModel = this.model;
-    this.agent.state.model = model;
-    this.sessionManager.appendModelChange(model.provider, model.id);
-    this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
-    this.setThinkingLevel(thinkingLevel);
-    await this.emitModelSelect(model, previousModel);
-  }
-
-  /**
-   * Set model directly.
-   * Validates that auth is configured, saves to session and settings.
-   * @throws Error if no auth is configured for the model
-   */
+  /** Set the model after validating its current auth at write admission. */
   async setModel(model: Model): Promise<void> {
-    if (!this.sessionModelRegistry.hasConfiguredAuth(model)) {
-      throw new Error(`No API key for ${model.provider}/${model.id}`);
-    }
-
-    const thinkingLevel = this.getThinkingLevelForModelSwitch();
-    await this.applyModelSwitch(model, thinkingLevel);
+    const { previousModel, thinkingSelection } = await withSessionManagerWrite(
+      this.sessionManager,
+      () => {
+        if (!this.sessionModelRegistry.hasConfiguredAuth(model)) {
+          throw new Error(`No API key for ${model.provider}/${model.id}`);
+        }
+        // Queued transitions replace the state at admission, not at invocation.
+        const previous = this.model;
+        const thinkingLevel = this.getThinkingLevelForModelSwitch();
+        this.sessionManager.appendModelChange(model.provider, model.id);
+        this.agent.state.model = model;
+        this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+        return {
+          previousModel: previous,
+          thinkingSelection: this.updateThinkingLevel(thinkingLevel),
+        };
+      },
+    );
+    // Hooks can await another transition after this write has settled.
+    this.emitThinkingLevelSelect(thinkingSelection);
+    await this.emitModelSelect(model, previousModel);
   }
 
   // =========================================================================
@@ -60,26 +64,30 @@ export abstract class AgentSessionModels extends AgentSessionPrompting {
    * Saves to session and settings only if the level actually changes.
    */
   setThinkingLevel(level: ThinkingLevel): void {
+    this.emitThinkingLevelSelect(this.updateThinkingLevel(level));
+  }
+
+  private updateThinkingLevel(level: ThinkingLevel): ThinkingLevelSelectEvent | undefined {
     const availableLevels = this.getAvailableThinkingLevels();
     const effectiveLevel = availableLevels.includes(level) ? level : this.clampThinkingLevel(level);
 
     // Only persist if actually changing
     const previousLevel = this.agent.state.thinkingLevel;
-    const isChanging = effectiveLevel !== previousLevel;
-
+    if (effectiveLevel === previousLevel) {
+      return undefined;
+    }
+    this.sessionManager.appendThinkingLevelChange(effectiveLevel);
     this.agent.state.thinkingLevel = effectiveLevel;
+    if (this.supportsThinking() || effectiveLevel !== "off") {
+      this.settingsManager.setDefaultThinkingLevel(effectiveLevel);
+    }
+    return { type: "thinking_level_select", level: effectiveLevel, previousLevel };
+  }
 
-    if (isChanging) {
-      this.sessionManager.appendThinkingLevelChange(effectiveLevel);
-      if (this.supportsThinking() || effectiveLevel !== "off") {
-        this.settingsManager.setDefaultThinkingLevel(effectiveLevel);
-      }
-      this.emit({ type: "thinking_level_changed", level: effectiveLevel });
-      void this.currentExtensionRunner.emit({
-        type: "thinking_level_select",
-        level: effectiveLevel,
-        previousLevel,
-      });
+  private emitThinkingLevelSelect(event: ThinkingLevelSelectEvent | undefined): void {
+    if (event) {
+      this.emit({ type: "thinking_level_changed", level: event.level });
+      void this.currentExtensionRunner.emit(event);
     }
   }
 

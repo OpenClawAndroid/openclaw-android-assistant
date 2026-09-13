@@ -51,15 +51,20 @@ export function createMeetingBrowserAudioCaptureSource(
   let inputDevices = new Set(["default", "communications"]);
   let inputGroups = new Set();
   const sourceUrl = (element) => String(element.currentSrc || element.src || "");
-  const ownsMutedSource = (entry) => entry.stream
+  const ownsMutedSource = (entry, liveTracks) => entry.stream
     ? entry.element.srcObject === entry.stream &&
-      entry.stream.getAudioTracks().filter((track) => track.readyState === "live")
+      (liveTracks ?? entry.stream.getAudioTracks().filter((track) => track.readyState === "live"))
         .every((track) => entry.tracks.includes(track))
     : !entry.element.srcObject && sourceUrl(entry.element) === entry.url;
-  const sameSource = (entry) => ownsMutedSource(entry) && (!entry.stream || (
-    entry.stream.getAudioTracks().filter((track) => track.readyState === "live").length === entry.tracks.length &&
-    entry.tracks.every((track) => track.readyState === "live")
-  ));
+  const sameSource = (entry) => {
+    const liveTracks = entry.stream && entry.element.srcObject === entry.stream
+      ? entry.stream.getAudioTracks().filter((track) => track.readyState === "live")
+      : undefined;
+    return ownsMutedSource(entry, liveTracks) && (!entry.stream || (
+      liveTracks.length === entry.tracks.length &&
+      entry.tracks.every((track) => track.readyState === "live")
+    ));
+  };
   const restoreOwnedMute = (entry, restore = capture.isCurrent()) => {
     if (restore && ownsMutedSource(entry)) entry.element.muted = entry.muted;
   };
@@ -169,22 +174,21 @@ export function createMeetingBrowserAudioCaptureSource(
       for (const element of elements) {
         if (bridgeElements.has(element) || entries.has(element)) continue;
         const owned = ownedSources.get(element);
-        const originalMute = pendingMute.has(element) ? pendingMute.get(element).muted
+        const pending = pendingMute.get(element);
+        const originalMute = pending ? pending.muted
           : owned && owned.stream === element.srcObject ? owned.muted : element.muted;
-        const originallyAudible = !originalMute;
-        if (!originallyAudible) continue;
+        if (originalMute) continue;
         const stream = element.srcObject;
         const tracks = stream?.getAudioTracks?.().filter((track) => track.readyState === "live") || [];
         // Device-backed tracks include the virtual microphone and must never enter provider input.
         if (hasDeviceTrack(tracks)) {
-          const pending = pendingMute.get(element);
           if (pending) restoreOwnedMute(pending);
           pendingMute.delete(element);
           continue;
         }
         if (stream && !tracks.length) continue;
         if (!stream && (!sourceUrl(element) || element.readyState < 2)) continue;
-        if (entries.size + pendingMute.size >= 64 && !pendingMute.has(element)) throw new Error("Meeting remote audio source limit exceeded.");
+        if (entries.size + pendingMute.size >= 64 && !pending) throw new Error("Meeting remote audio source limit exceeded.");
         const captured = stream ? undefined : element.captureStream();
         const audioTracks = stream ? tracks : captured.getAudioTracks();
         if (!audioTracks.length || hasDeviceTrack(audioTracks)) {

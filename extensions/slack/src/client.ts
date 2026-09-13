@@ -1,5 +1,5 @@
 // Slack plugin module implements client behavior.
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import { type WebClientOptions, WebClient } from "@slack/web-api";
 import type { SlackLookupClientOptions } from "./client-options.js";
 import {
@@ -87,7 +87,7 @@ export function createSlackWriteClient(token: string, options: WebClientOptions 
 }
 
 export function createSlackTokenCacheKey(token: string): string {
-  return `sha256:${createHash("sha256").update(token).digest("base64url")}`;
+  return `sha256:${hash("sha256", token, "base64url")}`;
 }
 
 function slackWriteClientCacheKey(token: string, options: SlackWriteClientCacheOptions): string {

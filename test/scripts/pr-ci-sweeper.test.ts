@@ -195,6 +195,10 @@ describe("classifyRunForRevive", () => {
 });
 
 describe("runPrCiSweeper", () => {
+  function sweep(github: ReturnType<typeof fakeGithub>["github"]) {
+    return runPrCiSweeper({ github, context, core, now: NOW });
+  }
+
   it("classifies a dropped-CI PR as refire in dry-run without mutating", async () => {
     const dropped = {
       ...pr(),
@@ -404,12 +408,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 1234: cancelledRun(1234) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([
       {
@@ -478,12 +477,7 @@ describe("runPrCiSweeper", () => {
         },
       });
 
-      await runPrCiSweeper({
-        github: github as never,
-        context: context as never,
-        core: core as never,
-        now: NOW,
-      });
+      await sweep(github);
 
       expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
     },
@@ -506,12 +500,7 @@ describe("runPrCiSweeper", () => {
       },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([
       {
@@ -558,12 +547,7 @@ describe("runPrCiSweeper", () => {
         },
       });
 
-      await runPrCiSweeper({
-        github: github as never,
-        context: context as never,
-        core: core as never,
-        now: NOW,
-      });
+      await sweep(github);
 
       expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([
         {
@@ -629,12 +613,7 @@ describe("runPrCiSweeper", () => {
       },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "checks.listForRef")).toHaveLength(2);
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
@@ -665,12 +644,7 @@ describe("runPrCiSweeper", () => {
         },
       });
 
-      await runPrCiSweeper({
-        github: github as never,
-        context: context as never,
-        core: core as never,
-        now: NOW,
-      });
+      await sweep(github);
 
       expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
     },
@@ -694,12 +668,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 100: cancelledRun(100) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });
@@ -722,12 +691,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 100: cancelledRun(100) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([
       {
@@ -752,14 +716,7 @@ describe("runPrCiSweeper", () => {
       workflowRunErrorsById: { 200: new Error("replacement workflow unavailable") },
     });
 
-    await expect(
-      runPrCiSweeper({
-        github: github as never,
-        context: context as never,
-        core: core as never,
-        now: NOW,
-      }),
-    ).rejects.toThrow("replacement workflow unavailable");
+    await expect(sweep(github)).rejects.toThrow("replacement workflow unavailable");
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });
@@ -773,12 +730,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 4321: cancelledRun(4321, { head_branch: "some/foreign-branch" }) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });
@@ -797,12 +749,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 7777: cancelledRun(7777) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });
@@ -818,12 +765,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 2345: cancelledRun(2345) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.getWorkflowRun")).toEqual([]);
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
@@ -842,12 +784,7 @@ describe("runPrCiSweeper", () => {
       },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });
@@ -861,12 +798,7 @@ describe("runPrCiSweeper", () => {
       workflowRunsById: { 4567: cancelledRun(4567, { run_attempt: 3 }) },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });
@@ -906,12 +838,7 @@ describe("runPrCiSweeper", () => {
       },
     });
 
-    await runPrCiSweeper({
-      github: github as never,
-      context: context as never,
-      core: core as never,
-      now: NOW,
-    });
+    await sweep(github);
 
     expect(calls.filter((call) => call.method === "actions.reRunWorkflow")).toEqual([]);
   });

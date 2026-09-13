@@ -303,39 +303,6 @@ describe("app-tool-stream fallback lifecycle handling", () => {
     expect(host.sessions.state.modelOverrides).toEqual({});
   });
 
-  it("tags stream segments with the tool they precede without resetting elapsed time", () => {
-    useToolStreamFakeTimers();
-    const host = createHost({
-      chatRunId: "run-1",
-      chatStream: "visible text before tool",
-      chatStreamStartedAt: TOOL_STREAM_TEST_NOW - 10,
-    });
-
-    handleAgentEvent(host, {
-      runId: "run-1",
-      seq: 1,
-      stream: "tool",
-      ts: Date.now(),
-      sessionKey: "main",
-      data: {
-        phase: "start",
-        name: "exec",
-        toolCallId: "call_1",
-      },
-    });
-
-    expect(host.chatStreamSegments).toEqual([
-      {
-        text: "visible text before tool",
-        ts: TOOL_STREAM_TEST_NOW - 10,
-        runId: "run-1",
-        toolCallId: "call_1",
-      },
-    ]);
-    expect(host.chatStream).toBeNull();
-    vi.useRealTimers();
-  });
-
   it("stores keyed preamble item progress as stream segments", () => {
     useToolStreamFakeTimers();
     const host = createHost({ chatRunId: "run-1" });

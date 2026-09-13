@@ -51,7 +51,7 @@ function expectCheckoutTimeouts(
   const gitCommands = commandSpy.mock.calls
     .filter(([argv]) => argv[0] === "git")
     .map(([argv, options]) => ({
-      checkout: isWorktreeAdd(argv),
+      checkout: isWorktreeAdd(argv) || (argv.includes("read-tree") && argv.includes("-u")),
       base: argv.at(-1),
       timeoutMs: typeof options === "number" ? options : options.timeoutMs,
     }));
@@ -168,7 +168,13 @@ describe("ManagedWorktreeService", () => {
     repo = await fs.realpath(repo);
     env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
     now = 1_700_000_000_000;
-    service = new ManagedWorktreeService({ env, now: () => now });
+    // These cases inject ordinary Git checkout failures; accelerated checkout
+    // and its separate template allocation are covered by service.acceleration.
+    service = new ManagedWorktreeService({
+      env,
+      now: () => now,
+      getConfig: () => ({ worktreeAcceleration: false }),
+    });
   });
 
   afterEach(async () => {
@@ -701,7 +707,10 @@ describe("ManagedWorktreeService", () => {
     now += IDLE_GC_MS + 1;
     const commandSpy = vi.spyOn(commandRunner, "runCommandWithTimeout");
     const restored = await service.restore({ id: created.id });
-    expectCheckoutTimeouts(commandSpy, [removed.snapshotRef!]);
+    expectCheckoutTimeouts(commandSpy, [
+      originalHead,
+      await git(repo, "rev-parse", removed.snapshotRef!),
+    ]);
     expect(restored.removedAt).toBeUndefined();
     expect(restored.lastActiveAt).toBe(now);
     expect((await service.gc()).removed).toEqual([]);

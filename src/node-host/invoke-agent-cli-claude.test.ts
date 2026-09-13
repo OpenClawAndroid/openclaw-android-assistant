@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,11 +7,13 @@ import {
   clearRuntimeConfigSnapshot,
   setRuntimeConfigSnapshot,
 } from "../config/runtime-snapshot.js";
+import { loadExecApprovals, saveExecApprovals } from "../infra/exec-approvals.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import type { NodeHostClient } from "./client.js";
 import { decodeClaudeCliNodeRunParams } from "./invoke-agent-cli-claude-params.js";
 import { runClaudeCliNodeCommand } from "./invoke-agent-cli-claude.js";
+import { handleSystemRunInvoke } from "./invoke-system-run.js";
 import type { RunResult } from "./invoke-types.js";
 import { handleInvoke, type NodeInvokeRequestPayload } from "./invoke.js";
 
@@ -87,6 +90,79 @@ function runCommand(
 }
 
 describe("Claude CLI node command", () => {
+  it.runIf(process.platform !== "win32").each([true, false])(
+    "rechecks node authorization after Claude prompt staging (revoke=%s)",
+    async (revoke) => {
+      const executable = await executableScript(
+        'require("node:fs").writeFileSync("spawned.txt", "spawned"); process.stdout.write("approved\\n");',
+      );
+      const cwd = path.dirname(executable);
+      const marker = path.join(cwd, "spawned.txt");
+      const calls: Array<{ method: string; params: unknown }> = [];
+      let staged = 0;
+      let stagedPrompt: string | undefined;
+      const writeFile = fs.writeFile.bind(fs);
+      await withEnvAsync({ OPENCLAW_HOME: cwd }, async () => {
+        saveExecApprovals({ version: 1, defaults: { security: "full", ask: "off" }, agents: {} });
+        setRuntimeConfigSnapshot({ tools: { exec: { mode: "full" } } });
+        const staging = vi.spyOn(fs, "writeFile").mockImplementation(async (...args) => {
+          await writeFile(...args);
+          if (typeof args[0] !== "string" || path.basename(args[0]) !== "system-prompt.md") {
+            return;
+          }
+          staged += 1;
+          stagedPrompt = args[0];
+          if (revoke) {
+            const current = loadExecApprovals();
+            current.defaults = { ...current.defaults, security: "deny", ask: "off" };
+            saveExecApprovals(current);
+          }
+        });
+        try {
+          await handleInvoke(
+            frame({
+              argv: ["-p"],
+              cwd,
+              systemPrompt: "Synthetic authorization fixture",
+              idleTimeoutMs: 5_000,
+              timeoutMs: 10_000,
+            }),
+            client(calls),
+            { current: async () => [] },
+            undefined,
+            {
+              claudePath: executable,
+              handleSystemRun: (options) =>
+                handleSystemRunInvoke({
+                  ...options,
+                  sanitizeEnv: () => ({ PATH: "/usr/bin:/bin", HOME: cwd }),
+                }),
+            },
+          );
+        } finally {
+          staging.mockRestore();
+        }
+      });
+
+      const reply = calls.find((call) => call.method === "node.invoke.result")?.params as
+        | { ok?: boolean; error?: { code?: string; message?: string } }
+        | undefined;
+      const progress = calls
+        .filter((call) => call.method === "node.invoke.progress")
+        .map((call) => (call.params as { chunk: string }).chunk)
+        .join("");
+      expect(staged).toBe(1);
+      expect(existsSync(marker)).toBe(!revoke);
+      expect(reply?.ok).toBe(!revoke);
+      expect(progress).toBe(revoke ? "" : "approved\n");
+      if (revoke) {
+        expect(reply?.error?.code).toBe("SYSTEM_RUN_DENIED");
+        expect(reply?.error?.message).toContain("exec approval changed before execution");
+        expect(stagedPrompt !== undefined && existsSync(stagedPrompt)).toBe(false);
+      }
+    },
+  );
+
   it.each([
     { argv: ["--unknown"], error: "unsupported Claude CLI argument" },
     { argv: ["--model"], error: "requires a value" },

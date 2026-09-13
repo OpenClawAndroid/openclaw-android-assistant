@@ -109,18 +109,23 @@ export function writePluginMetadata(params: {
   );
 }
 
-export function writePlugin(params: {
-  id: string;
-  body: string;
-  dir?: string;
-  filename?: string;
-  configSchema?: Record<string, unknown>;
-}): TempPlugin {
+export function writePlugin(
+  params: {
+    id: string;
+    dir?: string;
+    filename?: string;
+    configSchema?: Record<string, unknown>;
+  } & ({ body: string } | { registration: string }),
+): TempPlugin {
   const dir = params.dir ?? makePluginLoaderTempDir();
   const filename = params.filename ?? `${params.id}.cjs`;
   mkdirSafe(dir);
   const file = path.join(dir, filename);
-  fs.writeFileSync(file, params.body, "utf-8");
+  const body =
+    "body" in params
+      ? params.body
+      : `module.exports = { id: ${JSON.stringify(params.id)}, register(api) {\n${params.registration}\n} };`;
+  fs.writeFileSync(file, body, "utf-8");
   writePluginMetadata({ dir, id: params.id, configSchema: params.configSchema });
   return { dir, file, id: params.id };
 }

@@ -4,8 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { coerceConfig, resolveConfigForRead } from "../config/io.read-helpers.js";
+import { setConfigResolutionFacts } from "../config/resolution-facts.js";
 import { writeStateDirDotEnv } from "../config/test-helpers.js";
 import type { OpenClawConfig } from "../config/types.js";
+import type { SecretInput } from "../config/types.secrets.js";
 import {
   buildLaunchAgentPlist,
   readLaunchAgentProgramArgumentsFromFile,
@@ -862,32 +865,44 @@ describe("buildGatewayInstallPlan", () => {
     },
   );
 
-  it("renders config env SecretRefs as file-backed managed values on Linux", async () => {
+  it.each<{ name: string; token: SecretInput; resolved: boolean; managed: boolean }>([
+    {
+      name: "structured reference",
+      token: { source: "env", provider: "default", id: "DISCORD_BOT_TOKEN" },
+      resolved: false,
+      managed: true,
+    },
+    { name: "raw shorthand", token: "${DISCORD_BOT_TOKEN}", resolved: false, managed: true },
+    { name: "resolved shorthand", token: "${DISCORD_BOT_TOKEN}", resolved: true, managed: true },
+    { name: "pending shorthand", token: "$DISCORD_BOT_TOKEN", resolved: true, managed: true },
+    { name: "escaped literal", token: "$${DISCORD_BOT_TOKEN}", resolved: true, managed: false },
+  ])("renders Linux service env for $name", async ({ token, resolved, managed }) => {
     mockNodeGatewayPlanFixture({
       serviceEnvironment: {
         OPENCLAW_PORT: "3000",
       },
     });
 
+    const env = isolatedPlanEnv({ DISCORD_BOT_TOKEN: "discord-test-token" });
+    let config: OpenClawConfig = { channels: { discord: { token } } };
+    if (resolved) {
+      const read = resolveConfigForRead(config, env);
+      config = coerceConfig(read.resolvedConfigRaw);
+      setConfigResolutionFacts(config, read.resolutionFacts);
+    }
     const plan = await buildGatewayInstallPlan({
-      env: isolatedPlanEnv({
-        DISCORD_BOT_TOKEN: "discord-test-token",
-      }),
+      env,
       port: 3000,
       runtime: "node",
       platform: "linux",
-      config: {
-        channels: {
-          discord: {
-            token: { source: "env", provider: "default", id: "DISCORD_BOT_TOKEN" },
-          },
-        },
-      },
+      config,
     });
 
-    expect(plan.environment.DISCORD_BOT_TOKEN).toBe("discord-test-token");
-    expect(plan.environmentValueSources?.DISCORD_BOT_TOKEN).toBe("file");
-    expect(plan.environment.OPENCLAW_SERVICE_MANAGED_ENV_KEYS).toBe("DISCORD_BOT_TOKEN");
+    expect(plan.environment.DISCORD_BOT_TOKEN).toBe(managed ? "discord-test-token" : undefined);
+    expect(plan.environmentValueSources?.DISCORD_BOT_TOKEN).toBe(managed ? "file" : undefined);
+    expect(plan.environment.OPENCLAW_SERVICE_MANAGED_ENV_KEYS).toBe(
+      managed ? "DISCORD_BOT_TOKEN" : undefined,
+    );
   });
 
   it("retains config env SecretRefs for Windows task scripts", async () => {

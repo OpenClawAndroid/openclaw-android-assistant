@@ -110,8 +110,10 @@ Staging is removed when the operation finishes and is never used as a runtime
 store or resumed after an interruption; retries use the original sources and
 committed session data. After import, Doctor checkpoints and incrementally vacuums databases that already
 support auto-vacuum, retaining full integrity and foreign-key checks before and
-after cleanup. Databases without auto-vacuum still need a full `VACUUM` to enable
-it. Incremental cleanup frees unused pages but does not repack partially filled
+after cleanup. If a database is already in incremental auto-vacuum mode, has no
+free pages, and has no WAL to checkpoint, import finalization verifies it once
+and leaves its contents unchanged. Databases without auto-vacuum still need a
+full `VACUUM` to enable it. Incremental cleanup frees unused pages but does not repack partially filled
 pages; explicit session and shared-state `compact` modes still run a full `VACUUM`.
 
 The regular `openclaw doctor` pass also reports canonical SQLite transcripts

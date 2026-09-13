@@ -56,9 +56,9 @@ describe("resolveSkillsPrompt", () => {
         entry.skill.readContent = `${"Complete instruction body. ".repeat(300)}END_${index}`;
         return entry;
       });
-      const snapshot = buildSkillSnapshot("/tmp/openclaw", { entries });
+      const snapshot = await buildSkillSnapshot("/tmp/openclaw", { entries });
       const original = snapshot.prompt.trim();
-      const projected = resolveSkillsPrompt({
+      const projected = await resolveSkillsPrompt({
         workspaceDir: "/tmp/openclaw",
         skillsSnapshot: snapshot,
         contextTokenBudget,
@@ -69,9 +69,9 @@ describe("resolveSkillsPrompt", () => {
       expect(omitDescriptions(projected)).toBe(omitDescriptions(original));
       expect(projected).toContain("&amp; preserve &lt;identifiers&gt;");
       expect(snapshot.prompt.trim()).toBe(original);
-      expect(resolveSkillsPrompt({ workspaceDir: "/tmp/openclaw", skillsSnapshot: snapshot })).toBe(
-        original,
-      );
+      expect(
+        await resolveSkillsPrompt({ workspaceDir: "/tmp/openclaw", skillsSnapshot: snapshot }),
+      ).toBe(original);
       const resources = resolveCodeModeSkills({
         skillsPrompt: projected,
         candidates: snapshot.resolvedSkills!,
@@ -87,14 +87,14 @@ describe("resolveSkillsPrompt", () => {
     },
   );
 
-  it("prefers snapshot prompt when available", () => {
-    const prompt = resolveSkillsPrompt({
+  it("prefers snapshot prompt when available", async () => {
+    const prompt = await resolveSkillsPrompt({
       skillsSnapshot: { prompt: "SNAPSHOT", skills: [] },
       workspaceDir: "/tmp/openclaw",
     });
     expect(prompt).toBe("SNAPSHOT");
   });
-  it("builds prompt from entries when snapshot is missing", () => {
+  it("builds prompt from entries when snapshot is missing", async () => {
     const entry: SkillEntry = {
       skill: createCanonicalFixtureSkill({
         name: "demo-skill",
@@ -105,7 +105,7 @@ describe("resolveSkillsPrompt", () => {
       }),
       frontmatter: {},
     };
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       entries: [entry],
       workspaceDir: "/tmp/openclaw",
     });
@@ -113,7 +113,7 @@ describe("resolveSkillsPrompt", () => {
     expect(prompt).toContain("/app/skills/demo-skill/SKILL.md");
   });
 
-  it("keeps an empty snapshot authoritative over current entries", () => {
+  it("keeps an empty snapshot authoritative over current entries", async () => {
     const entry: SkillEntry = {
       skill: createCanonicalFixtureSkill({
         name: "new-skill",
@@ -126,7 +126,7 @@ describe("resolveSkillsPrompt", () => {
     };
 
     expect(
-      resolveSkillsPrompt({
+      await resolveSkillsPrompt({
         skillsSnapshot: { prompt: "", skills: [] },
         entries: [entry],
         workspaceDir: "/tmp/openclaw",
@@ -134,7 +134,7 @@ describe("resolveSkillsPrompt", () => {
     ).toBe("");
   });
 
-  it("fails closed before filtering an unsupported degraded prompt format", () => {
+  it("fails closed before filtering an unsupported degraded prompt format", async () => {
     setActiveDegradedSecretOwners([
       {
         ownerKind: "capability",
@@ -147,7 +147,7 @@ describe("resolveSkillsPrompt", () => {
     ]);
 
     expect(
-      resolveSkillsPrompt({
+      await resolveSkillsPrompt({
         skillsSnapshot: {
           prompt:
             "LEAKED COLD INSTRUCTIONS\n<available_skills>\n  <skill>\n    <name>cold-skill</name>\n  </skill>\n</available_skills>",
@@ -159,7 +159,7 @@ describe("resolveSkillsPrompt", () => {
     ).toBe("");
   });
 
-  it("fails closed for a legacy snapshot whose owner identity is ambiguous", () => {
+  it("fails closed for a legacy snapshot whose owner identity is ambiguous", async () => {
     setActiveDegradedSecretOwners([
       {
         ownerKind: "capability",
@@ -171,7 +171,7 @@ describe("resolveSkillsPrompt", () => {
       },
     ]);
 
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       skillsSnapshot: {
         prompt: "LEGACY SKILL PROMPT",
         skills: [{ name: "cold-skill" }, { name: "healthy-skill" }],
@@ -186,7 +186,7 @@ describe("resolveSkillsPrompt", () => {
     {
       name: "legacy owner identity",
       reason: "legacy-skill-identity",
-      mutate: (snapshot: ReturnType<typeof buildSkillSnapshot>) => ({
+      mutate: (snapshot: Awaited<ReturnType<typeof buildSkillSnapshot>>) => ({
         ...snapshot,
         skills: snapshot.skills.map(({ name }) => ({ name })),
       }),
@@ -194,16 +194,16 @@ describe("resolveSkillsPrompt", () => {
     {
       name: "structurally anomalous catalog",
       reason: "invalid-catalog-structure",
-      mutate: (snapshot: ReturnType<typeof buildSkillSnapshot>) => ({
+      mutate: (snapshot: Awaited<ReturnType<typeof buildSkillSnapshot>>) => ({
         ...snapshot,
         prompt: `${snapshot.prompt}\n<available_skills></available_skills>`,
       }),
     },
   ])(
     "lazily rebuilds healthy entries for a degraded modern $name snapshot",
-    ({ reason, mutate }) => {
+    async ({ reason, mutate }) => {
       const entries = [createEntry("cold-skill"), createEntry("healthy-skill")];
-      const snapshot = mutate(buildSkillSnapshot("/tmp/openclaw", { entries }));
+      const snapshot = mutate(await buildSkillSnapshot("/tmp/openclaw", { entries }));
       const loadEntries = vi.fn(() => entries);
       setActiveDegradedSecretOwners([
         {
@@ -216,7 +216,7 @@ describe("resolveSkillsPrompt", () => {
         },
       ]);
 
-      const prompt = resolveSkillsPrompt({
+      const prompt = await resolveSkillsPrompt({
         skillsSnapshot: snapshot,
         loadEntries,
         workspaceDir: "/tmp/openclaw",
@@ -232,13 +232,13 @@ describe("resolveSkillsPrompt", () => {
     },
   );
 
-  it("does not load entries while reusing a valid modern snapshot", () => {
+  it("does not load entries while reusing a valid modern snapshot", async () => {
     const entries = [createEntry("healthy-skill")];
-    const snapshot = buildSkillSnapshot("/tmp/openclaw", { entries });
+    const snapshot = await buildSkillSnapshot("/tmp/openclaw", { entries });
     const loadEntries = vi.fn(() => entries);
 
     expect(
-      resolveSkillsPrompt({
+      await resolveSkillsPrompt({
         skillsSnapshot: snapshot,
         loadEntries,
         workspaceDir: "/tmp/openclaw",
@@ -247,7 +247,7 @@ describe("resolveSkillsPrompt", () => {
     expect(loadEntries).not.toHaveBeenCalled();
   });
 
-  it("matches unavailable owners against a snapshot skill's config key", () => {
+  it("matches unavailable owners against a snapshot skill's config key", async () => {
     const cold: SkillEntry = {
       skill: createCanonicalFixtureSkill({
         name: "cold-skill",
@@ -269,7 +269,7 @@ describe("resolveSkillsPrompt", () => {
       }),
       frontmatter: {},
     };
-    const snapshot = buildSkillSnapshot("/tmp/openclaw", {
+    const snapshot = await buildSkillSnapshot("/tmp/openclaw", {
       entries: [cold, healthy],
     });
     setActiveDegradedSecretOwners([
@@ -283,7 +283,7 @@ describe("resolveSkillsPrompt", () => {
       },
     ]);
 
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       skillsSnapshot: snapshot,
       entries: [cold, healthy],
       workspaceDir: "/tmp/openclaw",
@@ -293,9 +293,9 @@ describe("resolveSkillsPrompt", () => {
     expect(prompt).toContain("/app/skills/healthy-skill/SKILL.md");
   });
 
-  it("does not add supplied skills outside the saved snapshot during a degraded rebuild", () => {
+  it("does not add supplied skills outside the saved snapshot during a degraded rebuild", async () => {
     const capturedEntries = [createEntry("cold-skill"), createEntry("healthy-skill")];
-    const snapshot = buildSkillSnapshot("/tmp/openclaw", {
+    const snapshot = await buildSkillSnapshot("/tmp/openclaw", {
       entries: capturedEntries,
     });
     setActiveDegradedSecretOwners([
@@ -309,7 +309,7 @@ describe("resolveSkillsPrompt", () => {
       },
     ]);
 
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       skillsSnapshot: snapshot,
       entries: [...capturedEntries, createEntry("new-skill")],
       workspaceDir: "/tmp/openclaw",
@@ -332,7 +332,7 @@ describe("resolveSkillsPrompt", () => {
       name: "healthy-skill",
       description: "Captured healthy",
     });
-    const snapshot = buildSkillSnapshot(workspaceDir);
+    const snapshot = await buildSkillSnapshot(workspaceDir);
     await writeSkill({
       dir: path.join(workspaceDir, "skills", "healthy-skill"),
       name: "healthy-skill",
@@ -355,7 +355,7 @@ describe("resolveSkillsPrompt", () => {
     ]);
 
     try {
-      const prompt = resolveSkillsPrompt({
+      const prompt = await resolveSkillsPrompt({
         skillsSnapshot: snapshot,
         workspaceDir,
       });
@@ -370,7 +370,7 @@ describe("resolveSkillsPrompt", () => {
     }
   });
 
-  it("keeps legacy entries with disableModelInvocation hidden when exposure metadata is absent", () => {
+  it("keeps legacy entries with disableModelInvocation hidden when exposure metadata is absent", async () => {
     const hidden: SkillEntry = {
       skill: createCanonicalFixtureSkill({
         name: "hidden-skill",
@@ -383,7 +383,7 @@ describe("resolveSkillsPrompt", () => {
       frontmatter: {},
     };
 
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       entries: [hidden],
       workspaceDir: "/tmp/openclaw",
     });
@@ -391,7 +391,7 @@ describe("resolveSkillsPrompt", () => {
     expect(prompt).not.toContain("/app/skills/hidden-skill/SKILL.md");
   });
 
-  it("inherits agents.defaults.skills when rebuilding prompt for an agent", () => {
+  it("inherits agents.defaults.skills when rebuilding prompt for an agent", async () => {
     const visible: SkillEntry = {
       skill: createCanonicalFixtureSkill({
         name: "github",
@@ -413,7 +413,7 @@ describe("resolveSkillsPrompt", () => {
       frontmatter: {},
     };
 
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       entries: [visible, hidden],
       config: {
         agents: {
@@ -431,7 +431,7 @@ describe("resolveSkillsPrompt", () => {
     expect(prompt).not.toContain("/app/skills/hidden-skill/SKILL.md");
   });
 
-  it("uses agents.list[].skills as a full replacement for defaults", () => {
+  it("uses agents.list[].skills as a full replacement for defaults", async () => {
     const inheritedEntry: SkillEntry = {
       skill: createCanonicalFixtureSkill({
         name: "weather",
@@ -453,7 +453,7 @@ describe("resolveSkillsPrompt", () => {
       frontmatter: {},
     };
 
-    const prompt = resolveSkillsPrompt({
+    const prompt = await resolveSkillsPrompt({
       entries: [inheritedEntry, explicitEntry],
       config: {
         agents: {

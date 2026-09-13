@@ -70,7 +70,7 @@ async function createSource(binarySize = 150000) {
     workspace,
     filePath,
     binary,
-    snapshot: buildSkillSnapshot(workspace, {
+    snapshot: await buildSkillSnapshot(workspace, {
       entries: loadWorkspaceSkills(workspace, { workspaceOnly: true }),
     }),
   };
@@ -775,7 +775,7 @@ describe("remote-exec skill resources", () => {
         path.join(staleBaseDir, "SKILL.md"),
         "---\ndescription: Stale resource\n---\n# Stale\n",
       );
-      const snapshot = buildSkillSnapshot(workspace, {
+      const snapshot = await buildSkillSnapshot(workspace, {
         entries: loadWorkspaceSkills(workspace, { workspaceOnly: true }),
       });
       const sourceSkill = snapshot.resolvedSkills?.[0];

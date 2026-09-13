@@ -114,13 +114,13 @@ export function mapSandboxSkillEntriesForPrompt(params: {
 }
 
 export function createSandboxPromptEntryLoader(params: {
-  loadEntries: () => SkillEntry[];
+  loadEntries: () => SkillEntry[] | Promise<SkillEntry[]>;
   skillsWorkspaceDir: string;
   skillsPromptWorkspaceDir: string;
-}): () => SkillEntry[] {
-  return () =>
+}): () => Promise<SkillEntry[]> {
+  return async () =>
     mapSandboxSkillEntriesForPrompt({
-      entries: params.loadEntries(),
+      entries: await params.loadEntries(),
       skillsWorkspaceDir: params.skillsWorkspaceDir,
       skillsPromptWorkspaceDir: params.skillsPromptWorkspaceDir,
     }) ?? [];

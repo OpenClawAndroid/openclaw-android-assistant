@@ -258,7 +258,7 @@ export function createProvider(overrides: Partial<WorkerProvider> = {}): WorkerP
 
 export function createLiveEvents(overrides: Record<string, unknown> = {}) {
   return {
-    apply: vi.fn(() => LIVE_EVENT_ACK),
+    apply: vi.fn(async () => LIVE_EVENT_ACK),
     bindSession: vi.fn(() => true),
     clear: vi.fn(),
     clearEnvironment: vi.fn(),
@@ -515,7 +515,7 @@ export function successfulTranscriptCommit(entryId: string, beforeCommit?: () =>
 }
 
 export function sequencedLiveEvents(ackedSeq = (seq: number) => seq) {
-  const apply = vi.fn(({ request }: { request: LiveEventRequest }) => ({
+  const apply = vi.fn(async ({ request }: { request: LiveEventRequest }) => ({
     ok: true as const,
     result: { ackedSeq: ackedSeq(request.seq) },
   }));

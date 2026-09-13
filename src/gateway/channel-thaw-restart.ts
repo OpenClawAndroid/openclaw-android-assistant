@@ -14,14 +14,15 @@ export type ThawRestartSelection =
   | { kind: "deferred-retry"; targets: readonly ThawRestartTarget[] };
 
 function snapshotRunningTargets(manager: ThawRestartManager): ThawRestartTarget[] {
-  return Object.entries(manager.getRuntimeSnapshot().channelAccounts).flatMap(
-    ([channelId, accounts]) =>
-      Object.entries(accounts ?? {})
-        .filter(
-          ([accountId, status]) =>
-            status?.running === true && manager.isAccountListed(channelId, accountId),
-        )
-        .map(([accountId]) => ({ channelId, accountId })),
+  return Object.entries(
+    manager.getRuntimeSnapshot({ inspectAccounts: false }).channelAccounts,
+  ).flatMap(([channelId, accounts]) =>
+    Object.entries(accounts ?? {})
+      .filter(
+        ([accountId, status]) =>
+          status?.running === true && manager.isAccountListed(channelId, accountId),
+      )
+      .map(([accountId]) => ({ channelId, accountId })),
   );
 }
 
@@ -62,7 +63,9 @@ export async function restartRunningChannelAccounts(
       return [...failedTargets, ...targets.slice(index)];
     }
     try {
-      let current = manager.getRuntimeSnapshot().channelAccounts[channelId]?.[accountId];
+      const snapshotOptions = { channelId, inspectAccounts: false };
+      let current =
+        manager.getRuntimeSnapshot(snapshotOptions).channelAccounts[channelId]?.[accountId];
       if (!current || !manager.isAccountListed(channelId, accountId)) {
         continue;
       }
@@ -70,7 +73,7 @@ export async function restartRunningChannelAccounts(
       if (!opts.shouldContinue()) {
         return [...failedTargets, target, ...targets.slice(index + 1)];
       }
-      current = manager.getRuntimeSnapshot().channelAccounts[channelId]?.[accountId];
+      current = manager.getRuntimeSnapshot(snapshotOptions).channelAccounts[channelId]?.[accountId];
       if (!current || !manager.isAccountListed(channelId, accountId)) {
         continue;
       }
@@ -78,7 +81,8 @@ export async function restartRunningChannelAccounts(
         preserveManualStop: true,
       });
       let startOutcome = startOutcomes.get(accountId);
-      let restarted = manager.getRuntimeSnapshot().channelAccounts[channelId]?.[accountId];
+      let restarted =
+        manager.getRuntimeSnapshot(snapshotOptions).channelAccounts[channelId]?.[accountId];
       if (
         startOutcome?.status === "retry" &&
         restarted?.restartPending === true &&
@@ -90,7 +94,8 @@ export async function restartRunningChannelAccounts(
           preserveManualStop: true,
         });
         startOutcome = startOutcomes.get(accountId);
-        restarted = manager.getRuntimeSnapshot().channelAccounts[channelId]?.[accountId];
+        restarted =
+          manager.getRuntimeSnapshot(snapshotOptions).channelAccounts[channelId]?.[accountId];
       }
       // The channel manager owns all failures after handoff through its restart
       // supervisor. Intentional configuration skips are complete; only a

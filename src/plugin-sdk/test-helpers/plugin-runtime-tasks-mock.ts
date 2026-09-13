@@ -53,6 +53,11 @@ function createAsyncManagedFlowSession(params: {
     finish: vi.fn(async () => missing),
     fail: vi.fn(async () => missing),
     requestCancel: vi.fn(async () => missing),
+    runTask: vi.fn(async () => ({
+      created: false as const,
+      found: false,
+      reason: "Flow not found.",
+    })),
   };
 }
 

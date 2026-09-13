@@ -10,6 +10,12 @@ title: "Environment variables"
 OpenClaw pulls environment variables from multiple sources. The normal rule is **never override existing values**. For an OpenClaw-installed systemd service, the global `.env` may replace only service values that OpenClaw recorded as managed. Operator-owned service values still take precedence.
 Workspace `.env` files are a lower-trust source: OpenClaw ignores provider credentials and protected runtime controls from workspace `.env` before applying precedence.
 
+Systemd startup preserves managed process values referenced by config, including
+`${VAR}` and `$VAR` SecretRef shorthand in `$include` files. This also covers
+values supplied by an operator `EnvironmentFile=`. Managed values absent from
+both trusted dotenv files and current config references are removed from the
+Gateway process environment.
+
 ## Precedence (highest to lowest)
 
 1. **Process environment** (what the Gateway process already has from the parent shell/daemon).

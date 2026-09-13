@@ -18,6 +18,7 @@ import {
   resolveModelCatalogIdentityKey,
 } from "./openai-model-routes.js";
 import {
+  copyPreparedModelFullCatalogAuth,
   getPreparedModelFullCatalogAuth,
   hasSamePreparedModelCatalogAuth,
   setPreparedModelFullCatalogAuth,
@@ -361,10 +362,7 @@ export function materializePreparedModelCatalog(
   if (isPreparedModelCatalogFull(snapshot)) {
     markPreparedModelCatalogFull(materialized);
   }
-  const auth = getPreparedModelFullCatalogAuth(snapshot);
-  if (auth) {
-    setPreparedModelFullCatalogAuth(materialized, auth);
-  }
+  copyPreparedModelFullCatalogAuth(snapshot, materialized);
   return materialized;
 }
 

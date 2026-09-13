@@ -28,6 +28,7 @@ export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 export type AsyncToolBatchScheduling = {
   waitForPrevious: () => Promise<void>;
   onParallelStarted: () => void;
+  hasUnobservedAsyncToolResults: boolean;
 };
 
 export type ExecutedToolCallBatch = {
@@ -192,6 +193,7 @@ export async function streamAgentResponse(
     if (calls.length === 0) {
       return;
     }
+    const hasUnobservedAsyncToolResults = executedIds.size > 0;
     for (const call of calls) {
       executedIds.add(call.id);
     }
@@ -207,6 +209,7 @@ export async function streamAgentResponse(
         const batch = await executeAsyncTools(message, calls, executionSignal, emitToolEvent, {
           waitForPrevious: () => previousExecutions,
           onParallelStarted: releaseAdmission,
+          hasUnobservedAsyncToolResults,
         });
         batches.push(batch);
         if (batch.fatal || batch.terminateRun) {

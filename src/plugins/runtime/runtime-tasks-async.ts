@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   collectNestedErrorCandidates,
   extractErrorCode,
@@ -22,10 +23,17 @@ import {
   runTaskFlowRegistryWorkerMutation,
 } from "../../tasks/task-flow-runtime-internal.js";
 import { canOwnerAccessTask } from "../../tasks/task-owner-access.js";
-import { ensureTaskRegistryReady } from "../../tasks/task-registry-state.js";
+import {
+  runTaskRegistryWorkerMutation,
+  ensureTaskRegistryReady,
+} from "../../tasks/task-registry-state.js";
 import type { TaskRecord } from "../../tasks/task-registry.types.js";
 import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
-import { asManagedTaskFlowRecord, mapFlowUpdateResult } from "./runtime-managed-flow-result.js";
+import {
+  asManagedTaskFlowRecord,
+  mapFlowTaskRunResult,
+  mapFlowUpdateResult,
+} from "./runtime-managed-flow-result.js";
 import type {
   BoundAsyncManagedTaskFlowsRuntime,
   BoundAsyncTaskFlowsRuntime,
@@ -54,7 +62,7 @@ async function readStore(includeTasks: boolean, includeFlows: boolean) {
   }
   if (includeTasks) {
     context.admission.assertCurrent();
-    ensureTaskRegistryReady();
+    ensureTaskRegistryReady({ refreshProjection: false });
   }
   const store = await import("../../state/openclaw-state-worker-store.js");
   context.admission.assertCurrent();
@@ -199,6 +207,33 @@ function bindManagedFlows(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
     finish: (input) => update("finish", input),
     fail: (input) => update("fail", input),
     requestCancel: (input) => update("requestCancel", input),
+    async runTask(input) {
+      const taskInput = structuredClone(input);
+      const { store, context } = await readStore(true, true);
+      const scope = {
+        taskId: crypto.randomUUID(),
+        flowId: taskInput.flowId.trim(),
+        runId: taskInput.runId?.trim(),
+        childSessionKey: taskInput.childSessionKey?.trim(),
+      };
+      const result = await store.runOpenClawStateWorkerOperation(context, (worker) =>
+        runTaskRegistryWorkerMutation(
+          { scope, admission: context.admission },
+          () =>
+            worker.execute({
+              type: "flows.runTask",
+              input: {
+                callerOwnerKey: binding.sessionKey,
+                params: taskInput,
+                taskId: scope.taskId,
+                now: Date.now(),
+              },
+            }),
+          () => worker.execute({ type: "tasks.mutationSnapshot", input: scope }),
+        ),
+      );
+      return mapFlowTaskRunResult(result);
+    },
     get: (flowId) => read("id", flowId),
     async list() {
       const { store, context } = await readStore(false, true);

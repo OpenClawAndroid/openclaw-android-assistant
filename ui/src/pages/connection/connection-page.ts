@@ -12,8 +12,13 @@ import {
   resolveGatewayCredentialsForUrlEdit,
   type UiSettings,
 } from "../../app/settings.ts";
+import type {
+  GatewayStatusSample,
+  GatewayStatusSnapshot,
+} from "../../components/gateway-vitals.ts";
 import { renderLearnMoreLink } from "../../components/settings-ui.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
+import type { SparklineSample } from "../../components/sparkline-tile.ts";
 import { isMissingOperatorReadScopeError } from "../../lib/gateway-errors.ts";
 import {
   GatewayPageController,
@@ -21,10 +26,16 @@ import {
 } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { PollController } from "../../lit/poll-controller.ts";
+import {
+  CONNECTION_PING_SAMPLE_LIMIT,
+  summarizeConnectionPing,
+  type ConnectionPingSummary,
+} from "./latency.ts";
 import { isUnknownSystemInfoMethodError, supportsSystemInfo } from "./system-info.ts";
 import { renderConnection } from "./view.ts";
 
 const SYSTEM_INFO_POLL_INTERVAL_MS = 10_000;
+const DIAGNOSTICS_POLL_INTERVAL_MS = 5_000;
 const CONNECTION_DOCS_URL = "https://docs.openclaw.ai/gateway/remote";
 
 export class ConnectionPage extends OpenClawLightDomElement {
@@ -37,6 +48,13 @@ export class ConnectionPage extends OpenClawLightDomElement {
   @state() private systemInfo: SystemInfoResult | null = null;
   @state() private systemInfoUnavailable = false;
   @state() private systemInfoLoading = false;
+  @state() private ping: ConnectionPingSummary | null = null;
+  @state() private pingFailed = false;
+  private pingSamples: SparklineSample[] = [];
+  private pingRequest: AbortController | null = null;
+  @state() private statusHistory: GatewayStatusSample[] = [];
+  @state() private statusFailed = false;
+  private statusRequest: AbortController | null = null;
 
   private sessionKeyBaseline = "";
   private sessionGatewayUrl = "";
@@ -51,16 +69,26 @@ export class ConnectionPage extends OpenClawLightDomElement {
     false,
   );
 
+  private readonly diagnosticsPolling = new PollController(
+    this,
+    DIAGNOSTICS_POLL_INTERVAL_MS,
+    () => this.refreshDiagnostics(),
+    false,
+  );
+
   private readonly gateway = new GatewayPageController(this, {
     getGateway: () => this.context?.gateway,
     invalidateRequests: () => {
       this.systemInfoLoading = false;
+      this.resetDiagnostics();
     },
     onSnapshot: (change) => this.handleGatewaySnapshot(change),
+    onPageActivation: () => this.syncDiagnosticsPolling(),
   });
 
   override disconnectedCallback() {
     this.systemInfoPolling.stop();
+    this.resetDiagnostics();
     this.resetSensitiveUi();
     super.disconnectedCallback();
   }
@@ -76,6 +104,7 @@ export class ConnectionPage extends OpenClawLightDomElement {
     clientChanged,
   }: GatewayPageChange) {
     if (initial || sourceChanged || clientChanged) {
+      this.resetDiagnostics();
       this.resetConnectionDraft();
       if (
         initial ||
@@ -106,6 +135,143 @@ export class ConnectionPage extends OpenClawLightDomElement {
     }
     this.sessionKeyBaseline = snapshot.sessionKey;
     this.syncSystemInfoPolling();
+    this.syncDiagnosticsPolling();
+  }
+
+  private stopDiagnosticsPolling() {
+    this.diagnosticsPolling.stop();
+    this.pingRequest?.abort();
+    this.pingRequest = null;
+    this.statusRequest?.abort();
+    this.statusRequest = null;
+  }
+
+  private resetDiagnostics() {
+    this.stopDiagnosticsPolling();
+    this.pingSamples = [];
+    this.ping = null;
+    this.pingFailed = false;
+    this.statusHistory = [];
+    this.statusFailed = false;
+  }
+
+  private syncDiagnosticsPolling() {
+    const snapshot = this.context.gateway.snapshot;
+    if (
+      !this.isConnected ||
+      document.visibilityState === "hidden" ||
+      snapshot.phase !== "connected" ||
+      !snapshot.client
+    ) {
+      this.stopDiagnosticsPolling();
+      return;
+    }
+    if (this.diagnosticsPolling.start()) {
+      this.refreshDiagnostics();
+    }
+  }
+
+  private refreshDiagnostics() {
+    void this.measurePing();
+    void this.loadGatewayStatus();
+  }
+
+  private async measurePing() {
+    const gatewaySource = this.gateway.gateway;
+    const scope = this.gateway.capture();
+    if (
+      !gatewaySource ||
+      gatewaySource !== this.context.gateway ||
+      !scope ||
+      this.pingRequest ||
+      document.visibilityState === "hidden"
+    ) {
+      return;
+    }
+    const request = new AbortController();
+    this.pingRequest = request;
+    const isCurrent = () =>
+      this.pingRequest === request &&
+      this.isConnected &&
+      document.visibilityState !== "hidden" &&
+      this.context.gateway === gatewaySource &&
+      this.gateway.isCurrent(scope);
+    const started = performance.now();
+    try {
+      // This RPC reads in-memory state; discard its payload and measure only the round trip.
+      await scope.client.request(
+        "last-heartbeat",
+        {},
+        {
+          timeoutMs: DIAGNOSTICS_POLL_INTERVAL_MS,
+          signal: request.signal,
+        },
+      );
+      if (!isCurrent()) {
+        return;
+      }
+      this.pingSamples = [
+        ...this.pingSamples.slice(-(CONNECTION_PING_SAMPLE_LIMIT - 1)),
+        { at: Date.now(), value: performance.now() - started },
+      ];
+      this.ping = summarizeConnectionPing(this.pingSamples.map((sample) => sample.value));
+      this.pingFailed = false;
+    } catch {
+      if (isCurrent()) {
+        this.pingFailed = true;
+      }
+    } finally {
+      if (this.pingRequest === request) {
+        this.pingRequest = null;
+      }
+    }
+  }
+
+  private async loadGatewayStatus() {
+    const gatewaySource = this.gateway.gateway;
+    const scope = this.gateway.capture();
+    if (
+      !gatewaySource ||
+      gatewaySource !== this.context.gateway ||
+      !scope ||
+      this.statusRequest ||
+      document.visibilityState === "hidden"
+    ) {
+      return;
+    }
+    const request = new AbortController();
+    this.statusRequest = request;
+    const isCurrent = () =>
+      this.statusRequest === request &&
+      this.isConnected &&
+      document.visibilityState !== "hidden" &&
+      this.context.gateway === gatewaySource &&
+      this.gateway.isCurrent(scope);
+    try {
+      const status = await scope.client.request<GatewayStatusSnapshot>(
+        "status",
+        {},
+        {
+          timeoutMs: DIAGNOSTICS_POLL_INTERVAL_MS,
+          signal: request.signal,
+        },
+      );
+      if (isCurrent()) {
+        this.statusHistory = [
+          ...this.statusHistory.slice(-(CONNECTION_PING_SAMPLE_LIMIT - 1)),
+          { at: Date.now(), status },
+        ];
+        this.statusFailed = false;
+      }
+    } catch {
+      if (isCurrent()) {
+        this.statusFailed = true;
+      }
+    } finally {
+      if (this.statusRequest === request) {
+        this.statusRequest = null;
+      }
+    }
   }
 
   private syncSystemInfoPolling() {
@@ -219,6 +385,11 @@ export class ConnectionPage extends OpenClawLightDomElement {
       systemInfo: this.systemInfo,
       systemInfoLoading: this.systemInfoLoading,
       systemInfoUnavailable: this.systemInfoUnavailable,
+      ping: this.ping,
+      pingFailed: this.pingFailed,
+      pingSamples: this.pingSamples,
+      statusHistory: this.statusHistory,
+      statusFailed: this.statusFailed,
       dirty,
       sessionDirty: this.settings.sessionKey.trim() !== gateway.sessionKey,
       sessionSaved: this.sessionSaved,

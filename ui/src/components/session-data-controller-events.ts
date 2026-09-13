@@ -159,6 +159,33 @@ export function subscribeFilteredSidebarSessions(
   };
 }
 
+export function scheduleFilteredSidebarSessions(
+  owner: Pick<SidebarSessionListOwner, "context"> & {
+    readonly isSessionDataHostConnected: boolean;
+    refreshSidebarSessions(): Promise<void>;
+  },
+  readSubscription: () => (() => void) | null,
+): void {
+  const context = owner.context;
+  const subscription = readSubscription();
+  if (!context || !subscription) {
+    return;
+  }
+  void context.connectionBootstrap.run(
+    subscription,
+    async () => {
+      if (
+        owner.context === context &&
+        readSubscription() === subscription &&
+        owner.isSessionDataHostConnected
+      ) {
+        await owner.refreshSidebarSessions();
+      }
+    },
+    { background: true },
+  );
+}
+
 export function refreshSidebarSessionList(
   owner: SidebarSessionListOwner,
   agentId: string | null,

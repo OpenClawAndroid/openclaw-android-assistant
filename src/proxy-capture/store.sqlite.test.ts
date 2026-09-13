@@ -643,8 +643,21 @@ describe("DebugProxyCaptureStore", () => {
             eventCount: 0,
           },
         ]);
+        for (const id of ["empty-z", "empty-a"]) {
+          store.upsertSession({
+            id,
+            startedAt: 2,
+            mode: "test",
+            sourceScope: "openclaw",
+            sourceProcess: "test",
+          });
+        }
+        expect(store.listSessions(2).map(({ id, eventCount }) => ({ id, eventCount }))).toEqual([
+          { id: "empty", eventCount: 0 },
+          { id: "empty-a", eventCount: 0 },
+        ]);
         expect(store.listSessions(0)).toEqual([]);
-        expect(store.listSessions(-1)).toHaveLength(3);
+        expect(store.listSessions(-1)).toHaveLength(5);
 
         store.db.setAuthorizer((action, table) =>
           action === constants.SQLITE_READ && table === "capture_events"

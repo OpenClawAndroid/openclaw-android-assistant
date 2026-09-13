@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SqliteSchemaVersionError } from "../infra/sqlite-user-version.js";
+import { decodeSqliteWorkerReplyError } from "../infra/sqlite-worker-broker-reply.js";
 import {
   findStartupMaintenanceRequiredError,
   StartupMaintenanceRequiredError,
@@ -12,8 +13,9 @@ import {
   OpenClawStateOwnershipMetadataError,
 } from "./openclaw-state-ownership.js";
 import {
-  decodeOpenClawStateWorkerError,
   encodeOpenClawStateWorkerError,
+  hydrateOpenClawStateWorkerError,
+  retainOpenClawStateWorkerErrorPayload,
 } from "./openclaw-state-worker-error.js";
 
 function roundTrip(error: Error): Error {
@@ -21,14 +23,153 @@ function roundTrip(error: Error): Error {
   if (!payload) {
     throw new Error("expected a canonical shared-state error payload");
   }
-  const decoded = decodeOpenClawStateWorkerError(structuredClone(payload));
-  if (!decoded) {
+  const retained = new Error("remote error");
+  retainOpenClawStateWorkerErrorPayload(retained, structuredClone(payload));
+  const decoded = hydrateOpenClawStateWorkerError(retained);
+  if (decoded === retained) {
     throw new Error("expected a decoded shared-state error");
   }
   return decoded;
 }
 
 describe("shared-state worker error transport", () => {
+  it("uses the validated wire root when retaining an unopened error graph", () => {
+    const retained = new Error("remote aggregate");
+    retainOpenClawStateWorkerErrorPayload(retained, {
+      version: 1,
+      root: 1,
+      nodes: [
+        { type: "newer-schema", name: "SqliteSchemaVersionError", message: "newer" },
+        { type: "aggregate", name: "AggregateError", message: "wrapper", errors: [{ ref: 0 }] },
+      ],
+    });
+    const hydrated = hydrateOpenClawStateWorkerError(retained);
+    expect(hydrated).toBeInstanceOf(AggregateError);
+    expect(findStartupMaintenanceRequiredError(hydrated)).toBeInstanceOf(SqliteSchemaVersionError);
+  });
+
+  it("keeps outcome-unknown explicit instead of hydrating a maintenance payload", () => {
+    const payload = encodeOpenClawStateWorkerError(new SqliteSchemaVersionError("newer schema"));
+    if (!payload) {
+      throw new Error("Expected canonical payload");
+    }
+    const failure = decodeSqliteWorkerReplyError(
+      {
+        request: {
+          type: "execute",
+          id: 1,
+          actor: 1,
+          input: new Uint8Array(),
+          stateContext: {
+            environment: { OPENCLAW_STATE_DIR: "/fixture" },
+            coordinatorRuntime: { directory: "/fixture/coordinator", keepAlive: false },
+          },
+        },
+        bytes: 0,
+        resolve: () => undefined,
+        reject: () => undefined,
+        detach: () => undefined,
+      },
+      {
+        name: "SqliteWorkerError",
+        message: "write outcome unknown",
+        code: "outcome-unknown",
+        sharedState: payload,
+      },
+    );
+    expect(hydrateOpenClawStateWorkerError(failure)).toBe(failure);
+    expect(failure).toMatchObject({ code: "outcome-unknown" });
+    expect(findStartupMaintenanceRequiredError(failure)).toBeUndefined();
+  });
+
+  it("hydrates a cached rejection independently for each caller without rewriting its graph", async () => {
+    const payload = encodeOpenClawStateWorkerError(new SqliteSchemaVersionError("newer schema"));
+    if (!payload) {
+      throw new Error("Expected canonical payload");
+    }
+    const remote = new Error("remote failure");
+    retainOpenClawStateWorkerErrorPayload(remote, payload);
+    expect(Object.keys(remote)).toEqual([]);
+    expect(JSON.stringify(remote)).toBe("{}");
+    const untouched = new Error("local cleanup");
+    const original = new AggregateError([remote, remote, untouched], "open and cleanup failed", {
+      cause: remote,
+    });
+    original.errors.push(original);
+    const first = hydrateOpenClawStateWorkerError(original);
+    vi.resetModules();
+    const [codec, errors] = await Promise.all([
+      import("./openclaw-state-worker-error.js"),
+      import("../infra/startup-maintenance-required.js"),
+    ]);
+    const second = codec.hydrateOpenClawStateWorkerError(original);
+    if (!(first instanceof AggregateError) || !(second instanceof AggregateError)) {
+      throw new Error("Expected hydrated aggregate wrappers");
+    }
+    expect(first).not.toBe(second);
+    expect(first.errors[0]).not.toBe(second.errors[0]);
+    expect(first.errors[0]).toBeInstanceOf(StartupMaintenanceRequiredError);
+    expect(second.errors[0]).toBeInstanceOf(errors.StartupMaintenanceRequiredError);
+    for (const result of [first, second]) {
+      expect(result.cause).toBe(result.errors[0]);
+      expect(result.errors[1]).toBe(result.errors[0]);
+      expect(result.errors[2]).toBe(untouched);
+      expect(result.errors[3]).toBe(result);
+    }
+    expect(original.cause).toBe(remote);
+    expect(original.errors).toEqual([remote, remote, untouched, original]);
+  });
+
+  it("retains aliases inside materialized wire graphs without merging distinct caller graphs", async () => {
+    const refusal = new SqliteSchemaVersionError("newer schema");
+    const original = new AggregateError([refusal, refusal], "wire graph", { cause: refusal });
+    refusal.cause = original;
+    const payload = encodeOpenClawStateWorkerError(original);
+    if (!payload) {
+      throw new Error("Expected canonical wire graph");
+    }
+    const retained = new Error("remote error");
+    retainOpenClawStateWorkerErrorPayload(retained, payload);
+    const first = hydrateOpenClawStateWorkerError(retained);
+    const second = hydrateOpenClawStateWorkerError(retained);
+    const combined = new AggregateError([first, second], "separate calls");
+    vi.resetModules();
+    const [codec, errors] = await Promise.all([
+      import("./openclaw-state-worker-error.js"),
+      import("../infra/startup-maintenance-required.js"),
+    ]);
+    const result = codec.hydrateOpenClawStateWorkerError(combined);
+    if (!(result instanceof AggregateError)) {
+      throw new Error("Expected aggregate wrapper");
+    }
+    expect(result.errors[0]).not.toBe(result.errors[1]);
+    for (const graph of result.errors) {
+      if (!(graph instanceof AggregateError)) {
+        throw new Error("Expected materialized wire graph");
+      }
+      expect(graph.cause).toBe(graph.errors[0]);
+      expect(graph.errors[0]).toBe(graph.errors[1]);
+      expect(graph.errors[0]).toBeInstanceOf(errors.StartupMaintenanceRequiredError);
+      const cause: unknown = graph.errors[0];
+      if (!(cause instanceof Error)) {
+        throw new Error("Expected hydrated cause");
+      }
+      expect(cause.cause).toBe(graph);
+    }
+    expect(combined.errors).toEqual([first, second]);
+  });
+
+  it("leaves ordinary and already-current error graphs identical", () => {
+    const local = new Error("caller rejected");
+    const ordinary = new AggregateError([local], "caller and cleanup", { cause: local });
+    local.cause = ordinary;
+    expect(hydrateOpenClawStateWorkerError(ordinary)).toBe(ordinary);
+    const current = roundTrip(new SqliteSchemaVersionError("current caller"));
+    const wrapped = new AggregateError([current], "current graph", { cause: current });
+    expect(hydrateOpenClawStateWorkerError(wrapped)).toBe(wrapped);
+    expect(hydrateOpenClawStateWorkerError("caller rejection")).toBe("caller rejection");
+  });
+
   it.each([
     {
       error: new OpenClawStateOwnershipError("owner refused"),
@@ -215,6 +356,8 @@ describe("shared-state worker error transport", () => {
       ],
     },
   ])("rejects malformed or noncanonical payload %#", (payload) => {
-    expect(decodeOpenClawStateWorkerError(payload)).toBeUndefined();
+    const retained = new Error("ordinary transport failure");
+    retainOpenClawStateWorkerErrorPayload(retained, payload);
+    expect(hydrateOpenClawStateWorkerError(retained)).toBe(retained);
   });
 });

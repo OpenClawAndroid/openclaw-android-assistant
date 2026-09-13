@@ -9,7 +9,6 @@ import {
 } from "../agents/prepared-model-runtime.js";
 import { loadSessionEntry, upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
 import { runExclusiveSqliteSessionWrite } from "../config/sessions/session-accessor.sqlite-scope.js";
-import { SQLITE_SESSION_WRITER_QUEUES } from "../config/sessions/store-writer-state.js";
 import { onInternalDiagnosticEvent } from "../infra/diagnostic-events.js";
 import {
   getActiveDiagnosticTraceContext,
@@ -18,6 +17,7 @@ import {
 import { flushLogger, setLoggerOverride } from "../logging/logger.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
+import { SQLITE_SESSION_WRITER_QUEUES } from "../state/openclaw-agent-write-admission.js";
 import { captureEnv } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { ADMIN_SCOPE } from "./method-scopes.js";

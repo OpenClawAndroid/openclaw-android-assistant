@@ -10,7 +10,6 @@ import {
   closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabases,
   closeOpenClawAgentDatabasesForTest,
-  IncognitoAgentDatabasePathCollisionError,
   isIncognitoOpenClawAgentSqlitePath,
   listOpenClawRegisteredAgentDatabases,
   listOpenIncognitoAgentDatabases,
@@ -166,7 +165,7 @@ describe("incognito agent database", () => {
     } catch (error) {
       collision = error;
     }
-    expect(collision).toBeInstanceOf(IncognitoAgentDatabasePathCollisionError);
+    expect(collision).toBeInstanceOf(Error);
     expect(collision).toMatchObject({
       name: "IncognitoAgentDatabasePathCollisionError",
       path: sentinel,

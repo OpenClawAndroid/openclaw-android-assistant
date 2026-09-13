@@ -724,6 +724,10 @@ export function resolveConfiguredChannelPluginIds(params: {
   manifestRecords?: readonly PluginManifestRecord[];
   discovery?: PluginDiscoveryResult;
 }): string[] {
+  // This ID-only query cannot admit disabled owners; presence reports still collect blocked rows.
+  if (!normalizePluginsConfig((params.activationSourceConfig ?? params.config).plugins).enabled) {
+    return [];
+  }
   const configuredChannelIds = normalizeChannelIds([
     ...listConfiguredChannelIdsForReadOnlyScope({
       config: params.config,

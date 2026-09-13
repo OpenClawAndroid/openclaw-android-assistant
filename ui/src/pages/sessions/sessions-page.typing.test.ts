@@ -25,12 +25,15 @@ function result(key: string): SessionsListResult {
 async function mountTypingPage(initialResult = result("agent:main:initial")) {
   const pending: Array<ReturnType<typeof createDeferred<SessionsListResult>>> = [];
   const requests: unknown[] = [];
-  const request = vi.fn(async (method: string, params?: unknown) => {
+  const request = vi.fn(async (method: string, params?: { includeUnknown?: boolean }) => {
     if (method === "sessions.subscribe") {
-      return { subscribed: true, list: result("agent:main:sidebar") };
+      return { subscribed: true };
     }
     if (method !== "sessions.list") {
       throw new Error(`Unexpected request: ${method}`);
+    }
+    if (params?.includeUnknown !== false) {
+      return result("agent:main:sidebar");
     }
     requests.push(params);
     if (requests.length === 1) {

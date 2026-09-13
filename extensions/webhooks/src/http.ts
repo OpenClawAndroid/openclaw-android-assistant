@@ -26,7 +26,7 @@ import {
 type BoundTaskFlowRuntime = ReturnType<
   PluginRuntime["tasks"]["async"]["managedFlows"]["bindSession"]
 > &
-  Pick<ReturnType<PluginRuntime["tasks"]["managedFlows"]["bindSession"]>, "cancel" | "runTask">;
+  Pick<ReturnType<PluginRuntime["tasks"]["managedFlows"]["bindSession"]>, "cancel">;
 
 export type TaskFlowWebhookTarget = {
   routeId: string;
@@ -501,7 +501,7 @@ async function executeWebhookAction(params: {
       };
     }
     case "run_task": {
-      const result = target.taskFlow.runTask({
+      const result = await target.taskFlow.runTask({
         flowId: action.flowId,
         runtime: action.runtime,
         sourceId: action.sourceId,

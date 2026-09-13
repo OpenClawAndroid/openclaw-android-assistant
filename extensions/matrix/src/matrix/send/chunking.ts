@@ -93,6 +93,9 @@ function restoreMatrixStyleChunks(
   spoiler: MatrixSpoilerMarkers | undefined,
   underline: MatrixSpoilerMarkers | undefined,
 ): string[] {
+  if (!spoiler && !underline) {
+    return chunks;
+  }
   const stack: MatrixChunkStyle[] = [];
   const syntax = {
     spoiler: { open: "||", close: "||", markers: spoiler },

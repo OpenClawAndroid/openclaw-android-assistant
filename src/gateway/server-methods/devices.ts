@@ -491,10 +491,7 @@ export const deviceHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateDevicePairRenameParams, "device.pair.rename", respond)) {
       return;
     }
-    const { deviceId, label } = params as {
-      deviceId: string;
-      label: string;
-    };
+    const { deviceId, label } = params;
     const trimmed = label.trim();
     if (!trimmed) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "label required"));
@@ -560,11 +557,7 @@ export const deviceHandlers: GatewayRequestHandlers = {
     ) {
       return;
     }
-    const { deviceId, role, scopes } = params as {
-      deviceId: string;
-      role: string;
-      scopes?: string[];
-    };
+    const { deviceId, role, scopes } = params;
     const authz = resolveDeviceManagementAuthz(client, deviceId);
     if (deniesCrossDeviceManagement(authz)) {
       logDeviceTokenRotationDenied({

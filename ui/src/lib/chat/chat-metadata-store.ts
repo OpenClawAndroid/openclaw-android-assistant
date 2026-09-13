@@ -10,6 +10,7 @@ import {
   type ChatMetadataEntry,
   type ChatMetadataResult,
   type ChatMetadataUpdate,
+  type ChatMetadataWriter,
 } from "./chat-metadata-cache.ts";
 
 function metadataScopeKey(scope: ChatMetadataParams): string {
@@ -102,16 +103,15 @@ async function requestChatMetadata(
   }
 }
 
-function beginPublication(entry: ChatMetadataEntry) {
-  const writer = {};
+function beginPublication(entry: ChatMetadataEntry, revalidating = false) {
+  const writer: ChatMetadataWriter = { revalidating };
   entry.writer = writer;
-  entry.loadPending = undefined;
-  entry.revalidationPending = undefined;
   const isCurrent = () => entry.writer === writer;
-  notifyChatMetadataListeners(entry, { type: "loading" });
   return {
+    writer,
     isCurrent,
     publish: (result: ChatMetadataResult & { models?: unknown; accountSelection?: unknown }) => {
+      writer.pending = undefined;
       // Legacy/startup responses can carry models. The direct catalog is their only UI owner.
       const { models: _models, accountSelection: _accountSelection, ...metadata } = result;
       if (isCurrent()) {
@@ -122,36 +122,25 @@ function beginPublication(entry: ChatMetadataEntry) {
       return metadata;
     },
     fail: (error: unknown) => {
+      writer.pending = undefined;
       if (isCurrent()) {
         notifyChatMetadataListeners(entry, { type: "error", error });
       }
       entry.release();
+      throw error;
     },
   };
 }
 
 function beginChatMetadataRequest(
   entry: ChatMetadataEntry,
-  pendingKey: "loadPending" | "revalidationPending",
   request: Promise<ChatMetadataResult>,
+  revalidating = false,
 ): Promise<ChatMetadataResult> {
-  const publication = beginPublication(entry);
-  const pending = request
-    .then(
-      (result) => {
-        return publication.publish(result);
-      },
-      (error: unknown) => {
-        publication.fail(error);
-        throw error;
-      },
-    )
-    .finally(() => {
-      if (entry[pendingKey] === pending) {
-        entry[pendingKey] = undefined;
-      }
-    });
-  entry[pendingKey] = pending;
+  const { writer, publish, fail } = beginPublication(entry, revalidating);
+  const pending = request.then(publish, fail);
+  writer.pending = pending;
+  notifyChatMetadataListeners(entry, { type: "loading" });
   return pending;
 }
 
@@ -183,11 +172,11 @@ export function loadChatMetadata(
   if (entry.result) {
     return Promise.resolve(entry.result);
   }
-  const pending = entry.loadPending ?? entry.revalidationPending;
+  const pending = entry.writer?.pending;
   if (pending) {
     return pending;
   }
-  return beginChatMetadataRequest(entry, "loadPending", requestChatMetadata(client, entry.scope));
+  return beginChatMetadataRequest(entry, requestChatMetadata(client, entry.scope));
 }
 
 export function revalidateChatMetadata(
@@ -196,20 +185,19 @@ export function revalidateChatMetadata(
   opts?: { startupRetryWindowMs?: number },
 ): Promise<ChatMetadataResult> {
   const entry = metadataEntryFor(client, scope);
-  if (entry.revalidationPending) {
-    return entry.revalidationPending;
+  const writer = entry.writer;
+  if (writer?.revalidating && writer.pending) {
+    return writer.pending;
   }
-  return beginChatMetadataRequest(
-    entry,
-    "revalidationPending",
-    requestChatMetadata(client, entry.scope, opts),
-  );
+  return beginChatMetadataRequest(entry, requestChatMetadata(client, entry.scope, opts), true);
 }
 
 export function beginChatMetadataPublication(
   client: GatewayBrowserClient,
   scope: ChatMetadataParams,
 ) {
-  const { isCurrent, publish } = beginPublication(metadataEntryFor(client, scope));
+  const entry = metadataEntryFor(client, scope);
+  const { isCurrent, publish } = beginPublication(entry);
+  notifyChatMetadataListeners(entry, { type: "loading" });
   return { isCurrent, publish };
 }

@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as terminalNote from "../../packages/terminal-core/src/note.js";
+import { createApiKeyCredential } from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import { assertAuthProfileMigrationReady } from "../agents/auth-profiles/legacy-source-diagnostic.js";
 import {
   resolveAuthProfileEligibility,
@@ -269,11 +270,7 @@ describe("maybeMigrateAuthProfileJsonStoresToSqlite", () => {
       authPath,
     );
     const profiles: Record<string, unknown> = {
-      "anthropic:unrelated": {
-        type: "api_key",
-        provider: "anthropic",
-        key: "synthetic-unrelated-key",
-      },
+      "anthropic:unrelated": createApiKeyCredential("anthropic", "synthetic-unrelated-key"),
     };
     if (scenario === "credential-present" || scenario === "legacy-id") {
       profiles["openai:default"] = credential;
@@ -1037,16 +1034,8 @@ describe("maybeMigrateAuthProfileJsonStoresToSqlite", () => {
     await state.writeAuthProfiles({
       version: 1,
       profiles: {
-        "openai:alpha": {
-          type: "api_key",
-          provider: "openai",
-          key: "unrelated-key",
-        },
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          key: "configured-key",
-        },
+        "openai:alpha": createApiKeyCredential("openai", "unrelated-key"),
+        "openai:default": createApiKeyCredential("openai", "configured-key"),
       },
     });
     const statePath = await state.writeText(
@@ -1436,11 +1425,7 @@ describe("maybeMigrateAuthProfileJsonStoresToSqlite", () => {
       {
         version: 1,
         profiles: {
-          "openai:default": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-fresh-sqlite",
-          },
+          "openai:default": createApiKeyCredential("openai", "sk-fresh-sqlite"),
         },
       },
       state.agentDir(),
@@ -1649,11 +1634,7 @@ describe("maybeMigrateAuthProfileJsonStoresToSqlite", () => {
     const concurrentStore: AuthProfileStore = {
       version: 1,
       profiles: {
-        "anthropic:default": {
-          type: "api_key",
-          provider: "anthropic",
-          key: "fake-concurrent-key",
-        },
+        "anthropic:default": createApiKeyCredential("anthropic", "fake-concurrent-key"),
       },
     };
 

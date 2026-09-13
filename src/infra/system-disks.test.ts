@@ -33,7 +33,7 @@ describe("system disk snapshots", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("reports distinct Linux storage mounts, not bind aliases or memory and image filesystems", async () => {
+  it("reports distinct Linux storage mounts without EFI, bind aliases, memory or image filesystems", async () => {
     mocks.readFile.mockResolvedValue(
       [
         "1 0 8:1 / / rw - ext4 /dev/sda1 rw",
@@ -42,16 +42,22 @@ describe("system disk snapshots", () => {
         "4 1 0:1 / /run rw - tmpfs tmpfs rw",
         "5 1 7:0 / /snap/package ro - squashfs /dev/loop0 ro",
         "6 1 0:2 / /tank rw - zfs tank rw",
+        "7 1 8:3 / /boot/efi rw - vfat /dev/sda3 rw",
+        "8 1 8:4 / /efi rw - vfat /dev/sda4 rw",
+        "9 1 8:5 / /mnt/efi-data rw - vfat /dev/sdc1 rw",
+        "10 1 8:6 / /boot rw - ext4 /dev/sda6 rw",
       ].join("\n"),
     );
     const { readSystemDisks } = await import("./system-disks.js");
     expect(await readSystemDisks()).toEqual([
       { path: "/", totalBytes: 2_048_000, availableBytes: 1_024_000 },
+      { path: "/boot", totalBytes: 2_048_000, availableBytes: 1_024_000 },
       { path: "/mnt/data disk", totalBytes: 2_048_000, availableBytes: 1_024_000 },
+      { path: "/mnt/efi-data", totalBytes: 2_048_000, availableBytes: 1_024_000 },
       { path: "/tank", totalBytes: 2_048_000, availableBytes: 1_024_000 },
     ]);
     expect(mocks.runCommandWithTimeout).toHaveBeenCalledWith(
-      ["df", "-kP", "/", "/mnt/data disk", "/tank"],
+      ["df", "-kP", "/", "/mnt/data disk", "/tank", "/mnt/efi-data", "/boot"],
       expect.objectContaining({ timeoutMs: 3_000, maxOutputBytes: 1024 * 1024 }),
     );
   });

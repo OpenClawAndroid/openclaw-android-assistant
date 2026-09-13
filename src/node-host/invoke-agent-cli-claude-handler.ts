@@ -188,7 +188,7 @@ export async function handleClaudeCliNodeInvoke(params: {
     resolveExecAsk: params.deps.resolveExecAsk,
     isCmdExeInvocation: params.deps.isCmdExeInvocation,
     sanitizeEnv: params.deps.sanitizeEnv,
-    runCommand: async (approvalArgv, cwd, env, timeoutMs) => {
+    runCommand: async (approvalArgv, cwd, env, timeoutMs, _signal, assertCurrent) => {
       const childEnv = { ...env };
       for (const key of request.clearEnv ?? []) {
         if (!Object.hasOwn(request.env ?? {}, key)) {
@@ -210,6 +210,7 @@ export async function handleClaudeCliNodeInvoke(params: {
           secretInput: preparedSecret.secretInput,
           timeoutMs,
           signal: params.runtime.signal,
+          assertCurrent,
           skillIo: params.runtime.pluginCommandIo,
         });
       } finally {

@@ -40,10 +40,7 @@ import {
   readHotSessionTranscriptSnapshot,
   readRestoredSessionTranscript,
 } from "./session-cold-storage-read.js";
-import {
-  assertSessionTranscriptHot,
-  readSessionColdTranscript,
-} from "./session-cold-storage-state.js";
+import { assertSessionTranscriptHot } from "./session-cold-storage-state.js";
 import { projectResetBoundaryNavigationSql } from "./session-model-context-projection.js";
 import { resolveSqliteSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
 
@@ -370,45 +367,67 @@ function sqliteTranscriptJsonlByteSize() {
     + CASE WHEN COUNT(*) > 0 THEN COUNT(*) - 1 ELSE 0 END`.as("size_bytes");
 }
 
-function createTranscriptStatsQueries(database: Pick<OpenClawAgentDatabase, "db">) {
+function createTranscriptStatsQuery(database: Pick<OpenClawAgentDatabase, "db">) {
   const db = getSessionKysely(database.db);
-  return {
-    events: prepareSqliteQuerySync<
-      string,
-      { event_count: number; max_seq: number | null; size_bytes: number }
-    >(database.db, (parameter) =>
-      db
-        .selectFrom("transcript_events")
-        .select((eb) => [
-          eb.fn.count<number>("seq").as("event_count"),
-          eb.fn.max<number>("seq").as("max_seq"),
-          sqliteTranscriptJsonlByteSize(),
-        ])
-        .where(
-          "session_id",
+  return prepareSqliteQuerySync<
+    string,
+    {
+      event_count: number;
+      max_seq: number | null;
+      size_bytes: number;
+      cold_event_count: number | null;
+      cold_last_seq: number | null;
+      cold_raw_bytes: number | null;
+      transcript_observed_at: number | null;
+      transcript_updated_at: number | null;
+    }
+  >(database.db, (parameter) =>
+    db
+      .selectFrom(
+        db
+          .selectFrom("transcript_events")
+          .select((eb) => [
+            eb.fn.count<number>("seq").as("event_count"),
+            eb.fn.max<number>("seq").as("max_seq"),
+            sqliteTranscriptJsonlByteSize(),
+          ])
+          .where(
+            "session_id",
+            "=",
+            parameter((sessionId) => sessionId),
+          )
+          .as("events"),
+      )
+      .leftJoin("session_transcript_cold_archives as cold", (join) =>
+        join.on(
+          "cold.session_id",
           "=",
           parameter((sessionId) => sessionId),
         ),
-    ),
-    session: prepareSqliteQuerySync<
-      string,
-      { transcript_observed_at: number | null; transcript_updated_at: number | null }
-    >(database.db, (parameter) =>
-      db
-        .selectFrom("session_windows")
-        .select(["transcript_observed_at", "transcript_updated_at"])
-        .where(
-          "session_id",
+      )
+      .leftJoin("session_windows as session", (join) =>
+        join.on(
+          "session.session_id",
           "=",
           parameter((sessionId) => sessionId),
         ),
-    ),
-  };
+      )
+      .select([
+        "events.event_count",
+        "events.max_seq",
+        "events.size_bytes",
+        "cold.event_count as cold_event_count",
+        "cold.last_seq as cold_last_seq",
+        "cold.raw_bytes as cold_raw_bytes",
+        "session.transcript_observed_at",
+        "session.transcript_updated_at",
+      ]),
+  );
 }
 
 const transcriptStatsQueries = new WeakMap<
   OpenClawAgentDatabase["db"],
-  ReturnType<typeof createTranscriptStatsQueries>
+  ReturnType<typeof createTranscriptStatsQuery>
 >();
 
 /** Reads transcript freshness and byte size without materializing event rows. */
@@ -419,25 +438,22 @@ function readTranscriptStatsFromDatabase(
   return runSqliteDeferredTransactionSync(
     database.db,
     () => {
-      const cold = readSessionColdTranscript(database.db, sessionId);
-      let queries = transcriptStatsQueries.get(database.db);
-      if (!queries) {
-        queries = createTranscriptStatsQueries(database);
-        transcriptStatsQueries.set(database.db, queries);
+      let query = transcriptStatsQueries.get(database.db);
+      if (!query) {
+        query = createTranscriptStatsQuery(database);
+        transcriptStatsQueries.set(database.db, query);
       }
-      const row = queries.events(sessionId).rows[0];
-      const session = queries.session(sessionId).rows[0];
+      const row = query(sessionId).rows[0];
       return {
-        eventCount: cold?.event_count ?? row?.event_count ?? 0,
-        ...(session?.transcript_updated_at !== null && session?.transcript_updated_at !== undefined
-          ? { lastMutationAtMs: session.transcript_updated_at }
+        eventCount: row?.cold_event_count ?? row?.event_count ?? 0,
+        ...(row?.transcript_updated_at !== null && row?.transcript_updated_at !== undefined
+          ? { lastMutationAtMs: row.transcript_updated_at }
           : {}),
-        ...(session?.transcript_observed_at !== null &&
-        session?.transcript_observed_at !== undefined
-          ? { lastObservedMutationAtMs: session.transcript_observed_at }
+        ...(row?.transcript_observed_at !== null && row?.transcript_observed_at !== undefined
+          ? { lastObservedMutationAtMs: row.transcript_observed_at }
           : {}),
-        maxSeq: cold?.last_seq ?? row?.max_seq ?? 0,
-        sizeBytes: cold?.raw_bytes ?? row?.size_bytes ?? 0,
+        maxSeq: row?.cold_last_seq ?? row?.max_seq ?? 0,
+        sizeBytes: row?.cold_raw_bytes ?? row?.size_bytes ?? 0,
       };
     },
     { operationLabel: "session transcript stats" },

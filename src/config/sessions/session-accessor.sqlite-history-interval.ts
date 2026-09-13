@@ -207,6 +207,26 @@ export function resolveHistoricalHistoryEventById(
   };
 }
 
+export function resolveHistoryAnchorPageRange(
+  totalMessages: number,
+  anchorPosition: number,
+  maxMessages: number,
+) {
+  const pageSize = Math.max(1, Math.floor(Number.isFinite(maxMessages) ? maxMessages : 1));
+  const newerMessages = Math.floor(pageSize / 2);
+  const olderMessages = pageSize - newerMessages - 1;
+  const latestStart = Math.max(0, totalMessages - pageSize);
+  const start = Math.min(Math.max(0, anchorPosition - olderMessages), latestStart);
+  const endExclusive = Math.min(totalMessages, start + pageSize);
+  const readStart = Math.max(0, start - 1);
+  return {
+    readStart,
+    endExclusive,
+    hasOverreadContext: readStart < start,
+    offset: totalMessages - endExclusive,
+  };
+}
+
 export function readHistoricalHistoryAnchorPage(
   projection: CurrentTranscriptProjection,
   displaySource: string | undefined,
@@ -232,28 +252,19 @@ export function readHistoricalHistoryAnchorPage(
   );
   const total = counts?.total ?? 0;
   const anchorPosition = counts?.before_anchor ?? 0;
-  const pageSize = Math.max(
-    1,
-    Math.floor(Number.isFinite(options.maxMessages) ? options.maxMessages : 1),
-  );
-  const newerMessages = Math.floor(pageSize / 2);
-  const olderMessages = pageSize - newerMessages - 1;
-  const latestStart = Math.max(0, total - pageSize);
-  const start = Math.min(Math.max(0, anchorPosition - olderMessages), latestStart);
-  const endExclusive = Math.min(total, start + pageSize);
-  const readStart = Math.max(0, start - 1);
+  const range = resolveHistoryAnchorPageRange(total, anchorPosition, options.maxMessages);
   return {
     events: readHistoricalDisplayEventRange(
       projection,
       displaySource,
       interval,
-      readStart,
-      endExclusive - readStart,
+      range.readStart,
+      range.endExclusive - range.readStart,
       { activePosition: row.active_position, displayPosition: anchorPosition },
     ),
     found: true,
-    hasOverreadContext: readStart < start,
-    offset: total - endExclusive,
+    hasOverreadContext: range.hasOverreadContext,
+    offset: range.offset,
     displaySource,
     totalMessages: total,
   };

@@ -5,7 +5,9 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { formatToolDetail, resolveToolDisplay } from "../../agents/tool-display.js";
 import { markdownTheme, tuiTheme as theme } from "../theme/theme.js";
 import * as tuiFormatters from "../tui-formatters.js";
+import { extractTuiImageSources } from "../tui-images.js";
 import { HyperlinkMarkdown } from "./hyperlink-markdown.js";
+import { MessageImages, type TuiImageRenderer } from "./message-images.js";
 
 // Rendering model for live tool calls in the chat log.
 type ToolResultContent = {
@@ -14,6 +16,10 @@ type ToolResultContent = {
   mimeType?: string;
   bytes?: number;
   omitted?: boolean;
+  data?: string;
+  url?: string;
+  artifactId?: string;
+  source?: unknown;
 };
 
 type ToolResult = {
@@ -138,8 +144,9 @@ export class ToolExecutionComponent extends Container {
   private toolName: string;
   private title = "";
   private isPartial = true;
+  private images: MessageImages;
 
-  constructor(toolName: string, args: unknown) {
+  constructor(toolName: string, args: unknown, imageRenderer?: TuiImageRenderer) {
     super();
     this.toolName = toolName;
     this.box = new Box(1, 1, theme.toolPendingBg);
@@ -153,6 +160,8 @@ export class ToolExecutionComponent extends Container {
     this.box.addChild(this.header);
     this.box.addChild(this.argsLine);
     this.box.addChild(this.output);
+    this.images = new MessageImages(imageRenderer);
+    this.box.addChild(this.images);
     this.setArgs(args);
     this.setPartialResult(undefined);
   }
@@ -181,6 +190,10 @@ export class ToolExecutionComponent extends Container {
     this.updateResult(result, true);
   }
 
+  dispose() {
+    this.images.dispose();
+  }
+
   private refreshTitle() {
     const title = tuiFormatters.sanitizeRenderableLine(
       `${this.title}${this.isPartial ? " (running)" : ""}`,
@@ -202,5 +215,6 @@ export class ToolExecutionComponent extends Container {
       raw.trim() ? raw : isPartial ? "…" : "",
       isCodeModeResult(this.toolName, result),
     );
+    this.images.setImages(extractTuiImageSources(result));
   }
 }

@@ -1,5 +1,5 @@
 // Tests for gateway runtime subscription wiring.
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChannelParticipantAdmissionEvidence } from "../../test/helpers/channel-admission-evidence.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import {
@@ -49,6 +49,11 @@ import {
   createSessionMessageSubscriberRegistry,
 } from "./server-chat-state.js";
 import type { TaskEventPayload } from "./server-methods/task-summary.js";
+import {
+  readTaskUpserts,
+  registerTaskSubscriptionOwnershipTests,
+  sessionTaskDefaults,
+} from "./server-runtime-subscriptions.task-ownership.test-support.js";
 import { lifecycleState, readLifecycleState } from "./server-runtime-subscriptions.test-support.js";
 import { TerminalSessionManager } from "./terminal/session-manager.js";
 import {
@@ -177,24 +182,7 @@ vi.mock("./server-session-events.js", async (importOriginal) => {
 const { startGatewayEventSubscriptions } = await import("./server-runtime-subscriptions.js");
 type SubscriptionParams = Parameters<typeof startGatewayEventSubscriptions>[0];
 
-function readTaskUpserts(broadcast: Mock<SubscriptionParams["broadcast"]>) {
-  return broadcast.mock.calls.flatMap(([event, payload]) => {
-    if (event !== "task") {
-      return [];
-    }
-    const taskEvent = payload as TaskEventPayload;
-    return taskEvent.action === "upserted" ? [taskEvent] : [];
-  });
-}
 type LifecycleTransition = { state: string; lifecycle?: ReturnType<typeof readLifecycleState> };
-
-const sessionTaskDefaults = {
-  requesterSessionKey: "agent:main:main",
-  ownerKey: "agent:main:main",
-  scopeKind: "session",
-  deliveryStatus: "not_applicable",
-  notifyPolicy: "silent",
-} as const;
 
 function createParams(): SubscriptionParams {
   return {
@@ -245,11 +233,18 @@ describe("startGatewayEventSubscriptions", () => {
     unsubs?.heartbeatUnsub();
     unsubs?.transcriptUnsub();
     unsubs?.lifecycleUnsub();
-    void unsubs?.taskUnsub();
+    await unsubs?.taskUnsub();
     resetAgentEventsForTest();
     resetTaskRegistryForTests({ persist: false });
     configureExecutionIdentityAdmissionSink(() => false)();
   });
+
+  registerTaskSubscriptionOwnershipTests(
+    (broadcast, terminalSessions = { closeTaskSessions: vi.fn(() => 1) }) => {
+      unsubs = startGatewayEventSubscriptions({ ...createParams(), broadcast, terminalSessions });
+      return { taskUnsub: unsubs.taskUnsub, closeTaskSessions: terminalSessions.closeTaskSessions };
+    },
+  );
 
   it("broadcasts suspension immediately and stops with the gateway lifecycle", () => {
     resetGatewayWorkAdmission();

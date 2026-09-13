@@ -171,7 +171,7 @@ describe("cloud worker run ownership", () => {
       );
       try {
         expect(
-          receiver.apply({
+          await receiver.apply({
             identity,
             request: {
               runEpoch: OWNER_EPOCH,
@@ -210,7 +210,7 @@ describe("cloud worker run ownership", () => {
           await expect(turnCapability.run(async () => "late effect")).rejects.toThrow();
         } else {
           expect(
-            receiver.apply({
+            await receiver.apply({
               identity,
               request: {
                 runEpoch: OWNER_EPOCH,

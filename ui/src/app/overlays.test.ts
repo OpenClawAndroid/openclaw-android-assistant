@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { hasSameOriginGatewayTransport } from "../dev-gateway.ts";
 import { createUpdateRunFixture as updateRunFixture } from "../test-helpers/update-run.ts";
-import type { ConnectionBootstrapCoordinator } from "./connection-bootstrap.ts";
+import { createConnectionBootstrapCoordinator } from "./connection-bootstrap.ts";
 import type { ApplicationGatewaySnapshot } from "./gateway.ts";
 import {
   approval,
@@ -75,24 +75,25 @@ describe("Control UI refresh nudge", () => {
     const request = vi.fn<RequestFn>((method) =>
       Promise.resolve(method === "exec.approval.list" ? [] : {}),
     );
-    const coordinator = {
-      reset: vi.fn(),
-      run: vi.fn(async (_key: string, task: () => Promise<unknown>) => {
-        await task();
-      }),
-      synchronize: vi.fn(),
-    } satisfies ConnectionBootstrapCoordinator;
+    const coordinator = createConnectionBootstrapCoordinator();
+    const run = vi.spyOn(coordinator, "run");
     const harness = createGatewayHarness(null, false);
     const overlays = createApplicationOverlays(harness.gateway, {
       connectionBootstrap: coordinator,
     });
 
-    harness.update({ client: client(request), phase: "connected" });
+    const gatewayClient = client(request);
+    harness.update({ client: gatewayClient, phase: "connected" });
     await flushMicrotasks();
 
-    expect(coordinator.run).toHaveBeenCalledWith("approvals", expect.any(Function));
-    expect(coordinator.run).toHaveBeenCalledWith("update-run", expect.any(Function));
+    expect(run).toHaveBeenCalledWith("approvals", expect.any(Function));
+    expect(run).toHaveBeenCalledWith("update-run", expect.any(Function));
+    expect(request).not.toHaveBeenCalled();
+    coordinator.synchronize({ client: gatewayClient, connected: true });
+    await flushMicrotasks();
+    expect(request).toHaveBeenCalled();
     overlays.dispose();
+    coordinator.reset();
   });
 
   it("flags a terminal build rejection without requiring a hello", () => {

@@ -12,6 +12,7 @@ export type WorktreeFilesystemOptions = {
 
 export interface WorktreeFilesystemBackend {
   id: string;
+  estimateCloneBytes: (entries: number, indexBytes: number) => number;
   createTemplate: (path: string, options: WorktreeFilesystemOptions) => Promise<void>;
   cloneTemplate: (
     source: string,
@@ -70,6 +71,8 @@ async function runBtrfsMutation(
 
 const btrfsBackend: WorktreeFilesystemBackend = {
   id: "btrfs",
+  // Subvolume snapshots share directory metadata too; reserve index rewrites and tree updates.
+  estimateCloneBytes: (_entries, indexBytes) => 16 * 1024 ** 2 + 2 * indexBytes,
   async createTemplate(destination, options) {
     await runBtrfsMutation(["create", "--", destination], destination, options);
   },
@@ -124,6 +127,8 @@ export async function detectWorktreeFilesystemBackend(
     }
     return {
       id: "refs",
+      estimateCloneBytes: (entries, indexBytes) =>
+        16 * 1024 ** 2 + 2 * indexBytes + entries * (8192 + volume.clusterSize),
       async createTemplate(destination, templateOptions) {
         assertActive(templateOptions);
         await fs.mkdir(destination);
@@ -160,6 +165,8 @@ export async function detectWorktreeFilesystemBackend(
     };
     return {
       id: "apfs",
+      // Directory clones share file data but allocate file and directory metadata.
+      estimateCloneBytes: (entries, indexBytes) => 16 * 1024 ** 2 + 2 * indexBytes + entries * 8192,
       async createTemplate(destination, templateOptions) {
         assertActive(templateOptions);
         await fs.mkdir(destination);

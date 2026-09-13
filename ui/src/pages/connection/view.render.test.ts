@@ -32,6 +32,11 @@ function createConnectionProps(overrides: Partial<ConnectionProps> = {}): Connec
     systemInfo: null,
     systemInfoUnavailable: false,
     systemInfoLoading: false,
+    ping: null,
+    pingFailed: false,
+    pingSamples: [],
+    statusHistory: [],
+    statusFailed: false,
     dirty: false,
     sessionDirty: false,
     sessionSaved: false,
@@ -255,7 +260,7 @@ describe("connection view rendering", () => {
     const sections = [...container.querySelectorAll(".settings-section__heading")].map((node) =>
       node.textContent?.trim(),
     );
-    expect(sections).toEqual(["Connection", "Session", "Gateway Host"]);
+    expect(sections).toEqual(["Connection", "Gateway activity", "Session", "Gateway Host"]);
     expect(container.querySelector("#settings-connection-host")).not.toBeNull();
     const name = container.querySelector(".config-host__name");
     expect(name?.textContent?.trim()).toBe("Gateway Mac");

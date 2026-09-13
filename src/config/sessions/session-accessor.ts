@@ -273,6 +273,7 @@ export {
   replaceTranscriptSuffixEventsSync,
   rewriteTranscriptEventRowsExact,
   rewriteTranscriptMessageAtAnchor,
+  rewriteAssistantTranscriptMessageForRun,
   resolveTranscriptSessionKeyBySessionId,
   trimSessionTranscriptForManualCompact,
   withTranscriptWriteLock,

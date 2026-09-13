@@ -25,8 +25,11 @@ view from within an agent turn, or inspect the transcript path on disk for
 the raw full transcript.
 
 In the Control UI, parent sessions with recent child runs have an expandable
-sidebar row. The nested rows show child status and runtime, and selecting one
-opens that child's chat while preserving the parent hierarchy. Failed or timed-out
+sidebar row. Subagents appear only under an expanded parent, including when a
+custom group is assigned. The nested rows show child status and runtime, and
+selecting one opens that child's chat while preserving the parent hierarchy. Chat
+activity rows identify each subagent by its task name beside its status and latest
+activity. Failed or timed-out
 children retain a bounded failure reason, including failures during worktree
 preparation before any model reply. The child's transcript includes a durable
 failure notice when no assistant reply was recorded for that run. A later

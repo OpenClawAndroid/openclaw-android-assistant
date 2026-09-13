@@ -172,7 +172,7 @@ export default function createApplicationPlacementStartupRuntime(
     if (!isCurrent(entry)) {
       return;
     }
-    void params.sessions.refresh({ force: true, backgroundHydrate: true }).catch(() => undefined);
+    params.sessions.invalidate();
   };
 
   const pauseEntry = (

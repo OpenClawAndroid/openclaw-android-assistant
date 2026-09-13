@@ -115,6 +115,11 @@ const completeRequesterSettleWakeBatch = (
   const settledDeliveries: SubagentRunRecord[] = [];
   for (const entry of entries) {
     const { runId } = entry;
+    // A yielded turn's wake cannot complete or retire its unfinished task.
+    if (entry.pauseReason === "sessions_yield") {
+      entry.requesterSettleWake = undefined;
+      continue;
+    }
     if (outcome?.delivered && entry.expectsCompletionMessage === true) {
       // Replace the receipt owner even if an older multipart send already committed a chunk.
       // Its retained guard must stay closed after this wake is cleared.
@@ -136,10 +141,12 @@ const completeRequesterSettleWakeBatch = (
         delivery.lastDropReason = undefined;
       } else {
         const error = outcome.error ?? outcome.reason ?? "requester settle wake failed";
+        const resolution = params.resolveSubagentTask(entry);
         if (
+          resolution.lookup !== "available" ||
           !blockSubagentCompletionDelivery({
             subagent: entry,
-            taskId: params.resolveSubagentTask(entry).task?.taskId ?? "",
+            taskId: resolution.task?.taskId ?? "",
             reason: error,
             disposition: outcome.disposition,
           })

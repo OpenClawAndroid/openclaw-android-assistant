@@ -375,7 +375,7 @@ test("preserves ordered fallback through restart, workspace sync, and safe sessi
     tunnelManager,
     generateWorkerCredential: () => "original-order-credential",
     liveEvents: {
-      apply: () => ({ ok: true, result: { ackedSeq: 1 } }),
+      apply: async () => ({ ok: true, result: { ackedSeq: 1 } }),
       bindSession: () => true,
       clear: () => {},
       clearEnvironment: () => {},

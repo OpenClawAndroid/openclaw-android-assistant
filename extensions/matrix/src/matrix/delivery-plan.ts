@@ -309,9 +309,9 @@ export async function persistMatrixDeliveryPlan(params: {
 
 async function loadQueuePlans(queueId: string): Promise<MatrixDeliveryPlan[]> {
   const store = createDeliveryPlanStore();
-  const keys = (await store.entries())
-    .filter((entry) => entry.key.startsWith(queuePrefix(queueId)))
-    .map((entry) => entry.key);
+  const entries = await store.entries();
+  const prefix = entries.length > 0 ? queuePrefix(queueId) : "";
+  const keys = entries.filter((entry) => entry.key.startsWith(prefix)).map((entry) => entry.key);
   return await Promise.all(
     keys.map(async (key) => {
       const entry = await store.lookup(key);
@@ -466,8 +466,8 @@ export async function reconcileMatrixUnknownSend(
 export async function cleanupMatrixDeliveryPlans(ctx: { queueId: string }): Promise<void> {
   const store = createDeliveryPlanStore();
   await store.deleteExpired();
-  const keys = (await store.entries())
-    .filter((entry) => entry.key.startsWith(queuePrefix(ctx.queueId)))
-    .map((entry) => entry.key);
+  const entries = await store.entries();
+  const prefix = entries.length > 0 ? queuePrefix(ctx.queueId) : "";
+  const keys = entries.filter((entry) => entry.key.startsWith(prefix)).map((entry) => entry.key);
   await Promise.all(keys.map(async (key) => await store.delete(key)));
 }

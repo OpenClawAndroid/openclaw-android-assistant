@@ -6,6 +6,8 @@
     <string name="controls" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Kontrol"</string>
     <string name="talk" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Bicara"</string>
     <string name="real_time_audio_failed" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Audio jam tangan gagal"</string>
+    <string name="microphone_permission_required" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Izin mikrofon diperlukan"</string>
+    <string name="open_settings" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Buka Pengaturan"</string>
     <string name="dictate" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Diktekan"</string>
     <string name="live" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Langsung"</string>
     <string name="thread" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Utas"</string>
@@ -26,6 +28,7 @@
     <string name="speak_reply" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Bacakan balasan terbaru"</string>
     <string name="speaking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Berbicara"</string>
     <string name="listening" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Mendengarkan"</string>
+    <string name="stopping" tools:ignore="MissingTranslation,Typos,TypographyDashes,TypographyEllipsis">"Mengakhiri panggilan…"</string>
     <string name="connecting" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Menghubungkan"</string>
     <string name="thinking" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Berpikir"</string>
     <string name="typing" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Mengetik"</string>

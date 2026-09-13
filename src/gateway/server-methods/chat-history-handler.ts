@@ -115,19 +115,7 @@ async function handleChatHistoryRequest({
     maxBytes,
     pendingBefore,
     inputRunIds,
-  } = params as {
-    sessionKey: string;
-    agentId?: string;
-    limit?: number;
-    offset?: number;
-    cursor?: string;
-    messageId?: string;
-    sessionId?: string;
-    maxChars?: number;
-    maxBytes?: number;
-    pendingBefore?: number;
-    inputRunIds?: string[];
-  };
+  } = params;
   if (offset !== undefined && messageId !== undefined) {
     respond(
       false,

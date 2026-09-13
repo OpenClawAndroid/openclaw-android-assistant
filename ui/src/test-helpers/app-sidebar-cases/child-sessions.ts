@@ -1,6 +1,11 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
+import {
+  createTestSessionCapability,
+  sessionsResult,
+} from "../../lib/sessions/session-capability.test-support.ts";
 import {
   createContext,
   createGateway,
@@ -9,6 +14,7 @@ import {
   deferred,
   mountSidebar,
 } from "../app-sidebar.ts";
+import { createGatewayRequestMock, createTestGatewayClient } from "../gateway-client.ts";
 import { waitForFast } from "../wait-for.ts";
 import "../../components/app-sidebar.ts";
 
@@ -452,91 +458,144 @@ describe("AppSidebar agent chip", () => {
     expect(sidebar.querySelector("[data-child-session-error]")).toBeNull();
   });
 
-  it("nests the selected child under its parent and reveals the active path", async () => {
-    const request = vi.fn(async (method: string, params?: { key?: string }) => {
-      if (method === "sessions.describe") {
-        return {
-          session:
-            params?.key === "agent:main:parent"
-              ? {
-                  key: "agent:main:parent",
-                  kind: "direct" as const,
-                  label: "Parent task",
-                  updatedAt: 1,
-                  childSessions: ["agent:worker:child"],
-                }
-              : {
-                  key: "agent:worker:child",
-                  parentSessionKey: "agent:main:parent",
-                  kind: "direct" as const,
-                  label: "Selected child",
-                  updatedAt: 2,
-                  status: "running" as const,
-                },
-        };
-      }
-      return undefined;
-    });
-    const gateway = createGateway({ request } as unknown as GatewayBrowserClient);
-    const harness = createSessionsHarness("main", ["agent:main:parent"]);
-    const { sidebar, context } = await mountSidebar(gateway, harness.sessions);
-    harness.publishList({
-      result: {
-        ts: 2,
-        path: "",
-        count: 1,
-        defaults: { modelProvider: null, model: null, contextTokens: null },
-        sessions: [
-          {
-            key: "agent:main:parent",
-            kind: "direct",
-            label: "Parent task",
-            updatedAt: 1,
-            childSessions: ["agent:worker:child"],
-          },
-        ],
-      },
-    });
-    context.agentSelection.state.selectedId = "worker";
-    context.agentSelection.state.scopeId = "worker";
-    (sidebar as unknown as { activeRouteId: string }).activeRouteId = "chat";
-    sidebar.sessionKey = "agent:worker:child";
-    await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith("sessions.describe", {
-        key: "agent:worker:child",
-      }),
-    );
-    await waitForFast(() =>
-      expect(sidebar.querySelectorAll('[data-session-key="agent:worker:child"]')).toHaveLength(1),
-    );
-    await waitForFast(() =>
-      expect(sidebar.querySelectorAll(".sidebar-recent-session")).toHaveLength(2),
-    );
-    expect(sidebar.querySelectorAll('[data-session-key="agent:worker:child"]')).toHaveLength(1);
-    expect(
-      sidebar
-        .querySelector('[data-child-session-toggle="agent:main:parent"]')
-        ?.getAttribute("aria-expanded"),
-    ).toBe("true");
-    expect(
-      sidebar
-        .querySelector('[data-session-key="agent:worker:child"]')
-        ?.classList.contains("sidebar-recent-session--active"),
-    ).toBe(true);
-    const toggle = sidebar.querySelector<HTMLButtonElement>(
-      '[data-child-session-toggle="agent:main:parent"]',
-    );
-    toggle?.click();
-    await sidebar.updateComplete;
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(sidebar.querySelector('[data-session-key="agent:worker:child"]')).toBeNull();
+  it.each(["agent:main:parent", "agent:main:main"])(
+    "nests the selected categorized subagent under %s and reveals the active path",
+    async (parentKey) => {
+      const childKey = "agent:worker:subagent:child";
+      const parent = {
+        key: parentKey,
+        sessionId: `session:${parentKey}`,
+        kind: "direct" as const,
+        label: "Parent task",
+        updatedAt: 1,
+        childSessions: [childKey],
+      };
+      const child = {
+        key: childKey,
+        sessionId: `session:${childKey}`,
+        parentSessionKey: parentKey,
+        category: "Team",
+        kind: "direct" as const,
+        label: "Selected child",
+        updatedAt: 2,
+        status: "running" as const,
+      };
+      const request = createGatewayRequestMock(async (method, params) => {
+        const query = isRecord(params) ? params : undefined;
+        if (method === "sessions.describe") {
+          return { session: query?.key === parentKey ? parent : child };
+        }
+        if (method === "sessions.list") {
+          return sessionsResult(
+            query?.spawnedBy === parentKey || query?.agentId === "worker" ? [child] : [parent],
+            2,
+          );
+        }
+        return {};
+      });
+      const gateway = createGateway(createTestGatewayClient(request));
+      const sessions = createTestSessionCapability(gateway);
+      await sessions.refresh({ agentId: "main", force: true });
+      const { sidebar, context, provider } = await mountSidebar(gateway, sessions);
+      try {
+        context.agentSelection.set("worker");
+        sidebar.activeRouteId = "chat";
+        sidebar.sessionKey = "agent:worker:subagent:child";
+        await waitForFast(() =>
+          expect(request).toHaveBeenCalledWith("sessions.describe", {
+            key: "agent:worker:subagent:child",
+          }),
+        );
+        await waitForFast(() =>
+          expect(
+            sidebar.querySelectorAll('[data-session-key="agent:worker:subagent:child"]'),
+          ).toHaveLength(1),
+        );
+        await waitForFast(() =>
+          expect(sidebar.querySelectorAll(".sidebar-recent-session")).toHaveLength(2),
+        );
+        expect(
+          sidebar.querySelectorAll('[data-session-key="agent:worker:subagent:child"]'),
+        ).toHaveLength(1);
+        expect(
+          sidebar
+            .querySelector(`[data-child-session-toggle="${parentKey}"]`)
+            ?.getAttribute("aria-expanded"),
+        ).toBe("true");
+        expect(
+          sidebar
+            .querySelector('[data-session-key="agent:worker:subagent:child"]')
+            ?.classList.contains("sidebar-recent-session--active"),
+        ).toBe(true);
+        const toggle = sidebar.querySelector<HTMLButtonElement>(
+          `[data-child-session-toggle="${parentKey}"]`,
+        );
+        toggle?.click();
+        await sidebar.updateComplete;
+        expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+        expect(
+          sidebar.querySelector('[data-session-key="agent:worker:subagent:child"]'),
+        ).toBeNull();
 
-    sidebar.sessionKey = "agent:main:parent";
-    await sidebar.updateComplete;
-    sidebar.sessionKey = "agent:worker:child";
-    await waitForFast(() =>
-      expect(sidebar.querySelector('[data-session-key="agent:worker:child"]')).not.toBeNull(),
+        sidebar.sessionKey = parentKey;
+        context.agentSelection.set("main");
+        await waitForFast(() =>
+          expect(sidebar.sessionData.activeSessionLineageSelectedRow?.key).toBe(parentKey),
+        );
+        sidebar.sessionKey = "agent:worker:subagent:child";
+        context.agentSelection.set("worker");
+        await waitForFast(() =>
+          expect(
+            sidebar.querySelector(
+              `[data-session-tree="${parentKey}"] [data-session-key="agent:worker:subagent:child"]`,
+            ),
+          ).not.toBeNull(),
+        );
+      } finally {
+        provider.remove();
+        sessions.dispose();
+      }
+    },
+  );
+
+  it("keeps a directly opened subagent off the root list when its parent is unavailable", async () => {
+    const childKey = "agent:main:subagent:orphan";
+    const parentKey = "agent:main:unavailable-parent";
+    const child = {
+      key: childKey,
+      sessionId: `session:${childKey}`,
+      parentSessionKey: parentKey,
+      spawnedBy: parentKey,
+      category: "Team",
+      kind: "direct" as const,
+      updatedAt: 1,
+      label: "Opened subagent",
+    };
+    const request = createGatewayRequestMock(async (method, params) =>
+      method === "sessions.list"
+        ? sessionsResult([child], 2)
+        : { session: isRecord(params) && params.key === childKey ? child : null },
     );
+    const gateway = createGateway(createTestGatewayClient(request));
+    const sessions = createTestSessionCapability(gateway);
+    await sessions.refresh({ agentId: "main", force: true });
+    const { sidebar, provider } = await mountSidebar(gateway, sessions);
+    try {
+      sidebar.activeRouteId = "chat";
+      sidebar.sessionKey = childKey;
+
+      await waitForFast(() =>
+        expect(request).toHaveBeenCalledWith("sessions.describe", { key: parentKey }),
+      );
+      expect(sidebar.sessionKey).toBe(childKey);
+      await waitForFast(() =>
+        expect(sidebar.sessionData.activeSessionLineageSelectedRow?.key).toBe(childKey),
+      );
+      expect(sidebar.querySelector(`[data-session-key="${childKey}"]`)).toBeNull();
+    } finally {
+      provider.remove();
+      sessions.dispose();
+    }
   });
 
   it("keeps the selected archived child when its archived parent is filtered out", async () => {

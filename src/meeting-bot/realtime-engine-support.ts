@@ -28,7 +28,11 @@ const MEETING_REALTIME_CANCELLATION_RACE_DETAIL = "Cancellation failed: no activ
 
 type MeetingRealtimeLifecycleHandlersParams = {
   clearOutputPlayback: () => void;
-  getContinuityResetActive: () => boolean;
+  lifecycle: {
+    realtimeReady: boolean;
+    continuityResetActive: boolean;
+    outputGenerationActive: boolean;
+  };
   harness: RealtimeVoiceSessionHarness;
   invalidateOutputPlayback: () => void;
   logScope: string;
@@ -37,9 +41,6 @@ type MeetingRealtimeLifecycleHandlersParams = {
   outputTalkPayload: { bridgeId: string } | { meetingSessionId: string };
   realtimeLogScope: string;
   resetToolContinuity: (reason: string) => void;
-  setContinuityResetActive: (active: boolean) => void;
-  setOutputGenerationActive: (active: boolean) => void;
-  setRealtimeReady: (ready: boolean) => void;
 };
 
 type MeetingRealtimeProviderSelectionConfig = {
@@ -233,16 +234,16 @@ export function createMeetingRealtimeLifecycleHandlers(
 ) {
   const onEvent = (event: RealtimeVoiceBridgeEvent) => {
     if (event.direction === "server" && event.type === "session.created") {
-      params.setContinuityResetActive(false);
+      params.lifecycle.continuityResetActive = false;
     }
     if (event.direction === "client" && event.type === "session.continuity.reset") {
-      if (params.getContinuityResetActive()) {
+      if (params.lifecycle.continuityResetActive) {
         return;
       }
-      params.setContinuityResetActive(true);
-      params.setRealtimeReady(false);
+      params.lifecycle.continuityResetActive = true;
+      params.lifecycle.realtimeReady = false;
       params.outputOwner.reset();
-      params.setOutputGenerationActive(false);
+      params.lifecycle.outputGenerationActive = false;
       params.resetToolContinuity(event.type);
       const turnId = params.harness.talk.activeTurnId;
       params.invalidateOutputPlayback();
@@ -275,7 +276,7 @@ export function createMeetingRealtimeLifecycleHandlers(
       event.detail === MEETING_REALTIME_CANCELLATION_RACE_DETAIL
     ) {
       if (params.outputOwner.clearBlocked()) {
-        params.setOutputGenerationActive(false);
+        params.lifecycle.outputGenerationActive = false;
         params.harness.finishOutputAudio(event.type);
       }
     } else if (event.type === "error") {
@@ -304,7 +305,7 @@ export function createMeetingRealtimeLifecycleHandlers(
     if (!params.outputOwner.terminal(outcome.responseId)) {
       return;
     }
-    params.setOutputGenerationActive(false);
+    params.lifecycle.outputGenerationActive = false;
     if (outcome.status === "failed" || outcome.status === "incomplete") {
       params.logger.warn(
         `${params.logScope} ${params.realtimeLogScope} response ${outcome.status}: ${outcome.message}`,

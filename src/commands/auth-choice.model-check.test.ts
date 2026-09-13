@@ -1,6 +1,7 @@
 // Auth-choice model check tests cover warnings for mismatched model and auth config.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthProfileStore } from "../agents/auth-profiles.js";
+import { createApiKeyCredential } from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -128,11 +129,7 @@ describe("warnIfModelConfigLooksOff", () => {
       pendingAuthProfiles: [
         {
           profileId: "openai:default",
-          credential: {
-            type: "api_key",
-            provider: "openai",
-            key: "test-openai-key",
-          },
+          credential: createApiKeyCredential("openai", "test-openai-key"),
         },
       ],
     });

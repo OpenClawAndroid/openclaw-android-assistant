@@ -347,7 +347,9 @@ async function runCommand(
   env: Record<string, string> | undefined,
   timeoutMs: number | undefined,
   signal?: AbortSignal,
+  assertCurrent?: () => void,
 ): Promise<RunResult> {
+  assertCurrent?.();
   try {
     const result = await runCommandWithTimeout(argv, {
       baseEnv: env,

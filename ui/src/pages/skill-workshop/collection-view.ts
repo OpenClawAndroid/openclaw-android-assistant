@@ -6,11 +6,14 @@ import { icons } from "../../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { t } from "../../i18n/index.ts";
 import { registerPluginManagementEnglish } from "../../i18n/locales/en-plugin-management.ts";
+import { registerSkillWorkshopEnglish } from "../../i18n/locales/en-skill-workshop.ts";
 import { formatDateTimeMs, formatRelativeTimestamp } from "../../lib/format.ts";
 import { changedSkillWorkshopVersion } from "../../lib/skill-workshop/index.ts";
 import { renderDiffBlock, renderDiffStatChips } from "../chat/components/chat-diff-render.ts";
 import "../../styles/chat/tool-cards.css";
 import type { SkillWorkshopProps } from "./view-types.ts";
+
+registerSkillWorkshopEnglish();
 
 registerPluginManagementEnglish();
 

@@ -88,6 +88,7 @@ function isSessionsCatalogHostEvent(value: unknown): value is SessionsCatalogHos
 
 /** Tracks one sidebar's progressive list streams and adaptive refresh lifecycle. */
 export class SessionCatalogLiveState {
+  refreshScope = {};
   timer: ReturnType<typeof globalThis.setTimeout> | null = null;
   requestGeneration: number | null = null;
   sawChange = false;
@@ -114,6 +115,7 @@ export class SessionCatalogLiveState {
   }
 
   clear() {
+    this.refreshScope = {};
     this.cancelScheduledRefreshes();
     this.requestGeneration = null;
     this.requestOwner = null;

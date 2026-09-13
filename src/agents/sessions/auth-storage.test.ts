@@ -8,6 +8,7 @@ import {
 } from "openclaw/plugin-sdk/agent-sessions";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
 
 const providerOAuthMocks = vi.hoisted(() => ({
   login: vi.fn(),
@@ -751,11 +752,7 @@ describe("SQLite auth storage", () => {
             provider: "openai",
             keyRef: { source: "env", provider: "default", id: "OPENAI_WORK_KEY" },
           },
-          "anthropic:default": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "fake-anthropic-key",
-          },
+          "anthropic:default": createApiKeyCredential("anthropic", "fake-anthropic-key"),
         },
       },
       agentDir,

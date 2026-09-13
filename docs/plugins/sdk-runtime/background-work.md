@@ -143,7 +143,7 @@ Start agent work in the background: hook-dispatched turns for external content, 
 
   </Accordion>
   <Accordion title="api.runtime.tasks">
-    Prefer `api.runtime.tasks.async` for reads and managed-flow state changes. It has `runs`, `flows`, and
+    Prefer `api.runtime.tasks.async` for reads, managed-flow state changes, and child-task linkage. It has `runs`, `flows`, and
     `managedFlows` namespaces with the same synchronous `bindSession(...)` and
     `fromToolContext(...)` factories. Await `get`, `list`, `findLatest`, and
     `resolve`; both flow namespaces also provide awaited `getTaskSummary`.
@@ -155,7 +155,7 @@ Start agent work in the background: hook-dispatched turns for external content, 
 
     The async `managedFlows` binding also provides `createManaged`,
     `tryCreateManaged`, `setWaiting`, `resume`, `finish`, `fail`, and
-    `requestCancel`. Await creation before starting work and await each mutation
+    `requestCancel`, plus `runTask` for linking existing work. Await creation before starting work and await each mutation
     before reporting its result. Updates check the owner, managed mode, and
     expected revision together inside the worker's SQLite transaction.
 
@@ -166,7 +166,7 @@ Start agent work in the background: hook-dispatched turns for external content, 
     checks for bare owner keys without a persisted requester agent can also
     require existing runtime-configuration preparation on the main thread.
     Warmed task and flow SQL queries and these managed-flow writes run in the
-    worker. Committed writes reconcile the process flow registry before
+    worker. Committed writes reconcile the relevant process task and flow registries before
     publication; a failed reconciliation leaves that projection dirty without
     changing the durable write result. A result describes its operation snapshot
     and may be superseded by a later mutation.
@@ -185,12 +185,17 @@ Start agent work in the background: hook-dispatched turns for external content, 
     remain supported but are deprecated in
     favor of this opt-in surface. Their removal requires a supported external
     plugin migration and an explicitly approved Plugin SDK major release.
-    Native cancellation and child-task linkage continue through the existing
-    namespaces. An awaited read does not authorize a later write: retain revision checks and the
-    synchronous final backing-task read/link sequence described below.
+    Native cancellation continues through the existing namespaces. An awaited read
+    does not authorize a later write: retain revision checks. Async `runTask`
+    rereads the canonical flow and backing inside its write admission and refuses
+    a new active link when that backing has already completed. Existing terminal
+    projections can still receive metadata updates without restarting work.
+    For duplicate reuse, async `runTask` uses persisted creation-time/task-ID
+    order, then the existing ACP preference. Deprecated sync `runTask` preserves
+    its insertion-order tie behavior.
     A worker error with code `outcome-unknown` can follow a committed write.
     The code may appear directly, in a cause, or in `AggregateError.errors` when
-    cleanup also fails. Both creation methods propagate these errors; reread
+    cleanup also fails. Creation and child linkage propagate these errors; reread
     current state before deciding whether to retry that operation.
 
     Bind Task Flow and Task Run state to a trusted, existing OpenClaw owner session.
@@ -212,7 +217,7 @@ Start agent work in the background: hook-dispatched turns for external content, 
 
     1. Create a managed flow bound to the real requester session. Handle creation failure before launching work. Binding state access does not grant subagent requester authority.
     2. Inside an active requester-bound `before_dispatch` hook for an authenticated inbound request, call `api.runtime.subagent.run` with a unique agent-qualified child session key, the task message and `completionDelivery: "current-requester"`. The Gateway captures the requester and delivery route; retain the returned canonical `runId` and `sessionKey`. Missing identities or a rejected launch are failures, not permission to fabricate a task. Ordinary runs without `current-requester` have `not_applicable` completion delivery and lack the mirrored backing needed for this link.
-    3. Immediately before linking, resolve the canonical task with the owner-bound `runs.resolve(runId)`. Verify its owner, run id, child session key and task runtime. Use its actual `sourceId`, queued/running status and available timing facts in `managedFlows.runTask`, alongside the managed flow id and task description. Do not confuse the launch result's harness/provider metadata with the task DTO's `runtime`. Keep this final read/check and `runTask` synchronous, with no intervening `await`, and check `created` before proceeding.
+    3. Resolve the canonical task with the owner-bound `await runs.resolve(runId)`. Verify its owner, run id, child session key and task runtime. Use its actual `sourceId`, queued/running status and available timing facts in `await managedFlows.runTask(...)`, alongside the managed flow id and task description. Do not confuse the launch result's harness/provider metadata with the task DTO's `runtime`. The async link checks current backing again before writing; check `created` before proceeding. Controllers retaining the deprecated sync API must keep their final backing read/check and link synchronous, with no intervening `await`.
     4. Observe completion through `subagent.waitForRun` and the canonical task. A bounded wait returning `pending` or an observation timeout is not a terminal child failure and does not cancel the run. Interpret results only after actual completion. On failure, record a failed/blocked flow outcome and report it; never insert a replacement child declaration to hide launch/link refusal.
     5. Reload the managed record after awaited work. Stop for terminal state or cancellation intent; use the latest revision for the next state transition. Check every `applied` result, including `finish`/`fail`, and check `cancelled` for cancellation. On revision conflict, reread and reconcile rather than blindly retrying side effects.
 

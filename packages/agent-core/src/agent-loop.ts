@@ -364,6 +364,7 @@ async function runLoop(
             toolLoopRecoveryState.criticalToolLoopSeen,
             toolCalls,
             scheduling,
+            scheduling.hasUnobservedAsyncToolResults,
           );
           if (batch.intervention) {
             toolLoopRecoveryState.criticalToolLoopSeen = true;
@@ -405,6 +406,8 @@ async function runLoop(
               emit,
               toolLoopRecoveryState.criticalToolLoopSeen,
               remainingToolCalls,
+              undefined,
+              streamed.executedIds.size > 0,
             )
           : undefined;
       const batches = [...streamed.batches, ...(terminalToolBatch ? [terminalToolBatch] : [])];
@@ -422,6 +425,9 @@ async function runLoop(
       turnTainted ||= toolResults.some(toolResultTaintsTurn);
       hasMoreToolCalls =
         streamed.continuationRequired ||
+        (message.stopReason === "stop" &&
+          message.endTurn === false &&
+          !executedToolBatch?.terminate) ||
         (executedToolBatch !== undefined && !executedToolBatch.terminate);
       pendingMessages = executedToolBatch?.steeringMessages ?? [];
       if (executedToolBatch?.intervention) {
@@ -543,6 +549,7 @@ async function executeToolCalls(
   criticalToolLoopSeen: boolean,
   toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall"),
   scheduling?: AsyncToolBatchScheduling,
+  hasUnobservedAsyncToolResults = false,
 ): Promise<ExecutedToolCallBatch> {
   const batch: ToolBatchContext = {
     currentContext,
@@ -553,6 +560,7 @@ async function executeToolCalls(
     resolved: new Map(),
     validated: new Map(),
     onParallelStarted: scheduling?.onParallelStarted,
+    hasUnobservedAsyncToolResults,
   };
   if (config.beforeToolBatch) {
     for (const toolCall of toolCalls) {
@@ -617,6 +625,7 @@ type ToolBatchContext = {
   lifecycle?: InternalToolBatchLifecycle;
   warnings?: ToolLoopWarning[];
   onParallelStarted?: () => void;
+  hasUnobservedAsyncToolResults: boolean;
 };
 
 type ResolvedToolCallOutcome =
@@ -909,7 +918,15 @@ async function prepareToolCallEntry(
   }
   const execution = await prepareToolCallExecution(
     preparation,
-    { assistantMessage: batch.assistantMessage, toolCall: preparation.toolCall },
+    {
+      assistantMessage: batch.assistantMessage,
+      toolCall: preparation.toolCall,
+      hasUnobservedAsyncToolResults:
+        batch.hasUnobservedAsyncToolResults ||
+        batch.assistantMessage.content
+          .slice(0, batch.assistantMessage.content.indexOf(toolCall))
+          .some((item) => item.type === "toolCall" && item.async === true),
+    },
     batch.signal,
     batch.emit,
   );

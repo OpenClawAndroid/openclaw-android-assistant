@@ -1615,8 +1615,13 @@ if (commandArgs[0] === "list") {
       }
       expect(script, scriptPath).toContain("--thinking");
       expect(script, scriptPath).toContain("off");
-      expect(script, scriptPath).toContain("finalAssistant(Raw|Visible)Text");
+      expect(script, scriptPath).toContain(
+        scriptPath === TS_PATHS.windows
+          ? "finalAssistant(Raw|Visible)Text"
+          : "posixAgentTurnScript({",
+      );
     }
+    expect(smokeCommon).toContain("finalAssistant(Raw|Visible)Text");
     expect(macos).toContain("modelProviderConfigBatchJson");
     expect(macos).toContain("config set --batch-file");
     expect(linux).toContain("modelProviderConfigBatchJson");
@@ -1632,6 +1637,7 @@ if (commandArgs[0] === "list") {
     expect(npmUpdateScripts).toContain("--thinking off");
     expect(npmUpdateScripts).toContain("finalAssistant(Raw|Visible)Text");
     expect(npmUpdateScripts).toContain("posixAssertAgentOkScript");
+    expect(npmUpdateScripts).toContain("posixAgentTurnScript({");
     expect(npmUpdateScripts).toContain("windowsAgentTurnConfigPatchScript");
     expect(npmUpdateScripts).toContain("modelProviderConfigBatchJson");
     expect(npmUpdateScripts).toContain("config set --batch-file");

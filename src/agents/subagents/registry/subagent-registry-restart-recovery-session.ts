@@ -11,6 +11,11 @@ import type { InternalSessionEntry } from "../../../config/sessions/types.js";
 import type { GatewayRecoveryRuntime } from "../../../gateway/server-instance-runtime.types.js";
 import { listAgentRunsForSession } from "../../../infra/agent-run-registry.js";
 import { isSessionWorkAdmissionActive } from "../../../sessions/session-lifecycle-admission.js";
+import {
+  INTERNAL_MESSAGE_CHANNEL,
+  isInternalNonDeliveryChannel,
+} from "../../../utils/message-channel-constants.js";
+import { normalizeMessageChannel } from "../../../utils/message-channel-core.js";
 import { isRetiredSubagentExecution } from "./subagent-registry-restart-recovery-helpers.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
@@ -18,7 +23,17 @@ const RECOVERY_RESUMED_NOTICE = "Resumed your interrupted task after the Gateway
 
 export function shouldConfirmAcceptedRecoveryResumption(owner: SubagentRunRecord): boolean {
   const origin = owner.requesterOrigin;
-  return owner.expectsCompletionMessage !== false && Boolean(origin?.channel && origin.to);
+  const channel = normalizeMessageChannel(origin?.channel);
+  // Native sessions observe recovery through session events; they have no outbound transport.
+  return (
+    owner.expectsCompletionMessage !== false &&
+    Boolean(
+      channel &&
+      channel !== INTERNAL_MESSAGE_CHANNEL &&
+      !isInternalNonDeliveryChannel(channel) &&
+      origin?.to,
+    )
+  );
 }
 
 export async function loadSubagentRecoverySession(params: {

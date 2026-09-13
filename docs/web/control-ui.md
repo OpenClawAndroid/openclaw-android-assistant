@@ -23,6 +23,8 @@ It speaks **directly to the Gateway WebSocket** on the same port.
 
 While the initial connection or a route loads, shimmer placeholders reserve the chat layout. They respect your theme and reduced-motion preference; Gateway startup progress remains visible when available.
 
+The selected chat loads before automatic sidebar task lists refresh. Live events remain subscribed during startup, and explicit sidebar actions remain available. Background lists resume after the transcript loads or reports an error.
+
 Closed Terminal, Browser, Desktop, and Home/Ask OpenClaw panels initialize when you open them rather than during initial navigation. Panels saved as open still restore after a reload.
 
 Choose **New agent** in the sidebar or Agents home to open the custodian chat.

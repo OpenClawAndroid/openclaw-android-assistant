@@ -3774,7 +3774,9 @@ if (tool === "gh") {
       FIXTURE_CALLS: calls,
       FIXTURE_METADATA_ERROR: String(params.metadataError ?? false),
       FIXTURE_DIRECTORY: JSON.stringify(
-        params.supportsScenario === false ? ["run.sh"] : ["run.sh", "legacy-operator-state.mjs"],
+        params.supportsScenario === false
+          ? ["run.sh"]
+          : ["run.sh", "legacy-operator-state.mjs", "custom-plugin-siblings.mjs"],
       ),
     },
   });
@@ -11323,7 +11325,9 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       expect(result.status, result.stderr).toBe(0);
       expect(output).toEqual({
         baselines: "supported-lines",
-        scenarios: soak ? "reported-issues" : "base legacy-operator-state",
+        scenarios: soak
+          ? parseUpgradeSurvivorScenarios("reported-issues").join(" ")
+          : "base legacy-operator-state custom-plugin-siblings",
       });
       expect(calls).toEqual([
         {

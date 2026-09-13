@@ -63,7 +63,13 @@ export async function createPtyAdapter(
       cols: params.cols ?? 120,
       rows: params.rows ?? 30,
     },
-    { abortSignal: params.abortSignal, assertCurrent: params.assertCurrent },
+    {
+      abortSignal: params.abortSignal,
+      assertCurrent: () => {
+        params.assertCurrent?.();
+        params.beforeSpawn?.();
+      },
+    },
   );
   try {
     params.assertCurrent?.();

@@ -123,11 +123,15 @@ export class CompilerInputSnapshot {
           const id = portableRelativePath(this.rootDir, file);
           // Helper checkouts and tool scratch are separate roots; aliases retain their paths.
           // Vitest's checkout-local cache can appear after tests without changing build inputs.
+          // Swift package/debug builders own these exact roots, including dependency checkouts.
           if (
             id === ".ci-harness" ||
             id === ".worktrees" ||
             id === ".cache/openclaw-pnpm-store" ||
             id === ".cache/vitest" ||
+            id === "apps/macos/.build" ||
+            id === "apps/macos/.build-local" ||
+            id === "apps/macos-mlx-tts/.build" ||
             (!installed &&
               [".git", ".artifacts", ".claude", ".agents", ".local", "dist"].includes(entry.name))
           ) {

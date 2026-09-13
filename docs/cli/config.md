@@ -573,6 +573,12 @@ Successful `config set` or `config unset` operations that produce no effective c
 
 `openclaw config set` and other OpenClaw-owned config writers validate the full post-change config before committing it to disk. If the new payload fails schema validation or looks like a destructive clobber, the active config is left alone and the rejected payload is saved beside it as `openclaw.json.rejected.*`.
 
+If staging a config save fails, the existing root or include backup ring is left
+untouched. OpenClaw prepares backup contents without blocking unrelated Gateway
+requests. If a copy fallback removes the file before a conflict, OpenClaw restores
+the original when it still owns the missing destination. Otherwise, the error
+reports partial publication and the backup location to inspect before another save.
+
 If the file is saved but later processing fails, the error names the written file
 and reports whether the write was rolled back. This can name an included file
 when that file owns the edited setting. If rollback did not happen or could not

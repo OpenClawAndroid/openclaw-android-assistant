@@ -21,6 +21,7 @@ import {
 import {
   snapshotStoreGeneration,
   subscribeSnapshotInvalidation,
+  type SessionSnapshotInvalidationReason,
 } from "./session-snapshot-invalidation-events.ts";
 import { deleteStoredChatSnapshot } from "./session-snapshot-invalidation.ts";
 import {
@@ -335,9 +336,9 @@ export class SessionSnapshotStore implements ChatCacheObserver {
     this.schedule(sessionKey, snapshot);
   }
 
-  async delete(sessionKey: string): Promise<void> {
+  async delete(sessionKey: string, reason?: SessionSnapshotInvalidationReason): Promise<void> {
     this.forget(sessionKey);
-    await deleteStoredChatSnapshot(sessionKey);
+    await deleteStoredChatSnapshot(sessionKey, reason);
   }
 
   forget(sessionKey: string): void {
@@ -365,7 +366,7 @@ export class SessionSnapshotStore implements ChatCacheObserver {
       if (record) {
         records.push(record);
       } else {
-        await this.delete(sessionKey);
+        await this.delete(sessionKey, "cache-eviction");
       }
     }
     const generation = snapshotStoreGeneration;

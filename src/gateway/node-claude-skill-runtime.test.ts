@@ -128,7 +128,7 @@ async function fixture(
   capability?.bind(admitted);
   const snapshot = options.managed
     ? {
-        ...buildSkillSnapshot(workspace, { entries: loadSkillLibrarySelection(pins) }),
+        ...(await buildSkillSnapshot(workspace, { entries: loadSkillLibrarySelection(pins) })),
         librarySelections: pins,
       }
     : undefined;

@@ -1,6 +1,6 @@
 import { clearTaskRegistrySqliteForTests } from "../test-utils/task-registry-sqlite.js";
 import type { TaskRegistryControlRuntime } from "./task-registry-control.types.js";
-import type { TaskRegistryDeliveryRuntime } from "./task-registry-state.js";
+import type { TaskRegistryDeliveryRuntime } from "./task-registry-runtime-loaders.js";
 import { createTaskRecord as createTaskRecordOrNull } from "./task-registry.js";
 import type { TaskEventRecord, TaskRecord } from "./task-registry.types.js";
 

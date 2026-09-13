@@ -7,6 +7,7 @@ import "../../components/modal-dialog.ts";
 import "../../components/resizable-divider.ts";
 import "../../components/tooltip.ts";
 import { t } from "../../i18n/index.ts";
+import { registerSkillWorkshopEnglish } from "../../i18n/locales/en-skill-workshop.ts";
 import { formatRelativeTimestamp } from "../../lib/format.ts";
 import "../../styles/plugins.css";
 import "../../styles/skill-workshop.css";
@@ -23,6 +24,8 @@ import { renderSkillWorkshopEvaluation } from "./evaluation-view.ts";
 import { renderSkillWorkshopProposalList } from "./proposal-list.ts";
 import { renderSelfLearningError } from "./self-learning.ts";
 import type { SkillWorkshopProps } from "./view-types.ts";
+
+registerSkillWorkshopEnglish();
 
 const GROUP_LABEL: Record<SkillWorkshopProposal["recencyGroup"], string> = {
   today: "skillWorkshop.recency.today",

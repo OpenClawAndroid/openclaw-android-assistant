@@ -43,6 +43,7 @@ import {
   type SessionTranscriptTurnWriteContext,
   type SessionTranscriptTurnExpectedState,
   type TranscriptEntryAnchor,
+  type TranscriptEvent,
 } from "./session-accessor.js";
 import type {
   SessionLifecycleRevisionExpectation,
@@ -195,11 +196,11 @@ type SessionConversationTranscriptTarget = {
   sqliteScope?: SqliteSessionFileMarker;
 };
 
-function parseRecentConversationText(
-  line: string,
+function extractRecentConversationText(
+  event: TranscriptEvent,
   options: ReadRecentSessionConversationTextOptions = {},
 ): SessionRecentConversationText | undefined {
-  const parsed = JSON.parse(line) as {
+  const parsed = event as {
     id?: unknown;
     message?: unknown;
   };
@@ -291,7 +292,7 @@ async function readRecentUserAssistantTextFromSqliteTranscript(
           break;
         }
         for (const event of page.events.toReversed()) {
-          const entry = parseRecentConversationText(JSON.stringify(event.event), options);
+          const entry = extractRecentConversationText(event.event, options);
           if (entry && isWithinTranscriptWindow(entry.timestamp, options)) {
             recent.push(entry);
             if (recent.length >= limit) {

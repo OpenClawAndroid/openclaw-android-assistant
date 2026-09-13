@@ -49,7 +49,31 @@ export function readActiveTranscriptEntryAnchorInTransaction(params: {
       .where("identity.event_id", "=", params.entryId)
       .limit(1),
   );
-  if (row?.message_position === null || row?.message_position === undefined) {
+  return createTranscriptEntryAnchor({ ...params, row });
+}
+
+/** Projects anchor fields after the caller verifies readiness in the same snapshot. */
+export function createTranscriptEntryAnchor(params: {
+  database: Pick<OpenClawAgentDatabase, "path">;
+  resolved: ResolvedTranscriptScope;
+  entryId: string;
+  message?: unknown;
+  row:
+    | {
+        seq: number;
+        parent_id: string | null;
+        message_idempotency_key: string | null;
+        message_position: number | null;
+        generation: string | null;
+      }
+    | undefined;
+}): TranscriptEntryAnchor | undefined {
+  const { row } = params;
+  if (
+    row?.message_position === null ||
+    row?.message_position === undefined ||
+    row.generation === null
+  ) {
     return undefined;
   }
   const idempotencyKey = row.message_idempotency_key ?? readMessageIdempotencyKey(params.message);

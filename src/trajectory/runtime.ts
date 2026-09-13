@@ -11,9 +11,15 @@ import {
   loadSessionEntry,
   type SessionTranscriptRuntimeTarget,
 } from "../config/sessions/session-accessor.js";
+import {
+  resolveSqliteReadScope,
+  toDatabaseOptions,
+} from "../config/sessions/session-accessor.sqlite-scope.js";
+import { resolveStateDir } from "../config/state-dir.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { redactSecrets } from "../logging/redact.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
+import { withOpenClawAgentDatabaseWrite } from "../state/openclaw-agent-db-write.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
 import { truncateUtf8Prefix } from "../utils/utf8-truncate.js";
@@ -366,7 +372,10 @@ function createSqliteTrajectoryRuntimeSink(params: {
   if (!marker || marker.sessionId !== params.sessionId) {
     return null;
   }
-  let pendingEvents: TrajectoryEvent[] = [];
+  const env = { ...params.env };
+  env.OPENCLAW_STATE_DIR = resolveStateDir(env);
+  const databaseOptions = toDatabaseOptions(resolveSqliteReadScope({ ...marker, env }));
+  const pendingEvents: TrajectoryEvent[] = [];
   let queuedBytes = 0;
   return {
     describeFlushState: () =>
@@ -377,19 +386,24 @@ function createSqliteTrajectoryRuntimeSink(params: {
       if (pendingEvents.length === 0) {
         return;
       }
-      const events = pendingEvents;
-      pendingEvents = [];
-      queuedBytes = 0;
-      appendSqliteTrajectoryRuntimeEvents(
-        {
-          agentId: marker.agentId,
-          env: params.env,
-          maxRuntimeBytes: params.maxRuntimeFileBytes,
-          sessionId: marker.sessionId,
-          storePath: marker.storePath,
-        },
-        events,
-      );
+      await withOpenClawAgentDatabaseWrite(databaseOptions, (database) => {
+        // Select and retire the batch on the shared writer lane. Concurrent
+        // flushes cannot duplicate it, and a failed commit leaves it pending.
+        const events = pendingEvents.slice();
+        const bytes = queuedBytes;
+        appendSqliteTrajectoryRuntimeEvents(
+          {
+            agentId: marker.agentId,
+            env: databaseOptions.env,
+            maxRuntimeBytes: params.maxRuntimeFileBytes,
+            sessionId: marker.sessionId,
+            storePath: database.path,
+          },
+          events,
+        );
+        pendingEvents.splice(0, events.length);
+        queuedBytes -= bytes;
+      });
     },
     write: (event, line) => {
       pendingEvents.push(event);

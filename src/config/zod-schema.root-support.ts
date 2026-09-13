@@ -126,9 +126,13 @@ export const ResponsesEndpointUrlFetchShape = {
 };
 
 export const SkillEntrySchema = z.strictObject({
+  /** Disable a discovered skill without removing it from disk. */
   enabled: z.boolean().optional(),
+  /** Optional secret made available to the skill runtime through skill env handling. */
   apiKey: SecretInputSchema.optional().register(sensitive),
+  /** Plain environment overrides applied when the skill runs. */
   env: z.record(z.string(), z.string()).optional(),
+  /** Skill-specific structured config consumed by the skill runtime. */
   config: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -136,24 +140,49 @@ export const PluginEntrySchema = z.strictObject({
   enabled: z.boolean().optional(),
   hooks: z
     .strictObject({
+      /** Controls prompt mutation via before_prompt_build. */
       allowPromptInjection: z.boolean().optional(),
+      /**
+       * Controls access to raw conversation content from conversation hooks including
+       * before_agent_run, before_model_resolve, before_agent_reply, llm_input, llm_output,
+       * before_agent_finalize, and agent_end.
+       * Non-bundled plugins must opt in explicitly; bundled plugins stay allowed unless disabled.
+       */
       allowConversationAccess: z.boolean().optional(),
+      /** Default timeout in milliseconds for this plugin's typed hooks. */
       timeoutMs: z.number().int().positive().max(600_000).optional(),
+      /** Per typed-hook timeout overrides in milliseconds. */
       timeouts: z.record(z.string(), z.number().int().positive().max(600_000)).optional(),
     })
     .optional(),
   subagent: z
     .strictObject({
+      /** Explicitly allow this plugin to request per-run provider/model overrides for subagent runs. */
       allowModelOverride: z.boolean().optional(),
+      /**
+       * Allowed override targets as canonical provider/model refs.
+       * Use "*" to explicitly allow any model for this plugin.
+       */
       allowedModels: z.array(z.string()).optional(),
     })
     .optional(),
   llm: z
     .strictObject({
+      /** Explicitly allow this plugin to request a model override for api.runtime.llm.complete. */
       allowModelOverride: z.boolean().optional(),
+      /**
+       * Allowed override targets as canonical provider/model refs.
+       * Use "*" to explicitly allow any model for this plugin.
+       */
       allowedModels: z.array(z.string()).optional(),
+      /**
+       * Allowed models for every completion, including host-resolved defaults and overrides.
+       * Use "*" to explicitly allow any model for this plugin.
+       */
       allowedCompletionModels: z.array(z.string()).optional(),
+      /** Allow explicit auth-profile selection for isolated agent-runtime completions. */
       allowAuthProfileOverride: z.boolean().optional(),
+      /** Explicitly allow this plugin to run completions against a non-default agent id. */
       allowAgentIdOverride: z.boolean().optional(),
     })
     .optional(),

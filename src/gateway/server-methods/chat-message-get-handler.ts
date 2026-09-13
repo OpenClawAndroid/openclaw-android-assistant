@@ -87,13 +87,8 @@ export const chatMessageGetHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateChatMessageGetParams, "chat.message.get", respond)) {
       return;
     }
-    const { sessionKey, messageId, maxChars } = params as {
-      sessionKey: string;
-      agentId?: string;
-      messageId: string;
-      maxChars?: number;
-    };
-    const agentIdOverride = normalizeOptionalText((params as { agentId?: string }).agentId);
+    const { sessionKey, messageId, maxChars } = params;
+    const agentIdOverride = normalizeOptionalText(params.agentId);
     const requestedAgent = resolveRequestedSessionAgentId(
       context.getRuntimeConfig(),
       sessionKey,

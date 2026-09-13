@@ -132,22 +132,20 @@ function renderSubagentActivityRow(
         }),
       )
     : undefined;
+  const title = taskTitle(task);
+  const preview = snippet ? `${title} · ${snippet}` : title;
   const label = subagentActivityLabel(task);
   const content = html`
     ${renderSubagentActivityIndicator(task)}
     <span class="chat-subagent-activity__label">${label}</span>
-    ${
-      snippet
-        ? keyed(
-            `${task.status}:${snippet}`,
-            html`<span
-              class="chat-subagent-activity__snippet chat-subagent-activity__snippet--updated"
-              title=${snippet}
-              >${snippet}</span
-            >`,
-          )
-        : nothing
-    }
+    ${keyed(
+      `${task.status}:${preview}`,
+      html`<span
+        class="chat-subagent-activity__snippet chat-subagent-activity__snippet--updated"
+        title=${preview}
+        >${preview}</span
+      >`,
+    )}
   `;
   if (!onOpenTaskDetail) {
     return html`<div

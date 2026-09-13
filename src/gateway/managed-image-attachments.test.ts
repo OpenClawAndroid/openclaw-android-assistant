@@ -151,6 +151,7 @@ const {
   createManagedOutgoingMediaBlocks: createManagedOutgoingImageBlocksActual,
   handleManagedOutgoingMediaHttpRequest: handleManagedOutgoingImageHttpRequest,
   prepareOutgoingMediaFromReplyPayload,
+  readManagedOutgoingImageThumbnail,
   resolveManagedOutgoingMediaArtifactDownload: resolveManagedOutgoingImageArtifactDownload,
   resolveManagedImageAttachmentLimits,
 } = await import("./managed-image-attachments.js");
@@ -1181,7 +1182,7 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(download?.title).toBe("meeting-note.mp3");
   });
 
-  it("serves a bounded thumbnail through the full-image artifact ticket", async () => {
+  it("serves the same bounded thumbnail through local reads and the full-image artifact ticket", async () => {
     const source = createSolidPngBuffer(640, 320, { r: 24, g: 64, b: 128 });
     const { attachmentId, sessionKey } = await createFixture(stateDir, { body: source });
     const canonicalPath = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
@@ -1203,6 +1204,24 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
       stateDir,
     });
     const thumbnailUrl = download?.url.replace(/\/full(?=\?)/u, "/thumbnail") ?? "";
+    const localRequest = {
+      sessionKey,
+      artifactId: `${MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX}${attachmentId}`,
+      stateDir,
+      maxBytes: 12 * 1024 * 1024,
+      signal: new AbortController().signal,
+    };
+    const localThumbnail = await readManagedOutgoingImageThumbnail(localRequest);
+    expect(localThumbnail && readImageProbeFromHeader(localThumbnail)).toMatchObject({
+      width: 300,
+      height: 150,
+    });
+    await expect(
+      readManagedOutgoingImageThumbnail({ ...localRequest, maxBytes: 1 }),
+    ).rejects.toThrow("byte limit");
+    await expect(
+      readManagedOutgoingImageThumbnail({ ...localRequest, sessionKey: "agent:other:main" }),
+    ).resolves.toBeNull();
 
     vi.clearAllMocks();
     const { result } = await requestManagedImage({
@@ -1216,6 +1235,7 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(result.headers["content-type"]).toBe("image/png");
     expect(result.headers["content-disposition"]).toContain("cat-thumbnail.png");
     expect(readImageProbeFromHeader(result.body)).toMatchObject({ width: 300, height: 150 });
+    expect(result.body).toEqual(localThumbnail);
     expect(authorizeGatewayHttpRequestOrReplyMock).not.toHaveBeenCalled();
   });
 

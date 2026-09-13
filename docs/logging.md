@@ -657,6 +657,10 @@ so stored history can correlate with live tool events. This exemption applies
 only to protocol metadata; the same values in arguments, results, or nested
 payloads still pass through redaction.
 
+In the OpenClaw harness, finalized tool-result text is masked after middleware,
+before entering live model context. This also covers exec output and tool errors;
+it preserves media bytes and the original arguments used to execute tools.
+Redaction happens when the result is added, keeping later prompt replay stable.
 Model-visible tool-result text uses narrower assignment matching so source code
 remains intact. Registered secrets and explicit credential forms, including
 structured fields, authorization headers, URL credentials, and known token

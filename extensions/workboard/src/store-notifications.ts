@@ -84,7 +84,13 @@ export class WorkboardNotificationStore extends WorkboardWorkflowStore {
     const effectiveSessionKey = subscription?.sessionKey;
     const effectiveRunId = subscription?.runId;
     const events: WorkboardNotification[] = [];
-    for (const card of await this.list({ boardId: effectiveBoardId })) {
+    const selectedCard = effectiveCardId ? await this.get(effectiveCardId) : undefined;
+    const cards = effectiveCardId
+      ? selectedCard
+        ? [selectedCard]
+        : []
+      : await this.list({ boardId: effectiveBoardId });
+    for (const card of cards) {
       if (card.metadata?.archivedAt || (effectiveCardId && card.id !== effectiveCardId)) {
         continue;
       }

@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
+import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 
 vi.mock("./cli-credentials.js", () => ({
   readCodexCliCredentialsCached: () => null,
@@ -58,16 +59,8 @@ async function withAuthProfileStore(
     {
       version: 1,
       profiles: {
-        "anthropic:default": {
-          type: "api_key",
-          provider: "anthropic",
-          key: "sk-default",
-        },
-        "openrouter:default": {
-          type: "api_key",
-          provider: "openrouter",
-          key: "sk-or-default",
-        },
+        "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
+        "openrouter:default": createApiKeyCredential("openrouter", "sk-or-default"),
       },
     },
     agentDir,
@@ -90,11 +83,7 @@ describe("markAuthProfileFailure", () => {
       {
         version: 1,
         profiles: {
-          "openai:default": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-expired-old",
-          },
+          "openai:default": createApiKeyCredential("openai", "sk-expired-old"),
         },
       },
       agentDir,
@@ -104,11 +93,7 @@ describe("markAuthProfileFailure", () => {
     const staleRuntimeStore: AuthProfileStore = {
       version: 1,
       profiles: {
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          key: "sk-expired-old",
-        },
+        "openai:default": createApiKeyCredential("openai", "sk-expired-old"),
       },
     };
 
@@ -116,11 +101,7 @@ describe("markAuthProfileFailure", () => {
       {
         version: 1,
         profiles: {
-          "openai:default": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-fresh-new",
-          },
+          "openai:default": createApiKeyCredential("openai", "sk-fresh-new"),
         },
       },
       agentDir,
@@ -303,11 +284,7 @@ describe("markAuthProfileFailure", () => {
       {
         version: 1,
         profiles: {
-          "anthropic:default": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "sk-default",
-          },
+          "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
         },
         usageStats: {
           "anthropic:default": {
@@ -343,11 +320,7 @@ describe("markAuthProfileFailure", () => {
       {
         version: 1,
         profiles: {
-          "anthropic:default": {
-            type: "api_key",
-            provider: "anthropic",
-            key: "sk-default",
-          },
+          "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
         },
         usageStats: {
           "anthropic:default": {

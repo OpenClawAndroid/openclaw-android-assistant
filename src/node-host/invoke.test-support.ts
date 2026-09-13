@@ -9,6 +9,7 @@ type NodeHostInvokeTestApi = {
     env: Record<string, string> | undefined,
     timeoutMs: number | undefined,
     signal?: AbortSignal,
+    assertCurrent?: () => void,
   ): Promise<RunResult>;
 };
 
@@ -22,7 +23,7 @@ export const testing: NodeHostInvokeTestApi = {
   clarifyNodeExecCwdSpawnError(error, cwd) {
     return getTestApi().clarifyNodeExecCwdSpawnError(error, cwd);
   },
-  runCommand(argv, cwd, env, timeoutMs, signal) {
-    return getTestApi().runCommand(argv, cwd, env, timeoutMs, signal);
+  runCommand(argv, cwd, env, timeoutMs, signal, assertCurrent) {
+    return getTestApi().runCommand(argv, cwd, env, timeoutMs, signal, assertCurrent);
   },
 };

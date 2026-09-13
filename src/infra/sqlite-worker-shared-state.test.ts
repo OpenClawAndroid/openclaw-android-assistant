@@ -15,11 +15,14 @@ import {
   executeOpenClawStateWorker,
   runOpenClawStateWorkerOperation,
 } from "../state/openclaw-state-worker-store.js";
+import { buildFlowRecord } from "../tasks/task-flow-registry.records.js";
 import {
   bindTaskFlowRecord,
   upsertTaskFlowRowInDatabase,
 } from "../tasks/task-flow-registry.store.kernel.js";
 import * as nodeSqlite from "./node-sqlite.js";
+import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
+import { resolveRuntimeWorkerUrl } from "./runtime-worker-url.js";
 import { SqliteSchemaVersionError } from "./sqlite-user-version.js";
 import { closeUnclaimedSharedStateSqliteWorkers } from "./sqlite-worker-store.js";
 import { acquireGatewayLifecycleCoordinator } from "./state-database-coordinator.js";
@@ -39,6 +42,98 @@ function context() {
 }
 
 describe("canonical shared-state worker admission", () => {
+  it.each(["open", "execute"] as const)(
+    "keeps typed %s errors for a reloaded caller of the existing shared worker",
+    async (phase) => {
+      const captured = context();
+      await executeOpenClawStateWorker(captured, {
+        type: "flows.list",
+        input: { ownerKey: "agent:main:caller-errors" },
+      });
+      const database = openOpenClawStateDatabase({
+        path: captured.admission.databasePath,
+        env: captured.environment,
+      });
+      database.db.exec("PRAGMA user_version = 999999");
+      if (phase === "open") {
+        await closeOpenClawStateDatabaseAsync();
+      }
+      vi.resetModules();
+      const [worker, contexts, errors] = await Promise.all([
+        import("../state/openclaw-state-worker-store.js"),
+        import("../state/openclaw-state-worker-context.js"),
+        import("./sqlite-user-version.js"),
+      ]);
+      const current = contexts.captureOpenClawStateWorkerContext({
+        path: captured.admission.databasePath,
+        env: captured.environment,
+      });
+      const flow = buildFlowRecord({
+        ownerKey: "agent:main:caller-errors",
+        syncMode: "managed",
+        controllerId: "tests/caller-errors",
+        goal: "Refuse before a write to a newer schema",
+      });
+      let incoming: unknown;
+      let failure: unknown;
+      try {
+        await worker.runOpenClawStateWorkerOperation(current, async (scope) => {
+          try {
+            return await scope.execute({ type: "flows.createManaged", input: { flow } });
+          } catch (error) {
+            incoming = error;
+            throw error;
+          }
+        });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(errors.SqliteSchemaVersionError);
+      if (phase === "execute") {
+        expect(incoming).toBe(failure);
+      }
+    },
+  );
+
+  it("hydrates concurrent lower-level open refusals in each caller's module graph", async () => {
+    const captured = context();
+    const database = openOpenClawStateDatabase({
+      path: captured.admission.databasePath,
+      env: captured.environment,
+    });
+    database.db.exec("PRAGMA user_version = 999999");
+    await closeOpenClawStateDatabaseAsync();
+    const first = await Promise.all([
+      import("./sqlite-worker-store.js"),
+      import("./sqlite-user-version.js"),
+    ]);
+    vi.resetModules();
+    const second = await Promise.all([
+      import("./sqlite-worker-store.js"),
+      import("./sqlite-user-version.js"),
+    ]);
+    const options = {
+      moduleUrl: resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sharedStateStore),
+      databasePath: captured.admission.databasePath,
+    };
+    const outcomes = await Promise.allSettled([
+      first[0].openSharedStateSqliteWorkerStore(options, captured),
+      second[0].openSharedStateSqliteWorkerStore(options, captured),
+    ]);
+    for (const result of outcomes) {
+      if (result.status === "fulfilled") {
+        await result.value?.close();
+      }
+    }
+    const [left, right] = outcomes;
+    if (left.status !== "rejected" || right.status !== "rejected") {
+      throw new Error("Expected both callers to observe the schema refusal");
+    }
+    expect(left.reason).toBeInstanceOf(first[1].SqliteSchemaVersionError);
+    expect(right.reason).toBeInstanceOf(second[1].SqliteSchemaVersionError);
+    expect(left.reason).not.toBe(right.reason);
+  });
+
   it.each(["create", "repair"] as const)(
     "performs cold %s under its Gateway owner without main-thread SQL",
     async (operation) => {

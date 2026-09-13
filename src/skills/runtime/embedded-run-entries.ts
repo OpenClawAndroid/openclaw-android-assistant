@@ -2,7 +2,7 @@
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { loadSkillLibrarySelection } from "../library/selection.js";
 import { resolveSkillRuntimeConfig } from "../loading/runtime-config.js";
-import { loadWorkspaceSkills } from "../loading/workspace-skill-loader.js";
+import { prepareWorkspaceSkills } from "../loading/workspace-skill-loader.js";
 import { normalizeWorkspaceSkillRoots } from "../loading/workspace-skill-roots.js";
 import {
   WORKSPACE_SKILLS_PROMPT_FORMAT_VERSION,
@@ -12,7 +12,7 @@ import {
 } from "../types.js";
 
 /** Resolves skill entries embedded into a run payload into runtime-visible entries. */
-export function resolveEmbeddedRunSkillEntries(params: {
+export async function resolveEmbeddedRunSkillEntries(params: {
   workspaceDir: string;
   executionWorkspaceDir?: string;
   config?: OpenClawConfig;
@@ -20,12 +20,13 @@ export function resolveEmbeddedRunSkillEntries(params: {
   eligibility?: SkillEligibilityContext;
   skillsSnapshot?: SkillSnapshot;
   workspaceOnly?: boolean;
-}): {
+  assertCurrent?: () => void;
+}): Promise<{
   shouldLoadSkillEntries: boolean;
   skillEntries: SkillEntry[];
-  loadSkillEntries: () => SkillEntry[];
+  loadSkillEntries: () => Promise<SkillEntry[]>;
   preserveEntryOrder: boolean;
-} {
+}> {
   const shouldLoadSkillEntries =
     !params.skillsSnapshot ||
     (Boolean(params.skillsSnapshot.prompt.trim()) && !params.skillsSnapshot.resolvedSkills);
@@ -43,7 +44,7 @@ export function resolveEmbeddedRunSkillEntries(params: {
         }),
   );
   let cachedSkillEntries: SkillEntry[] | undefined;
-  const loadSkillEntries = (): SkillEntry[] => {
+  const loadSkillEntries = async (): Promise<SkillEntry[]> => {
     if (cachedSkillEntries) {
       return cachedSkillEntries;
     }
@@ -59,10 +60,14 @@ export function resolveEmbeddedRunSkillEntries(params: {
         : {}),
       ...(params.workspaceOnly === true ? { workspaceOnly: true } : {}),
     };
-    cachedSkillEntries = loadWorkspaceSkills(skillRoots.agentWorkspaceDir, {
-      ...options,
-      executionWorkspaceDir: skillRoots.executionWorkspaceDir,
-    });
+    cachedSkillEntries = await prepareWorkspaceSkills(
+      skillRoots.agentWorkspaceDir,
+      {
+        ...options,
+        executionWorkspaceDir: skillRoots.executionWorkspaceDir,
+      },
+      params.assertCurrent,
+    );
     if (params.skillsSnapshot?.librarySelections?.length && params.workspaceOnly !== true) {
       cachedSkillEntries.push(
         ...loadSkillLibrarySelection(params.skillsSnapshot.librarySelections),
@@ -72,7 +77,7 @@ export function resolveEmbeddedRunSkillEntries(params: {
   };
   return {
     shouldLoadSkillEntries,
-    skillEntries: shouldLoadSkillEntries ? loadSkillEntries() : [],
+    skillEntries: shouldLoadSkillEntries ? await loadSkillEntries() : [],
     loadSkillEntries,
     // Merged loading orders agent skills first so prompt caps keep their priority.
     preserveEntryOrder: skillRoots.executionWorkspaceDir !== undefined,

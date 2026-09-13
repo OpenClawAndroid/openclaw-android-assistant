@@ -9,6 +9,11 @@ import { createConfigIO } from "../config/config.js";
 import { MAX_INCLUDE_DEPTH } from "../config/includes.js";
 import type { RuntimeEnv } from "../runtime.js";
 import {
+  openOpenClawStateDatabase,
+  closeOpenClawStateDatabase,
+} from "../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
+import {
   withOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
@@ -273,7 +278,9 @@ describe("full backup config include capture", () => {
     await withOpenClawTestState({ layout: "state-only" }, async (state) => {
       const graph = await configGraph(state);
       const { DatabaseSync } = requireNodeSqlite();
-      const dbPath = state.statePath("proof.sqlite");
+      const dbPath = resolveOpenClawStateSqlitePath(state.env);
+      openOpenClawStateDatabase({ env: state.env });
+      closeOpenClawStateDatabase();
       const db = new DatabaseSync(dbPath);
       db.exec(
         "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE proof(value TEXT); INSERT INTO proof VALUES ('captured');",

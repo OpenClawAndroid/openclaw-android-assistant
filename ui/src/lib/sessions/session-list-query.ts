@@ -79,16 +79,41 @@ export function sessionListEventMatcher(payload: unknown) {
 
 export type QueuedSessionRefresh = {
   options: SessionRefreshOptions;
+  intent: "explicit" | "automatic" | (() => string | null);
+  bootstrap?: boolean;
+  isErrorCurrent?: () => boolean;
   completions: Array<{
     options: SessionRefreshOptions;
     complete: (refresh: Promise<SessionsListResult | null> | null) => void;
   }>;
 };
 
+export function coalesceSessionRefresh(
+  current: QueuedSessionRefresh | null,
+  next: QueuedSessionRefresh,
+): QueuedSessionRefresh {
+  if (!current) {
+    return next;
+  }
+  // Explicit intent remains authoritative over automatic hydration and weaker queries.
+  if (
+    (next.intent !== "automatic" || current.intent === "automatic") &&
+    (isForegroundReplacement(next.options) || !isForegroundReplacement(current.options))
+  ) {
+    current.options = next.options;
+    current.intent = next.intent;
+    current.bootstrap = next.bootstrap;
+    current.isErrorCurrent = next.isErrorCurrent;
+  }
+  current.completions.push(...next.completions);
+  return current;
+}
+
 export type ManagedSessionListRefresh = {
   append: boolean;
   offset?: number;
   invalidated?: true;
+  background?: true;
 };
 
 export type ObservedSessionList = {

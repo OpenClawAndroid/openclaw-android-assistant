@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HelloOk } from "@openclaw/gateway-protocol";
 import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { buildControlUiSessionPath } from "@openclaw/session-url-contract";
 import type { ConsoleMessage, Frame, Locator, Page, Request } from "playwright";
 import type { InlineConfig, Plugin, PreviewServer, ViteDevServer } from "vite";
@@ -3484,6 +3485,67 @@ function createMockGatewayControls(
   };
 }
 
+type ControlUiE2eFailureDiagnosticsOptions = {
+  error: Error;
+  label: string;
+  pageErrors?: string[];
+  pageEvents?: ControlUiE2eDiagnosticEvent[];
+  modelResponses?: { list?: unknown; authStatus?: unknown };
+};
+
+function summarizeRecordedModelResponses(
+  responses: NonNullable<ControlUiE2eFailureDiagnosticsOptions["modelResponses"]>,
+) {
+  const list = asOptionalRecord(responses.list);
+  const auth = asOptionalRecord(responses.authStatus);
+  const catalog = asOptionalRecord(list?.payload);
+  const health = asOptionalRecord(auth?.payload);
+  const models = Array.isArray(catalog?.models) ? catalog.models : undefined;
+  const profiles = Array.isArray(health?.providers)
+    ? health.providers.flatMap((provider) => {
+        const record = asOptionalRecord(provider);
+        return Array.isArray(record?.profiles) ? record.profiles : [];
+      })
+    : undefined;
+  const statusCounts = (entries: unknown, allowed: string[]) => {
+    if (!Array.isArray(entries)) {
+      return null;
+    }
+    const statuses = entries.map(
+      (entry) => allowed.find((status) => asOptionalRecord(entry)?.status === status) ?? "unknown",
+    );
+    return Object.fromEntries(
+      [...allowed, "unknown"].map((status) => [
+        status,
+        statuses.filter((entry) => entry === status).length,
+      ]),
+    );
+  };
+  return {
+    listSeen: responses.list !== undefined,
+    listOk: typeof list?.ok === "boolean" ? list.ok : null,
+    models: models?.length ?? null,
+    available:
+      models?.filter((model) => asOptionalRecord(model)?.available === true).length ?? null,
+    unavailable:
+      models?.filter((model) => asOptionalRecord(model)?.available === false).length ?? null,
+    unknownAvailability:
+      models?.filter((model) => typeof asOptionalRecord(model)?.available !== "boolean").length ??
+      null,
+    pendingProviders: Array.isArray(catalog?.pendingProviders)
+      ? catalog.pendingProviders.length
+      : null,
+    providerOutcomes: statusCounts(catalog?.providerOutcomes, [
+      "ready",
+      "auth-rejected",
+      "unavailable",
+    ]),
+    authSeen: responses.authStatus !== undefined,
+    authOk: typeof auth?.ok === "boolean" ? auth.ok : null,
+    profiles: statusCounts(profiles, ["ok", "expiring", "expired", "missing", "static"]),
+  };
+}
+
 /**
  * Capture a screenshot plus a browser/app-state report for a failed E2E wait.
  * Wired into mock-Gateway request timeouts automatically; boot/readiness waits
@@ -3492,20 +3554,12 @@ function createMockGatewayControls(
  */
 export async function captureControlUiE2eFailureDiagnostics(
   page: Page,
-  options: {
-    error: Error;
-    label: string;
-    pageErrors?: string[];
-    pageEvents?: ControlUiE2eDiagnosticEvent[];
-  },
+  options: ControlUiE2eFailureDiagnosticsOptions,
 ): Promise<void> {
   try {
     await captureControlUiE2eFailureDiagnosticsUnsafe(page, options);
-  } catch (captureError) {
-    console.error("[control-ui-e2e] failed to capture failure diagnostics", {
-      captureError,
-      label: options.label,
-    });
+  } catch {
+    console.error("[control-ui-e2e] failed to capture failure diagnostics");
   }
 }
 
@@ -3518,27 +3572,14 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
     // The mock-Gateway installer keeps a per-page diagnostic ring; default to
     // it so ad-hoc test callers get console/navigation history for free.
     pageEvents = controlUiE2ePageDiagnostics.get(page) ?? [],
-  }: {
-    error: Error;
-    label: string;
-    pageErrors?: string[];
-    pageEvents?: ControlUiE2eDiagnosticEvent[];
-  },
+    modelResponses,
+  }: ControlUiE2eFailureDiagnosticsOptions,
 ): Promise<void> {
-  const configuredDir = process.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR?.trim();
-  const artifactDir = createControlUiE2eArtifactDir(
-    "failure",
-    configuredDir || path.join(resolveRepoRoot(), ".artifacts", "control-ui-e2e-timeouts", "local"),
-  );
-  const safeMethod = label.replaceAll(/[^a-zA-Z0-9_.-]+/gu, "-");
-  const captureId = `${new Date().toISOString().replaceAll(/[:.]/gu, "-")}-${safeMethod}`;
-  const screenshotName = `${captureId}.png`;
-  const screenshotPath = path.join(artifactDir, screenshotName);
-  const reportPath = path.join(artifactDir, `${captureId}.json`);
   const captureErrors: string[] = [];
   let browserState: unknown = null;
+  let summary: unknown = { available: false };
   try {
-    browserState = await page.evaluate(() => {
+    const { failureSummary, ...state } = await page.evaluate(() => {
       const copy = (value: unknown): unknown => {
         try {
           return structuredClone(value) as unknown;
@@ -3603,7 +3644,64 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
         }
         customElementCounts[name] = (customElementCounts[name] ?? 0) + 1;
       }
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        ".agent-chat__composer-combobox textarea",
+      );
+      const send = document.querySelector<HTMLButtonElement>(".chat-send-btn--send");
+      const sendLabel = send?.getAttribute("aria-label");
+      // Submit-disabled labels can contain server errors. Only known static UI copy
+      // may reach CI logs; private reports retain the existing detailed state.
+      const safeValue = (value: unknown, allowed: string[]) =>
+        allowed.find((entry) => entry === value) ?? "unknown";
       return {
+        failureSummary: {
+          gatewayPhase: safeValue(gatewaySnapshot?.phase, [
+            "stopped",
+            "connecting",
+            "connected",
+            "offline",
+            "reconnecting",
+            "starting",
+            "reload-required",
+          ]),
+          connected: typeof agentsState?.connected === "boolean" ? agentsState.connected : null,
+          documentReadyState: safeValue(document.readyState, [
+            "loading",
+            "interactive",
+            "complete",
+          ]),
+          providerStatuses: [
+            ...document.querySelectorAll(".model-providers__head .settings-status"),
+          ]
+            .slice(0, 8)
+            .map((badge) => {
+              const text = badge.textContent?.trim();
+              return {
+                status: safeValue(text, ["Ready", "Signed in", "Configured", "Failed"]),
+                length: text?.length ?? 0,
+              };
+            }),
+          composer: textarea
+            ? {
+                draftLength: textarea.value.length,
+                nonempty: textarea.value.length > 0,
+                disabled: textarea.disabled,
+                send: send
+                  ? {
+                      label: safeValue(sendLabel, [
+                        "Send message",
+                        "Write a message to send.",
+                        "Sending message...",
+                        "Loading chat",
+                      ]),
+                      labelLength: sendLabel?.length ?? 0,
+                      disabled: send.disabled,
+                      busy: send.getAttribute("aria-busy") === "true",
+                    }
+                  : null,
+              }
+            : null,
+        },
         app: {
           agentSelection: copy(context?.agentSelection?.state ?? null),
           gateway: {
@@ -3662,9 +3760,27 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
         ),
       };
     });
+    summary = failureSummary;
+    browserState = state;
   } catch (evaluateError) {
     captureErrors.push(`page.evaluate: ${String(evaluateError)}`);
   }
+  // Normal PR CI may not upload this artifact owner. Emit safe facts before any
+  // capture I/O so a broken screenshot or output directory cannot hide the state.
+  console.error("[control-ui-e2e] failure state", {
+    browser: summary,
+    models: modelResponses ? summarizeRecordedModelResponses(modelResponses) : null,
+  });
+  const configuredDir = process.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR?.trim();
+  const artifactDir = createControlUiE2eArtifactDir(
+    "failure",
+    configuredDir || path.join(resolveRepoRoot(), ".artifacts", "control-ui-e2e-timeouts", "local"),
+  );
+  const safeMethod = label.replaceAll(/[^a-zA-Z0-9_.-]+/gu, "-");
+  const captureId = `${new Date().toISOString().replaceAll(/[:.]/gu, "-")}-${safeMethod}`;
+  const screenshotName = `${captureId}.png`;
+  const screenshotPath = path.join(artifactDir, screenshotName);
+  const reportPath = path.join(artifactDir, `${captureId}.json`);
   let screenshotWritten = false;
   try {
     await page.screenshot({ fullPage: true, path: screenshotPath });

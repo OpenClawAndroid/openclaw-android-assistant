@@ -268,7 +268,9 @@ function createError(node: ErrorNode): Error {
   return unreachableErrorNode(node);
 }
 
-export function decodeOpenClawStateWorkerError(value: unknown): Error | undefined {
+function decodeErrorGraph(
+  value: unknown,
+): { errors: Error[]; nodes: ErrorNode[]; root: number } | undefined {
   try {
     if (
       !isRecord(value) ||
@@ -334,8 +336,159 @@ export function decodeOpenClawStateWorkerError(value: unknown): Error | undefine
         error.errors = (node.errors ?? []).map(decodeValue);
       }
     }
-    return errors[value.root];
+    const group = Object.freeze({});
+    for (const [index, error] of errors.entries()) {
+      retainPayload(error, value, index, true, group);
+    }
+    return { errors, nodes, root: value.root };
   } catch {
     return undefined;
   }
+}
+
+const retainedPayloadKey = Symbol.for("openclaw.sharedStateWorkerErrorPayload");
+
+function retainPayload(
+  error: Error,
+  payload: unknown,
+  node: number,
+  materialized: boolean,
+  group: object,
+): void {
+  Object.defineProperty(error, retainedPayloadKey, {
+    value: Object.freeze({ payload, node, materialized, group }),
+  });
+}
+
+/** Keep the closed wire graph without binding it to a process-global broker's classes. */
+export function retainOpenClawStateWorkerErrorPayload(error: Error, payload: unknown): void {
+  retainPayload(error, payload, 0, false, Object.freeze({}));
+}
+
+/** Hydrate each caller independently; never rewrite a cached opening rejection. */
+export function hydrateOpenClawStateWorkerError(value: Error): Error;
+export function hydrateOpenClawStateWorkerError(value: unknown): unknown;
+export function hydrateOpenClawStateWorkerError(value: unknown): unknown {
+  if (!(value instanceof Error)) {
+    return value;
+  }
+  type Node = {
+    source: Error;
+    parents: Set<Node>;
+    changed: boolean;
+    opaque: boolean;
+    replacement: Error;
+    cause?: { value: unknown };
+    errors?: unknown[];
+  };
+  const groups = new Map<unknown, ReturnType<typeof decodeErrorGraph>>();
+  const nodes = new Map<Error, Node>();
+  const queue: Node[] = [];
+  const add = (error: Error): Node => {
+    const previous = nodes.get(error);
+    if (previous) {
+      return previous;
+    }
+    const node: Node = {
+      source: error,
+      replacement: error,
+      parents: new Set(),
+      changed: false,
+      opaque: false,
+    };
+    nodes.set(error, node);
+    queue.push(node);
+    const retained: unknown = Object.getOwnPropertyDescriptor(error, retainedPayloadKey)?.value;
+    if (
+      isRecord(retained) &&
+      typeof retained.node === "number" &&
+      Number.isSafeInteger(retained.node) &&
+      retained.node >= 0 &&
+      typeof retained.materialized === "boolean" &&
+      isRecord(retained.group)
+    ) {
+      if (!groups.has(retained.group)) {
+        groups.set(retained.group, decodeErrorGraph(retained.payload));
+      }
+      const graph = groups.get(retained.group);
+      const index = retained.materialized ? retained.node : graph?.root;
+      const replacement = index === undefined ? undefined : graph?.errors[index];
+      const identity = index === undefined ? undefined : graph?.nodes[index];
+      if (replacement && identity) {
+        node.replacement = replacement;
+        node.opaque = !retained.materialized;
+        node.changed = node.opaque || identifyError(error).type !== identity.type;
+      }
+    }
+    return node;
+  };
+  const root = add(value);
+  for (const node of queue) {
+    if (node.opaque) {
+      continue;
+    }
+    const edge = (child: unknown) => {
+      if (child instanceof Error) {
+        add(child).parents.add(node);
+      }
+    };
+    if ("cause" in node.source) {
+      node.cause = { value: node.source.cause };
+      edge(node.cause.value);
+    }
+    if (node.source instanceof AggregateError) {
+      node.errors = [...node.source.errors];
+      node.errors.forEach(edge);
+    }
+  }
+  const affected = queue.filter((node) => node.changed);
+  for (const node of affected) {
+    for (const parent of node.parents) {
+      if (!parent.changed) {
+        parent.changed = true;
+        affected.push(parent);
+      }
+    }
+  }
+  if (!root.changed) {
+    return value;
+  }
+  for (const node of affected) {
+    if (node.replacement === node.source) {
+      node.replacement =
+        node.source instanceof AggregateError
+          ? new AggregateError([], node.source.message)
+          : new Error(node.source.message);
+      Object.setPrototypeOf(node.replacement, Object.getPrototypeOf(node.source));
+    }
+  }
+  const replace = (child: unknown): unknown => {
+    const node = child instanceof Error ? nodes.get(child) : undefined;
+    return node?.changed ? node.replacement : child;
+  };
+  for (const node of affected) {
+    if (node.opaque) {
+      continue;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(node.source);
+    Reflect.deleteProperty(descriptors, retainedPayloadKey);
+    if (node.cause) {
+      descriptors.cause = {
+        configurable: descriptors.cause?.configurable ?? true,
+        enumerable: descriptors.cause?.enumerable ?? false,
+        writable: descriptors.cause?.writable ?? true,
+        value: replace(node.cause.value),
+      };
+    }
+    if (node.errors) {
+      descriptors.errors = {
+        configurable: descriptors.errors?.configurable ?? true,
+        enumerable: descriptors.errors?.enumerable ?? false,
+        writable: descriptors.errors?.writable ?? true,
+        value: node.errors.map(replace),
+      };
+    }
+    Object.defineProperties(node.replacement, descriptors);
+  }
+  return root.replacement;
 }

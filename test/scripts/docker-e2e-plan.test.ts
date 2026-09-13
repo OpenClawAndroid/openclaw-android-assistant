@@ -1406,6 +1406,27 @@ await import('./scripts/check-docker-e2e-boundaries.mts');`,
     }
   });
 
+  it("runs sibling-source canaries from published 9.4 without provider or registry fixtures", () => {
+    const plan = planFor({
+      selectedLaneNames: ["published-upgrade-survivor"],
+      upgradeSurvivorBaselines: "2026.9.3 2026.9.4",
+      upgradeSurvivorScenarios: "custom-plugin-siblings",
+    });
+    const name = "published-upgrade-survivor-2026.9.4-custom-plugin-siblings";
+    expect(plan.lanes.map(summarizeLane)).toEqual([
+      publishedUpgradeSurvivorLane(name, "openclaw@2026.9.4", "custom-plugin-siblings"),
+    ]);
+    expect(plan.requiredPrepublishPluginPackages).toEqual([]);
+    expect(plan.credentials).toEqual([]);
+    expect(
+      planFor({
+        selectedLaneNames: ["published-upgrade-survivor"],
+        upgradeSurvivorBaselines: "2026.9.4",
+        upgradeSurvivorScenarios: "reported-issues",
+      }).lanes.map((lane) => lane.name),
+    ).toContain(name);
+  });
+
   it("keeps platform survivors out of release aliases", () => {
     const scenariosFor = (
       upgradeSurvivorScenarios: string,
@@ -1726,7 +1747,7 @@ await import('./scripts/check-docker-e2e-boundaries.mts');`,
     });
 
     expect(plan.lanes.map((lane) => lane.name)).toEqual(["plugin-binding-command-escape"]);
-    expect(plan.omittedUnsupportedLanes).toHaveLength(13);
+    expect(plan.omittedUnsupportedLanes).toHaveLength(14);
     expect(plan.omittedUnsupportedLanes).toContain("published-upgrade-survivor");
     expect(plan.omittedUnsupportedLanes).toContain(
       "published-upgrade-survivor-versioned-runtime-deps",

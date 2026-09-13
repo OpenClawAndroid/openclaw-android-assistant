@@ -105,6 +105,7 @@ const repositoryScriptEntries = [
   // abandoned-update.sh invokes the upgrade ledger assertions through Node.
   "scripts/e2e/lib/upgrade-survivor/abandoned-update.mjs!",
   "scripts/e2e/lib/upgrade-survivor/config-parking.mjs!",
+  "scripts/e2e/lib/upgrade-survivor/custom-plugin-siblings.mjs!",
   // Capture runs in the container; sanitization runs only on the trusted host.
   "scripts/e2e/lib/upgrade-survivor/diagnostics.mjs!",
   "scripts/upgrade-survivor-diagnostics.mjs!",

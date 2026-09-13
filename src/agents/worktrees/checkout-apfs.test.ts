@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
+import timers from "node:timers/promises";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
@@ -58,15 +60,41 @@ describe.skipIf(process.platform !== "darwin")("APFS checkout index", () => {
     await fs.rm(destination, { recursive: true });
     const { apfsFilesystem } = await import("./filesystem-apfs.native.js");
     await apfsFilesystem.cloneDirectory(source, destination);
+    const cloneCompletedAtMs = Date.now();
     // This fixture's source owns .git; the managed service clones a linked template.
     await fs.rm(path.join(destination, ".git"), { recursive: true });
     await fs.writeFile(path.join(destination, ".git"), marker);
     const sourceIndex = path.join(source, ".git", "index");
     const { copyApfsCloneIndex } = await import("./checkout-apfs.js");
     const copy = (commitGuard = () => {}) =>
-      copyApfsCloneIndex(source, destination, sourceIndex, destinationIndex, { commitGuard });
-    return { source, destination, sourceIndex, destinationIndex, copy };
+      copyApfsCloneIndex(source, destination, sourceIndex, destinationIndex, {
+        commitGuard,
+        cloneCompletedAtMs,
+      });
+    return { source, destination, sourceIndex, destinationIndex, cloneCompletedAtMs, copy };
   }
+
+  it("does not wait again when Git preparation outlasts the clone timestamp boundary", async () => {
+    const f = await fixture();
+    const deadline = (Math.floor(f.cloneCompletedAtMs / 1_000) + 1) * 1_000;
+    await timers.setTimeout(Math.max(0, deadline - Date.now()));
+    // Reject an extra delay rather than relying on a machine-speed assertion.
+    const schedule = vi
+      .spyOn(timers, "setTimeout")
+      .mockRejectedValue(new Error("clone timestamp boundary already passed"));
+    syncBuiltinESMExports();
+    try {
+      expect(await f.copy()).toBe(true);
+      expect(schedule).not.toHaveBeenCalled();
+    } finally {
+      schedule.mockRestore();
+      syncBuiltinESMExports();
+    }
+    expect(await git(f.destination, "status", "--porcelain")).toBe("");
+    await fs.writeFile(path.join(f.destination, "clean"), "modified\n");
+    await fs.utimes(path.join(f.destination, "clean"), originalTime, originalTime);
+    expect(await git(f.destination, "status", "--porcelain")).toBe("M clean");
+  });
 
   it.each(["sha1", "sha256"])(
     "refreshes %s clone identities without hiding existing or later edits",

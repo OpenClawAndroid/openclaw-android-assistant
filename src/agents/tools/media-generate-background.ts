@@ -1,12 +1,15 @@
 /** Owns image, music, and video preflight, task admission, and detached completion. */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
+import type { AuthProfileStore } from "../auth-profiles/types.js";
 import { recordRecentMediaGenerationTaskStartForSession } from "../media-generation-task-status-shared.js";
 import {
   IMAGE_GENERATION_TASK_KIND,
   MUSIC_GENERATION_TASK_KIND,
   VIDEO_GENERATION_TASK_KIND,
 } from "../media-generation-task-status.js";
+import type { PreparedModelRuntimeSnapshot } from "../prepared-model-runtime.types.js";
+import { ToolInputError, readToolStringParam } from "./common.js";
 import {
   buildMediaGenerationStartedToolResult,
   createMediaGenerationTaskLifecycle,
@@ -20,6 +23,29 @@ import {
 } from "./media-generate-background-shared.js";
 import type { MediaGenerateActionResult } from "./media-generate-tool-actions-shared.js";
 import { rethrowAfterMediaCleanup } from "./media-generation-error.js";
+import {
+  applyAgentDefaultModelConfig,
+  hasExplicitMediaModel,
+  resolveCapabilityModelConfigForTool,
+  type MediaToolSandbox,
+} from "./media-tool-shared.js";
+import type { ToolModelConfig } from "./model-config.helpers.js";
+import type { ToolFsPolicy } from "./tool-runtime.helpers.js";
+
+export type MediaGenerateToolOptions = {
+  config?: OpenClawConfig;
+  agentDir?: string;
+  authProfileStore?: AuthProfileStore;
+  agentSessionKey?: string;
+  requesterAgentId?: string;
+  requesterOrigin?: DeliveryContext;
+  workspaceDir?: string;
+  preparedModelRuntime?: PreparedModelRuntimeSnapshot;
+  sandbox?: MediaToolSandbox;
+  fsPolicy?: ToolFsPolicy;
+  scheduleBackgroundWork?: MediaGenerateBackgroundScheduler;
+  onAsyncTaskStarted?: MediaGenerateAsyncStartCallback;
+};
 
 /** Transferred resources belong to queued work through actual generation and persistence. */
 export type MediaGenerationTaskResources = {
@@ -28,11 +54,31 @@ export type MediaGenerationTaskResources = {
 };
 
 /** Preflight retains resources until a duplicate result releases them or task admission takes over. */
-export async function prepareMediaGenerationTask<T extends MediaGenerationExecutionResult>(params: {
+export async function prepareMediaGenerationTask<
+  T extends MediaGenerationExecutionResult,
+  Resources extends (MediaGenerationTaskResources & { assertOpen: () => void }) | undefined,
+>(params: {
   generationLabel: "image" | "video" | "music";
-  resources?: MediaGenerationTaskResources & { assertOpen: () => void };
+  cfg: OpenClawConfig;
+  args: Record<string, unknown>;
+  model?: string;
+  options?: MediaGenerateToolOptions;
+  acquire: (cfg: OpenClawConfig) => Promise<Resources>;
+  resolveProviders: (
+    resources: Resources,
+  ) => Parameters<typeof resolveCapabilityModelConfigForTool>[0]["providers"];
+  findDuplicate: (
+    sessionKey: string | undefined,
+    request: { prompt: string; agentId?: string },
+  ) => Promise<MediaGenerateActionResult | undefined>;
   signal?: AbortSignal;
-  prepare: () => Promise<
+  prepare: (context: {
+    resources: Resources;
+    modelConfig: ToolModelConfig;
+    effectiveCfg: OpenClawConfig;
+    prompt: string;
+    explicitModelConfig: boolean;
+  }) => Promise<
     | { kind: "result"; result: MediaGenerateActionResult }
     | {
         kind: "task";
@@ -43,7 +89,63 @@ export async function prepareMediaGenerationTask<T extends MediaGenerationExecut
       }
   >;
 }) {
-  const { resources, signal, prepare } = params;
+  const { cfg, generationLabel, model, options, signal } = params;
+  const explicitModelConfig = hasExplicitMediaModel(
+    cfg.agents?.defaults?.mediaModels?.[generationLabel],
+  );
+  const configuredModel =
+    model || explicitModelConfig
+      ? resolveCapabilityModelConfigForTool({
+          cfg,
+          modelConfig: cfg.agents?.defaults?.mediaModels?.[generationLabel],
+          modelOverride: model,
+          providers: [],
+        })
+      : null;
+  const readRequest = async () => {
+    const prompt = readToolStringParam(params.args, "prompt", { required: true });
+    return {
+      prompt,
+      duplicate: await params.findDuplicate(options?.agentSessionKey, {
+        prompt,
+        agentId: options?.requesterAgentId,
+      }),
+    };
+  };
+  const configuredRequest = configuredModel ? await readRequest() : undefined;
+  if (configuredRequest?.duplicate) {
+    return configuredRequest.duplicate;
+  }
+  signal?.throwIfAborted();
+  const resources = await params.acquire(
+    configuredModel
+      ? (applyAgentDefaultModelConfig(cfg, generationLabel, configuredModel) ?? cfg)
+      : cfg,
+  );
+  const prepare = async () => {
+    const modelConfig =
+      configuredModel ??
+      resolveCapabilityModelConfigForTool({
+        cfg,
+        workspaceDir: options?.workspaceDir,
+        agentDir: options?.agentDir,
+        authStore: options?.authProfileStore,
+        modelConfig: cfg.agents?.defaults?.mediaModels?.[generationLabel],
+        modelOverride: model,
+        providers: params.resolveProviders(resources),
+      });
+    if (!modelConfig) {
+      throw new ToolInputError(`No ${generationLabel}-generation model configured.`);
+    }
+    const effectiveCfg = applyAgentDefaultModelConfig(cfg, generationLabel, modelConfig) ?? cfg;
+    const { prompt, duplicate } = configuredRequest ?? (await readRequest());
+    if (duplicate) {
+      return { kind: "result" as const, result: duplicate };
+    }
+    signal?.throwIfAborted();
+    resources?.assertOpen();
+    return params.prepare({ resources, modelConfig, effectiveCfg, prompt, explicitModelConfig });
+  };
   let prepared: Awaited<ReturnType<typeof prepare>>;
   try {
     resources?.assertOpen();

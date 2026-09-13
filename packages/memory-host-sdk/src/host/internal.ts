@@ -1,8 +1,8 @@
-import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { sha256Hex } from "@openclaw/normalization-core/node-crypto";
 import { runWithConcurrency as runWithConcurrencyImpl } from "./concurrency.js";
 import { MEMORY_HOST_ROOT_FILENAME, normalizeConfiguredMemoryExtraPaths } from "./config-utils.js";
 import { estimateStructuredEmbeddingInputBytes } from "./embedding-input-limits.js";
@@ -375,7 +375,7 @@ export async function buildFileEntry(
       return null;
     }
     const contentText = buildMemoryMultimodalLabel(modality, normalizedPath);
-    const dataHash = crypto.createHash("sha256").update(buffer).digest("hex");
+    const dataHash = sha256Hex(buffer);
     const chunkHash = hashText(
       JSON.stringify({
         path: normalizedPath,
@@ -453,7 +453,7 @@ async function loadMultimodalEmbeddingInput(
     }
     throw err;
   }
-  const dataHash = crypto.createHash("sha256").update(buffer).digest("hex");
+  const dataHash = sha256Hex(buffer);
   if (entry.dataHash && entry.dataHash !== dataHash) {
     return null;
   }

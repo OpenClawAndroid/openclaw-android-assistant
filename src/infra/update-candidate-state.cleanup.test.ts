@@ -98,24 +98,39 @@ it.each(
       `
       import fs from "node:fs";
       import path from "node:path";
-      const remove = fs.rmSync;
+      const removeSync = fs.rmSync;
+      const removeAsync = fs.promises.rm;
       const cache = ${JSON.stringify(cache)};
       const attemptsPath = ${JSON.stringify(attemptsPath)};
       const fault = ${JSON.stringify(scenario.cleanup)};
       let attempts = 0;
-      fs.rmSync = (location, options) => {
+      const prepareRemoval = (location) => {
         const directory = String(location);
         if (path.dirname(directory) !== path.join(cache, "openclaw") ||
             !path.basename(directory).startsWith("openclaw-sqlite-readonly-" + process.pid + "-")) {
-          return remove(location, options);
+          return undefined;
         }
         attempts++;
         const snapshot = path.join(directory, "database.sqlite");
         const before = fs.existsSync(snapshot);
         const fail = fault === "persistent" || (fault === "transient" && attempts === 1);
-        if (!fail) remove(location, options);
+        return { directory, snapshot, before, fail };
+      };
+      const recordRemoval = ({ directory, snapshot, before, fail }) => {
         fs.appendFileSync(attemptsPath, JSON.stringify({directory, before, after: fs.existsSync(snapshot), failed: fail}) + "\\n");
         if (fail) throw Object.assign(new Error("owned snapshot removal denied"), {code: "EACCES"});
+      };
+      fs.rmSync = (location, options) => {
+        const attempt = prepareRemoval(location);
+        if (!attempt) return removeSync(location, options);
+        if (!attempt.fail) removeSync(location, options);
+        recordRemoval(attempt);
+      };
+      fs.promises.rm = async (location, options) => {
+        const attempt = prepareRemoval(location);
+        if (!attempt) return removeAsync(location, options);
+        if (!attempt.fail) await removeAsync(location, options);
+        recordRemoval(attempt);
       };
     `,
     );

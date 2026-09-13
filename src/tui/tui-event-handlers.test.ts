@@ -2230,7 +2230,9 @@ describe("tui-event-handlers: handleAgentEvent", () => {
       },
     });
 
-    expect(chatLog.finalizeAssistant).toHaveBeenCalledWith("Attached image", "run-external-image");
+    expect(chatLog.finalizeAssistant).toHaveBeenCalledWith("Attached image", "run-external-image", [
+      { source: "file:///Users/operator/private/image.png" },
+    ]);
     expect(chatLog.dropAssistant).not.toHaveBeenCalled();
     expect(loadHistory).not.toHaveBeenCalled();
   });

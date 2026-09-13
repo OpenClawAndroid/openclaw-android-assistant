@@ -64,7 +64,7 @@ function buildLiveCatalogCacheKey(parts: readonly unknown[]): string {
 }
 
 /**
- * Caches one live catalog load promise by stable key parts for a short TTL.
+ * Shares pending loads and caches successful values for a short TTL after completion.
  */
 export async function getCachedLiveCatalogValue<T>(params: {
   /** Stable JSON-serializable values that identify one provider/config catalog load. */
@@ -73,13 +73,14 @@ export async function getCachedLiveCatalogValue<T>(params: {
   load: () => Promise<T>;
   /** Optional predicate for values that are healthy enough to retain. */
   shouldCache?: (value: T) => boolean;
-  /** Cache lifetime in milliseconds; defaults to a short provider-discovery TTL. */
+  /** Successful-value cache lifetime in milliseconds; defaults to a short discovery TTL. */
   ttlMs?: number;
   /** Test hook for deterministic cache expiry. */
   now?: () => number;
 }): Promise<T> {
   const rawNow = params.now?.() ?? Date.now();
-  const expiresAt = resolveExpiresAtMsFromDurationMs(params.ttlMs ?? 30_000, { nowMs: rawNow });
+  const ttlMs = params.ttlMs ?? 30_000;
+  const expiresAt = resolveExpiresAtMsFromDurationMs(ttlMs, { nowMs: rawNow });
   // Uncached callers must neither reuse nor disturb an existing entry.
   if (expiresAt === undefined) {
     return await params.load();
@@ -104,7 +105,17 @@ export async function getCachedLiveCatalogValue<T>(params: {
     const resolved = await entry.value;
     retain = params.shouldCache?.(resolved) ?? true;
     if (retain) {
-      recordLiveCatalogExpiry(expiresAt);
+      // Keep the initial deadline for stalled in-flight work, but do not publish
+      // a successful slow discovery with an already-expired cache lifetime.
+      const completedExpiresAt = resolveExpiresAtMsFromDurationMs(ttlMs, {
+        nowMs: params.now?.() ?? Date.now(),
+      });
+      if (completedExpiresAt === undefined) {
+        retain = false;
+      } else {
+        entry.expiresAt = completedExpiresAt;
+        recordLiveCatalogExpiry(completedExpiresAt);
+      }
     }
     return resolved;
   } finally {

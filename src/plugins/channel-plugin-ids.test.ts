@@ -2833,6 +2833,34 @@ describe("resolveConfiguredChannelPluginIds", () => {
         channels: { "activation-only-channel": { enabled: true } },
         plugins: { enabled: false },
       } as OpenClawConfig,
+      env: {},
+      expected: [],
+      skipDiscovery: true,
+    },
+    {
+      name: "avoids discovery when the activation source disables plugins",
+      config: {
+        channels: { "demo-channel": { token: "configured" } },
+        plugins: { enabled: true },
+      } as OpenClawConfig,
+      activationSourceConfig: {
+        channels: { "demo-channel": { token: "configured" } },
+        plugins: { enabled: false },
+      } as OpenClawConfig,
+      env: {},
+      expected: [],
+      skipDiscovery: true,
+    },
+    {
+      name: "keeps effective disablement with an enabled activation source",
+      config: {
+        channels: { "demo-channel": { token: "configured" } },
+        plugins: { enabled: false },
+      } as OpenClawConfig,
+      activationSourceConfig: {
+        channels: { "demo-channel": { token: "configured" } },
+        plugins: { enabled: true },
+      } as OpenClawConfig,
       expected: [],
     },
     {
@@ -2878,7 +2906,8 @@ describe("resolveConfiguredChannelPluginIds", () => {
     activationSourceConfig?: OpenClawConfig;
     env?: NodeJS.ProcessEnv;
     expected: string[];
-  }>)("$name", ({ config, activationSourceConfig, env, expected }) => {
+    skipDiscovery?: boolean;
+  }>)("$name", ({ config, activationSourceConfig, env, expected, skipDiscovery }) => {
     expect(
       resolveConfiguredChannelPluginIds({
         config,
@@ -2887,6 +2916,10 @@ describe("resolveConfiguredChannelPluginIds", () => {
         env: env ?? process.env,
       }),
     ).toStrictEqual(expected);
+    if (skipDiscovery) {
+      expect(listPotentialConfiguredChannelPresenceSignals).not.toHaveBeenCalled();
+      expect(loadPluginManifestRegistryForPluginRegistry).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -2935,7 +2968,10 @@ describe("listConfiguredChannelIdsForReadOnlyScope", () => {
     ).toBe(false);
   });
 
-  it("returns reason-rich policy entries for blocked ambient channel triggers", () => {
+  it.each([
+    { plugins: { allow: ["memory-core"] }, reason: "not-in-allowlist" },
+    { plugins: { enabled: false }, reason: "plugins-disabled" },
+  ])("returns reason-rich policy entries for $reason", ({ plugins, reason }) => {
     listPotentialConfiguredChannelIds.mockReturnValue(["demo-channel"]);
     listPotentialConfiguredChannelPresenceSignals.mockReturnValue([
       { channelId: "demo-channel", source: "env" },
@@ -2943,11 +2979,7 @@ describe("listConfiguredChannelIdsForReadOnlyScope", () => {
 
     expect(
       resolveConfiguredChannelPresencePolicy({
-        config: {
-          plugins: {
-            allow: ["memory-core"],
-          },
-        } as OpenClawConfig,
+        config: { plugins } as OpenClawConfig,
         workspaceDir: "/tmp",
         env: {
           DEMO_FAKE_TEST_TRIGGER: "present",
@@ -2960,7 +2992,7 @@ describe("listConfiguredChannelIdsForReadOnlyScope", () => {
         sources: ["env"],
         effective: false,
         pluginIds: [],
-        blockedReasons: ["not-in-allowlist"],
+        blockedReasons: [reason],
       },
     ]);
   });

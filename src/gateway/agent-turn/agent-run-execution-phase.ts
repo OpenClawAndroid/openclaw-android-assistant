@@ -198,7 +198,9 @@ export async function startAgentRunExecution(params: {
         const execApprovalContinuationTranscriptPromptRange =
           prepared.userTurn.execApprovalContinuationTranscriptPromptRange;
 
-        if (!params.isOneShotModelRun && params.resolvedSessionKey) {
+        // Admission owns plugin/settlement adoption; other inter-session work
+        // must leave the paused task's completion lifecycle with its owner.
+        if (prepared.dispatchTaskTrackingMode === "cli" && params.resolvedSessionKey) {
           await reactivateCompletedSubagentSession({
             sessionKey: params.resolvedSessionKey,
             runId: params.runId,
