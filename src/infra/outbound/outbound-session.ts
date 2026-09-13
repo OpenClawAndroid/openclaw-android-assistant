@@ -10,17 +10,31 @@ import type { ChatType } from "../../channels/chat-type.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelPlugin } from "../../channels/plugins/types.plugin.js";
 import type { ChannelId } from "../../channels/plugins/types.public.js";
+import type { PreparedConversationRegistryScope } from "../../config/sessions/conversation-registry.js";
 import {
   resolveSessionStorePathCore,
   updateSessionLastRoute,
 } from "../../config/sessions/inbound.runtime.js";
-import { loadSessionEntryReadOnly } from "../../config/sessions/session-accessor.js";
+import {
+  loadSessionEntryReadOnly,
+  loadSessionEntryReadOnlyInScope,
+  updateSessionLastRouteInScope,
+  type SessionAccessScope,
+} from "../../config/sessions/session-accessor.js";
+import {
+  resolveSqliteReadScope,
+  toDatabaseOptions,
+} from "../../config/sessions/session-accessor.sqlite-scope.js";
 import { inheritSessionCreationPolicy } from "../../config/sessions/session-entry-provenance.js";
+import { resolveSessionStorePathForScope } from "../../config/sessions/session-store-path.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
+import { resolveStateDir } from "../../config/state-dir.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolveAgentRoute, type RoutePeer } from "../../routing/resolve-route.js";
 import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
+import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
+import { isGatewayExternallySupervised } from "../gateway-supervision.js";
 import { buildOutboundBaseSessionKey } from "./base-session-key.js";
 import type { ResolvedMessagingTarget } from "./target-resolver.js";
 
@@ -292,16 +306,83 @@ type OutboundSessionEntryParams = {
   assertCommitAllowed?: () => void;
 };
 
-function resolveOutboundSessionCreation(params: OutboundSessionEntryParams) {
+type CapturedOutboundSessionBinding = {
+  destination: PreparedConversationRegistryScope;
+  source?: SessionAccessScope & { storePath: string };
+};
+
+type PreparedOutboundSessionBinding = Omit<CapturedOutboundSessionBinding, "source"> & {
+  source?: SessionAccessScope & { databaseAgentId: string };
+};
+
+/** Capture logical locators without opening a source store that a completed retry never needs. */
+export function captureOutboundSessionBinding(params: {
+  cfg: OpenClawConfig;
+  scope: CapturedOutboundSessionBinding["destination"];
+  sourceSessionKey?: string;
+}): CapturedOutboundSessionBinding {
+  const destination = {
+    agentId: params.scope.agentId,
+    databaseAgentId: params.scope.databaseAgentId,
+    storePath: params.scope.storePath,
+    env: {
+      OPENCLAW_STATE_DIR: resolveStateDir(params.scope.env),
+      ...(isGatewayExternallySupervised(params.scope.env)
+        ? { OPENCLAW_SUPERVISOR_MODE: "external" }
+        : {}),
+    },
+  };
+  if (!params.sourceSessionKey) {
+    return { destination };
+  }
+  const source = {
+    agentId: resolveAgentIdFromSessionKey(params.sourceSessionKey),
+    env: destination.env,
+    sessionKey: params.sourceSessionKey,
+  };
+  return {
+    destination,
+    source: {
+      ...source,
+      storePath: resolveSessionStorePathForScope({ ...source, env: params.scope.env }, params.cfg),
+    },
+  };
+}
+
+/** Resolve source ownership only when binding is needed, before asynchronous plugin routing. */
+export function prepareOutboundSessionBinding(
+  captured: CapturedOutboundSessionBinding,
+): PreparedOutboundSessionBinding {
+  const { destination, source } = captured;
+  if (!source) {
+    return { destination };
+  }
+  const target = toDatabaseOptions(resolveSqliteReadScope(source));
+  return {
+    destination,
+    source: {
+      ...source,
+      databaseAgentId: target.agentId,
+      storePath: resolveOpenClawAgentSqlitePath(target),
+    },
+  };
+}
+
+function resolveOutboundSessionCreation(
+  params: OutboundSessionEntryParams,
+  sourceScope?: PreparedOutboundSessionBinding["source"],
+) {
   if (params.creation || !params.sourceSessionKey) {
     return params.creation;
   }
-  const source = loadSessionEntryReadOnly({
-    sessionKey: params.sourceSessionKey,
-    storePath: resolveSessionStorePathCore(params.cfg.session?.store, {
-      agentId: resolveAgentIdFromSessionKey(params.sourceSessionKey),
-    }),
-  });
+  const source = sourceScope
+    ? loadSessionEntryReadOnlyInScope(sourceScope)
+    : loadSessionEntryReadOnly({
+        sessionKey: params.sourceSessionKey,
+        storePath: resolveSessionStorePathCore(params.cfg.session?.store, {
+          agentId: resolveAgentIdFromSessionKey(params.sourceSessionKey),
+        }),
+      });
   return source?.sandbox === "required"
     ? { via: source.createdVia ?? "channel", ...inheritSessionCreationPolicy(source) }
     : undefined;
@@ -309,10 +390,13 @@ function resolveOutboundSessionCreation(params: OutboundSessionEntryParams) {
 
 async function persistOutboundSessionEntry(
   params: OutboundSessionEntryParams,
+  prepared?: PreparedOutboundSessionBinding,
 ): Promise<SessionEntry | null> {
-  const storePath = resolveSessionStorePathCore(params.cfg.session?.store, {
-    agentId: resolveAgentIdFromSessionKey(params.route.sessionKey),
-  });
+  const storePath =
+    prepared?.destination.storePath ??
+    resolveSessionStorePathCore(params.cfg.session?.store, {
+      agentId: resolveAgentIdFromSessionKey(params.route.sessionKey),
+    });
   const ctx: MsgContext = {
     From: params.route.from,
     To: params.route.to,
@@ -328,11 +412,11 @@ async function persistOutboundSessionEntry(
     NativeChannelId: params.route.peer.kind === "direct" ? undefined : params.route.peer.id,
     ConversationLabel: params.route.displayName,
     GroupSubject: params.route.peer.kind === "direct" ? undefined : params.route.displayName,
-    SessionCreation: resolveOutboundSessionCreation(params),
+    SessionCreation: resolveOutboundSessionCreation(params, prepared?.source),
   };
   // Shared-main context may still point at another channel. Commit route and
   // origin together so its conversation identity binds the exact destination.
-  return await updateSessionLastRoute({
+  const update = {
     storePath,
     sessionKey: params.route.sessionKey,
     // Creation is part of this helper's contract: directory-discovered peers
@@ -344,7 +428,13 @@ async function persistOutboundSessionEntry(
     threadId: params.route.threadId,
     ctx,
     ...(params.assertCommitAllowed ? { assertCommitAllowed: params.assertCommitAllowed } : {}),
-  });
+  };
+  return prepared
+    ? await updateSessionLastRouteInScope(
+        { ...prepared.destination, sessionKey: params.route.sessionKey },
+        update,
+      )
+    : await updateSessionLastRoute(update);
 }
 
 /** Persists best-effort session metadata for an outbound-only route. */
@@ -364,8 +454,11 @@ export async function ensureOutboundSessionEntry(
 }
 
 /** Persists the route required to bind an exact conversation address to local context. */
-export async function bindOutboundSessionEntry(params: OutboundSessionEntryParams): Promise<void> {
-  const entry = await persistOutboundSessionEntry(params);
+export async function bindOutboundSessionEntry(
+  params: OutboundSessionEntryParams,
+  prepared?: PreparedOutboundSessionBinding,
+): Promise<void> {
+  const entry = await persistOutboundSessionEntry(params, prepared);
   if (!entry) {
     throw new Error(`Failed to bind outbound session ${params.route.sessionKey}`);
   }

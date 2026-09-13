@@ -16,6 +16,11 @@ import { resolveAssistantAttachmentAuthToken } from "./chat-pane-state.ts";
 import type { ChatSessionCompanionThread } from "./chat-session-companion.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { openTaskDetailId } from "./components/chat-detail-slot.ts";
+import {
+  getSessionWorkspace,
+  selectSessionWorkspacePreview,
+  closeSessionWorkspacePreview,
+} from "./components/chat-session-workspace-state.ts";
 import { resolveSessionDiffSidebarContent } from "./components/chat-session-workspace.ts";
 import type {
   SidebarPanelDefinition,
@@ -25,6 +30,7 @@ import type { SidebarContent } from "./components/chat-sidebar.ts";
 import { resetTaskDetail } from "./components/chat-task-detail-state.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
 import type { SidebarSlotId } from "./sidebar-layout-types.ts";
+import { sidebarMainPanel } from "./sidebar-layout.ts";
 
 type SidebarPanelDefinitionParams = {
   state: ChatPageHost;
@@ -203,14 +209,22 @@ export function sidebarPanelDefinitions(
         .onStateChange=${params.discussion.onStateChange}
       ></openclaw-session-discussion>`
     : null;
-  const attachmentContent = state?.attachmentSidebarContent ?? null;
+  const workspace = state ? getSessionWorkspace(state) : null;
   // The region owns mounting and visibility. Hidden Review tabs must keep the
   // same cached diff loader so their live content and selection survive.
   const detailContent =
     state?.sidebarContent ?? (state ? resolveSessionDiffSidebarContent(state) : null);
   const workspaceContent =
-    attachmentContent && params
-      ? params.renderDetail(attachmentContent)
+    state && params && workspace
+      ? html`<openclaw-chat-files-panel
+          .tabsInHeader=${sidebarMainPanel(state.sidebarLayout)?.slot !== "workspace"}
+          .previews=${workspace.previews}
+          .activeId=${workspace.activePreviewId}
+          .browser=${params.workspace}
+          .renderDetail=${params.renderDetail}
+          .onSelect=${(id: string | null) => selectSessionWorkspacePreview(state, id)}
+          .onClose=${(id: string) => closeSessionWorkspacePreview(state, id)}
+        ></openclaw-chat-files-panel>`
       : (params?.workspace ?? null);
   const pluginPanels = new Map<SidebarSlotId, ControlUiRegistration<ControlUiPanel> | undefined>(
     (params?.pluginPanels ?? []).map((entry) => [`plugin:${entry.key}`, entry]),

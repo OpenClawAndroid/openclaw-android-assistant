@@ -91,6 +91,7 @@ describe("board store", () => {
       const store = createTestBoardStore();
       const name = `${content.kind}-status`;
       const created = await store.putWidget({ sessionKey: "session", name, content });
+      expect(created.widgets[0]?.instanceId).toMatch(/^[a-f0-9]{32}$/u);
 
       expect(created.widgets[0]).toMatchObject({
         contentOwner: content.kind,
@@ -156,12 +157,19 @@ describe("board store", () => {
         ).toMatchObject({ contentOwner: "plugin", revision: 2 });
       }
 
-      expect(
-        (await store.putWidget({ sessionKey: "session", name, content })).widgets[0],
-      ).toMatchObject({
+      const updated = (await store.putWidget({ sessionKey: "session", name, content })).widgets[0]!;
+      expect(updated).toMatchObject({
         name,
         revision: 2,
       });
+      if (content.kind === "plugin") {
+        expect(updated.instanceId).toBe(created.widgets[0]?.instanceId);
+      } else {
+        expect(updated.instanceId).not.toBe(created.widgets[0]?.instanceId);
+      }
+      expect((await store.getSnapshot({ sessionKey: "session" })).widgets[0]?.instanceId).toBe(
+        updated.instanceId,
+      );
 
       await store.applyOps({ sessionKey: "session" }, [{ kind: "widget_remove", name }]);
       const replacement = widgetContents.find((candidate) => candidate.kind !== content.kind)!;

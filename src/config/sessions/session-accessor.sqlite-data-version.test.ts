@@ -147,6 +147,9 @@ describe("SQLite retained session window references", () => {
       expect(readReferencedSessionIds(current, undefined, ids.slice(1))).toEqual(
         new Set(ids.slice(1)),
       );
+      expect(readReferencedSessionIds(current, undefined, ids.slice(0, 1))).toEqual(
+        new Set(ids.slice(0, 1)),
+      );
       expect(readReferencedSessionIds(current, new Set([scope.sessionKey]), ids)).toEqual(
         new Set(),
       );
@@ -156,6 +159,7 @@ describe("SQLite retained session window references", () => {
       .prepare("UPDATE session_nodes SET archived_at = NULL WHERE session_key = ?")
       .run(scope.sessionKey);
     expect(readReferencedSessionIds(database, undefined, ids)).toEqual(new Set());
+    expect(readReferencedSessionIds(database, undefined, ids.slice(0, 1))).toEqual(new Set());
   });
 });
 

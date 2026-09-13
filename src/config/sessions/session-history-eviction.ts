@@ -21,6 +21,7 @@ import {
   measureSessionPhysicalDiskUsage,
   type SessionDiskBudgetSweepResult,
 } from "./disk-budget.js";
+import { withSqliteTranscriptArchiveSession } from "./session-accessor.sqlite-archive-session.js";
 import { publishSessionStateArchives } from "./session-accessor.sqlite-archive-store.js";
 import { materializeSessionStateDeletePlans } from "./session-accessor.sqlite-archive.js";
 import type {
@@ -525,6 +526,24 @@ async function enforceSessionHistoryMaintenanceSerialized(
     sessionKey: "",
     storePath: params.storePath,
   });
+  return await withSqliteTranscriptArchiveSession(toDatabaseOptions(resolved), () =>
+    enforceSessionHistoryMaintenanceForDatabase(
+      params,
+      initialUsage,
+      resolved,
+      highWaterBytes,
+      maxDiskBytes,
+    ),
+  );
+}
+
+async function enforceSessionHistoryMaintenanceForDatabase(
+  params: SessionHistoryDiskBudgetParams,
+  initialUsage: Awaited<ReturnType<typeof measureSessionPhysicalDiskUsage>>,
+  resolved: ReturnType<typeof resolveSqliteScope>,
+  highWaterBytes: number,
+  maxDiskBytes: number,
+): Promise<SessionDiskBudgetSweepResult> {
   const databaseOptions = toDatabaseOptions(resolved);
   const archiveDirectory = resolveSqliteTranscriptArchiveDirectory(resolved);
   const pruneArchives = (trigger: SqliteSessionArchivePruningDiagnostics["trigger"]) => {

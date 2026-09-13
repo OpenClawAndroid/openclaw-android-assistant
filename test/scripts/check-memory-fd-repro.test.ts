@@ -17,11 +17,13 @@ import {
 import { createVitestResourceOwner } from "../../scripts/lib/vitest-resource-ownership.mts";
 import { validateConfigObject } from "../../src/config/validation.js";
 import { withEnv } from "../../src/test-utils/env.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const SCRIPT_PATH = path.resolve("scripts/check-memory-fd-repro.mts");
 const TSX_PRELOAD = path.resolve("scripts/tsx.mjs");
 const SOURCE_TSCONFIG_PATH = path.resolve("tsconfig.json");
+const testNodeExecPath = resolveTestNodeExecPath();
 const OWNED_PID = 2_147_483_646;
 const FOREIGN_PID = 2_147_483_645;
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -214,7 +216,7 @@ function runGatewayOwnershipFixture(scenario: OwnershipScenario) {
       ].join("\n"),
     );
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         TSX_PRELOAD,

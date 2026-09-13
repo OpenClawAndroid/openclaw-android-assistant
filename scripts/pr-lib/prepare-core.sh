@@ -220,13 +220,7 @@ prepare_init() {
     exit 1
   fi
 
-  git fetch origin "pull/$pr/head:pr-$pr" --force
-  local fetched_head_sha
-  fetched_head_sha=$(git rev-parse "refs/heads/pr-$pr")
-  if [ "$fetched_head_sha" != "$reviewed_head_sha" ]; then
-    echo "PR head changed while prepare-init fetched it (reviewed $reviewed_head_sha, fetched $fetched_head_sha). Re-run review-init."
-    exit 1
-  fi
+  fetch_pr_head "$pr" "$reviewed_head_sha" "refs/heads/pr-$pr" || return 1
   git checkout -B "pr-$pr-prep" "$reviewed_head_sha" || return 1
   retire_prep_evidence || return 1
 

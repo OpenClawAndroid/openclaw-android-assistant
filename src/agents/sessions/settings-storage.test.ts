@@ -333,6 +333,7 @@ describe("FileSettingsStorage", () => {
         const settingsPath = join(settingsDir, "settings.json");
         const firstEntered = join(root, "first-entered");
         const contenderReady = join(root, "contender-ready");
+        const releaseFirst = join(root, "release-first");
         const abort = new AbortController();
         const writers: ReturnType<typeof runNodeScript>[] = [];
         const startWriter = (field: string) => {
@@ -344,23 +345,35 @@ describe("FileSettingsStorage", () => {
                 "--input-type=module",
                 "--eval",
                 String.raw`
-                  import { existsSync, writeFileSync } from "node:fs";
-                  const [moduleUrl, root, agentDir, scope, settingsPath, firstEntered, contenderReady, field] = process.argv.slice(1);
+                  import fs, { existsSync, writeFileSync } from "node:fs";
+                  const [moduleUrl, root, agentDir, scope, settingsPath, firstEntered, contenderReady, releaseFirst, field] = process.argv.slice(1);
                   const { FileSettingsStorage } = await import(moduleUrl);
-                  if (field === "theme" && existsSync(settingsPath + ".lock")) {
-                    writeFileSync(contenderReady, "waiting for lock");
+                  if (field === "theme") {
+                    const openSync = fs.openSync;
+                    let signaledContention = false;
+                    fs.openSync = (...args) => {
+                      try {
+                        return openSync(...args);
+                      } catch (error) {
+                        if (
+                          !signaledContention &&
+                          args[0] === settingsPath + ".lock" &&
+                          error?.code === "EEXIST"
+                        ) {
+                          signaledContention = true;
+                          writeFileSync(contenderReady, "contended");
+                        }
+                        throw error;
+                      }
+                    };
                   }
                   new FileSettingsStorage(root, agentDir).withLock(scope, (current) => {
                     if (field === "defaultModel") {
                       writeFileSync(firstEntered, "ready");
-                      const deadline = Date.now() + 5_000;
                       const pause = new Int32Array(new SharedArrayBuffer(4));
-                      while (!existsSync(contenderReady)) {
-                        if (Date.now() >= deadline) throw new Error("contender did not reach settings");
+                      while (!existsSync(releaseFirst)) {
                         Atomics.wait(pause, 0, 0, 2);
                       }
-                    } else {
-                      writeFileSync(contenderReady, "entered callback");
                     }
                     return JSON.stringify({
                       ...(current ? JSON.parse(current) : {}),
@@ -375,6 +388,7 @@ describe("FileSettingsStorage", () => {
                 settingsPath,
                 firstEntered,
                 contenderReady,
+                releaseFirst,
                 field,
               ],
               process.env,
@@ -388,14 +402,31 @@ describe("FileSettingsStorage", () => {
         try {
           expect(existsSync(settingsDir)).toBe(false);
           const first = startWriter("defaultModel");
+          let firstSettled = false;
+          void first.then(
+            () => {
+              firstSettled = true;
+            },
+            () => {
+              firstSettled = true;
+            },
+          );
           await Promise.race([
             waitForFile(firstEntered, 10_000),
             first.then((result) => {
               throw new Error(`first writer exited before contention: ${result.stderr}`);
             }),
           ]);
-          // Let the contender either observe the lock or enter the broken unlocked callback.
-          void startWriter("theme");
+          const contender = startWriter("theme");
+          await Promise.race([
+            waitForFile(contenderReady, 10_000),
+            contender.then((result) => {
+              throw new Error(`contender exited before reaching the lock: ${result.stderr}`);
+            }),
+          ]);
+          expect(firstSettled).toBe(false);
+          expect(existsSync(`${settingsPath}.lock`)).toBe(true);
+          fs.writeFileSync(releaseFirst, "continue");
           for (const result of await Promise.all(writers)) {
             expect(result, result.stderr).toMatchObject({ error: undefined, status: 0 });
           }

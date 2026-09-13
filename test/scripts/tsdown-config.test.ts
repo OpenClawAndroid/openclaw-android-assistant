@@ -17,12 +17,14 @@ import {
 } from "../../scripts/lib/tsdown-config-groups.mts";
 import { WORKER_DEPLOY_OPTIONAL_NATIVE_MODULE_ID } from "../../scripts/lib/worker-deploy-build-plugin.mts";
 import { importFreshModule } from "../../src/plugin-sdk/test-helpers/import-fresh.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import buildConfigs from "../../tsdown.config.ts";
 import { copyFsSafePackageFixture } from "./fs-safe-package.test-support.js";
 import { createScriptTestHarness } from "./test-helpers.js";
 
 const configs = Array.isArray(buildConfigs) ? buildConfigs : [buildConfigs];
 const { createTempDir } = createScriptTestHarness();
+const testNodeExecPath = resolveTestNodeExecPath();
 afterEach(() => vi.unstubAllEnvs());
 
 type TsdownConfig = (typeof configs)[number];
@@ -176,7 +178,7 @@ describe("tsdown config", () => {
       `;
         const result = await new Promise<{ error: Error | null; stderr: string }>((resolve) => {
           execFile(
-            process.execPath,
+            testNodeExecPath,
             ["--input-type=module", "-e", script],
             { cwd: root, timeout: 30_000 },
             (error, _stdout, stderr) => resolve({ error, stderr }),
@@ -273,7 +275,7 @@ describe("tsdown config", () => {
         const result = await new Promise<{ error: Error | null; stdout: string; stderr: string }>(
           (resolve) => {
             execFile(
-              process.execPath,
+              testNodeExecPath,
               [
                 "--input-type=module",
                 "-e",
@@ -298,6 +300,75 @@ describe("tsdown config", () => {
       }
     },
   );
+
+  it("keeps writable database and session lifecycle outside the archive worker bootstrap", async () => {
+    const workerEntry = "config/sessions/session-accessor.sqlite-archive.worker";
+    const selected = configs.find((config) => config.name === TSDOWN_UNIFIED_CONFIG_GROUP);
+    if (!selected) {
+      throw new Error("Missing session archive worker build config");
+    }
+    const entries = selected.entry as Record<string, string>;
+    // Include the parent store: shared chunks must not pull its lifecycle writes
+    // into the one-shot materialize/publish worker's static closure.
+    const { bundles } = await build({
+      ...selected,
+      config: false,
+      entry: Object.fromEntries(
+        [workerEntry, "plugin-sdk/session-store-runtime"].map((name) => [name, entries[name]!]),
+      ),
+      outDir: fs.realpathSync(createTempDir("openclaw-archive-worker-imports-")),
+      dts: false,
+      logLevel: "silent",
+    });
+    try {
+      const chunks = new Map(
+        bundles.flatMap((bundle) =>
+          bundle.chunks
+            .filter((chunk) => chunk.type === "chunk")
+            .map((chunk) => [chunk.fileName, chunk] as const),
+        ),
+      );
+      const queue = [`${workerEntry}.js`];
+      const visited = new Set<string>();
+      const modules = new Set<string>();
+      for (const name of queue) {
+        if (visited.has(name)) {
+          continue;
+        }
+        visited.add(name);
+        const chunk = chunks.get(name);
+        if (!chunk) {
+          throw new Error(`Missing archive worker chunk: ${name}`);
+        }
+        for (const [id, module] of Object.entries(chunk.modules)) {
+          if (module.renderedLength > 0) {
+            modules.add(id.replaceAll("\\", "/"));
+          }
+        }
+        for (const specifier of chunk.imports) {
+          const target = specifier.startsWith(".")
+            ? path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier))
+            : specifier;
+          if (chunks.has(target)) {
+            queue.push(target);
+          }
+        }
+      }
+      expect(
+        [...modules].filter(
+          (id) =>
+            id.endsWith("/src/state/openclaw-agent-db.ts") ||
+            /\/session-accessor\.sqlite-(?:reclamation|lifecycle-state|entry-store|archive)\.ts$/u.test(
+              id,
+            ),
+        ),
+      ).toEqual([]);
+    } finally {
+      for (const bundle of bundles) {
+        await bundle[Symbol.asyncDispose]();
+      }
+    }
+  });
 
   it("builds retained config repairs without plugin runtime or state migration closures", async () => {
     const selected = configs.find((config) => config.outDir === "dist/config-doctor");
@@ -407,7 +478,7 @@ describe("tsdown config", () => {
       const result = await new Promise<{ error: Error | null; stdout: string; stderr: string }>(
         (resolve) => {
           execFile(
-            process.execPath,
+            testNodeExecPath,
             ["--input-type=module", "-e", script, root, JSON.stringify(Object.keys(entries))],
             { cwd: root, timeout: 30_000 },
             (error, stdout, stderr) => resolve({ error, stdout, stderr }),
@@ -491,7 +562,7 @@ describe("tsdown config", () => {
           const result = await new Promise<{ error: Error | null; stdout: string; stderr: string }>(
             (resolve) => {
               execFile(
-                process.execPath,
+                testNodeExecPath,
                 [
                   "--input-type=module",
                   "--eval",

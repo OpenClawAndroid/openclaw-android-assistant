@@ -11,6 +11,12 @@ import type { TranscriptEvent } from "../config/sessions/session-accessor.js";
 import { streamSessionTranscriptLines } from "../config/sessions/transcript-stream.js";
 import { readFileWindowFully } from "../infra/file-read.js";
 import { jsonUtf8Bytes } from "../infra/json-utf8-bytes.js";
+import {
+  resolveHistoryAnchorPageRange,
+  resolveTranscriptPageEnd,
+  type TranscriptAnchorPageOptions,
+  type TranscriptRecentReadLimits,
+} from "../sessions/transcript-anchor-page.js";
 import { isVisibleTranscriptRecord } from "../sessions/transcript-visible-record.js";
 import { projectSessionDisplayMessage } from "./session-display-projection.js";
 import {
@@ -50,6 +56,8 @@ export type ReadRecentSessionMessagesOptions = {
 type ReadSessionMessagesPageOptions = {
   offset: number;
   maxMessages: number;
+  beforeSeq?: number;
+  recentAtHead?: TranscriptRecentReadLimits;
   allowResetArchiveFallback?: boolean;
   resetArchiveOnly?: boolean;
 };
@@ -330,15 +338,14 @@ export class ArchivedTranscriptReader {
     const transcriptIndex = await readSessionTranscriptIndex(artifact.path, this.scope.sessionId);
     const totalMessages = transcriptIndex?.entries.length ?? 0;
     const normalized = normalizeRecentSessionReadOptions(opts);
-    const snapshot =
-      normalized.maxMessages === 0 || !transcriptIndex
-        ? { messages: [], transcriptEvents: [] }
-        : await readRecentSessionSnapshotFromPathAsync(
-            artifact.path,
-            normalized,
-            transcriptIndex,
-            this.scope.sessionId,
-          );
+    const snapshot = !transcriptIndex
+      ? { messages: [], transcriptEvents: [] }
+      : await readRecentSessionSnapshotFromPathAsync(
+          artifact.path,
+          normalized,
+          transcriptIndex,
+          this.scope.sessionId,
+        );
     return {
       displaySource: transcriptIndex?.displaySource,
       messages: snapshot.messages,
@@ -359,31 +366,47 @@ export class ArchivedTranscriptReader {
       return { messages: [], totalMessages: 0, transcriptPath: artifact.path };
     }
     const totalMessages = index.entries.length;
-    const offset = Math.min(resolveNonNegativeIntegerOption(opts.offset, 0), totalMessages);
-    const endExclusive = Math.max(0, totalMessages - offset);
-    const start = Math.max(0, endExclusive - resolveNonNegativeIntegerOption(opts.maxMessages, 0));
-    const entries = await readIndexedTranscriptEntries(
-      artifact.path,
-      index,
-      index.entries.slice(start, endExclusive),
-      this.scope.sessionId,
-    );
+    const endExclusive = resolveTranscriptPageEnd(totalMessages, opts);
+    let snapshot: { messages: unknown[]; transcriptEvents: TranscriptEvent[] };
+    if (opts.recentAtHead && endExclusive === totalMessages) {
+      snapshot = await readRecentSessionSnapshotFromPathAsync(
+        artifact.path,
+        normalizeRecentSessionReadOptions(opts.recentAtHead),
+        index,
+        this.scope.sessionId,
+      );
+    } else {
+      const start = Math.max(
+        0,
+        endExclusive - resolveNonNegativeIntegerOption(opts.maxMessages, 0),
+      );
+      const entries = await readIndexedTranscriptEntries(
+        artifact.path,
+        index,
+        index.entries.slice(start, endExclusive),
+        this.scope.sessionId,
+      );
+      snapshot = {
+        messages: entries.flatMap(indexedTranscriptEntryToMessages),
+        transcriptEvents: entries.map((entry) => entry.record),
+      };
+    }
     return {
       displaySource: index.displaySource,
-      messages: entries.flatMap(indexedTranscriptEntryToMessages),
-      transcriptEvents: entries.map((entry) => entry.record),
+      messages: snapshot.messages,
+      transcriptEvents: snapshot.transcriptEvents,
       totalMessages,
       transcriptPath: artifact.path,
       transcriptSource: artifact.source,
     };
   }
 
-  async readAroundId(opts: {
-    messageId: string;
-    maxMessages: number;
-    allowResetArchiveFallback?: boolean;
-    resetArchiveOnly?: boolean;
-  }): Promise<
+  async readAroundId(
+    opts: TranscriptAnchorPageOptions & {
+      allowResetArchiveFallback?: boolean;
+      resetArchiveOnly?: boolean;
+    },
+  ): Promise<
     ReadRecentSessionMessagesResult & {
       found: boolean;
       hasOverreadContext: boolean;
@@ -429,26 +452,19 @@ export class ArchivedTranscriptReader {
       if (anchorIndex < 0) {
         continue;
       }
-      const pageSize = Math.max(1, Math.floor(opts.maxMessages));
-      const olderMessages = pageSize - Math.floor(pageSize / 2) - 1;
-      const start = Math.min(
-        Math.max(0, anchorIndex - olderMessages),
-        Math.max(0, index.entries.length - pageSize),
-      );
-      const endExclusive = Math.min(index.entries.length, start + pageSize);
-      const readStart = Math.max(0, start - 1);
+      const range = resolveHistoryAnchorPageRange(index.entries.length, anchorIndex, opts);
       const entries = await readIndexedTranscriptEntries(
         artifact.path,
         index,
-        index.entries.slice(readStart, endExclusive),
+        index.entries.slice(range.readStart, range.endExclusive),
         this.scope.sessionId,
       );
       return {
         displaySource: index.displaySource,
         found: true,
-        hasOverreadContext: readStart < start,
+        hasOverreadContext: range.hasOverreadContext,
         messages: entries.flatMap(indexedTranscriptEntryToMessages),
-        offset: index.entries.length - endExclusive,
+        offset: range.offset,
         totalMessages: index.entries.length,
         transcriptPath: artifact.path,
         transcriptSource: artifact.source,
@@ -471,6 +487,9 @@ async function readRecentSessionSnapshotFromPathAsync(
   index: SessionTranscriptIndex,
   sessionId: string,
 ): Promise<{ messages: unknown[]; transcriptEvents: TranscriptEvent[] }> {
+  if (opts.maxMessages === 0) {
+    return { messages: [], transcriptEvents: [] };
+  }
   const lines = await readRecentTranscriptTailLinesAsync(
     filePath,
     opts,

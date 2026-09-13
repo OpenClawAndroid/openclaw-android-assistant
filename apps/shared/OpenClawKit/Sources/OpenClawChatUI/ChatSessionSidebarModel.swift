@@ -43,7 +43,8 @@ public enum ChatSessionSidebarModel {
         activeAgentID: String? = nil,
         groups: [OpenClawChatSessionGroup] = [],
         excludesMainSession: Bool = false,
-        query: String) -> [Section]
+        query: String,
+        sessionRoutingContract: String? = nil) -> [Section]
     {
         let visible = self.visibleSessions(
             sessions: sessions,
@@ -51,7 +52,8 @@ public enum ChatSessionSidebarModel {
             mainSessionKey: mainSessionKey,
             activeAgentID: activeAgentID,
             excludesMainSession: excludesMainSession,
-            query: query)
+            query: query,
+            sessionRoutingContract: sessionRoutingContract)
         // Pin state owns first placement. Group sections then preserve the
         // same tree builder, so grouped parent/child rosters still nest.
         let pinned = self.tree(from: visible.filter { $0.pinned == true })
@@ -531,16 +533,13 @@ public enum ChatSessionSidebarModel {
         sessions: [OpenClawChatSessionEntry],
         currentSessionKey: String,
         mainSessionKey: String,
-        activeAgentID: String?) -> String
+        activeAgentID: String?,
+        sessionRoutingContract: String? = nil) -> String
     {
         let normalizedCurrent = currentSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedAgent = activeAgentID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let preferredAliasKey = if normalizedCurrent == "global",
-                                   let normalizedAgent,
-                                   !normalizedAgent.isEmpty
-        {
-            "agent:\(normalizedAgent):global"
-        } else if normalizedCurrent == "main" {
+        // The stored global row is distinct from an ordinary owner-qualified :global conversation.
+        if normalizedCurrent == "global" { return currentSessionKey }
+        let preferredAliasKey = if normalizedCurrent == "main" {
             mainSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         } else {
             ""
@@ -556,9 +555,11 @@ public enum ChatSessionSidebarModel {
         return sessions.first(where: {
             OpenClawChatViewModel.matchesCurrentSessionKey(
                 incoming: $0.key,
+                agentId: $0.agentId,
                 current: currentSessionKey,
                 mainSessionKey: mainSessionKey,
-                activeAgentId: activeAgentID)
+                activeAgentId: activeAgentID,
+                sessionRoutingContract: sessionRoutingContract)
         })?.key ?? currentSessionKey
     }
 
@@ -583,21 +584,24 @@ public enum ChatSessionSidebarModel {
         mainSessionKey: String,
         activeAgentID: String?,
         excludesMainSession: Bool,
-        query: String) -> [OpenClawChatSessionEntry]
+        query: String,
+        sessionRoutingContract: String?) -> [OpenClawChatSessionEntry]
     {
         let scopedSessions = sessions.filter {
-            self.isSessionInActiveAgentScope(key: $0.key, activeAgentID: activeAgentID)
+            self.isSessionInActiveAgentScope(key: $0.key, agentID: $0.agentId, activeAgentID: activeAgentID)
         }
         let selectedSessionKey = self.selectedSessionKey(
             sessions: scopedSessions,
             currentSessionKey: currentSessionKey,
             mainSessionKey: mainSessionKey,
-            activeAgentID: activeAgentID)
+            activeAgentID: activeAgentID,
+            sessionRoutingContract: sessionRoutingContract)
         let resolvedMainSessionKey = self.selectedSessionKey(
             sessions: scopedSessions,
             currentSessionKey: "main",
             mainSessionKey: mainSessionKey,
-            activeAgentID: activeAgentID)
+            activeAgentID: activeAgentID,
+            sessionRoutingContract: sessionRoutingContract)
         let normalizedCurrent = currentSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let selectedIsResolvedAlias = (normalizedCurrent == "main" || normalizedCurrent == "global") &&
             selectedSessionKey.lowercased() != normalizedCurrent

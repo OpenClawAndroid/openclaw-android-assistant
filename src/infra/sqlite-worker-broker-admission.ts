@@ -8,11 +8,16 @@ import type {
   PreparedSqliteWorkerOpen,
   SqliteWorkerStoreOptions,
   Actor,
+  Job,
 } from "./sqlite-worker-broker.types.js";
 import type { SqliteWorkerRequest } from "./sqlite-worker-contract.js";
 import { readDatabasePathIdentity, type DatabasePathIdentity } from "./sqlite-worker-identity.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
-import { tryCreateGatewaySchemaFenceDelegate } from "./state-database-coordinator.js";
+import {
+  tryCreateGatewaySchemaFenceDelegate,
+  tryCreateStateLifecycleDelegate,
+  withStateDatabaseCoordinatorRuntimeDirectory,
+} from "./state-database-coordinator.js";
 
 export function validateSqliteWorkerDatabaseLocator(databasePath: string): void {
   const basename = path.basename(databasePath);
@@ -129,8 +134,76 @@ export function prepareSqliteWorkerActorContext(
       });
       if (delegate) {
         actor.gatewaySchemaFence = delegate;
-        request.gatewaySchemaFence = delegate.port;
+        try {
+          request.gatewaySchemaFence = delegate.port;
+        } catch (error) {
+          actor.cleanupState = "pending";
+          throw error;
+        }
       }
+    }
+  }
+}
+
+export function prepareSqliteWorkerLifecycle(job: Job, actor: Actor | undefined): void {
+  const context = job.request.stateContext;
+  if (!actor || !context) {
+    return;
+  }
+  // Retirement must veto pooling on the physical owner, including a borrowed lease.
+  const runtime =
+    job.request.type === "close"
+      ? { ...context.coordinatorRuntime, keepAlive: false }
+      : context.coordinatorRuntime;
+  const delegate = withStateDatabaseCoordinatorRuntimeDirectory(runtime, () =>
+    tryCreateStateLifecycleDelegate({
+      databasePath: actor.databasePath,
+      actorId: `${actor.id}:${job.request.id}`,
+    }),
+  );
+  if (delegate) {
+    job.stateLifecycle = { actor, delegate };
+    job.request.stateLifecycle = delegate.port;
+  }
+}
+
+export function releaseSqliteWorkerLifecycle(job: Job): void {
+  if (!job.stateLifecycle) {
+    return;
+  }
+  const { actor, delegate } = job.stateLifecycle;
+  try {
+    delegate.release();
+  } catch (error) {
+    if (!delegate.closed) {
+      actor.pendingStateLifecycles.add(delegate);
+      actor.cleanupState = "pending";
+    }
+    throw error;
+  } finally {
+    job.stateLifecycle = undefined;
+  }
+}
+
+export function releaseSqliteWorkerActorCoordinators(actor: Actor): void {
+  for (const delegate of actor.pendingStateLifecycles) {
+    try {
+      delegate.release();
+    } finally {
+      if (delegate.closed) {
+        actor.pendingStateLifecycles.delete(delegate);
+      }
+    }
+  }
+  const delegation = actor.gatewaySchemaFence;
+  if (!delegation) {
+    return;
+  }
+  try {
+    delegation.release();
+  } finally {
+    if (delegation.closed) {
+      actor.gatewaySchemaFence = undefined;
     }
   }
 }

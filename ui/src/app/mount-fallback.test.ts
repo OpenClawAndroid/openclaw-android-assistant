@@ -245,6 +245,33 @@ describe("Control UI mount fallback", () => {
     await vi.waitFor(() => expect(signals.every((signal) => signal.aborted)).toBe(true));
   });
 
+  it.each(["Keep waiting", "first render"])(
+    "retires a pending recovery probe on %s",
+    async (action) => {
+      const frameWindow = createIsolatedWindow();
+      const fetch = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new Error("request aborted")));
+          }),
+      );
+      Object.defineProperty(frameWindow, "fetch", { configurable: true, value: fetch });
+      installFallbackShell(frameWindow, await readIndexHtmlWithDelay(500));
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+
+      if (action === "Keep waiting") {
+        frameWindow.document.getElementById("openclaw-mount-wait")?.click();
+      } else {
+        frameWindow.dispatchEvent(new frameWindow.Event("openclaw-control-ui-rendered"));
+      }
+      expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      await waitForWindowTimeout(frameWindow, 10);
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(frameWindow.document.getElementById("openclaw-mount-fallback")?.hidden).toBe(true);
+    },
+  );
+
   it("bounds automatic recovery attempts while the gateway is unavailable", async () => {
     const frameWindow = createIsolatedWindow();
     const fetch = vi.fn().mockRejectedValue(new Error("gateway unavailable"));

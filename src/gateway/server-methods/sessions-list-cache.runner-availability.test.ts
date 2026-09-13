@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   loadSessionEntry,
   recordSessionParticipant,
@@ -141,10 +142,7 @@ it("does not publish old in-flight runner availability across a version transiti
     });
     return response;
   };
-  let releaseOld!: (value: SessionsListResult) => void;
-  const oldResult = new Promise<SessionsListResult>((resolve) => {
-    releaseOld = resolve;
-  });
+  const { promise: oldResult, resolve: releaseOld } = createDeferred<SessionsListResult>();
 
   const old = requestList(async () => await oldResult);
   await Promise.resolve();

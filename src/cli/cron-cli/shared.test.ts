@@ -399,7 +399,7 @@ describe("printCronList", () => {
     expectLogsToInclude(show.logs, "schedule: stream node events.mjs+trigger");
   });
 
-  it("shows disabled stream sources and their actionable failure reason", () => {
+  it.each([false, true])("shows disabled stream sources with running=%s", (running) => {
     const job = createBaseJob({
       schedule: { kind: "stream", command: ["node", "events.mjs"] },
       state: {
@@ -408,23 +408,26 @@ describe("printCronList", () => {
         lastRunStatus: "ok",
         lastDeliveryStatus: "not-delivered",
         deliverySuppressionReason: "silent",
+        ...(running ? { runningAtMs: Date.now() } : {}),
       },
     });
 
     const list = createRuntimeLogCapture();
     printCronList([job], list.runtime);
     const row = list.logs.find((line) => line.includes(job.id)) ?? "";
-    expect(row).toContain("disabled");
+    expect(row).toContain(running ? "running" : "disabled");
     expect(row).not.toContain("idle");
     expect(row).not.toContain("ok (suppressed)");
 
     const show = createRuntimeLogCapture();
     printCronShow(job, show.runtime);
+    expect(show.logs).toContain(`status: ${running ? "running" : "disabled"}`);
     expectLogsToInclude(show.logs, "stream status: disabled");
     expectLogsToInclude(
       show.logs,
       "stream error: stream sources require cron.triggers.enabled=true",
     );
+    expect(enrichCronJsonWithStatus(job)).toMatchObject({ status: running ? "running" : "ok" });
   });
 
   it("shows on-exit schedules in list and show output", () => {

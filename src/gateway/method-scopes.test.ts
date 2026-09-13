@@ -78,6 +78,7 @@ describe("method scope resolution", () => {
   });
 
   it.each([
+    ["canvas.document.preview", ["operator.read"]],
     ["canvas.document.view", ["operator.read"]],
     ["sessions.resolve", ["operator.read"]],
     ["tasks.list", ["operator.read"]],

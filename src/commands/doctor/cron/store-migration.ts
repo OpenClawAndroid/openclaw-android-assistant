@@ -12,6 +12,7 @@ import { parseAbsoluteTimeMs } from "../../../cron/parse.js";
 import { getInvalidPersistedCronJobReason } from "../../../cron/persisted-shape.js";
 import { coerceFiniteScheduleNumber } from "../../../cron/schedule-number.js";
 import { inferCronJobName } from "../../../cron/service/normalize.js";
+import { resolveCronCurrentSessionTarget } from "../../../cron/session-target.js";
 import { normalizeCronStaggerMs, resolveDefaultCronStaggerMs } from "../../../cron/stagger.js";
 import type { CronQuarantinedJob, QuarantinedCronConfigJob } from "../../../cron/store/types.js";
 import {
@@ -571,9 +572,17 @@ export function normalizeStoredCronJobs(
       payloadRecord && typeof payloadRecord.kind === "string" ? payloadRecord.kind : "";
     const rawSessionTarget = normalizeOptionalString(raw.sessionTarget) ?? "";
     const loweredSessionTarget = normalizeLowercaseStringOrEmpty(rawSessionTarget);
-    if (loweredSessionTarget === "main" || loweredSessionTarget === "isolated") {
-      if (raw.sessionTarget !== loweredSessionTarget) {
-        raw.sessionTarget = loweredSessionTarget;
+    if (
+      loweredSessionTarget === "main" ||
+      loweredSessionTarget === "isolated" ||
+      loweredSessionTarget === "current"
+    ) {
+      const sessionTarget = resolveCronCurrentSessionTarget({
+        sessionTarget: loweredSessionTarget,
+        sessionKey: normalizeOptionalString(raw.sessionKey),
+      });
+      if (raw.sessionTarget !== sessionTarget) {
+        raw.sessionTarget = sessionTarget;
         mutated = true;
       }
     } else if (loweredSessionTarget.startsWith("session:")) {
@@ -584,11 +593,6 @@ export function normalizeStoredCronJobs(
           raw.sessionTarget = normalizedSessionTarget;
           mutated = true;
         }
-      }
-    } else if (loweredSessionTarget === "current") {
-      if (raw.sessionTarget !== "isolated") {
-        raw.sessionTarget = "isolated";
-        mutated = true;
       }
     } else {
       const inferredSessionTarget =

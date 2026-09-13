@@ -237,14 +237,8 @@ describe("openclaw.setup provider resolution", () => {
   it("locks cancellation before an accepted runtime install can start", async () => {
     const { wizardSessions, context } = makeContext();
     const sessionId = "runtime-install-lock";
-    let reportLocked = () => {};
-    const locked = new Promise<void>((resolve) => {
-      reportLocked = resolve;
-    });
-    let releaseInstall = () => {};
-    const installReleased = new Promise<void>((resolve) => {
-      releaseInstall = resolve;
-    });
+    const { promise: locked, resolve: reportLocked } = createDeferredCore();
+    const { promise: installReleased, resolve: releaseInstall } = createDeferredCore();
     setupInferenceMocks.activateSetupInference.mockImplementationOnce(async (params) => {
       const accepted = await params.prompter.confirm({
         message: "Install the reviewed runtime?",

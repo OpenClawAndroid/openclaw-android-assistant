@@ -5,7 +5,17 @@
 import crypto from "node:crypto";
 import { clampTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
-import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  asNullableRecord,
+  normalizeOptionalString,
+} from "openclaw/plugin-sdk/string-coerce-runtime";
+import { z } from "zod";
+import {
+  inspectBrowserDashboard,
+  requestBrowserDashboard,
+  stopBrowserDashboard,
+  assertBrowserDashboardTargetCurrent,
+} from "../browser-dashboard.js";
 import {
   BROWSER_PROXY_COMMAND,
   BROWSER_PROXY_UPLOAD_COMMAND,
@@ -23,6 +33,8 @@ import {
   isBrowserProxyUploadRequest,
   prepareBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
+import { applyBrowserTabToolBinding } from "../browser-tool-binding.js";
+import type { BrowserRequest } from "../browser/routes/types.js";
 import {
   ErrorCodes,
   createBrowserControlContext,
@@ -44,6 +56,12 @@ import {
 } from "../core-api.js";
 
 const logger = createSubsystemLogger("browser");
+const dashboardRequestSchema = z.object({
+  sessionKey: z.string().trim().min(1),
+  agentId: z.string().trim().min(1).optional(),
+  name: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+  instanceId: z.string().min(1).optional(),
+});
 
 type BrowserRequestParams = {
   target?: "host" | "node";
@@ -53,6 +71,7 @@ type BrowserRequestParams = {
   query?: Record<string, unknown>;
   body?: unknown;
   timeoutMs?: number;
+  dashboard?: unknown;
 };
 
 /** Handles one browser.request gateway call and streams a success/error response. */
@@ -61,16 +80,32 @@ export async function handleBrowserGatewayRequest({
   respond,
   context,
   client,
+  signal: invocationSignal,
   hasCurrentClientAuthority,
 }: Parameters<GatewayRequestHandlers["browser.request"]>[0]) {
   const typed = params as BrowserRequestParams;
   const methodRaw = (normalizeOptionalString(typed.method) ?? "").toUpperCase();
   const path = normalizeOptionalString(typed.path) ?? "";
-  const query = typed.query && typeof typed.query === "object" ? typed.query : undefined;
-  const body = typed.body;
+  let query = typed.query && typeof typed.query === "object" ? typed.query : undefined;
+  let body = typed.body;
   const timeoutMs = clampTimerTimeoutMs(typed.timeoutMs);
   const explicitNode = typed.target === "node";
   const requestedNode = normalizeOptionalString(typed.node);
+  const connectionSignal = client?.connectionSignal;
+  const requestSignal =
+    invocationSignal && connectionSignal && invocationSignal !== connectionSignal
+      ? AbortSignal.any([invocationSignal, connectionSignal])
+      : (invocationSignal ?? connectionSignal);
+  const assertRequesterCurrent = () => {
+    requestSignal?.throwIfAborted();
+    if (
+      client?.invalidated ||
+      client?.connectionSignal?.aborted ||
+      hasCurrentClientAuthority?.() === false
+    ) {
+      throw new Error("Browser dashboard requester is no longer active");
+    }
+  };
 
   if (
     (typed.target !== undefined && typed.target !== "host" && !explicitNode) ||
@@ -107,12 +142,106 @@ export async function handleBrowserGatewayRequest({
     );
     return;
   }
+  if (path === "/dashboard") {
+    if (typed.target === "node" || requestedNode) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "Browser dashboards use a local managed browser on the Gateway host",
+        ),
+      );
+      return;
+    }
+    const request = dashboardRequestSchema
+      .extend({ resume: z.boolean().optional() })
+      .safeParse(methodRaw === "GET" ? query : body);
+    if (!request.success) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "Browser dashboard requires sessionKey and a stable widget name",
+        ),
+      );
+      return;
+    }
+    try {
+      const run =
+        methodRaw === "DELETE"
+          ? stopBrowserDashboard
+          : methodRaw === "GET"
+            ? inspectBrowserDashboard
+            : requestBrowserDashboard;
+      const result = await run(request.data, {
+        signal: requestSignal,
+        assertCurrent: assertRequesterCurrent,
+      });
+      respond(true, result);
+    } catch (error) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(error)));
+    }
+    return;
+  }
+  let assertDashboardCurrent: BrowserRequest["assertCurrent"];
+  if (typed.dashboard !== undefined) {
+    const scope = dashboardRequestSchema.safeParse(typed.dashboard);
+    if (!scope.success || explicitNode || requestedNode) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "Dashboard requests require a valid local dashboard identity",
+        ),
+      );
+      return;
+    }
+    try {
+      const authority = { signal: requestSignal, assertCurrent: assertRequesterCurrent };
+      const dashboard = await inspectBrowserDashboard(scope.data, authority);
+      const tab = dashboard.browserTab;
+      if (!tab || dashboard.paused) {
+        throw new Error("Dashboard browser is paused or unavailable. Resume the dashboard first.");
+      }
+      if (
+        path === "/tabs/open" ||
+        path === "/stop" ||
+        path.startsWith("/profiles") ||
+        path.startsWith("/system-")
+      ) {
+        throw new Error("Use the dashboard controls to open or stop its retained tab");
+      }
+      if (
+        methodRaw === "DELETE" &&
+        path.startsWith("/tabs/") &&
+        decodeURIComponent(path.slice(6)) !== tab.targetId
+      ) {
+        throw new Error("Dashboard request cannot address another browser tab");
+      }
+      const binding = { kind: "tab" as const, tabId: 0, ...tab };
+      query = { ...applyBrowserTabToolBinding(query ?? {}, binding), managedOnly: true };
+      const bodyRecord = asNullableRecord(body);
+      if (bodyRecord) {
+        body = applyBrowserTabToolBinding(bodyRecord, binding);
+      }
+      assertDashboardCurrent = (profile) =>
+        assertBrowserDashboardTargetCurrent(dashboard, scope.data.agentId, authority, profile);
+      await assertDashboardCurrent();
+    } catch (error) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(error)));
+      return;
+    }
+  }
   const cfg = getRuntimeConfig();
   const configuredNode = normalizeOptionalString(cfg.gateway?.nodes?.browser?.node);
   // System-profile listing and import can only run where the local Keychain and
   // Chrome profiles live, so they must never route to a browser node. Force
   // host-local dispatch even when gateway.nodes.browser auto-selects a node.
-  const forceHostLocal = isBrowserHostLocalRoute(methodRaw, path);
+  const forceHostLocal =
+    Boolean(assertDashboardCurrent) || isBrowserHostLocalRoute(methodRaw, path);
   if (forceHostLocal && explicitNode) {
     respond(
       false,
@@ -292,7 +421,7 @@ export async function handleBrowserGatewayRequest({
   }
 
   // Invalidation precedes the socket's close event; retain live authority separately.
-  const requesterSignal = client?.connectionSignal;
+  const requesterSignal = connectionSignal;
   const requester =
     client && requesterSignal
       ? {
@@ -306,16 +435,21 @@ export async function handleBrowserGatewayRequest({
       : undefined;
   let result;
   try {
+    await assertDashboardCurrent?.();
     result = timeoutMs
       ? await withTimeout(
-          (signal) =>
+          (timeoutSignal) =>
             dispatcher.dispatch({
               method: methodRaw,
               path,
               query,
               body,
-              signal,
+              signal:
+                timeoutSignal && requestSignal
+                  ? AbortSignal.any([timeoutSignal, requestSignal])
+                  : (timeoutSignal ?? requestSignal),
               ...(requester ? { requester } : {}),
+              assertCurrent: assertDashboardCurrent,
             }),
           timeoutMs,
           "browser request",
@@ -325,7 +459,9 @@ export async function handleBrowserGatewayRequest({
           path,
           query,
           body,
+          signal: requestSignal,
           ...(requester ? { requester } : {}),
+          assertCurrent: assertDashboardCurrent,
         });
   } catch (err) {
     respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));

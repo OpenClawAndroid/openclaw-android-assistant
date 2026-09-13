@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelChoice } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
-import { createApiKeyCredential } from "../../agents/auth-profiles/credential-fixtures.test-support.js";
+import {
+  createApiKeyCredential,
+  createAuthProfileStoreFixture,
+} from "../../agents/auth-profiles/credential-fixtures.test-support.js";
 import * as catalog from "../../agents/prepared-model-catalog.js";
 import { setPreparedModelRuntimeAuthStore } from "../../agents/prepared-model-runtime-auth.js";
 import { markPreparedModelCatalogFull } from "../../agents/prepared-model-runtime.full-catalog.js";
@@ -78,12 +81,12 @@ function createOwner(): PreparedModelRuntimeSnapshot {
       throw new Error("Inventory must not start model execution");
     },
   };
-  setPreparedModelRuntimeAuthStore(owner, {
-    version: 1,
-    profiles: {
+  setPreparedModelRuntimeAuthStore(
+    owner,
+    createAuthProfileStoreFixture({
       "catalog-provider:test": createApiKeyCredential("catalog-provider", "synthetic-catalog-key"),
-    },
-  });
+    }),
+  );
   return owner;
 }
 let owner: PreparedModelRuntimeSnapshot;

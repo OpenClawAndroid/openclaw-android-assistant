@@ -319,11 +319,11 @@ export async function resolveWorkerWorkspaceGitAuthor(
     const result = await runTask([...git, `user.${key}`]);
     return workerWorkspaceCommandSucceeded(result) ? result.stdout.trim() : "";
   };
-  const [name, email] = await Promise.all([read("name"), read("email")]);
-  return {
-    name: request.gitAuthor?.name ?? name,
-    email: request.gitAuthor?.email ?? email,
-  };
+  const [name, email] = await Promise.all([
+    request.gitAuthor?.name ?? read("name"),
+    request.gitAuthor?.email ?? read("email"),
+  ]);
+  return { name, email };
 }
 
 export function stableWorkerPathComponent(value: string, length: number): string {

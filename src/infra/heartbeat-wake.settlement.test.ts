@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { resetGatewayWorkAdmission } from "../process/gateway-work-admission.js";
 import {
   HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT,
@@ -31,6 +32,36 @@ describe("heartbeat wake settlement", () => {
   function setHandler(handler: Parameters<typeof setHeartbeatWakeHandler>[0]) {
     disposeHandler = setHeartbeatWakeHandler(handler);
   }
+
+  it("settles ready work after installation when a later target is admitted", async () => {
+    vi.useFakeTimers();
+    setHandler(null);
+    const settled = vi.fn();
+    const wake = { source: "session-state" as const, intent: "immediate" as const };
+    void requestHeartbeatAndWait({
+      ...wake,
+      sessionKey: "agent:main:ready",
+      coalesceMs: 0,
+    }).then(settled);
+    const handler = vi.fn().mockResolvedValue({ status: "ran", durationMs: 7 });
+    setHandler(handler);
+    const later = requestHeartbeatAndWait({
+      ...wake,
+      sessionKey: "agent:main:later",
+      coalesceMs: 5_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toHaveBeenCalledExactlyOnceWith({ status: "ran", durationMs: 7 });
+    expect(handler.mock.calls.map(([request]) => request.sessionKey)).toEqual(["agent:main:ready"]);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(later).resolves.toEqual({ status: "ran", durationMs: 7 });
+    expect(handler.mock.calls.map(([request]) => request.sessionKey)).toEqual([
+      "agent:main:ready",
+      "agent:main:later",
+    ]);
+  });
 
   it("shares one turn between the public heartbeat and session wake entry points", async () => {
     vi.useFakeTimers();
@@ -102,10 +133,7 @@ describe("heartbeat wake settlement", () => {
 
   it("detaches an aborted waiter without cancelling its shared wake", async () => {
     vi.useFakeTimers();
-    let finishChild: (() => void) | undefined;
-    const child = new Promise<void>((resolve) => {
-      finishChild = resolve;
-    });
+    const { promise: child, resolve: finishChild } = createDeferred();
     const handler = vi.fn(async () => {
       await child;
       return { status: "ran" as const, durationMs: 1 };

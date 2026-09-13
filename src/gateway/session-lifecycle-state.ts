@@ -332,6 +332,11 @@ export async function persistGatewaySessionLifecycleEvent(params: {
   agentId?: string;
   event: LifecycleEventLike;
   assertCommitAllowed?: () => void;
+  expectedWriter?: {
+    runId: string;
+    sessionId: string;
+    lifecycleRevision?: string;
+  };
 }): Promise<void> {
   const phase = resolveLifecyclePhase(params.event);
   if (!phase) {
@@ -362,6 +367,17 @@ export async function persistGatewaySessionLifecycleEvent(params: {
       terminalRecovery = undefined;
       failedRun = undefined;
       const entry = storedEntry as SessionEntry;
+      const expected = params.expectedWriter;
+      if (
+        expected &&
+        (entry.sessionId !== expected.sessionId ||
+          entry.lifecycleRevision !== expected.lifecycleRevision ||
+          (entry.activeWriterRunId !== expected.runId && entry.lifecycleRunId !== expected.runId) ||
+          (entry.activeWriterRunId !== undefined && entry.activeWriterRunId !== expected.runId) ||
+          (entry.lifecycleRunId !== undefined && entry.lifecycleRunId !== expected.runId))
+      ) {
+        return null;
+      }
       if (
         exactCronRun &&
         !acceptsCronRunContinuationLifecycleEvent({ entry, event: params.event })

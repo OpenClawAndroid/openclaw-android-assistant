@@ -397,16 +397,6 @@ export async function mountPage(
   return { page, provider };
 }
 
-export function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((nextResolve, nextReject) => {
-    resolve = nextResolve;
-    reject = nextReject;
-  });
-  return { promise, reject, resolve };
-}
-
 export async function activatePluginControl(
   page: TestPluginsPage,
   pluginSelector: string,

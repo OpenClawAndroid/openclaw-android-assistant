@@ -1,16 +1,24 @@
 import { once } from "node:events";
+import { Readable } from "node:stream";
 import type { OpusEncoderHandle } from "libopus-wasm";
 import { beforeEach, expect, it, vi } from "vitest";
 
-const { createEncoderMock } = vi.hoisted(() => ({ createEncoderMock: vi.fn() }));
+const { createEncoderMock, createDecoderMock } = vi.hoisted(() => ({
+  createEncoderMock: vi.fn(),
+  createDecoderMock: vi.fn(),
+}));
 vi.mock("libopus-wasm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("libopus-wasm")>()),
   createEncoder: createEncoderMock,
+  createDecoder: createDecoderMock,
 }));
 
-import { createDiscordOpusEncodeStream } from "./audio.js";
+import { createDiscordOpusEncodeStream, decodeOpusStreamChunks } from "./audio.js";
 
-beforeEach(() => createEncoderMock.mockReset());
+beforeEach(() => {
+  createEncoderMock.mockReset();
+  createDecoderMock.mockReset();
+});
 
 it.each([false, true])(
   "preserves PCM frames across arbitrary splits and caller reuse (partial flush: %s)",
@@ -132,4 +140,94 @@ it("reports encoder initialization failures without producing queued audio", asy
 
   expect(errors).toEqual([error]);
   expect(stream.read()).toBeNull();
+});
+
+it("yields between encoding batches and pauses until the player consumes packets", async () => {
+  const codec = await vi.importActual<typeof import("libopus-wasm")>("libopus-wasm");
+  const encoder = await codec.createEncoder({ channels: 2, sampleRate: 48_000 });
+  const encode = encoder.encode.bind(encoder);
+  let encodedPackets = 0;
+  let observeFirstYield!: (packets: number) => void;
+  const firstYield = new Promise<number>((resolve) => {
+    observeFirstYield = resolve;
+  });
+  vi.spyOn(encoder, "encode").mockImplementation((input, options) => {
+    encodedPackets += 1;
+    if (encodedPackets === 1) {
+      setImmediate(() => observeFirstYield(encodedPackets));
+    }
+    return encode(input, options);
+  });
+  createEncoderMock.mockResolvedValueOnce(encoder);
+  const stream = createDiscordOpusEncodeStream();
+  const packetCount = 128;
+  const pcmBytes = packetCount * 960 * 2 * 2;
+  try {
+    stream.end(Buffer.alloc(pcmBytes));
+    expect(await firstYield).toBeLessThan(packetCount);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(stream.readableLength).toBeLessThanOrEqual(stream.readableHighWaterMark);
+    expect(encodedPackets).toBeLessThanOrEqual(stream.readableHighWaterMark);
+
+    let receivedBytes = 0;
+    let receivedPackets = 0;
+    for await (const packet of stream) {
+      receivedBytes += stream.takePcmBytes(packet);
+      receivedPackets += 1;
+    }
+    expect(receivedPackets).toBe(packetCount);
+    expect(receivedBytes).toBe(pcmBytes);
+  } finally {
+    stream.destroy();
+    encoder.free();
+    vi.restoreAllMocks();
+  }
+});
+
+it("cancels yielded encoding and settles the pending write without emitting remaining packets", async () => {
+  const codec = await vi.importActual<typeof import("libopus-wasm")>("libopus-wasm");
+  const encoder = await codec.createEncoder({ channels: 2, sampleRate: 48_000 });
+  const encode = vi.spyOn(encoder, "encode");
+  const free = vi.spyOn(encoder, "free");
+  createEncoderMock.mockResolvedValueOnce(encoder);
+  const stream = createDiscordOpusEncodeStream();
+  const readable = once(stream, "readable");
+  const writeDone = new Promise<Error | null | undefined>((resolve) => {
+    stream.write(Buffer.alloc(128 * 960 * 2 * 2), resolve);
+  });
+  try {
+    await readable;
+    const encodedBeforeCancel = encode.mock.calls.length;
+    expect(encodedBeforeCancel).toBeLessThan(128);
+    const closed = once(stream, "close");
+    stream.destroy();
+    await closed;
+    await expect(writeDone).resolves.toBeInstanceOf(Error);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(encode).toHaveBeenCalledTimes(encodedBeforeCancel);
+    expect(free).toHaveBeenCalledOnce();
+  } finally {
+    stream.destroy();
+    encoder.free();
+    vi.restoreAllMocks();
+  }
+});
+
+it("reports decoder initialization failure to the receive owner", async () => {
+  const error = new Error("decoder initialization failed");
+  createDecoderMock.mockRejectedValueOnce(error);
+  const onError = vi.fn();
+  const onChunk = vi.fn();
+  await decodeOpusStreamChunks(Readable.from([Buffer.from([0xf8, 0xff, 0xfe])]), {
+    onError,
+    onChunk,
+    onVerbose: vi.fn(),
+    onWarn: vi.fn(),
+  });
+  expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  expect(onChunk).not.toHaveBeenCalled();
 });

@@ -5,7 +5,9 @@
  * control endpoints.
  */
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { isLocalManagedProfile } from "../config.js";
 import { BrowserProfileUnavailableError, type BrowserErrorResponse } from "../errors.js";
+import { isManagedOnlyBrowserRequest } from "../request-policy.js";
 import {
   type BrowserRouteContext,
   type ProfileContext,
@@ -39,7 +41,12 @@ export function getProfileContext(
   }
 
   try {
-    return ctx.forProfile(profileName);
+    const profile = ctx.forProfile(profileName);
+    const managedOnly = isManagedOnlyBrowserRequest(req);
+    if (managedOnly && !isLocalManagedProfile(profile.profile)) {
+      return { error: "This dashboard requires a local managed browser profile", status: 400 };
+    }
+    return profile;
   } catch (err) {
     const mapped = ctx.mapTabError(err);
     return mapped
@@ -52,11 +59,18 @@ export function getProfileContext(
 export async function runProfileRouteOperation<T>(params: {
   profileCtx: ProfileContext;
   signal?: AbortSignal;
+  assertCurrent?: BrowserRequest["assertCurrent"];
   run: (signal: AbortSignal) => Promise<T>;
 }): Promise<T> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      return await withProfileContextOperation(params.profileCtx, params.signal, params.run);
+      return await withProfileContextOperation(params.profileCtx, params.signal, async (signal) => {
+        if (params.assertCurrent) {
+          await params.assertCurrent(params.profileCtx.profile);
+        }
+        signal.throwIfAborted();
+        return await params.run(signal);
+      });
     } catch (err) {
       if (!isProfileRestartRequiredError(err)) {
         throw err;

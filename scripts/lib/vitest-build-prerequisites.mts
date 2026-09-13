@@ -194,6 +194,12 @@ const runtimeConsumers = [
     dir: "",
   },
   {
+    file: "src/config/sessions/session-accessor.sqlite-reclamation-memory.test.ts",
+    configs: ["test/vitest/vitest.runtime-config.config.ts"],
+    mode: "runtime",
+    dir: "src",
+  },
+  {
     file: "src/gateway/server.chat-cli-auth.test.ts",
     configs: [
       "test/vitest/vitest.gateway-server-isolated.config.ts",

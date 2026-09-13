@@ -250,7 +250,11 @@ async function runDoctorHealthFlowWithResult(
     await maintenance?.finish(ctx.cfg);
     const warnings = normalizeUpdatePostInstallDoctorWarnings([
       ...(ctx.configResult.stateMigrationStepReceipts ?? []).flatMap((receipt) =>
-        receipt.outcome === "warning" || receipt.outcome === "skipped" ? receipt.warnings : [],
+        receipt.outcome === "warning" ||
+        receipt.outcome === "skipped" ||
+        receipt.outcome === "deferred"
+          ? receipt.warnings
+          : [],
       ),
       ...(ctx.postInstallDoctorResult?.warnings ?? []),
       ...(ctx.updateWarnings ?? []),

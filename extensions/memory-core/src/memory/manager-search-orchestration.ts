@@ -5,9 +5,11 @@ import {
   resolveUserPath,
 } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import {
+  readMemoryFile,
   MEMORY_INDEX_FTS_TABLE,
   MEMORY_INDEX_VECTOR_TABLE,
   MEMORY_SEARCH_DEADLINE_CONTROL,
+  type MemoryReadResult,
   type MemorySearchManager,
   type MemorySearchResult,
   type MemorySource,
@@ -79,6 +81,20 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
         : undefined,
     });
     return selectResults(results);
+  }
+
+  async readFile(params: {
+    relPath: string;
+    from?: number;
+    lines?: number;
+  }): Promise<MemoryReadResult> {
+    return await readMemoryFile({
+      workspaceDir: this.workspaceDir,
+      extraPaths: this.settings.extraPaths,
+      relPath: params.relPath,
+      from: params.from,
+      lines: params.lines,
+    });
   }
 
   private async searchCandidates(
@@ -197,8 +213,10 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
         (indexIdentity.status === "missing" ||
           (searchSyncEnabled &&
             indexIdentity.status === "mismatched" &&
-            indexIdentity.owner === "openclaw"));
+            indexIdentity.owner === "openclaw" &&
+            indexIdentity.versionOrder === "older"));
       if (shouldRepairIdentity) {
+        this.recordAutomaticRebuild();
         // The writer rechecks identity under its lease; another manager may have repaired it.
         await this.syncAdmitted(
           { reason: "search" },

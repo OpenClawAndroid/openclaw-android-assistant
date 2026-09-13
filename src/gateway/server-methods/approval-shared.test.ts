@@ -678,10 +678,7 @@ describe("handlePendingApprovalRequest", () => {
     );
     void manager.register(record, 60_000);
     const respond = vi.fn();
-    let finishDelivery!: (delivered: boolean) => void;
-    const delivery = new Promise<boolean>((resolve) => {
-      finishDelivery = resolve;
-    });
+    const { promise: delivery, resolve: finishDelivery } = createDeferredCore<boolean>();
     const requestPromise = handlePendingApprovalRequest({
       manager,
       record,
@@ -733,10 +730,7 @@ describe("handlePendingApprovalRequest", () => {
       void manager.register(record, 60_000);
       const respond = vi.fn();
       const afterDecision = vi.fn();
-      let finishDelivery!: (delivered: boolean) => void;
-      const delivery = new Promise<boolean>((resolve) => {
-        finishDelivery = resolve;
-      });
+      const { promise: delivery, resolve: finishDelivery } = createDeferredCore<boolean>();
       const requestPromise = handlePendingApprovalRequest({
         manager,
         record,

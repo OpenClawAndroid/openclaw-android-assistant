@@ -353,7 +353,7 @@ export function registerBrowserAgentSnapshotRoutes(
       res,
       ctx,
       targetId,
-      run: async ({ profileCtx, tab, cdpUrl, signal }) => {
+      run: async ({ profileCtx, tab, cdpUrl, signal, assertCurrent }) => {
         if (getBrowserProfileCapabilities(profileCtx.profile).usesChromeMcp) {
           const ssrfPolicyOpts = browserNavigationPolicyForProfile(ctx, profileCtx);
           await assertBrowserNavigationAllowed({ url, ...ssrfPolicyOpts });
@@ -383,6 +383,7 @@ export function registerBrowserAgentSnapshotRoutes(
             targetId: tab.targetId,
             url,
             timeoutMs,
+            ...(assertCurrent ? { assertCurrent } : {}),
             ...(resolveRelayTarget
               ? {
                   resolveOperationTarget: resolveRelayTarget,
@@ -644,6 +645,7 @@ export function registerBrowserAgentSnapshotRoutes(
       await runProfileRouteOperation({
         profileCtx,
         signal: req.signal,
+        assertCurrent: req.assertCurrent,
         run: async (signal) => {
           const tab = await profileCtx.ensureTabAvailable(targetId || undefined, {
             allowPlaywrightFallback: hasPlaywright,
@@ -657,6 +659,7 @@ export function registerBrowserAgentSnapshotRoutes(
               ...ssrfPolicyOpts,
             });
           }
+          await req.assertCurrent?.(profileCtx.profile);
           const deltaFamily: SnapshotDeltaFamily | undefined =
             plan.format === "ai"
               ? {

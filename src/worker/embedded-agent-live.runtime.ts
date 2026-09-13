@@ -220,6 +220,11 @@ export function createWorkerLiveRuntime(client: WorkerLiveClient): WorkerLiveRun
     streamedPhase = phase;
   };
   const handleSessionEvent = (event: AgentSessionEvent) => {
+    // Disabled previews no longer need snapshots or diagnostics, but agent_end
+    // still owns the terminal result deferred until the transcript is durable.
+    if (!previewEnabled && event.type !== "agent_end") {
+      return;
+    }
     if (event.type === "agent_start") {
       enqueueLive({ kind: "lifecycle", payload: { phase: "start", startedAt } });
       return;

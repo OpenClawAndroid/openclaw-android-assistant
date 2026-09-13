@@ -2,20 +2,13 @@
 
 import { buildSystemAgentSessionInvalidatedErrorDetails } from "@openclaw/gateway-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { GatewayRequestError, type GatewayBrowserClient } from "../../api/gateway.ts";
 import { installSafeLocalStorageForTesting } from "../../test-helpers/storage.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { createContext } from "./custodian-page.test-harness.ts";
 import { CustodianSessionStore } from "./custodian-session-store.ts";
 import { custodianErrorMessage } from "./transcript.ts";
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
 
 describe("CustodianSessionStore", () => {
   beforeEach(() => {
@@ -458,7 +451,7 @@ describe("CustodianSessionStore", () => {
   ])(
     "preserves the latest ordinary draft after an unsent failure: $edits",
     async ({ edits, expected }) => {
-      const pending = deferred<void>();
+      const pending = deferred();
       const request = vi
         .fn()
         .mockResolvedValueOnce({ sessionId: "draft-session", reply: "Ready." })

@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionUsageTimeSeries } from "../../../../src/shared/session-usage-timeseries-types.js";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import {
   cacheSnapshot,
@@ -9,7 +10,6 @@ import {
   contextWithClient,
   contextWeight,
   createPage,
-  deferred,
   preloadUsage,
   refreshButton,
 } from "./usage-page.test-support.ts";

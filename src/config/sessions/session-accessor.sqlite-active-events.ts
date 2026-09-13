@@ -5,6 +5,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   iterateSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
+import type { TranscriptReadWindow } from "../../sessions/transcript-read-window.js";
 import {
   getActiveTranscriptKysely,
   parseActiveTranscriptMessageRow,
@@ -53,6 +54,7 @@ export type SessionTranscriptMessageEventPage = {
   activeLeafEntryId?: string | null;
   deltaCursor?: string;
   displaySource?: string;
+  readWindow?: TranscriptReadWindow;
   events: SessionTranscriptMessageEvent[];
   totalMessages: number;
 };

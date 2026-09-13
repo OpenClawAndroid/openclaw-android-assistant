@@ -824,6 +824,58 @@ describe("handleChatGatewayEvent", () => {
     expect(state.chatStream).toBe(expected);
   });
 
+  it("reuses persisted text across live deltas and refreshes replaced messages", () => {
+    const persistedMessage = (id: string, text: string) => {
+      const readContent = vi.fn(() => [{ type: "text", text }]);
+      return {
+        readContent,
+        message: {
+          role: "assistant",
+          get content() {
+            return readContent();
+          },
+          __openclaw: { id, runId: "run-1" },
+        },
+      };
+    };
+    const first = persistedMessage("part-a", "A");
+    const second = persistedMessage("part-b", "B");
+    const state = createState({
+      chatRunId: "run-1",
+      chatMessages: [first.message, second.message],
+    });
+    const receiveDelta = (text: string) => {
+      expect(
+        handleChatGatewayEvent(state, {
+          runId: "run-1",
+          sessionKey: "main",
+          state: "delta",
+          message: createTextChatMessage("assistant", text),
+        }),
+      ).toBe("delta");
+      return visibleCurrentAssistantStreamTail(state, () => false);
+    };
+
+    expect(receiveDelta("ABC")).toBe("C");
+    expect(first.readContent).toHaveBeenCalled();
+    expect(second.readContent).toHaveBeenCalled();
+    first.readContent.mockClear();
+    second.readContent.mockClear();
+
+    for (const text of ["ABCD", "ABCDE", "ABCDEF"]) {
+      expect(receiveDelta(text)).toBe(text.slice(2));
+    }
+    expect(first.readContent).not.toHaveBeenCalled();
+    expect(second.readContent).not.toHaveBeenCalled();
+
+    const replacement = persistedMessage("part-b", "BC");
+    state.chatMessages = [first.message, replacement.message];
+    expect(receiveDelta("ABCDEFG")).toBe("DEFG");
+    expect(replacement.readContent).toHaveBeenCalled();
+    expect(first.readContent).not.toHaveBeenCalled();
+    expect(second.readContent).not.toHaveBeenCalled();
+  });
+
   it("adopts the run id for selected-session live deltas observed from another channel", () => {
     const state = createState({
       sessionKey: "agent:main:feishu:direct:peer-1",

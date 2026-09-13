@@ -68,7 +68,6 @@ describe("memory session update sync", () => {
   }
 
   it("indexes an update that arrives before an active sync clears dirty state", async () => {
-    fixture.setStateDir(path.join(fixture.paths.workspace, ".state-session-update-during-sync"));
     const sessionId = "session-update-during-sync";
     const sessionKey = `agent:main:proof:${sessionId}`;
     const updatedMarker = "UPDATE DURING ACTIVE SYNC 811";
@@ -146,7 +145,6 @@ describe("memory session update sync", () => {
       syncArchiveFilesSpy?.mockRestore();
       releaseActiveSync();
       await manager.close?.();
-      fixture.restoreStateDir();
     }
   });
 

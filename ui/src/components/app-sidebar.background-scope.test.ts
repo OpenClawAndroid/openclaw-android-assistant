@@ -2,18 +2,14 @@
 
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewaySessionRow } from "../api/types.ts";
 import {
   createTestSessionCapability,
   sessionsResult,
 } from "../lib/sessions/session-capability.test-support.ts";
 import "../test-helpers/app-sidebar-suite.ts";
-import {
-  createGatewayHarness,
-  deferred,
-  mountSidebar,
-  TWO_AGENTS,
-} from "../test-helpers/app-sidebar.ts";
+import { createGatewayHarness, mountSidebar, TWO_AGENTS } from "../test-helpers/app-sidebar.ts";
 import { createTestGatewayClient } from "../test-helpers/gateway-client.ts";
 import "./app-sidebar.ts";
 

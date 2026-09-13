@@ -26,6 +26,22 @@ import type {
 
 type WorktreesTable = OpenClawStateKyselyDatabase["worktrees"];
 type WorktreeRow = Selectable<WorktreesTable>;
+const WORKTREE_RECORD_COLUMNS = [
+  "id",
+  "repo_fingerprint",
+  "repo_root",
+  "path",
+  "branch",
+  "base_ref",
+  "owner_kind",
+  "owner_id",
+  "snapshot_ref",
+  "created_at",
+  "last_active_at",
+  "removed_at",
+  "run_end_cleanup_json",
+] as const satisfies readonly (keyof WorktreeRow)[];
+type WorktreeRecordRow = Pick<WorktreeRow, (typeof WORKTREE_RECORD_COLUMNS)[number]>;
 type WorktreeRegistryDatabase = Pick<OpenClawStateKyselyDatabase, "worktrees">;
 type WorktreeProvisionedDatabase = Pick<
   OpenClawStateKyselyDatabase,
@@ -82,7 +98,7 @@ function parseRunEndCleanup(
   }
 }
 
-function rowToRecord(row: WorktreeRow): ManagedWorktreeRecord {
+function rowToRecord(row: WorktreeRecordRow): ManagedWorktreeRecord {
   const runEndCleanup = parseRunEndCleanup(row.run_end_cleanup_json);
   return {
     id: row.id,
@@ -161,7 +177,7 @@ export function listRegistryWorktrees(env: NodeJS.ProcessEnv): ManagedWorktreeRe
   const db = dbFor(env);
   const query = kyselyFor(db)
     .selectFrom("worktrees")
-    .selectAll()
+    .select(WORKTREE_RECORD_COLUMNS)
     .orderBy("created_at", "desc")
     .orderBy("id", "asc");
   return executeSqliteQuerySync(db, query).rows.map(rowToRecord);
@@ -215,7 +231,10 @@ export function getRegistryWorktree(
   id: string,
 ): ManagedWorktreeRecord | undefined {
   const db = dbFor(env);
-  const query = kyselyFor(db).selectFrom("worktrees").selectAll().where("id", "=", id);
+  const query = kyselyFor(db)
+    .selectFrom("worktrees")
+    .select(WORKTREE_RECORD_COLUMNS)
+    .where("id", "=", id);
   const row = executeSqliteQuerySync(db, query).rows[0];
   return row ? rowToRecord(row) : undefined;
 }
@@ -366,7 +385,7 @@ export function findLiveRegistryWorktreeByPath(
   const db = dbFor(env);
   const query = kyselyFor(db)
     .selectFrom("worktrees")
-    .selectAll()
+    .select(WORKTREE_RECORD_COLUMNS)
     .where("path", "=", worktreePath)
     .where("removed_at", "is", null)
     .orderBy("created_at", "desc")
@@ -383,7 +402,7 @@ export function findLiveRegistryWorktreeByOwner(
   const db = dbFor(env);
   const query = kyselyFor(db)
     .selectFrom("worktrees")
-    .selectAll()
+    .select(WORKTREE_RECORD_COLUMNS)
     .where("owner_kind", "=", ownerKind)
     .where("owner_id", "=", ownerId)
     .where("removed_at", "is", null)

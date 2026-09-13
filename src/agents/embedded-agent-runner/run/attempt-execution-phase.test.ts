@@ -803,19 +803,33 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
     expect(fixture.runAbort).toHaveBeenCalledWith(true, idleError);
   });
 
-  it("flushes pending tool results and disposes the session when history preparation fails", async () => {
-    const fixture = await createFixture({ aborted: true });
-    const failure = new Error("history failed");
-    mocks.prepareHistory.mockRejectedValueOnce(failure);
-    mocks.flushPendingToolResultsAfterIdle.mockResolvedValue(undefined);
+  it.each(["flushed", "rejected"] as const)(
+    "disposes after a %s tool-result flush when history preparation fails",
+    async (outcome) => {
+      const fixture = await createFixture({ aborted: true });
+      const failure = new Error("history failed");
+      const flush = createDeferred();
+      mocks.prepareHistory.mockRejectedValueOnce(failure);
+      mocks.flushPendingToolResultsAfterIdle.mockReturnValueOnce(flush.promise);
 
-    await expect(runEmbeddedAttemptExecutionPhase(fixture.input)).rejects.toBe(failure);
+      const execution = expect(runEmbeddedAttemptExecutionPhase(fixture.input)).rejects.toBe(
+        failure,
+      );
+      await vi.waitFor(() => expect(mocks.flushPendingToolResultsAfterIdle).toHaveBeenCalledOnce());
+      expect(fixture.activeSession.dispose).not.toHaveBeenCalled();
+      if (outcome === "rejected") {
+        flush.reject(new Error("transcript writer retired"));
+      } else {
+        flush.resolve();
+      }
+      await execution;
 
-    expect(mocks.flushPendingToolResultsAfterIdle).toHaveBeenCalledWith({
-      agent: fixture.activeSession.agent,
-      sessionManager: fixture.sessionManager,
-      timeoutMs: 0,
-    });
-    expect(fixture.activeSession.dispose).toHaveBeenCalledOnce();
-  });
+      expect(mocks.flushPendingToolResultsAfterIdle).toHaveBeenCalledWith({
+        agent: fixture.activeSession.agent,
+        sessionManager: fixture.sessionManager,
+        timeoutMs: 0,
+      });
+      expect(fixture.activeSession.dispose).toHaveBeenCalledOnce();
+    },
+  );
 });

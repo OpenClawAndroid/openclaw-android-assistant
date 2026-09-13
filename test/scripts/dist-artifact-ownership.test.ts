@@ -15,6 +15,7 @@ import {
   TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS,
 } from "../../scripts/lib/tsdown-config-groups.mts";
 import { createVitestResourceOwner } from "../../scripts/lib/vitest-resource-ownership.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
 import { waitForDead } from "../helpers/process-wait.js";
 import {
@@ -24,6 +25,7 @@ import {
 import { createFixture as createDeclarationFixture } from "./tsdown-declaration-fixture.js";
 
 const fixture = createFixtureLifetime();
+const testNodeExecPath = resolveTestNodeExecPath();
 afterEach(() => fixture.cleanup());
 const sourceRoot = process.cwd();
 const declarationPath = "dist/plugin-sdk/src/plugin-sdk/qa-channel-protocol.d.ts";
@@ -239,7 +241,7 @@ async function runWithProcesses(
       start: (root, script, args, resourceOwner) => {
         signal.throwIfAborted();
         const commandArgs = [script, ...(args ?? [])];
-        const child = spawn(process.execPath, commandArgs, {
+        const child = spawn(testNodeExecPath, commandArgs, {
           cwd: root,
           env: {
             ...process.env,
@@ -464,7 +466,7 @@ describe.skipIf(process.platform === "win32")("dist artifact ownership", () => {
       execFileSync(path.join(root, "absent-command"), [], { stdio: "pipe" }),
     ).catch((cause: unknown) => cause);
     expect(error).toHaveProperty("code", "ENOENT");
-    expect(error).toHaveProperty("error", error);
+    expect((error as { error?: unknown }).error ?? error).toBe(error);
     expect(fs.existsSync(path.join(resolveDistArtifactLockPath(root), "owner.json"))).toBe(false);
     expect(fs.existsSync(path.join(resolveDistArtifactLockPath(root), "unjoined"))).toBe(false);
   });

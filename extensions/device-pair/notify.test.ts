@@ -10,6 +10,7 @@ import type {
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
   createPluginStateKeyedStoreForTests,
+  openOpenClawStateDatabase,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
@@ -86,6 +87,103 @@ describe("device-pair notify persistence", () => {
       maxEntries: DEVICE_PAIR_NOTIFY_SUBSCRIBER_MAX_ENTRIES,
     });
   }
+
+  it.each([true, false])(
+    "reports live subscriber counts with count support=%s",
+    async (supportsCount) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      const subscriber: NotifySubscription = {
+        to: "chat-123",
+        mode: "persistent",
+        addedAtMs: 1,
+      };
+      const subscriberStore = openSubscriberStore();
+      await subscriberStore.register(notifySubscriberStoreKey(subscriber), subscriber);
+      await subscriberStore.register("expired", subscriber, { ttlMs: 1 });
+      await openStore({ namespace: "other", maxEntries: 10 }).register("sibling", subscriber);
+      vi.setSystemTime(1_001);
+      const api = createApi(undefined, <T>(options: OpenKeyedStoreOptions) => {
+        const store = openStore<T>(options);
+        if (supportsCount) {
+          return store;
+        }
+        const { count: _count, ...olderStore } = store;
+        return olderStore;
+      });
+      for (const [senderId, mode] of [
+        ["chat-123", "persistent"],
+        ["missing", "off"],
+      ]) {
+        const status = await handleNotifyCommand({
+          api,
+          ctx: { channel: "telegram", senderId },
+          action: "status",
+        });
+        expect(status.text).toContain(`Mode: ${mode}`);
+        expect(status.text).toContain("Subscribers: 1");
+        expect(status.text).toContain("Pending requests: 0");
+      }
+    },
+  );
+
+  it("counts unrelated corrupt subscriber rows but still validates the selected chat", async () => {
+    const subscriber: NotifySubscription = { to: "chat-123", mode: "once", addedAtMs: 1 };
+    const subscriberStore = openSubscriberStore();
+    await subscriberStore.register(notifySubscriberStoreKey(subscriber), subscriber);
+    await subscriberStore.register("unrelated", subscriber);
+    const { db } = openOpenClawStateDatabase({ env });
+    const corrupt = db.prepare(
+      "UPDATE plugin_state_entries SET value_json = ? WHERE plugin_id = ? AND namespace = ? AND entry_key = ?",
+    );
+    corrupt.run("{", "device-pair", DEVICE_PAIR_NOTIFY_SUBSCRIBER_NAMESPACE, "unrelated");
+    const command = {
+      api: createApi(),
+      ctx: { channel: "telegram", senderId: "chat-123" },
+      action: "status",
+    };
+    const status = await handleNotifyCommand(command);
+    expect(status.text).toContain("Mode: once");
+    expect(status.text).toContain("Subscribers: 2");
+    const olderApi = createApi(undefined, <T>(options: OpenKeyedStoreOptions) => {
+      const { count: _count, ...store } = openStore<T>(options);
+      return store;
+    });
+    await expect(handleNotifyCommand({ ...command, api: olderApi })).rejects.toMatchObject({
+      code: "PLUGIN_STATE_CORRUPT",
+      operation: "entries",
+    });
+    corrupt.run(
+      "{",
+      "device-pair",
+      DEVICE_PAIR_NOTIFY_SUBSCRIBER_NAMESPACE,
+      notifySubscriberStoreKey(subscriber),
+    );
+    await expect(handleNotifyCommand(command)).rejects.toMatchObject({
+      code: "PLUGIN_STATE_CORRUPT",
+      operation: "lookup",
+    });
+  });
+
+  it("propagates count failures without retrying enumeration", async () => {
+    const failure = new Error("count unavailable");
+    const entries = vi.fn(async () => []);
+    const api = createApi(undefined, <T>(options: OpenKeyedStoreOptions) => ({
+      ...openStore<T>(options),
+      count: async () => {
+        throw failure;
+      },
+      entries,
+    }));
+    await expect(
+      handleNotifyCommand({
+        api,
+        ctx: { channel: "telegram", senderId: "chat-123" },
+        action: "status",
+      }),
+    ).rejects.toBe(failure);
+    expect(entries).not.toHaveBeenCalled();
+  });
 
   it("defers the first notify poll and keeps one in flight across service recreation", async () => {
     vi.useFakeTimers();

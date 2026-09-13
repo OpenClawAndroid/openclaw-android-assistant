@@ -4533,10 +4533,7 @@ describe("server-channels auto restart", () => {
 
   it("injects a narrow Gateway approval resolver into the channel task runtime", async () => {
     const request = vi.fn(async () => ({ applied: true, approval: {} }));
-    let releaseAccountStart = () => {};
-    const accountStartReady = new Promise<void>((resolve) => {
-      releaseAccountStart = resolve;
-    });
+    const { promise: accountStartReady, resolve: releaseAccountStart } = createDeferred();
     const nativeApprovalRuntime = {
       current: undefined as GatewayNativeApprovalRuntime | undefined,
     };

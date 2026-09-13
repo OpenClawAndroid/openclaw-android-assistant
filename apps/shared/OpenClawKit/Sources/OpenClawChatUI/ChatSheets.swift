@@ -60,7 +60,7 @@ public struct ChatSessionsSheet: View {
     }
 
     private var scopedFetchID: String {
-        "\(self.scope.rawValue)|\(self.trimmedSearchText.lowercased())"
+        "\(self.viewModel.selectedAgentID ?? "")|\(self.scope.rawValue)|\(self.trimmedSearchText.lowercased())"
     }
 
     public var body: some View {
@@ -158,7 +158,7 @@ public struct ChatSessionsSheet: View {
                     .font(OpenClawChatTypography.body)
                 Button {
                     if let target = self.renameTarget {
-                        self.viewModel.renameSession(key: target.key, label: self.renameText)
+                        self.viewModel.renameSession(key: target.key, label: self.renameText, agentID: target.agentId)
                         self.refreshScopedSessionsSoon()
                     }
                     self.renameTarget = nil
@@ -271,18 +271,21 @@ public struct ChatSessionsSheet: View {
                 // points at a still-archived session.
                 Task {
                     guard await self.viewModel.restoreSession(session) else { return }
-                    self.viewModel.switchSession(to: session.key)
+                    self.viewModel.switchSession(to: session.key, agentID: session.agentId)
                     self.dismiss()
                 }
             } else {
-                self.viewModel.switchSession(to: session.key)
+                self.viewModel.switchSession(to: session.key, agentID: session.agentId)
                 self.dismiss()
             }
         } label: { self.sessionRowContent(session) }
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                 if !session.isArchived {
                     Button {
-                        self.viewModel.setSessionPinned(key: session.key, pinned: !session.isPinned)
+                        self.viewModel.setSessionPinned(
+                            key: session.key,
+                            pinned: !session.isPinned,
+                            agentID: session.agentId)
                         self.refreshScopedSessionsSoon()
                     } label: {
                         self.actionLabel(
@@ -311,7 +314,7 @@ public struct ChatSessionsSheet: View {
             .contextMenu {
                 OpenClawSessionColorMenu(color: session.color) { color in
                     Task {
-                        await self.viewModel.setSessionColor(key: session.key, color: color)
+                        await self.viewModel.setSessionColor(key: session.key, color: color, agentID: session.agentId)
                         await self.refreshScopedSessionsIfNeeded(debounce: false)
                     }
                 }
@@ -329,7 +332,10 @@ public struct ChatSessionsSheet: View {
                 }
                 if !session.isArchived {
                     Button {
-                        self.viewModel.setSessionPinned(key: session.key, pinned: !session.isPinned)
+                        self.viewModel.setSessionPinned(
+                            key: session.key,
+                            pinned: !session.isPinned,
+                            agentID: session.agentId)
                         self.refreshScopedSessionsSoon()
                     } label: {
                         self.actionLabel(
@@ -354,7 +360,8 @@ public struct ChatSessionsSheet: View {
                     Task {
                         await self.viewModel.forkSession(
                             key: session.key,
-                            fromLastCompleted: session.hasActiveRun == true)
+                            fromLastCompleted: session.hasActiveRun == true,
+                            agentID: session.agentId)
                     }
                 } label: {
                     self.actionLabel(
@@ -365,7 +372,10 @@ public struct ChatSessionsSheet: View {
                         systemImage: "arrow.triangle.branch")
                 }
                 Button {
-                    self.viewModel.setSessionUnread(key: session.key, unread: session.unread != true)
+                    self.viewModel.setSessionUnread(
+                        key: session.key,
+                        unread: session.unread != true,
+                        agentID: session.agentId)
                     self.refreshScopedSessionsSoon()
                 } label: {
                     self.actionLabel(

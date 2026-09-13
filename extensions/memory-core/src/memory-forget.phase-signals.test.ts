@@ -2,7 +2,6 @@ import { setImmediate } from "node:timers";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import { openOpenClawStateDatabase } from "openclaw/plugin-sdk/sqlite-runtime-testing";
-import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   SHORT_TERM_META_NAMESPACE,
@@ -20,7 +19,6 @@ import {
 } from "./memory-entry-origins.js";
 import { forgetMemoryEntries } from "./memory-forget.js";
 import {
-  closeMemoryForgetFixture,
   createMemoryForgetFixture,
   seedMemoryForgetSession,
 } from "./memory-forget.test-helpers.js";
@@ -55,20 +53,17 @@ function recallEntry(key: string): ShortTermRecallEntry {
 }
 
 describe("memory forget phase-signal failures", () => {
+  let fixture: Awaited<ReturnType<typeof createMemoryForgetFixture>>;
   let workspaceDir: string;
   let cfg: OpenClawConfig;
 
-  const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
-    afterEach(() => {
-      closeMemoryForgetFixture();
-      cleanup();
-    }),
-  );
+  afterEach(async () => {
+    await fixture.cleanup();
+  });
 
   beforeEach(async () => {
-    ({ workspaceDir, cfg } = await createMemoryForgetFixture(
-      tempDirs.make("openclaw-memory-forget-phase-"),
-    ));
+    fixture = await createMemoryForgetFixture("openclaw-memory-forget-phase-");
+    ({ workspaceDir, cfg } = fixture);
   });
 
   async function seedEntries(survivorKeys: string[]) {

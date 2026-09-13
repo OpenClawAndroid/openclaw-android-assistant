@@ -706,10 +706,7 @@ describe("worker environment service", () => {
   });
 
   it("applies a terminal ACK only after its transcript commit finishes", async () => {
-    let finishCommit: (() => void) | undefined;
-    const commitBlocked = new Promise<void>((resolve) => {
-      finishCommit = resolve;
-    });
+    const { promise: commitBlocked, resolve: finishCommit } = createDeferredCore();
     const applyTranscriptCommit = support.successfulTranscriptCommit(
       "entry-order",
       () => commitBlocked,

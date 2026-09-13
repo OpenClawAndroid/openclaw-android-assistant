@@ -33,12 +33,11 @@ function makeFakeSupervisor(opts: { deferSpawn?: boolean } = {}) {
       await spawnGate;
       counter += 1;
       const runId = `run-${counter}`;
-      let resolveWait!: (exit: { exitCode: number | null; reason: string }) => void;
-      let rejectWait!: (err: unknown) => void;
-      const waitPromise = new Promise<{ exitCode: number | null; reason: string }>((res, rej) => {
-        resolveWait = res;
-        rejectWait = rej;
-      });
+      const {
+        promise: waitPromise,
+        resolve: resolveWait,
+        reject: rejectWait,
+      } = createDeferred<{ exitCode: number | null; reason: string }>();
       // Pre-attach a no-op catch so a test-driven rejection never escapes as an
       // unhandled rejection if the run loses ownership before it awaits wait().
       waitPromise.catch(() => {});

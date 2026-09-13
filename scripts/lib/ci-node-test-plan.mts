@@ -2326,7 +2326,11 @@ export function createNodeTestShardBundles(
   const compactMode =
     options.compactMode ?? (options.compact === true ? "pull-request" : undefined);
   if (compactMode !== undefined) {
-    return createCompactNodeTestShardBundles(createNodeTestShards(options), options, compactMode);
+    return createCompactNodeTestShardBundles(
+      createNodeTestShards(options),
+      { ...options, compactMode },
+      compactMode,
+    );
   }
 
   const shards = createNodeTestShards(options);
@@ -3362,7 +3366,9 @@ function createCompactNodeTestShardBundles(
     );
   }
 
-  if (options.runnerBackend === "hybrid" && compactMode === "push") {
+  // Only the public complete-plan entry normalizes this option. Precise plans
+  // retain their original template capacity before projecting selected files.
+  if (options.runnerBackend === "hybrid" && options.compactMode !== undefined) {
     const timings = readCompactGroupTimings("blacksmith");
     const runtimeJobs = compactJobs.filter(
       (job) =>

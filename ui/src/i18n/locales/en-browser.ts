@@ -4,6 +4,17 @@ import { en } from "./en.ts";
 // Browser consumers register their fallback without taxing UI startup.
 const enBrowser = {
   browser: {
+    dashboardShared: "You and your agent share this browser page",
+    dashboardStopped: "This dashboard's browser is stopped.",
+    dashboardStopping: "Browser stop is pending. Retry to finish closing its tab.",
+    dashboardStop: "Stop browser",
+    dashboardRetryStop: "Retry stop",
+    dashboardResume: "Resume browser",
+    dashboardReconnect: "Reconnect",
+    dashboardUnavailable: "Connect to a Gateway with browser access to use this dashboard.",
+    dashboardMissingIdentity: "Save this dashboard widget again before opening its browser.",
+    dashboardInvalidReply:
+      "The browser response does not match this dashboard. Reconnect and try again.",
     downloading: "Downloading…",
     downloadFile: "Download file",
     errors: {

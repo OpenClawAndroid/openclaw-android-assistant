@@ -360,6 +360,7 @@ const repo = {id:123,nameWithOwner:"openclaw/openclaw",url:"https://github.com/o
 const reviewComments = ${JSON.stringify(reviewComments)};
 const pr = {id:"fixture-pr",number:131091,url:repo.url+"/pull/131091",state:"OPEN",isDraft:false,
   headRefOid:value.headSha,headRefName:"topic",baseRefName:"main",baseRefOid:"${baseSha}",
+  headRepository:{name:"openclaw",nameWithOwner:repo.nameWithOwner,url:repo.url},headRepositoryOwner:{login:"openclaw"},
   isCrossRepository:false,mergeable:"MERGEABLE",mergeStateStatus:"BLOCKED",mergeCommit:null,
   autoMergeRequest:null,isInMergeQueue:false,isMergeQueueEnabled:false};
 if (args.some(arg => /\\{(?:owner|repo)\\}/u.test(arg))) fail("unresolved repository placeholder");
@@ -420,10 +421,17 @@ else if (endpoint === "graphql" && args.includes("query=query { viewer { login }
   // Node only substitutes the unrelated CI wait; both authorization verifiers run unchanged.
   for (const [name, body] of Object.entries({
     node: `case "$1" in */watch-pr-ci.mjs) exit 0;; esac\nexec '${process.execPath}' "$@"`,
-    git: `case "$1" in
+    git: `if [ "$1" = -C ]; then shift 2; fi
+    case "$1" in --git-dir=*) shift;; esac
+    case "$1" in
       fetch|cat-file|merge-base) exit 0;;
+      remote) [ "$2 $3" = 'get-url origin' ] || exit 19; echo 'https://github.com/openclaw/openclaw.git';;
       merge-tree) echo candidate-tree;;
-      rev-parse) echo main-tree;;
+      rev-parse) case "$2" in
+        --absolute-git-dir) printf '%s/.git\\n' "$PWD";;
+        --verify) [ "$3" = 'refs/heads/pr-131091^{commit}' ] || exit 19; echo '${headSha}';;
+        *) echo main-tree;;
+      esac;;
       log) echo '${headSha}';;
       # The trailer parser writes stdin; drain it before exit to avoid EPIPE.
       -c) cat >/dev/null; exit 0;;
@@ -445,6 +453,8 @@ else if (endpoint === "graphql" && args.includes("query=query { viewer { login }
           `script_parent_dir='${process.cwd()}/scripts'`,
           'source "$script_parent_dir/lib/plain-gh.sh"',
           'source "$script_parent_dir/pr-lib/common.sh"',
+          'source "$script_parent_dir/pr-lib/worktree.sh"',
+          'repo_root() { printf "%s\\n" "$PWD"; }',
           'source "$script_parent_dir/pr-lib/gates.sh"',
           'source "$script_parent_dir/pr-lib/merge.sh"',
           command,

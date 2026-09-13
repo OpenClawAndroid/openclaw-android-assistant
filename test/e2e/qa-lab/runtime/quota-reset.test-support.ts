@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
+import { rawDataToString } from "@openclaw/gateway-client/websocket-data";
 import { expect, type TestContext } from "vitest";
 import { WebSocketServer } from "ws";
 import { readPersistedSharedAuthProfileStateRaw } from "../../../../src/agents/auth-profiles/sqlite.js";
@@ -61,7 +62,7 @@ type ChatHistory = {
     content?: string | Array<{ type: string; text?: string }>;
   }>;
 };
-type HeldUsageResponse = {
+type HeldProviderResponse = {
   phase: Phase;
   path: string;
   status: number;
@@ -105,8 +106,10 @@ function assistantTexts(history: ChatHistory): string[] {
 async function startQuotaProvider(source: BlockSource, responseText: string) {
   let phase: Phase = "healthy";
   let nextSuccessObserver: (() => void) | undefined;
-  let nextUsageHold: { arrived: Deferred<HeldUsageResponse>; released: Deferred<void> } | undefined;
-  const heldUsageResponses: HeldUsageResponse[] = [];
+  let nextUsageHold: { arrived: Deferred<HeldProviderResponse>; released: Deferred } | undefined;
+  let nextCatalogHold: { arrived: Deferred<HeldProviderResponse>; released: Deferred } | undefined;
+  const heldUsageResponses: HeldProviderResponse[] = [];
+  const heldCatalogResponses: HeldProviderResponse[] = [];
   const resetAt = Math.floor(Date.now() / 1000) + 5 * 86_400;
   const requests: RequestRecord[] = [];
   const responses: Array<{
@@ -301,7 +304,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
           const hold = requestPath === "/core-wham/usage" ? nextUsageHold : undefined;
           if (hold) {
             nextUsageHold = undefined;
-            const captured: HeldUsageResponse = {
+            const captured: HeldProviderResponse = {
               phase,
               path: requestPath,
               status: 200,
@@ -342,7 +345,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
           });
         }
       } else if (requestPath === "/catalog/models") {
-        json(200, {
+        const value = {
           models: [
             {
               slug: "gpt-5.5",
@@ -353,7 +356,38 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
               max_output_tokens: 4096,
             },
           ],
-        });
+        };
+        const hold = nextCatalogHold;
+        if (hold) {
+          nextCatalogHold = undefined;
+          const captured: HeldProviderResponse = {
+            phase,
+            path: requestPath,
+            status: 200,
+            body: JSON.stringify(value),
+            capturedAt: Date.now(),
+          };
+          heldCatalogResponses.push(captured);
+          hold.arrived.resolve(captured);
+          const aborted = createDeferredCore<"aborted">();
+          const onClose = () => aborted.resolve("aborted");
+          response.once("close", onClose);
+          try {
+            captured.releaseReason = await Promise.race([
+              hold.released.promise.then(() => "explicit" as const),
+              aborted.promise,
+            ]);
+            captured.releasedAt = Date.now();
+            if (captured.releaseReason === "aborted") {
+              return;
+            }
+          } finally {
+            response.off("close", onClose);
+          }
+          json(captured.status, value, {}, captured.phase);
+        } else {
+          json(200, value);
+        }
       } else if (requestPath.endsWith("/models")) {
         json(200, { models: [] });
       } else if (requestPath.endsWith("/responses")) {
@@ -386,7 +420,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
     sockets.handleUpgrade(request, socket, head, (websocket) => {
       websocket.on("error", (error) => errors.push(String(error)));
       websocket.on("message", (raw) => {
-        recordRequest(request, raw.toString(), "websocket");
+        recordRequest(request, rawDataToString(raw), "websocket");
         const events = exhausted() || phase === "revoked" ? [failure()] : successEvents();
         for (const event of events) {
           responses.push({ phase, path: request.url ?? "", value: event });
@@ -408,6 +442,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
     requests,
     responses,
     heldUsageResponses,
+    heldCatalogResponses,
     errors,
     setPhase(next: Phase) {
       phase = next;
@@ -420,10 +455,21 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
         throw new Error("A usage response hold is already armed");
       }
       const hold = {
-        arrived: createDeferredCore<HeldUsageResponse>(),
-        released: createDeferredCore<void>(),
+        arrived: createDeferredCore<HeldProviderResponse>(),
+        released: createDeferredCore(),
       };
       nextUsageHold = hold;
+      return { arrived: hold.arrived.promise, release: () => hold.released.resolve() };
+    },
+    holdNextCatalog() {
+      if (nextCatalogHold) {
+        throw new Error("A catalog response hold is already armed");
+      }
+      const hold = {
+        arrived: createDeferredCore<HeldProviderResponse>(),
+        released: createDeferredCore(),
+      };
+      nextCatalogHold = hold;
       return { arrived: hold.arrived.promise, release: () => hold.released.resolve() };
     },
     async stop() {
@@ -676,6 +722,7 @@ export async function createQuotaResetFixture(
         requests: provider.requests,
         responses: provider.responses,
         heldUsageResponses: provider.heldUsageResponses,
+        heldCatalogResponses: provider.heldCatalogResponses,
         errors: provider.errors,
         turns,
         stats: stats(),

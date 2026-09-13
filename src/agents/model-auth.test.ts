@@ -9,7 +9,10 @@ import { resolveAuthProfileSecretOwnerId } from "../secrets/runtime-auth-profile
 import type { SecretSurfaceUnavailableError } from "../secrets/runtime-degraded-state.js";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
-import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
+import {
+  createApiKeyCredential,
+  createAuthProfileStoreFixture,
+} from "./auth-profiles/credential-fixtures.test-support.js";
 import { CUSTOM_LOCAL_AUTH_MARKER, GCP_VERTEX_CREDENTIALS_MARKER } from "./model-auth-markers.js";
 import {
   attachModelProviderRequestTransport,
@@ -527,17 +530,14 @@ describe("resolveAwsSdkEnvVarName", () => {
 
 describe("resolveModelAuthMode", () => {
   it("returns mixed when provider has both token and api key profiles", () => {
-    const store: AuthProfileStore = {
-      version: 1,
-      profiles: {
-        "openai:token": {
-          type: "token",
-          provider: "openai",
-          token: "token-value",
-        },
-        "openai:key": createApiKeyCredential("openai", "api-key"),
+    const store: AuthProfileStore = createAuthProfileStoreFixture({
+      "openai:token": {
+        type: "token",
+        provider: "openai",
+        token: "token-value",
       },
-    };
+      "openai:key": createApiKeyCredential("openai", "api-key"),
+    });
 
     expect(resolveModelAuthMode("openai", undefined, store)).toBe("mixed");
   });
@@ -1538,16 +1538,13 @@ describe("resolveApiKeyForProviderCore", () => {
       preferredProfile: "cliproxyapi:preferred",
       credentialPrecedence: "profile-first",
       secretSentinels: true,
-      store: {
-        version: 1,
-        profiles: {
-          "cliproxyapi:preferred": {
-            type: "api_key",
-            provider: "cliproxyapi",
-            key: "sk-preferred-profile", // pragma: allowlist secret
-          },
+      store: createAuthProfileStoreFixture({
+        "cliproxyapi:preferred": {
+          type: "api_key",
+          provider: "cliproxyapi",
+          key: "sk-preferred-profile", // pragma: allowlist secret
         },
-      },
+      }),
     });
     expectAuthFields(preferred, {
       apiKey: "sk-preferred-profile",
@@ -1788,16 +1785,13 @@ describe("resolveApiKeyForProviderCore", () => {
           },
         },
       },
-      store: {
-        version: 1,
-        profiles: {
-          "openai:default": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-profile-stale", // pragma: allowlist secret
-          },
+      store: createAuthProfileStoreFixture({
+        "openai:default": {
+          type: "api_key",
+          provider: "openai",
+          key: "sk-profile-stale", // pragma: allowlist secret
         },
-      },
+      }),
     });
 
     expectAuthFields(resolved, {
@@ -1935,16 +1929,13 @@ describe("resolveApiKeyForProviderCore", () => {
       provider: "cliproxyapi",
       cfg: sourceConfig,
       secretSentinels: true,
-      store: {
-        version: 1,
-        profiles: {
-          "cliproxyapi:default": {
-            type: "api_key",
-            provider: "cliproxyapi",
-            key: "sk-profile-stale", // pragma: allowlist secret
-          },
+      store: createAuthProfileStoreFixture({
+        "cliproxyapi:default": {
+          type: "api_key",
+          provider: "cliproxyapi",
+          key: "sk-profile-stale", // pragma: allowlist secret
         },
-      },
+      }),
     });
 
     expectSecretSentinelAuth(resolved, {
@@ -2004,16 +1995,13 @@ describe("resolveApiKeyForProviderCore", () => {
     const resolved = await withEnv("OLLAMA_API_KEY", "ollama-local", () =>
       resolveApiKeyForProviderCore({
         provider: "ollama",
-        store: {
-          version: 1,
-          profiles: {
-            "ollama:default": {
-              type: "api_key",
-              provider: "ollama",
-              key: "ollama-cloud-profile", // pragma: allowlist secret
-            },
+        store: createAuthProfileStoreFixture({
+          "ollama:default": {
+            type: "api_key",
+            provider: "ollama",
+            key: "ollama-cloud-profile", // pragma: allowlist secret
           },
-        },
+        }),
       }),
     );
 

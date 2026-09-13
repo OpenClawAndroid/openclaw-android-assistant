@@ -66,6 +66,8 @@ struct OpenClawChatComposerPresentationOwner: Equatable {
 @MainActor
 struct OpenClawChatComposer: View {
     @Environment(\.openClawChatDesktopLayout) private var isDesktopLayout
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Bindable var viewModel: OpenClawChatViewModel
     let style: OpenClawChatView.Style
     let showsSessionSwitcher: Bool
@@ -109,19 +111,18 @@ struct OpenClawChatComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             self.lifecycleComposer
-            HStack {
-                if let message = self.viewModel.modelCatalogMessage {
-                    Text(message).font(OpenClawChatTypography.caption)
+            if self.viewModel.modelCatalogMessage != nil || !self.usesDesktopModelMenu {
+                HStack {
+                    if let message = self.viewModel.modelCatalogMessage {
+                        Text(message).font(OpenClawChatTypography.caption)
+                    }
+                    Spacer()
+                    if !self.usesDesktopModelMenu {
+                        self.modelSignInButton
+                    }
                 }
-                Spacer()
-                Button {
-                    Task { self.signInContext = await self.viewModel.modelSignInContext() }
-                } label: {
-                    Text("Model sign-in").font(OpenClawChatTypography.caption)
-                }
-                .accessibilityIdentifier("chat-model-sign-in")
+                .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.secondary)
         }
         .sheet(isPresented: Binding(
             get: { self.signInContext != nil },
@@ -132,6 +133,28 @@ struct OpenClawChatComposer: View {
             }
         }
         .onChange(of: self.presentationOwner) { _, _ in self.signInContext = nil }
+    }
+
+    var usesDesktopModelMenu: Bool {
+        #if os(macOS)
+        self.isDesktopLayout && self.composerChrome == .clean
+        #else
+        false
+        #endif
+    }
+
+    var modelSignInButton: some View {
+        Button {
+            let owner = self.presentationOwner
+            Task {
+                let context = await self.viewModel.modelSignInContext()
+                guard self.presentationOwner == owner else { return }
+                self.signInContext = context
+            }
+        } label: {
+            Text("Model sign-in").font(OpenClawChatTypography.caption)
+        }
+        .accessibilityIdentifier("chat-model-sign-in")
     }
 
     private var styledComposer: some View {
@@ -718,6 +741,7 @@ struct OpenClawChatComposer: View {
 
     var editorOverlay: some View {
         ZStack(alignment: editorOverlayAlignment) {
+            #if !os(macOS)
             if self.viewModel.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(self.placeholderText)
                     .font(OpenClawChatTypography.body)
@@ -725,12 +749,17 @@ struct OpenClawChatComposer: View {
                     .padding(.horizontal, self.cleanFieldTextInset)
                     .padding(.vertical, self.composerChrome == .clean ? 0 : 4)
             }
+            #endif
 
             #if os(macOS)
             ChatComposerTextView(
                 text: self.$viewModel.input,
                 shouldFocus: self.$shouldFocusTextView,
                 isEnabled: self.isComposerEnabled,
+                placeholder: self.placeholderText,
+                textColor: self.isDesktopLayout
+                    ? NSColor(OpenClawChatTheme.desktopText(in: self.colorScheme, contrast: self.colorSchemeContrast))
+                    : .textColor,
                 minHeight: self.textMinHeight,
                 maxHeight: self.textMaxHeight,
                 onSend: {

@@ -1033,10 +1033,7 @@ describe("talk realtime gateway relay", () => {
     let bridgeRequest: RealtimeVoiceBridgeCreateRequest | undefined;
     const bridgeClose = vi.fn();
     const events: Array<{ event: string; payload: unknown; connIds: string[] }> = [];
-    let releaseQueue!: () => void;
-    const queueBlocked = new Promise<void>((resolve) => {
-      releaseQueue = resolve;
-    });
+    const { promise: queueBlocked, resolve: releaseQueue } = createDeferred();
     try {
       await replaceSessionEntry(
         { agentId: "main", sessionKey: "agent:main:main" },
@@ -4335,10 +4332,7 @@ describe("talk realtime gateway relay", () => {
   });
 
   it("submits an ordinary final after an interim rejection", async () => {
-    let rejectInterim: ((error: Error) => void) | undefined;
-    const rejectedInterim = new Promise<void>((_resolve, reject) => {
-      rejectInterim = reject;
-    });
+    const { promise: rejectedInterim, reject: rejectInterim } = createDeferred();
     const submitToolResult = vi
       .fn<RealtimeVoiceBridge["submitToolResult"]>()
       .mockReturnValueOnce(rejectedInterim)
@@ -5235,10 +5229,7 @@ describe("talk realtime gateway relay", () => {
 
   it("supersedes a rejected forced final with canonical cancellation", async () => {
     const fixture = await createSuppressionUnsupportedForcedConsultFixture(["native-call"]);
-    let rejectFinal: ((error: Error) => void) | undefined;
-    const rejectedFinal = new Promise<void>((_resolve, reject) => {
-      rejectFinal = reject;
-    });
+    const { promise: rejectedFinal, reject: rejectFinal } = createDeferred();
     fixture.submitToolResult.mockReturnValueOnce(rejectedFinal).mockReturnValueOnce(undefined);
     const staleFinal = submitTalkRealtimeRelayToolResult({
       relaySessionId: fixture.session.relaySessionId,

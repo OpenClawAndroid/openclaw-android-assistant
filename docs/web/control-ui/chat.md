@@ -65,10 +65,23 @@ immediately. Catalog and account changes invalidate these copies; reconnecting
 loads current choices again. Reopening a picker after a reported cooldown expires
 checks readiness again. A catalog refresh keeps existing controls visible,
 and the Gateway still validates the model and account when starting a run.
+Repeated changes while a model lookup is pending are collected into one
+follow-up lookup for the latest choices.
+
+Catalog refreshes update the open conversation's model and context facts without
+reloading unrelated session lists. Session and configuration changes still refresh
+the affected lists through the shared session store.
+
+Chat refreshes its available commands after skill selections or session settings
+change. Repeated changes share one pending refresh per conversation and connection;
+if a read is already running, one follow-up read picks up the latest changes.
+Older results cannot replace the current command list.
 
 If a New Session model lookup does not finish within 30 seconds, the controls
 show **Models unavailable**. Open the model picker to retry; your draft stays
-in place.
+in place. A retry waits for the earlier lookup to finish before starting more
+work, and its 30-second deadline includes that wait. Reconnecting clears pending
+lookups from the previous connection.
 
 When you open an existing session, the conversation appears before supporting
 panels and pull-request details load. You can start typing as soon as its identity
@@ -103,7 +116,7 @@ Chat error banners, including cloud runner failures, show short messages in full
   <Accordion title="Send and history semantics">
     - `chat.send` is **non-blocking**: it acknowledges admission with `{ runId, status: "started" }` and the response streams via `chat` events. An optional `messageSeq` identifies an already committed transcript position; it is omitted when input remains only in accepted custody. Trusted Control UI clients may also receive optional ACK timing metadata for local diagnostics.
     - Chat uploads accept images plus non-video files. Images keep the native image path; other files are stored as managed media and shown in history as attachment links. Before sending, use **Remove attachment** at the corner of a staged attachment; the control supports touch and keyboard input in both Chat and New Session.
-    - Opening a Markdown attachment (`.md`, `.markdown`, or a Markdown MIME type) in the side panel shows formatted headings, lists, tables, and code blocks. Other text attachments stay literal. Previews keep the 256 KiB UTF-8 limit and the original download link; Markdown does not execute embedded HTML or automatically load remote images.
+    - Opening a Markdown attachment (`.md`, `.markdown`, or a Markdown MIME type) in the side panel shows formatted headings, lists, tables, and code blocks. HTML attachments open a sandboxed page with a **Source** switch; other text attachments stay literal. Previews keep the 256 KiB UTF-8 limit and the original download link; Markdown does not execute embedded HTML or automatically load remote images.
     - Staged attachments scroll horizontally when they no longer fit. Faded edges show where more attachments remain, including after adding files or resizing the composer.
     - Re-sending with the same `idempotencyKey` returns `{ status: "in_flight" }` while running, and `{ status: "ok" }` after completion.
     - `chat.history` responses are size-bounded for UI safety. When transcript entries are too large, Gateway may truncate long text fields, omit heavy metadata blocks, and replace oversized messages with a placeholder (`[chat.history omitted: message too large]`).
@@ -129,10 +142,10 @@ Chat error banners, including cloud runner failures, show short messages in full
     - Every Chat pane has a title bar. Click the session title to rename it; the workspace chip copies the checkout path or branch and can reveal local Gateway workspaces in the host file manager. Remote and exec-node sessions keep copy actions but hide reveal.
     - The **Files** tab in each Chat pane's unified side panel lists thread files, project files, and artifacts. Search at the top covers session files, artifacts, and the project tree; filter chips show changed files, read files, or artifacts, and collapsible groups share one scroll region. **Show in Files** from Review clears search and filters so the destination project directory is visible. For an active repository-only session it reads the node checkout. After Stop it exposes retained changed-file previews; unchanged upstream files, editing, and full diffs require the worker to run again. The stopped diff panel explains this limitation. Reopen it with ⇧⌘B, the files toggle in the title bar, or the panel's **+** menu; the title-bar toggle carries a changed-file count badge.
     - File paths recognized in chat messages read as their basename with a small glyph for the file type in front — a Markdown page, a `package.json` manifest, a TypeScript source, a `.tsx` component, a config or data file, a shell script, and an image each get their own mark, and anything else falls back to a plain document. When two links in the same message share a basename, each keeps just enough of its trailing path to stay distinct. The full path stays on the link: it is what the tooltip shows, what opens in the file panel, and what the message's **Copy** action returns, since copy hands back the original Markdown. Labels you write yourself in a `[label](path)` link are never rewritten. The glyph is drawn from the bundled icon set, never fetched from the network, and is decorative only: it is not read by screen readers and is not part of copied text. Text that is not a recognizable path — anything carrying spaces, parentheses, a `#` fragment, or a `?` query — stays plain prose.
-    - Clicking a file reference in chat, a file path in an expanded read/edit/write tool card, or a file row in **Files** opens the **Review** tab. UTF-8 text files use a CodeMirror-based code view with syntax highlighting, line numbers, jump-to-line, in-file search, copy actions, and an open-in-external-editor menu. AVIF, GIF, JPEG, PNG, and WebP images no larger than 256 KiB render inline; other binary files show metadata without lossy text decoding. When the Gateway advertises `sessions.files.set` to an `operator.admin` connection, the text panel adds an Edit mode with dirty tracking and Cmd/Ctrl-S save; unsaved drafts survive file, panel, and session navigation in the current browser tab until explicitly saved or discarded. Saves are compare-and-swap on a content hash returned by `sessions.files.get`: if the file changed on disk since it was loaded (for example because the agent kept working), the panel shows a conflict notice with Reload (take the latest content) and Overwrite (keep the local edit) actions. Writes go through the same fs-safe workspace guards as reads — path containment, symlink/hardlink rejection, and a 256 KiB UTF-8 cap — and only overwrite existing files; the editor never creates or deletes them. If the editor cannot load, use **Retry** or **View Raw Text**. A missing editor chunk after an update offers **Reload**, which waits for the Gateway to become reachable.
+    - Clicking a file reference in chat, a file path in an expanded read/edit/write tool card, or a file row in **Files** opens its own filename tab in the shared side-panel header. Reopening the same file selects its existing tab. The folder action returns to the file browser without closing previews; closing a filename tab closes only its preview, never the underlying file. Open previews are scoped to the current session, agent, and connection, and are not persisted across reconnects. HTML files open a sandboxed **Preview**, with **Source** in the same filename tab. Other UTF-8 text files use a CodeMirror-based code view with syntax highlighting, line numbers, jump-to-line, in-file search, copy actions, and an open-in-external-editor menu. AVIF, GIF, JPEG, PNG, and WebP images no larger than 256 KiB render inline; other binary files show metadata without lossy text decoding. When the Gateway advertises `sessions.files.set` to an `operator.admin` connection, the text panel adds an Edit mode with dirty tracking and Cmd/Ctrl-S save; unsaved drafts survive file, panel, and session navigation in the current browser tab until explicitly saved or discarded. Saves are compare-and-swap on a content hash returned by `sessions.files.get`: if the file changed on disk since it was loaded (for example because the agent kept working), the panel shows a conflict notice with Reload (take the latest content) and Overwrite (keep the local edit) actions. Writes go through the same fs-safe workspace guards as reads — path containment, symlink/hardlink rejection, and a 256 KiB UTF-8 cap — and only overwrite existing files; the editor never creates or deletes them. If the editor cannot load, use **Retry** or **View Raw Text**. A missing editor chunk after an update offers **Reload**, which waits for the Gateway to become reachable.
     - Subagent runs opened in the main chat view are view-only. The composer identifies the parent session and offers **Open parent session** so you can continue the conversation there. Message input, reply actions, model and access pickers, microphone, and attachment controls are hidden. This does not change copy or fork availability; **Open parent session** takes you to the conversation where you can reply. **Stop** remains available when the Gateway reports an abortable run. Spawned persistent sessions (visible sessions in the session tree) are not subagents: a subagent run ends, a session does not, and you can always type in it.
     - The **Tasks** tab lists the current agent's background tasks and subagents (`tasks.list` scoped by agent, kept live by `task` events): running work shows a live elapsed timer, tool-use count, the tool currently in use, and a stop control, while the collapsible finished section adds run durations. Inline subagent activity rows show status and progress without per-task edit counters. **Review** retains each task’s cumulative edit-activity counter; the checkout chip above the composer shows the session checkout’s actual Git diff. Selecting a task from either a task row or an inline subagent activity row opens its live status and transcript in **Review** without replacing the main conversation; tasks whose session is the current conversation show their prompt and output inspector there instead. Open **Tasks** with the title-bar activity toggle or the panel's **+** menu; the task snapshot loads eagerly, so the title-bar toggle carries a running-count badge without opening the tab first. The Tasks page remains the full cross-agent ledger.
-    - **Review** follows your latest selection. A pending file or artifact cannot replace a newer task or detail, reopen a closed Review tab, or return after you leave the chat page. Switching tabs or hiding the whole side panel preserves the pending preview without changing your chosen layout when it finishes.
+    - **Review** retains task and detail selections independently of file tabs. A pending file or artifact updates only its own open tab: it cannot select itself over a newer tab, reopen a closed preview, or return after you leave the chat page. Switching tabs or hiding the whole side panel preserves the pending preview without changing your chosen layout when it finishes. Text attachments retain their Preview or View Raw Text mode while switching between open files.
     - Each task has a main view and a unified side panel. The task toolbar's **Swap** button exchanges the main view and active side-panel tab; its tooltip names both views, for example **Swap Chat and Dashboard**. Chat, Dashboard, Browser, Terminal, Files, and Review can all be main. Other side-panel tabs remain available. **Focus** in the main pane header gives that view the full task area; **Restore split** brings the side panel back. Swapping or focusing preserves live content and drafts. Closing the whole side panel hides it without changing the main view, and the browser remembers each task's arrangement.
     - The task toolbar's **Layout** menu positions the side panel left, right, or below the main area. It adapts to each pane's own width rather than the window, falls back to a bottom strip in a narrow pane or compact window, and hides its dock controls until the pane widens. Phone-sized viewports still open review content full-screen.
     - The chat header model and thinking pickers patch the active session immediately through `sessions.patch`; they are persistent session overrides, not one-turn-only send options. For catalog-backed OpenAI models, the effort picker offers **Off** only when the model advertises disabled reasoning. Inheriting the model's default effort does not turn reasoning off.
@@ -231,10 +244,27 @@ panel. Plain-text attachments, including pasted `.txt` files, CSV, and JSON,
 preserve line breaks and indentation. Markdown attachments render as documents
 with interactive code blocks. When an open attachment refreshes with unchanged
 text, its code blocks keep your expansion and wrapping choices after loading.
-A different attachment or changed text starts with fresh controls. HTML and
-other markup remain literal text, never an embedded page. Same-origin previews
-require UTF-8 content no larger than 256 KiB; unsupported, external, oversized,
-or unavailable files keep their **Download** action.
+A different attachment or changed text starts with fresh controls. HTML files
+(`.html`, `.htm`, or `text/html`, including MIME parameters) render as a sandboxed
+page by default. **Source** and **Preview** share the same filename tab and slim
+toolbar. Same-origin attachment previews require UTF-8 content no larger than
+256 KiB; unsupported, external, oversized, or unavailable attachments keep their
+original **Download** action. Cross-origin HTML attachments are download-only.
+
+Self-contained HTML can use inline CSS and JavaScript under the default
+`scripts` sandbox setting. The page runs on the existing separate-origin sandbox
+host, not in the Control UI document. It receives no agent-prompt, tools, or
+dashboard APIs. The global `strict` setting disables JavaScript; `trusted` does
+not give ordinary HTML files access to the Control UI origin. Relative assets
+are not served from the file's directory, and external resources remain subject
+to the sandbox's default content security policy.
+
+For workspace HTML, **Edit**, in-file search, and explicit `file:line` navigation
+open **Source**. Switching back to **Preview** renders the latest unsaved editor
+text without saving it. Switching views preserves the editor, undo history, and
+draft; switching file tabs preserves each file's mode and unchanged page state.
+A preview transport failure shows **Retry** without retrying in a loop, and
+**Source** remains available, including when the optional preview cannot load.
 
 **View Raw Text** keeps Markdown notation literal, including nested code fences.
 Decoded text artifacts use the same literal preview. **Copy code** preserves the

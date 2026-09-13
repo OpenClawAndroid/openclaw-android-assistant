@@ -27,6 +27,7 @@ import { pathToFileURL } from "node:url";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createVitestResourceOwner } from "../../scripts/lib/vitest-resource-ownership.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import {
@@ -64,6 +65,14 @@ const detachedChildren = new WeakSet<ChildProcess>();
 const goneProcessGroups = new Set<number>();
 let templateRepo = "";
 let freshMainTemplate: ReturnType<typeof createFreshMainTemplate> | undefined;
+
+function realpathSpecialFixtureWithNode(filePath: string): string {
+  return execFileSync(
+    resolveTestNodeExecPath(),
+    ["--eval", 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))', filePath],
+    { encoding: "utf8" },
+  );
+}
 
 // Direct preload affects only the supervisor; operation fixtures keep real clocks.
 // The source assertions below pin the production safety durations being accelerated.
@@ -105,11 +114,15 @@ function createPrFixtureEnv(homeDir: string, path: string): NodeJS.ProcessEnv {
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_ALLOW_PROTOCOL: "file",
     GIT_TERMINAL_PROMPT: "0",
-    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_COUNT: "4",
     GIT_CONFIG_KEY_0: "core.hooksPath",
     GIT_CONFIG_VALUE_0: "/dev/null",
     GIT_CONFIG_KEY_1: "commit.gpgSign",
     GIT_CONFIG_VALUE_1: "false",
+    GIT_CONFIG_KEY_2: "gc.auto",
+    GIT_CONFIG_VALUE_2: "0",
+    GIT_CONFIG_KEY_3: "maintenance.auto",
+    GIT_CONFIG_VALUE_3: "false",
   };
 }
 
@@ -284,7 +297,7 @@ function createFreshMainTemplate() {
       join(binDir, command),
     );
   }
-  symlinkSync(process.execPath, join(binDir, "node"));
+  symlinkSync(resolveTestNodeExecPath(), join(binDir, "node"));
   for (const command of ["rg", "pnpm"]) {
     const stub = writeFixtureFile(binDir, command, [
       "#!/bin/sh",
@@ -915,7 +928,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
         "    fi",
         '    printf "viewer:0\\n" >> "$OPENCLAW_TEST_GH_EVENTS"',
         '    printf \'HTTP/2.0 200 OK\\n\\n{"data":{"viewer":{"login":"fixture-user"}}}\\n\' ;;',
-        '  "pr view 42 --json headRefOid")',
+        '  "pr view 42 --json headRefOid"|"pr view 42 --json headRefName,headRefOid,headRepository,headRepositoryOwner")',
         '    cat "$OPENCLAW_TEST_PR_METADATA"; printf "head:0\\n" >> "$OPENCLAW_TEST_GH_EVENTS" ;;',
         '  "pr view 42 --json number,title,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,statusCheckRollup,files")',
         '    cat "$OPENCLAW_TEST_PR_METADATA"; printf "metadata:0\\n" >> "$OPENCLAW_TEST_GH_EVENTS" ;;',
@@ -1115,7 +1128,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
           );
           expect(events.filter((event) => event.startsWith("fetch:"))).toEqual([
             ...Array.from({ length: existing ? 1 : 2 }, () => "fetch:main:0"),
-            "fetch:pull/42/head:pr-42:0",
+            `fetch:+${pullHead}:refs/heads/pr-42:0`,
           ]);
           expect(refExists(repoDir, lockRef, childEnv), output).toBe(false);
           return;
@@ -2805,14 +2818,28 @@ describePosix("scripts/pr per-PR operation lock", () => {
     execFileSync("git", ["worktree", "add", "-q", "-b", "pr-42", worktreeDir], {
       cwd: repoDir,
     });
-    const canonicalWorktreeDir = realpathSync(worktreeDir);
+    // oxlint-disable-next-line no-warning-comments -- remove after the upstream Bun newline-path fix ships.
+    // TODO(bun): realpathSync reports ENOENT for an existing path containing a newline.
+    const canonicalWorktreeDir = process.versions.bun
+      ? realpathSpecialFixtureWithNode(worktreeDir)
+      : realpathSync(worktreeDir);
     const located = runLockShell(repoDir, ["worktree_path_for_branch pr-42"]);
     expect(located.status, `${located.stdout}\n${located.stderr}`).toBe(0);
     expect(located.stdout.trim()).toBe(canonicalWorktreeDir);
     const result = runLockShell(repoDir, ["gh() { printf 'MERGED\\n'; }", "gc_pr_worktrees false"]);
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("removed .worktrees/pr-42");
-    expect(existsSync(worktreeDir)).toBe(false);
+    // oxlint-disable-next-line no-warning-comments -- remove after the upstream Bun newline-path fix ships.
+    // TODO(bun): existsSync can throw ENOENT for a missing path containing a newline.
+    let worktreeExists = false;
+    try {
+      worktreeExists = existsSync(worktreeDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+    expect(worktreeExists).toBe(false);
     expect(
       execFileSync("git", ["worktree", "list", "--porcelain"], {
         cwd: repoDir,

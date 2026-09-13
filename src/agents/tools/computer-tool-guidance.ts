@@ -176,6 +176,9 @@ export function buildComputerToolDescription(
     hasMutation
       ? 'Result precedence is `effect:"confirmed"` > `unverifiable` > `suspected_noop`; action evidence alone does not prove the user\'s goal. Re-observe before another mutation, and never blind-retry a mutation.'
       : "",
+    hasWindowState && hasMutation
+      ? "Window actions return a fresh observation when available; use its observationId and refs for the next action without another observation call."
+      : "",
     hasBackground
       ? "`background_unavailable`, `background_occluded`, and `off_space_or_ax_unresolved` are honest structured refusals: choose another advertised rung, not a harder retry."
       : "",

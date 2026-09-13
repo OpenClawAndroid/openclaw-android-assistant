@@ -30,9 +30,9 @@ import {
   applySessionCatalogContinuation,
   applySessionCatalogHostEvent as applySessionCatalogHostEventToData,
   applySessionCatalogPresence as applySessionCatalogPresenceToData,
+  invalidateSessionCatalogs as invalidateSessionCatalogData,
   loadMoreSessionCatalog as loadMoreSessionCatalogData,
   refreshSessionCatalogs as refreshSessionCatalogData,
-  requestSessionCatalogRefresh,
   resolveSessionCatalogAgentId,
   scheduleSessionCatalogRefresh,
   type SessionCatalogDataOwner,
@@ -334,11 +334,7 @@ export class SessionDataController implements ReactiveController, SessionCatalog
   };
 
   invalidateSessionCatalogs(): void {
-    this.sessionCatalogRevision += 1;
-    for (const { id } of this.sessionCatalogs) {
-      this.sessionCatalogRevisions.set(id, (this.sessionCatalogRevisions.get(id) ?? 0) + 1);
-    }
-    requestSessionCatalogRefresh(this, true);
+    invalidateSessionCatalogData(this);
   }
 
   refreshSessionCatalogs = (): Promise<void> => refreshSessionCatalogData(this);

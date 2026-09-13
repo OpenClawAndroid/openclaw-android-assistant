@@ -586,10 +586,7 @@ describe("createGatewayKernel", () => {
       ).resolves.toEqual({ runId, status: "ok" });
 
       const cleanupError = new Error("lifetime sidecar cleanup failed");
-      let rejectFirstStop!: (error: Error) => void;
-      const firstStop = new Promise<void>((_resolve, reject) => {
-        rejectFirstStop = reject;
-      });
+      const { promise: firstStop, reject: rejectFirstStop } = createDeferred();
       const reentrantSidecar = { stop: vi.fn(async () => {}) };
       let reentrantStop!: Promise<void>;
       const lifetimeSidecar = {
@@ -604,10 +601,7 @@ describe("createGatewayKernel", () => {
       kernel.registerGatewayLifetimeSidecars(lifetimeSidecar, { stop: trailingSidecar });
 
       const postReadyError = new Error("post-ready sidecar cleanup failed");
-      let rejectPostReadyStop!: (error: Error) => void;
-      const firstPostReadyStop = new Promise<void>((_resolve, reject) => {
-        rejectPostReadyStop = reject;
-      });
+      const { promise: firstPostReadyStop, reject: rejectPostReadyStop } = createDeferred();
       const postReadySidecar = vi
         .fn<() => Promise<void>>()
         .mockImplementationOnce(() => firstPostReadyStop)
@@ -667,10 +661,7 @@ describe("createGatewayKernel", () => {
       await vi.waitFor(() => {
         expect(postReadySidecar).toHaveBeenCalledOnce();
       });
-      let releaseLateLifetimeStop!: () => void;
-      const lateLifetimeStop = new Promise<void>((resolve) => {
-        releaseLateLifetimeStop = resolve;
-      });
+      const { promise: lateLifetimeStop, resolve: releaseLateLifetimeStop } = createDeferred();
       const lateLifetimeSidecar = { stop: vi.fn(() => lateLifetimeStop) };
       kernel.registerGatewayLifetimeSidecars(lateLifetimeSidecar);
       let closeSettled = false;

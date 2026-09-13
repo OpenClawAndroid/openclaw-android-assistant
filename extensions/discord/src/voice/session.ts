@@ -69,6 +69,7 @@ export type VoiceRealtimeAgentTurnParams = {
   message: string;
   toolsAllow?: string[];
   userId: string;
+  isCurrent: () => boolean;
   signal?: AbortSignal;
 };
 
@@ -85,8 +86,6 @@ export type VoiceRealtimeSession = {
   ) => VoiceRealtimeSpeakerTurn;
   close: () => void | Promise<void>;
   connect: () => Promise<void>;
-  handleBargeIn: (reason?: string) => void;
-  isBargeInEnabled: () => boolean;
   canReceiveDuringPlayback: () => boolean;
 };
 

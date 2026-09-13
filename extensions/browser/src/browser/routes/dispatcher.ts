@@ -17,6 +17,7 @@ type BrowserDispatchRequest = {
   body?: unknown;
   signal?: AbortSignal;
   requester?: BrowserRequest["requester"];
+  assertCurrent?: BrowserRequest["assertCurrent"];
 };
 
 type BrowserDispatchResponse = {
@@ -121,6 +122,7 @@ export function createBrowserRouteDispatcher(ctx: BrowserRouteContext) {
             body,
             signal,
             requester: req.requester,
+            assertCurrent: req.assertCurrent,
           },
           res,
         );

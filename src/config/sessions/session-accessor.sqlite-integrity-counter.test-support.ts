@@ -3,10 +3,13 @@ import type { WorkerOptions } from "node:worker_threads";
 const integrityCounterPreload = `
   import { DatabaseSync } from "node:sqlite";
   import { workerData } from "node:worker_threads";
+  const databasePath = workerData.operation === "reclaim"
+    ? workerData.databaseOptions.path
+    : workerData.plan?.databaseOptions.path;
   const prepare = DatabaseSync.prototype.prepare;
   DatabaseSync.prototype.prepare = function(sql) {
     const statement = prepare.call(this, sql);
-    if (this.location() === workerData.plan?.databaseOptions.path &&
+    if (this.location() === databasePath &&
         /^PRAGMA integrity_check;?$/i.test(sql.trim())) {
       for (const method of ["all", "get", "iterate", "run"]) {
         const execute = statement[method].bind(statement);

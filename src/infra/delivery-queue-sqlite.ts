@@ -1,5 +1,6 @@
 // Stores durable delivery queue entries in SQLite.
 import { safeParseJsonRecord } from "@openclaw/normalization-core";
+import { resolveStateDir } from "../config/state-dir.js";
 import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
@@ -25,6 +26,7 @@ import {
   parseDeliveryQueueCompletionRetention,
   projectDeliveryQueueTerminalEntry,
 } from "./delivery-queue-sqlite.types.js";
+import { isGatewayExternallySupervised } from "./gateway-supervision.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
 import { runSqliteImmediateTransactionSync } from "./sqlite-transaction.js";
 
@@ -41,9 +43,37 @@ type TerminalizePendingDeliveryQueueEntryResult =
   | { status: "terminalized"; retained: boolean }
   | { status: "not_pending" };
 
-function openStateDatabase(stateDir?: string) {
+export type DeliveryQueueStateContext = {
+  stateDir: string;
+  supervisorMode?: "external";
+};
+
+export function captureDeliveryQueueStateContext(stateDir?: string): DeliveryQueueStateContext {
+  return {
+    stateDir: resolveStateDir(resolveDeliveryQueueStateEnv(stateDir)),
+    ...(isGatewayExternallySupervised(process.env) ? { supervisorMode: "external" as const } : {}),
+  };
+}
+
+export function resolveDeliveryQueueStateEnv(
+  stateDir?: string,
+  context?: DeliveryQueueStateContext,
+): NodeJS.ProcessEnv {
+  return context
+    ? {
+        ...process.env,
+        OPENCLAW_STATE_DIR: context.stateDir,
+        // Captured absence must not inherit a later ambient supervisor mode.
+        OPENCLAW_SUPERVISOR_MODE: context.supervisorMode,
+      }
+    : stateDir
+      ? { ...process.env, OPENCLAW_STATE_DIR: stateDir }
+      : process.env;
+}
+
+function openStateDatabase(stateDir?: string, context?: DeliveryQueueStateContext) {
   return openOpenClawStateDatabase({
-    env: stateDir ? { ...process.env, OPENCLAW_STATE_DIR: stateDir } : process.env,
+    env: resolveDeliveryQueueStateEnv(stateDir, context),
   });
 }
 
@@ -63,8 +93,11 @@ export function upsertDeliveryQueueEntryInDatabase(
 }
 
 /** Insert or replace a delivery queue entry under a queue namespace. */
-export function upsertDeliveryQueueEntry(params: UpsertDeliveryQueueEntryParams): boolean {
-  return upsertDeliveryQueueEntryInDatabase(params, openStateDatabase(params.stateDir));
+export function upsertDeliveryQueueEntry(
+  params: UpsertDeliveryQueueEntryParams,
+  context?: DeliveryQueueStateContext,
+): boolean {
+  return upsertDeliveryQueueEntryInDatabase(params, openStateDatabase(params.stateDir, context));
 }
 
 /**
@@ -72,16 +105,19 @@ export function upsertDeliveryQueueEntry(params: UpsertDeliveryQueueEntryParams)
  * one write snapshot. A concurrent commit either lands before this snapshot or
  * loses its staging row and must fail closed.
  */
-export function expireStagingAndLoadDeliveryQueueEntries(params: {
-  expireBeforeMs: number;
-  queueNames: readonly string[];
-  stagingQueueName: string;
-  stateDir?: string;
-}): {
+export function expireStagingAndLoadDeliveryQueueEntries(
+  params: {
+    expireBeforeMs: number;
+    queueNames: readonly string[];
+    stagingQueueName: string;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): {
   entries: DeliveryQueueEntryState[];
   stagingEntries: DeliveryQueueEntryState[];
 } {
-  const database = openStateDatabase(params.stateDir);
+  const database = openStateDatabase(params.stateDir, context);
   const snapshot = runSqliteImmediateTransactionSync(
     database.db,
     () => {
@@ -126,8 +162,14 @@ export function loadDeliveryQueueEntry(
   id: string,
   stateDir?: string,
   mode: DeliveryQueueReadMode = "pending",
+  context?: DeliveryQueueStateContext,
 ): DeliveryQueueEntryState | null {
-  return loadDeliveryQueueEntryInDatabase(openStateDatabase(stateDir), queueName, id, mode);
+  return loadDeliveryQueueEntryInDatabase(
+    openStateDatabase(stateDir, context),
+    queueName,
+    id,
+    mode,
+  );
 }
 
 /** Read row status without hiding dead-lettered entries. */
@@ -144,11 +186,16 @@ export function getDeliveryQueueEntryOwners(
   queueNames: readonly string[],
   id: string,
   stateDir?: string,
+  context?: DeliveryQueueStateContext,
 ): Map<string, { status: QueueStatus; settlementPending?: true }> {
   if (queueNames.length === 0) {
     return new Map();
   }
-  return getDeliveryQueueEntryOwnersInDatabase(openStateDatabase(stateDir), queueNames, id);
+  return getDeliveryQueueEntryOwnersInDatabase(
+    openStateDatabase(stateDir, context),
+    queueNames,
+    id,
+  );
 }
 
 /** Keeps namespace reads and receipt pruning on the caller's exact transaction handle. */
@@ -232,8 +279,9 @@ export function loadDeliveryQueueEntries(
   queueName: string,
   stateDir?: string,
   mode: DeliveryQueueReadMode = "pending",
+  context?: DeliveryQueueStateContext,
 ): DeliveryQueueEntryState[] {
-  const database = openStateDatabase(stateDir);
+  const database = openStateDatabase(stateDir, context);
   const rows = executeSqliteQuerySync(
     database.db,
     deliveryQueueEntriesQuery(database, [queueName], mode)
@@ -246,8 +294,13 @@ export function loadDeliveryQueueEntries(
 }
 
 /** Delete a pending delivery queue entry after successful delivery. */
-export function deleteDeliveryQueueEntry(queueName: string, id: string, stateDir?: string): void {
-  deleteDeliveryQueueEntryInDatabase(openStateDatabase(stateDir), queueName, id);
+export function deleteDeliveryQueueEntry(
+  queueName: string,
+  id: string,
+  stateDir?: string,
+  context?: DeliveryQueueStateContext,
+): void {
+  deleteDeliveryQueueEntryInDatabase(openStateDatabase(stateDir, context), queueName, id);
 }
 
 export function deleteDeliveryQueueEntryInDatabase(
@@ -319,8 +372,9 @@ export function updateDeliveryQueueEntry(
   id: string,
   stateDir: string | undefined,
   update: (entry: DeliveryQueueEntryState) => DeliveryQueueEntryState,
+  context?: DeliveryQueueStateContext,
 ): void {
-  const database = openStateDatabase(stateDir);
+  const database = openStateDatabase(stateDir, context);
   const current = loadDeliveryQueueEntryInDatabase(database, queueName, id, "pending");
   if (!current) {
     throw enoent(queueName, id);
@@ -333,13 +387,16 @@ type ReserveDeliveryQueueAttemptResult =
   | { status: "exhausted"; attemptCount: number };
 
 /** Atomically reserve one provider-delivery call before executing it. */
-export function reserveDeliveryQueueEntryAttempt(params: {
-  queueName: string;
-  id: string;
-  maxAttempts: number;
-  stateDir?: string;
-  expectedPlatformSendAttemptId?: string;
-}): ReserveDeliveryQueueAttemptResult {
+export function reserveDeliveryQueueEntryAttempt(
+  params: {
+    queueName: string;
+    id: string;
+    maxAttempts: number;
+    stateDir?: string;
+    expectedPlatformSendAttemptId?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): ReserveDeliveryQueueAttemptResult {
   if (!Number.isInteger(params.maxAttempts) || params.maxAttempts <= 0) {
     throw new Error(`Invalid delivery attempt budget: ${params.maxAttempts}`);
   }
@@ -385,7 +442,7 @@ export function reserveDeliveryQueueEntryAttempt(params: {
       return { status: "reserved", attemptCount: reservedAttemptCount };
     },
     {
-      env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+      env: resolveDeliveryQueueStateEnv(params.stateDir, context),
     },
     {
       operationLabel: `reserve ${params.queueName} delivery attempt`,
@@ -505,10 +562,11 @@ export function prepareDeliveryQueueTerminalEntry(
 /** Atomically delete or tombstone a pending row only while its value is unchanged. */
 export function terminalizePendingDeliveryQueueEntry(
   params: TerminalizePendingDeliveryQueueEntryParams & { stateDir?: string },
+  context?: DeliveryQueueStateContext,
 ): TerminalizePendingDeliveryQueueEntryResult {
   const prepared = prepareDeliveryQueueTerminalEntry(params);
   return terminalizePendingDeliveryQueueEntryInDatabase(
-    openStateDatabase(params.stateDir),
+    openStateDatabase(params.stateDir, context),
     prepared,
   );
 }

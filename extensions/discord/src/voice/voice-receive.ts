@@ -43,6 +43,7 @@ import {
   type VoiceOperationResult,
   type VoiceJoinOptions,
   type VoiceSessionEntry,
+  type VoiceRealtimeAgentTurnParams,
 } from "./session.js";
 import type { DiscordVoiceSpeakerContextResolver } from "./speaker-context.js";
 import { DiscordVoiceRecording } from "./voice-recording.js";
@@ -305,15 +306,7 @@ export class DiscordVoiceReceive {
           isCurrent: () => this.params.isEntryCurrent(entry),
           canAdmit: () => !protectedPlayback(),
           createTurn: realtime
-            ? (context) => {
-                if (
-                  entry.player.state.status === voiceSdk.AudioPlayerStatus.Playing &&
-                  realtime.isBargeInEnabled()
-                ) {
-                  realtime.handleBargeIn("speaker-start");
-                }
-                return realtime.beginSpeakerTurn(context, userId, realtimeRecording);
-              }
+            ? (context) => realtime.beginSpeakerTurn(context, userId, realtimeRecording)
             : undefined,
           warn: (message) => logger.warn(message),
         })
@@ -526,7 +519,7 @@ export class DiscordVoiceReceive {
     });
   }
 
-  private async resolveDiscordVoiceIngressContext(
+  async resolveDiscordVoiceIngressContext(
     entry: VoiceSessionEntry,
     userId: string,
   ): Promise<DiscordVoiceIngressContext | null> {
@@ -543,33 +536,24 @@ export class DiscordVoiceReceive {
     });
   }
 
-  async runDiscordRealtimeAgentTurn(params: {
-    context: {
-      extraSystemPrompt?: string;
-      senderIsOwner: boolean;
-      speakerLabel: string;
-    };
-    entry: VoiceSessionEntry;
-    message: string;
-    toolsAllow?: string[];
-    userId: string;
-    signal?: AbortSignal;
-  }): Promise<string> {
+  async runDiscordRealtimeAgentTurn(
+    params: VoiceRealtimeAgentTurnParams & { entry: VoiceSessionEntry },
+  ): Promise<string> {
     const { context, entry, message, toolsAllow, userId } = params;
-    let currentContext: DiscordVoiceIngressContext = context;
     params.signal?.throwIfAborted();
-    if (params.signal) {
-      const admitted = await this.resolveDiscordVoiceIngressContext(entry, userId);
-      params.signal.throwIfAborted();
-      if (
-        !this.params.isEntryCurrent(entry) ||
-        !admitted ||
-        admitted.isCurrent?.() === false ||
-        admitted.senderIsOwner !== context.senderIsOwner
-      ) {
-        throw new Error("Discord voice speaker authorization changed before delegation");
-      }
-      currentContext = admitted;
+    const currentContext = await this.resolveDiscordVoiceIngressContext(entry, userId);
+    params.signal?.throwIfAborted();
+    if (
+      !this.params.isEntryCurrent(entry) ||
+      !params.isCurrent() ||
+      !currentContext ||
+      currentContext.isCurrent?.() === false ||
+      currentContext.senderIsOwner !== context.senderIsOwner
+    ) {
+      throw new DOMException(
+        "Discord voice speaker authorization changed before delegation",
+        "AbortError",
+      );
     }
     logger.info(
       `discord voice: agent turn start guild=${entry.guildId} channel=${entry.channelId} voiceSession=${entry.voiceSessionKey} supervisorSession=${entry.route.sessionKey} agent=${entry.route.agentId} user=${userId} speaker=${context.speakerLabel} owner=${context.senderIsOwner} model=${this.params.discordConfig.voice?.model ?? "route-default"} message=${formatVoiceLogPreview(message)}`,

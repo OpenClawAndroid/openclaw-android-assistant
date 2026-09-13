@@ -8,9 +8,10 @@ import {
   chatMetadataCache,
   notifyChatMetadataListeners,
   type ChatMetadataEntry,
+  type ChatMetadataPublication,
+  type ChatMetadataRequest,
   type ChatMetadataResult,
   type ChatMetadataUpdate,
-  type ChatMetadataWriter,
 } from "./chat-metadata-cache.ts";
 
 function metadataScopeKey(scope: ChatMetadataParams): string {
@@ -39,7 +40,12 @@ function metadataEntryFor(
       release: () => {
         // Selected-account projections live with their consumers, not every conversation/draft.
         // Retire the writer too: a late startup/read cannot repopulate a released entry.
-        if ((params.sessionKey || params.authProfileId) && created.listeners.size === 0) {
+        if (
+          (params.sessionKey || params.authProfileId) &&
+          created.listeners.size === 0 &&
+          !created.activeRequest &&
+          !created.queuedRequest
+        ) {
           created.writer = undefined;
           if (cache.get(key) === created) {
             cache.delete(key);
@@ -62,14 +68,12 @@ function waitForMetadataRetry(delayMs: number): Promise<void> {
 async function requestChatMetadata(
   client: GatewayBrowserClient,
   params: ChatMetadataParams,
-  opts?: { startupRetryWindowMs?: number },
+  deadlineAt?: number,
 ): Promise<ChatMetadataResult> {
-  const retryWindowMs = opts?.startupRetryWindowMs;
-  if (retryWindowMs === undefined) {
+  if (deadlineAt === undefined) {
     return client.request<ChatMetadataResult>("chat.metadata", params);
   }
 
-  const deadlineAt = Date.now() + retryWindowMs;
   let latestStartupError: Error | undefined;
 
   while (true) {
@@ -103,15 +107,13 @@ async function requestChatMetadata(
   }
 }
 
-function beginPublication(entry: ChatMetadataEntry, revalidating = false) {
-  const writer: ChatMetadataWriter = { revalidating };
+function preparePublication(entry: ChatMetadataEntry): ChatMetadataPublication {
+  const writer = {};
   entry.writer = writer;
   const isCurrent = () => entry.writer === writer;
   return {
-    writer,
     isCurrent,
     publish: (result: ChatMetadataResult & { models?: unknown; accountSelection?: unknown }) => {
-      writer.pending = undefined;
       // Legacy/startup responses can carry models. The direct catalog is their only UI owner.
       const { models: _models, accountSelection: _accountSelection, ...metadata } = result;
       if (isCurrent()) {
@@ -122,26 +124,107 @@ function beginPublication(entry: ChatMetadataEntry, revalidating = false) {
       return metadata;
     },
     fail: (error: unknown) => {
-      writer.pending = undefined;
       if (isCurrent()) {
         notifyChatMetadataListeners(entry, { type: "error", error });
       }
       entry.release();
-      throw error;
     },
   };
 }
 
 function beginChatMetadataRequest(
+  client: GatewayBrowserClient,
   entry: ChatMetadataEntry,
-  request: Promise<ChatMetadataResult>,
-  revalidating = false,
+  revalidation: boolean,
+  startupRetryDeadlineAt?: number,
 ): Promise<ChatMetadataResult> {
-  const { writer, publish, fail } = beginPublication(entry, revalidating);
-  const pending = request.then(publish, fail);
-  writer.pending = pending;
+  const publication = preparePublication(entry);
+  const queued = entry.queuedRequest;
+  if (queued) {
+    // Pending demand adopts the latest writer, but never adds another queued read.
+    queued.publication = publication;
+    queued.revalidation ||= revalidation;
+    queued.setStartupRetryDeadline(startupRetryDeadlineAt);
+    notifyChatMetadataListeners(entry, { type: "loading" });
+    return queued.promise;
+  }
+  let resolve!: (result: ChatMetadataResult) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<ChatMetadataResult>((accept, fail) => {
+    resolve = accept;
+    reject = fail;
+  });
+  let started = false;
+  let retryDeadlineAt = startupRetryDeadlineAt;
+  let queueDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const request: ChatMetadataRequest = {
+    promise,
+    publication,
+    revalidation,
+    setStartupRetryDeadline: (deadlineAt) => {
+      if (started || deadlineAt === undefined) {
+        return;
+      }
+      retryDeadlineAt = Math.min(retryDeadlineAt ?? deadlineAt, deadlineAt);
+      if (entry.queuedRequest !== request) {
+        return;
+      }
+      clearTimeout(queueDeadlineTimer);
+      queueDeadlineTimer = setTimeout(
+        () => {
+          if (entry.queuedRequest !== request) {
+            return;
+          }
+          entry.queuedRequest = undefined;
+          const error = new Error("New-session metadata retry deadline elapsed");
+          request.publication.fail(error);
+          reject(error);
+          entry.release();
+        },
+        Math.max(0, retryDeadlineAt - Date.now()),
+      );
+    },
+    start: () => {
+      started = true;
+      clearTimeout(queueDeadlineTimer);
+      // Once dispatched, this request cannot regain publication authority after invalidation.
+      const activePublication = request.publication;
+      void (async () => {
+        try {
+          const result = await requestChatMetadata(client, entry.scope, retryDeadlineAt).finally(
+            () => {
+              // Observers may retry synchronously; retire the settled request before notifying them.
+              entry.activeRequest = undefined;
+              const next = entry.queuedRequest;
+              entry.queuedRequest = undefined;
+              if (next) {
+                entry.activeRequest = next;
+                next.start();
+              }
+            },
+          );
+          resolve(activePublication.publish(result));
+        } catch (error) {
+          activePublication.fail(error);
+          reject(error);
+        } finally {
+          entry.release();
+        }
+      })();
+    },
+  };
+  if (entry.activeRequest) {
+    entry.queuedRequest = request;
+  } else {
+    entry.activeRequest = request;
+  }
+  request.setStartupRetryDeadline(startupRetryDeadlineAt);
+  // Reserve ownership before consumers synchronously react to the new generation.
   notifyChatMetadataListeners(entry, { type: "loading" });
-  return pending;
+  if (entry.activeRequest === request) {
+    request.start();
+  }
+  return promise;
 }
 
 export function peekChatMetadata(
@@ -160,6 +243,10 @@ export function subscribeChatMetadata(
   entry.listeners.add(listener);
   return () => {
     entry.listeners.delete(listener);
+    if ((scope.sessionKey || scope.authProfileId) && entry.listeners.size === 0) {
+      entry.writer = undefined;
+      entry.result = undefined;
+    }
     entry.release();
   };
 }
@@ -172,11 +259,11 @@ export function loadChatMetadata(
   if (entry.result) {
     return Promise.resolve(entry.result);
   }
-  const pending = entry.writer?.pending;
-  if (pending) {
-    return pending;
+  const request = entry.queuedRequest ?? entry.activeRequest;
+  if (request?.publication.isCurrent()) {
+    return request.promise;
   }
-  return beginChatMetadataRequest(entry, requestChatMetadata(client, entry.scope));
+  return beginChatMetadataRequest(client, entry, false);
 }
 
 export function revalidateChatMetadata(
@@ -185,11 +272,18 @@ export function revalidateChatMetadata(
   opts?: { startupRetryWindowMs?: number },
 ): Promise<ChatMetadataResult> {
   const entry = metadataEntryFor(client, scope);
-  const writer = entry.writer;
-  if (writer?.revalidating && writer.pending) {
-    return writer.pending;
+  const request = entry.queuedRequest ?? entry.activeRequest;
+  const deadlineAt =
+    opts?.startupRetryWindowMs === undefined ? undefined : Date.now() + opts.startupRetryWindowMs;
+  if (
+    request?.publication.isCurrent() &&
+    (request.revalidation || request === entry.queuedRequest)
+  ) {
+    request.revalidation = true;
+    request.setStartupRetryDeadline(deadlineAt);
+    return request.promise;
   }
-  return beginChatMetadataRequest(entry, requestChatMetadata(client, entry.scope, opts), true);
+  return beginChatMetadataRequest(client, entry, true, deadlineAt);
 }
 
 export function beginChatMetadataPublication(
@@ -197,7 +291,7 @@ export function beginChatMetadataPublication(
   scope: ChatMetadataParams,
 ) {
   const entry = metadataEntryFor(client, scope);
-  const { isCurrent, publish } = beginPublication(entry);
+  const { isCurrent, publish } = preparePublication(entry);
   notifyChatMetadataListeners(entry, { type: "loading" });
   return { isCurrent, publish };
 }

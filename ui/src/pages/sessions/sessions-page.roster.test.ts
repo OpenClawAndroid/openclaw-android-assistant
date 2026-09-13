@@ -2,6 +2,7 @@
 
 import { nothing } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { SessionCompactionCheckpoint, SessionsListResult } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
@@ -15,16 +16,6 @@ import {
   createRenderedPage,
   type TestSessionsPage,
 } from "./sessions-page.test-support.ts";
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((nextResolve, nextReject) => {
-    resolve = nextResolve;
-    reject = nextReject;
-  });
-  return { promise, resolve, reject };
-}
 
 async function createPage(context: ApplicationContext): Promise<TestSessionsPage> {
   const page = document.createElement("openclaw-sessions-page") as TestSessionsPage;
@@ -180,7 +171,7 @@ describe("sessions page managed roster", () => {
   it.each(["startup", "same-client reconnect"])(
     "retains the current query when a route started before %s completes late",
     async (ordering) => {
-      const config = deferred<void>();
+      const config = deferred();
       const sidebar = deferred<SessionsListResult>();
       const result = (key: string): SessionsListResult => ({
         ts: 1,
@@ -449,7 +440,7 @@ describe("sessions page managed roster", () => {
   });
 
   it("shows loading while the page owns an explicit refresh", async () => {
-    const request = deferred<void>();
+    const request = deferred();
     const managed = createManagedSessions({
       refreshList: vi.fn(() => request.promise),
     });

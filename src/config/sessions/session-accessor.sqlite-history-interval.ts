@@ -4,6 +4,10 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
 } from "../../infra/kysely-sync.js";
+import {
+  resolveHistoryAnchorPageRange,
+  type TranscriptAnchorPageOptions,
+} from "../../sessions/transcript-anchor-page.js";
 import type { SessionTranscriptMessageAnchorPage } from "./session-accessor.sqlite-active-events.js";
 import {
   getActiveTranscriptKysely,
@@ -150,13 +154,16 @@ function readHistoricalDisplayEventRange(
   ]);
   const olderCount = anchor.displayPosition - start;
   // The anchor already identifies the physical position; visit only its selected neighbors.
-  const older = executeSqliteQuerySync(
-    projection.database.db,
-    query
-      .where("active.active_position", "<", anchor.activePosition)
-      .orderBy("active.active_position", "desc")
-      .limit(olderCount),
-  ).rows;
+  const older =
+    olderCount === 0
+      ? []
+      : executeSqliteQuerySync(
+          projection.database.db,
+          query
+            .where("active.active_position", "<", anchor.activePosition)
+            .orderBy("active.active_position", "desc")
+            .limit(olderCount),
+        ).rows;
   const newer = executeSqliteQuerySync(
     projection.database.db,
     query
@@ -207,30 +214,10 @@ export function resolveHistoricalHistoryEventById(
   };
 }
 
-export function resolveHistoryAnchorPageRange(
-  totalMessages: number,
-  anchorPosition: number,
-  maxMessages: number,
-) {
-  const pageSize = Math.max(1, Math.floor(Number.isFinite(maxMessages) ? maxMessages : 1));
-  const newerMessages = Math.floor(pageSize / 2);
-  const olderMessages = pageSize - newerMessages - 1;
-  const latestStart = Math.max(0, totalMessages - pageSize);
-  const start = Math.min(Math.max(0, anchorPosition - olderMessages), latestStart);
-  const endExclusive = Math.min(totalMessages, start + pageSize);
-  const readStart = Math.max(0, start - 1);
-  return {
-    readStart,
-    endExclusive,
-    hasOverreadContext: readStart < start,
-    offset: totalMessages - endExclusive,
-  };
-}
-
 export function readHistoricalHistoryAnchorPage(
   projection: CurrentTranscriptProjection,
   displaySource: string | undefined,
-  options: { maxMessages: number; messageId: string },
+  options: TranscriptAnchorPageOptions,
 ): SessionTranscriptMessageAnchorPage | undefined {
   const row = readDisplayableActiveEventById(projection, options.messageId);
   if (!row) {
@@ -252,7 +239,7 @@ export function readHistoricalHistoryAnchorPage(
   );
   const total = counts?.total ?? 0;
   const anchorPosition = counts?.before_anchor ?? 0;
-  const range = resolveHistoryAnchorPageRange(total, anchorPosition, options.maxMessages);
+  const range = resolveHistoryAnchorPageRange(total, anchorPosition, options);
   return {
     events: readHistoricalDisplayEventRange(
       projection,

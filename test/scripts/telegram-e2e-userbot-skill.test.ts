@@ -3,8 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 
 const scriptsDir = path.resolve(".agents/skills/telegram-e2e-userbot/scripts");
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function requireSuccess(command: string, args: string[]) {
   const result = spawnSync(command, args, {
@@ -39,7 +41,7 @@ describe("repository Telegram E2E skill", () => {
       .toSorted()
       .map((entry) => path.join(scriptsDir, entry));
     expect(tests.length).toBeGreaterThan(0);
-    requireSuccess(process.execPath, ["--test", ...tests]);
+    requireSuccess(testNodeExecPath, ["--test", ...tests]);
   });
 
   it("passes its Python test suite", () => {

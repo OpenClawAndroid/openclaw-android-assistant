@@ -460,6 +460,23 @@ describe("toSanitizedMarkdownHtml links", () => {
       ]);
     });
 
+    it.each([
+      ["plain text", "/tmp/qa/src/file.ts:7 and tmp/qa/src/file.ts:7"],
+      ["inline code", "`/tmp/qa/src/file.ts:7` and `tmp/qa/src/file.ts:7`"],
+    ])("keeps absolute and relative file labels distinct in %s", (_kind, input) => {
+      const fragment = htmlFragment(toSanitizedMarkdownHtml(input, { fileLinks: true }));
+      const links = [...fragment.querySelectorAll<HTMLAnchorElement>("a.markdown-file-link")];
+      expect(links.map((link) => link.dataset.filePath)).toEqual([
+        "/tmp/qa/src/file.ts",
+        "tmp/qa/src/file.ts",
+      ]);
+      expect(links.map((link) => link.dataset.fileLine)).toEqual(["7", "7"]);
+      expect(links.map((link) => link.textContent)).toEqual([
+        "/tmp/qa/src/file.ts:7",
+        "tmp/qa/src/file.ts:7",
+      ]);
+    });
+
     it("keeps labels correct and distinct across thousands of paths", () => {
       // A model-controlled message can reference thousands of distinct files.
       // The regression this guards against is quadratic label derivation, so

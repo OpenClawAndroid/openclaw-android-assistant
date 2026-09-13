@@ -279,9 +279,13 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
             respondWithAuthority(
               false,
               undefined,
-              errorShape(ErrorCodes.UNAVAILABLE, "gateway request start capacity exceeded", {
-                retryable: true,
-              }),
+              errorShape(
+                ErrorCodes.UNAVAILABLE,
+                "The server is busy. Please try again in a moment.",
+                {
+                  retryable: true,
+                },
+              ),
             );
             return;
           }

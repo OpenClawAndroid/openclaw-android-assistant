@@ -166,6 +166,7 @@ describe("legacy core audit log migration", () => {
       }
 
       expect(failed.warnings.join("\n")).toContain("restored it for Doctor retry");
+      expect(failed.warnings.join("\n")).toContain("simulated scrub write failure");
       await expect(fs.readFile(rawPath, "utf8")).resolves.toBe(originalContent);
       expect(audit.detect().hasLegacy).toBe(true);
 

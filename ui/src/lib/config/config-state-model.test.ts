@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ConfigSchemaResponse, ConfigSnapshot } from "../../api/types.ts";
 import { canReloadControlUiDocument } from "../../app/document-reload-guard.ts";
@@ -7,7 +8,6 @@ import { createTestGatewayClient } from "../../test-helpers/gateway-client.ts";
 import { currentConfigObject, resolveAgentConfigEntryTarget } from "./config-state-model.ts";
 import {
   CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS,
-  deferred,
   createGatewayHarness,
   createConfigServerMock,
   createConfigCapabilityHarness,

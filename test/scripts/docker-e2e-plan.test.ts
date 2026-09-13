@@ -25,8 +25,10 @@ import {
   mainLanes,
 } from "../../scripts/lib/docker-e2e-scenarios.mts";
 import { createFrozenTargetSource } from "../../scripts/lib/frozen-target-source.mjs";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
+const testNodeExecPath = resolveTestNodeExecPath();
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const orderLanes = <T>(lanes: T[]) => lanes;
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -382,7 +384,7 @@ describe("scripts/lib/docker-e2e-plan", () => {
     ],
   ] as const)("validates Docker boundary ownership: %s", (_label, name, overrides, exit, error) => {
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         "./scripts/tsx.mjs",
@@ -488,7 +490,7 @@ await import('./scripts/check-docker-e2e-boundaries.mts');`,
     copyFileSync("scripts/lib/docker-e2e-scenarios.mts", nestedModule);
 
     const laneJson = execFileSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--input-type=module",
         "--eval",

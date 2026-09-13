@@ -279,6 +279,7 @@ describe("asynchronous canonical admission", () => {
         worker.send(
           {
             pathname,
+            databaseLabel: pathname,
             identity: integrityWorker.readSqliteIntegrityFileIdentity(pathname),
             busyTimeoutMs: 5000,
           } satisfies integrityWorker.SqliteIntegrityWorkerInput,

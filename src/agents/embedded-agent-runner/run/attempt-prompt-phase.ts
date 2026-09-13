@@ -11,6 +11,7 @@ import {
   createCompactionRequestBudget,
   type CompactionRequestBudget,
 } from "../../sessions/compaction/request-budget.js";
+import { withSessionManagerWrite } from "../../sessions/session-manager-write-admission.js";
 import { releasePendingAgentSteeringItems } from "../../subagents/registry/subagent-registry.js";
 import { prepareGooglePromptCacheStreamFn } from "../google-prompt-cache.js";
 import { log } from "../logger.js";
@@ -238,9 +239,12 @@ export async function runEmbeddedAttemptPromptPhase(
         provider: attempt.provider,
         sessionManager: {
           appendCustomEntry: async (customType, data) => {
-            await withOwnedTranscriptWrite(() => {
-              sessionManager.appendCustomEntry(customType, data);
-            });
+            await withOwnedTranscriptWrite(() =>
+              withSessionManagerWrite(sessionManager, () => {
+                runAbortController.signal.throwIfAborted();
+                sessionManager.appendCustomEntry(customType, data);
+              }),
+            );
           },
           getEntries: () => sessionManager.getEntries(),
         },
@@ -409,11 +413,14 @@ export async function runEmbeddedAttemptPromptPhase(
         },
         persistToolResultProjections: async () => {
           if (!isRawModelRun && toolResultPromptProjectionState.frozen.size > 0) {
-            await withOwnedTranscriptWrite(() => {
-              persistToolResultProjections(toolResultPromptProjectionState, (customType, data) =>
-                sessionManager.appendCustomEntry(customType, data),
-              );
-            });
+            await withOwnedTranscriptWrite(() =>
+              withSessionManagerWrite(sessionManager, () => {
+                runAbortController.signal.throwIfAborted();
+                persistToolResultProjections(toolResultPromptProjectionState, (customType, data) =>
+                  sessionManager.appendCustomEntry(customType, data),
+                );
+              }),
+            );
           }
         },
         ...(promptBuildPrependContext ? { prependContext: promptBuildPrependContext } : {}),
@@ -475,14 +482,16 @@ export async function runEmbeddedAttemptPromptPhase(
 
   const pendingMidTurnPrecheckRequest = contextGuards.takePendingMidTurnPrecheckRequest();
   if (pendingMidTurnPrecheckRequest) {
-    await withOwnedTranscriptWrite(() => {
-      removeTrailingMidTurnPrecheckAssistantError({ activeSession, sessionManager });
-      const terminal = projectAgentRunAttemptTerminal(input.state.terminal);
-      if (!promptState.preflightRecovery && terminal.promptErrorSource !== "precheck") {
-        setFailure(null, null);
-        handleMidTurnPrecheckRequest(pendingMidTurnPrecheckRequest);
-      }
-    });
+    await withOwnedTranscriptWrite(() =>
+      withSessionManagerWrite(sessionManager, () => {
+        removeTrailingMidTurnPrecheckAssistantError({ activeSession, sessionManager });
+        const terminal = projectAgentRunAttemptTerminal(input.state.terminal);
+        if (!promptState.preflightRecovery && terminal.promptErrorSource !== "precheck") {
+          setFailure(null, null);
+          handleMidTurnPrecheckRequest(pendingMidTurnPrecheckRequest);
+        }
+      }),
+    );
   }
 
   return { promptStartedAt, transcriptLeafId };

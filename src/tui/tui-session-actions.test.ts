@@ -47,7 +47,6 @@ describe("tui session actions", () => {
     const chatLog = makeChatLog({
       addSystem,
       clearAll,
-      clearPendingUsers: vi.fn(),
       addUser,
       addLiveUser: vi.fn(),
       addPendingUser: vi.fn(),
@@ -119,7 +118,6 @@ describe("tui session actions", () => {
         addLiveUser: vi.fn(),
         addPendingUser: vi.fn(),
         finalizeAssistant: vi.fn(),
-        clearPendingUsers: vi.fn(),
         clearAll: vi.fn(),
       }),
       btw: createBtwPresenter(),
@@ -1451,7 +1449,6 @@ describe("tui session actions", () => {
     const chatLog = makeChatLog({
       addSystem: vi.fn(),
       clearAll: vi.fn(),
-      clearPendingUsers: vi.fn(),
       addUser: vi.fn(),
       finalizeAssistant: vi.fn(),
       updateAssistant,
@@ -1677,7 +1674,6 @@ describe("tui session actions", () => {
     const chatLog = makeChatLog({
       addSystem: vi.fn(),
       clearAll: vi.fn(),
-      clearPendingUsers: vi.fn(),
       addUser: vi.fn(),
       finalizeAssistant: vi.fn(),
       updateAssistant,
@@ -1707,7 +1703,6 @@ describe("tui session actions", () => {
     const chatLog = makeChatLog({
       addSystem: vi.fn(),
       clearAll: vi.fn(),
-      clearPendingUsers: vi.fn(),
       addUser: vi.fn(),
       finalizeAssistant: vi.fn(),
       updateAssistant,
@@ -3031,7 +3026,6 @@ describe("tui session actions", () => {
       addPendingUser: vi.fn(),
       finalizeAssistant: vi.fn(),
       clearAll: vi.fn(),
-      clearPendingUsers: vi.fn(),
     });
     const state = createBaseState({ currentSessionId: "session-main" });
     sendPendingUser(state, "optimistic-run", "optimistic prompt");

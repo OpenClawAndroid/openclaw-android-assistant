@@ -14,6 +14,7 @@ import {
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../../test-utils/env.js";
+import { createAuthProfileStoreFixture } from "./credential-fixtures.test-support.js";
 import { OAuthRefreshFailureError } from "./oauth-refresh-failure.js";
 import { buildRefreshContentionError } from "./oauth-refresh-lock-errors.js";
 import { resolveApiKeyForProfile } from "./oauth.js";
@@ -116,18 +117,15 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
     expires: number;
     provider?: string;
   }): AuthProfileStore {
-    return {
-      version: 1,
-      profiles: {
-        [params.profileId]: {
-          type: "oauth",
-          provider: params.provider ?? "anthropic",
-          access: params.access,
-          refresh: params.refresh,
-          expires: params.expires,
-        },
+    return createAuthProfileStoreFixture({
+      [params.profileId]: {
+        type: "oauth",
+        provider: params.provider ?? "anthropic",
+        access: params.access,
+        refresh: params.refresh,
+        expires: params.expires,
       },
-    };
+    });
   }
 
   function expectOauthCredentialFields(
@@ -177,18 +175,15 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
 
   async function resolveOauthProfileForConfiguredMode(mode: "token" | "api_key") {
     const profileId = "anthropic:default";
-    const store: AuthProfileStore = {
-      version: 1,
-      profiles: {
-        [profileId]: {
-          type: "oauth",
-          provider: "anthropic",
-          access: "oauth-token",
-          refresh: "refresh-token",
-          expires: createUsableOAuthExpiry(),
-        },
+    const store: AuthProfileStore = createAuthProfileStoreFixture({
+      [profileId]: {
+        type: "oauth",
+        provider: "anthropic",
+        access: "oauth-token",
+        refresh: "refresh-token",
+        expires: createUsableOAuthExpiry(),
       },
-    };
+    });
 
     const result = await resolveApiKeyForProfile({
       cfg: {
@@ -540,17 +535,14 @@ describe("resolveApiKeyForProfile fallback to main agent", () => {
 
   it("accepts mode=oauth + type=token (regression)", async () => {
     const profileId = "anthropic:default";
-    const store: AuthProfileStore = {
-      version: 1,
-      profiles: {
-        [profileId]: {
-          type: "token",
-          provider: "anthropic",
-          token: "static-token",
-          expires: Date.now() + 60_000,
-        },
+    const store: AuthProfileStore = createAuthProfileStoreFixture({
+      [profileId]: {
+        type: "token",
+        provider: "anthropic",
+        token: "static-token",
+        expires: Date.now() + 60_000,
       },
-    };
+    });
 
     const result = await resolveApiKeyForProfile({
       cfg: {

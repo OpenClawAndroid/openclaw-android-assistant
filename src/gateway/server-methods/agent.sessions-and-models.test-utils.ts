@@ -1978,16 +1978,10 @@ describe("gateway agent handler", () => {
       useTestStateDir(root);
       resetAgentTaskRegistryForTests();
       primeMainAgentRun();
-      let resolveRun: (value: {
+      const { promise: pending, resolve: resolveRun } = createDeferred<{
         payloads: Array<{ text: string }>;
         meta: { durationMs: number };
-      }) => void;
-      const pending = new Promise<{
-        payloads: Array<{ text: string }>;
-        meta: { durationMs: number };
-      }>((resolve) => {
-        resolveRun = resolve;
-      });
+      }>();
       mocks.agentCommand.mockReturnValueOnce(pending);
 
       await invokeAgent(
@@ -3485,10 +3479,7 @@ describe("gateway agent handler", () => {
       const finalizeError = new Error("finalize boom");
       // The background run completes off-turn; signal finalize instead of
       // polling for it so contended runners cannot outlast a fixed poll budget.
-      let signalFinalizeCalled: () => void = () => {};
-      const finalizeCalled = new Promise<void>((resolve) => {
-        signalFinalizeCalled = resolve;
-      });
+      const { promise: finalizeCalled, resolve: signalFinalizeCalled } = createDeferred();
       const finalizeTaskRunByRunIdSpy = vi.fn(() => {
         signalFinalizeCalled();
         throw finalizeError;

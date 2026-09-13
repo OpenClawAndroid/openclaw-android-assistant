@@ -4,10 +4,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeGitPathForFilesystem } from "../../infra/git-exec.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import {
-  detectWorktreeFilesystemBackend,
-  type WorktreeFilesystemOptions,
-} from "./filesystem-backend.js";
+import { detectWorktreeFilesystemBackend } from "./filesystem-backend.js";
+import type { WorktreeFilesystemOptions } from "./filesystem-backend.types.js";
 import {
   listGitWorktrees,
   worktreePathExists,

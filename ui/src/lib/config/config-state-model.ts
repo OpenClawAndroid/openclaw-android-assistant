@@ -24,6 +24,7 @@ export type RuntimeConfigState = {
   configSaving: boolean;
   configApplying: boolean;
   configAutoSaveStatus: ConfigAutoSaveStatus;
+  configRecoveryError: string | null;
   /** True when the config file revision differs from the active Gateway runtime. */
   configNeedsApply: boolean;
   configSnapshot: ConfigSnapshot | null;
@@ -126,6 +127,7 @@ export function createInitialConfigState(
     configSaving: false,
     configApplying: false,
     configAutoSaveStatus: "idle",
+    configRecoveryError: null,
     configNeedsApply: false,
     configSnapshot: null,
     configDraftBaseHash: null,

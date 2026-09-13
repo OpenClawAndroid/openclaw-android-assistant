@@ -122,6 +122,45 @@ function expectGatewayTermination(pid: number) {
   }
   expect(killProcessTreeMock).toHaveBeenCalledWith(pid, { graceMs: 300 });
 }
+function mockWindowsTaskkillSuccess() {
+  // Route process-control probes so verified owners terminate cleanly: taskkill
+  // succeeds and the follow-up tasklist probe reports the PID as gone.
+  spawnSync.mockImplementation((exe: unknown) => {
+    const exeText = String(exe);
+    if (/taskkill\.exe$/i.test(exeText)) {
+      return { pid: 0, output: [null, "", ""], stdout: "", stderr: "", status: 0, signal: null };
+    }
+    if (/tasklist\.exe$/i.test(exeText)) {
+      const stdout = "No tasks";
+      return { pid: 0, output: [null, stdout, ""], stdout, stderr: "", status: 0, signal: null };
+    }
+    return {
+      pid: 0,
+      output: [null, "-2147024891", ""],
+      stdout: "-2147024891",
+      stderr: "",
+      status: 1,
+      signal: null,
+    };
+  });
+}
+
+function taskkillPids(): number[] {
+  return spawnSync.mock.calls
+    .filter(([exe]) => /taskkill\.exe$/i.test(exe))
+    .map(([, args]) => {
+      const list = (args as string[] | undefined) ?? [];
+      const index = list.findIndex((arg) => arg.toUpperCase() === "/PID");
+      return index >= 0 ? Number.parseInt(list[index + 1] ?? "", 10) : Number.NaN;
+    })
+    .filter((pid) => Number.isFinite(pid));
+}
+
+function expectTaskkill(pid: number) {
+  if (process.platform === "win32") {
+    expect(taskkillPids()).toContain(pid);
+  }
+}
 
 function setTaskStateProbeResult(state: number) {
   const stdout = JSON.stringify({ state });
@@ -503,6 +542,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       const onMutation = vi.fn();
       pushSuccessfulSchtasksResponses(3);
+      mockWindowsTaskkillSuccess();
       findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([4242]);
       inspectPortUsageMock
         .mockResolvedValueOnce(busyPortUsage(4242, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }))
@@ -512,6 +552,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
 
       expect(findVerifiedGatewayListenerPidsOnPortSync).not.toHaveBeenCalled();
       expectGatewayTermination(4242);
+      expectTaskkill(4242);
       expect(inspectPortUsageMock).toHaveBeenCalledTimes(2);
       expect(inspectPortUsageMock).toHaveBeenCalledWith(GATEWAY_PORT, {
         probeHosts: ["127.0.0.1"],
@@ -673,24 +714,59 @@ describe("Scheduled Task stop/restart cleanup", () => {
   it("does not kill an unrelated listener when the owned process leaves another required host busy", async () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       pushSuccessfulSchtasksResponses(3);
+      mockWindowsTaskkillSuccess();
       inspectPortUsageMock.mockResolvedValueOnce(
         busyPortUsage(4242, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }),
       );
-      for (let i = 0; i < 20; i += 1) {
-        inspectPortUsageMock.mockResolvedValueOnce(busyPortUsage(5252));
-      }
+      inspectPortUsageMock.mockResolvedValue(busyPortUsage(5252));
 
-      await expect(stopScheduledTask({ env, stdout })).rejects.toThrow(
-        "remaining listener ownership could not be verified",
-      );
+      const failure = await stopScheduledTask({ env, stdout }).catch((err: unknown) => err);
 
+      expect(String(failure)).toContain("remaining listener ownership could not be verified");
+      expect(String(failure)).toContain("pid 5252");
       if (process.platform !== "win32") {
         expect(killProcessTreeMock).toHaveBeenCalledOnce();
         expect(killProcessTreeMock).toHaveBeenCalledWith(4242, { graceMs: 300 });
       } else {
         expect(killProcessTreeMock).not.toHaveBeenCalled();
+        expectTaskkill(4242);
       }
       expect(killProcessTreeMock).not.toHaveBeenCalledWith(5252, { graceMs: 300 });
+      expect(taskkillPids()).not.toContain(5252);
+    });
+  });
+
+  it("refuses a same-port gateway from another checkout when the CIM snapshot is unavailable", async () => {
+    await withPreparedGatewayTask(async ({ env, stdout }) => {
+      pushSuccessfulSchtasksResponses(3);
+      mockWindowsTaskkillSuccess();
+      const foreignGatewayCommandLine =
+        '"C:\\Program Files\\nodejs\\node.exe" "D:\\other-checkout\\node_modules\\openclaw\\dist\\index.js" gateway --port 18789';
+      inspectPortUsageMock.mockResolvedValue(
+        busyPortUsage(6262, { commandLine: foreignGatewayCommandLine }),
+      );
+
+      const failure = await stopScheduledTask({ env, stdout }).catch((err: unknown) => err);
+
+      expect(String(failure)).toContain("remaining listener ownership could not be verified");
+      expect(String(failure)).toContain("pid 6262");
+      expect(String(failure)).toContain("openclaw gateway");
+      expect(killProcessTreeMock).not.toHaveBeenCalled();
+      expect(taskkillPids()).not.toContain(6262);
+    });
+  });
+
+  it("reports remaining listeners when the port stays busy before restart", async () => {
+    await withPreparedGatewayTask(async ({ env, stdout }) => {
+      pushSuccessfulSchtasksResponses(3);
+      inspectPortUsageMock.mockResolvedValue(busyPortUsage(5151));
+
+      const failure = await restartScheduledTask({ env, stdout }).catch((err: unknown) => err);
+
+      expect(String(failure)).toContain("is still busy before restart");
+      expect(String(failure)).toContain("pid 5151");
+      expect(killProcessTreeMock).not.toHaveBeenCalled();
+      expect(taskkillPids()).toEqual([]);
     });
   });
 
@@ -698,6 +774,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       pushSuccessfulSchtasksResponses(3);
       findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([]);
+      mockWindowsTaskkillSuccess();
       inspectPortUsageMock
         .mockResolvedValueOnce(
           busyPortUsage(6262, {
@@ -710,6 +787,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
       await stopScheduledTask({ env, stdout });
 
       expectGatewayTermination(6262);
+      expectTaskkill(6262);
       expect(inspectPortUsageMock).toHaveBeenCalledTimes(2);
     });
   });
@@ -739,6 +817,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       const onMutation = vi.fn();
       pushSuccessfulSchtasksResponses(4);
+      mockWindowsTaskkillSuccess();
       findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([5151]);
       inspectPortUsageMock
         .mockResolvedValueOnce(busyPortUsage(5151, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }))
@@ -750,6 +829,7 @@ describe("Scheduled Task stop/restart cleanup", () => {
 
       expect(findVerifiedGatewayListenerPidsOnPortSync).not.toHaveBeenCalled();
       expectGatewayTermination(5151);
+      expectTaskkill(5151);
       expect(inspectPortUsageMock.mock.calls.length).toBeGreaterThanOrEqual(2);
       expect(inspectPortUsageMock).toHaveBeenCalledWith(GATEWAY_PORT, {
         probeHosts: ["127.0.0.1"],

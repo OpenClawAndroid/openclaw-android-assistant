@@ -9,6 +9,7 @@ import {
   type AgentRunApprovalClosureReason,
 } from "./agent-run-approval-leases.js";
 import type { AgentRunDelegatedAuthority } from "./agent-run-authority.types.js";
+import { buildAgentRunProjectionIndex, projectedRunIdentity } from "./agent-run-projection.js";
 import type {
   AgentRunContext,
   AgentRunContextOwnership,
@@ -524,7 +525,22 @@ export function releaseAgentRunDelegatedAuthority(authority: AgentRunDelegatedAu
   return true;
 }
 
-/** Lists active runs bound to one current session identity. */
+/** Retained routing metadata alone cannot keep a dead writer alive. */
+export function hasLiveAgentRunContext(runId: string): boolean {
+  const state = getAgentRunRegistryState();
+  const context = state.contexts.get(runId);
+  if (!context || context.lifecycleGeneration !== state.lifecycleGeneration) {
+    return false;
+  }
+  const owners = state.owners.get(runId);
+  return (
+    (owners?.lifecycleGeneration === state.lifecycleGeneration && owners.claimIds.size > 0) ||
+    (state.queuedRunContextLeases?.get(context) ?? 0) > 0 ||
+    context.projectSessionActive === true
+  );
+}
+
+/** Lists registered runs bound to one current session identity. */
 export function listAgentRunsForSession(params: {
   sessionKey: string;
   sessionId?: string;
@@ -542,55 +558,12 @@ export function listAgentRunsForSession(params: {
   return runs.toSorted((a, b) => a.runId.localeCompare(b.runId));
 }
 
-function projectedRunIdentity(agentId: string, value: string): string {
-  return `${normalizeAgentId(agentId)}\0${value}`;
-}
-
 export function buildProjectedAgentRunIndex(): ProjectedAgentRunIndex {
   const state = getAgentRunRegistryState();
-  const sessionKeys = new Map<string, ProjectedAgentRunState>();
-  const sessionIds = new Map<string, ProjectedAgentRunState>();
-  const ownerlessSessionKeys = new Map<string, ProjectedAgentRunState>();
-  const ownerlessSessionIds = new Map<string, ProjectedAgentRunState>();
-  const add = (
-    index: Map<string, ProjectedAgentRunState>,
-    key: string,
-    status: ProjectedAgentRunState,
-  ) => {
-    const previous = index.get(key);
-    if (previous !== "running" && !(previous === "queued" && status === "capacity-wait")) {
-      index.set(key, status);
-    }
-  };
-  for (const context of state.contexts.values()) {
-    const queued = (context.capacityWaits?.size ?? 0) > 0;
-    if (
-      context.lifecycleGeneration !== state.lifecycleGeneration ||
-      (context.projectSessionActive !== true &&
-        (!queued ||
-          context.projectSessionActive === false ||
-          context.projectSessionLifecycle === false))
-    ) {
-      continue;
-    }
-    const status = !queued
-      ? "running"
-      : context.projectSessionActive === true
-        ? "queued"
-        : "capacity-wait";
-    const agentId = context.agentId ?? parseAgentSessionKey(context.sessionKey)?.agentId;
-    if (context.sessionKey !== undefined && agentId) {
-      add(sessionKeys, projectedRunIdentity(agentId, context.sessionKey), status);
-    } else if (context.sessionKey !== undefined) {
-      add(ownerlessSessionKeys, context.sessionKey, status);
-    }
-    if (context.sessionId !== undefined && agentId) {
-      add(sessionIds, projectedRunIdentity(agentId, context.sessionId), status);
-    } else if (context.sessionId !== undefined) {
-      add(ownerlessSessionIds, context.sessionId, status);
-    }
-  }
-  return { sessionKeys, sessionIds, ownerlessSessionKeys, ownerlessSessionIds };
+  return buildAgentRunProjectionIndex({
+    contexts: state.contexts.values(),
+    lifecycleGeneration: state.lifecycleGeneration,
+  });
 }
 
 export function resolveProjectedAgentRunProgressState(params: {

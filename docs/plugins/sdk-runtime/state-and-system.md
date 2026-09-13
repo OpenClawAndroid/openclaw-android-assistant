@@ -203,10 +203,12 @@ off-thread reclamation, leaving the Gateway thread available to authorize a
 reclamation commit.
 
 Asynchronous AgentSession message, model, compaction, and tree operations use
-this admission for their transcript writes. Model-selection hooks run after
-write admission releases. Synchronous SessionManager and extension APIs,
-including `setThinkingLevel`, retain their existing synchronous contracts and
-still need an appropriate caller-owned write boundary.
+this admission for their transcript writes. Embedded prompt preparation, replay
+repair, and tool-result cleanup await their writes before publishing dependent
+results or disposing their resources. Model-selection hooks run after write
+admission releases. Synchronous SessionManager and extension APIs, including
+`setThinkingLevel`, retain their existing synchronous contracts and still need
+an appropriate caller-owned write boundary.
 
 The signature is `withOpenClawAgentDatabaseWrite(options, operation, expectedDatabase?)`.
 `options` uses the existing agent database options, including the required
@@ -246,6 +248,15 @@ write admission. Keep the admitted callback synchronous; do not return a promise
 or hold admission across a provider call or an entire asynchronous hook. Recheck
 applicable manager/run ownership and cancellation inside the callback, immediately
 before mutation. Agent identity and handle equality are not authorization.
+
+For preparation that can repeat after SQLite lock contention,
+`runSqliteImmediateTransaction(db, prepare, options, admit)` accepts the same
+owner's admission callback. `prepare` runs before admission and returns a
+synchronous transaction callback. Pass `(write) =>
+withOpenClawAgentDatabaseWrite(databaseOptions, write, borrowedDb)` as `admit`;
+do not place asynchronous preparation inside the admitted callback. The helper
+rechecks transaction state after waiting and never repeats a callback that
+already entered its transaction.
 
 `withOpenClawAgentDatabaseWrite` does not start a transaction, grant an authority
 lease, or coordinate unrelated processes. Raw SQLite calls outside admission bypass it, and existing

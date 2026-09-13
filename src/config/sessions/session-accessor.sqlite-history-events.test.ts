@@ -136,11 +136,20 @@ describe("SQLite transcript history events", () => {
       events: [],
       totalMessages: 0,
     });
+    expect(readTranscriptDisplayDelta(scope)).toEqual({ kind: "missing" });
     await replaceTranscriptEvents(scope, [{ type: "session", version: 3, id: scope.sessionId }]);
     await replaceTranscriptEvents(scope, []);
     const empty = readRecentSessionTranscriptHistoryEvents(scope, limits);
     expect(empty.deltaCursor).toEqual(expect.any(String));
     expect(empty.displaySource).toEqual(expect.any(String));
+    expect(readTranscriptDisplayDelta(scope, { cursor: empty.deltaCursor })).toEqual({
+      kind: "page",
+      cursor: empty.deltaCursor,
+      activeLeafEntryId: null,
+      events: [],
+      hasMore: false,
+      serializedBytes: 0,
+    });
 
     await persistSessionTranscriptTurn(scope, {
       messages: [
@@ -154,12 +163,21 @@ describe("SQLite transcript history events", () => {
       throw new Error("missing appended history delta");
     }
     expect(delta.events.map(historyEventId)).toContain("after-empty");
+    expect(readTranscriptDisplayDelta(scope, { cursor: delta.cursor })).toEqual({
+      kind: "page",
+      cursor: delta.cursor,
+      activeLeafEntryId: "after-empty",
+      events: [],
+      hasMore: false,
+      serializedBytes: 0,
+    });
 
     const other = { ...scope, sessionId: "other-empty", sessionKey: "agent:main:other-empty" };
     await replaceTranscriptEvents(other, []);
     const otherEmpty = readRecentSessionTranscriptHistoryEvents(other, limits);
     expect(otherEmpty).toMatchObject({ events: [], totalMessages: 0 });
     expect(otherEmpty.deltaCursor).toBeUndefined();
+    expect(readTranscriptDisplayDelta(other)).toEqual({ kind: "missing" });
     await persistSessionTranscriptTurn(other, {
       messages: ["other-first", "other-middle", "other-last"].map((eventId, index, ids) => ({
         eventId,
@@ -181,6 +199,15 @@ describe("SQLite transcript history events", () => {
     expect(
       readRecentSessionTranscriptHistoryEvents(scope, limits).events.map(historyEventId),
     ).toEqual(["after-empty"]);
+    expect(readTranscriptDisplayDelta(other, { cursor: delta.cursor })).toMatchObject({
+      kind: "reset",
+      reason: "scope_mismatch",
+    });
+    await replaceTranscriptEvents(scope, []);
+    expect(readTranscriptDisplayDelta(scope, { cursor: delta.cursor })).toMatchObject({
+      kind: "reset",
+      reason: "generation_mismatch",
+    });
   });
 
   it("preserves physical dispatch cuts across history pages and deltas", async () => {
@@ -280,6 +307,27 @@ describe("SQLite transcript history events", () => {
     expect(delta.cursor).toBe(raw.cursor);
     expect(delta.serializedBytes).toBe(raw.serializedBytes);
     expect(delta.events.map(({ event, seq }) => ({ event, seq }))).toEqual(raw.events);
+    const blocked = readTranscriptDisplayDelta(scope, { maxBytes: 1 });
+    expect(blocked.kind).toBe("page");
+    if (blocked.kind !== "page") {
+      throw new Error("missing byte-blocked transcript page");
+    }
+    expect(blocked).toMatchObject({
+      activeLeafEntryId: "later",
+      events: [],
+      hasMore: true,
+      requiredBytes: Buffer.byteLength(JSON.stringify(raw.events[0]?.event), "utf8") + 1,
+      serializedBytes: 0,
+    });
+    expect(readTranscriptDisplayDelta(scope, { cursor: blocked.cursor })).toEqual(delta);
+    expect(readTranscriptDisplayDelta(scope, { cursor: delta.cursor })).toEqual({
+      kind: "page",
+      cursor: delta.cursor,
+      activeLeafEntryId: "later",
+      events: [],
+      hasMore: false,
+      serializedBytes: 0,
+    });
   });
 
   it.each(["message", "custom_message"])(
@@ -433,6 +481,29 @@ describe("SQLite transcript history events", () => {
       "reset",
       "compaction",
     ]);
+    for (const [messageId, direction, maxMessages, ids, seqs, offset] of [
+      ["kept-user", "older", 4, ["kept-user"], [1], 3],
+      ["compaction", "newer", 4, ["compaction"], [4], 0],
+      ["reset", "older", 2, ["kept-assistant", "reset"], [2, 3], 1],
+      ["reset", "newer", 2, ["reset", "compaction"], [3, 4], 0],
+      ["reset", "older", 1, ["reset"], [3], 1],
+      ["reset", "newer", 1, ["reset"], [3], 1],
+    ] as const) {
+      const directional = readSessionTranscriptHistoryAnchorPage(scope, {
+        messageId,
+        direction,
+        maxMessages,
+      });
+      expect(directional).toMatchObject({
+        found: true,
+        totalMessages: 4,
+        hasOverreadContext: false,
+        offset,
+        displaySource: anchored.displaySource,
+      });
+      expect(directional.events.map(historyEventId)).toEqual(ids);
+      expect(directional.events.map(({ seq }) => seq)).toEqual(seqs);
+    }
 
     expect(() =>
       readSessionTranscriptHistoryAnchorPage(scope, { messageId: "old-notice", maxMessages: 3 }),
@@ -842,6 +913,26 @@ describe("SQLite transcript history events", () => {
     ] as const) {
       const page = readSessionTranscriptHistoryAnchorPage(scope, { messageId, maxMessages });
       expect(page).toMatchObject({ found: true, totalMessages: 4, offset, hasOverreadContext });
+      expect(page.events.map(historyEventId)).toEqual(ids);
+      expect(page.events.map(({ seq }) => seq)).toEqual(seqs);
+    }
+    for (const [messageId, direction, maxMessages, ids, seqs, offset] of [
+      ["first", "older", 4, ["first"], [1], 3],
+      ["notice", "newer", 2, ["notice", "last"], [2, 3], 1],
+      ["last", "older", 3, ["first", "notice", "last"], [1, 2, 3], 1],
+      ["last", "newer", 4, ["last", "reset"], [3, 4], 0],
+    ] as const) {
+      const page = readSessionTranscriptHistoryAnchorPage(scope, {
+        messageId,
+        direction,
+        maxMessages,
+      });
+      expect(page).toMatchObject({
+        found: true,
+        totalMessages: 4,
+        offset,
+        hasOverreadContext: false,
+      });
       expect(page.events.map(historyEventId)).toEqual(ids);
       expect(page.events.map(({ seq }) => seq)).toEqual(seqs);
     }

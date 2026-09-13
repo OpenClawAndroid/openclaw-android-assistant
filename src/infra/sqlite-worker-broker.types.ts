@@ -5,7 +5,12 @@ import type {
   createSqliteWorkerTransferOwner,
   createSqliteWorkerTransferReceiver,
 } from "./sqlite-worker-transfer.js";
-import type { tryCreateGatewaySchemaFenceDelegate } from "./state-database-coordinator.js";
+import type {
+  tryCreateGatewaySchemaFenceDelegate,
+  tryCreateStateLifecycleDelegate,
+} from "./state-database-coordinator.js";
+
+type StateLifecycleDelegate = NonNullable<ReturnType<typeof tryCreateStateLifecycleDelegate>>;
 
 export type RequestBody = SqliteWorkerRequest extends infer Request
   ? Request extends SqliteWorkerRequest
@@ -14,6 +19,7 @@ export type RequestBody = SqliteWorkerRequest extends infer Request
   : never;
 type DispatchState = { dispatched: boolean };
 export type Job = {
+  stateLifecycle?: { actor: Actor; delegate: StateLifecycleDelegate };
   assertCurrent?: () => void;
   inputTransfer?: {
     id: number;
@@ -59,6 +65,7 @@ export type Actor = {
   closing?: Promise<void>;
   stateContext?: SqliteWorkerStateContext;
   gatewaySchemaFence?: NonNullable<ReturnType<typeof tryCreateGatewaySchemaFenceDelegate>>;
+  pendingStateLifecycles: Set<StateLifecycleDelegate>;
 };
 export type OperationScope = {
   assertCurrent?: (commandType: PropertyKey) => void;

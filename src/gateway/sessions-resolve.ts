@@ -146,16 +146,19 @@ function findVisibleShortIdMatches(params: {
   const entries = filterAndSortSessionEntries({
     cfg: params.cfg,
     store: params.store,
+    entryFilter: (key, entry) => {
+      const uuid = parseAgentSessionKey(key)?.rest.match(SESSION_UUID_SUFFIX_RE)?.[1];
+      return Boolean(
+        uuid?.toLowerCase().replaceAll("-", "").startsWith(params.shortId) &&
+        (params.entryFilter?.(key, entry) ?? true),
+      );
+    },
     now,
     opts: { ...resolveSessionVisibilityFilterOptions(params.p), archived: "all" },
   });
   return entries.flatMap(([key, entry]) => {
-    if (params.entryFilter && !params.entryFilter(key, entry)) {
-      return [];
-    }
     const parsed = parseAgentSessionKey(key);
-    const uuid = parsed?.rest.match(SESSION_UUID_SUFFIX_RE)?.[1];
-    if (!parsed || !uuid?.toLowerCase().replaceAll("-", "").startsWith(params.shortId)) {
+    if (!parsed) {
       return [];
     }
     if (resolveDeletedAgentIdFromSessionKey(params.cfg, key, entry) !== null) {

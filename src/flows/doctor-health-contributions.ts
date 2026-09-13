@@ -305,7 +305,7 @@ async function runLegacyStateHealth(ctx: DoctorHealthFlowContext): Promise<void>
         ctx,
         [],
         migrated.stepReceipts.flatMap((receipt) =>
-          receipt.outcome === "warning" ? receipt.warnings : [],
+          receipt.outcome === "warning" || receipt.outcome === "deferred" ? receipt.warnings : [],
         ),
       );
       if (migrated.changes.length > 0) {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { BoardSnapshot } from "../../lib/board/types.ts";
 // Side-effect import: registers the custom elements mount() depends on
 // without relying on transitive fixture imports.
@@ -8,8 +9,6 @@ import { applyBoardFixtureOps } from "../../test-helpers/board-fixture.ts";
 import {
   boardWidget,
   callbacks,
-  deferred,
-  deferredValue,
   gatewayContext,
   mount,
   settleCells,
@@ -651,7 +650,7 @@ describe("openclaw-board-view", () => {
   it("does not schedule renewal when an in-flight MCP App load resolves after disconnect", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
-    const pending = deferredValue<{
+    const pending = deferred<{
       status: "ready";
       viewId: string;
       expiresAtMs: number;

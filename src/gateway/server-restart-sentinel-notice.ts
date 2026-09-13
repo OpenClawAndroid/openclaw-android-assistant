@@ -15,6 +15,7 @@ import { createQueuedDeliveryOwner } from "../infra/outbound/deliver-queue-state
 import type { OutboundDeliveryResult } from "../infra/outbound/deliver-types.js";
 import { deliverOutboundPayloadsInternal } from "../infra/outbound/deliver.js";
 import { runOutboundDeliveryCommitHooks } from "../infra/outbound/delivery-commit-hooks.js";
+import { failPendingDelivery } from "../infra/outbound/delivery-queue-ack.js";
 import {
   withStableDeliveryPreparation,
   type StableDeliveryPreparationOwner,
@@ -27,7 +28,6 @@ import {
   failDelivery,
   failDeliveryAfterPlatformSend,
   failDeliveryBeforePlatformSend,
-  failPendingDelivery,
   findDeliveryIntentOwner,
   loadPendingDelivery,
   reserveDeliveryAttempt,

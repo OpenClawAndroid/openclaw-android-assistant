@@ -150,6 +150,7 @@ vi.mock("./session-history-state.js", () => ({
   },
 }));
 
+import { createDeferred } from "../../test/helpers/promise.js";
 import { SessionTranscriptProjectionUnavailableError } from "../config/sessions/session-accessor.js";
 import { handleSessionHistoryHttpRequest } from "./sessions-history-http.js";
 
@@ -249,16 +250,15 @@ async function openSessionHistoryStreamPair(
 async function withRealNodeSessionHistoryStream(
   run: (pair: { req: IncomingMessage; res: ServerResponse }) => Promise<void>,
 ) {
-  let resolvePair: (pair: { req: IncomingMessage; res: ServerResponse }) => void;
-  const pairPromise = new Promise<{ req: IncomingMessage; res: ServerResponse }>((resolve) => {
-    resolvePair = resolve;
-  });
-  let resolveHandled: (handled: boolean) => void;
-  let rejectHandled: (error: unknown) => void;
-  const handledPromise = new Promise<boolean>((resolve, reject) => {
-    resolveHandled = resolve;
-    rejectHandled = reject;
-  });
+  const { promise: pairPromise, resolve: resolvePair } = createDeferred<{
+    req: IncomingMessage;
+    res: ServerResponse;
+  }>();
+  const {
+    promise: handledPromise,
+    resolve: resolveHandled,
+    reject: rejectHandled,
+  } = createDeferred<boolean>();
   const server = createServer((req, res) => {
     resolvePair({ req, res });
     void handleSessionHistoryHttpRequest(req, res, TRUSTED_PROXY_STARTUP_OPTIONS).then(

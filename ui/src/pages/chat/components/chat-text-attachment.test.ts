@@ -74,7 +74,6 @@ it("keeps one pending presentation through metadata and text-body loading", asyn
 });
 
 it.each([
-  ["preview.html", "text/html", "<h1>literal HTML</h1>"],
   ["rows.csv", "text/csv", "name,status\nalpha,ready\n"],
   ["settings.json", "application/json", '{"ready":true}\n'],
   ["config.xml", "application/xml", "<ready>true</ready>"],
@@ -137,6 +136,7 @@ it.each([
   { title: "notes.txt", mimeType: "application/pdf" },
   { title: "archive.bin", mimeType: "application/octet-stream" },
   { title: "notes.txt", src: "https://files.example/notes.txt" },
+  { title: "page.html", mimeType: "text/html", src: "https://files.example/page.html" },
 ])("does not fetch unsupported or external documents: $title $mimeType $src", async (content) => {
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
@@ -276,3 +276,55 @@ it("times out even when a response stalls while reading its body", async () => {
   expect(panel.textContent).toContain("Download it to read the full file");
   expect(panel.querySelector("pre")).toBeNull();
 });
+
+it.each([
+  ["page.html", "text/html"],
+  ["page.HTM", "application/octet-stream"],
+  ["page.html", ""],
+  ["download", "Text/HTML; charset=UTF-8"],
+])(
+  "renders HTML attachment %s (%s) in a sandbox and preserves exact Source and download",
+  async (title, mimeType) => {
+    const text =
+      "\ufeff<!doctype html>\r\n<style>h1{color:red}</style><h1>Rendered page</h1><script>window.ready=true</script>\n";
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response(text)));
+    const panel = await mountAttachment({ title, mimeType });
+    await customElements.whenDefined("openclaw-chat-html-preview");
+    await expect.poll(() => panel.querySelector("openclaw-chat-html-preview")).not.toBeNull();
+    const preview = panel.querySelector("openclaw-chat-html-preview")!;
+    const request = vi.fn().mockResolvedValue({
+      html: text,
+      sandboxUrl: "/mcp-app-sandbox?frames=none",
+      sandboxPort: 8444,
+    });
+    Reflect.set(preview, "context", {
+      gateway: {
+        snapshot: { client: { request }, phase: "connected" },
+        connection: { gatewayUrl: "ws://gateway.example:8443" },
+        subscribe: () => () => {},
+      },
+    });
+    await expect.poll(() => panel.querySelector("iframe")).not.toBeNull();
+    const frame = panel.querySelector("iframe");
+    expect(panel.querySelector("h1, script, style")).toBeNull();
+    expect(panel.querySelector("pre")?.hidden).toBe(true);
+    expect(panel.querySelector("pre")?.textContent).toBe(text);
+    const toggle = panel.querySelector<HTMLButtonElement>(".sidebar-file-toolbar button")!;
+    expect(toggle.textContent?.trim()).toBe("Source");
+    toggle.click();
+    await panel.querySelector("openclaw-chat-text-attachment")!.updateComplete;
+    expect(panel.querySelector("pre")?.hidden).toBe(false);
+    expect(panel.querySelector(".chat-html-preview")?.hasAttribute("hidden")).toBe(true);
+    expect(toggle.textContent?.trim()).toBe("Preview");
+    toggle.click();
+    await panel.querySelector("openclaw-chat-text-attachment")!.updateComplete;
+    expect(panel.querySelector("iframe")).toBe(frame);
+    expect(request).toHaveBeenCalledOnce();
+    expect(panel.querySelector<HTMLAnchorElement>("a[download]")?.getAttribute("href")).toBe(
+      "/__openclaw__/assistant-media?mediaTicket=text-preview",
+    );
+    Reflect.set(panel, "embedSandboxMode", "strict");
+    await expect.poll(() => panel.querySelector("iframe")?.srcdoc).toBe(text);
+    expect(panel.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+  },
+);

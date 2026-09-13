@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { isSecretValueRegisteredForRedaction } from "../../logging/secret-redaction-registry.js";
 import type {
@@ -46,10 +47,7 @@ function createFakeSupervisor() {
     },
     async spawn(input) {
       inputs.push(input);
-      let settle!: (exit: RunExit) => void;
-      const wait = new Promise<RunExit>((resolve) => {
-        settle = resolve;
-      });
+      const { promise: wait, resolve: settle } = createDeferred<RunExit>();
       const record = {
         managed: undefined as unknown as ManagedRun,
         settle,

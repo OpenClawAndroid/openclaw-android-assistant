@@ -1372,7 +1372,6 @@ extensions/xai/tts.ts	1
 extensions/xai/x-search.ts	7
 extensions/xiaomi/onboard.ts	1
 extensions/xiaomi/speech-provider.ts	2
-extensions/zai/detect.ts	1
 extensions/zai/index.ts	2
 extensions/zai/model-definitions.ts	1
 extensions/zalo/setup-api.ts	3
@@ -1704,7 +1703,7 @@ src/agents/embedded-agent-runner/prepared-compaction-runtime.ts	1
 src/agents/embedded-agent-runner/prompt-cache-observability.ts	2
 src/agents/embedded-agent-runner/replay-history.ts	53
 src/agents/embedded-agent-runner/result-fallback-classifier.ts	2
-src/agents/embedded-agent-runner/run-entry.ts	3
+src/agents/embedded-agent-runner/run-entry.ts	2
 src/agents/embedded-agent-runner/run.overflow-compaction.harness.ts	4
 src/agents/embedded-agent-runner/run/abortable.ts	2
 src/agents/embedded-agent-runner/run/attempt-async-tasks.ts	1
@@ -1726,14 +1725,13 @@ src/agents/embedded-agent-runner/run/attempt-setup.ts	1
 src/agents/embedded-agent-runner/run/attempt-stop-reason-recovery.ts	3
 src/agents/embedded-agent-runner/run/attempt-stream-prepare.ts	3
 src/agents/embedded-agent-runner/run/attempt-stream.ts	6
-src/agents/embedded-agent-runner/run/attempt-subscription-cleanup.ts	2
 src/agents/embedded-agent-runner/run/attempt-tool-call-replay-sanitization.ts	17
 src/agents/embedded-agent-runner/run/attempt-tool-call-stream-normalization.ts	4
 src/agents/embedded-agent-runner/run/attempt-tool-call-text-promotion.ts	3
 src/agents/embedded-agent-runner/run/attempt-tool-prepare.ts	3
 src/agents/embedded-agent-runner/run/attempt-transcript-lifecycle.ts	1
 src/agents/embedded-agent-runner/run/attempt-user-transcript-context-registry.ts	1
-src/agents/embedded-agent-runner/run/attempt.model-diagnostic-events.ts	6
+src/agents/embedded-agent-runner/run/attempt.model-diagnostic-events.ts	5
 src/agents/embedded-agent-runner/run/attempt.model-diagnostic-lifecycle.ts	3
 src/agents/embedded-agent-runner/run/attempt.model-diagnostic-observation.ts	1
 src/agents/embedded-agent-runner/run/attempt.tool-call-argument-repair.ts	11
@@ -2525,7 +2523,6 @@ src/config/sessions/session-accessor.entry-mutation.ts	2
 src/config/sessions/session-accessor.entry.ts	1
 src/config/sessions/session-accessor.sqlite-active-events.ts	1
 src/config/sessions/session-accessor.sqlite-archive-store.ts	1
-src/config/sessions/session-accessor.sqlite-archive.ts	2
 src/config/sessions/session-accessor.sqlite-archive.worker.ts	7
 src/config/sessions/session-accessor.sqlite-canonical-inventory.ts	1
 src/config/sessions/session-accessor.sqlite-checkpoint.ts	3
@@ -3024,7 +3021,7 @@ src/infra/sqlite-schema-contract.ts	9
 src/infra/sqlite-snapshot.ts	2
 src/infra/sqlite-strict.ts	7
 src/infra/sqlite-user-version.ts	1
-src/infra/sqlite-wal.ts	5
+src/infra/sqlite-wal.ts	4
 src/infra/startup-migration-checkpoint.ts	1
 src/infra/state-migrations.acp-replay.ts	1
 src/infra/state-migrations.audit-backup.ts	2
@@ -3478,7 +3475,6 @@ src/state/config-machine-state.ts	1
 src/state/local-onboarding-state.ts	1
 src/state/openclaw-agent-board-schema.ts	1
 src/state/openclaw-agent-db-permissions.ts	1
-src/state/openclaw-agent-db-readonly.ts	1
 src/state/openclaw-agent-db-registry-listing.ts	3
 src/state/openclaw-agent-db-registry.ts	7
 src/state/openclaw-agent-db-schema.ts	2
@@ -3796,7 +3792,7 @@ ui/src/pages/chat/components/chat-session-workspace.ts	1
 ui/src/pages/chat/components/chat-sidebar-editor-menu.ts	2
 ui/src/pages/chat/components/chat-sidebar-region.runtime.ts	2
 ui/src/pages/chat/components/chat-task-suggestions.ts	1
-ui/src/pages/chat/components/chat-thread-interactions.ts	3
+ui/src/pages/chat/components/chat-thread-interactions.ts	2
 ui/src/pages/chat/components/chat-voice-activity.ts	1
 ui/src/pages/chat/components/session-diff-menus.ts	1
 ui/src/pages/chat/components/session-diff-panel.ts	2

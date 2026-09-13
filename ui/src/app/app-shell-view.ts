@@ -360,8 +360,10 @@ export function renderApplicationShell(host: ShellViewHost) {
           onSearchQueryChange: (nextQuery) => void host.handleSettingsSearchQueryChange(nextQuery),
           preloadTimers: host.settingsPreloadTimers,
           saveIndicator: {
-            status: runtimeConfig.configAutoSaveStatus,
-            lastError: runtimeConfig.lastError,
+            status: runtimeConfig.configRecoveryError
+              ? "recovery"
+              : runtimeConfig.configAutoSaveStatus,
+            lastError: runtimeConfig.configRecoveryError ?? runtimeConfig.lastError,
             needsApply: runtimeConfig.configNeedsApply,
             applying: runtimeConfig.configApplying,
             applyDisabled:

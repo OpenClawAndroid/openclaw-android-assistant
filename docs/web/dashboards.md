@@ -202,6 +202,64 @@ Use **Open website** if the frame stays blank or cannot sign in. OpenClaw does
 not proxy the site or remove its embedding restrictions. This widget is separate
 from custom HTML widgets and does not loosen their sandbox or network grants.
 
+## Share a browser dashboard with your agent
+
+Use a **Browser dashboard** when you want your agent to read and interact with
+the same page you see:
+
+> Open this HTTP status app as a fullscreen dashboard. Pin this session as
+> Service Status, and use that same page when I ask you to change its filters.
+
+The Browser plugin's `browser:dashboard` widget presents a tab in a local
+OpenClaw-managed browser. The Control UI streams that tab, so HTTP apps also
+work when the Control UI itself uses HTTPS. The browser's existing navigation
+policy still applies. The website uses the managed browser's login session;
+it does not inherit the browser cookies on your phone or laptop.
+
+The agent creates the widget through `dashboard`:
+
+```json
+{
+  "action": "widget_put",
+  "name": "service-status",
+  "title": "Service Status",
+  "pluginKind": "browser:dashboard",
+  "props": { "url": "http://status.example.com" },
+  "size": "full"
+}
+```
+
+It then uses the existing `browser` tool with the widget name:
+
+```json
+{ "action": "snapshot", "dashboard": "service-status", "refs": "aria" }
+```
+
+`act` and `navigate` accept the same `dashboard` selector. The selector resolves
+the current tab, so the agent does not need to reopen the URL or guess a target
+ID. Use `dashboard` to arrange the board, expand it with `set_presentation`, and
+remove widgets; session naming and pinning use `sessions`. No separate
+site-specific tool is needed.
+
+Hiding the dashboard or resetting its conversation keeps its browser tab.
+Ordinary tab closing and idle cleanup do not close a tab owned by a dashboard.
+Use **Stop browser** to release a running tab and **Resume browser** to open it
+again. Agent equivalents are `browser` with `action: "close"` or `"open"` and
+the `dashboard` selector. Stop also persists before the first open, without
+starting a browser; reopening the dashboard or restarting the Gateway keeps it
+paused until Resume. Resuming loads the saved URL; unsaved document state
+does not survive closing the browser. If closure is temporarily unavailable,
+the dashboard shows that Stop is pending and offers **Retry stop** until closure
+is confirmed. Removing or replacing the widget releases
+its old tab when Browser receives the board change; the existing cleanup cycle
+also reconciles missed changes. Gallery previews never start a browser.
+
+Browser dashboards require Browser access and use the `openclaw` managed profile
+by default. Optional `props.profile` selects another local managed profile;
+attached personal browsers, node routing, and remote browser profiles are not
+supported for this widget. The lightweight **Website** widget remains useful
+when you only need to display an embeddable HTTPS website in your own browser.
+
 ## What widgets are allowed to do
 
 Custom HTML and registered-source widgets that only render need no approval —

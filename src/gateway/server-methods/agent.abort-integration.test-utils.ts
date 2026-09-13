@@ -1,6 +1,7 @@
 // Imported by agent.test.ts to keep its mocked suite in one Vitest module graph.
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { registerExecApprovalFollowupRuntimeHandoff } from "../../agents/bash-tools.exec-approval-followup-state.js";
 import { createSubagentRunRecord } from "../../agents/subagent-test-fixtures.test-helpers.js";
 import {
@@ -1625,14 +1626,8 @@ describe("gateway agent handler chat.abort integration", () => {
     const sessionId = "existing-session-id";
     let nowMs = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    let markAcquireStarted = () => {};
-    const acquireStarted = new Promise<void>((resolve) => {
-      markAcquireStarted = resolve;
-    });
-    let releaseAcquire = () => {};
-    const acquireReleased = new Promise<void>((resolve) => {
-      releaseAcquire = resolve;
-    });
+    const { promise: acquireStarted, resolve: markAcquireStarted } = createDeferred();
+    const { promise: acquireReleased, resolve: releaseAcquire } = createDeferred();
     type AdmittedRunAbort = Parameters<
       Parameters<typeof prepareAgentRunDispatch>[0]["setAdmittedRunAbort"]
     >[0];
@@ -1743,10 +1738,7 @@ describe("gateway agent handler chat.abort integration", () => {
     let nowMs = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
     let releaseMutation = () => {};
-    let markMutationStarted = () => {};
-    const mutationStarted = new Promise<void>((resolve) => {
-      markMutationStarted = resolve;
-    });
+    const { promise: mutationStarted, resolve: markMutationStarted } = createDeferred();
     const mutation = runExclusiveSessionLifecycleMutation({
       scope: "/tmp/sessions.json",
       identities: [sessionKey, sessionId],

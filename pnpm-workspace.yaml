@@ -14,15 +14,17 @@ minimumReleaseAgeExclude:
   - "@openclaw/proxyline@0.3.12"
   - "@openai/codex"
   - "@openai/codex-*"
-  # fs-safe 0.8.5 reviewed hardlink policy fix; remove after 2026-09-14 09:53 UTC.
-  - "@openclaw/fs-safe@0.8.5"
-  - "@openclaw/fs-safe-darwin-arm64@0.8.5"
-  - "@openclaw/fs-safe-darwin-x64@0.8.5"
-  - "@openclaw/fs-safe-linux-arm64-gnu@0.8.5"
-  - "@openclaw/fs-safe-linux-arm64-musl@0.8.5"
-  - "@openclaw/fs-safe-linux-x64-gnu@0.8.5"
-  - "@openclaw/fs-safe-linux-x64-musl@0.8.5"
-  - "@openclaw/fs-safe-win32-x64-msvc@0.8.5"
+  # Reviewed fs-safe copy and archive upgrade; remove after 2026-09-21.
+  - "@openclaw/fs-safe@0.10.0"
+  - "@openclaw/fs-safe-darwin-arm64@0.10.0"
+  - "@openclaw/fs-safe-darwin-x64@0.10.0"
+  - "@openclaw/fs-safe-linux-arm64-gnu@0.10.0"
+  - "@openclaw/fs-safe-linux-arm64-musl@0.10.0"
+  - "@openclaw/fs-safe-linux-x64-gnu@0.10.0"
+  - "@openclaw/fs-safe-linux-x64-musl@0.10.0"
+  - "@openclaw/fs-safe-win32-x64-msvc@0.10.0"
+  # fs-safe archive dependency; remove after 2026-09-16.
+  - "jszip@3.10.2"
   # GHSA-prgh-xp8r-p3m5 / GHSA-v53p-9fqp-m79j security fixes; remove after 2026-09-18.
   - "nodemailer@10.0.8"
 

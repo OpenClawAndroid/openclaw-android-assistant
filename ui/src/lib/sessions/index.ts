@@ -492,6 +492,11 @@ export function createSessionCapability(
   });
 
   const stopEvents = gateway.subscribeEvents((event) => {
+    if (event.event === "config.changed") {
+      // Config can change configured-agent membership even with no chat pane mounted.
+      roster.scheduleEvent();
+      return;
+    }
     if (event.event !== "sessions.changed" && event.event !== "session.message") {
       return;
     }

@@ -2,9 +2,9 @@
 
 import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
-import { deferred } from "../test-helpers/app-sidebar.ts";
 import {
   createApplicationContextProvider,
   type ApplicationContextProvider,

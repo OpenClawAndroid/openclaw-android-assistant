@@ -10,7 +10,8 @@ import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-r
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeAllMemorySearchManagers, getMemorySearchManager } from "./index.js";
 import type { MemoryIndexMeta } from "./manager-reindex-state.js";
-import { closeAllMemoryIndexManagers, type MemoryIndexManager } from "./manager.js";
+import { closeAllMemoryIndexManagers } from "./manager-runtime.js";
+import type { MemoryIndexManager } from "./manager.js";
 import "./test-runtime-mocks.js";
 
 let providerConstructionError: Error | null = null;

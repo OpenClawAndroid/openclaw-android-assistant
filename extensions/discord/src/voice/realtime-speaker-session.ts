@@ -29,6 +29,7 @@ import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
 import { discordRealtimeVoiceSecretOwnerId } from "../secret-config-contract.js";
 import { buildProviderConfigs, buildProviderConfigOverrides } from "./config.js";
+import type { DiscordVoiceIngressContext } from "./ingress.js";
 import {
   formatVoiceLogPreview,
   formatRealtimeInterruptionLog,
@@ -81,6 +82,7 @@ export type DiscordRealtimeSessionParams = {
   getHumanParticipantCount?: () => number;
   onTerminalError: (error: Error) => void;
   runAgentTurn: (params: VoiceRealtimeAgentTurnParams) => Promise<string>;
+  resolveSpeakerContext: (userId: string) => Promise<DiscordVoiceIngressContext | null>;
 };
 
 export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
@@ -171,8 +173,7 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
         if (!this.playback.isBargeInEnabled() || !this.params.player.isActive()) {
           return false;
         }
-        this.params.player.handleBargeIn("active-speaker-audio");
-        return true;
+        return this.params.player.handleBargeIn("active-speaker-audio");
       },
       onAcceptedTranscript: (text, context, providerEpoch) =>
         this.consults.handleAcceptedTranscript(text, context, providerEpoch),
@@ -186,6 +187,7 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       wakeNames: () => this.wakeNames,
     });
     this.consults = new DiscordRealtimeConsults({
+      accountId: this.params.accountId,
       consultPolicy: () => this.consultPolicy,
       consultToolPolicy: () => this.consultToolPolicy,
       consultToolsAllow: () => this.consultToolsAllow,
@@ -198,6 +200,7 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       playback: this.playback,
       providerEpoch: () => this.providerContinuityEpoch,
       runAgentTurn: (turn) => this.trackOperation(() => this.params.runAgentTurn(turn)),
+      resolveSpeakerContext: this.params.resolveSpeakerContext,
       stopped: () => this.isStopped(),
       turns: this.turns,
       usesRealtimeAgentHandoff: () =>
@@ -589,19 +592,8 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
     }
   }
 
-  handleBargeIn(reason = "barge-in"): void {
-    this.playback.handleBargeIn(reason);
-  }
-
-  isBargeInEnabled(): boolean {
-    if (this.isWakeNameRequired()) {
-      return false;
-    }
-    return this.playback.isBargeInEnabled();
-  }
-
   canReceiveDuringPlayback(): boolean {
-    return this.bridge?.bridge.outputAudioMode === "continuous" || this.isBargeInEnabled();
+    return this.bridge?.bridge.outputAudioMode === "continuous" || this.playback.isBargeInEnabled();
   }
 
   private get realtimeConfig(): DiscordRealtimeVoiceConfig {

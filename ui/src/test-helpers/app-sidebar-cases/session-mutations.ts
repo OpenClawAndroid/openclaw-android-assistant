@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControlUiAction } from "../../../../src/plugin-sdk/control-ui.js";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { GatewaySessionRow } from "../../api/types.ts";
 import { publishSidebarSessionList } from "../../components/session-data-controller-events.ts";
@@ -11,7 +12,6 @@ import {
   createGatewayHarness,
   createSessionState,
   createSessionsHarness,
-  deferred,
   mountSidebar,
   type SidebarLifecycleState,
   successfulSessionPatch,

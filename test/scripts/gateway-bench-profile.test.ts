@@ -3,8 +3,64 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { expect, it, onTestFinished } from "vitest";
 import { controlGatewayProfile } from "../../scripts/lib/gateway-bench-profile.js";
+
+it.each([false, true])(
+  "settles startup profiling across builtin initialization with unknown identity=%s",
+  async (unknownIdentity) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "gateway-worker-profile-startup-"));
+    const child = spawn(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./fixtures/gateway-bench-profile-startup.mjs", import.meta.url)),
+        directory,
+        String(unknownIdentity),
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    const closed = once(child, "close");
+    let cleanupPending: Promise<void> | undefined;
+    const cleanup = () =>
+      (cleanupPending ??= (async () => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill();
+        }
+        await closed;
+        await rm(directory, { recursive: true, force: true });
+      })());
+    onTestFinished(cleanup);
+    try {
+      const [code, signal] = await closed;
+      expect({ code, signal }, stderr).toEqual({ code: 0, signal: null });
+      const { threadId, manifest, samplerStopProbe } = JSON.parse(
+        await readFile(path.join(directory, "result.json"), "utf8"),
+      );
+      expect(manifest.workers).toHaveLength(1);
+      if (unknownIdentity) {
+        expect(manifest.workers[0].completed).not.toBe(true);
+        expect(manifest.workers[0].threadId).toBeUndefined();
+        expect(manifest.workers[0].error).toBeTruthy();
+        expect(samplerStopProbe.error.message).toMatch(/not started/i);
+      } else {
+        expect(manifest.workers[0]).toMatchObject({ completed: true, threadId });
+        expect(manifest.workers[0].inspectorWorkerId).not.toBe(String(threadId));
+        expect(await readFile(manifest.workers[0].profilePath, "utf8")).toContain(
+          "allocateAtStartup",
+        );
+      }
+    } finally {
+      await cleanup();
+    }
+  },
+  30_000,
+);
 
 const workload = `
 const { Worker } = require('node:worker_threads');

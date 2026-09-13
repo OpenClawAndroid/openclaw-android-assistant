@@ -45,8 +45,39 @@ title: "Thinking levels"
 1. Inline directive on the message (applies only to that message).
 2. Session override (set by sending a directive-only message).
 3. Per-agent default (`agents.entries.*.thinkingDefault` in config).
-4. Global default (`agents.defaults.thinkingDefault` in config).
-5. Fallback: provider-declared default when available; otherwise reasoning-capable models resolve to `medium` or the nearest supported non-`off` level for that model, and non-reasoning models stay `off`.
+4. Per-model default (`agents.defaults.models["<provider>/<model>"].params.thinking` in config).
+5. Global default (`agents.defaults.thinkingDefault` in config).
+6. Fallback: provider-declared default when available; otherwise reasoning-capable models resolve to `medium` or the nearest supported non-`off` level for that model, and non-reasoning models stay `off`.
+
+## Setting a model default
+
+Use `params.thinking` to set the default for one configured model without changing
+the default for your other models. The key must match the provider and model you
+actually select, including any model path exposed by a custom provider.
+
+Replace `<provider>/<model>` with a configured model's full ID, then merge this
+entry into your existing model configuration:
+
+```json5
+{
+  agents: {
+    defaults: {
+      models: {
+        "<provider>/<model>": {
+          params: { thinking: "high" },
+        },
+      },
+    },
+  },
+}
+```
+
+The provider must already be configured, and the model must support the selected
+thinking level.
+
+An inline directive, a saved session override, or a per-agent `thinkingDefault`
+still takes precedence. Send `/think default` to clear a saved session override;
+check the per-agent setting if the model default still does not take effect.
 
 ## Setting a session default
 

@@ -64,6 +64,7 @@ describe("AppSidebar session catalog pagination", () => {
         applyFinal: (next) => {
           catalogs = next;
         },
+        continueRefresh: async () => false,
         applyError: (error) => {
           throw error;
         },

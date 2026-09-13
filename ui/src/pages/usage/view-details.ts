@@ -11,8 +11,8 @@ import { renderSettingsSegmented } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import "../../components/tooltip.ts";
 import {
+  createMsFormatter,
   formatDurationCompact,
-  formatDateTimeMs,
   formatMs,
   formatTimeMs,
 } from "../../lib/format.ts";
@@ -502,6 +502,10 @@ function renderTimeSeriesCompact(
   const isCumulative = mode === "cumulative";
   const breakdownByType = mode === "per-turn" && breakdownMode === "by-type";
   const timeZoneOptions: Intl.DateTimeFormatOptions = timeZone === "utc" ? { timeZone: "UTC" } : {};
+  const formatTooltipTimestamp = createMsFormatter(
+    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", ...timeZoneOptions },
+    "",
+  );
 
   const totalTypeTokens = Object.values(filteredTokens).reduce(
     (total, tokens) => total + tokens,
@@ -616,17 +620,7 @@ function renderTimeSeriesCompact(
             const bh = (val / maxValue) * chartHeight;
             const y = padding.top + chartHeight - bh;
             const tooltipLines = [
-              formatDateTimeMs(
-                p.timestamp,
-                {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  ...timeZoneOptions,
-                },
-                "",
-              ),
+              formatTooltipTimestamp(p.timestamp),
               `${formatUsageTokens(val)} ${normalizeLowercaseStringOrEmpty(t("usage.metrics.tokens"))}`,
             ];
             if (breakdownByType) {
@@ -1042,6 +1036,7 @@ function renderSessionLogsCompact(
     `;
   }
 
+  const formatLogTimestamp = createMsFormatter();
   const normalizedQuery = normalizeLowercaseStringOrEmpty(filters.query);
   const entries = logs.map((log) => {
     const toolInfo = parseToolSummary(log.content);
@@ -1169,7 +1164,7 @@ function renderSessionLogsCompact(
             <div class="session-log-entry ${roleClass}">
               <div class="session-log-meta">
                 <span class="session-log-role">${roleLabel}</span>
-                <span>${formatMs(log.timestamp)}</span>
+                <span>${formatLogTimestamp(log.timestamp)}</span>
                 ${log.tokens ? html`<span>${formatUsageTokens(log.tokens)}</span>` : nothing}
               </div>
               <div class="session-log-content">${cleanContent}</div>

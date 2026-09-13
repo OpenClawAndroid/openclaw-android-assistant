@@ -255,7 +255,7 @@ describe("createComputerTool v2 execution", () => {
               }
             : { coordinate, ...(action === "left_click_drag" ? { startCoordinate } : {}) }),
         });
-        const sent = readLastComputerActParams();
+        const sent = readLastComputerActParams(action);
         expect(sent[action === "zoom" ? "x2" : "x"]).toBeCloseTo(expectedX, 6);
         expect(sent[action === "zoom" ? "y2" : "y"]).toBeCloseTo(expectedY, 6);
         if (action !== "left_click") {
@@ -359,7 +359,7 @@ describe("createComputerTool v2 execution", () => {
       ).rejects.toThrow("COMPUTER_STALE_OBSERVATION");
       expect(callGatewayToolMock).not.toHaveBeenCalled();
       await tool.execute("element", { action: "left_click", ...refs, elementRef: "element-1" });
-      expect(readLastComputerActParams()).toMatchObject({
+      expect(readLastComputerActParams("left_click")).toMatchObject({
         action: "left_click",
         elementRef: "element-1",
       });
@@ -515,7 +515,7 @@ describe("createComputerTool v2 execution", () => {
         deliveryMode: "background",
       }),
     ).resolves.toBeDefined();
-    expect(readLastComputerActParams()).toEqual({
+    expect(readLastComputerActParams("left_click")).toEqual({
       action: "left_click",
       screenIndex: 0,
       refWidth: EFFECTIVE_REF_WIDTH,

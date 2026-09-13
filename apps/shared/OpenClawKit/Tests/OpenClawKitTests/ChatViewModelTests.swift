@@ -7049,8 +7049,9 @@ struct ChatViewModelTests {
     @Test func `appends global session user message for selected agent`() async throws {
         let now = Date().timeIntervalSince1970 * 1000
         let (transport, vm) = await makeViewModel(
-            sessionKey: "agent:work:global",
-            historyResponses: [historyPayload(sessionKey: "agent:work:global")])
+            sessionKey: "agent:work:main",
+            historyResponses: [historyPayload(sessionKey: "global", canonicalKey: "global", agentId: "work")],
+            sessionRoutingContract: "global|main|main")
 
         try await loadAndWaitBootstrap(vm: vm)
         #expect(await MainActor.run { vm.messages.isEmpty })
@@ -7079,8 +7080,9 @@ struct ChatViewModelTests {
     @Test func `ignores global session user message for different agent`() async throws {
         let now = Date().timeIntervalSince1970 * 1000
         let (transport, vm) = await makeViewModel(
-            sessionKey: "agent:work:global",
-            historyResponses: [historyPayload(sessionKey: "agent:work:global")])
+            sessionKey: "agent:work:main",
+            historyResponses: [historyPayload(sessionKey: "global", canonicalKey: "global", agentId: "work")],
+            sessionRoutingContract: "global|main|main")
 
         try await loadAndWaitBootstrap(vm: vm)
         #expect(await MainActor.run { vm.messages.isEmpty })

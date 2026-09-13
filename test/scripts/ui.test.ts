@@ -13,8 +13,11 @@ import {
   shouldUseCmdExeForCommand,
 } from "../../scripts/ui.mts";
 import { mergeProcessEnv } from "../../src/infra/process-env.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { normalizeControlUiBuildInfo } from "../../ui/src/build-info-normalizers.ts";
 import { runQaGatewayFixture } from "../helpers/qa-gateway-cleanup.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 // writeFileSync creates the file before its content lands, so an existence
 // poll can observe an empty file on loaded runners; wait for bytes instead.
 function readNonEmpty(file: string): string | null {
@@ -325,7 +328,7 @@ describe("scripts/ui windows spawn behavior", () => {
   });
 
   it.each(["--help", "-h"])("keeps no-pnpm build %s informational", (helpFlag) => {
-    const result = spawnSync(process.execPath, ["scripts/ui.js", "build", helpFlag], {
+    const result = spawnSync(testNodeExecPath, ["scripts/ui.js", "build", helpFlag], {
       cwd: path.resolve("."),
       encoding: "utf8",
       env: {
@@ -412,7 +415,7 @@ process.exitCode = ${expectedExit};\n`,
           pnpm,
           'throw new Error("Installed UI tools must not need package shims");\n',
         );
-        const result = spawnSync(process.execPath, ["scripts/ui.js", action, ...forwarded], {
+        const result = spawnSync(testNodeExecPath, ["scripts/ui.js", action, ...forwarded], {
           cwd: root,
           encoding: "utf8",
           env: mergeProcessEnv([
@@ -561,7 +564,7 @@ require("node:module").syncBuiltinESMExports();
         ]);
 
         if (!noPnpm && failValidator === null) {
-          const control = spawnSync(process.execPath, ["--import", "tsx", fixture, "control"], {
+          const control = spawnSync(testNodeExecPath, ["--import", "tsx", fixture, "control"], {
             cwd: path.resolve("."),
             encoding: "utf8",
             env,
@@ -573,7 +576,7 @@ require("node:module").syncBuiltinESMExports();
           fs.unlinkSync(accessLog);
         }
         const result = spawnSync(
-          process.execPath,
+          testNodeExecPath,
           ["--require", capture, "scripts/ui.js", "build"],
           {
             cwd: path.resolve("."),
@@ -679,7 +682,7 @@ require("node:module").syncBuiltinESMExports();
           "setInterval(() => { if (fs.existsSync(process.env.RELEASE_FILE)) process.exit(0); }, 20);",
         ].join("\n"),
       );
-      const wrapper = spawn(process.execPath, ["scripts/ui.js", "install"], {
+      const wrapper = spawn(testNodeExecPath, ["scripts/ui.js", "install"], {
         cwd: path.resolve("."),
         env: {
           ...process.env,
@@ -754,7 +757,7 @@ require("node:module").syncBuiltinESMExports();
         env.PATH = `${bin}${path.delimiter}${env.PATH ?? ""}`;
         env.PS_FAILURE_FILE = failedCaptureFile;
       }
-      const wrapper = spawn(process.execPath, ["scripts/ui.js", "install"], {
+      const wrapper = spawn(testNodeExecPath, ["scripts/ui.js", "install"], {
         cwd: path.resolve("."),
         env,
         stdio: "ignore",

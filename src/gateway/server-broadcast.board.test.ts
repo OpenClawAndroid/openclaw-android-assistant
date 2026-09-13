@@ -531,36 +531,88 @@ describe("collaboration event scope guards", () => {
     expect(unsubscribed.socket.events).toEqual([]);
   });
 
-  it("prepares session subscription lookups once per ordinary broadcast", () => {
-    const first = makeClient("first", "operator", ["operator.read"]);
-    const second = makeClient("second", "operator", ["operator.read"]);
-    const unrelated = makeClient("unrelated", "operator", ["operator.read"]);
-    const legacy = makeClient("legacy", "operator", ["operator.read"]);
-    for (const entry of [first, second, unrelated]) {
-      entry.client.connect.caps = [GATEWAY_CLIENT_CAPS.SESSION_SCOPED_EVENTS];
-    }
-    const subscribers = createSessionMessageSubscriberRegistry();
-    subscribers.subscribe(first.client.connId, "session-a");
-    subscribers.subscribe(second.client.connId, "session-a");
-    const getSubscribers = vi.spyOn(subscribers, "get");
-    const { broadcast } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry([
-        first.client,
-        second.client,
-        unrelated.client,
-        legacy.client,
-      ]),
-      sessionMessageSubscribers: subscribers,
-    });
+  it.each([
+    { visibility: "draft" as const },
+    { visibility: "shared" as const, incognito: true as const },
+  ])(
+    "authorizes only subscription recipients and rechecks $visibility visibility",
+    async (hidden) => {
+      await withOpenClawTestState({ scenario: "minimal" }, async () => {
+        const cfg = rolePolicyConfig();
+        setRuntimeConfigSnapshot(cfg, cfg);
+        const sessionKey = "agent:main:subscription-filter";
+        const target = { agentId: "main", sessionKey };
+        const entry = {
+          sessionId: "subscription-filter",
+          updatedAt: 1,
+          visibility: "shared" as const,
+          createdActor: { type: "human" as const, source: "profile" as const, id: "other-owner" },
+        };
+        await upsertSessionEntryCore(target, entry);
+        invalidateSessionSharingSnapshot(sessionKey);
+        const subscribed = makeClient("subscribed", "operator", ["operator.read"]);
+        const unrelated = Array.from({ length: 32 }, (_, i) =>
+          makeClient(`unrelated-${i}`, "operator", ["operator.read"]),
+        );
+        const unscoped = makeClient("unscoped", "operator", ["operator.read"]);
+        const peers = [subscribed, ...unrelated, unscoped];
+        const identity = roleClient("view", "reader");
+        for (const peer of peers) {
+          Object.assign(peer.client, identity, { connect: { ...identity.connect } });
+        }
+        const subscribers = createSessionMessageSubscriberRegistry();
+        for (const peer of [subscribed, ...unrelated]) {
+          peer.client.connect.caps = [GATEWAY_CLIENT_CAPS.SESSION_SCOPED_EVENTS];
+          subscribers.subscribe(
+            peer.client.connId,
+            peer === subscribed ? sessionKey : "agent:main:other",
+          );
+        }
+        const getSubscribers = vi.spyOn(subscribers, "get");
+        const filter = vi.fn(
+          (
+            client: GatewayWsClient,
+            sessionKeys: readonly string[],
+            agentId?: string,
+            event?: string,
+            payload?: unknown,
+          ) =>
+            canReceiveSessionEventForClient({ cfg, client, sessionKeys, agentId, event, payload }),
+        );
+        const { broadcast } = createGatewayBroadcaster({
+          clients: new GatewayClientRegistry(peers.map(({ client }) => client)),
+          sessionMessageSubscribers: subscribers,
+          canReceiveSessionEvent: filter,
+        });
+        const payload = { sessionKey, state: "delta" };
+        broadcast("chat", payload);
+        const frame = { type: "event", event: "chat", payload, seq: 1 };
+        const frames = (peer: (typeof peers)[number]) =>
+          peer.socket.send.mock.calls.map(([wire]) => JSON.parse(String(wire)));
+        expect(frames(subscribed)).toEqual([frame]);
+        expect(frames(unscoped)).toEqual([frame]);
+        for (const peer of unrelated) {
+          expect(frames(peer)).toEqual([]);
+        }
+        expect(getSubscribers).toHaveBeenCalledExactlyOnceWith(sessionKey);
+        expect(filter).toHaveBeenCalledTimes(2);
 
-    broadcast("chat", { sessionKey: "session-a", state: "delta" });
-
-    expect(getSubscribers).toHaveBeenCalledExactlyOnceWith("session-a");
-    expect(first.socket.events).toEqual(["chat"]);
-    expect(second.socket.events).toEqual(["chat"]);
-    expect(unrelated.socket.events).toEqual([]);
-    expect(legacy.socket.events).toEqual(["chat"]);
-  });
+        await upsertSessionEntryCore(target, { ...entry, ...hidden, updatedAt: 2 });
+        invalidateSessionSharingSnapshot(sessionKey);
+        filter.mockClear();
+        broadcast("chat", payload);
+        broadcast("tick", {});
+        for (const peer of peers) {
+          const received = peer === subscribed || peer === unscoped;
+          expect(frames(peer)).toEqual([
+            ...(received ? [frame] : []),
+            { type: "event", event: "tick", payload: {}, seq: received ? 2 : 1 },
+          ]);
+        }
+        expect(filter).toHaveBeenCalledTimes(2);
+      });
+    },
+  );
 
   it("suppresses session.tool mirrors for scoped clients without a matching subscription", () => {
     const subscribed = makeClient("subscribed", "operator", ["operator.read"]);
@@ -805,7 +857,7 @@ describe("collaboration event scope guards", () => {
     expect(pairing.socket.events).toEqual([]);
     expect(reader.socket.events).toEqual(["session.typing"]);
     expect(unrelated.socket.events).toEqual([]);
-    expect(canReceiveSessionEvent).toHaveBeenCalledTimes(4);
+    expect(canReceiveSessionEvent).toHaveBeenCalledTimes(3);
   });
 });
 

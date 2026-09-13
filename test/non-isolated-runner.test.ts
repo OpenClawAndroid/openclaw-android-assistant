@@ -8,6 +8,7 @@ import path from "node:path";
 import { expect, it } from "vitest";
 import type { JsonTestResults } from "vitest/node";
 import type { VitestReportCapture } from "../scripts/lib/vitest-report-capture.mts";
+import { resolveTestNodeExecPath } from "../src/test-utils/node-process.js";
 import { runVitestShutdownCommand } from "./helpers/vitest-shutdown-command.ts";
 import { mockResolutionFixtureFiles } from "./non-isolated-runner.mock-resolution-fixtures.ts";
 import { testApiLifecycleFixtureFiles } from "./non-isolated-runner.test-api-fixtures.ts";
@@ -516,6 +517,7 @@ export default defineConfig({
     const reportPath = path.join(root, "report.json");
     let child!: ChildProcess;
     const result = await runVitestShutdownCommand({
+      bin: resolveTestNodeExecPath(),
       args: [
         path.join(vitestPackageDir, "vitest.mjs"),
         "run",

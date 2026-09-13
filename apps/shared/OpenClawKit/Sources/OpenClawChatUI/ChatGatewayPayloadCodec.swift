@@ -15,6 +15,24 @@ public enum OpenClawChatSessionKey {
 
 /// Canonical gateway payload mapping shared by the native Apple chat transports.
 public enum OpenClawChatGatewayPayloadCodec {
+    public static func decodeSessionsList(_ data: Data, agentID: String?) throws -> OpenClawChatSessionsListResponse {
+        let decoded = try JSONDecoder().decode(OpenClawChatSessionsListResponse.self, from: data)
+        return OpenClawChatSessionsListResponse(
+            ts: decoded.ts,
+            path: decoded.path,
+            count: decoded.count,
+            totalCount: decoded.totalCount,
+            offset: decoded.offset,
+            nextOffset: decoded.nextOffset,
+            hasMore: decoded.hasMore,
+            defaults: decoded.defaults,
+            sessions: decoded.sessions.map { row in
+                var row = row
+                row.agentId = OpenClawChatSessionKey.agentID(from: row.key) ?? row.agentId ?? agentID
+                return row
+            })
+    }
+
     public static func decodeAgentsList(_ data: Data) throws -> OpenClawChatAgentsListResponse {
         let result = try JSONDecoder().decode(AgentsListResult.self, from: data)
         return OpenClawChatAgentsListResponse(
@@ -23,8 +41,13 @@ public enum OpenClawChatGatewayPayloadCodec {
                 OpenClawChatAgentChoice(
                     id: $0.id,
                     name: $0.name,
+                    emoji: $0.identity?["emoji"]?.value as? String,
                     workspaceGit: $0.workspacegit)
-            })
+            },
+            sessionRoutingContract: OpenClawChatSessionRoutingContract.make(
+                scope: result.scope.value as? String,
+                mainKey: result.mainkey,
+                defaultAgentID: result.defaultid))
     }
 
     public static func decodeProgressCard(_ data: Data, agentID: String?) throws -> ProgressCard? {

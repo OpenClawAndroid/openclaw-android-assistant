@@ -11,6 +11,7 @@ import {
   type OutboundMediaAccess,
 } from "../../media/load-options.js";
 import { loadWebMedia } from "../../media/web-media.js";
+import type { DeliveryQueueStateContext } from "../delivery-queue-sqlite.js";
 import { fileStore } from "../file-store.js";
 import { generateSecureUuid } from "../secure-random.js";
 import { ARTIFACT_NAME_RE, spoolRelativePath } from "./delivery-queue-media-paths.js";
@@ -73,17 +74,21 @@ type StageQueueMediaResult =
  * Copies local media into queue custody and rewrites only the queue payloads.
  * The same loader and capability as the live send authorize every source.
  */
-export async function stageQueuePayloadMedia(params: {
-  payloads: readonly ReplyPayload[];
-  mediaAccess?: OutboundMediaAccess;
-  maxBytes: number;
-  stateDir?: string;
-}): Promise<StageQueueMediaResult> {
+export async function stageQueuePayloadMedia(
+  params: {
+    payloads: readonly ReplyPayload[];
+    mediaAccess?: OutboundMediaAccess;
+    maxBytes: number;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): Promise<StageQueueMediaResult> {
+  const stateDir = context?.stateDir ?? params.stateDir;
   if (params.payloads.some(isSensitivePayload)) {
     return { status: "not-durable", reason: "sensitive-media" };
   }
 
-  const spoolRoot = path.resolve(resolveDeliveryQueueMediaDir(params.stateDir));
+  const spoolRoot = path.resolve(resolveDeliveryQueueMediaDir(stateDir));
   const artifactsBySource = new Map<string, string>();
   for (const source of params.payloads.flatMap(payloadMediaSources)) {
     if (isSpoolableSource(source) && !artifactsBySource.has(source)) {
@@ -98,9 +103,15 @@ export async function stageQueuePayloadMedia(params: {
   // or expires it; enqueue then consumes it atomically or fails closed.
   const mediaStageId =
     artifacts.length > 0
-      ? createDeliveryQueueMediaRetention(artifacts, "outbound-media-stage", params.stateDir)
+      ? createDeliveryQueueMediaRetention(
+          artifacts,
+          "outbound-media-stage",
+          stateDir,
+          undefined,
+          context,
+        )
       : undefined;
-  const store = openSpoolStore(params.stateDir, params.maxBytes);
+  const store = openSpoolStore(stateDir, params.maxBytes);
   const publishedSources = new Set<string>();
 
   const stageSource = async (source: string): Promise<string> => {
@@ -162,8 +173,8 @@ export async function stageQueuePayloadMedia(params: {
       stagedPayloads.push(staged);
     }
   } catch (err) {
-    cancelDeliveryQueueMediaRetention(mediaStageId, params.stateDir);
-    await releaseSpoolArtifacts(artifacts, params.stateDir);
+    cancelDeliveryQueueMediaRetention(mediaStageId, stateDir, context);
+    await releaseSpoolArtifacts(artifacts, stateDir);
     throw err;
   }
   return {

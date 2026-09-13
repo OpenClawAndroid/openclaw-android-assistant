@@ -2,9 +2,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 const runner = resolve("scripts/e2e/lib/upgrade-survivor/run.sh");
 
 function runFirstHop(scenario: string, automatic: boolean) {
@@ -49,7 +51,7 @@ trap 'case "$BASH_COMMAND" in "phase "*) install_fixture_phases ;; esac' DEBUG
     encoding: "utf8",
     timeout: 15_000,
     env: {
-      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+      PATH: `${dirname(testNodeExecPath)}:/usr/bin:/bin`,
       HOME: home,
       USERPROFILE: home,
       OPENCLAW_HOME: home,

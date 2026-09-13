@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS } from "../../packages/gateway-client/src/timeouts.js";
+import { createDeferred } from "../../test/helpers/promise.js";
 import type { ChannelPlugin } from "../channels/plugins/types.public.js";
 import type { GatewayNativeApprovalMethod } from "../infra/approval-gateway-runtime-methods.js";
 import type { ExecApprovalRequest } from "../infra/exec-approvals.js";
@@ -355,14 +356,8 @@ describe("createGatewayInstanceRuntime", () => {
   it("preserves the Gateway client's approval request deadline", async () => {
     vi.useFakeTimers();
     try {
-      let markStarted!: () => void;
-      const started = new Promise<void>((resolve) => {
-        markStarted = resolve;
-      });
-      let finishHandler!: () => void;
-      const handlerCanFinish = new Promise<void>((resolve) => {
-        finishHandler = resolve;
-      });
+      const { promise: started, resolve: markStarted } = createDeferred();
+      const { promise: handlerCanFinish, resolve: finishHandler } = createDeferred();
       const context = createContext();
       const runtime = createGatewayInstanceRuntime({
         getContext: () => context,

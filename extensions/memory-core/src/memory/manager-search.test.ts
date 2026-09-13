@@ -525,7 +525,7 @@ describe("searchPathKeyword", () => {
               source: index % 2 === 0 ? "memory" : "sessions",
               startLine: chunk * 5 + 1,
               endLine: chunk * 5 + 4,
-              text: `body ${index}/${chunk}`,
+              text: `body ${index}/${chunk} ` + "x".repeat(8_000),
             });
           }
         }
@@ -541,6 +541,23 @@ describe("searchPathKeyword", () => {
                    end_line, text FROM observed_chunks;
         `);
 
+        let fetchedTextBytes = 0;
+        const prepare = db.prepare.bind(db);
+        const prepareSpy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
+          const statement = prepare(sql);
+          statement.all = new Proxy(statement.all.bind(statement), {
+            apply(all, _receiver, values) {
+              const rows = all(...values);
+              for (const row of rows) {
+                if (typeof row.text === "string") {
+                  fetchedTextBytes += Buffer.byteLength(row.text);
+                }
+              }
+              return rows;
+            },
+          });
+          return statement;
+        });
         const results = await searchPathKeywordFixture(db, query, {
           ftsTokenizer,
           limit: 2,
@@ -550,12 +567,14 @@ describe("searchPathKeyword", () => {
           },
         });
 
+        prepareSpy.mockRestore();
         expect(results.map(({ id, snippet }) => ({ id, snippet }))).toEqual([
-          { id: "path-0-chunk-0", snippet: "body 0/0" },
-          { id: "path-2-chunk-0", snippet: "body 2/0" },
+          { id: "path-0-chunk-0", snippet: "body 0/0 " + "x".repeat(191) },
+          { id: "path-2-chunk-0", snippet: "body 2/0 " + "x".repeat(191) },
         ]);
         expect(examinedChunkLines).toBeGreaterThan(0);
         expect(examinedChunkLines).toBeLessThanOrEqual(16);
+        expect(fetchedTextBytes).toBeLessThanOrEqual(4 * 200 * 4);
       } finally {
         db.close();
       }

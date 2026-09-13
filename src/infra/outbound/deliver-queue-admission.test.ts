@@ -86,12 +86,9 @@ describe("stageAndEnqueueOutboundDelivery", () => {
 
     await expect(pending).resolves.toEqual({ id: "stable-1", created: true });
     expect(getStablePreparation).toHaveBeenCalledOnce();
-    expect(mocks.enqueuePreparedDeliveryOnce).toHaveBeenCalledWith(
-      expect.any(Object),
-      "stable-1",
-      current,
-      undefined,
-      undefined,
-    );
+    expect(mocks.enqueuePreparedDeliveryOnce).toHaveBeenCalledOnce();
+    const queued = mocks.enqueuePreparedDeliveryOnce.mock.calls[0];
+    expect(queued?.[1]).toBe("stable-1");
+    expect(queued?.[2]).toBe(current);
   });
 });

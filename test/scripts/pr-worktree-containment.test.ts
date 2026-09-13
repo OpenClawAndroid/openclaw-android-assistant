@@ -149,6 +149,7 @@ function runShell(fixture: Fixture, commands: string[], env?: NodeJS.ProcessEnv)
         `gh_plain() { printf 'HTTP/2.0 200 OK\\n\\n{"data":{"viewer":{"login":"fixture-user"}}}\\n'; }`,
         "mark_pr_operation_side_effects_started() { :; }",
         'pr_meta_json() { local head; head=$(git rev-parse refs/pull/42/head); jq -cn --arg head "$head" \'{number:42,title:"fixture",url:"https://example.invalid/42",state:"OPEN",isDraft:false,author:{login:"fixture"},baseRefName:"main",headRefName:"review/pr",headRefOid:$head,headRepository:{nameWithOwner:"fixture/repo",url:""},headRepositoryOwner:{login:"fixture"},additions:1,deletions:0,changedFiles:3}\'; }',
+        'gh() { if [ "$#" = 5 ] && [ "$1 $2 $3 $4" = "pr view 42 --json" ]; then pr_meta_json 42 | jq --arg fields "$5" \'with_entries(select(.key as $key | $fields | split(",") | index($key)))\'; else echo "Unexpected fixture GitHub request" >&2; return 99; fi; }',
         ...commands,
       ].join("\n"),
       "pr-worktree-containment",
@@ -885,7 +886,7 @@ describePosix("scripts/pr worktree containment", () => {
     git(fixture.root, "commit", "-m", "reserved namespace fixture");
     git(fixture.root, "update-ref", "refs/pull/42/head", "HEAD");
     git(fixture.root, "checkout", fixture.siblingBranch);
-    const setup = runShell(fixture, ["review_checkout_main 42"]);
+    const setup = runShell(fixture, ["review_init 42"]);
     expect(setup.status, setup.stdout + setup.stderr).toBe(0);
     const worktree = join(fixture.root, ".worktrees", "pr-42");
     const before = reviewState(worktree);
@@ -933,7 +934,7 @@ describePosix("scripts/pr worktree containment", () => {
     git(fixture.root, "checkout", fixture.siblingBranch);
 
     const worktree = join(fixture.root, ".worktrees", "pr-42");
-    const setup = runShell(fixture, ["review_checkout_main 42"]);
+    const setup = runShell(fixture, ["review_init 42"]);
     expect(setup.status, setup.stdout + setup.stderr).toBe(0);
     writeFileSync(git(worktree, "rev-parse", "--git-path", "info/exclude"), "zz-*\n");
     const lookalike = join(worktree, "zz-transition-literal1\n雪\\name.txt");

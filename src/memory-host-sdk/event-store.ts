@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { resolveWorkspaceStateIdentity } from "../agents/workspace-state-identity.js";
-import {
+import type {
   pluginStateEntriesInKeyRange,
   registerPluginStateSequencedJournalEntry,
 } from "../plugin-state/plugin-state-store.js";
@@ -300,7 +300,7 @@ export async function registerMemoryHostEvent(params: {
   }
   const keyStartInclusive = eventKeyPrefix(params.workspaceDir);
   const recordedAt = Date.now();
-  await registerPluginStateSequencedJournalEntry({
+  const journal: Parameters<typeof registerPluginStateSequencedJournalEntry>[0] = {
     pluginId: MEMORY_HOST_EVENTS_PLUGIN_ID,
     cursorOptions: {
       namespace: MEMORY_HOST_EVENT_CURSORS_NAMESPACE,
@@ -320,7 +320,10 @@ export async function registerMemoryHostEvent(params: {
       valueKind: "event",
     },
     journalValue: (sequence) => ({ kind: "event", event, recordedAt, sequence }),
-  });
+  };
+  // Capture workspace keys and event time together before the lazy store load yields.
+  const pluginState = await import("../plugin-state/plugin-state-store.js");
+  await pluginState.registerPluginStateSequencedJournalEntry(journal);
 }
 
 export async function listStoredMemoryHostEvents(params: {
@@ -337,7 +340,7 @@ export async function listStoredMemoryHostEvents(params: {
         ),
       )
     : (maxMemoryHostEventsForTests ?? MAX_MEMORY_HOST_EVENTS);
-  const entries = pluginStateEntriesInKeyRange({
+  const query: Parameters<typeof pluginStateEntriesInKeyRange>[0] = {
     pluginId: MEMORY_HOST_EVENTS_PLUGIN_ID,
     namespace: MEMORY_HOST_EVENTS_NAMESPACE,
     keyStartInclusive: eventKeyPrefix(params.workspaceDir),
@@ -345,10 +348,14 @@ export async function listStoredMemoryHostEvents(params: {
     limit,
     order: "desc",
     ...(params.env ? { env: params.env } : {}),
-  }).flatMap((entry): PersistedMemoryHostEvent[] => {
-    const value = entry.value as StoredMemoryHostEvent;
-    return value.kind === "event" ? [{ ...entry, value }] : [];
-  });
+  };
+  const pluginState = await import("../plugin-state/plugin-state-store.js");
+  const entries = pluginState
+    .pluginStateEntriesInKeyRange(query)
+    .flatMap((entry): PersistedMemoryHostEvent[] => {
+      const value = entry.value as StoredMemoryHostEvent;
+      return value.kind === "event" ? [{ ...entry, value }] : [];
+    });
   return entries.toReversed();
 }
 

@@ -409,7 +409,7 @@ export function putBoardWidgetInDatabase(
     { presentation: widget.presentation, heightMode: widget.heightMode },
     widget.revision,
     widget.grantState,
-    viewGeneration,
+    widget.instanceId!,
     now,
   );
   executeSqliteQuerySync(

@@ -165,7 +165,7 @@ function renderLocalCost(card: ModelProviderCard, costDays: number) {
       <div class="model-providers__local-cost-detail">
         ${t("modelProviders.localCostDetail", {
           tokens: formatCompactTokenCount(cost.totalTokens),
-          sessions: String(cost.sessionCount),
+          messages: String(cost.messageCount),
         })}
       </div>
     </div>

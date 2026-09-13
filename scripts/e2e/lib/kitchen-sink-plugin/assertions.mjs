@@ -340,6 +340,7 @@ function assertExpectedDiagnostics(surfaceMode, errorMessages) {
     "session extension registration requires namespace and description",
     "session scheduler job registration requires unique id, sessionKey, and kind",
     "tool metadata registration missing toolName",
+    "worker provider registration missing method: resolveAllocation",
   ]);
   const optionalErrorMessages = new Set([
     "agent event subscription registration requires id and handle",

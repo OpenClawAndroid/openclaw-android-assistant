@@ -160,17 +160,34 @@ export function formatUnknownText(value: unknown): string {
 }
 
 export function formatMs(ms?: number | null): string {
-  const timestampMs = asDateTimestampMs(ms);
-  if (timestampMs === undefined) {
-    return t("common.na");
-  }
-  return new Date(timestampMs).toLocaleString(i18n.getLocale(), {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return createMsFormatter()(ms);
+}
+
+/** Reuse within one render so the next render picks up locale and system timezone changes.
+ * Explicit options replace the default minute-precision fields.
+ */
+export function createMsFormatter(
+  options?: Intl.DateTimeFormatOptions,
+  fallback?: string,
+): (ms?: number | null) => string {
+  let formatter: Intl.DateTimeFormat | undefined;
+  return (ms) => {
+    const timestampMs = asDateTimestampMs(ms);
+    if (timestampMs === undefined) {
+      return fallback ?? t("common.na");
+    }
+    formatter ??= new Intl.DateTimeFormat(
+      i18n.getLocale(),
+      options ?? {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      },
+    );
+    return formatter.format(new Date(timestampMs));
+  };
 }
 
 export function formatDateMs(

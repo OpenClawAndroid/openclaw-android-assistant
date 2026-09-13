@@ -10,8 +10,8 @@ import type {
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stateMigrations } from "./doctor-contract-api.js";
+import { crabboxLegacyWarmImageCaptureSelector } from "./src/crabbox-worker-warm-image-records.js";
 import {
-  crabboxLegacyWarmImageCaptureSelector,
   listCrabboxLegacyWarmLeases,
   openCrabboxWarmImageStore,
 } from "./src/crabbox-worker-warm-image-store.js";
@@ -251,7 +251,9 @@ describe("Crabbox warm-profile Doctor migration", () => {
         return update(key, callback, options);
       });
       const context: PluginDoctorStateMigrationContext = { openPluginStateKeyedStore: openStore };
-      vi.spyOn(context, "openPluginStateKeyedStore").mockReturnValue(store);
+      vi.spyOn(context, "openPluginStateKeyedStore").mockImplementation((options) =>
+        options.namespace === "warm-images" ? store : openStore(options),
+      );
 
       const result = await migration.migrateLegacyState(input(context));
 

@@ -3,13 +3,10 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MentionInboxItem } from "../../../packages/gateway-protocol/src/index.js";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { CronJobsListResult, CronStatus, ModelAuthStatusResult } from "../api/types.ts";
 import type { ApplicationContext } from "../app/context.ts";
-import {
-  client as mockClient,
-  createGatewayHarness,
-  deferred,
-} from "../app/overlays-access.test-support.ts";
+import { client as mockClient, createGatewayHarness } from "../app/overlays-access.test-support.ts";
 import {
   createSidebarAttentionStore,
   type SidebarAttentionStore,

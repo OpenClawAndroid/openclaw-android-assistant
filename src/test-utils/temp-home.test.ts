@@ -95,6 +95,11 @@ describe("createTempHomeEnv", () => {
           expect(resolveEffectiveHomeDir()).toBe(tempHome.home);
           const homeStat = await fs.stat(tempHome.home);
           expect(homeStat.isDirectory()).toBe(true);
+          if (process.platform !== "win32") {
+            const stateStat = await fs.stat(path.join(tempHome.home, ".openclaw"));
+            expect(homeStat.mode & 0o777).toBe(0o700);
+            expect(stateStat.mode & 0o777).toBe(0o700);
+          }
         } finally {
           await tempHome.restore();
         }

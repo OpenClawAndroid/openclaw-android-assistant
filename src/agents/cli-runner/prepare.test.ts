@@ -86,7 +86,10 @@ import {
   withTestRunAdmission,
   wrapRunWithTestPreparedAdmission,
 } from "../admitted-run-context.test-support.js";
-import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
+import {
+  createApiKeyCredential,
+  createAuthProfileStoreFixture,
+} from "../auth-profiles/credential-fixtures.test-support.js";
 import { resolveApiKeyForProfile as resolveApiKeyForProfileImpl } from "../auth-profiles/oauth.js";
 import {
   loadAuthProfileStoreWithoutExternalProfiles,
@@ -1025,20 +1028,17 @@ describe("prepareCliRunContext", () => {
     });
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "oauth",
-            provider: "google-gemini-cli",
-            access: "raw-access-token",
-            refresh: "raw-refresh-token",
-            expires: 1,
-            projectId: "project-1",
-            email: "user@example.test",
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "oauth",
+          provider: "google-gemini-cli",
+          access: "raw-access-token",
+          refresh: "raw-refresh-token",
+          expires: 1,
+          projectId: "project-1",
+          email: "user@example.test",
         },
-      },
+      }),
       agentDir,
     );
     setRawCliBackendForPrepareTest({
@@ -1100,12 +1100,9 @@ describe("prepareCliRunContext", () => {
     }));
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: createApiKeyCredential("google", "stored-api-key"),
-        },
-      },
+      createAuthProfileStoreFixture({
+        [authProfileId]: createApiKeyCredential("google", "stored-api-key"),
+      }),
       agentDir,
     );
     setRawCliBackendForPrepareTest({
@@ -1217,20 +1214,17 @@ describe("prepareCliRunContext", () => {
     });
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "oauth",
-            provider: "google-gemini-cli",
-            access: "raw-access-token",
-            refresh: "raw-refresh-token",
-            expires: 1_800_000_000_000,
-            projectId: "project-1",
-            email: "user@example.test",
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "oauth",
+          provider: "google-gemini-cli",
+          access: "raw-access-token",
+          refresh: "raw-refresh-token",
+          expires: 1_800_000_000_000,
+          projectId: "project-1",
+          email: "user@example.test",
         },
-      },
+      }),
       agentDir,
     );
     setRawCliBackendForPrepareTest({
@@ -1290,12 +1284,9 @@ describe("prepareCliRunContext", () => {
     const prepareExecution = vi.fn(async (_ctx: unknown) => undefined);
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: createApiKeyCredential("test-cli", "secret-key"),
-        },
-      },
+      createAuthProfileStoreFixture({
+        [authProfileId]: createApiKeyCredential("test-cli", "secret-key"),
+      }),
       agentDir,
     );
     setRawCliBackendForPrepareTest({
@@ -1391,18 +1382,15 @@ describe("prepareCliRunContext", () => {
     };
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "oauth",
-            provider: "anthropic",
-            access: "expired-access-token",
-            refresh: "stored-refresh-token",
-            expires: Date.now() - 60_000,
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "expired-access-token",
+          refresh: "stored-refresh-token",
+          expires: Date.now() - 60_000,
         },
-      },
+      }),
       agentDir,
     );
     setCliBackendForPrepareTest({ prepareExecution, authEpochMode: "profile-only" });
@@ -1540,18 +1528,15 @@ describe("prepareCliRunContext", () => {
     const prepareExecution = vi.fn(async () => undefined);
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "oauth",
-            provider: "anthropic",
-            access: "expired-access-token",
-            refresh: "expired-refresh-token",
-            expires: Date.now() - 60_000,
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "expired-access-token",
+          refresh: "expired-refresh-token",
+          expires: Date.now() - 60_000,
         },
-      },
+      }),
       agentDir,
     );
     setCliBackendForPrepareTest({ prepareExecution, authEpochMode: "profile-only" });
@@ -1589,25 +1574,22 @@ describe("prepareCliRunContext", () => {
     const prepareExecution = vi.fn(async () => undefined);
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "oauth",
-            provider: "anthropic",
-            access: "expired-account-a-access",
-            refresh: "account-a-refresh",
-            expires: Date.now() - 60_000,
-          },
-          [fallbackProfileId]: {
-            type: "oauth",
-            provider: "anthropic",
-            access: "account-b-access",
-            refresh: "account-b-refresh",
-            expires: Date.now() + 60 * 60_000,
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "expired-account-a-access",
+          refresh: "account-a-refresh",
+          expires: Date.now() - 60_000,
         },
-      },
+        [fallbackProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "account-b-access",
+          refresh: "account-b-refresh",
+          expires: Date.now() + 60 * 60_000,
+        },
+      }),
       agentDir,
     );
     setCliBackendForPrepareTest({ prepareExecution, authEpochMode: "profile-only" });
@@ -1647,18 +1629,15 @@ describe("prepareCliRunContext", () => {
     const prepareExecution = vi.fn(async () => undefined);
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "oauth",
-            provider: "anthropic",
-            access: "expired-access-token",
-            refresh: "expired-refresh-token",
-            expires: Date.now() - 60_000,
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "oauth",
+          provider: "anthropic",
+          access: "expired-access-token",
+          refresh: "expired-refresh-token",
+          expires: Date.now() - 60_000,
         },
-      },
+      }),
       agentDir,
     );
     setCliBackendForPrepareTest({ prepareExecution, authEpochMode: "profile-only" });
@@ -1699,16 +1678,13 @@ describe("prepareCliRunContext", () => {
     const prepareExecution = vi.fn(async () => ({ env: { TEST_PREPARED_ENV: "1" } }));
     fs.mkdirSync(agentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          [authProfileId]: {
-            type: "api_key",
-            provider: "claude-cli",
-            key: "stored-key",
-          },
+      createAuthProfileStoreFixture({
+        [authProfileId]: {
+          type: "api_key",
+          provider: "claude-cli",
+          key: "stored-key",
         },
-      },
+      }),
       agentDir,
     );
 
@@ -5899,13 +5875,10 @@ describe("prepareCliRunContext", () => {
       const { dir, sessionTarget } = fixture.session;
       const agentDir = path.join(dir, "agents", "main", "agent");
       saveAuthProfileStore(
-        {
-          version: 1,
-          profiles: {
-            "test:a": { type: "token", provider: "test-cli", token: "synthetic-account-a" },
-            "test:b": { type: "token", provider: "test-cli", token: "synthetic-account-b" },
-          },
-        },
+        createAuthProfileStoreFixture({
+          "test:a": { type: "token", provider: "test-cli", token: "synthetic-account-a" },
+          "test:b": { type: "token", provider: "test-cli", token: "synthetic-account-b" },
+        }),
         agentDir,
       );
       const inputs: string[] = [];

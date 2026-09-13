@@ -323,6 +323,9 @@ export async function stageSessionPendingInput(
           finished = true;
           // Release authority even if recording the terminal disposition fails.
           releaseSessionPendingInputOwner(owner);
+          if (owner.consumed) {
+            return;
+          }
           runOpenClawAgentWriteTransaction((current) => {
             executeSqliteQuerySync(
               current.db,

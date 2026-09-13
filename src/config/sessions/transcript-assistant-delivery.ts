@@ -72,6 +72,9 @@ export function applyAssistantDeliveryDirectives<T extends AssistantDirectiveMes
     if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string") {
       continue;
     }
+    if (!block.text.includes("[[")) {
+      continue;
+    }
     const parsed = parseInlineDirectives(block.text);
     const stripped = stripInlineDirectiveTagsForDelivery(parsed.text);
     const tts = extractTtsDirectiveFacts(stripped.text);

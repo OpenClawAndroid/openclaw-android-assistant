@@ -33,6 +33,10 @@ import { retireChatModelSelectionOwnership } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { safeMediaAttachmentHref } from "./components/chat-attachment-href.ts";
 import {
+  openSessionWorkspacePreview,
+  clearSessionWorkspacePreviews,
+} from "./components/chat-session-workspace-state.ts";
+import {
   handleChatDraftChange,
   handleChatInputHistoryKey,
   resetChatInputHistoryNavigation,
@@ -257,7 +261,6 @@ export function createPageState(
     chatFollowLocked: false,
     sidebarLayout: normalizeSidebarLayout(settings.sidebarSessionLayouts?.[sidebarSessionKey]),
     sidebarContent: null,
-    attachmentSidebarContent: null,
     sidebarFocusPanelId: settings.sidebarSessionActivePanels?.[sidebarSessionKey] ?? "",
     sidebarFocusVersion: 0,
     imageLightbox: null,
@@ -423,8 +426,17 @@ export function createPageState(
     renderLifecycle.invalidate();
   };
   state.handleOpenSidebar = (content) => {
-    const attachmentPreview = content?.kind === "attachment";
-    const targetSlot = attachmentPreview ? "workspace" : "detail";
+    const fileTab =
+      content?.fileTab ??
+      (content?.kind === "attachment"
+        ? {
+            id: `attachment:${content.sourceIdentity ?? content.src ?? crypto.randomUUID()}`,
+            label: content.title,
+          }
+        : content?.kind === "file"
+          ? { id: `file:${content.path}`, label: content.name }
+          : null);
+    const targetSlot = fileTab ? "workspace" : "detail";
     let opened = openSlot(state.sidebarLayout, targetSlot);
     const targetPanel = opened.columns
       .flatMap((column) => column.panels)
@@ -437,8 +449,8 @@ export function createPageState(
       availableWidth > 0 && availableWidth >= SIDEBAR_NARROW_BREAKPOINT_PX
         ? (fitSidebarLayout(opened, availableWidth) ?? opened)
         : opened;
-    if (attachmentPreview) {
-      state.attachmentSidebarContent = content;
+    if (fileTab && content) {
+      openSessionWorkspacePreview(state, fileTab.id, fileTab.label, content);
     } else {
       state.sidebarContent = content;
     }
@@ -449,7 +461,7 @@ export function createPageState(
   };
   state.handleCloseSidebar = (slot) => {
     if (slot === "workspace") {
-      state.attachmentSidebarContent = null;
+      clearSessionWorkspacePreviews(state);
     }
     state.updateSidebarLayout(closeSlot(state.sidebarLayout, slot));
   };

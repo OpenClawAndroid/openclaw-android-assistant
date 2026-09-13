@@ -254,6 +254,15 @@ describe("test runtime prerequisites", () => {
     [
       "runtime-config",
       ["config/config-startup-corpus.test.ts", "config/state-startup-corpus.test.ts"],
+      "runtime",
+    ],
+    [
+      "runtime-config",
+      [
+        "config/config-startup-corpus.test.ts",
+        "config/state-startup-corpus.test.ts",
+        "config/sessions/session-accessor.sqlite-reclamation-memory.test.ts",
+      ],
       undefined,
     ],
     ["agents-core", ["simple-completion-runtime.plugin-scope.test.ts"], "runtime"],

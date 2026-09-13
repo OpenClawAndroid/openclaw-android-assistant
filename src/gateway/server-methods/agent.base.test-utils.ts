@@ -221,10 +221,9 @@ describe("gateway agent handler", () => {
   it("dedupes retries while explicit recipient session routing is pending", async () => {
     const sessionKey = "agent:ops:whatsapp:work:direct:+15551234567";
     const runId = "recipient-session-route-pending";
-    let finishRoute = (_result: { sessionKey: string }) => {};
-    const routePending = new Promise<{ sessionKey: string }>((resolve) => {
-      finishRoute = resolve;
-    });
+    const { promise: routePending, resolve: finishRoute } = createDeferredCore<{
+      sessionKey: string;
+    }>();
     mocks.listAgentIds.mockReturnValue(["main", "ops"]);
     mocks.loadConfigReturn = { session: { dmScope: "per-account-channel-peer" } };
     mocks.resolveAgentExplicitRecipientSession.mockReturnValue(routePending);
@@ -288,10 +287,9 @@ describe("gateway agent handler", () => {
   it("honors owner cancellation while explicit recipient session routing is pending", async () => {
     const sessionKey = "agent:ops:whatsapp:work:direct:+15551234567";
     const runId = "recipient-session-route-abort";
-    let finishRoute = (_result: { sessionKey: string }) => {};
-    const routePending = new Promise<{ sessionKey: string }>((resolve) => {
-      finishRoute = resolve;
-    });
+    const { promise: routePending, resolve: finishRoute } = createDeferredCore<{
+      sessionKey: string;
+    }>();
     mocks.listAgentIds.mockReturnValue(["main", "ops"]);
     mocks.loadConfigReturn = { session: { dmScope: "per-account-channel-peer" } };
     mocks.resolveAgentExplicitRecipientSession.mockReturnValue(routePending);
@@ -868,10 +866,7 @@ describe("gateway agent handler", () => {
     const sessionKey = "agent:main:main";
     const runId = "idem-abort-during-admission";
     let releaseMutation = () => {};
-    let markMutationStarted = () => {};
-    const mutationStarted = new Promise<void>((resolve) => {
-      markMutationStarted = resolve;
-    });
+    const { promise: mutationStarted, resolve: markMutationStarted } = createDeferredCore();
     const mutation = runExclusiveSessionLifecycleMutation({
       scope: "/tmp/sessions.json",
       identities: [sessionKey, "existing-session-id"],
@@ -928,10 +923,7 @@ describe("gateway agent handler", () => {
     const sessionKey = "agent:main:main";
     const runId = "idem-expired-during-admission";
     let releaseMutation = () => {};
-    let markMutationStarted = () => {};
-    const mutationStarted = new Promise<void>((resolve) => {
-      markMutationStarted = resolve;
-    });
+    const { promise: mutationStarted, resolve: markMutationStarted } = createDeferredCore();
     const mutation = runExclusiveSessionLifecycleMutation({
       scope: "/tmp/sessions.json",
       identities: [sessionKey, "existing-session-id"],
@@ -990,10 +982,7 @@ describe("gateway agent handler", () => {
     const sessionKey = "agent:main:main";
     const runId = "idem-terminal-during-admission";
     let releaseMutation = () => {};
-    let markMutationStarted = () => {};
-    const mutationStarted = new Promise<void>((resolve) => {
-      markMutationStarted = resolve;
-    });
+    const { promise: mutationStarted, resolve: markMutationStarted } = createDeferredCore();
     const mutation = runExclusiveSessionLifecycleMutation({
       scope: "/tmp/sessions.json",
       identities: [sessionKey, "existing-session-id"],
@@ -1085,10 +1074,7 @@ describe("gateway agent handler", () => {
         assertAllowed: () => {},
       });
       const handoffId = admission.createHandoff();
-      let markMutationStarted = () => {};
-      const mutationStarted = new Promise<void>((resolve) => {
-        markMutationStarted = resolve;
-      });
+      const { promise: mutationStarted, resolve: markMutationStarted } = createDeferredCore();
       let mutationRan = false;
       const mutation = runExclusiveSessionLifecycleMutation({
         scope,

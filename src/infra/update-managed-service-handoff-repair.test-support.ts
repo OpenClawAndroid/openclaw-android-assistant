@@ -8,6 +8,7 @@ import {
   writeOpenAiResponsesSse,
   writeOpenAiResponsesText,
 } from "../../test/helpers/openai-responses-sse.js";
+import { createDeferred } from "../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
 import {
@@ -253,14 +254,8 @@ export async function runManagedRepairAuthorityBoundary(
   phase: ManagedRepairBoundary["phase"],
   revoke: boolean,
 ) {
-  let markPending!: () => void;
-  const inferencePending = new Promise<void>((resolve) => {
-    markPending = resolve;
-  });
-  let releaseInference!: () => void;
-  const released = new Promise<void>((resolve) => {
-    releaseInference = resolve;
-  });
+  const { promise: inferencePending, resolve: markPending } = createDeferred();
+  const { promise: released, resolve: releaseInference } = createDeferred();
   const errors: unknown[] = [];
   let toolResponses = 0;
   let result: Awaited<ReturnType<typeof runBoundary>> | undefined;

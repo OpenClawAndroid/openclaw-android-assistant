@@ -13,7 +13,7 @@ import {
   openOpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
 import { ensureProfileForEmail, linkEmail, setDisplayName } from "../../state/user-profiles.js";
-import { withEnv, withEnvAsync } from "../../test-utils/env.js";
+import { withEnvAsync } from "../../test-utils/env.js";
 import { materializeSkillResources, prepareSkillResourceDelivery } from "../runtime/resources.js";
 import { prepareSkillLibraryBundle, skillLibraryRevisionDir } from "./bundle.js";
 import { uploadSkillLibrary } from "./import.js";
@@ -157,8 +157,12 @@ describe("profile-owned skill publication and selection", () => {
         options,
       ),
     ).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
-    const { listSkillCommandsForWorkspace } = await import("../discovery/chat-commands.js");
-    withEnv({ OPENCLAW_STATE_DIR: stateDir }, () => {
+    const {
+      listSkillCommandsForWorkspace,
+      listSkillCommandsForAgents,
+      prepareSkillCommandsForAgents,
+    } = await import("../discovery/chat-commands.js");
+    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
       const cfg = { agents: { defaults: { skills: [] } } };
       const discover = (
         overrides: Partial<Parameters<typeof listSkillCommandsForWorkspace>[0]> = {},
@@ -185,6 +189,21 @@ describe("profile-owned skill publication and selection", () => {
         }).map((entry) => entry.name),
       ).not.toContain(saved.entry.name);
       expect(discover({ sessionEntry: undefined, skillFilter: [saved.entry.name] })).toEqual([]);
+      const agentParams = {
+        cfg: {
+          agents: {
+            defaults: { skills: [saved.entry.name] },
+            list: [{ id: "main", workspace: stateDir }],
+          },
+        },
+        agentIds: ["main"],
+        sessionEntry: { skillLibrarySelections: pins },
+      };
+      expect(listSkillCommandsForAgents(agentParams)).toEqual(commands);
+      expect(await prepareSkillCommandsForAgents(agentParams)).toEqual(commands);
+      expect(
+        await prepareSkillCommandsForAgents({ ...agentParams, sessionEntry: undefined }),
+      ).toEqual([]);
     });
   });
 

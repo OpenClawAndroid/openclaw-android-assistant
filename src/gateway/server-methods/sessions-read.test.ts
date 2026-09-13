@@ -327,6 +327,36 @@ test("sessions.resolve preserves presentation facts on unique and ambiguous wire
   });
 });
 
+test("sessions.resolve short IDs retain archived child-owner selection", async () => {
+  const firstKey = "agent:main:thread:12345678-0aaa-4000-8000-000000000001";
+  const secondKey = "agent:main:thread:12345678-0bbb-4000-8000-000000000002";
+  const storePath = resolveStorePath(undefined, { agentId: "main" });
+  const now = Date.now();
+  for (const [sessionKey, spawnedBy, updatedAt] of [
+    [firstKey, "agent:main:controller", now - 1],
+    [secondKey, "agent:main:other-controller", now],
+  ] as const) {
+    await replaceSessionEntry(
+      { agentId: "main", sessionKey, storePath },
+      { sessionId: sessionKey, updatedAt, archivedAt: now, spawnedBy },
+    );
+  }
+
+  for (const [spawnedBy, expectedKey] of [
+    ["agent:main:controller", firstKey],
+    ["agent:main:other-controller", secondKey],
+  ] as const) {
+    expect(
+      await directSessionReq("sessions.resolve", {
+        shortId: "12345678",
+        slugHint: "stale-title",
+        agentId: "main",
+        spawnedBy,
+      }),
+    ).toMatchObject({ ok: true, payload: { ok: true, key: expectedKey, agentId: "main" } });
+  }
+});
+
 test("sessions.describe retains full target and child metadata without decoding unrelated prompts", async () => {
   const agentId = "main";
   const sessionKey = "agent:main:describe-target";

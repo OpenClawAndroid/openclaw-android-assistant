@@ -538,7 +538,8 @@ struct RootSidebar: View {
             sessions: self.model.sessions,
             currentSessionKey: "main",
             mainSessionKey: self.appModel.defaultChatSessionKey,
-            activeAgentID: self.appModel.chatAgentId)
+            activeAgentID: self.appModel.chatAgentId,
+            sessionRoutingContract: self.appModel.chatSessionRoutingContract)
     }
 
     private var resolvedSelectedSessionKey: String {
@@ -546,7 +547,8 @@ struct RootSidebar: View {
             sessions: self.model.sessions,
             currentSessionKey: self.appModel.chatSessionKey,
             mainSessionKey: self.appModel.defaultChatSessionKey,
-            activeAgentID: self.appModel.chatAgentId)
+            activeAgentID: self.appModel.chatAgentId,
+            sessionRoutingContract: self.appModel.chatSessionRoutingContract)
     }
 
     private var visibleSessionSections: [ChatSessionSidebarModel.Section] {
@@ -555,7 +557,8 @@ struct RootSidebar: View {
             currentSessionKey: self.appModel.chatSessionKey,
             mainSessionKey: self.appModel.defaultChatSessionKey,
             activeAgentID: self.appModel.chatAgentId,
-            groups: self.sessionGroups)
+            groups: self.sessionGroups,
+            sessionRoutingContract: self.appModel.chatSessionRoutingContract)
     }
 
     struct SessionLayout: Equatable {

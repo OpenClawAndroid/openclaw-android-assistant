@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClawHubRecommendation } from "../../../../../src/shared/clawhub-recommendations.js";
+import { createDeferred as deferred } from "../../../../../test/helpers/promise.js";
 import { i18n } from "../../../i18n/index.ts";
 import { normalizeMessage } from "../../../lib/chat/message-normalizer.ts";
 import { createApplicationContextProvider } from "../../../test-helpers/application-context.ts";
@@ -9,7 +10,6 @@ import {
   createClient,
   createContext,
   createGateway,
-  deferred,
 } from "../../plugins/plugins-page.test-support.ts";
 import "./chat-clawhub-card.ts";
 

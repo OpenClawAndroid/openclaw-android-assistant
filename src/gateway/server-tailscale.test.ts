@@ -24,6 +24,7 @@ vi.mock("../infra/tailscale.js", () => ({
   hasTailscaleFunnelRouteForPort: mocks.hasTailscaleFunnelRouteForPort,
 }));
 
+import { createDeferred } from "../../test/helpers/promise.js";
 import { resolveControlUiIdentity } from "./control-ui-identity.js";
 import { startGatewayTailscaleExposure as startGatewayTailscaleExposureBase } from "./server-tailscale.js";
 import {
@@ -246,10 +247,7 @@ describe("startGatewayTailscaleExposure", () => {
   });
 
   it("clears the published origin and warns when the foreground claim exits", async () => {
-    let resolveExit!: () => void;
-    const exited = new Promise<void>((resolve) => {
-      resolveExit = resolve;
-    });
+    const { promise: exited, resolve: resolveExit } = createDeferred();
     mocks.claimTailscaleRoute.mockResolvedValue({
       exited,
       isActive: () => true,

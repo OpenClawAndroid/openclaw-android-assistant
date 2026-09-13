@@ -1,7 +1,12 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { recordStartupRecoveryStoreResult } from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import {
+  getAgentEventLifecycleGeneration,
+  rotateAgentEventLifecycleGeneration,
+} from "../../infra/agent-events.js";
 import { recordStartupMigrationWarnings } from "../../infra/state-migrations.messages.js";
 import { withStateDirEnv } from "../../test-helpers/state-dir-env.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
@@ -26,6 +31,36 @@ async function callStatus(config: OpenClawConfig, scopes = ["operator.read"]) {
 }
 
 describe("Gateway status owner routing", () => {
+  it("reports current startup recovery failures with restricted details until their store heals", async () => {
+    await withStateDirEnv("openclaw-gateway-recovery-warning-", async ({ stateDir }) => {
+      const target = { agentId: "main", storePath: path.join(stateDir, "sessions.json") };
+      const lifecycleGeneration = getAgentEventLifecycleGeneration();
+      const config = { agents: { entries: { main: {} } }, session: { store: target.storePath } };
+      const outcome = { ok: false, error: new Error("private store temporarily locked") } as const;
+      try {
+        recordStartupRecoveryStoreResult({ target, lifecycleGeneration, outcome });
+        const reader = await callStatus(config);
+        expect(reader.mock.calls[0]?.[1].startupRecoveryWarning).toContain("1 session store");
+        expect(reader.mock.calls[0]?.[1].startupRecoveryWarning).not.toContain("private store");
+        const admin = await callStatus(config, ["operator.admin"]);
+        expect(admin.mock.calls[0]?.[1].startupRecoveryWarning).toContain(
+          "private store temporarily locked",
+        );
+
+        recordStartupRecoveryStoreResult({ target, lifecycleGeneration, outcome: { ok: true } });
+        const healed = await callStatus(config, ["operator.admin"]);
+        expect(healed.mock.calls[0]?.[1].startupRecoveryWarning).toBeUndefined();
+
+        rotateAgentEventLifecycleGeneration();
+        recordStartupRecoveryStoreResult({ target, lifecycleGeneration, outcome });
+        const restarted = await callStatus(config, ["operator.admin"]);
+        expect(restarted.mock.calls[0]?.[1].startupRecoveryWarning).toBeUndefined();
+      } finally {
+        rotateAgentEventLifecycleGeneration();
+      }
+    });
+  });
+
   it("uses the configured system owner without making public main aliases implicit", async () => {
     await withStateDirEnv("openclaw-gateway-status-owner-", async ({ stateDir }) => {
       const config = {

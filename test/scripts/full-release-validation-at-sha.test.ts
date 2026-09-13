@@ -34,8 +34,10 @@ import {
   verifyTrustedWorkflowRef,
 } from "../../scripts/full-release-validation-at-sha.mts";
 import { resolveReleaseContextIdentity } from "../../scripts/lib/release-context.mjs";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 
 const SCRIPT_PATH = resolve("scripts/full-release-validation-at-sha.mjs");
+const testNodeExecPath = resolveTestNodeExecPath();
 const CURRENT_WORKFLOW_SOURCE = readFileSync(
   ".github/workflows/full-release-validation.yml",
   "utf8",
@@ -345,7 +347,7 @@ module.exports = async () => {
   const gitPath = join(binDir, "git");
   writeFileSync(
     gitPath,
-    `#!${process.execPath}
+    `#!${testNodeExecPath}
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2);
@@ -362,7 +364,7 @@ process.exit(result.status ?? 1);
   const ghPath = join(binDir, "gh");
   writeFileSync(
     ghPath,
-    `#!${process.execPath}
+    `#!${testNodeExecPath}
 const fs = require("node:fs");
 fs.appendFileSync(process.env.MOCK_PATH_GH_CALLS, JSON.stringify(process.argv.slice(2)) + "\\n");
 console.error("PATH gh must not be used");
@@ -374,7 +376,7 @@ process.exit(89);
   const selectedGhPath = join(binDir, "selected-gh");
   writeFileSync(
     selectedGhPath,
-    `#!${process.execPath}
+    `#!${testNodeExecPath}
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2);
@@ -656,7 +658,7 @@ if (args[0] === "api" && method === "POST" && endpoint.endsWith("/git/refs")) {
       githubEnv.OPENCLAW_GH_BIN = selectedGhPath;
     }
     return spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         SCRIPT_PATH,
         ...(recoveryOnly
@@ -2972,7 +2974,7 @@ describe("full-release-validation-at-sha", () => {
     try {
       const missingSha = "f".repeat(40);
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         [
           SCRIPT_PATH,
           "--sha",

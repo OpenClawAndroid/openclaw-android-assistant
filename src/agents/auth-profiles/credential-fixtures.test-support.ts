@@ -18,3 +18,7 @@ export function oauthCred(params: {
 }): OAuthCredential {
   return { type: "oauth", ...params };
 }
+
+export function createAuthProfileStoreFixture<Profiles>(profiles: Profiles) {
+  return { version: 1, profiles };
+}

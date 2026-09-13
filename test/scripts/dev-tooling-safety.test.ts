@@ -22,8 +22,10 @@ import {
   redactHomePath,
   redactJsonValueForDevToolLog,
 } from "../../scripts/lib/dev-tooling-safety.ts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 
 const tempDirs: string[] = [];
+const testNodeExecPath = resolveTestNodeExecPath();
 
 async function waitForCondition(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   const started = Date.now();
@@ -126,7 +128,7 @@ type CliResult = {
 
 function runCli(scriptPath: string, args: string[]): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", scriptPath, ...args], {
+    const child = spawn(testNodeExecPath, ["--import", "tsx", scriptPath, ...args], {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -1199,17 +1201,45 @@ describe("script-specific dev tooling hardening", () => {
         timeoutMs: 100,
       });
       const startedAt = Date.now();
-      const request = nativeFetch(`http://127.0.0.1:${proxy.port}/v1/messages`, {
-        method: "POST",
-        body: "{}",
-      }).then(async (response) => ({ status: response.status, body: await response.text() }));
+      const proxyUrl = `http://127.0.0.1:${proxy.port}/v1/messages`;
+      const request = sendsHeaders
+        ? new Promise<{ status: number; body: string }>((resolve, reject) => {
+            const downstream = spawn(
+              testNodeExecPath,
+              [
+                "-e",
+                `fetch(process.argv[1], { method: "POST", body: "{}" })
+                  .then(async response => ({ status: response.status, body: await response.text() }))
+                  .then(result => process.stdout.write(JSON.stringify(result)))
+                  .catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });`,
+                proxyUrl,
+              ],
+              { stdio: ["ignore", "pipe", "pipe"] },
+            );
+            let stdout = "";
+            let stderr = "";
+            downstream.stdout.on("data", (chunk) => (stdout += chunk));
+            downstream.stderr.on("data", (chunk) => (stderr += chunk));
+            downstream.once("error", reject);
+            downstream.once("close", (code) => {
+              if (code === 0) {
+                resolve(JSON.parse(stdout));
+              } else {
+                reject(new Error(stderr || `proxy client exited ${String(code)}`));
+              }
+            });
+          })
+        : nativeFetch(proxyUrl, { method: "POST", body: "{}" }).then(async (response) => ({
+            status: response.status,
+            body: await response.text(),
+          }));
 
       if (sendsHeaders) {
         await expect(request).rejects.toThrow();
       } else {
         await expect(request).resolves.toMatchObject({
           status: 502,
-          body: expect.stringMatching(/TimeoutError/u),
+          body: expect.stringMatching(/Anthropic upstream timed out after 100ms/u),
         });
       }
       expect(Date.now() - startedAt).toBeLessThan(2_000);

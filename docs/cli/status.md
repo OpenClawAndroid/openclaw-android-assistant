@@ -141,6 +141,8 @@ Use `openclaw skills check --agent <id>` to inspect the missing requirements.
 
 ## Overview and update status
 
+- The **Sessions** overview counts stored conversation rows, including archived
+  rows. Running turns and recent activity are separate from this inventory.
 - Overview includes Gateway + node host service install/runtime status when
   available, plus compact Gateway process uptime and host system uptime.
 - `status --all` shows returned host, IP, version, and platform in **Gateway self**.

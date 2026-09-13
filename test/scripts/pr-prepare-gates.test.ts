@@ -35,7 +35,12 @@ function runGatesBash(
         `source '${repoRoot}/scripts/pr-lib/common.sh'`,
         `source '${repoRoot}/scripts/pr-lib/gates.sh'`,
         "mark_pr_operation_side_effects_started() { :; }",
-        ...(options.sourcePush ? [`source '${repoRoot}/scripts/pr-lib/push.sh'`] : []),
+        ...(options.sourcePush
+          ? [
+              `source '${repoRoot}/scripts/pr-lib/worktree.sh'`,
+              `source '${repoRoot}/scripts/pr-lib/push.sh'`,
+            ]
+          : []),
         ...(options.sourcePrepareCore
           ? [`source '${repoRoot}/scripts/pr-lib/prepare-core.sh'`]
           : ["refresh_prep_branch_for_reviewed_head() { :; }"]),
@@ -261,12 +266,14 @@ function runPublisher(
   return runGatesBash(
     [
       `remote='${f.remote}'`,
+      'repo_root() { printf "%s\\n" "$PWD"; }',
       `enter_worktree() { PR_MAIN_SHA=${f.base}; }`,
       'resolve_head_push_url() { printf "%s\\n" "$remote"; }',
       'resolve_contributor_coauthor_email() { printf "fixture@example.invalid\\n"; }',
       'remote_head() { command git --git-dir="$remote" rev-parse refs/heads/topic; }',
       "gh() {",
       '  case "$*" in',
+      '    *headRepository*) jq -nc --arg sha "$(remote_head)" \'{headRefName:"topic",headRefOid:$sha,headRepository:{nameWithOwner:"fixture/repo"},headRepositoryOwner:{login:"fixture"}}\';;',
       '    *headRefName*) printf \'{"headRefName":"topic"}\\n\';;',
       "    *headRefOid*) remote_head;;",
       '    *) echo "unexpected GitHub request" >&2; return 98;;',
@@ -371,9 +378,11 @@ describe("PR publication ownership", () => {
           : [
               "git() {",
               '  if [ "$1" = push ]; then echo push >> .local/events; fi',
-              '  if [ "$1" = fetch ]; then',
-              `    command git --git-dir="$remote" update-ref refs/heads/topic ${f.sameTree}`,
-              "  fi",
+              '  for arg in "$@"; do',
+              '    if [ "$arg" = fetch ]; then',
+              `      command git --git-dir="$remote" update-ref refs/heads/topic ${f.sameTree}`,
+              "    fi",
+              "  done",
               '  command git "$@"',
               "}",
             ],

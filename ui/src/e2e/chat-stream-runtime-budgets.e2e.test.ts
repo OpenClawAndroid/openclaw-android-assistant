@@ -606,7 +606,16 @@ suite.define(() => {
     });
   });
 
-  it("keeps steady-state composer edits local to a long transcript", async () => {
+  it.each([
+    {
+      name: "keeps steady-state composer edits local to a long transcript",
+      scrollAwayAndBack: false,
+    },
+    {
+      name: "keeps composer edits local after scrolling returns to the same offset",
+      scrollAwayAndBack: true,
+    },
+  ])("$name", async ({ scrollAwayAndBack }) => {
     await suite.withPage(createControlUiE2eContextOptions(), async ({ page }) => {
       const gateway = await installMockGateway(page, {
         historyMessages: buildLongTranscriptFixture(LONG_TRANSCRIPT_MESSAGE_COUNT),
@@ -622,13 +631,35 @@ suite.define(() => {
       // The first saved draft notifies presence subscribers. Drain that transition
       // before measuring edits to an already-present draft.
       await waitForCommittedComposerDraft(page, scopeKey, "seed", 0);
+      const scrollDuringWait = scrollAwayAndBack
+        ? page.locator(".chat-pane-cache__pane--active .chat-thread").evaluate(async (element) => {
+            const thread = element as HTMLElement;
+            const originalTop = thread.scrollTop;
+            // Move during the stability sample, then restore its original geometry.
+            await new Promise<void>((resolve) => {
+              globalThis.setTimeout(resolve, 100);
+            });
+            thread.scrollTo({ top: originalTop - 8, behavior: "instant" });
+            await new Promise<void>((resolve) => {
+              requestAnimationFrame(() => resolve());
+            });
+            const awayTop = thread.scrollTop;
+            thread.scrollTo({ top: originalTop, behavior: "instant" });
+            return { originalTop, awayTop, restoredTop: thread.scrollTop };
+          })
+        : Promise.resolve(null);
       // Finish startup scrolling before measuring steady-state composer invalidations.
       await waitForChatScrollIdle(page);
+      const scroll = await scrollDuringWait;
+      if (scroll) {
+        expect(scroll.awayTop).toBeLessThan(scroll.originalTop);
+        expect(scroll.restoredTop).toBe(scroll.originalTop);
+      }
       await installRenderProbe(page);
       await resetRenderProbe(page);
 
       const suffix = " ordinary typing without commands";
-      await composer.pressSequentially(suffix);
+      await composer.pressSequentially(suffix, { delay: scrollAwayAndBack ? 5 : 0 });
       await waitForCommittedComposerDraft(page, scopeKey, `seed${suffix}`, 0);
       expect(await composer.inputValue()).toBe(`seed${suffix}`);
       const probe = await readRenderProbe(page);

@@ -33,6 +33,7 @@ import type {
   MemorySearchCommandOptions,
 } from "./cli.types.js";
 import { forgetMemoryEntries } from "./memory-forget.js";
+import { captureMemoryRebuildNotice } from "./memory-rebuild-notice.js";
 import { formatMemoryVectorDegradedWriteReason } from "./memory/manager-vector-warning.js";
 import type { MemoryCoreRuntimeHost } from "./memory/runtime-host.js";
 import {
@@ -224,8 +225,10 @@ export async function runMemorySearch(
         cfg,
       });
       const sessionKey = buildCliMemorySearchSessionKey(agentId);
+      let readRebuildWarning: () => string | undefined = () => undefined;
       let results: Awaited<ReturnType<typeof manager.search>>;
       try {
+        readRebuildWarning = captureMemoryRebuildNotice(manager.status());
         results = await manager.search(query, {
           maxResults: opts.maxResults,
           minScore: opts.minScore,
@@ -233,12 +236,17 @@ export async function runMemorySearch(
         });
       } catch (err) {
         const message = formatErrorMessage(err);
-        defaultRuntime.error(`Memory search failed: ${message}`);
+        defaultRuntime.error(
+          [`Memory search failed: ${message}`, readRebuildWarning()].filter(Boolean).join(" "),
+        );
         process.exitCode = 1;
         return;
       }
       const status = manager.status();
       const staleness = resolveMemorySearchStaleness(status, agentId);
+      const warning = [staleness?.warning, readRebuildWarning()]
+        .filter((message): message is string => typeof message === "string")
+        .join(" ");
       const workspaceDir = status.workspaceDir;
       if (dreamingEnabled) {
         await recordShortTermRecalls({
@@ -252,11 +260,11 @@ export async function runMemorySearch(
         });
       }
       if (opts.json) {
-        defaultRuntime.writeJson({ results, ...staleness });
+        defaultRuntime.writeJson({ results, ...staleness, ...(warning ? { warning } : {}) });
         return;
       }
-      if (staleness) {
-        defaultRuntime.error(`${staleness.warning} ${staleness.action}`);
+      if (warning) {
+        defaultRuntime.error([warning, staleness?.action].filter(Boolean).join(" "));
       }
       if (results.length === 0) {
         defaultRuntime.log("No matches.");

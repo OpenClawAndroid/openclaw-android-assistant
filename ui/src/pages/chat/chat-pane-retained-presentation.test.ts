@@ -535,7 +535,7 @@ describe("chat pane retained presentation lifecycle", () => {
       expect(getFile).toHaveBeenCalledExactlyOnceWith(state.sessionKey, "README.md", {
         agentId: "main",
       });
-      expect(isSidebarSlotVisible(state.sidebarLayout, "detail")).toBe(true);
+      expect(isSidebarSlotVisible(state.sidebarLayout, "workspace")).toBe(true);
 
       if (retirement === "hidden") {
         pane.presented = false;
@@ -543,6 +543,8 @@ describe("chat pane retained presentation lifecycle", () => {
         pane.disconnectedCallback();
       }
       expect(state.sidebarContent).toBeNull();
+      expect(state.sessionWorkspaceState?.previews).toEqual([]);
+      expect(state.sessionWorkspaceState?.activePreviewId).toBeNull();
       file.resolve({
         sessionKey: state.sessionKey,
         file: {
@@ -556,6 +558,8 @@ describe("chat pane retained presentation lifecycle", () => {
       await file.promise;
 
       expect(state.sidebarContent).toBeNull();
+      expect(state.sessionWorkspaceState?.previews).toEqual([]);
+      expect(state.sessionWorkspaceState?.activePreviewId).toBeNull();
     },
   );
 

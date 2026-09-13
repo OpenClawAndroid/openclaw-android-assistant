@@ -29,8 +29,10 @@ import { resetAgentRunRegistryForTest } from "../../infra/agent-run-registry.js"
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import * as tmpDirOwner from "../../infra/tmp-openclaw-dir.js";
 import { beginSessionWorkAdmission } from "../../sessions/session-lifecycle-admission.js";
+import { closeCachedOpenClawAgentDatabase } from "../../state/openclaw-agent-db-lifecycle.js";
 import {
   closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
@@ -82,6 +84,7 @@ describe("SQLite historical session disk budget", () => {
       mode: "warn",
       maintenance: { maxDiskBytes: null, highWaterBytes: null },
     });
+    await closeOpenClawAgentDatabasesAsync();
     closeOpenClawAgentDatabasesForTest();
     await testState.cleanup();
   });
@@ -278,10 +281,15 @@ describe("SQLite historical session disk budget", () => {
       const highWaterBytes = before.totalBytes - reclaimBytes;
 
       let reclamationWorkers = 0;
+      type ArchiveReply = { type: string; operationId?: number; settled?: boolean };
+      const archiveReplies: Array<{ worker: Worker; message: ArchiveReply }> = [];
       const observeWorker = (worker: Worker) => {
-        worker.on("message", (message: { type: string }) => {
-          if (message.type === "reclaimed") {
+        worker.on("message", (message: ArchiveReply | null | undefined) => {
+          if (message?.type === "reclaimed") {
             reclamationWorkers += 1;
+          }
+          if (message?.type === "done" || message?.type === "published") {
+            archiveReplies.push({ worker, message });
           }
         });
       };
@@ -302,6 +310,13 @@ describe("SQLite historical session disk budget", () => {
       }
 
       expect(reclamationWorkers).toBe(execution === "in-process" ? 0 : 1);
+      expect(archiveReplies.map(({ message }) => message.type)).toEqual(["done", "published"]);
+      expect(new Set(archiveReplies.map(({ worker }) => worker)).size).toBe(1);
+      expect(archiveReplies.every(({ worker }) => worker.threadId === -1)).toBe(true);
+      expect(archiveReplies.map(({ message }) => message)).toMatchObject([
+        { operationId: 1, settled: true },
+        { operationId: 2, settled: true },
+      ]);
       expect(result?.removedEntries).toBe(1);
       expect(result?.totalBytesAfter).toBeLessThanOrEqual(highWaterBytes);
       expect(result?.totalBytesAfter).toBe(
@@ -493,11 +508,13 @@ describe("SQLite historical session disk budget", () => {
     settlePhysicalUsage();
     const before = await measureSessionPhysicalDiskUsage(storePath);
 
-    const databasePath = database().path;
+    const cachedDatabase = database();
     const rm = fs.promises.rm.bind(fs.promises);
     const removeArchive = vi.spyOn(fs.promises, "rm").mockImplementation(async (...args) => {
       if (args[0] === archivePath) {
-        expect(closeOpenClawAgentDatabaseByPath(databasePath)).toBe(true);
+        expect(cachedDatabase.db.isOpen).toBe(true);
+        closeCachedOpenClawAgentDatabase(cachedDatabase, { eviction: true });
+        expect(cachedDatabase.db.isOpen).toBe(false);
       }
       return await rm(...args);
     });
@@ -685,6 +702,7 @@ describe("SQLite historical session disk budget", () => {
       expect(sessionExists("recent-live")).toBe(true);
       expect(sessionExists("stale-old")).toBe(false);
       expect(sessionExists("stale-live")).toBe(true);
+      await closeOpenClawAgentDatabasesAsync();
       closeOpenClawAgentDatabasesForTest();
       const repeated = {
         storePath,
@@ -985,10 +1003,9 @@ describe("SQLite historical session disk budget", () => {
 
   function setSessionUpdatedAt(sessionId: string, updatedAt: number): void {
     const owner = database();
-    const db = getSessionKysely(owner.db);
     executeSqliteQuerySync(
       owner.db,
-      db
+      getSessionKysely(owner.db)
         .updateTable("session_windows")
         .set({ updated_at: updatedAt })
         .where("session_id", "=", sessionId),

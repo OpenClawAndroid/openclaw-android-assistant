@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 /**
  * Browser plugin registration helpers. This file keeps registration lazy while
  * advertising Browser tools, services, node-host commands, and audits.
@@ -14,6 +15,7 @@ import type {
   OpenClawPluginToolContext,
   OpenClawPluginToolFactory,
 } from "openclaw/plugin-sdk/plugin-entry";
+import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import { createSubsystemLogger, isTruthyEnvValue } from "openclaw/plugin-sdk/runtime-env";
 import { isBrowserMachineOutput } from "./cli-output-mode.js";
 import {
@@ -24,6 +26,7 @@ import {
   BROWSER_PROXY_COMMAND,
   BROWSER_PROXY_UPLOAD_COMMAND,
 } from "./src/browser-node-commands.js";
+import { getBrowserStateRuntime } from "./src/browser-runtime-state.js";
 import { parseBrowserTabToolBinding } from "./src/browser-tool-binding.js";
 import { describeBrowserTool } from "./src/browser-tool-description.js";
 import {
@@ -33,7 +36,11 @@ import {
 } from "./src/browser-tool.schema.js";
 import { resolveBrowserConfig, resolveProfile } from "./src/browser/config.js";
 import { getBrowserProfileCapabilities } from "./src/browser/profile-capabilities.js";
-import { initializeBrowserSessionTabStore } from "./src/browser/session-tab-store.js";
+import {
+  initializeBrowserSessionTabStore,
+  readBrowserDashboardTabs,
+  readBrowserDashboardStopIntents,
+} from "./src/browser/session-tab-store.js";
 import {
   configureSystemProfileImportStateStore,
   type SystemProfileImportState,
@@ -245,6 +252,50 @@ export const browserSecurityAuditCollectors: OpenClawPluginSecurityAuditCollecto
 
 function createLazyBrowserPluginService(): OpenClawPluginService {
   let service: OpenClawPluginService | null = null;
+  let eventBinding:
+    | {
+        runtime: ReturnType<typeof getBrowserStateRuntime>;
+        events: NonNullable<Parameters<OpenClawPluginService["start"]>[0]["gatewayEvents"]>;
+      }
+    | undefined;
+  let unsubscribeBoardChanges: (() => void) | undefined;
+  let reconciliation: Promise<void> | undefined;
+  const pendingSessions = new Set<string>();
+  let stopping = false;
+  const releaseEvents = () => {
+    unsubscribeBoardChanges?.();
+    unsubscribeBoardChanges = undefined;
+    if (eventBinding && eventBinding.runtime.dashboardEvents === eventBinding.events) {
+      eventBinding.runtime.dashboardEvents = undefined;
+    }
+    eventBinding = undefined;
+  };
+  const reconcilePending = () => {
+    if (reconciliation || pendingSessions.size === 0) {
+      return;
+    }
+    reconciliation = (async () => {
+      const { reconcileBrowserDashboards } = await import("./src/browser-dashboard.js");
+      while (pendingSessions.size > 0) {
+        const sessionKeys = [...pendingSessions];
+        pendingSessions.clear();
+        await reconcileBrowserDashboards({
+          sessionKeys,
+          onWarn: (message) => logger.warn(message),
+        });
+      }
+    })()
+      .catch((error: unknown) => {
+        pendingSessions.clear();
+        logger.warn(`Browser dashboard reconciliation failed: ${String(error)}`);
+      })
+      .finally(() => {
+        reconciliation = undefined;
+        if (!stopping) {
+          reconcilePending();
+        }
+      });
+  };
   const loadService = async () => {
     if (!service) {
       const { createBrowserPluginService, stopBrowserControlService } =
@@ -261,6 +312,36 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
       configPrefixes: ["browser.enabled", "browser.evaluateEnabled", "browser.ssrfPolicy"],
     },
     start: async (ctx) => {
+      stopping = false;
+      releaseEvents();
+      if (ctx.gatewayEvents) {
+        const runtime = getBrowserStateRuntime();
+        const events = ctx.gatewayEvents;
+        eventBinding = { runtime, events };
+        runtime.dashboardEvents = events;
+        const onBoardChanged: Parameters<typeof events.onSessionsChanged>[0] = (event) => {
+          if (stopping || event.reason !== "board") {
+            return;
+          }
+          for (const dashboard of [
+            ...readBrowserDashboardTabs().map((tab) => tab.dashboard),
+            ...readBrowserDashboardStopIntents(),
+          ]) {
+            if (
+              dashboard &&
+              (dashboard.sessionKey === event.sessionKey ||
+                (event.agentId &&
+                  dashboard.agentId === normalizeAgentId(event.agentId) &&
+                  parseAgentSessionKey(dashboard.sessionKey)?.rest === event.sessionKey))
+            ) {
+              pendingSessions.add(dashboard.sessionKey);
+            }
+          }
+          reconcilePending();
+        };
+        // Board publishers run outside the service's instance-local runtime scope.
+        unsubscribeBoardChanges = events.onSessionsChanged(AsyncLocalStorage.bind(onBoardChanged));
+      }
       if (!isTruthyEnvValue(process.env[EAGER_BROWSER_CONTROL_SERVICE_ENV])) {
         return;
       }
@@ -268,6 +349,10 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
       await loaded.start(ctx);
     },
     stop: async (ctx) => {
+      stopping = true;
+      releaseEvents();
+      await reconciliation;
+      pendingSessions.clear();
       if (!service) {
         const loadedRuntime = loadBrowserRegistrationRuntimeModule.peek();
         if (!loadedRuntime) {
@@ -285,6 +370,45 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
 /** Register Browser tool factories, CLI, gateway methods, services, and audits. */
 export function registerBrowserPlugin(api: OpenClawPluginApi) {
   initializeBrowserSessionTabStore(api.runtime);
+  api.session.controls.registerControlUiDescriptor({
+    id: "dashboard",
+    surface: "widget",
+    label: "Browser",
+    description:
+      "An HTTP(S) dashboard shared with the agent's managed browser. Author with dashboard widget_put, then use the browser tool's dashboard selector to interact with that same page.",
+    requiredScopes: ["operator.admin"],
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["url"],
+      properties: {
+        url: {
+          type: "string",
+          maxLength: 4096,
+          description: "HTTP(S) website URL without embedded credentials",
+        },
+        profile: {
+          type: "string",
+          maxLength: 128,
+          description: "Local managed Browser profile; defaults to openclaw",
+        },
+      },
+    },
+  });
+  api.on("session_end", async (event) => {
+    if (
+      event.reason === "deleted" &&
+      event.sessionKey &&
+      (readBrowserDashboardTabs().some((tab) => tab.dashboard?.sessionKey === event.sessionKey) ||
+        readBrowserDashboardStopIntents().some((intent) => intent.sessionKey === event.sessionKey))
+    ) {
+      const { reconcileBrowserDashboards } = await import("./src/browser-dashboard.js");
+      await reconcileBrowserDashboards({
+        sessionKeys: [event.sessionKey],
+        onWarn: (message) => logger.warn(message),
+      });
+    }
+  });
   configureSystemProfileImportStateStore(
     api.runtime.state.openKeyedStore<SystemProfileImportState>({
       namespace: "browser.system-profile-import",

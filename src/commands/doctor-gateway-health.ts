@@ -39,6 +39,7 @@ import {
   gatewayProbeResultWasRateLimited,
 } from "./gateway-health-auth-diagnostic.js";
 import { formatGatewayClosedDiagnostic, formatHealthCheckFailure } from "./health-format.js";
+import { formatSqliteWalHealthWarning } from "./sqlite-wal-health.js";
 import { formatTelemetryExporterSummary } from "./telemetry-exporter-summary.js";
 
 type GatewayMemoryProbe = {
@@ -155,6 +156,13 @@ export async function checkGatewayHealth(params: {
     noteCliGatewayVersionSkew(status);
     if (status.startupMigrationWarning) {
       note(sanitizeTerminalText(status.startupMigrationWarning), "Startup migration warnings");
+    }
+    const sqliteWalWarning = formatSqliteWalHealthWarning(status.sqliteWal);
+    if (sqliteWalWarning) {
+      note(sqliteWalWarning, "SQLite WAL");
+    }
+    if (status.startupRecoveryWarning) {
+      note(sanitizeTerminalText(status.startupRecoveryWarning), "Startup session recovery");
     }
     const secretDegradations = projectDoctorSecretRuntimeDegradations(status);
     if (secretDegradations.length > 0) {

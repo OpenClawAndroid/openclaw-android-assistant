@@ -85,16 +85,33 @@ describe("withExtractedArchiveRoot", () => {
           manifest: await fs.readFile(path.join(rootDir, "package.json"), "utf8"),
         };
       });
-
-      await expect(
-        withExtractedArchiveRoot({
-          archivePath,
-          tempDirPrefix: "openclaw-plugin-",
-          timeoutMs: 1000,
-          rootMarkers: ["package.json"],
-          onExtracted,
-        }),
-      ).resolves.toEqual({ ok: true, manifest: '{"name":"example-plugin"}' });
+      let extractionSyncs = 0;
+      const originalOpen = fs.open;
+      const openSpy = vi.spyOn(fs, "open").mockImplementation(async (...args) => {
+        const handle = await originalOpen(...args);
+        if (String(args[0]).includes(`${path.sep}extract${path.sep}`)) {
+          const sync = handle.sync.bind(handle);
+          handle.sync = async () => {
+            extractionSyncs++;
+            await sync();
+          };
+        }
+        return handle;
+      });
+      try {
+        await expect(
+          withExtractedArchiveRoot({
+            archivePath,
+            tempDirPrefix: "openclaw-plugin-",
+            timeoutMs: 1000,
+            rootMarkers: ["package.json"],
+            onExtracted,
+          }),
+        ).resolves.toEqual({ ok: true, manifest: '{"name":"example-plugin"}' });
+      } finally {
+        openSpy.mockRestore();
+      }
+      expect(extractionSyncs).toBe(0);
       expect(onExtracted).toHaveBeenCalledOnce();
       await expect(fs.stat(workspace)).rejects.toMatchObject({ code: "ENOENT" });
     });

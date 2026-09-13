@@ -13,6 +13,7 @@ import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plug
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { resolveModelCandidateChain } from "./model-fallback-candidates.js";
+import { createModelFallbackConfig } from "./test-helpers/model-fallback-config-fixture.js";
 import { makeProviderModelFixture } from "./test-helpers/provider-model-fixture.js";
 
 describe("fallback candidates across provider generations", () => {
@@ -155,16 +156,10 @@ describe("fallback candidates across provider generations", () => {
       const requestedModel =
         origin === "requested" ? "latest" : origin === "configured-primary" ? "other" : "primary";
       const runtimeInput = manifestAlias ? "release" : "latest";
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            model: {
-              primary: `${provider}/${origin === "configured-primary" ? "latest" : "primary"}`,
-              fallbacks: origin === "configured-primary" ? [] : [`${provider}/latest`],
-            },
-          },
-        },
-      };
+      const cfg: OpenClawConfig = createModelFallbackConfig(
+        `${provider}/${origin === "configured-primary" ? "latest" : "primary"}`,
+        origin === "configured-primary" ? [] : [`${provider}/latest`],
+      );
       const metadataSnapshot = createPluginMetadataSnapshotFixture({
         plugins: [
           {
@@ -344,9 +339,7 @@ describe("fallback candidates across provider generations", () => {
 
   it("deduplicates the runtime-refined primary against an already resolved request", () => {
     const provider = "deduplicated-primary";
-    const cfg: OpenClawConfig = {
-      agents: { defaults: { model: { primary: `${provider}/latest`, fallbacks: [] } } },
-    };
+    const cfg: OpenClawConfig = createModelFallbackConfig(`${provider}/latest`, []);
     const metadataSnapshot = createPluginMetadataSnapshotFixture({
       plugins: [{ id: provider, providers: [provider] }],
     });

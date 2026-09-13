@@ -112,7 +112,10 @@ it.each(["config.changed", "chat.metadata.changed"])(
       expect(state.chatQueue).toBe(queue);
       expect(state.chatRunId).toBeNull();
       expect(catalogRequest.mock.calls).toHaveLength(4);
-      expect(invalidateSessions).toHaveBeenCalledTimes(2);
+      expect(invalidateSessions).not.toHaveBeenCalled();
+      expect(request.mock.calls.filter(([method]) => method === "sessions.describe")).toHaveLength(
+        2,
+      );
     } finally {
       retireChatMetadataRequests(state);
     }

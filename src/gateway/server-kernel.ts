@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { closePreparedModelRuntimeSnapshots } from "../agents/prepared-model-runtime.lifecycle.js";
 import { isNixMode, resolveIsConfigReadOnly } from "../config/paths.js";
 import { clearGatewayAgentCliShim } from "../infra/openclaw-cli-shim.js";
@@ -229,6 +230,9 @@ async function createGatewayKernelWithSdkHost(
       }),
     );
     lifecycleRuntime = preparedLifecycleRuntime;
+    // Retain teardown first. A timer turn lets I/O run before more cached imports.
+    await delay(0, undefined, { signal: runtime.connectionWork.signal });
+    runtime.connectionWork.signal.throwIfAborted();
     if (bootstrap.cfgAtStart.gateway?.tls?.enabled && !runtime.gatewayTls.enabled) {
       throw new Error(runtime.gatewayTls.error ?? "gateway tls: failed to enable");
     }

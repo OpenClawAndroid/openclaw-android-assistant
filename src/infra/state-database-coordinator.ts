@@ -3,8 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { MessageChannel, receiveMessageOnPort, type MessagePort } from "node:worker_threads";
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import type { MessagePort } from "node:worker_threads";
 import { resolvePathViaExistingAncestorSync } from "./boundary-path.js";
 import { sha256HexPrefixCore } from "./crypto-digest.js";
 import {
@@ -17,6 +16,12 @@ import {
   tryAcquireSharedSqliteCoordinator,
 } from "./sqlite-coordinator.js";
 import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
+import {
+  attachCoordinatorDelegate,
+  attachLifecycleCoordinatorDelegate,
+  createCoordinatorDelegate,
+  acquireDelegatedLifecycleCoordinator,
+} from "./state-database-coordinator-delegate.js";
 
 const heldCoordinators = new Map<
   string,
@@ -175,6 +180,12 @@ function acquireLifecycleCoordinator(
       runtimeDirectory: params.runtimeDirectory ?? resolveStateLifecycleRuntimeDirectory(),
       uid: params.uid ?? (typeof process.getuid === "function" ? process.getuid() : undefined),
     });
+  if (family === "state-lifecycle") {
+    const delegate = acquireDelegatedLifecycleCoordinator(coordinatorPath);
+    if (delegate) {
+      return delegate;
+    }
+  }
   let held = heldCoordinators.get(coordinatorPath);
   if (held) {
     if (held.references === 0) {
@@ -284,38 +295,16 @@ export function tryCreateGatewaySchemaFenceDelegate(params: GatewaySchemaFenceDe
   });
   Atomics.store(live, 0, 1);
   owner.gatewayDelegates.add(live);
-  let channel: MessageChannel | undefined;
-  try {
-    channel = new MessageChannel();
-    channel.port1.postMessage({ actorId: params.actorId, coordinatorPath, live: live.buffer });
-    channel.port1.unref();
-  } catch (error) {
-    Atomics.store(live, 0, 0);
-    owner.gatewayDelegates.delete(live);
-    channel?.port1.close();
-    channel?.port2.close();
-    return runWithSqliteCoordinator(retained, "Gateway schema delegate creation", () => {
-      throw error;
-    });
-  }
-  const { port1, port2 } = channel;
-  let revoked = false;
-  return {
-    port: port2,
-    get closed() {
-      return revoked && retained.closed;
+  return createCoordinatorDelegate(
+    { actorId: params.actorId, coordinatorPath },
+    live,
+    retained,
+    () => {
+      Atomics.store(live, 0, 0);
+      owner.gatewayDelegates.delete(live);
     },
-    release() {
-      if (!revoked) {
-        revoked = true;
-        Atomics.store(live, 0, 0);
-        owner.gatewayDelegates.delete(live);
-        port1.close();
-        port2.close();
-      }
-      retained.release();
-    },
-  };
+    "Gateway schema delegate",
+  );
 }
 
 /** Install before entering native SQLite; transaction callbacks remain synchronous. */
@@ -324,49 +313,20 @@ export async function attachGatewaySchemaFenceDelegate(
   params: GatewaySchemaFenceDelegateParams,
 ) {
   const coordinatorPath = resolveGatewaySchemaFencePath(params);
-  let closed = false;
-  port.once("close", () => {
-    closed = true;
-  });
-  const live = await new Promise<Int32Array>((resolve, reject) => {
-    const onClose = () => {
-      port.off("message", onMessage);
-      reject(new SqliteCoordinatorError("Gateway schema delegate closed before admission"));
-    };
-    const onMessage = (message: unknown) => {
-      port.off("message", onMessage);
-      port.off("close", onClose);
-      if (
-        !isRecord(message) ||
-        message.actorId !== params.actorId ||
-        message.coordinatorPath !== coordinatorPath ||
-        !(message.live instanceof SharedArrayBuffer) ||
-        message.live.byteLength !== Int32Array.BYTES_PER_ELEMENT
-      ) {
-        port.close();
-        reject(new SqliteCoordinatorError("Gateway schema delegate does not match its actor"));
-        return;
-      }
-      resolve(new Int32Array(message.live));
-    };
-    port.once("close", onClose);
-    port.once("message", onMessage);
-    const queued = receiveMessageOnPort(port);
-    if (queued) {
-      onMessage(queued.message);
-    }
-  });
-  port.unref();
+  const delegate = await attachCoordinatorDelegate(
+    port,
+    { actorId: params.actorId, coordinatorPath },
+    "Gateway schema delegate",
+  );
   return {
     run<T>(operation: () => T): T {
       const scope = {
         active: true,
         assertCurrent() {
-          if (closed || Atomics.load(live, 0) !== 1) {
-            throw new StateSchemaMutationConflictError(
-              params.databasePath,
-              new SqliteCoordinatorError("Gateway schema delegate is no longer current"),
-            );
+          try {
+            delegate.assertCurrent();
+          } catch (error) {
+            throw new StateSchemaMutationConflictError(params.databasePath, error);
           }
         },
       };
@@ -382,11 +342,46 @@ export async function attachGatewaySchemaFenceDelegate(
         () => gatewaySchemaScopes.run(scopes, operation),
       );
     },
-    close() {
-      closed = true;
-      port.close();
-    },
+    close: delegate.close,
   };
+}
+
+/** Each broker job retains its parent's physical lifecycle lease through settlement. */
+export function tryCreateStateLifecycleDelegate(
+  params: Pick<GatewaySchemaFenceDelegateParams, "databasePath" | "actorId">,
+) {
+  const coordinatorPath = resolveStateDatabaseCoordinatorPath({
+    databasePath: params.databasePath,
+    runtimeDirectory: resolveStateLifecycleRuntimeDirectory(),
+    uid: typeof process.getuid === "function" ? process.getuid() : undefined,
+  });
+  if (!heldCoordinators.has(coordinatorPath)) {
+    return undefined;
+  }
+  const retained = acquireStateDatabaseCoordinator({ databasePath: params.databasePath });
+  const live = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.store(live, 0, 1);
+  return createCoordinatorDelegate(
+    { actorId: params.actorId, coordinatorPath },
+    live,
+    retained,
+    () => {
+      Atomics.store(live, 0, 0);
+    },
+    "State lifecycle delegate",
+  );
+}
+
+export async function attachStateLifecycleDelegate(
+  port: MessagePort,
+  params: GatewaySchemaFenceDelegateParams,
+) {
+  const coordinatorPath = resolveStateDatabaseCoordinatorPath({
+    databasePath: params.databasePath,
+    runtimeDirectory: params.runtimeDirectory ?? resolveStateLifecycleRuntimeDirectory(),
+    uid: params.uid ?? (typeof process.getuid === "function" ? process.getuid() : undefined),
+  });
+  return attachLifecycleCoordinatorDelegate(port, { actorId: params.actorId, coordinatorPath });
 }
 
 /** Borrow only a coordinator already owned by this process. The returned

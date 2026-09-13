@@ -48,12 +48,14 @@ import {
   delegationFailedBeforeRunning,
 } from "../../scripts/check-changed.mts";
 import { resolveOxfmtInvocation } from "../../scripts/format-docs.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { cleanupTempDirs, makeTempDir as makeTempRepoRoot } from "../helpers/temp-dir.js";
 import { createNestedGitEnv } from "../helpers/temp-repo.js";
 import { materializeNativeCompiler } from "./native-boundary-fixture.js";
 
 const tempDirs: string[] = [];
 const repoRoot = process.cwd();
+const testNodeExecPath = resolveTestNodeExecPath();
 const githubActivityHelper = ".agents/skills/openclaw-pr-maintainer/scripts/github-activity.sh";
 const releaseNotesHelper =
   ".agents/skills/openclaw-changelog-update/scripts/verify-release-notes.mjs";
@@ -94,7 +96,7 @@ function parseChangedLaneOutput(output: string): ReturnType<typeof detectChanged
 
 function runChangedLanesCli(cwd: string, args: string[]) {
   return parseChangedLaneOutput(
-    execFileSync(process.execPath, [path.join(repoRoot, "scripts", "changed-lanes.mjs"), ...args], {
+    execFileSync(testNodeExecPath, [path.join(repoRoot, "scripts", "changed-lanes.mjs"), ...args], {
       cwd,
       encoding: "utf8",
       env: createNestedGitEnv(),
@@ -106,7 +108,7 @@ function runRepoScript(script: string, args: string[], env = createNestedGitEnv(
   const nodeArgs = script.endsWith(".mts")
     ? ["--import", "tsx", path.join(repoRoot, script), ...args]
     : [path.join(repoRoot, script), ...args];
-  return spawnSync(process.execPath, nodeArgs, {
+  return spawnSync(testNodeExecPath, nodeArgs, {
     cwd,
     encoding: "utf8",
     env,
@@ -198,7 +200,7 @@ function createRootTestLintFixture() {
   return {
     dir,
     run: (script: string, args: string[]) =>
-      spawnSync(process.execPath, [path.join(repoRoot, script), ...args], {
+      spawnSync(testNodeExecPath, [path.join(repoRoot, script), ...args], {
         cwd: dir,
         encoding: "utf8",
         env,
@@ -270,12 +272,12 @@ if (bin === "pnpm" && args[0] === ${JSON.stringify(failingCommand)}) {
     const launcher = path.join(binDir, bin);
     writeFileSync(
       launcher,
-      `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(childPath)} ${bin} "$@"\n`,
+      `#!/bin/sh\nexec ${quote(testNodeExecPath)} ${quote(childPath)} ${bin} "$@"\n`,
     );
     chmodSync(launcher, 0o755);
     writeFileSync(
       `${launcher}.cmd`,
-      `@echo off\r\n"${process.execPath}" "${childPath}" ${bin} %*\r\n`,
+      `@echo off\r\n"${testNodeExecPath}" "${childPath}" ${bin} %*\r\n`,
     );
   }
   const result = runRepoScript(
@@ -340,7 +342,7 @@ function classifyPackageJsonChange(
   writeRepoFile(dir, "package.json", typeof after === "string" ? after : prettyJson(after));
 
   const output = execFileSync(
-    process.execPath,
+    testNodeExecPath,
     [path.join(repoRoot, "scripts", "changed-lanes.mjs"), "--json", "--base", "HEAD"],
     { cwd: dir, encoding: "utf8", env: createNestedGitEnv() },
   );
@@ -399,7 +401,7 @@ describe("scripts/changed-lanes", () => {
     mkdirSync(binDir, { recursive: true });
     writeFileSync(path.join(binDir, "node"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
-    const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/check-changed.mjs")], {
+    const result = spawnSync(testNodeExecPath, [path.join(repoRoot, "scripts/check-changed.mjs")], {
       cwd: dir,
       encoding: "utf8",
       env: {
@@ -430,7 +432,7 @@ describe("scripts/changed-lanes", () => {
     writeFileSync(path.join(binDir, "node"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [path.join(repoRoot, "scripts/check-changed.mjs"), "--", "CHANGELOG.md"],
       {
         cwd: dir,
@@ -2812,7 +2814,7 @@ describe("scripts/changed-lanes", () => {
     git(dir, ["add", "package.json"]);
     expect(
       execFileSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--import",
           tsxImport,
@@ -2839,7 +2841,7 @@ describe("scripts/changed-lanes", () => {
     let failure: ExecFileSyncFailure | undefined;
     try {
       execFileSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--import",
           tsxImport,

@@ -873,7 +873,7 @@ export function registerBrowserManageCommands(
         }
         const msg = result.deleted
           ? `🦞 Deleted profile "${result.profile}" (user data removed)`
-          : `🦞 Deleted profile "${result.profile}" (no user data found)`;
+          : `🦞 Deleted profile "${result.profile}" (user data removal not confirmed)`;
         defaultRuntime.log(info(msg));
       });
     });

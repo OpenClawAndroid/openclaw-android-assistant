@@ -17,7 +17,7 @@ import {
   cleanupAgedMemoryReindexTempFiles,
   closeMemoryDatabase,
   openMemoryDatabaseAtPath,
-  publishMemoryDatabaseTables,
+  prepareMemoryDatabasePublication,
   readMemoryDatabaseRevision,
   MemoryIndexRevisionConflictError,
   resetMemoryDatabase,
@@ -34,6 +34,13 @@ function ensureTestMemorySchema(db: DatabaseSync, cacheEnabled = true, ftsEnable
 
 async function expectPathMissing(targetPath: string): Promise<void> {
   await expect(fs.access(targetPath)).rejects.toThrow("ENOENT");
+}
+
+async function publishPreparedMemoryDatabase(
+  params: Parameters<typeof prepareMemoryDatabasePublication>[0],
+): Promise<void> {
+  const publish = await prepareMemoryDatabasePublication(params);
+  publish();
 }
 
 describe("memory manager database publication", () => {
@@ -174,7 +181,7 @@ describe("memory manager database publication", () => {
         .run("new", 9, "when flying");
       sourceDb.close();
 
-      await publishMemoryDatabaseTables({
+      await publishPreparedMemoryDatabase({
         targetDb,
         sourcePath,
         sourceHasVectors: false,
@@ -209,7 +216,7 @@ describe("memory manager database publication", () => {
         .run("stale", "[]");
       sourceDb.close();
 
-      await publishMemoryDatabaseTables({
+      await publishPreparedMemoryDatabase({
         targetDb,
         sourcePath,
         sourceHasVectors: false,
@@ -261,7 +268,7 @@ describe("memory manager database publication", () => {
       const expectedRevision = readMemoryDatabaseRevision(targetDb);
       sourceDb.close();
 
-      await publishMemoryDatabaseTables({
+      await publishPreparedMemoryDatabase({
         targetDb,
         sourcePath,
         sourceHasVectors: false,
@@ -334,7 +341,7 @@ describe("memory manager database publication", () => {
       const expectedRevision = readMemoryDatabaseRevision(targetDb);
       sourceDb.close();
 
-      await publishMemoryDatabaseTables({
+      await publishPreparedMemoryDatabase({
         targetDb,
         sourcePath,
         sourceHasVectors: false,
@@ -408,7 +415,7 @@ describe("memory manager database publication", () => {
           return originalLoad(params);
         });
       try {
-        await publishMemoryDatabaseTables({
+        await publishPreparedMemoryDatabase({
           targetDb,
           sourcePath,
           sourceHasVectors: true,
@@ -461,7 +468,7 @@ describe("memory manager database publication", () => {
       concurrentDb.close();
       concurrentDb = undefined;
 
-      const publication = publishMemoryDatabaseTables({
+      const publication = publishPreparedMemoryDatabase({
         targetDb,
         sourcePath,
         sourceHasVectors: false,
@@ -510,7 +517,7 @@ describe("memory manager database publication", () => {
         .run("test", "model", "key", "shadow-hash", "[1]", 1, 2);
       sourceDb.close();
 
-      await publishMemoryDatabaseTables({
+      await publishPreparedMemoryDatabase({
         targetDb,
         sourcePath,
         sourceHasVectors: false,

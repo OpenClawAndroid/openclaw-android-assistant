@@ -1,4 +1,3 @@
-import { GatewayProtocolRequestTimeoutError } from "@openclaw/gateway-client/browser";
 import { describe, expect, it, vi } from "vitest";
 import type { ModelsListParams } from "../../../packages/gateway-protocol/src/index.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
@@ -103,7 +102,7 @@ describe("model catalog display cache", () => {
     );
   });
 
-  it("separates transport budgets while sharing the first successful projection", async () => {
+  it("separates caller budgets while sharing the first successful projection", async () => {
     const inherited = createDeferred<ModelCatalogResult>();
     const unbounded = createDeferred<ModelCatalogResult>();
     const bounded = createDeferred<ModelCatalogResult>();
@@ -122,11 +121,9 @@ describe("model catalog display cache", () => {
     const limited = loadModelCatalog(client, { ...scope, timeoutMs: 30_000 });
     const follower = loadModelCatalog(client, { ...scope, timeoutMs: 30_000 });
     expect(request).toHaveBeenCalledTimes(3);
-    expect(request.mock.calls.map(([, params, options]) => ({ params, options }))).toEqual([
-      { params: { view: "configured", agentId: "writer" }, options: undefined },
-      { params: { view: "configured", agentId: "writer" }, options: { timeoutMs: null } },
-      { params: { view: "configured", agentId: "writer" }, options: { timeoutMs: 30_000 } },
-    ]);
+    expect(request.mock.calls.map(([, params]) => params)).toEqual(
+      Array.from({ length: 3 }, () => ({ view: "configured", agentId: "writer" })),
+    );
     bounded.resolve({ models: [published] });
     expect(await Promise.all([limited, follower])).toEqual([
       { models: [published] },
@@ -174,9 +171,10 @@ describe("model catalog display cache", () => {
       clock.mockReturnValue(12_000);
       expect(peekModelCatalog(client, {})).toBeUndefined();
       const replacement = loadModelCatalog(client, { timeoutMs: null });
-      expect(request).toHaveBeenCalledTimes(3);
+      expect(request).toHaveBeenCalledTimes(2);
       stale.resolve({ models: [prepared] });
       await old;
+      await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
       expect(peekModelCatalog(client, {})).toBeUndefined();
       fresh.resolve({ models: [published] });
       expect(await replacement).toEqual({ models: [published] });
@@ -188,7 +186,7 @@ describe("model catalog display cache", () => {
     }
   });
 
-  it("retries a Gateway-timed-out budget without discarding another pending budget", async () => {
+  it("retries a failed request without discarding another pending budget", async () => {
     const unbounded = createDeferred<ModelCatalogResult>();
     const timeout = createDeferred<ModelCatalogResult>();
     const recovery = createDeferred<ModelCatalogResult>();
@@ -199,11 +197,7 @@ describe("model catalog display cache", () => {
     const client = createTestGatewayClient(request);
     const original = loadModelCatalog(client, { timeoutMs: null });
     const expired = loadModelCatalog(client, { timeoutMs: 30_000 });
-    const reason = new GatewayProtocolRequestTimeoutError({
-      method: "models.list",
-      timeoutMs: 30_000,
-      requestSent: true,
-    });
+    const reason = new Error("transport interrupted");
     const rejected = expect(expired).rejects.toBe(reason);
     timeout.reject(reason);
     await rejected;
@@ -333,9 +327,9 @@ describe("model catalog display cache", () => {
     async (kind) => {
       const partial = createDeferred<ModelCatalogResult>();
       const complete = createDeferred<ModelCatalogResult>();
-      const request = createGatewayRequestMock((_method, _params, options) =>
-        options?.timeoutMs === 30_000 ? complete.promise : partial.promise,
-      );
+      const request = createGatewayRequestMock()
+        .mockReturnValueOnce(kind === "newer ordinary" ? partial.promise : complete.promise)
+        .mockReturnValueOnce(kind === "newer ordinary" ? complete.promise : partial.promise);
       const client = createTestGatewayClient(request);
       const startComplete = () =>
         loadModelCatalog(client, {
@@ -416,14 +410,13 @@ describe("model catalog display cache", () => {
       const reason = new DOMException("Page retired", "AbortError");
       first.abort(reason);
       await expect(retired).rejects.toBe(reason);
-      expect(request.mock.calls[0]?.[2]?.signal?.aborted).toBe(false);
       pending.resolve({ models: [published] });
       expect(await active).toEqual({ models: [published] });
       expect(request).toHaveBeenCalledTimes(1);
     },
   );
 
-  it("replaces a flight immediately when its last consumer retires", async () => {
+  it("retires the last consumer immediately but waits for transport before replacing its flight", async () => {
     const stale = createDeferred<ModelCatalogResult>();
     const request = createGatewayRequestMock()
       .mockImplementationOnce(() => stale.promise)
@@ -433,11 +426,12 @@ describe("model catalog display cache", () => {
     const retired = loadModelCatalog(client, { signal: controller.signal });
     const rejected = expect(retired).rejects.toHaveProperty("name", "AbortError");
     controller.abort();
-    expect(await loadModelCatalog(client, {})).toEqual({ models: [published] });
     await rejected;
-    expect(request.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+    const replacement = loadModelCatalog(client, {});
+    expect(request).toHaveBeenCalledOnce();
     stale.resolve({ models: [prepared] });
-    await stale.promise;
+    expect(await replacement).toEqual({ models: [published] });
+    expect(request).toHaveBeenCalledTimes(2);
     expect(await loadModelCatalog(client, {})).toEqual({ models: [published] });
   });
 

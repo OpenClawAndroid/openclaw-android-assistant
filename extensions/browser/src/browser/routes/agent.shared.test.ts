@@ -74,6 +74,38 @@ function routeContextForTab(
 }
 
 describe("browser route shared helpers", () => {
+  it("does not interact after dashboard ownership changes during target resolution", async () => {
+    let ownerCurrent = true;
+    const ctx = routeContextForTab(
+      "https://example.com",
+      vi.fn(async () => {
+        ownerCurrent = false;
+        return { targetId: "tab-1", title: "Tab", url: "https://example.com", type: "page" };
+      }),
+    );
+    const response = createBrowserRouteResponse();
+    const run = vi.fn(async () => "mutated");
+    await withRouteTabContext({
+      req: {
+        params: {},
+        query: {},
+        assertCurrent: async () => {
+          if (!ownerCurrent) {
+            throw new Error("dashboard was removed");
+          }
+        },
+      },
+      res: response.res,
+      ctx,
+      targetId: "tab-1",
+      run,
+    });
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toMatchObject({
+      error: expect.stringContaining("dashboard was removed"),
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
   it("preserves structured browser errors on agent routes", () => {
     const response = createBrowserRouteResponse();
     const error = new BrowserProfileUnavailableError("display required", {

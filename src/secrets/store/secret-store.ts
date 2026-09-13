@@ -669,6 +669,13 @@ export function purgeExpiredSecretStoreEntries(
           db
             .selectFrom("secret_store_entries")
             .select(["scope_kind", "scope_id", "name", "created_at_ms"])
+            // Materialize only transient prefixes; the classifier below still owns exact names.
+            .where((eb) =>
+              eb.or([
+                eb("name", ">=", "github-device-").and("name", "<", "github-device."),
+                eb("name", ">=", "github-setup-").and("name", "<", "github-setup."),
+              ]),
+            )
             .where("deleted_at_ms", "is", null)
             .where("created_at_ms", "<=", Math.max(handoffThreshold, deviceThreshold)),
         ).rows.filter((row) => {

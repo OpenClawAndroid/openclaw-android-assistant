@@ -178,7 +178,7 @@ export const DEBUG_OVERLAY_SECTIONS: readonly DebugOverlaySectionDescriptor[] = 
         eventLoop: value.eventLoop,
         processMemory: value.processMemory,
         disks: systemInfo?.disks,
-        ...(typeof value.uptimeMs === "number" ? { uptimeMs: value.uptimeMs } : {}),
+        uptimeMs: systemInfo?.uptimeMs,
       } satisfies DebugOverlayStatusSnapshot;
     },
     render: renderStatus,

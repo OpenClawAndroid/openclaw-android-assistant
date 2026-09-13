@@ -37,6 +37,7 @@ import {
   runExclusiveSqliteSessionWrite,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
+import { withSqliteMutationWorkerLifetime } from "./session-accessor.sqlite-worker-request.js";
 import { readSessionColdStorageProtection } from "./session-cold-storage-eligibility.js";
 import { readSessionColdTranscript } from "./session-cold-storage-state.js";
 import type {
@@ -81,72 +82,79 @@ async function runColdMutation(
   plan: SessionColdMutationPlan,
   assertCurrent?: () => void,
 ): Promise<SessionColdMutationResult> {
-  const retained = await runExclusiveSqliteSessionWrite(
+  return await withSqliteMutationWorkerLifetime(
     plan.databaseOptions,
-    async () => {
-      assertCurrent?.();
-      return retainOpenClawAgentDatabaseReadOnly(plan.databaseOptions);
-    },
-    "session.reclamation.retain",
-  );
-  if (!retained.found) {
-    throw new Error("Cold transcript operation lost its owning database");
-  }
-  const { database, claim } = retained;
-  try {
-    const assertAllowed = () => {
-      claim.assertCurrent();
-      assertCurrent?.();
-    };
-    const commitGate = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
-    const diagnostics: SqliteSessionReclamationDiagnostics = { kind: plan.kind };
-    const [completed] = await withSqliteReclamationAuthorization(
-      commitGate,
-      database.db,
-      assertAllowed,
-      (authorize) =>
-        runSqliteTranscriptArchiveWorkerOperation<{
-          result: SessionColdMutationResult;
-          cleanupIncomplete?: boolean;
-        }>({
-          diagnostics,
-          expectedMessageType: "reclaimed",
-          validationOwner: { database, isCurrent: claim.isCurrent },
-          onCommitRequest: () => {
-            authorize();
-          },
-          withWriteAdmission: async (run, reclamationAdmission) =>
-            runExclusiveSqliteSessionWrite(
-              plan.databaseOptions,
-              async () => {
-                let refusal: { error: unknown } | undefined;
-                try {
-                  assertAllowed();
-                } catch (error) {
-                  refusal = { error };
-                }
-                await run(refusal);
-              },
-              "session.reclamation.worker-commit",
-              { ...diagnostics, reclamationAdmission },
-            ),
-          workerData: {
-            type: "sqlite-transcript-archive-v2",
-            operation: "cold-mutate",
-            plan,
-            commitGate,
-          } satisfies SessionColdWorkerData,
-        }),
-    );
-    if (!completed || completed.cleanupIncomplete) {
-      throw new Error(
-        "Cold transcript worker cleanup is incomplete; restart OpenClaw before another maintenance operation",
+    async ({ assertCurrent: assertRequestCurrent, commitGate }) => {
+      const retained = await runExclusiveSqliteSessionWrite(
+        plan.databaseOptions,
+        async () => {
+          assertRequestCurrent();
+          assertCurrent?.();
+          return retainOpenClawAgentDatabaseReadOnly(plan.databaseOptions);
+        },
+        "session.reclamation.retain",
       );
-    }
-    return completed.result;
-  } finally {
-    claim.release();
-  }
+      if (!retained.found) {
+        throw new Error("Cold transcript operation lost its owning database");
+      }
+      const { database, claim } = retained;
+      try {
+        const assertAllowed = () => {
+          claim.assertCurrent();
+          assertRequestCurrent();
+          assertCurrent?.();
+        };
+        const diagnostics: SqliteSessionReclamationDiagnostics = { kind: plan.kind };
+        const [completed] = await withSqliteReclamationAuthorization(
+          commitGate,
+          database.db,
+          assertAllowed,
+          (authorize) =>
+            runSqliteTranscriptArchiveWorkerOperation<{
+              result: SessionColdMutationResult;
+              cleanupIncomplete?: boolean;
+            }>({
+              diagnostics,
+              expectedMessageType: "reclaimed",
+              validationOwner: { database, isCurrent: claim.isCurrent },
+              onCommitRequest: () => {
+                authorize();
+              },
+              withWriteAdmission: async (run, reclamationAdmission) =>
+                runExclusiveSqliteSessionWrite(
+                  plan.databaseOptions,
+                  async () => {
+                    let refusal: { error: unknown } | undefined;
+                    try {
+                      assertAllowed();
+                    } catch (error) {
+                      refusal = { error };
+                    }
+                    await run(refusal);
+                  },
+                  "session.reclamation.worker-commit",
+                  { ...diagnostics, reclamationAdmission },
+                  "worker",
+                ),
+              workerData: {
+                type: "sqlite-transcript-archive-v2",
+                operation: "cold-mutate",
+                plan,
+                commitGate,
+              } satisfies SessionColdWorkerData,
+            }),
+        );
+        if (!completed || completed.cleanupIncomplete) {
+          throw new Error(
+            "Cold transcript worker cleanup is incomplete; restart OpenClaw before another maintenance operation",
+          );
+        }
+        return completed.result;
+      } finally {
+        claim.release();
+      }
+    },
+  );
 }
 
 type ColdBatchOptions = {

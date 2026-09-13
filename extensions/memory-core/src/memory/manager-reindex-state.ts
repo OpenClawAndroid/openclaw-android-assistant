@@ -4,11 +4,15 @@ import {
   MEMORY_CHUNKING_VERSION,
   normalizeExtraMemoryPathEntries,
   type MemoryExtraPath,
-  type MemoryIndexIdentityState,
+  type MemoryIndexIdentityState as HostMemoryIndexIdentityState,
   type MemorySource,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 
-export type { MemoryIndexIdentityState } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
+export type MemoryIndexIdentityState =
+  | Exclude<HostMemoryIndexIdentityState, { status: "mismatched"; owner: "openclaw" }>
+  | (Extract<HostMemoryIndexIdentityState, { status: "mismatched"; owner: "openclaw" }> & {
+      versionOrder: "older" | "newer";
+    });
 
 export type MemoryIndexMeta = {
   model: string;
@@ -99,8 +103,9 @@ function configuredMetaSourcesDiffer(params: {
 function openClawIndexMismatch(
   code: "provenance_version" | "chunking_version",
   reason: string,
+  versionOrder: "older" | "newer",
 ): MemoryIndexIdentityState {
-  return { status: "mismatched", reason, code, owner: "openclaw" };
+  return { status: "mismatched", reason, code, owner: "openclaw", versionOrder };
 }
 
 function configuredIndexMismatch(
@@ -168,11 +173,32 @@ export function resolveMemoryIndexIdentityState(params: {
       owner: "openclaw",
     };
   }
-  if (meta.provenanceVersion !== MEMORY_INDEX_PROVENANCE_VERSION) {
-    return openClawIndexMismatch("provenance_version", "index provenance classifier changed");
+  // A newer dimension wins over an older one: a rollback cannot rewrite that index.
+  if (
+    (meta.provenanceVersion ?? 0) > MEMORY_INDEX_PROVENANCE_VERSION ||
+    (meta.chunkingVersion ?? 0) > MEMORY_CHUNKING_VERSION
+  ) {
+    return openClawIndexMismatch(
+      (meta.provenanceVersion ?? 0) > MEMORY_INDEX_PROVENANCE_VERSION
+        ? "provenance_version"
+        : "chunking_version",
+      "the index was written by a newer OpenClaw version; upgrade OpenClaw or reindex explicitly",
+      "newer",
+    );
   }
-  if (meta.chunkingVersion !== MEMORY_CHUNKING_VERSION) {
-    return openClawIndexMismatch("chunking_version", "index chunking implementation changed");
+  if ((meta.provenanceVersion ?? 0) < MEMORY_INDEX_PROVENANCE_VERSION) {
+    return openClawIndexMismatch(
+      "provenance_version",
+      "index provenance classifier changed",
+      "older",
+    );
+  }
+  if ((meta.chunkingVersion ?? 0) < MEMORY_CHUNKING_VERSION) {
+    return openClawIndexMismatch(
+      "chunking_version",
+      "index chunking implementation changed",
+      "older",
+    );
   }
   const expectedModel =
     params.provider && params.provider.model === undefined

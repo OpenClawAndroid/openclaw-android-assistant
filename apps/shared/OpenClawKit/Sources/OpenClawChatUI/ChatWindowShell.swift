@@ -13,12 +13,13 @@ public struct OpenClawChatWindowShell: View {
     public nonisolated static let assistantToolActivityDefaultsKey = "openclaw.webchat.showAssistantToolActivity"
 
     @State private var viewModel: OpenClawChatViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @State private var sessionQuery = ""
     @State private var isConfirmingClearHistory = false
     @State private var isPresentingSessions = false
     @State private var isRenamingSession = false
     @State private var isPresentingNewSessionOptions = false
-    @State private var renameSessionKey: String?
+    @State private var renameSessionTarget: OpenClawChatSessionTarget?
     @State private var renameText = ""
     private let userAccent: Color?
     private let displayOptions: OpenClawChatDisplayOptions
@@ -58,14 +59,20 @@ public struct OpenClawChatWindowShell: View {
             ChatSessionSidebar(
                 viewModel: self.viewModel,
                 query: self.$sessionQuery)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
             OpenClawChatView(
                 viewModel: self.viewModel,
                 drawsBackground: false,
                 userAccent: self.userAccent,
                 displayOptions: self.displayOptions,
+                assistantName: self.viewModel.selectedAgent?.displayName,
+                assistantAvatarText: self.viewModel.selectedAgent?.emoji,
+                showsAssistantAvatars: false,
                 composerChrome: .clean,
+                messagePlaceholder: self.viewModel.selectedAgent.map {
+                    String(format: String(localized: "Message %@…"), $0.displayName)
+                },
                 emptyAssistantIntro: self.emptyAssistantIntro,
                 emptyAssistantPrompts: self.emptyAssistantPrompts,
                 talkControl: self.talkControl,
@@ -76,7 +83,9 @@ public struct OpenClawChatWindowShell: View {
                 .navigationTitle(self.activeSessionTitle)
                 .toolbar { self.detailToolbar }
                 .background(self.keyboardShortcutHandlers)
+                .background(OpenClawChatTheme.desktopCanvas(in: self.colorScheme))
         }
+        .task { await self.viewModel.refreshAgents() }
         .confirmationDialog(
             "Clear this thread's history?",
             isPresented: self.$isConfirmingClearHistory)
@@ -98,12 +107,15 @@ public struct OpenClawChatWindowShell: View {
         .alert(String(localized: "Rename Thread"), isPresented: self.$isRenamingSession) {
                 TextField(String(localized: "Thread name"), text: self.$renameText)
                 Button(String(localized: "Rename")) {
-                    guard let renameSessionKey else { return }
-                    self.viewModel.renameSession(key: renameSessionKey, label: self.renameText)
-                    self.renameSessionKey = nil
+                    guard let target = self.renameSessionTarget else { return }
+                    self.viewModel.renameSession(
+                        key: target.sessionKey,
+                        label: self.renameText,
+                        agentID: target.agentID)
+                    self.renameSessionTarget = nil
                 }
                 Button(String(localized: "Cancel"), role: .cancel) {
-                    self.renameSessionKey = nil
+                    self.renameSessionTarget = nil
                 }
             }
             .sheet(isPresented: self.$isPresentingSessions) {
@@ -179,15 +191,27 @@ public struct OpenClawChatWindowShell: View {
 
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
-        if OpenClawSessionColor(name: self.activeSessionEntry?.color) != nil {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 6) {
-                    OpenClawSessionColorDot(color: self.activeSessionEntry?.color)
+        ToolbarItem(placement: .principal) {
+            HStack(spacing: 8) {
+                if let agent = self.viewModel.selectedAgent {
+                    ChatSidebarAgentAvatar(agent: agent, size: 26)
+                }
+                VStack(alignment: .leading, spacing: 2) {
                     Text(self.activeSessionTitle)
-                        .font(OpenClawChatTypography.body.weight(.semibold))
-                        .lineLimit(1)
+                        .font(OpenClawChatTypography.body(size: 13, weight: .semibold, relativeTo: .headline))
+                    if let agent = self.viewModel.selectedAgent {
+                        Text(verbatim: agent.displayName)
+                            .font(OpenClawChatTypography.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .lineLimit(1)
+                if OpenClawSessionColor(name: self.activeSessionEntry?.color) != nil {
+                    OpenClawSessionColorDot(color: self.activeSessionEntry?.color)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
         }
         ToolbarItem(placement: .primaryAction) {
             self.sessionActionsMenu
@@ -227,7 +251,7 @@ public struct OpenClawChatWindowShell: View {
             Divider()
 
             Button {
-                self.renameSessionKey = self.activeSessionKey
+                self.renameSessionTarget = self.viewModel.currentSessionTarget
                 self.renameText = self.activeSessionEntry?.label ?? self.activeSessionTitle
                 self.isRenamingSession = true
             } label: {
@@ -237,7 +261,8 @@ public struct OpenClawChatWindowShell: View {
             }
 
             Button {
-                Task { await self.viewModel.forkSession(key: self.activeSessionKey) }
+                let target = self.viewModel.currentSessionTarget
+                Task { await self.viewModel.forkSession(key: target.sessionKey, agentID: target.agentID) }
             } label: {
                 chatWindowActionLabel(
                     LocalizedStringKey(
@@ -250,7 +275,8 @@ public struct OpenClawChatWindowShell: View {
             Button {
                 self.viewModel.setSessionPinned(
                     key: self.activeSessionKey,
-                    pinned: self.activeSessionEntry?.pinned != true)
+                    pinned: self.activeSessionEntry?.pinned != true,
+                    agentID: self.viewModel.currentSessionTarget.agentID)
             } label: {
                 chatWindowActionLabel(
                     LocalizedStringKey(self.activeSessionEntry?.pinned == true
@@ -262,7 +288,8 @@ public struct OpenClawChatWindowShell: View {
             Button {
                 self.viewModel.setSessionUnread(
                     key: self.activeSessionKey,
-                    unread: self.activeSessionEntry?.unread != true)
+                    unread: self.activeSessionEntry?.unread != true,
+                    agentID: self.viewModel.currentSessionTarget.agentID)
             } label: {
                 chatWindowActionLabel(
                     LocalizedStringKey(self.activeSessionEntry?.unread == true
@@ -274,7 +301,7 @@ public struct OpenClawChatWindowShell: View {
             if self.activeSessionEntry.map({
                 ChatSessionSidebarModel.canArchiveSession(
                     $0,
-                    mainSessionKey: self.viewModel.resolvedMainSessionKey)
+                    mainSessionKey: self.viewModel.selectedAgentMainSessionKey)
             }) == true {
                 Button {
                     if let activeSessionEntry = self.activeSessionEntry {
@@ -294,8 +321,13 @@ public struct OpenClawChatWindowShell: View {
             }
 
             OpenClawSessionColorMenu(color: self.activeSessionEntry?.color) { color in
-                let key = self.activeSessionKey
-                Task { await self.viewModel.setSessionColor(key: key, color: color) }
+                let target = self.viewModel.currentSessionTarget
+                Task {
+                    await self.viewModel.setSessionColor(
+                        key: target.sessionKey,
+                        color: color,
+                        agentID: target.agentID)
+                }
             }
 
             Divider()

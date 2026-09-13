@@ -1663,6 +1663,12 @@ struct DashboardGatewaysRequestTests {
             from: ["type": "reconnect", "id": "profile:studio"]) == .reconnect(.profile("studio")))
         #expect(DashboardWindowController.gatewaysRequest(
             from: ["type": "reconnect-cancel", "id": "profile:studio"]) == .reconnectCancel(.profile("studio")))
+        let attempt = UUID()
+        #expect(DashboardWindowController.gatewaysRequest(
+            from: ["type": "reconnect-browser", "id": "profile:studio", "attempt": attempt.uuidString])
+            == .reconnectBrowser(.profile("studio"), attempt))
+        #expect(DashboardWindowController.gatewaysRequest(
+            from: ["type": "reconnect-browser", "id": "profile:studio"]) == nil)
         #expect(DashboardWindowController.gatewaysRequest(
             from: ["type": "reconnect"]) == nil)
         #expect(DashboardWindowController.gatewaysRequest(

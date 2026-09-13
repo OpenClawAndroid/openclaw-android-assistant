@@ -179,10 +179,15 @@ export function resolveSessionArtifactCanonicalPathsForEntry(params: {
 }
 
 function resolveReferencedSessionArtifactPaths(params: {
+  files: readonly SessionsDirFileStat[];
   sessionsDir: string;
   store: Record<string, SessionEntry>;
 }): Set<string> {
   const referenced = new Set<string>();
+  // SQLite-only stores need no per-session path work without transcript artifacts.
+  if (!params.files.some((file) => isUnreferencedSessionArtifactFile(file, referenced))) {
+    return referenced;
+  }
   const resolvedSessionsDir = canonicalizePathForComparison(params.sessionsDir);
   for (const entry of Object.values(params.store)) {
     for (const resolved of resolveSessionArtifactCanonicalPathsForEntry({
@@ -436,22 +441,28 @@ export async function pruneUnreferencedSessionArtifacts(params: {
     [...files, ...promptBlobFiles].map((file) => [file.canonicalPath, file.size]),
   );
   const simulatedRemovedPaths = new Set<string>();
+  const now = Date.now();
+  const cutoffMs = now - olderThanMs;
+  const tempCutoffMs = now - SESSION_STORE_TEMP_STALE_MS;
+  const promptBlobCutoffMs = now - Math.max(olderThanMs, SESSION_PROMPT_BLOB_UNREFERENCED_GRACE_MS);
   const referencedPaths = resolveReferencedSessionArtifactPaths({
+    files: files.filter(
+      (file) => file.mtimeMs <= cutoffMs && !params.excludeCanonicalPaths?.has(file.canonicalPath),
+    ),
     sessionsDir,
     store: params.store,
   });
   // Prompt refs are projected through the persistence layer so inline snapshots and externalized
   // prompt blobs are judged against the bytes that would actually hit disk.
-  const projectedPromptBlobRefCounts = buildProjectedPromptBlobRefCounts(
-    projectSessionStoreForPersistence({
-      storePath: params.storePath,
-      store: params.store,
-    }).store,
-  );
-  const cutoffMs = Date.now() - olderThanMs;
-  const tempCutoffMs = Date.now() - SESSION_STORE_TEMP_STALE_MS;
-  const promptBlobCutoffMs =
-    Date.now() - Math.max(olderThanMs, SESSION_PROMPT_BLOB_UNREFERENCED_GRACE_MS);
+  const projectedPromptBlobRefCounts =
+    promptBlobFiles.length > 0
+      ? buildProjectedPromptBlobRefCounts(
+          projectSessionStoreForPersistence({
+            storePath: params.storePath,
+            store: params.store,
+          }).store,
+        )
+      : new Map<string, number>();
   const storeBasename = path.basename(params.storePath);
   const removableStoreFiles = files.filter((file) => {
     if (params.excludeCanonicalPaths?.has(file.canonicalPath)) {
@@ -619,6 +630,7 @@ export async function enforceSessionDiskBudget(params: {
   const commitEvictedIndex = params.commitEvictedIndex;
 
   const referencedPaths = resolveReferencedSessionArtifactPaths({
+    files,
     sessionsDir,
     store: params.store,
   });

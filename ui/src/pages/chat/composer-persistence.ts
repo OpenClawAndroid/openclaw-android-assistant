@@ -1093,18 +1093,37 @@ export class ChatComposerPersistence {
       this.persistSnapshot(state, snapshot);
       return;
     }
-    const baseline = this.snapshot(state, this.latestDraftRevision, this.committedDraftRevision);
-    const restoreRevision = this.forceDurableOwnerRestore ? 0 : this.latestDraftRevision;
     this.durablePersistence.restore(
-      {
-        scope,
-        latestRevision: restoreRevision,
-        signature: chatAttachmentDraftSignature(
-          state.chatMessage,
-          state.chatAttachments ?? [],
-          state.chatGoalDraftMode,
-          state.chatMentions,
-        ),
+      scope,
+      () => {
+        const baseline = this.snapshot(
+          state,
+          this.latestDraftRevision,
+          this.committedDraftRevision,
+        );
+        return {
+          latestRevision: this.forceDurableOwnerRestore ? 0 : this.latestDraftRevision,
+          signature: chatAttachmentDraftSignature(
+            state.chatMessage,
+            state.chatAttachments ?? [],
+            state.chatGoalDraftMode,
+            state.chatMentions,
+          ),
+          onCurrentWins: (storedRevision) => {
+            this.forceDurableOwnerRestore = false;
+            if (
+              baseline.durable &&
+              (state.chatMessage ||
+                state.chatGoalDraftMode ||
+                (state.chatAttachments?.length ?? 0) > 0)
+            ) {
+              this.durablePersistence.persist({
+                ...baseline.durable,
+                expectedRevision: storedRevision,
+              });
+            }
+          },
+        };
       },
       () => ({
         scope: this.resolveDurableScope(state),
@@ -1147,18 +1166,6 @@ export class ChatComposerPersistence {
           });
         }
         state.requestUpdate?.();
-      },
-      (storedRevision) => {
-        this.forceDurableOwnerRestore = false;
-        if (
-          baseline.durable &&
-          (state.chatMessage || state.chatGoalDraftMode || (state.chatAttachments?.length ?? 0) > 0)
-        ) {
-          this.durablePersistence.persist({
-            ...baseline.durable,
-            expectedRevision: storedRevision,
-          });
-        }
       },
     );
   }

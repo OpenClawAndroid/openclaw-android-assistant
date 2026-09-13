@@ -1,5 +1,6 @@
 import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   createAbortError,
   isAbortError,
@@ -77,10 +78,7 @@ describe("racePromiseWithAbortSignal", () => {
 
   it("rejects with the abort reason as cause without cancelling the source", async () => {
     const controller = new AbortController();
-    let resolveSource!: (value: string) => void;
-    const source = new Promise<string>((resolve) => {
-      resolveSource = resolve;
-    });
+    const { promise: source, resolve: resolveSource } = createDeferred<string>();
     const raced = racePromiseWithAbortSignal(source, controller.signal);
     const reason = new Error("caller stopped");
 

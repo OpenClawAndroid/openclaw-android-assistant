@@ -406,6 +406,21 @@ export async function searchVector(params: {
   return await searchFallback();
 }
 
+function resolveSnippetProjection(column: "text" | "c.text", snippetMaxChars: number) {
+  const snippetByteLimit =
+    Number.isSafeInteger(snippetMaxChars) && snippetMaxChars > 0 ? snippetMaxChars * 4 : undefined;
+  // Byte prefixes preserve NUL in UTF-8 and UTF-16 databases. Four bytes per
+  // UTF-16 unit leave final truncation to truncateUtf16Safe. SQLite returns
+  // NULL for an empty BLOB substring, so retain the original empty text.
+  return {
+    sql:
+      snippetByteLimit === undefined
+        ? column
+        : `COALESCE(CAST(substr(CAST(${column} AS BLOB), 1, ?) AS TEXT), ${column})`,
+    params: snippetByteLimit === undefined ? [] : [snippetByteLimit],
+  };
+}
+
 export async function searchChunksByEmbedding(params: {
   db: DatabaseSync;
   providerModel: string;
@@ -435,20 +450,9 @@ export async function searchChunksByEmbedding(params: {
     rowid: number | bigint;
     embedding: string;
   };
-  const snippetByteLimit =
-    Number.isSafeInteger(params.snippetMaxChars) && params.snippetMaxChars > 0
-      ? params.snippetMaxChars * 4
-      : undefined;
-  // Byte prefixes preserve NUL in UTF-8 and UTF-16 databases. Four bytes per
-  // UTF-16 unit leave final truncation to truncateUtf16Safe. SQLite returns
-  // NULL for an empty BLOB substring, so retain the original empty text.
-  const snippetSql =
-    snippetByteLimit === undefined
-      ? "text"
-      : "COALESCE(CAST(substr(CAST(text AS BLOB), 1, ?) AS TEXT), text)";
-  const snippetParams = snippetByteLimit === undefined ? [] : [snippetByteLimit];
+  const snippet = resolveSnippetProjection("text", params.snippetMaxChars);
   const payloadStmt = params.db.prepare(
-    `SELECT id, path, start_line, end_line, ${snippetSql} AS text, source FROM memory_index_chunks WHERE rowid = ?`,
+    `SELECT id, path, start_line, end_line, ${snippet.sql} AS text, source FROM memory_index_chunks WHERE rowid = ?`,
   );
   type ChunkPayload = {
     id: string;
@@ -481,7 +485,7 @@ export async function searchChunksByEmbedding(params: {
         // Hydrate contenders before yielding so an old score cannot acquire a
         // replacement chunk's payload.
         // SAFETY: these schema-defined columns belong to this rowid in the active read snapshot.
-        const payload = payloadStmt.get(...snippetParams, row.rowid) as ChunkPayload;
+        const payload = payloadStmt.get(...snippet.params, row.rowid) as ChunkPayload;
         const result: SearchRowResult = {
           id: payload.id,
           path: payload.path,
@@ -653,6 +657,7 @@ export async function searchPathKeyword(params: {
   if (params.limit <= 0) {
     return [];
   }
+  const snippet = resolveSnippetProjection("c.text", params.snippetMaxChars);
   const pathColumn = `${params.pathFtsTable}.path`;
   const pathPlans = planPathKeywordSearch({
     query: params.query,
@@ -723,7 +728,7 @@ export async function searchPathKeyword(params: {
           `   LIMIT ?\n` +
           `)\n` +
           `SELECT c.id, exact_paths.path, exact_paths.source,\n` +
-          `       c.start_line, c.end_line, c.text, exact_paths.exact_path_specificity\n` +
+          `       c.start_line, c.end_line, ${snippet.sql} AS text, exact_paths.exact_path_specificity\n` +
           `  FROM exact_paths\n` +
           `  JOIN memory_index_chunks c ON c.id = (\n` +
           `    SELECT candidate.id FROM memory_index_chunks candidate\n` +
@@ -735,7 +740,7 @@ export async function searchPathKeyword(params: {
           ` ORDER BY exact_paths.exact_path_specificity DESC,\n` +
           `          exact_paths.path ASC, exact_paths.source ASC`,
       )
-      .all(...candidateParams, exactPathQuery, exactPathLimit) as ExactPathRow[];
+      .all(...candidateParams, exactPathQuery, exactPathLimit, ...snippet.params) as ExactPathRow[];
   };
   const useLexicalExactCandidates =
     isAscii(exactPathQuery) && (plan.matchQuery !== null || plan.substringTerms.length > 0);
@@ -812,7 +817,7 @@ export async function searchPathKeyword(params: {
           `   LIMIT ?\n` +
           `)\n` +
           `SELECT c.id, retained_paths.path, retained_paths.source,\n` +
-          `       c.start_line, c.end_line, c.text, retained_paths.rank\n` +
+          `       c.start_line, c.end_line, ${snippet.sql} AS text, retained_paths.rank\n` +
           `  FROM retained_paths\n` +
           `  JOIN memory_index_chunks c ON c.id = (\n` +
           `    SELECT candidate.id FROM memory_index_chunks candidate\n` +
@@ -823,7 +828,7 @@ export async function searchPathKeyword(params: {
           `  )\n` +
           ` ORDER BY retained_paths.rank ASC, retained_paths.path ASC, retained_paths.source ASC`,
       )
-      .all(...queryParams, exactPathQuery, resultLimit) as PathLexicalRow[];
+      .all(...queryParams, exactPathQuery, resultLimit, ...snippet.params) as PathLexicalRow[];
   };
   const loadLexicalRows = (lexicalPlan: (typeof pathPlans)[number]) => {
     // Partition before LIMIT so an exact-filename flood cannot consume the

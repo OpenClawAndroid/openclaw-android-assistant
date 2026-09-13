@@ -137,7 +137,12 @@ export async function runDiscordVoiceAgentTurn(params: {
       fetchGuildName: params.fetchGuildName,
       speakerContext: params.speakerContext,
     }));
-  if (!context || context.isCurrent?.() === false) {
+  if (
+    !context ||
+    params.entry.captureOnly ||
+    params.entry.sessionLifecycle.status !== "active" ||
+    context.isCurrent?.() === false
+  ) {
     return null;
   }
   params.signal?.throwIfAborted();

@@ -34,6 +34,7 @@ import {
   SessionManager,
 } from "../../sessions/index.js";
 import { createAgentSessionForEmbeddedRunner } from "../../sessions/sdk.js";
+import { withSessionManagerWrite } from "../../sessions/session-manager-write-admission.js";
 import { wrapToolDefinition } from "../../sessions/tools/tool-definition-wrapper.js";
 import { resolveToolSearchCatalogTool } from "../../tool-search.js";
 import { runContextEngineMaintenance } from "../context-engine-maintenance.js";
@@ -421,26 +422,29 @@ export async function prepareEmbeddedAttemptSessionBoundary(input: {
     });
   const orphanRepair = reconciledCurrentUser ? undefined : orphanRepairCandidate;
   if (orphanRepair?.removeLeaf) {
-    input.abortSignal?.throwIfAborted();
-    if (orphanRepair.messageEntry.parentId) {
-      sessionManager.branch(orphanRepair.messageEntry.parentId);
-    } else {
-      sessionManager.resetLeaf();
-    }
-    const target = sessionManager.getSessionTarget();
-    if (target) {
-      // Commit the repaired cursor even when no metadata follows the orphan.
-      // Its owning attempt must settle the projection before the next append adopts it.
-      sessionManager.appendLeafControl({
-        targetId: sessionManager.getLeafId(),
-        appendParentId: sessionManager.getAppendParentId(),
-      });
-    }
-    replayTrailingEntriesForOrphanRepair(sessionManager, orphanRepair.trailingEntries);
-    if (target) {
+    const repairedTarget = await withSessionManagerWrite(sessionManager, () => {
+      input.abortSignal?.throwIfAborted();
+      if (orphanRepair.messageEntry.parentId) {
+        sessionManager.branch(orphanRepair.messageEntry.parentId);
+      } else {
+        sessionManager.resetLeaf();
+      }
+      const target = sessionManager.getSessionTarget();
+      if (target) {
+        // Commit the repaired cursor even when no metadata follows the orphan.
+        // Its owning attempt must settle the projection before the next append adopts it.
+        sessionManager.appendLeafControl({
+          targetId: sessionManager.getLeafId(),
+          appendParentId: sessionManager.getAppendParentId(),
+        });
+      }
+      replayTrailingEntriesForOrphanRepair(sessionManager, orphanRepair.trailingEntries);
+      return target;
+    });
+    if (repairedTarget) {
       const { waitForSessionTranscriptProjection } =
         await import("../../../config/sessions/session-transcript-reconcile.js");
-      await waitForSessionTranscriptProjection(target, input.abortSignal);
+      await waitForSessionTranscriptProjection(repairedTarget, input.abortSignal);
       input.abortSignal?.throwIfAborted();
     }
     // The old canonical user turn is gone. Its persistence suppression must not

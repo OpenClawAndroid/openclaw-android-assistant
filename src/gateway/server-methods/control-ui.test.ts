@@ -474,10 +474,7 @@ describe("controlUi.sessionPullRequests.subscribe", () => {
   });
 
   it("acknowledges a subscription before its cold snapshots finish loading", async () => {
-    let finishHydration!: () => void;
-    const hydration = new Promise<void>((resolve) => {
-      finishHydration = resolve;
-    });
+    const { promise: hydration, resolve: finishHydration } = createDeferred();
     const replace = vi.fn(() => hydration);
     const handlers = createControlUiHandlers(vi.fn());
     const respond = vi.fn<RespondFn>();

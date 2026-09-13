@@ -128,7 +128,11 @@ function parseComputerActPayload(value: unknown): ComputerActResult {
   }
 }
 
-function computerActIdempotencyKey(params: { scope?: string; toolCallId: string }): string {
+function computerActIdempotencyKey(params: {
+  scope?: string;
+  toolCallId: string;
+  purpose?: "follow-up-observation";
+}): string {
   const stableScope = params.scope?.trim();
   const stableCallId = params.toolCallId.trim();
   if (!stableScope || !stableCallId) {
@@ -136,10 +140,15 @@ function computerActIdempotencyKey(params: { scope?: string; toolCallId: string 
     // scope and provider/fallback id, avoid collapsing unrelated actions.
     return crypto.randomUUID();
   }
-  const digest = crypto
-    .createHash("sha256")
-    .update(JSON.stringify([stableScope, stableCallId, COMPUTER_ACT_COMMAND]))
-    .digest("hex");
+  const parts = [stableScope, stableCallId, COMPUTER_ACT_COMMAND];
+  if (params.purpose) {
+    parts.push(params.purpose);
+  }
+  const digest = crypto.createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+  // The automatic read shares a tool-call id with input, but must never replay its result.
+  if (params.purpose) {
+    return `computer.observation:v1:${digest}`;
+  }
   // `v1` versions this key's composition (scope + call id + command), not the
   // `computer.act` wire contract. Changing what goes into the digest needs a
   // new prefix so in-flight keys from an older node cannot collide.
@@ -482,6 +491,7 @@ export class ComputerToolSession {
     resolved: ResolvedComputerTarget;
     wireParams: ComputerActParams;
     toolCallId: string;
+    purpose?: "follow-up-observation";
     signal?: AbortSignal;
   }): Promise<ComputerActResult> {
     this.assertOpen();
@@ -518,6 +528,10 @@ export class ComputerToolSession {
       }
     }
     this.prepareScreenshotTarget(params.resolved.target);
+    if (params.purpose === "follow-up-observation") {
+      // Input may have changed the window. A failed refresh must not leave its old refs usable.
+      this.observationState = undefined;
+    }
     if (params.wireParams.action === "left_mouse_down") {
       this.heldButtonTarget = params.resolved.target;
     }
@@ -532,6 +546,7 @@ export class ComputerToolSession {
           idempotencyKey: computerActIdempotencyKey({
             scope: this.options.idempotencyScope,
             toolCallId: params.toolCallId,
+            purpose: params.purpose,
           }),
           signal: params.signal,
         }),

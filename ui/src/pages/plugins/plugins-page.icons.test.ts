@@ -2,6 +2,7 @@
 
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { i18n } from "../../i18n/index.ts";
 import type { PluginDiscoveryEntry, PluginListResult } from "../../lib/plugins/index.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
@@ -16,7 +17,6 @@ import {
   createPluginsRouteData,
   createPluginsRouteLocation,
   createResult,
-  deferred,
   mountPage,
   resetPluginsPageTestState,
 } from "./plugins-page.test-support.ts";

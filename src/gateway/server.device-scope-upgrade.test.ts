@@ -4,6 +4,7 @@ import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
 } from "../../packages/gateway-protocol/src/client-info.js";
+import { createDeferred } from "../../test/helpers/promise.js";
 import * as devicePairing from "../infra/device-pairing.js";
 import {
   issueOperatorToken,
@@ -273,10 +274,7 @@ describe("live device scope upgrade", () => {
   test("coalesces concurrent waits for the same device request", async () => {
     const limited = await openLimitedDevice("live-scope-upgrade-concurrent-waits");
     const readPending = devicePairing.getPendingDevicePairing;
-    let releaseRead = () => {};
-    const readGate = new Promise<void>((resolve) => {
-      releaseRead = resolve;
-    });
+    const { promise: readGate, resolve: releaseRead } = createDeferred();
     const pendingSpy = vi
       .spyOn(devicePairing, "getPendingDevicePairing")
       .mockImplementation(async (...args) => {

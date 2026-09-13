@@ -477,10 +477,7 @@ describe("node duplex message framing", () => {
     const maxMessageBytes = 64 * 1024 * 1024;
     const maxOutstandingDeliveryBytes = maxMessageBytes + 2 * 1024 * 1024;
     const received: Uint8Array[] = [];
-    let finishDeliveries: (() => void) | undefined;
-    const deliveriesFinished = new Promise<void>((resolve) => {
-      finishDeliveries = resolve;
-    });
+    const { promise: deliveriesFinished, resolve: finishDeliveries } = createDeferred();
     const receiver = createNodeDuplexEndpoint({
       sendFrame: () => {},
       maxMessageBytes,
@@ -531,10 +528,7 @@ describe("node duplex message framing", () => {
   it.each(["immediate", "buffered"] as const)(
     "drains an asynchronous %s listener before allowing invocation completion",
     async (delivery) => {
-      let finishListener: (() => void) | undefined;
-      const listenerFinished = new Promise<void>((resolve) => {
-        finishListener = resolve;
-      });
+      const { promise: listenerFinished, resolve: finishListener } = createDeferred();
       const endpoint = createNodeDuplexEndpoint({ sendFrame: () => {} });
       if (delivery === "buffered") {
         endpoint.receive(dataFrame());
@@ -585,10 +579,7 @@ describe("node duplex message framing", () => {
   });
 
   it("preserves the original asynchronous listener failure while draining", async () => {
-    let rejectListener: ((error: Error) => void) | undefined;
-    const listenerFinished = new Promise<void>((_resolve, reject) => {
-      rejectListener = reject;
-    });
+    const { promise: listenerFinished, reject: rejectListener } = createDeferred();
     const failure = new Error("asynchronous drain listener exploded");
     const onError = vi.fn();
     const endpoint = createNodeDuplexEndpoint({ sendFrame: () => {}, onError });
@@ -632,10 +623,7 @@ describe("node duplex message framing", () => {
   it.each(["message", "ready"] as const)(
     "rejects %s when the endpoint closes during its final transport await",
     async (operation) => {
-      let releaseTransport: (() => void) | undefined;
-      const transportReleased = new Promise<void>((resolve) => {
-        releaseTransport = resolve;
-      });
+      const { promise: transportReleased, resolve: releaseTransport } = createDeferred();
       const endpoint = createNodeDuplexEndpoint({
         async sendFrame() {
           await transportReleased;

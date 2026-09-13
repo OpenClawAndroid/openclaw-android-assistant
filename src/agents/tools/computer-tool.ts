@@ -234,8 +234,37 @@ export function createComputerTool(options?: {
           session.recordObservation(resolved, actResult, projected.imageCoordinates);
           return projected.result;
         }
+        // Browser preparation can launch a different window; its old native target is not an after-image.
+        const windowRef = "windowRef" in wireParams ? wireParams.windowRef : undefined;
+        const observeWindow =
+          windowRef &&
+          action !== "browser_prepare" &&
+          resolved.capabilities?.actions.includes("get_window_state");
         try {
           await sleep(AFTER_ACTION_SCREENSHOT_DELAY_MS, signal);
+          if (observeWindow) {
+            const observation = await session.invokeComputerAct({
+              resolved,
+              wireParams: { action: "get_window_state", executionId, windowRef },
+              toolCallId,
+              purpose: "follow-up-observation",
+              signal,
+            });
+            if (!observation.ok || !observation.observation?.observationId) {
+              throw new Error(computerActResultText("get_window_state", observation));
+            }
+            session.setTarget(resolved.target);
+            const projected = await projectComputerActResult({
+              result: observation,
+              precedingAction: { action, result: actResult },
+              target: resolved.target,
+              action: "get_window_state",
+              referenceWidth,
+              modelHasVision: options?.modelHasVision,
+            });
+            session.recordObservation(resolved, observation, projected.imageCoordinates);
+            return projected.result;
+          }
           return await captureAndDeliverScreenshot({
             noteLines: [computerActResultText(action, actResult)],
             resolved,
@@ -246,12 +275,12 @@ export function createComputerTool(options?: {
         } catch (err) {
           session.setTarget(resolved.target);
           signal?.throwIfAborted();
-          // Input landed; a failed follow-up screenshot should not fail the action.
+          // Input landed; a failed follow-up observation should not fail the action.
           return {
             content: [
               {
                 type: "text",
-                text: `${computerActResultText(action, actResult)}\nfollow-up screenshot failed: ${formatErrorMessage(err)}`,
+                text: `${computerActResultText(action, actResult)}\nfollow-up ${observeWindow ? "observation" : "screenshot"} failed: ${formatErrorMessage(err)}`,
               },
             ],
             details: {

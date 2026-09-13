@@ -84,7 +84,9 @@ describe("subagent registry scoped reads", () => {
     mocks.getSubagentSessionListRunsSnapshotForRead.mockReset().mockReturnValue(new Map());
     mocks.getSubagentRunsSnapshotForChildSession.mockReset().mockReturnValue(new Map());
     mocks.getSubagentRunsSnapshotForController.mockReset().mockReturnValue(new Map());
-    mocks.getSubagentRunsSnapshotForRead.mockClear();
+    mocks.getSubagentRunsSnapshotForRead.mockReset().mockImplementation(() => {
+      throw new Error("unexpected full registry hydration");
+    });
     mod = await import("./subagent-registry-read.js");
   });
 
@@ -115,6 +117,46 @@ describe("subagent registry scoped reads", () => {
     expect(mocks.getSubagentRunsForChildSession).toHaveBeenCalledWith(childSessionKey);
     expect(mocks.getSubagentRunsSnapshotForChildSession).not.toHaveBeenCalled();
   });
+
+  it.each(["requester", "completion"] as const)(
+    "reads %s announcement facts from the child snapshot without full hydration",
+    (kind) => {
+      const childSessionKey = "agent:main:subagent:child";
+      const older = createRun({ runId: "older", childSessionKey, generation: 1, createdAt: 200 });
+      const latest = createRun({
+        runId: "latest",
+        childSessionKey,
+        generation: 2,
+        createdAt: 100,
+        requesterSessionKey: "agent:main:requester",
+        requesterAgentId: "main",
+        requesterOrigin: { channel: "discord", to: " room " },
+        execution: { status: "terminal", endedAt: 300 },
+        cleanupCompletedAt: 400,
+      });
+      mocks.getSubagentRunsSnapshotForChildSession.mockReturnValue(
+        new Map([
+          [older.runId, older],
+          [latest.runId, latest],
+        ]),
+      );
+
+      if (kind === "requester") {
+        expect(mod.resolveRequesterForChildSession(childSessionKey)).toEqual({
+          requesterSessionKey: "agent:main:requester",
+          requesterAgentId: "main",
+          requesterOrigin: { channel: "discord", to: "room" },
+        });
+      } else {
+        expect(mod.shouldIgnorePostCompletionAnnounceForSession(childSessionKey)).toBe(true);
+      }
+      expect(mocks.getSubagentRunsSnapshotForChildSession).toHaveBeenCalledWith(
+        mocks.liveRuns,
+        childSessionKey,
+      );
+      expect(mocks.getSubagentRunsSnapshotForRead).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses the controller snapshot while retaining legacy requester-owned runs", () => {
     const controllerSessionKey = "agent:main:controller";
@@ -237,7 +279,7 @@ describe("subagent registry scoped reads", () => {
     mocks.getSubagentRunsSnapshotForChildSession.mockReturnValue(childSnapshot);
     mocks.getSubagentRunsSnapshotForController.mockReturnValue(controllerSnapshot);
 
-    const requester = resolveRequesterForChildSessionFromRuns(snapshot, reusedChild);
+    const requester = resolveRequesterForChildSessionFromRuns(childSnapshot, reusedChild);
     const cases = [
       {
         name: "full snapshot index",
@@ -315,7 +357,7 @@ describe("subagent registry scoped reads", () => {
         expected: listRunsForRequesterFromRuns(mocks.liveRuns, root),
       },
       {
-        name: "requester resolution from full snapshot",
+        name: "requester resolution from child snapshot",
         actual: mod.resolveRequesterForChildSession(reusedChild),
         expected: requester
           ? {
@@ -325,9 +367,9 @@ describe("subagent registry scoped reads", () => {
           : null,
       },
       {
-        name: "post-completion ignore from full snapshot",
+        name: "post-completion ignore from child snapshot",
         actual: mod.shouldIgnorePostCompletionAnnounceForSession(reusedChild),
-        expected: shouldIgnorePostCompletionAnnounceForSessionFromRuns(snapshot, reusedChild),
+        expected: shouldIgnorePostCompletionAnnounceForSessionFromRuns(childSnapshot, reusedChild),
       },
     ];
 

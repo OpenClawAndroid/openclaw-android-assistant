@@ -17,6 +17,23 @@ export function notifyChatAbortControllerRemoved(entry: object): void {
   }
 }
 
+/** Cancellation acknowledgement joins the terminal write, including a settled failure. */
+export async function waitForChatAbortTerminalPersistence(entry: {
+  projectSessionTerminalPending?: boolean;
+  projectSessionTerminalPersistence?: Promise<void>;
+}): Promise<void> {
+  const persistence = entry.projectSessionTerminalPersistence;
+  if (persistence) {
+    await persistence;
+  }
+  if (terminalPersistenceErrorByEntry.has(entry)) {
+    throw terminalPersistenceErrorByEntry.get(entry);
+  }
+  if (!persistence && entry.projectSessionTerminalPending === true) {
+    throw new Error("Session cancellation has no terminal persistence owner");
+  }
+}
+
 /** Waits for captured run registrations and their terminal persistence owner to leave. */
 export async function waitForChatAbortControllerRemoval<
   TEntry extends {

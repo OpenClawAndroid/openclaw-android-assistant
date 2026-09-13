@@ -555,7 +555,7 @@ export function readSqliteTranscriptStoreBatches<T>(
 
 export function toDatabaseOptions(
   scope: Pick<ResolvedSqliteReadScope, "agentId" | "databaseAgentId" | "env" | "path">,
-): OpenClawAgentDatabaseOptions {
+): OpenClawAgentDatabaseOptions & { agentId: string } {
   return {
     agentId: scope.databaseAgentId ?? scope.agentId,
     ...(scope.env ? { env: scope.env } : {}),

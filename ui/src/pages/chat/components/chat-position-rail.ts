@@ -15,6 +15,7 @@ import { resolveMessageDisplayMarkdown } from "./chat-message-text.ts";
 import type { ChatTranscriptSession } from "./chat-transcript-session.ts";
 
 const PREVIEW_LENGTH = 140;
+const MESSAGE_SELECTOR = ".chat-bubble[data-entry-id]";
 
 type RailInteraction = {
   hoveredId: string | null;
@@ -125,15 +126,25 @@ class ChatPositionRailDirective extends AsyncDirective {
         { root, rootMargin: `0px 0px -${underlap}px 0px`, threshold: [0, Number.EPSILON, 1] },
       );
       // Virtualization replaces message nodes without replacing the rail.
+      // Streaming descendants keep the same observed bubble targets.
       this.mutationObserver = new MutationObserver((records, observer) => {
         if (observer !== this.mutationObserver) {
           return;
         }
         if (
-          records.some(
-            (record) =>
-              !(record.target instanceof Element) || !record.target.closest(".chat-position-rail"),
-          )
+          records.some((record) => {
+            if (record.target instanceof Element && record.target.closest(".chat-position-rail")) {
+              return false;
+            }
+            return (
+              record.type === "attributes" ||
+              [...record.addedNodes, ...record.removedNodes].some(
+                (node) =>
+                  node instanceof Element &&
+                  (node.matches(MESSAGE_SELECTOR) || node.querySelector(MESSAGE_SELECTOR)),
+              )
+            );
+          })
         ) {
           this.targetsChanged = true;
           this.scheduleLayout();
@@ -151,7 +162,7 @@ class ChatPositionRailDirective extends AsyncDirective {
       return;
     }
     this.targetsChanged = false;
-    const targets = new Set(root.querySelectorAll(".chat-bubble[data-entry-id]"));
+    const targets = new Set(root.querySelectorAll(MESSAGE_SELECTOR));
     for (const [element, message] of this.observedMessages) {
       if (
         !targets.has(element) ||

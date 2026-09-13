@@ -72,13 +72,20 @@ function rejectCommit(shared: Int32Array): void {
   Atomics.notify(shared, 0);
 }
 
+/** Revoke a pending request before a synchronous native close can wait on its writer lock. */
+export function revokeSqliteReclamationCommit(buffer: SharedArrayBuffer): void {
+  rejectCommit(new Int32Array(buffer));
+}
+
 /** Called by the Worker while its deletion transaction still owns the writer lock. */
 export function waitForSqliteReclamationCommit(
   buffer: SharedArrayBuffer,
   request: () => void,
 ): void {
   const shared = new Int32Array(buffer);
-  Atomics.store(shared, 0, REQUESTED);
+  if (Atomics.compareExchange(shared, 0, WAITING, REQUESTED) !== WAITING) {
+    throw new Error("SQLite session reclamation commit was revoked");
+  }
   request();
   Atomics.wait(shared, 0, REQUESTED, COMMIT_DECISION_TIMEOUT_MS);
   if (Atomics.compareExchange(shared, 0, APPROVED, COMMITTING) !== APPROVED) {

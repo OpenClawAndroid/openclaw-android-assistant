@@ -24,10 +24,12 @@ import {
   validateClawHubBootstrapEvidence,
   verifyBetaRelease,
 } from "../../scripts/lib/release-beta-verifier.ts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { writePublishablePluginFixture } from "../helpers/publishable-plugin-fixture.js";
 import { createTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = createTempDirTracker();
+const testNodeExecPath = resolveTestNodeExecPath();
 type CommandError = Error & {
   code?: string;
   signal?: NodeJS.Signals;
@@ -145,7 +147,7 @@ describe("verifyBetaRelease workflow outcomes", () => {
       ...overrides,
     };
     writeFileSync(join(binDir, "run.json"), JSON.stringify(run));
-    const command = `#!${process.execPath}
+    const command = `#!${testNodeExecPath}
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -218,7 +220,7 @@ if (path.basename(process.argv[1]) === "npm" && args[0] === "view") {
       `const delay = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => delay(fn, 0, ...args);\n${preload}`,
     );
     return spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         resolve("node_modules/tsx/dist/loader.mjs"),
@@ -1347,7 +1349,7 @@ describe("runNpmViewWithRetry", () => {
         calls += 1;
         try {
           return runReleaseVerifierCommand(
-            process.execPath,
+            testNodeExecPath,
             ["-e", "process.stdout.write(String(process.pid)); setInterval(() => {}, 1000)"],
             { timeoutMs: 5_000 },
           );
@@ -1370,7 +1372,7 @@ describe("runNpmViewWithRetry", () => {
 describe("runReleaseVerifierCommand", () => {
   it("trims successful captured output", () => {
     expect(
-      runReleaseVerifierCommand(process.execPath, [
+      runReleaseVerifierCommand(testNodeExecPath, [
         "-e",
         'process.stdout.write("  release ready  \\n")',
       ]),
@@ -1379,7 +1381,7 @@ describe("runReleaseVerifierCommand", () => {
 
   it("preserves stdout and stderr when a command exits nonzero", () => {
     const error = captureCommandError(() =>
-      runReleaseVerifierCommand(process.execPath, [
+      runReleaseVerifierCommand(testNodeExecPath, [
         "-e",
         'process.stdout.write("partial output"); process.stderr.write("failure detail"); process.exit(7)',
       ]),
@@ -1392,7 +1394,7 @@ describe("runReleaseVerifierCommand", () => {
   it("fails when captured output exceeds the command buffer", () => {
     const error = captureCommandError(() =>
       runReleaseVerifierCommand(
-        process.execPath,
+        testNodeExecPath,
         ["-e", 'process.stdout.write("x".repeat(4096))'],
         { maxBufferBytes: 64 },
       ),

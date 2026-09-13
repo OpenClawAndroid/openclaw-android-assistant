@@ -215,19 +215,15 @@ function replaceMemoryPathFtsTable(db: DatabaseSync): void {
   );
 }
 
-/** Publish a completed shadow memory index without replacing the shared agent database file. */
-export async function publishMemoryDatabaseTables(params: {
+/** Prepare a shadow publication; its caller admits the synchronous commit on the borrowed owner. */
+export async function prepareMemoryDatabasePublication(params: {
   targetDb: DatabaseSync;
   sourcePath: string;
   metaKey: string;
   expectedRevision: number;
   sourceHasVectors: boolean;
   vectorExtensionPath?: string;
-}): Promise<void> {
-  ensureMemoryRecallMetadataSchema(params.targetDb);
-  // Existing pre-provenance databases lack the provenance table the publish
-  // below writes to; ensure it (idempotent) alongside the recall columns.
-  ensureMemoryChunkProvenance(params.targetDb);
+}): Promise<() => void> {
   if (params.sourceHasVectors && !hasSqliteVecExtension(params.targetDb)) {
     const loaded = await loadSqliteVecExtension({
       db: params.targetDb,
@@ -240,37 +236,40 @@ export async function publishMemoryDatabaseTables(params: {
       );
     }
   }
-  // The target can be shared with sessions and other managers. Never leave an
-  // attached shadow on it across an await or outside the synchronous publication.
-  params.targetDb.prepare(`ATTACH DATABASE ? AS ${MEMORY_REINDEX_SCHEMA}`).run(params.sourcePath);
-  try {
-    runSqliteImmediateTransactionSync(params.targetDb, () => {
-      const liveRevision = readMemoryDatabaseRevision(params.targetDb);
-      if (liveRevision !== params.expectedRevision) {
-        throw new MemoryIndexRevisionConflictError(
-          `Memory index changed while full reindex was building ` +
-            `(expected revision ${params.expectedRevision}, found ${liveRevision}); retry the full reindex.`,
+  return () => {
+    ensureMemoryRecallMetadataSchema(params.targetDb);
+    // Existing pre-provenance databases need this before the publication writes it.
+    ensureMemoryChunkProvenance(params.targetDb);
+    // Admission precedes ATTACH; no shadow attachment or transaction crosses an await.
+    params.targetDb.prepare(`ATTACH DATABASE ? AS ${MEMORY_REINDEX_SCHEMA}`).run(params.sourcePath);
+    try {
+      runSqliteImmediateTransactionSync(params.targetDb, () => {
+        const liveRevision = readMemoryDatabaseRevision(params.targetDb);
+        if (liveRevision !== params.expectedRevision) {
+          throw new MemoryIndexRevisionConflictError(
+            `Memory index changed while full reindex was building ` +
+              `(expected revision ${params.expectedRevision}, found ${liveRevision}); retry the full reindex.`,
+          );
+        }
+        const publishesPathFts = tableExists(
+          params.targetDb,
+          MEMORY_REINDEX_SCHEMA,
+          MEMORY_INDEX_PATHS_FTS_TABLE,
         );
-      }
-      const publishesPathFts = tableExists(
-        params.targetDb,
-        MEMORY_REINDEX_SCHEMA,
-        MEMORY_INDEX_PATHS_FTS_TABLE,
-      );
-      // Bulk source replacement must not fire one FTS5 scan per old row.
-      // Restore the schema-owned triggers only after the derived table is replaced.
-      dropMemoryPathFtsTriggers(params.targetDb);
-      params.targetDb
-        .prepare("DELETE FROM main.memory_index_meta WHERE key = ?")
-        .run(params.metaKey);
-      params.targetDb
-        .prepare(
-          `INSERT INTO main.memory_index_meta (key, value)
+        // Bulk source replacement must not fire one FTS5 scan per old row.
+        // Restore the schema-owned triggers only after the derived table is replaced.
+        dropMemoryPathFtsTriggers(params.targetDb);
+        params.targetDb
+          .prepare("DELETE FROM main.memory_index_meta WHERE key = ?")
+          .run(params.metaKey);
+        params.targetDb
+          .prepare(
+            `INSERT INTO main.memory_index_meta (key, value)
            SELECT key, value FROM ${MEMORY_REINDEX_SCHEMA}.memory_index_meta WHERE key = ?`,
-        )
-        .run(params.metaKey);
+          )
+          .run(params.metaKey);
 
-      params.targetDb.exec(`
+        params.targetDb.exec(`
         DELETE FROM main.memory_index_sources;
         INSERT INTO main.memory_index_sources (id, path, source, hash, mtime, size)
         SELECT id, path, source, hash, mtime, size
@@ -299,28 +298,29 @@ export async function publishMemoryDatabaseTables(params: {
         FROM ${MEMORY_REINDEX_SCHEMA}.memory_index_chunk_provenance;
       `);
 
-      replaceVirtualTable({
-        db: params.targetDb,
-        tableName: "memory_index_chunks_fts",
-        columns: "text, id, path, source, model, start_line, end_line",
+        replaceVirtualTable({
+          db: params.targetDb,
+          tableName: "memory_index_chunks_fts",
+          columns: "text, id, path, source, model, start_line, end_line",
+        });
+        replaceMemoryPathFtsTable(params.targetDb);
+        if (publishesPathFts) {
+          ensureMemoryPathFtsTriggers(params.targetDb);
+        }
+        replaceVirtualTable({
+          db: params.targetDb,
+          tableName: "memory_index_chunks_vec",
+          columns: "id, embedding",
+          // A vector-disabled connection may not have sqlite-vec loaded and cannot
+          // drop an old virtual table. Missing vector metadata forces a strict
+          // rebuild before that table can be queried again.
+          ignoreDropErrorWhenSourceMissing: true,
+        });
       });
-      replaceMemoryPathFtsTable(params.targetDb);
-      if (publishesPathFts) {
-        ensureMemoryPathFtsTriggers(params.targetDb);
-      }
-      replaceVirtualTable({
-        db: params.targetDb,
-        tableName: "memory_index_chunks_vec",
-        columns: "id, embedding",
-        // A vector-disabled connection may not have sqlite-vec loaded and cannot
-        // drop an old virtual table. Missing vector metadata forces a strict
-        // rebuild before that table can be queried again.
-        ignoreDropErrorWhenSourceMissing: true,
-      });
-    });
-  } finally {
-    params.targetDb.exec(`DETACH DATABASE ${MEMORY_REINDEX_SCHEMA}`);
-  }
+    } finally {
+      params.targetDb.exec(`DETACH DATABASE ${MEMORY_REINDEX_SCHEMA}`);
+    }
+  };
 }
 
 /** Remove one closed shadow memory database and its journal-mode sidecars. */

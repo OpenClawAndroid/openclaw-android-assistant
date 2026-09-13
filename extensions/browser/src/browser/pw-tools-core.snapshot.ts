@@ -49,7 +49,15 @@ import {
   readMainFrameDocumentIdentityForPage,
   withPageScopedCdpClient,
 } from "./pw-session.page-cdp.js";
+import {
+  assertInteractionCurrent,
+  type InteractionTargetOptions,
+} from "./pw-tools-core.interactions.navigation.js";
 import { runPageEmulationTransition, setViewportSizeOnPage } from "./pw-tools-core.state.js";
+import {
+  assertBrowserDashboardTabCanClose,
+  readBrowserDashboardTabs,
+} from "./session-tab-store.js";
 import { appendSnapshotUrls, type SnapshotUrlEntry } from "./snapshot-urls.js";
 
 type StoredSnapshotRef = RoleRefs[string] & { backendDOMNodeId?: number };
@@ -494,6 +502,7 @@ export async function snapshotRoleViaPlaywright(opts: {
 export async function navigateViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
+  assertCurrent?: InteractionTargetOptions["assertCurrent"];
   resolveOperationTarget?: () => string | undefined | Promise<string | undefined>;
   relayReference?: RelayOperationReference;
   url: string;
@@ -544,9 +553,14 @@ export async function navigateViaPlaywright(opts: {
               if ((await opts.resolveOperationTarget?.()) !== currentTargetId) {
                 throw new BrowserTabNotFoundError({ input: currentTargetId });
               }
+              if (opts.assertCurrent) {
+                await opts.assertCurrent();
+              }
             },
           }
-        : {}),
+        : opts.assertCurrent
+          ? { assertPageCurrent: opts.assertCurrent }
+          : {}),
     });
   const navigateWithDownloadCapture = async (): Promise<{
     response: Awaited<ReturnType<typeof navigate>> | null;
@@ -661,13 +675,13 @@ export async function navigateViaPlaywright(opts: {
 }
 
 /** Resizes the target page viewport within the browser action policy bounds. */
-export async function resizeViewportViaPlaywright(opts: {
-  cdpUrl: string;
-  targetId?: string;
-  width: number;
-  height: number;
-  signal?: AbortSignal;
-}): Promise<void> {
+export async function resizeViewportViaPlaywright(
+  opts: InteractionTargetOptions & {
+    width: number;
+    height: number;
+    signal?: AbortSignal;
+  },
+): Promise<void> {
   const page = await getPageForTargetId(opts);
   const state = ensurePageState(page);
   const viewport = {
@@ -677,17 +691,30 @@ export async function resizeViewportViaPlaywright(opts: {
   await runPageEmulationTransition({
     state,
     signal: opts.signal,
-    run: () => setViewportSizeOnPage(page, state, viewport),
+    run: opts.assertCurrent
+      ? async () => {
+          await assertInteractionCurrent(opts);
+          opts.signal?.throwIfAborted();
+          await setViewportSizeOnPage(page, state, viewport);
+        }
+      : () => setViewportSizeOnPage(page, state, viewport),
   });
 }
 
 /** Closes the target Playwright page. */
-export async function closePageViaPlaywright(opts: {
-  cdpUrl: string;
-  targetId?: string;
-}): Promise<void> {
+export async function closePageViaPlaywright(opts: InteractionTargetOptions): Promise<void> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
+  if (readBrowserDashboardTabs().length > 0) {
+    const targetId = (await pageTargetInfo(page))?.targetId;
+    if (!targetId) {
+      throw new Error("Cannot verify that this page is not retained by a dashboard");
+    }
+    assertBrowserDashboardTabCanClose(targetId);
+  }
+  if (opts.assertCurrent) {
+    await assertInteractionCurrent(opts);
+  }
   await page.close();
 }
 

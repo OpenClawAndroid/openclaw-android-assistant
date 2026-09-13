@@ -87,7 +87,10 @@ review_checkout_pr() {
   local pr="$1"
   enter_worktree "$pr" false || return 1
   mark_pr_operation_side_effects_started
-  git fetch origin "pull/$pr/head:pr-$pr" --force
+  require_artifact .local/pr-meta.env
+  local expected_sha
+  expected_sha=$(source .local/pr-meta.env; printf '%s\n' "${PR_HEAD_SHA:-}")
+  fetch_pr_head "$pr" "$expected_sha" "refs/heads/pr-$pr" || return 1
   checkout_pr_worktree_target "$pr" "pr-$pr" || return 1
   set_review_mode pr
 
@@ -316,7 +319,9 @@ review_init() {
   write_pr_meta_files "$json"
   pr_url=$(printf '%s\n' "$json" | jq -r .url)
 
-  git fetch origin "pull/$pr/head:pr-$pr" --force
+  local expected_sha
+  expected_sha=$(pr_view_string_field "$json" headRefOid "$pr") || return 1
+  fetch_pr_head "$pr" "$expected_sha" "refs/heads/pr-$pr" || return 1
   local mb
   mb=$(git merge-base "$PR_MAIN_SHA" "refs/heads/pr-$pr")
 

@@ -5,6 +5,7 @@ import type { Readable } from "node:stream";
 import { isMainThread, threadId } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { getNodeSqliteKysely } from "./kysely-sync.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import {
@@ -826,6 +827,103 @@ describe("runSqliteImmediateTransaction", () => {
       expect(write).not.toHaveBeenCalled();
       expect(db.isOpen).toBe(false);
       expect(writer.prepare("SELECT id FROM entries").all()).toEqual([]);
+    },
+  );
+
+  it("preserves a failed rollback caught while waiting for owner admission", async () => {
+    const db = createDatabase();
+    db.exec("PRAGMA max_page_count=3");
+    const entered = createDeferredCore();
+    const release = createDeferredCore();
+    const write = vi.fn(() => "unexpected");
+    const pending = runSqliteImmediateTransaction(
+      db,
+      async () => write,
+      undefined,
+      async (admittedWrite) => {
+        entered.resolve();
+        await release.promise;
+        return admittedWrite();
+      },
+    );
+    let primaryError: unknown;
+    try {
+      await entered.promise;
+      try {
+        runSqliteImmediateTransactionSync(db, () =>
+          runSqliteImmediateTransactionSync(db, () =>
+            db.prepare("INSERT INTO entries VALUES ('full', zeroblob(65536))").run(),
+          ),
+        );
+      } catch (error) {
+        primaryError = error;
+      }
+      expect(primaryError).toMatchObject({ errcode: 13 });
+      expect(db.isOpen).toBe(false);
+      release.resolve();
+      await expect(pending).rejects.toBe(primaryError);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await pending.catch(() => undefined);
+    }
+  });
+
+  it("waits for the owner's admission before beginning a prepared write", async () => {
+    const db = createDatabase();
+    const admissionStarted = createDeferredCore();
+    const releaseAdmission = createDeferredCore();
+    const pending = runSqliteImmediateTransaction(
+      db,
+      async () => () => {
+        db.prepare("INSERT INTO entries(id, value) VALUES ('admitted', 'value')").run();
+        return "committed";
+      },
+      undefined,
+      async (write) => {
+        admissionStarted.resolve();
+        await releaseAdmission.promise;
+        return write();
+      },
+    );
+    try {
+      const first = await Promise.race([
+        admissionStarted.promise.then(() => "admission"),
+        pending.then(() => "committed"),
+      ]);
+      expect(first).toBe("admission");
+      expect(db.isTransaction).toBe(false);
+      expect(readEntries(db)).toEqual([]);
+      releaseAdmission.resolve();
+      await expect(pending).resolves.toBe("committed");
+      expect(readEntries(db)).toEqual(["admitted"]);
+    } finally {
+      releaseAdmission.resolve();
+      await pending.catch(() => undefined);
+    }
+  });
+
+  it.each(["retired", "transaction"])(
+    "does not write after owner admission is %s",
+    async (state) => {
+      const db = createDatabase();
+      const write = vi.fn(() => "unexpected");
+      await expect(
+        runSqliteImmediateTransaction(
+          db,
+          async () => write,
+          undefined,
+          async (admittedWrite) => {
+            if (state === "retired") {
+              throw new Error("owner retired");
+            }
+            db.exec("BEGIN");
+            return admittedWrite();
+          },
+        ),
+      ).rejects.toThrow(state === "retired" ? "owner retired" : /transaction/);
+      expect(write).not.toHaveBeenCalled();
+      expect(db.isTransaction).toBe(state === "transaction");
     },
   );
 

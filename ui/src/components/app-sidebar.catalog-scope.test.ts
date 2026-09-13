@@ -2,13 +2,13 @@
 
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { ApplicationGatewaySnapshot } from "../app/context.ts";
 import "../test-helpers/app-sidebar-suite.ts";
 import {
   catalogPage,
   createGatewayHarness,
   createSessions,
-  deferred,
   mountSidebar,
   TWO_AGENTS,
 } from "../test-helpers/app-sidebar.ts";

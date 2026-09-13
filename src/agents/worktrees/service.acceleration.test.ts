@@ -10,10 +10,8 @@ import * as commandExec from "../../process/exec.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import * as stateLease from "../../state/openclaw-state-lease.js";
-import {
-  detectWorktreeFilesystemBackend,
-  type WorktreeFilesystemBackend,
-} from "./filesystem-backend.js";
+import { detectWorktreeFilesystemBackend } from "./filesystem-backend.js";
+import type { WorktreeFilesystemBackend } from "./filesystem-backend.types.js";
 import { IDLE_GC_MS, ManagedWorktreeService, SNAPSHOT_RETENTION_MS } from "./service.js";
 import { useManagedWorktreeTestRepository } from "./service.test-support.js";
 import { listTemplates } from "./template-registry.js";

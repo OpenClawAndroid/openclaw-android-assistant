@@ -379,13 +379,18 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
        )`,
     );
     while (excess() > 0) {
-      await runSqliteImmediateTransaction(this.db, async () => () => {
-        // Purges can reduce the cache while admission waits; retain the newest cap.
-        const currentExcess = excess();
-        if (currentExcess > 0) {
-          remove.run(Math.min(currentExcess, EMBEDDING_CACHE_PRUNE_BATCH_SIZE));
-        }
-      });
+      await runSqliteImmediateTransaction(
+        this.db,
+        async () => () => {
+          // Purges can reduce the cache while admission waits; retain the newest cap.
+          const currentExcess = excess();
+          if (currentExcess > 0) {
+            remove.run(Math.min(currentExcess, EMBEDDING_CACHE_PRUNE_BATCH_SIZE));
+          }
+        },
+        undefined,
+        (write) => this.withDatabaseWrite(write),
+      );
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
@@ -639,6 +644,40 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     }
   }
 
+  private async withGeneratedEmbeddingCacheWrite(
+    generation: MemorySemanticProviderGeneration,
+    write: () => void,
+  ): Promise<void> {
+    await this.withPublishedDatabase(async () => {
+      if (
+        this.syncProviderGeneration !== generation ||
+        generation.cacheWritesInvalidated ||
+        generation.database.closed ||
+        this.database !== generation.database
+      ) {
+        return;
+      }
+      // Rebuilds use a shadow index, but generated results belong to the exact
+      // published owner captured by the generation, including after admission.
+      await this.withDatabaseWrite(() =>
+        runSqliteImmediateTransactionSync(generation.database.db, () => {
+          if (
+            this.syncProviderGeneration !== generation ||
+            generation.cacheWritesInvalidated ||
+            generation.database.closed
+          ) {
+            return;
+          }
+          if (readMemoryDatabaseRevision(generation.database.db) !== generation.databaseRevision) {
+            generation.cacheWritesInvalidated = true;
+            return;
+          }
+          write();
+        }),
+      );
+    });
+  }
+
   private async persistGeneratedEmbeddings(
     candidates: MemoryEmbeddingCacheCandidate[],
     embeddings: number[][],
@@ -670,23 +709,12 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       ) {
         // Separate successful batches can disagree. Neither dimension is authoritative;
         // discard this identity's ambiguous cache so retries can recover after restart.
-        await withMemoryWorkspaceLock(this.workspaceDir, async () => {
-          if (
-            this.syncProviderGeneration !== generation ||
-            generation.cacheWritesInvalidated ||
-            generation.database.closed
-          ) {
-            return;
-          }
-          runSqliteImmediateTransactionSync(generation.database.db, () => {
-            if (
-              readMemoryDatabaseRevision(generation.database.db) === generation.databaseRevision
-            ) {
-              clearMemoryEmbeddingCacheIdentities(generation.database.db, generation.identities);
-            }
+        await withMemoryWorkspaceLock(this.workspaceDir, () =>
+          this.withGeneratedEmbeddingCacheWrite(generation, () => {
+            clearMemoryEmbeddingCacheIdentities(generation.database.db, generation.identities);
             generation.cacheWritesInvalidated = true;
-          });
-        });
+          }),
+        );
       }
       throw new Error(
         "memory embeddings: malformed vector response (count, dimensions, or coordinates)",
@@ -732,18 +760,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
       if (accepted.length === 0) {
         return;
       }
-      runSqliteImmediateTransactionSync(generation.database.db, () => {
-        if (
-          this.syncProviderGeneration !== generation ||
-          generation.cacheWritesInvalidated ||
-          generation.database.closed
-        ) {
-          return;
-        }
-        if (readMemoryDatabaseRevision(generation.database.db) !== generation.databaseRevision) {
-          generation.cacheWritesInvalidated = true;
-          return;
-        }
+      await this.withGeneratedEmbeddingCacheWrite(generation, () => {
         upsertMemoryEmbeddingCache({
           db: generation.database.db,
           enabled: true,
@@ -916,58 +933,77 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     vectorReady: boolean,
   ): Promise<void> {
     await withMemoryWorkspaceLock(this.workspaceDir, async () => {
-      const published = await runSqliteImmediateTransaction(this.db, async () => {
-        if (source === "memory") {
-          // The lock excludes purge and promotion writers while the exact file
-          // snapshot is validated and its derived index records are committed.
-          const current = await buildFileEntry(
-            entry.absPath,
-            this.workspaceDir,
-            this.settings.multimodal,
-          );
-          if (current?.hash !== entry.hash) {
-            this.dirty = true;
-            log.debug("memory source changed while indexing; queued incremental retry", {
-              path: entry.path,
-            });
-            return undefined;
-          }
-        }
-        const now = Date.now();
-        const model = generation?.provider?.model ?? "fts-only";
-        return () => {
-          const result = this.database.sourceIndex.replace(
-            {
-              entry,
-              chunks,
-              embeddings,
-              model,
-              now,
-              vectorReady,
-              ...(source === "sessions"
-                ? {
-                    source,
-                    agentId: this.agentId,
-                    sessionId: expectDefined(entry.sessionId, "memory index session identity"),
-                  }
-                : { source }),
-            },
-            (generation?.database ?? this.database).sourceIndex,
-          );
-          if (result === "forgotten") {
-            this.markFailedFullReindexRetry({ memory: false, sessions: true });
-            throw new Error(
-              "A session was forgotten while memory indexing was running; retry the memory index.",
+      const published = await runSqliteImmediateTransaction(
+        this.db,
+        async () => {
+          if (source === "memory") {
+            // The lock excludes purge and promotion writers while the exact file
+            // snapshot is validated and its derived index records are committed.
+            const current = await buildFileEntry(
+              entry.absPath,
+              this.workspaceDir,
+              this.settings.multimodal,
             );
+            if (current?.hash !== entry.hash) {
+              this.dirty = true;
+              log.debug("memory source changed while indexing; queued incremental retry", {
+                path: entry.path,
+              });
+              return undefined;
+            }
           }
-          return true;
-        };
-      });
+          const now = Date.now();
+          const model = generation?.provider?.model ?? "fts-only";
+          return () => {
+            if (
+              generation &&
+              this.db === generation.database.db &&
+              readMemoryDatabaseRevision(this.db) !== generation.databaseRevision
+            ) {
+              generation.cacheWritesInvalidated = true;
+            }
+            const result = this.database.sourceIndex.replace(
+              {
+                entry,
+                chunks,
+                embeddings,
+                model,
+                now,
+                vectorReady,
+                ...(source === "sessions"
+                  ? {
+                      source,
+                      agentId: this.agentId,
+                      sessionId: expectDefined(entry.sessionId, "memory index session identity"),
+                    }
+                  : { source }),
+              },
+              (generation?.database ?? this.database).sourceIndex,
+            );
+            if (result === "forgotten") {
+              this.markFailedFullReindexRetry({ memory: false, sessions: true });
+              throw new Error(
+                "A session was forgotten while memory indexing was running; retry the memory index.",
+              );
+            }
+            return {
+              databaseRevision:
+                generation && this.db === generation.database.db
+                  ? readMemoryDatabaseRevision(generation.database.db)
+                  : undefined,
+            };
+          };
+        },
+        undefined,
+        (write) => this.withDatabaseWrite(write),
+      );
       if (!published) {
         return;
       }
-      if (generation && this.db === generation.database.db) {
-        generation.databaseRevision = readMemoryDatabaseRevision(generation.database.db);
+      if (generation && published.databaseRevision !== undefined) {
+        // Admission can resume another writer before this continuation runs.
+        // Adopt only the revision captured by our committed publication.
+        generation.databaseRevision = published.databaseRevision;
       }
       this.database.vectorDegradedWriteWarningShown = logMemoryVectorDegradedWrite({
         vectorEnabled: this.vector.enabled,

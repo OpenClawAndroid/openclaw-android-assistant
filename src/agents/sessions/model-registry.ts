@@ -418,6 +418,7 @@ export class ModelRegistry {
     this.pluginCatalogs = options.pluginCatalogs;
     this.staticProviderConfigs = options.staticProviderConfigs;
     this.pluginMetadataSnapshot = resolveModelPluginMetadataSnapshot({
+      config: this.config,
       ...(options.pluginMetadataSnapshot
         ? { pluginMetadataSnapshot: options.pluginMetadataSnapshot }
         : {}),

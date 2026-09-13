@@ -33,7 +33,7 @@ type ModelProviderAuthSummary = {
 type ModelProviderLocalCost = {
   totalCost: number;
   totalTokens: number;
-  sessionCount: number;
+  messageCount: number;
 };
 
 export type ModelProviderLogoutTarget = {
@@ -377,14 +377,14 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
     const addition: ModelProviderLocalCost = {
       totalCost: entry.totals.totalCost,
       totalTokens: entry.totals.totalTokens,
-      sessionCount: entry.count,
+      messageCount: entry.count,
     };
     const current = draft.card.localCost;
     draft.card.localCost = current
       ? {
           totalCost: current.totalCost + addition.totalCost,
           totalTokens: current.totalTokens + addition.totalTokens,
-          sessionCount: current.sessionCount + addition.sessionCount,
+          messageCount: current.messageCount + addition.messageCount,
         }
       : addition;
   }

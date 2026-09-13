@@ -3299,6 +3299,16 @@ public struct CancelledApprovalSnapshot: Codable, Sendable {
     }
 }
 
+public struct CanvasDocumentPreviewParams: Codable, Sendable {
+    public let html: String
+
+    public init(
+        html: String)
+    {
+        self.html = html
+    }
+}
+
 public struct CanvasDocumentViewParams: Codable, Sendable {
     public let docid: String
 

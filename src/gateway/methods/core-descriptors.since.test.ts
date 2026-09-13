@@ -185,6 +185,7 @@ describe("core gateway method release trains", () => {
         .toSorted(),
     ).toEqual(TRAIN_2026_8_METHODS.toSorted());
     for (const method of [
+      "canvas.document.preview",
       "canvas.document.view",
       "plugins.controlUi.list",
       "plugins.controlUi.reload",

@@ -17,6 +17,7 @@ import {
 } from "../../state/openclaw-agent-db.js";
 import { resolveStateDir } from "../paths.js";
 import type { ResetSessionEntryLifecycleMutation } from "./session-accessor.lifecycle-types.js";
+import { withSqliteTranscriptArchiveSession } from "./session-accessor.sqlite-archive-session.js";
 import { publishSessionStateArchives } from "./session-accessor.sqlite-archive-store.js";
 import { materializeSessionStateDeletePlans } from "./session-accessor.sqlite-archive.js";
 import type {
@@ -332,13 +333,15 @@ async function deleteSqliteSessionEntryLifecycleInternal(
   return await withCommittedHistoryMaintenance(
     { ...params, env: resolved.env },
     async (recordCommit, markCommitted) =>
-      deleteSqliteSessionEntryLifecycleLocked(
-        resolved,
-        params,
-        allowLockedEntryRemoval,
-        expectedPluginOwnerId,
-        recordCommit,
-        markCommitted,
+      withSqliteTranscriptArchiveSession(toDatabaseOptions(resolved), () =>
+        deleteSqliteSessionEntryLifecycleLocked(
+          resolved,
+          params,
+          allowLockedEntryRemoval,
+          expectedPluginOwnerId,
+          recordCommit,
+          markCommitted,
+        ),
       ),
   );
 }
@@ -626,8 +629,6 @@ async function deleteSqliteSessionEntryLifecycleLocked(
       });
       if (result.deleted) {
         markCommitted();
-      }
-      if (result.deleted) {
         // The deletion is committed; observers must invalidate even if receipt cleanup fails.
         emitSessionIdentityMutation({
           agentId: resolved.agentId,
@@ -694,13 +695,15 @@ export async function deleteDiskBudgetSessionEntryLifecycle(
   return await withCommittedHistoryMaintenance(
     { ...params, env: targetScope.env },
     async (recordCommit, markCommitted) =>
-      await deleteSqliteSessionEntryLifecycleLocked(
-        targetScope,
-        params,
-        false,
-        undefined,
-        recordCommit,
-        markCommitted,
+      await withSqliteTranscriptArchiveSession(toDatabaseOptions(targetScope), () =>
+        deleteSqliteSessionEntryLifecycleLocked(
+          targetScope,
+          params,
+          false,
+          undefined,
+          recordCommit,
+          markCommitted,
+        ),
       ),
     { scheduleNext: false },
   );

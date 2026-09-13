@@ -8,6 +8,7 @@ import type {
   WorkerTranscriptMessage,
 } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
 import { createNoisyPngBuffer } from "../../../test/helpers/image-fixtures.js";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { makeTextToolResult } from "../../../test/helpers/text-tool-result.js";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
 import { createZeroUsageFixture } from "../../agents/test-helpers/usage-fixtures.js";
@@ -539,14 +540,8 @@ describe("worker transcript commit application", () => {
   });
 
   it("rejects a commit when lifecycle ownership changes in the writer queue", async () => {
-    let releaseOwnerChange = () => {};
-    const ownerChangeGate = new Promise<void>((resolve) => {
-      releaseOwnerChange = resolve;
-    });
-    let markOwnerChangeStarted = () => {};
-    const ownerChangeStarted = new Promise<void>((resolve) => {
-      markOwnerChangeStarted = resolve;
-    });
+    const { promise: ownerChangeGate, resolve: releaseOwnerChange } = createDeferred();
+    const { promise: ownerChangeStarted, resolve: markOwnerChangeStarted } = createDeferred();
     const ownerChange = updateSessionEntry(
       { agentId: "main", sessionKey: SESSION_KEY, storePath },
       async () => {

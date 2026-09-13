@@ -509,7 +509,10 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                 prepared,
               )}
               ${
-                actionDetails && index < lastMessageIndex && !ownsRunFrame
+                actionDetails &&
+                (actionDetails.markdown || (actionDetails.replyTarget && opts.onReply)) &&
+                index < lastMessageIndex &&
+                !ownsRunFrame
                   ? html`
                       <div class="chat-message-actions-row" data-message-actions-for=${item.key}>
                         ${renderMessageActionButtons(actionDetails, opts)}

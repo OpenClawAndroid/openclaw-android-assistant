@@ -248,7 +248,7 @@ function formatCronStatusForDisplay(job: CronJob) {
           ? theme.success
           : theme.muted;
   let label = decorateStatusWithFailures(status, state.consecutiveErrors);
-  if (streamDisabled) {
+  if (streamDisabled && status !== "running") {
     label = "disabled";
   } else if (status === "disabled" && state.autoDisabled) {
     label =

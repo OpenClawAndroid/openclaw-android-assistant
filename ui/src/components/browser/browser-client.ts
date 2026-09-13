@@ -13,11 +13,83 @@ import { buildAssistantMediaUrl } from "../../app/assistant-media.ts";
 import { t } from "../../i18n/index.ts";
 import { registerBrowserEnglish } from "../../i18n/locales/en-browser.ts";
 import { browserInspectScript } from "./browser-inspect-script.ts";
-import type { BrowserRoute } from "./browser-target.ts";
+import {
+  readBrowserTabTarget,
+  type BrowserRoute,
+  type BrowserTabTarget,
+} from "./browser-target.ts";
 
 registerBrowserEnglish();
 
 export type BrowserRequestClient = Pick<GatewayBrowserClient, "request">;
+
+export type BrowserDashboardTarget = {
+  sessionKey: string;
+  agentId?: string;
+  name: string;
+  instanceId: string;
+};
+
+export type BrowserDashboard = {
+  sessionKey: string;
+  name: string;
+  instanceId: string;
+  revision: number;
+  paused: boolean;
+  stopping: boolean;
+  url: string;
+  browserTab?: BrowserTabTarget;
+};
+
+export async function requestBrowserDashboard(
+  client: BrowserRequestClient,
+  params: BrowserDashboardTarget,
+  action: "open" | "resume" | "stop" | "inspect" = "open",
+): Promise<BrowserDashboard> {
+  const result = asRecord(
+    await client.request(
+      "browser.request",
+      {
+        target: "host",
+        method: action === "stop" ? "DELETE" : action === "inspect" ? "GET" : "POST",
+        path: "/dashboard",
+        ...(action === "inspect"
+          ? { query: params }
+          : {
+              body: { ...params, ...(action === "resume" ? { resume: true } : {}) },
+            }),
+        timeoutMs: 120_000,
+      },
+      { timeoutMs: 150_000 },
+    ),
+  );
+  const browserTab = readBrowserTabTarget(result?.browserTab);
+  if (
+    typeof result?.sessionKey !== "string" ||
+    !result.sessionKey ||
+    result.name !== params.name ||
+    result.instanceId !== params.instanceId ||
+    typeof result.revision !== "number" ||
+    !Number.isSafeInteger(result.revision) ||
+    typeof result.paused !== "boolean" ||
+    typeof result.stopping !== "boolean" ||
+    (result.stopping && !result.paused) ||
+    typeof result.url !== "string" ||
+    (!result.paused && !browserTab && action !== "inspect")
+  ) {
+    throw new Error(t("browser.dashboardInvalidReply"));
+  }
+  return {
+    sessionKey: result.sessionKey,
+    name: params.name,
+    instanceId: params.instanceId,
+    revision: result.revision,
+    paused: result.paused,
+    stopping: result.stopping,
+    url: result.url,
+    ...(browserTab ? { browserTab } : {}),
+  };
+}
 
 const BROWSER_REQUEST_METHOD = "browser.request";
 const BROWSER_SCREENSHOT_FETCH_TIMEOUT_MS = 30_000;
@@ -82,6 +154,7 @@ export function bindBrowserRequestClient(
   client: BrowserRequestClient,
   route?: BrowserRoute,
   current: () => boolean = () => true,
+  dashboard?: BrowserDashboardTarget,
 ): BrowserRequestClient {
   return {
     async request<T>(
@@ -93,14 +166,20 @@ export function bindBrowserRequestClient(
         throw new DOMException("Browser request scope ended", "AbortError");
       }
       const envelope = asRecord(params);
-      const routedParams = route
-        ? {
-            ...envelope,
-            target: route.target,
-            ...(route.target === "node" ? { node: route.node } : {}),
-            query: { ...asRecord(envelope?.query), profile: route.profile },
-          }
-        : params;
+      const routedParams =
+        route || dashboard
+          ? {
+              ...envelope,
+              ...(route
+                ? {
+                    target: route.target,
+                    ...(route.target === "node" ? { node: route.node } : {}),
+                    query: { ...asRecord(envelope?.query), profile: route.profile },
+                  }
+                : {}),
+              ...(dashboard ? { dashboard } : {}),
+            }
+          : params;
       return options
         ? await client.request<T>(method, routedParams, options)
         : await client.request<T>(method, routedParams);

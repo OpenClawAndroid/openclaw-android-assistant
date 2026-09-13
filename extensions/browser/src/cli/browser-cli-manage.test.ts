@@ -811,4 +811,39 @@ describe("browser manage output", () => {
     expect(getBrowserCliRuntime().exit).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
   });
+
+  it.each([
+    { deleted: false, json: false },
+    { deleted: true, json: false },
+    { deleted: false, json: true },
+    { deleted: true, json: true },
+  ])("reports profile deletion with deleted=$deleted and json=$json", async ({ deleted, json }) => {
+    const result = { ok: true, profile: "proof-retained", deleted };
+    getBrowserManageCallBrowserRequestMock().mockResolvedValueOnce(result);
+
+    const program = createBrowserManageProgram();
+    await program.parseAsync(
+      ["browser", ...(json ? ["--json"] : []), "delete-profile", "--name", result.profile],
+      { from: "user" },
+    );
+
+    expect(getBrowserManageCallBrowserRequestMock()).toHaveBeenCalledWith(expect.anything(), {
+      method: "DELETE",
+      path: "/profiles/proof-retained",
+    });
+    if (json) {
+      expect(parseSingleRuntimeJson()).toEqual(result);
+      expect(getBrowserCliRuntime().writeJson).toHaveBeenCalledTimes(1);
+    } else {
+      expect(lastRuntimeLog()).toBe(
+        deleted
+          ? '🦞 Deleted profile "proof-retained" (user data removed)'
+          : '🦞 Deleted profile "proof-retained" (user data removal not confirmed)',
+      );
+      expect(getBrowserCliRuntime().writeJson).not.toHaveBeenCalled();
+    }
+    expect(getBrowserCliRuntimeCapture().runtimeErrors).toEqual([]);
+    expect(getBrowserCliRuntime().exit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
+  });
 });

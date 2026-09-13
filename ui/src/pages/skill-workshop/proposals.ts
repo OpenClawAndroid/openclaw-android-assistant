@@ -52,7 +52,7 @@ export function invalidateSkillWorkshopReads(state: SkillWorkshopState): void {
 }
 
 export type SkillWorkshopContext = {
-  gateway: ApplicationGateway;
+  gateway: Pick<ApplicationGateway, "snapshot">;
   agentSelection: Pick<AgentSelectionCapability, "state">;
 };
 

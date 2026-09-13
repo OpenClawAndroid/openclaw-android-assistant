@@ -49,6 +49,8 @@ export type SessionPendingInputOwner = {
   messageJson: string;
   config?: OpenClawConfig;
   assertCurrent: () => void;
+  /** Published only after the exact input was consumed by a committed transcript write. */
+  consumed?: true;
   finish: (disposition: Exclude<SessionPendingInputState, "queued">) => void;
   restartRecovered?: true;
   /** Aggregate authority is the exact source closures, never persisted source identifiers. */
@@ -400,30 +402,52 @@ export function consumeSessionPendingInput(
   database: PendingInputDatabase,
   pending: SessionPendingInputAppend,
 ): void {
-  if (!pending.alreadyPromoted) {
-    if (pending.sourceInputIds) {
-      const updated = executeSqliteQuerySync(
-        database.db,
-        getSessionKysely(database.db)
-          .updateTable("session_pending_inputs")
-          .set({ consumed_event_id: pending.inputId })
-          .where("input_id", "in", [...pending.sourceInputIds])
-          .where("state", "=", "queued")
-          .where("consumed_event_id", "is", null),
-      );
-      if (updated.numAffectedRows !== BigInt(pending.sourceInputIds.length)) {
-        throw new Error("Collected input custody changed during transcript promotion");
-      }
-      return;
+  if (pending.alreadyPromoted) {
+    return;
+  }
+  const owner = owners.current.getStore();
+  const inputIds = new Set(pending.sourceInputIds ?? [pending.inputId]);
+  const consumedOwners = (owner?.sources ?? (owner ? [owner] : [])).filter(
+    (candidate) =>
+      owners.live.get(candidate.inputId) === candidate &&
+      candidate.databasePath === database.path &&
+      inputIds.has(candidate.inputId),
+  );
+  if (pending.sourceInputIds) {
+    const updated = executeSqliteQuerySync(
+      database.db,
+      getSessionKysely(database.db)
+        .updateTable("session_pending_inputs")
+        .set({ consumed_event_id: pending.inputId })
+        .where("input_id", "in", [...pending.sourceInputIds])
+        .where("state", "=", "queued")
+        .where("consumed_event_id", "is", null),
+    );
+    if (updated.numAffectedRows !== BigInt(pending.sourceInputIds.length)) {
+      throw new Error("Collected input custody changed during transcript promotion");
     }
-    executeSqliteQuerySync(
+  } else {
+    const deleted = executeSqliteQuerySync(
       database.db,
       getSessionKysely(database.db)
         .deleteFrom("session_pending_inputs")
         .where("input_id", "=", pending.inputId)
         .where("state", "=", "queued"),
     );
+    if (deleted.numAffectedRows !== 1n) {
+      return;
+    }
   }
+  // Outer commit publishes this fact before observers; rollback leaves finish responsible.
+  stageSqliteTransactionState(database.db, {
+    stage: () => {},
+    rollback: () => {},
+    commit: () => {
+      for (const consumedOwner of consumedOwners) {
+        consumedOwner.consumed = true;
+      }
+    },
+  });
 }
 
 /** Logical deletion also clears custody when transcript windows are retained. */

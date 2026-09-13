@@ -216,8 +216,8 @@ describe("agent deletion database cleanup authority", () => {
     closeOpenClawAgentDatabaseByPath(storePath, "kept");
     let retained: ReturnType<typeof openOpenClawAgentDatabase> | undefined;
     let closeCalls = 0;
-    const runAttempt = (deletion: AgentDeletionOperation, injectFailure: boolean) => {
-      prepareAgentDeleteDatabases(cfg, "worker", f.entry.agentDir, { env: f.options.env });
+    const runAttempt = async (deletion: AgentDeletionOperation, injectFailure: boolean) => {
+      await prepareAgentDeleteDatabases(cfg, "worker", f.entry.agentDir, { env: f.options.env });
       return purgeAgentSessionStoreEntries(cfg, "worker", {
         env: f.options.env,
         runDatabaseCleanup: (target, run) =>

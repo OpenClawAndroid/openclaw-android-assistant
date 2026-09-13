@@ -10,8 +10,10 @@ import {
   probeBuiltPluginControlPlaneModules,
   verifyBuiltPluginControlPlaneModules,
 } from "../../scripts/check-built-plugin-control-plane-modules.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 
 const roots: string[] = [];
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function makeRoot(extension = ".js"): string {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-plugin-control-plane-"));
@@ -52,7 +54,7 @@ describe("built plugin control-plane module loads", () => {
   it("keeps TypeScript unloaded for checker imports and runtime inventory checks", () => {
     const rootDir = makeRoot();
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         "./scripts/tsx.mjs",

@@ -23,10 +23,13 @@ import {
   runNodeStep,
   runNodeStepsInParallel,
 } from "../../scripts/prepare-extension-package-boundary-artifacts.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { waitForChildClose, waitForDead, waitForPidFile } from "../helpers/process-wait.js";
 import { startProcessWatchdogFixture } from "../helpers/process-watchdog.js";
 import { runQaGatewayFixture } from "../helpers/qa-gateway-cleanup.js";
 import { createScriptTestHarness } from "./test-helpers.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -176,7 +179,7 @@ sys.exit(result.returncode)
       runner,
       resistant,
       abort,
-      bin = process.execPath,
+      bin = testNodeExecPath,
     }: {
       runner: "managed" | "managed-inherit" | "preparation";
       resistant: boolean;
@@ -964,7 +967,7 @@ if (mode === "waiter") {
 }
 `,
     );
-    const result = spawnSync(process.execPath, [script], {
+    const result = spawnSync(testNodeExecPath, [script], {
       encoding: "utf8",
       env: { ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir },
       timeout: 10_000,

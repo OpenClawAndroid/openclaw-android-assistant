@@ -2,6 +2,10 @@
 // Starts delayed maintenance, cron, heartbeat, recovery, and pricing refresh work.
 import { getRuntimeConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  resolveDeliveryQueueStateEnv,
+  type DeliveryQueueStateContext,
+} from "../infra/delivery-queue-sqlite.js";
 import { computeBackoffMs } from "../infra/delivery-recovery.shared.js";
 import {
   resolveHeartbeatAgents,
@@ -183,6 +187,7 @@ function startPendingOutboundDeliveryRecovery(params: {
       }
       const deliverWithCurrentConversationAuthority = async (
         deliveryParams: DeliverOutboundPayloadsParams,
+        stateContext?: DeliveryQueueStateContext,
       ) => {
         const completion = deliveryParams.deliveryCompletion;
         const attemptAuthority =
@@ -190,24 +195,35 @@ function startPendingOutboundDeliveryRecovery(params: {
             ? completion
             : deliveryParams.conversationDeliveryAttemptAuthority;
         if (!attemptAuthority) {
-          return await deliverOutboundPayloadsInternal(deliveryParams);
+          return await deliverOutboundPayloadsInternal(deliveryParams, stateContext);
         }
-        return await deliverOutboundPayloadsInternal({
-          ...deliveryParams,
-          onDeliveryAttempt: async () => {
-            await deliveryParams.onDeliveryAttempt?.();
-            if (!attemptAuthority.routeFingerprint) {
-              return;
-            }
-            assertQueuedConversationDeliveryAttemptAuthorized({
-              config: getRuntimeConfig(),
-              agentId: attemptAuthority.agentId,
-              operationId: attemptAuthority.operationId,
-              ...(attemptAuthority.storePath ? { storePath: attemptAuthority.storePath } : {}),
-              routeFingerprint: attemptAuthority.routeFingerprint,
-            });
+        return await deliverOutboundPayloadsInternal(
+          {
+            ...deliveryParams,
+            onDeliveryAttempt: async () => {
+              await deliveryParams.onDeliveryAttempt?.();
+              if (!attemptAuthority.routeFingerprint) {
+                return;
+              }
+              await assertQueuedConversationDeliveryAttemptAuthorized(
+                {
+                  readCurrentConfig: getRuntimeConfig,
+                  operationId: attemptAuthority.operationId,
+                  routeFingerprint: attemptAuthority.routeFingerprint,
+                },
+                {
+                  agentId: attemptAuthority.agentId,
+                  ...(attemptAuthority.storePath ? { storePath: attemptAuthority.storePath } : {}),
+                  env: resolveDeliveryQueueStateEnv(
+                    deliveryParams.deliveryQueueStateDir,
+                    stateContext,
+                  ),
+                },
+              );
+            },
           },
-        });
+          stateContext,
+        );
       };
       logRecovery ??= params.log.child("delivery-recovery");
       if (migrationPending) {
@@ -222,25 +238,31 @@ function startPendingOutboundDeliveryRecovery(params: {
         // A new scheduled-service lifecycle starts unchecked. Latch only after
         // one pass neither skipped ownership nor left retired rows behind.
         migrationPending = migration.skipped > 0 || migration.remaining > 0;
-        await recoverPendingDeliveries({
-          deliver: deliverWithCurrentConversationAuthority,
-          log: logRecovery,
-          cfg,
-          shouldContinue: () => !stopped,
-        });
+        await recoverPendingDeliveries(
+          {
+            deliver: deliverWithCurrentConversationAuthority,
+            log: logRecovery,
+            cfg,
+            shouldContinue: () => !stopped,
+          },
+          deliverWithCurrentConversationAuthority,
+        );
         return;
       }
       // Normal retries use fresh config so revoked accounts cannot inherit the
       // authority captured at gateway startup.
-      await drainPendingDeliveriesCore({
-        drainKey: "gateway:outbound",
-        logLabel: "Outbound delivery retry",
-        cfg: getRuntimeConfig(),
-        log: logRecovery,
-        deliver: deliverWithCurrentConversationAuthority,
-        selectEntry: () => ({ match: true, bypassBackoff: false }),
-        shouldContinue: () => !stopped,
-      });
+      await drainPendingDeliveriesCore(
+        {
+          drainKey: "gateway:outbound",
+          logLabel: "Outbound delivery retry",
+          cfg: getRuntimeConfig(),
+          log: logRecovery,
+          deliver: deliverWithCurrentConversationAuthority,
+          selectEntry: () => ({ match: true, bypassBackoff: false }),
+          shouldContinue: () => !stopped,
+        },
+        deliverWithCurrentConversationAuthority,
+      );
     }, "runtime:delivery-recovery").catch((err: unknown) =>
       params.log.error(`Delivery recovery failed: ${String(err)}`),
     );

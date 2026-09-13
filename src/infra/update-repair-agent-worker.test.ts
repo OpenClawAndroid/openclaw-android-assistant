@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { runUpdateCommandRepair } from "../cli/update-cli/update-command-repair.js";
 import { admitUpdateCommandRun } from "../cli/update-cli/update-command-run.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
@@ -343,10 +344,7 @@ describe("fresh candidate repair process", () => {
       `,
         );
         const controller = new AbortController();
-        let admitted!: () => void;
-        const entered = new Promise<void>((resolve) => {
-          admitted = resolve;
-        });
+        const { promise: entered, resolve: admitted } = createDeferred();
         let drained = false;
         const pending = prepareUnattendedUpdateRepair({
           ...repairParams(state),

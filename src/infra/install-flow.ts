@@ -59,6 +59,7 @@ export async function withExtractedArchiveRoot<TResult extends { ok: boolean }>(
         timeoutMs: params.timeoutMs,
         logger: params.logger,
         limits: params.limits,
+        durable: false,
       });
     } catch (err) {
       return { ok: false, error: `failed to extract archive: ${String(err)}` };

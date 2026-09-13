@@ -7,6 +7,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readCurrentConfigForResolution } from "../config/io.runtime.js";
+import { resolveInstallAgentDir } from "./install-agent-dir.js";
 
 // =============================================================================
 // Package Detection
@@ -107,32 +109,18 @@ export const APP_NAME: string = openClawConfigName || "openclaw";
 export const CONFIG_DIR_NAME: string = pkg.openclawConfig?.configDir || ".openclaw";
 export const PACKAGE_MANIFEST_VERSION: string = pkg.version || "0.0.0";
 
-const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_AGENT_DIR`;
-
-function expandTildePath(path: string): string {
-  if (path === "~") {
-    return homedir();
-  }
-  if (path.startsWith("~/")) {
-    return homedir() + path.slice(1);
-  }
-  return path;
+/** Prepare one config, environment, and directory decision for a standalone SDK operation. */
+export function getAgentDirResolution(agentDir?: string) {
+  return resolveInstallAgentDir((env) => readCurrentConfigForResolution({ env }), { agentDir });
 }
 
-// =============================================================================
-// User Config Paths (~/.openclaw/agent/*)
-// =============================================================================
-
-/** Get the agent config directory (e.g., ~/.openclaw/agent/) */
+/** Standalone SDK default; configured sessions pass their resolved agentDir. */
 export function getAgentDir(): string {
-  const envDir = process.env[ENV_AGENT_DIR];
-  if (envDir) {
-    return expandTildePath(envDir);
-  }
-  return join(homedir(), CONFIG_DIR_NAME, "agent");
+  return getAgentDirResolution().directory.dir;
 }
 
 /** Get path to managed binaries directory (fd, rg) */
-export function getBinDir(): string {
-  return join(getAgentDir(), "bin");
+export function getBinDir(): string | undefined {
+  const directory = getAgentDirResolution().optionalDirectory;
+  return directory ? join(directory.dir, "bin") : undefined;
 }

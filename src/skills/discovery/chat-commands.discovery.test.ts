@@ -3,10 +3,14 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { withEnv } from "../../test-utils/env.js";
+import { withEnvAsync } from "../../test-utils/env.js";
 import { writeSkill } from "../test-support/e2e-test-helpers.js";
 import { resolveWorkshopSkillsDir } from "../workshop/skills-root.js";
-import { expandExplicitSkillReferences, listSkillCommandsForWorkspace } from "./chat-commands.js";
+import {
+  expandExplicitSkillReferences,
+  listSkillCommandsForWorkspace,
+  prepareSkillCommandsForAgents,
+} from "./chat-commands.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => afterEach(cleanup));
 
@@ -53,33 +57,44 @@ describe("skill command discovery through workspace loading", () => {
       });
       const bundledSkillsDir = path.join(root, "bundled");
       await fs.mkdir(bundledSkillsDir);
-      withEnv({ OPENCLAW_STATE_DIR: root, OPENCLAW_BUNDLED_SKILLS_DIR: bundledSkillsDir }, () => {
-        const params = { workspaceDir, cfg: config, agentId: "alpha" };
-        const skillCommands = listSkillCommandsForWorkspace(params);
-        const allSkillCommands = listSkillCommandsForWorkspace({
-          ...params,
-          includeAllowlistHidden: true,
-        });
-        expect(skillCommands.map((command) => command.skillName)).toEqual(["allowed"]);
-        expect(allSkillCommands.map((command) => command.skillName)).toEqual(["allowed", "hidden"]);
-        for (const text of [
-          "Use $hidden for this task.",
-          "/hidden run it",
-          "/skill hidden run it",
-        ]) {
-          expect(expandExplicitSkillReferences({ text, skillCommands, allSkillCommands })).toEqual({
-            body: text,
-            error:
-              'Skill "hidden" is not available for this agent. Update the skill allowlist or choose an allowed skill.',
-            skills: [],
+      await withEnvAsync(
+        { OPENCLAW_STATE_DIR: root, OPENCLAW_BUNDLED_SKILLS_DIR: bundledSkillsDir },
+        async () => {
+          const params = { workspaceDir, cfg: config, agentId: "alpha" };
+          const skillCommands = listSkillCommandsForWorkspace(params);
+          const allSkillCommands = listSkillCommandsForWorkspace({
+            ...params,
+            includeAllowlistHidden: true,
           });
-        }
-        expect(
-          listSkillCommandsForWorkspace({ ...params, skillFilter: ["hidden"] }).map(
-            (command) => command.skillName,
-          ),
-        ).toEqual(["hidden"]);
-      });
+          expect(skillCommands.map((command) => command.skillName)).toEqual(["allowed"]);
+          expect(await prepareSkillCommandsForAgents({ cfg: config, agentIds: ["alpha"] })).toEqual(
+            skillCommands,
+          );
+          expect(allSkillCommands.map((command) => command.skillName)).toEqual([
+            "allowed",
+            "hidden",
+          ]);
+          for (const text of [
+            "Use $hidden for this task.",
+            "/hidden run it",
+            "/skill hidden run it",
+          ]) {
+            expect(
+              expandExplicitSkillReferences({ text, skillCommands, allSkillCommands }),
+            ).toEqual({
+              body: text,
+              error:
+                'Skill "hidden" is not available for this agent. Update the skill allowlist or choose an allowed skill.',
+              skills: [],
+            });
+          }
+          expect(
+            listSkillCommandsForWorkspace({ ...params, skillFilter: ["hidden"] }).map(
+              (command) => command.skillName,
+            ),
+          ).toEqual(["hidden"]);
+        },
+      );
     },
   );
 });

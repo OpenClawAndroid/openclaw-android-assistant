@@ -1782,10 +1782,7 @@ describe("mcp loopback server", () => {
     "rejects a slow tools request %s after header admission",
     async (change) => {
       const captureKey = "slow-revoked-grant";
-      let resolveRequestStarted: (() => void) | undefined;
-      const requestStarted = new Promise<void>((resolve) => {
-        resolveRequestStarted = resolve;
-      });
+      const { promise: requestStarted, resolve: resolveRequestStarted } = createDeferred();
       beginMcpLoopbackToolCallCapture({
         captureKey,
         onRequestStart: () => resolveRequestStarted?.(),
@@ -3151,10 +3148,7 @@ describe("mcp loopback server", () => {
     const requestClassified = vi.fn();
     const requestStarted = vi.fn();
     const captured = vi.fn();
-    let resolveRequestStarted: (() => void) | undefined;
-    const requestStartedPromise = new Promise<void>((resolve) => {
-      resolveRequestStarted = resolve;
-    });
+    const { promise: requestStartedPromise, resolve: resolveRequestStarted } = createDeferred();
     beginMcpLoopbackToolCallCapture({
       captureKey,
       onRequestStart: () => {
@@ -4193,12 +4187,11 @@ describe("createMcpLoopbackServerConfig", () => {
     // begun a message, so the drain is pinned by the server-side request start, not
     // by the client-side connect. Capture admission is that server-side signal.
     const captureKey = "capture-stalled-drain";
-    let resolveRequestStarted: () => void = () => {};
-    let rejectRequestStarted: (error: Error) => void = () => {};
-    const requestStarted = new Promise<void>((resolve, reject) => {
-      resolveRequestStarted = resolve;
-      rejectRequestStarted = reject;
-    });
+    const {
+      promise: requestStarted,
+      resolve: resolveRequestStarted,
+      reject: rejectRequestStarted,
+    } = createDeferred();
     beginMcpLoopbackToolCallCapture({
       captureKey,
       onRequestStart: () => resolveRequestStarted(),

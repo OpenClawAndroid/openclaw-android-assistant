@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { expect, it } from "vitest";
 import { spawnNodeEvalSync } from "../test-utils/node-process.js";
 
-it("shares agent ownership, savepoints, and commit observers across transformed SDK modules", async () => {
+it("shares agent ownership, reclamation queues, and commit observers across transformed SDK modules", async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-agent-module-")));
   const repo = process.cwd();
   const dist = path.join(root, "dist");
@@ -19,6 +19,8 @@ it("shares agent ownership, savepoints, and commit observers across transformed 
       listOpenClawRegisteredAgentDatabases, readOpenClawAgentDatabaseRegistryToken,
     } from ${source("src/state/openclaw-agent-db.ts")};
     export { closeOpenClawStateDatabase } from ${source("src/state/openclaw-state-db.ts")};
+    export { runExclusiveSqliteTranscriptArchiveWorker } from ${source("src/config/sessions/session-accessor.sqlite-archive.ts")};
+    export { runExclusiveSqliteSessionReclamation } from ${source("src/config/sessions/session-accessor.sqlite-reclamation.ts")};
   `;
   try {
     fs.mkdirSync(dist);
@@ -117,6 +119,22 @@ it("shares agent ownership, savepoints, and commit observers across transformed 
           assert.equal(physicalOpens, 1, "transformed borrowing must not physically reopen the agent database");
           assert.equal(integrityScans, 1, "transformed borrowing must not repeat integrity validation");
           assert.equal(borrowed.db === canonical.db, true, "transformed SDK shares the exact owner connection");
+          for (const name of ["runExclusiveSqliteTranscriptArchiveWorker", "runExclusiveSqliteSessionReclamation"]) {
+            let release;
+            const gate = new Promise(resolve => { release = resolve; });
+            const order = [];
+            const first = host[name](async () => { order.push("host"); await gate; });
+            await new Promise(resolve => setImmediate(resolve));
+            const second = plugin[name](async () => { order.push("plugin"); });
+            try {
+              await new Promise(resolve => setImmediate(resolve));
+              assert.deepEqual(order, ["host"], name + " must serialize both module graphs");
+            } finally {
+              release();
+              await Promise.all([first, second]);
+            }
+            assert.deepEqual(order, ["host", "plugin"]);
+          }
           assert.equal(nativeSdk.getNodeSqliteKysely(canonical.db) === plugin.getNodeSqliteKysely(canonical.db), true,
             "native and transformed queries share the connection cache lifecycle");
 

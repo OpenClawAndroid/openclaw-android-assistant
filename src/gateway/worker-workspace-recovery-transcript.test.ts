@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, describe, expect, it } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { getRuntimeConfig } from "../config/config.js";
 import {
   loadTranscriptEvents,
@@ -324,10 +325,7 @@ describe("worker workspace recovery transcript reporting", () => {
         const { reportWorkspaceResultRecoveryFailure } =
           createWorkerWorkspaceConflictTranscriptHandlers(loadSessionRuntime);
         let releaseWriter!: () => void;
-        let signalWriterHeld!: () => void;
-        const writerHeld = new Promise<void>((resolve) => {
-          signalWriterHeld = resolve;
-        });
+        const { promise: writerHeld, resolve: signalWriterHeld } = createDeferred();
         const release = new Promise<void>((resolve) => {
           releaseWriter = resolve;
         });

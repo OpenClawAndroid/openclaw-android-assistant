@@ -54,7 +54,7 @@ export async function createTempHomeEnv(prefix: string): Promise<TempHomeEnv> {
   const snapshot = captureEnv([...HOME_ENV_KEYS]);
   try {
     await fs.rm(home, { recursive: true, force: true });
-    await fs.mkdir(stateDir, { recursive: true });
+    await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
     setTestEnvValue("HOME", home);
     setTestEnvValue("USERPROFILE", home);
     deleteTestEnvValue("OPENCLAW_HOME");

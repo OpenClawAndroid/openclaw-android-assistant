@@ -8,6 +8,7 @@ import { invalidateImageLightbox } from "./chat-state-page.ts";
 import { cancelChatStreamRenderFrame } from "./chat-state-render.ts";
 import { ChatAttachmentReadLifecycle } from "./components/chat-attachments.ts";
 import { releaseChatMediaResourceSubscriber } from "./components/chat-message-media.ts";
+import { clearSessionWorkspacePreviews } from "./components/chat-session-workspace-state.ts";
 import { clearSessionWorkspaceTimers } from "./components/chat-session-workspace.ts";
 import { ChatComposerPersistence, type ChatComposerPersistResult } from "./composer-persistence.ts";
 import type { AfterCommitEffect, RenderLifecycle } from "./render-lifecycle.ts";
@@ -305,6 +306,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
       ) {
         state.sidebarContent = null;
       }
+      clearSessionWorkspacePreviews(state);
       clearSessionWorkspaceTimers(state);
       stopChatRealtimeTalk(state);
       state.resetToolStream?.();

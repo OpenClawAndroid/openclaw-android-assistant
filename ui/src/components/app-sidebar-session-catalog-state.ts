@@ -52,16 +52,19 @@ export function mergeSessionCatalogPage(params: {
   current: SessionCatalog;
   page: SessionCatalog | undefined;
   cursors: Readonly<Record<string, string>>;
-}): { catalog: SessionCatalog; advancedHostIds: string[] } {
+  previousCursors?: ReadonlyMap<string, ReadonlySet<string>>;
+}): { catalog: SessionCatalog; advancedHostIds: string[]; repeatedHostIds: string[] } {
   const { page } = params;
   if (!page) {
     return {
       catalog: { ...params.current, error: missingCatalogPageError() },
       advancedHostIds: [],
+      repeatedHostIds: [],
     };
   }
   const pageHosts = new Map(page.hosts.map((host) => [host.hostId, host]));
   const advancedHostIds: string[] = [];
+  const repeatedHostIds: string[] = [];
   const hosts = params.current.hosts.map((host) => {
     const requestedCursor = params.cursors[host.hostId];
     const pageHost = pageHosts.get(host.hostId);
@@ -75,8 +78,12 @@ export function mergeSessionCatalogPage(params: {
       return preserveExpandedCatalogHost(pageHost, host);
     }
     const { nextCursor, sessions, error: _pageError, ...pageHostDetails } = pageHost;
-    const repeatedCursor = nextCursor === requestedCursor;
-    if (!repeatedCursor) {
+    const repeatedCursor =
+      nextCursor === requestedCursor ||
+      (nextCursor !== undefined && params.previousCursors?.get(host.hostId)?.has(nextCursor));
+    if (repeatedCursor) {
+      repeatedHostIds.push(host.hostId);
+    } else {
       advancedHostIds.push(host.hostId);
     }
     const { nextCursor: _currentCursor, error: _currentError, ...currentHost } = host;
@@ -98,6 +105,7 @@ export function mergeSessionCatalogPage(params: {
       ...(pageError ? { error: pageError } : {}),
     },
     advancedHostIds,
+    repeatedHostIds,
   };
 }
 

@@ -3,6 +3,7 @@ import http from "node:http";
 import net from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, type RawData } from "ws";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { createHostDesktopService } from "./host-source.js";
 import { handleDesktopObserveUpgrade } from "./observe-bridge.js";
 import { createDesktopSessionRegistry } from "./session-registry.js";
@@ -36,12 +37,11 @@ describe("gateway host desktop observe integration", () => {
   it("pre-authenticates ARD, synthesizes None, and starts view-only filtering at ClientInit", async () => {
     const peers = new Set<net.Socket>();
     let connectionCount = 0;
-    let resolveObserverScript!: () => void;
-    let rejectObserverScript!: (error: Error) => void;
-    const observerScript = new Promise<void>((resolve, reject) => {
-      resolveObserverScript = resolve;
-      rejectObserverScript = reject;
-    });
+    const {
+      promise: observerScript,
+      resolve: resolveObserverScript,
+      reject: rejectObserverScript,
+    } = createDeferred();
     const rfbServer = net.createServer((socket) => {
       peers.add(socket);
       socket.once("close", () => peers.delete(socket));

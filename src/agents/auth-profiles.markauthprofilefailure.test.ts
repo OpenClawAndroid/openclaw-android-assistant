@@ -8,7 +8,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
-import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
+import {
+  createApiKeyCredential,
+  createAuthProfileStoreFixture,
+} from "./auth-profiles/credential-fixtures.test-support.js";
 
 vi.mock("./cli-credentials.js", () => ({
   readCodexCliCredentialsCached: () => null,
@@ -56,13 +59,10 @@ async function withAuthProfileStore(
 ): Promise<void> {
   const agentDir = makeAgentDir("store");
   saveAuthProfileStore(
-    {
-      version: 1,
-      profiles: {
-        "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
-        "openrouter:default": createApiKeyCredential("openrouter", "sk-or-default"),
-      },
-    },
+    createAuthProfileStoreFixture({
+      "anthropic:default": createApiKeyCredential("anthropic", "sk-default"),
+      "openrouter:default": createApiKeyCredential("openrouter", "sk-or-default"),
+    }),
     agentDir,
     { filterExternalAuthProfiles: false, syncExternalCli: false },
   );
@@ -80,30 +80,21 @@ describe("markAuthProfileFailure", () => {
   it("does not overwrite fresher on-disk credentials with a stale runtime snapshot", async () => {
     const agentDir = makeAgentDir("stale-snapshot");
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          "openai:default": createApiKeyCredential("openai", "sk-expired-old"),
-        },
-      },
+      createAuthProfileStoreFixture({
+        "openai:default": createApiKeyCredential("openai", "sk-expired-old"),
+      }),
       agentDir,
       { filterExternalAuthProfiles: false, syncExternalCli: false },
     );
 
-    const staleRuntimeStore: AuthProfileStore = {
-      version: 1,
-      profiles: {
-        "openai:default": createApiKeyCredential("openai", "sk-expired-old"),
-      },
-    };
+    const staleRuntimeStore: AuthProfileStore = createAuthProfileStoreFixture({
+      "openai:default": createApiKeyCredential("openai", "sk-expired-old"),
+    });
 
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          "openai:default": createApiKeyCredential("openai", "sk-fresh-new"),
-        },
-      },
+      createAuthProfileStoreFixture({
+        "openai:default": createApiKeyCredential("openai", "sk-fresh-new"),
+      }),
       agentDir,
       { filterExternalAuthProfiles: false, syncExternalCli: false },
     );

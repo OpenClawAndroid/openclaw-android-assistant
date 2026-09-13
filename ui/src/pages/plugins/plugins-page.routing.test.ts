@@ -2,6 +2,7 @@
 
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { i18n, t } from "../../i18n/index.ts";
 import type { PluginCatalogItem, PluginDiscoveryDetailResult } from "../../lib/plugins/index.ts";
 import {
@@ -14,7 +15,6 @@ import {
   createPluginsRouteLocation,
   createResult,
   createRuntimeConfigHarness,
-  deferred,
   mountPage,
   resetPluginsPageTestState,
 } from "./plugins-page.test-support.ts";

@@ -13,7 +13,7 @@ describe("fresh compiled subprocess invocation", { concurrent: false }, () => {
     "preserves filesystem transforms across fresh generations, source mode, and edits ($layout)",
     ({ layout }, { workerArtifacts }) =>
       workerArtifacts.fixtureLifetime.run(async () => {
-        const { node, startBorrower } = workerArtifacts.createFixtureCommands();
+        const { runtime, startBorrower } = workerArtifacts.createFixtureCommands();
         const directory = workerArtifacts.fixtureDirectory();
         const { config, value, configuredValue, parent, cacheDirectory } = workerProbe(
           directory,
@@ -44,8 +44,12 @@ describe("fresh compiled subprocess invocation", { concurrent: false }, () => {
             const reuse = mode === "compiled" && generations.size > 0;
             const result = reuse
               ? await startBorrower(owner, args).result
-              : await node([
-                  mode === "compiled" ? "scripts/run-vitest.mjs" : "node_modules/vitest/vitest.mjs",
+              : await runtime([
+                  mode === "compiled"
+                    ? process.versions.bun
+                      ? "scripts/run-vitest-child.mts"
+                      : "scripts/run-vitest.mjs"
+                    : "node_modules/vitest/vitest.mjs",
                   ...args,
                 ]);
             expect(result.code, result.stderr + result.stdout).toBe(0);
@@ -85,8 +89,14 @@ describe("fresh compiled subprocess invocation", { concurrent: false }, () => {
               expect(fileURLToPath(generation)).toBe(
                 path.join(root, "src/infra/sqlite-readonly-location.worker.ts"),
               );
-              expect(observed.args[0]).toBe("--import");
-              expect(observed.args[1]).toMatch(/^file:\/\//);
+              if (process.versions.bun) {
+                expect(observed.args[0]).toBe(
+                  path.join(root, "src/infra/sqlite-readonly-location.worker.ts"),
+                );
+              } else {
+                expect(observed.args[0]).toBe("--import");
+                expect(observed.args[1]).toMatch(/^file:\/\//);
+              }
               expect(fileURLToPath(observed.knn)).toBe(
                 path.join(root, "extensions/memory-core/src/memory/manager-search-knn.child.ts"),
               );

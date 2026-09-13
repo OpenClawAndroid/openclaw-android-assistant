@@ -1,4 +1,7 @@
-import { describeRunningOpenClawBuild } from "../infra/sqlite-user-version.js";
+import {
+  describeRunningOpenClawBuild,
+  SqliteSchemaVersionError,
+} from "../infra/sqlite-user-version.js";
 import type {
   DeferredStateSchemaPublication,
   IncompatibleOpenClawDatabase,
@@ -8,13 +11,25 @@ import type {
 import { OPENCLAW_DATABASE_SCHEMA_DOCS_URL } from "./openclaw-state-db-contract.js";
 import type { StateSchemaPublicationBlocker } from "./openclaw-state-schema-publication.js";
 
+/** Fatal refusal when persisted schemas were written by a newer build. */
+export class OpenClawDatabaseSchemaPreflightError extends SqliteSchemaVersionError {
+  constructor(
+    readonly incompatibleDatabases: readonly IncompatibleOpenClawDatabase[],
+    options: { operation?: OpenClawDatabaseSchemaPreflightOperation } = {},
+  ) {
+    const operation = options.operation ?? "gateway-startup";
+    super(formatIncompatibleDatabaseSchemas(incompatibleDatabases, operation));
+    this.name = "OpenClawDatabaseSchemaPreflightError";
+  }
+}
+
 function formatDoctorIncompatibleDatabase(database: IncompatibleOpenClawDatabase): string {
   const agent = database.agentId ? ` for agent ${database.agentId}` : "";
   const writer = database.writerAppVersion ? `; writer build ${database.writerAppVersion}` : "";
   return `${database.kind} database${agent} ${database.path} uses schema ${database.foundVersion}; this build supports ${database.supportedVersion}${writer}.`;
 }
 
-export function formatIncompatibleDatabaseSchemas(
+function formatIncompatibleDatabaseSchemas(
   incompatibleDatabases: readonly IncompatibleOpenClawDatabase[],
   operation: OpenClawDatabaseSchemaPreflightOperation,
 ): string {

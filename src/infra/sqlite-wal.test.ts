@@ -19,7 +19,7 @@ import {
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
-function createMockDb(): DatabaseSync {
+function createMockDb(checkpointResult = { busy: 0, log: 0, checkpointed: 0 }): DatabaseSync {
   return {
     close: vi.fn(),
     exec: vi.fn(),
@@ -27,7 +27,7 @@ function createMockDb(): DatabaseSync {
     prepare: vi.fn((sql: string) => ({
       get: vi.fn(() =>
         sql.includes("wal_checkpoint")
-          ? { busy: 0, log: 0, checkpointed: 0 }
+          ? checkpointResult
           : { journal_mode: sql === "PRAGMA journal_mode;" ? "wal" : "delete" },
       ),
     })),
@@ -923,42 +923,6 @@ describe("sqlite WAL maintenance", () => {
     );
   });
 
-  it("detects a checkpoint blocked by another connection's reader", () => {
-    const tempDir = tempDirs.make("openclaw-sqlite-checkpoint-busy-");
-    const databasePath = path.join(tempDir, "state.sqlite");
-    const { DatabaseSync } = requireNodeSqlite();
-    const writer = new DatabaseSync(databasePath);
-    let reader: InstanceType<typeof DatabaseSync> | undefined;
-    let maintenance: ReturnType<typeof configureSqliteWalMaintenance> | undefined;
-    try {
-      writer.exec(`
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE events (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
-        INSERT INTO events (value) VALUES ('before-reader');
-        PRAGMA wal_checkpoint(TRUNCATE);
-      `);
-      reader = new DatabaseSync(databasePath);
-      reader.exec("BEGIN;");
-      reader.prepare("SELECT COUNT(*) FROM events").get();
-      writer.prepare("INSERT INTO events (value) VALUES (?)").run("after-reader");
-
-      maintenance = configureSqliteWalMaintenance(writer, { checkpointIntervalMs: 0 });
-
-      expect(maintenance.checkpoint()).toBe(false);
-      reader.exec("ROLLBACK;");
-      expect(maintenance.checkpoint()).toBe(true);
-    } finally {
-      if (reader?.isOpen) {
-        try {
-          reader.exec("ROLLBACK;");
-        } catch {}
-        reader.close();
-      }
-      maintenance?.close();
-      writer.close();
-    }
-  });
-
   it("reports checkpoint errors without throwing from background maintenance", () => {
     const db = createMockDb();
     const error = new Error("busy");
@@ -980,7 +944,44 @@ describe("sqlite WAL maintenance", () => {
 
     expect(maintenance.checkpoint()).toBe(false);
     expect(onCheckpointError).toHaveBeenCalledWith(error);
+    expect(maintenance.health).toMatchObject({
+      state: "error",
+      error: "busy",
+      logFrames: null,
+      checkpointedFrames: null,
+      consecutiveBlocked: 0,
+      lastCompletedAtMs: null,
+      warning: true,
+    });
   });
+
+  it.each([
+    { databaseMiB: 1, walMiB: 64, excess: 0, warning: false },
+    { databaseMiB: 1, walMiB: 64, excess: 1, warning: true },
+    { databaseMiB: 128, walMiB: 256, excess: 0, warning: false },
+    { databaseMiB: 128, walMiB: 256, excess: 1, warning: true },
+  ])(
+    "warns on the first blocked checkpoint only above the size-derived limit: $databaseMiB/$walMiB MiB + $excess",
+    ({ databaseMiB, walMiB, excess, warning }) => {
+      const databasePath = path.join(tempDirs.make("openclaw-wal-health-size-"), "state.sqlite");
+      fs.writeFileSync(databasePath, "");
+      fs.writeFileSync(`${databasePath}-wal`, "");
+      fs.truncateSync(databasePath, databaseMiB * 1024 * 1024);
+      fs.truncateSync(`${databasePath}-wal`, walMiB * 1024 * 1024 + excess);
+      const db = createMockDb({ busy: 0, log: 8, checkpointed: 5 });
+      const maintenance = configureSqliteWalMaintenance(db, {
+        databasePath,
+        checkpointIntervalMs: 0,
+        checkpointMode: "PASSIVE",
+      });
+      expect(maintenance.checkpoint()).toBe(false);
+      expect(maintenance.health).toMatchObject({
+        state: "blocked",
+        consecutiveBlocked: 1,
+        warning,
+      });
+    },
+  );
 
   it("retries the WAL transition when SQLite bypasses the busy handler", () => {
     const db = createMockDb();

@@ -10,6 +10,7 @@ import {
   GATEWAY_HEALTH_RATE_LIMITED_MESSAGE,
   GATEWAY_HEALTH_RATE_LIMITED_TITLE,
 } from "./gateway-health-auth-diagnostic.js";
+import { createSqliteWalHealth } from "./sqlite-wal-health.test-support.js";
 
 const callGateway = vi.hoisted(() => vi.fn());
 const isGatewayCredentialsRequiredError = vi.hoisted(() => vi.fn(() => false));
@@ -234,12 +235,41 @@ describe("checkGatewayHealth", () => {
     },
   );
 
-  it("reports startup migration warnings without marking the gateway unhealthy", async () => {
-    const startupMigrationWarning = 'Retained legacy state. Run "openclaw doctor --fix".';
-    callGateway.mockResolvedValueOnce({ startupMigrationWarning }).mockResolvedValue({});
+  it.each([
+    ["startupMigrationWarning", "Startup migration warnings"],
+    ["startupRecoveryWarning", "Startup session recovery"],
+  ])("reports %s without marking the gateway unhealthy", async (field, title) => {
+    const warning = 'Inspect the affected state. Run "openclaw doctor".';
+    callGateway.mockResolvedValueOnce({ [field]: warning }).mockResolvedValue({});
     const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
     await expect(checkGatewayHealth({ runtime, cfg })).resolves.toMatchObject({ healthOk: true });
-    expect(note).toHaveBeenCalledWith(startupMigrationWarning, "Startup migration warnings");
+    expect(note).toHaveBeenCalledWith(warning, title);
+  });
+
+  it.each([true, false])("reports the Gateway's recorded SQLite warning=%s", async (warning) => {
+    const sqliteWal = createSqliteWalHealth({
+      observedAtMs: Date.parse("2026-09-13T12:00:00.000Z"),
+      walBytes: null,
+      databaseBytes: null,
+      consecutiveBlocked: warning ? 2 : 1,
+      warning,
+    });
+    callGateway.mockResolvedValueOnce({ sqliteWal }).mockResolvedValue({});
+    const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
+
+    await expect(checkGatewayHealth({ runtime, cfg })).resolves.toMatchObject({ healthOk: true });
+
+    const message = note.mock.calls.find(([, title]) => title === "SQLite WAL")?.[0];
+    if (!warning) {
+      expect(message).toBeUndefined();
+      return;
+    }
+    expect(message).toContain("checkpoint blocked");
+    expect(message).toContain("WAL unknown");
+    expect(message).toContain("last complete never observed");
+    expect(message).toContain("2 consecutive blocked observations");
+    expect(message).toContain("openclaw gateway restart");
+    expect(message).toContain("openclaw status --deep");
   });
 
   it("renders the shared redacted telemetry exporter summary", async () => {

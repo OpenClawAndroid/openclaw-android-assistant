@@ -343,13 +343,7 @@ push_prep_head_to_pr_branch() {
     return 1
   fi
 
-  git fetch origin "pull/$pr/head:pr-$pr-verify" --force || return 1
-  local fetched_head_sha
-  fetched_head_sha=$(git rev-parse "pr-$pr-verify") || return 1
-  if [ "$fetched_head_sha" != "$prep_head_sha" ]; then
-    echo "Fetched PR head differs from the published commit (expected $prep_head_sha, fetched $fetched_head_sha)."
-    return 1
-  fi
+  fetch_pr_head "$pr" "$prep_head_sha" "refs/heads/pr-$pr-verify" || return 1
   local local_prep_tree
   local remote_prep_tree
   local_prep_tree=$(git rev-parse "${local_prep_head_sha}^{tree}")

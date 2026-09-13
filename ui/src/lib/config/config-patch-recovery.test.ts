@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ConfigSnapshot } from "../../api/types.ts";
 import {
   CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS,
   createConfigCapabilityHarness,
   createConfigServerMock,
-  deferred,
 } from "./config-test-harness.ts";
 import type { RuntimeConfigCapability } from "./runtime-config-capability.ts";
 
@@ -167,8 +167,8 @@ describe("config patch recovery", () => {
     async (mode) => {
       vi.useFakeTimers();
       const server = createPatchServer();
-      const patchStarted = deferred<void>();
-      const releasePatch = deferred<void>();
+      const patchStarted = deferred();
+      const releasePatch = deferred();
       const request = vi.fn(async (method: string, params?: unknown) => {
         if (method === "config.patch") {
           patchStarted.resolve();
@@ -242,7 +242,7 @@ describe("config patch recovery", () => {
   it("keeps the current failure and retry intent when an old connection rejects late", async () => {
     const server = createPatchServer();
     const stalePatch = deferred<unknown>();
-    const patchStarted = deferred<void>();
+    const patchStarted = deferred();
     let patchCount = 0;
     const request = vi.fn(async (method: string, params?: unknown) => {
       if (method === "config.patch") {

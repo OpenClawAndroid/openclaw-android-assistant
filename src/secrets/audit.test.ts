@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createAuthProfileStoreFixture } from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import {
   noteCommittedSharedAuthStoreOwnership,
   resolveSharedAuthStorePath,
@@ -749,16 +750,13 @@ describe("secrets audit", () => {
     const ambientAgentDir = path.join(ambientStateDir, "agents", "main", "agent");
     vi.stubEnv("OPENCLAW_STATE_DIR", ambientStateDir);
     writePersistedAuthProfileStoreRaw(
-      {
-        version: 1,
-        profiles: {
-          "openai:ambient": {
-            type: "api_key",
-            provider: "openai",
-            key: "sk-ambient-plaintext",
-          },
+      createAuthProfileStoreFixture({
+        "openai:ambient": {
+          type: "api_key",
+          provider: "openai",
+          key: "sk-ambient-plaintext",
         },
-      },
+      }),
       ambientAgentDir,
     );
     const stateDatabase = openOpenClawStateDatabase({ env: fixture.env }).db;
@@ -774,16 +772,15 @@ describe("secrets audit", () => {
       )
       .run(
         "authProfiles.store",
-        JSON.stringify({
-          version: 1,
-          profiles: {
+        JSON.stringify(
+          createAuthProfileStoreFixture({
             "openai:target": {
               type: "api_key",
               provider: "openai",
               key: "sk-target-plaintext",
             },
-          },
-        }),
+          }),
+        ),
       );
     noteCommittedSharedAuthStoreOwnership({ location: "state-db" }, fixture.env);
 

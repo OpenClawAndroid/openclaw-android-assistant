@@ -467,76 +467,65 @@ describe("memory index", () => {
   });
 
   it("bootstraps an empty index on first search so session transcript hits are available", async () => {
-    try {
-      const manager = await getFtsSessionManager({
-        stateDirName: ".state-session-bootstrap",
-      });
-      if (!manager) {
-        return;
-      }
-
-      await seedMemoryIndexSessionTranscript({
-        sessionId: "session-bootstrap",
-        messages: [
-          {
-            role: "assistant",
-            timestamp: "2026-04-07T15:25:04.113Z",
-            content: "The current Project Nebula codename is ORBIT-10.",
-          },
-        ],
-      });
-
-      const results = await manager.search("current Project Nebula codename ORBIT-10", {
-        minScore: 0,
-        maxResults: 3,
-      });
-
-      expect(results[0]?.source).toBe("sessions");
-      expect(results[0]?.snippet).toContain("ORBIT-10");
-    } finally {
-      fixture.restoreStateDir();
+    const manager = await getFtsSessionManager();
+    if (!manager) {
+      return;
     }
+
+    await seedMemoryIndexSessionTranscript({
+      sessionId: "session-bootstrap",
+      messages: [
+        {
+          role: "assistant",
+          timestamp: "2026-04-07T15:25:04.113Z",
+          content: "The current Project Nebula codename is ORBIT-10.",
+        },
+      ],
+    });
+
+    const results = await manager.search("current Project Nebula codename ORBIT-10", {
+      minScore: 0,
+      maxResults: 3,
+    });
+
+    expect(results[0]?.source).toBe("sessions");
+    expect(results[0]?.snippet).toContain("ORBIT-10");
   });
 
   it("keeps remember-only session transcripts out of ordinary manager searches", async () => {
     providerFixture.forceNoProvider = true;
-    fixture.setStateDir(path.join(fixture.paths.workspace, ".state-remember-search-sources"));
-    try {
-      const cfg = createCfg({
-        provider: "none",
-        rememberAcrossConversations: true,
-        minScore: 0,
-      });
-      const manager = await getFreshManager(cfg);
-      trackManager(manager);
-      if (!manager.status().fts?.available) {
-        return;
-      }
-
-      await seedMemoryIndexSessionTranscript({
-        sessionId: "remember-only",
-        messages: [
-          {
-            role: "assistant",
-            timestamp: "2026-04-07T15:25:04.113Z",
-            content: "Recall-only canary is NEBULA-47.",
-          },
-        ],
-      });
-
-      await manager.sync({ reason: "test", force: true });
-
-      await expect(
-        manager.search("Recall-only canary NEBULA-47", { minScore: 0 }),
-      ).resolves.toEqual([]);
-      const trustedResults = await manager.search("Recall-only canary NEBULA-47", {
-        minScore: 0,
-        sources: ["sessions"],
-      });
-      expect(trustedResults[0]?.source).toBe("sessions");
-    } finally {
-      fixture.restoreStateDir();
+    const cfg = createCfg({
+      provider: "none",
+      rememberAcrossConversations: true,
+      minScore: 0,
+    });
+    const manager = await getFreshManager(cfg);
+    trackManager(manager);
+    if (!manager.status().fts?.available) {
+      return;
     }
+
+    await seedMemoryIndexSessionTranscript({
+      sessionId: "remember-only",
+      messages: [
+        {
+          role: "assistant",
+          timestamp: "2026-04-07T15:25:04.113Z",
+          content: "Recall-only canary is NEBULA-47.",
+        },
+      ],
+    });
+
+    await manager.sync({ reason: "test", force: true });
+
+    await expect(manager.search("Recall-only canary NEBULA-47", { minScore: 0 })).resolves.toEqual(
+      [],
+    );
+    const trustedResults = await manager.search("Recall-only canary NEBULA-47", {
+      minScore: 0,
+      sources: ["sessions"],
+    });
+    expect(trustedResults[0]?.source).toBe("sessions");
   });
 
   it("returns before provider or index bootstrap for a blank query", async () => {

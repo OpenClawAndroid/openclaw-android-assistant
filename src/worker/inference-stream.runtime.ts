@@ -241,6 +241,44 @@ function transcriptSafeErrorMessage(
   return replacement;
 }
 
+function createInferenceRequestMeasure(request: WorkerInferenceStartParams) {
+  const measureFull = (messages: WorkerInferenceContext["messages"]) =>
+    Buffer.byteLength(
+      JSON.stringify({
+        type: "req",
+        // The dispatcher creates UUID request IDs: this has the exact same encoded size.
+        id: "00000000-0000-4000-8000-000000000000",
+        method: "worker.inference.start",
+        params: { ...request, context: { ...request.context, messages } },
+      }),
+      "utf8",
+    );
+  let envelopeBytes = 0;
+  let messageBytes: WeakMap<WorkerInferenceContext["messages"][number], number> | undefined;
+  return (messages: WorkerInferenceContext["messages"]) => {
+    // Fitting requests keep the single full encoding; allocate only after pruning starts.
+    if (messages === request.context.messages) {
+      return measureFull(messages);
+    }
+    if (!messageBytes) {
+      envelopeBytes = measureFull([]);
+      messageBytes = new WeakMap();
+    }
+    let bytes = envelopeBytes + Math.max(0, messages.length - 1);
+    for (const message of messages) {
+      // The fitter replaces each changed message but reuses its candidate array.
+      // Cache message sizes only, scoped to this cloned request's synchronous fitting.
+      let size = messageBytes.get(message);
+      if (size === undefined) {
+        size = Buffer.byteLength(JSON.stringify(message), "utf8");
+        messageBytes.set(message, size);
+      }
+      bytes += size;
+    }
+    return bytes;
+  };
+}
+
 export function createWorkerInferenceStreamAdapter(
   adapter: WorkerInferenceStreamAdapterOptions,
 ): (request: WorkerInferenceStreamRequest) => AssistantMessageEventStreamLike {
@@ -316,17 +354,7 @@ export function createWorkerInferenceStreamAdapter(
     try {
       const messages = fitWorkerReplayImages(
         request.context.messages,
-        (candidateMessages) =>
-          Buffer.byteLength(
-            JSON.stringify({
-              type: "req",
-              // The dispatcher creates UUID request IDs: this has the exact same encoded size.
-              id: "00000000-0000-4000-8000-000000000000",
-              method: "worker.inference.start",
-              params: { ...request, context: { ...request.context, messages: candidateMessages } },
-            }),
-            "utf8",
-          ),
+        createInferenceRequestMeasure(request),
         adapter.computerContextEpoch?.frameToolCallId,
       );
       if (!messages) {

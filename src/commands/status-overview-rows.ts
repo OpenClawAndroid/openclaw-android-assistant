@@ -37,7 +37,11 @@ import type { MemoryPluginStatus, MemoryStatusSnapshot } from "./status.scan.sha
 
 type StatusDegradationSummary = Pick<
   StatusSummary,
-  "degradedSecretOwners" | "degradedPlugins" | "startupMigrationWarning" | "secretEgressProxy"
+  | "degradedSecretOwners"
+  | "degradedPlugins"
+  | "startupMigrationWarning"
+  | "startupRecoveryWarning"
+  | "secretEgressProxy"
 >;
 
 function buildStatusDegradationRows(
@@ -47,6 +51,9 @@ function buildStatusDegradationRows(
   const rows: Array<{ Item: string; Value: string }> = [];
   if (summary.startupMigrationWarning) {
     rows.push({ Item: "Startup migrations", Value: decorate(summary.startupMigrationWarning) });
+  }
+  if (summary.startupRecoveryWarning) {
+    rows.push({ Item: "Session recovery", Value: decorate(summary.startupRecoveryWarning) });
   }
   if (summary.secretEgressProxy) {
     const status = summary.secretEgressProxy;

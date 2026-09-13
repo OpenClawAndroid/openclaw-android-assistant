@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { loadAuthProfileStoreWithoutExternalProfiles } from "../agents/auth-profiles.js";
+import { createAuthProfileStoreFixture } from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import {
   getRuntimeAuthProfileStoreCredentialsRevision,
   getRuntimeAuthProfileStoreSnapshotCore,
@@ -280,10 +281,7 @@ function installGatewayStartupSecretsRuntimeMock(state: GatewayStartupSecretsRun
     }
   )["__gatewayStartupSecretsRuntimeMock"] = state;
   vi.doMock("../agents/auth-profiles.js", () => ({
-    loadAuthProfileStoreWithoutExternalProfiles: vi.fn(() => ({
-      version: 1,
-      profiles: {},
-    })),
+    loadAuthProfileStoreWithoutExternalProfiles: vi.fn(() => createAuthProfileStoreFixture({})),
   }));
   vi.doMock("../secrets/runtime.js", () => {
     const runtimeState = (
@@ -382,16 +380,13 @@ async function activateStartupConfigWithEnv(config: OpenClawConfig, env: NodeJS.
 
 function writePersistedOpenAiProfile(agentDir: string, key: string): void {
   writePersistedAuthProfileStoreRaw(
-    {
-      version: 1,
-      profiles: {
-        "openai:default": {
-          type: "api_key",
-          provider: "openai",
-          key,
-        },
+    createAuthProfileStoreFixture({
+      "openai:default": {
+        type: "api_key",
+        provider: "openai",
+        key,
       },
-    },
+    }),
     agentDir,
   );
 }
@@ -1261,18 +1256,15 @@ describe("gateway startup config secret preflight", () => {
       authStores: prepareRuntimeAuthProfileStoreSnapshots([
         {
           agentDir,
-          store: {
-            version: 1,
-            profiles: {
-              "openai:default": {
-                type: "oauth",
-                provider: "openai",
-                access: "access-old",
-                refresh: "refresh-old",
-                expires: Date.now() + 60_000,
-              },
+          store: createAuthProfileStoreFixture({
+            "openai:default": {
+              type: "oauth",
+              provider: "openai",
+              access: "access-old",
+              refresh: "refresh-old",
+              expires: Date.now() + 60_000,
             },
-          },
+          }),
         },
       ]),
     };
@@ -1284,18 +1276,15 @@ describe("gateway startup config secret preflight", () => {
     activateSecretsRuntimeSnapshotForTest(initial);
     const initialRevision = getActiveSecretsRuntimeSnapshotRevisionState();
     setRuntimeAuthProfileStoreSnapshot(
-      {
-        version: 1,
-        profiles: {
-          "openai:default": {
-            type: "oauth",
-            provider: "openai",
-            access: "access-new",
-            refresh: "refresh-new",
-            expires: Date.now() + 120_000,
-          },
+      createAuthProfileStoreFixture({
+        "openai:default": {
+          type: "oauth",
+          provider: "openai",
+          access: "access-new",
+          refresh: "refresh-new",
+          expires: Date.now() + 120_000,
         },
-      },
+      }),
       agentDir,
     );
 
@@ -1380,16 +1369,13 @@ describe("gateway startup config secret preflight", () => {
         }
         if (scenario === "credentials changed") {
           setRuntimeAuthProfileStoreSnapshot(
-            {
-              version: 1,
-              profiles: {
-                "openai:observation-test": {
-                  type: "api_key",
-                  provider: "openai",
-                  key: "synthetic-new-key",
-                },
+            createAuthProfileStoreFixture({
+              "openai:observation-test": {
+                type: "api_key",
+                provider: "openai",
+                key: "synthetic-new-key",
               },
-            },
+            }),
             autoCleanupTempDirs.make("openclaw-lock-auth-"),
           );
         }
@@ -1481,14 +1467,8 @@ describe("gateway startup config secret preflight", () => {
     });
     activateSecretsRuntimeSnapshotForTest(initial);
     const initialRevision = getActiveSecretsRuntimeSnapshotRevisionState();
-    let releasePublication: (() => void) | undefined;
-    const publicationBlocked = new Promise<void>((resolve) => {
-      releasePublication = resolve;
-    });
-    let publicationStarted: (() => void) | undefined;
-    const publicationEntered = new Promise<void>((resolve) => {
-      publicationStarted = resolve;
-    });
+    const { promise: publicationBlocked, resolve: releasePublication } = createDeferred();
+    const { promise: publicationEntered, resolve: publicationStarted } = createDeferred();
 
     const candidateActivation = activateRuntimeSecrets.activatePreparedSnapshotIfCurrent?.(
       candidate,
@@ -2809,10 +2789,9 @@ describe("gateway startup config secret preflight", () => {
     const runtimeImport = vi.fn();
     const prepareRuntimeSecretsSnapshot = vi.fn(async ({ config }) => preparedSnapshot(config));
     const activateRuntimeSecretsSnapshot = vi.fn();
-    const loadAuthProfileStoreWithoutExternalProfilesMock = vi.fn(() => ({
-      version: 1,
-      profiles: {},
-    }));
+    const loadAuthProfileStoreWithoutExternalProfilesMock = vi.fn(() =>
+      createAuthProfileStoreFixture({}),
+    );
     (
       globalThis as typeof globalThis & {
         __gatewayStartupSecretsRuntimeMock?: {
@@ -2960,16 +2939,14 @@ describe("gateway startup config secret preflight", () => {
       const concurrent = await secretsRuntime.prepareSecretsRuntimeSnapshot({
         config: config(19_022),
         agentDirs: [agentDir],
-        loadAuthStore: () => ({
-          version: 1,
-          profiles: {
+        loadAuthStore: () =>
+          createAuthProfileStoreFixture({
             "openai:default": {
               type: "api_key",
               provider: "openai",
               key: "newer-context-key",
             },
-          },
-        }),
+          }),
       });
       secretsRuntime.activateSecretsRuntimeSnapshot(concurrent);
 

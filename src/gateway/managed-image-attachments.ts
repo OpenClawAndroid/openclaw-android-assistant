@@ -634,7 +634,8 @@ function parseMediaDataUrl(
   }
 
   const base64Part = afterPrefix.slice(commaIdx + 1);
-  if (!/^[A-Za-z0-9+/=\s]+$/.test(base64Part)) {
+  // Quantified matches can exhaust the RegExp stack on large base64 payloads.
+  if (!base64Part || /[^A-Za-z0-9+/=\s]/.test(base64Part)) {
     throw new Error("Invalid image data URL");
   }
 

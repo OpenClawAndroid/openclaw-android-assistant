@@ -408,13 +408,6 @@ export function createGatewayBroadcaster(params: {
       if (!hasEventScope(c, event, explicitPluginScope)) {
         continue;
       }
-      if (
-        sessionKeys.length > 0 &&
-        params.canReceiveSessionEvent &&
-        !params.canReceiveSessionEvent(c, sessionKeys, agentId, event, payload)
-      ) {
-        continue;
-      }
       const requiresSessionSubscription =
         event === "session.typing" ||
         sessionSubscriptionVerified ||
@@ -447,6 +440,13 @@ export function createGatewayBroadcaster(params: {
           // The registry is authoritative; for cap-gated events, unscoped Control UI clients keep full fanout.
           continue;
         }
+      }
+      if (
+        sessionKeys.length > 0 &&
+        params.canReceiveSessionEvent &&
+        !params.canReceiveSessionEvent(c, sessionKeys, agentId, event, payload)
+      ) {
+        continue;
       }
       // Retirement releases progress without suppressing its captured abort terminal.
       if ((retained && !isCurrent(live?.isCurrent)) || (live?.coalesce && live.group.aborted)) {

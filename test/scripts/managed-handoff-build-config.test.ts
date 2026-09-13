@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { resolveRuntimeWorkerUrl } from "../../src/infra/runtime-worker-url.js";
 import { MANAGED_HANDOFF_RUNTIME_ENTRY } from "../../src/infra/update-managed-service-handoff-runtime-assets.js";
 import { stageManagedHandoffRuntime } from "../../src/infra/update-managed-service-handoff-runtime.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import buildConfigs from "../../tsdown.config.ts";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -60,7 +61,7 @@ it("loads the staged production handoff runtime without neighboring SQL or JSON 
     expect(readdirSync(path.dirname(entry))).toEqual([MANAGED_HANDOFF_RUNTIME_ENTRY]);
 
     const result = spawnSync(
-      process.execPath,
+      resolveTestNodeExecPath(),
       [
         "--input-type=module",
         "--eval",

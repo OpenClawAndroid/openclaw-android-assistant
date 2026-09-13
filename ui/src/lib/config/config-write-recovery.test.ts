@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import {
   CONFIG_FORM_AUTO_SAVE_DEBOUNCE_MS,
   createConfigCapabilityHarness,
   createConfigServerMock,
-  deferred,
 } from "./config-test-harness.ts";
 
 const originalRaw = '{ "tools": { "exec": { "node": "original" } } }\n';
@@ -21,7 +21,7 @@ function createRecoveryHarness(
   let hash = "before";
   let getCount = 0;
   const firstAck = deferred<unknown>();
-  const recoveryRead = deferred<void>();
+  const recoveryRead = deferred();
   const submissions: Array<{ raw: string; baseHash: string }> = [];
   const request = vi.fn(async (method: string, params?: unknown) => {
     if (method === "config.get") {
@@ -107,7 +107,7 @@ describe("config write recovery", () => {
     vi.useFakeTimers();
     const harness = createRecoveryHarness();
     const { runtimeConfig, submissions } = harness;
-    const parsing = deferred<void>();
+    const parsing = deferred();
     try {
       await runtimeConfig.ensureLoaded();
       runtimeConfig.state.configRawOriginalParsePending = parsing.promise;

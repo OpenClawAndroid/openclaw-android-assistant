@@ -600,21 +600,29 @@ export function tryResolveConfiguredAgentWorkspaceDir(
   return configured ? stripNullBytes(resolveUserPath(configured, env)) : undefined;
 }
 
+type AgentDirResolutionEnv = { env?: NodeJS.ProcessEnv; homedir?: () => string };
+
+// Per-agent paths stay independent of process-wide install overrides.
+export function resolveEffectiveAgentDir(
+  cfg: OpenClawConfig,
+  agentId: string,
+  deps?: AgentDirResolutionEnv,
+): string {
+  const id = normalizeAgentId(agentId);
+  const configured = resolveAgentConfig(cfg, id)?.agentDir?.trim();
+  const env = deps?.env ?? process.env;
+  return configured
+    ? resolveUserPath(configured, env, deps?.homedir)
+    : path.join(resolveStateDir(env, deps?.homedir), "agents", id, "agent");
+}
+
 export function resolveAgentDir(
   cfg: OpenClawConfig,
   agentId: string,
   env: NodeJS.ProcessEnv = process.env,
-) {
-  const id = normalizeAgentId(agentId);
-  const configured = resolveAgentConfig(cfg, id)?.agentDir?.trim();
-  if (configured) {
-    const agentDir = resolveUserPath(configured, env);
-    registerResolvedAgentDir({ agentId: id, agentDir, env });
-    return agentDir;
-  }
-  const root = resolveStateDir(env);
-  const agentDir = path.join(root, "agents", id, "agent");
-  registerResolvedAgentDir({ agentId: id, agentDir, env });
+): string {
+  const agentDir = resolveEffectiveAgentDir(cfg, agentId, { env });
+  registerResolvedAgentDir({ agentId, agentDir, env });
   return agentDir;
 }
 

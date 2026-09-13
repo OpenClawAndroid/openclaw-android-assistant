@@ -1472,6 +1472,9 @@ extension DashboardManager {
         case let .reconnectCancel(target):
             guard self.target(for: source) == target else { return }
             source.cancelGatewayReconnect(target)
+        case let .reconnectBrowser(target, attempt):
+            guard self.target(for: source) == target else { return }
+            source.openGatewaySignInBrowser(target, attempt: attempt)
         case .openSettings:
             AppNavigationActions.openConnection(tab: .gateways)
         }

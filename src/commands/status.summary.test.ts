@@ -11,7 +11,10 @@ import type { TaskAuditFinding } from "../tasks/task-registry.audit.js";
 import { createEmptyTaskRegistrySummary } from "../tasks/task-registry.summary.js";
 import type { TaskRecord, TaskRegistrySummary } from "../tasks/task-registry.types.js";
 import { normalizeSessionDeliveryState } from "../utils/delivery-context.shared.js";
-import { registerStatusSummarySessionRowCases } from "./status.summary.test-support.js";
+import {
+  registerStatusSummarySessionRowCases,
+  registerStatusSummaryWalCases,
+} from "./status.summary.test-support.js";
 
 const statusSummaryMocks = vi.hoisted(() => ({
   hasConfiguredChannelsForReadOnlyScope: vi.fn(() => true),
@@ -304,6 +307,7 @@ describe("getStatusSummary", () => {
     setSessions: (store) =>
       statusSummaryMocks.listSessionEntriesCore.mockReturnValue(toSessionEntrySummaries(store)),
   });
+  registerStatusSummaryWalCases((options) => getStatusSummary(options));
 
   it.each(["per-sender", "global"] as const)(
     "summarizes every configured agent's pending events without an ambient owner (%s)",

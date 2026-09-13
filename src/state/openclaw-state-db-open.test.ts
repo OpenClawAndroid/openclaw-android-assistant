@@ -22,6 +22,18 @@ import { closeTrackedStateDatabase } from "./openclaw-state-db-handle.js";
 import { openUnpublishedStateDatabase } from "./openclaw-state-db-open.js";
 import * as permissions from "./openclaw-state-db-permissions.js";
 
+const logger = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock("../logging/subsystem.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../logging/subsystem.js")>();
+  return {
+    ...actual,
+    createSubsystemLogger: (name: string) => {
+      const original = actual.createSubsystemLogger(name);
+      return name === "state/db" ? { ...original, warn: logger.warn } : original;
+    },
+  };
+});
+
 describe("unpublished state database acquisition", () => {
   const databases = new Set<DatabaseSync>();
   const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
@@ -117,6 +129,40 @@ describe("unpublished state database acquisition", () => {
       vi.advanceTimersByTime(30 * 60 * 1000);
       expect(open.mock.calls.map(([location]) => location)).toContain(coordinatorPath);
     } finally {
+      database.walMaintenance.close();
+      closeTrackedStateDatabase(database.db);
+    }
+  });
+
+  it("records and reports SQLite errors from scheduled shared-state checkpoints", () => {
+    const { params } = acquisitionFixture();
+    const database = openUnpublishedStateDatabase(params);
+    const prepare = database.db.prepare.bind(database.db);
+    const checkpointFailure = new Error("checkpoint storage unavailable");
+    const intercepted = vi.spyOn(database.db, "prepare").mockImplementation((sql) => {
+      if (sql === "PRAGMA wal_checkpoint(PASSIVE);") {
+        throw checkpointFailure;
+      }
+      return prepare(sql);
+    });
+    try {
+      logger.warn.mockClear();
+      vi.advanceTimersByTime(30 * 60 * 1000);
+      expect(database.walMaintenance.health).toMatchObject({
+        state: "error",
+        error: "checkpoint storage unavailable",
+        warning: true,
+      });
+      expect(logger.warn).toHaveBeenCalledWith("Shared-state WAL maintenance failed", {
+        error: "checkpoint storage unavailable",
+        path: params.pathname,
+        checkpoint: database.walMaintenance.health,
+      });
+      intercepted.mockRestore();
+      vi.advanceTimersByTime(30 * 60 * 1000);
+      expect(database.walMaintenance.health).toMatchObject({ state: "complete", warning: false });
+    } finally {
+      intercepted.mockRestore();
       database.walMaintenance.close();
       closeTrackedStateDatabase(database.db);
     }

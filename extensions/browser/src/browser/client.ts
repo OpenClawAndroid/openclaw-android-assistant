@@ -381,14 +381,24 @@ export async function browserTabs(
 export async function browserOpenTab(
   baseUrl: string | undefined,
   url: string,
-  opts?: { profile?: string; label?: string; timeoutMs?: number; signal?: AbortSignal },
+  opts?: {
+    profile?: string;
+    label?: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    managedOnly?: boolean;
+  },
 ): Promise<BrowserOpenResult> {
   return await fetchBrowserJson<BrowserOpenResult>(
     withProfilePath(baseUrl, "/tabs/open", opts?.profile),
     {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ url, ...(opts?.label ? { label: opts.label } : {}) }),
+      body: JSON.stringify({
+        url,
+        ...(opts?.label ? { label: opts.label } : {}),
+        ...(opts?.managedOnly ? { managedOnly: true } : {}),
+      }),
       timeoutMs: resolveBrowserClientTimeoutMs(opts, 15000),
       signal: opts?.signal,
     },

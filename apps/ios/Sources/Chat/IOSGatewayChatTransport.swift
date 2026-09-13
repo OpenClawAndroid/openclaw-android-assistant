@@ -24,6 +24,15 @@ struct IOSGatewayChatTransport: OpenClawChatGatewayTransport {
         true
     }
 
+    func scoped(toAgentID agentID: String) -> (any OpenClawChatTransport)? {
+        IOSGatewayChatTransport(
+            gateway: self.gateway,
+            widgetGateway: self.widgetGateway,
+            globalAgentId: agentID,
+            outboxGatewayID: self.outboxGatewayID,
+            mediaArtifactLoader: self.mediaArtifactLoader)
+    }
+
     init(
         gateway: GatewayNodeSession,
         widgetGateway: GatewayNodeSession? = nil,
@@ -243,13 +252,22 @@ struct IOSGatewayChatTransport: OpenClawChatGatewayTransport {
         search: String?,
         archived: Bool) async throws -> OpenClawChatSessionsListResponse
     {
+        try await self.listSessions(limit: limit, search: search, archived: archived, agentID: self.globalAgentId)
+    }
+
+    func listSessions(
+        limit: Int?,
+        search: String?,
+        archived: Bool,
+        agentID: String?) async throws -> OpenClawChatSessionsListResponse
+    {
         let request = OpenClawChatGatewayRequests.sessionsList(
             limit: limit,
             search: search,
             archived: archived,
-            agentID: self.globalAgentId)
+            agentID: agentID)
         let res = try await gateway.request(request)
-        return try JSONDecoder().decode(OpenClawChatSessionsListResponse.self, from: res)
+        return try OpenClawChatGatewayPayloadCodec.decodeSessionsList(res, agentID: agentID)
     }
 
     func listChildSessions(parentKey: String) async throws -> [OpenClawChatSessionEntry] {
@@ -431,7 +449,11 @@ struct IOSGatewayChatTransport: OpenClawChatGatewayTransport {
     }
 
     func forkSession(parentKey: String, fromLastCompleted: Bool) async throws -> String {
-        let target = self.sessionTarget(for: parentKey)
+        try await self.forkSession(parentKey: parentKey, fromLastCompleted: fromLastCompleted, agentID: nil)
+    }
+
+    func forkSession(parentKey: String, fromLastCompleted: Bool, agentID: String?) async throws -> String {
+        let target = self.sessionTarget(for: parentKey, overrideAgentID: agentID)
         let childAgentID = target.agentID ?? OpenClawChatSessionKey.agentID(from: target.sessionKey)
         let request = OpenClawChatGatewayRequests.forkSession(
             parentSessionKey: target.sessionKey,

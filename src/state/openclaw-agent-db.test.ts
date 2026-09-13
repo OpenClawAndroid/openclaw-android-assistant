@@ -32,6 +32,7 @@ import {
   claimOpenClawAgentDatabaseLease,
   releaseOpenClawAgentDatabaseLease,
 } from "./openclaw-agent-db-lease.js";
+import { withFreshOpenClawAgentDatabaseReadOnly } from "./openclaw-agent-db-readonly-open.js";
 import { withOpenClawAgentDatabaseReadOnly } from "./openclaw-agent-db-readonly.js";
 import {
   createOpenClawAgentDatabasePathMatcher,
@@ -1236,7 +1237,7 @@ describe("openclaw agent database", () => {
     },
   );
 
-  it("preserves missing-table adaptation for borrowed and fresh read-only queries", () => {
+  it.each([false, true])("preserves missing-table adaptation (fresh-only: %s)", (freshOnly) => {
     const stateDir = createTempStateDir();
     const options = {
       agentId: "worker-1",
@@ -1246,8 +1247,11 @@ describe("openclaw agent database", () => {
     const owner = openOpenClawAgentDatabase(options);
     owner.db.exec("DROP TABLE session_nodes;");
     let readDb: DatabaseSync | undefined;
+    const readOnly = freshOnly
+      ? withFreshOpenClawAgentDatabaseReadOnly
+      : withOpenClawAgentDatabaseReadOnly;
     const read = (throwOnMissingTable = false) =>
-      withOpenClawAgentDatabaseReadOnly(
+      readOnly(
         ({ db }) => {
           readDb = db;
           return db.prepare("SELECT * FROM session_nodes").all();
@@ -1258,7 +1262,8 @@ describe("openclaw agent database", () => {
 
     expect(read()).toEqual({ found: false, reason: "table-missing" });
     expect(() => read(true)).toThrow(/no such table: session_nodes/);
-    expect(readDb).toBe(owner.db);
+    expect(readDb === owner.db).toBe(!freshOnly);
+    expect(readDb?.isOpen).toBe(!freshOnly);
     expect(owner.db.isOpen).toBe(true);
     expect(closeOpenClawAgentDatabaseByPath(databasePath)).toBe(true);
     expect(read()).toEqual({ found: false, reason: "table-missing" });

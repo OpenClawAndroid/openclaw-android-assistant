@@ -9,7 +9,7 @@ import {
   streamSegmentUsesAccumulatedText,
   type ChatStreamSegment,
 } from "../../lib/chat/chat-types.ts";
-import { extractText } from "../../lib/chat/message-extract.ts";
+import { extractText, extractTextCached } from "../../lib/chat/message-extract.ts";
 import { userTurnRunId } from "./chat-thread-items.ts";
 import { isKeyedAssistantStreamFallbackMessage } from "./chat-thread-run-identity.ts";
 
@@ -236,7 +236,7 @@ export function resolveCumulativeAssistantTail(
     const identity = readSessionMessageIdentity(message);
     const persistedText =
       identity?.runId === runId && !isKeyedAssistantStreamFallbackMessage(message)
-        ? extractText(message)
+        ? extractTextCached(message)
         : null;
     if (
       identity?.role === "assistant" &&
@@ -255,7 +255,7 @@ export function resolveCumulativeAssistantTail(
     return identity?.role === "assistant" &&
       (!identity.runId || identity.runId === runId) &&
       !isKeyedAssistantStreamFallbackMessage(message)
-      ? extractText(message)
+      ? extractTextCached(message)
       : null;
   });
   return resolveAssistantTextTail(persistedTexts, cumulativeText);

@@ -14,6 +14,7 @@ import {
 import { MAIN_SESSION_RECOVERY_WORK_ADMISSION_OWNER } from "./main-session-recovery-admission.js";
 import { getMainSessionRecoveryRetryCount } from "./main-session-recovery-state.js";
 import type { MainSessionRecoveryStoreTarget } from "./main-session-recovery-store.js";
+import { restartRecoveryStoreTargetKey } from "./main-session-restart-recovery-diagnostics.js";
 import { markStartupOrphanedMainSessionsForRecovery } from "./main-session-restart-recovery-marking.js";
 import {
   DEFAULT_RECOVERY_DELAY_MS,
@@ -75,6 +76,7 @@ export async function recoverRestartAbortedMainSessions(params: {
   handledSessionKeys?: Set<string>;
   activeSessionIds?: Iterable<string>;
   activeSessionKeys?: Iterable<string>;
+  excludedStoreTargets?: ReadonlySet<string>;
   lifecycleGeneration?: string;
   shouldContinue?: () => boolean;
   gatewayRuntime: GatewayRecoveryRuntime;
@@ -88,6 +90,9 @@ export async function recoverRestartAbortedMainSessions(params: {
   })) {
     if (params.shouldContinue?.() === false) {
       return result;
+    }
+    if (params.excludedStoreTargets?.has(restartRecoveryStoreTargetKey(target))) {
+      continue;
     }
     const storeResult = await recoverStore({
       ...params,
@@ -283,13 +288,13 @@ export function scheduleRestartAbortedMainSessionRecovery(params: {
     return await runWithGatewayIndependentRootWorkAdmission(
       async () => {
         const cfg = params.getConfig();
-        await markStartupOrphanedMainSessionsForRecovery({
+        const marking = await markStartupOrphanedMainSessionsForRecovery({
           cfg,
           stateDir: params.stateDir,
           startupCheckedStorePaths,
           updatedBeforeMs: startupRecoveryCutoffMs,
         });
-        return await recoverRestartAbortedMainSessions({
+        const result = await recoverRestartAbortedMainSessions({
           cfg,
           onExhaustedTarget: (target) => {
             exhaustedTargets.set(
@@ -303,10 +308,13 @@ export function scheduleRestartAbortedMainSessionRecovery(params: {
           },
           stateDir: params.stateDir,
           handledSessionKeys,
+          excludedStoreTargets: new Set(marking.failedTargets?.map(restartRecoveryStoreTargetKey)),
           lifecycleGeneration,
           shouldContinue,
           gatewayRuntime: params.gatewayRuntime,
         });
+        result.failed += marking.failedTargets?.length ?? 0;
+        return result;
       },
       "main-session:startup-recovery",
       abortController.signal,

@@ -81,12 +81,11 @@ async function startRfbHarness(
   const peers = new Set<net.Socket>();
   let connectionCount = 0;
   let completedStreams = 0;
-  let resolveCompletion!: () => void;
-  let rejectCompletion!: (error: Error) => void;
-  const completion = new Promise<void>((resolve, reject) => {
-    resolveCompletion = resolve;
-    rejectCompletion = reject;
-  });
+  const {
+    promise: completion,
+    resolve: resolveCompletion,
+    reject: rejectCompletion,
+  } = createDeferred();
   const server = net.createServer((socket) => {
     peers.add(socket);
     socket.once("close", () => peers.delete(socket));

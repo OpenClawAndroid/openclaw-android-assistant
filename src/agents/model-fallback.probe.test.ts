@@ -790,16 +790,7 @@ describe("runWithModelFallback – probe logic", () => {
   });
 
   it("re-probes a single-provider rate-limited primary instead of suspending", async () => {
-    const cfg = makeCfg({
-      agents: {
-        defaults: {
-          model: {
-            primary: "openai/gpt-4.1-mini",
-            fallbacks: [],
-          },
-        },
-      },
-    } as Partial<OpenClawConfig>);
+    const cfg = createModelFallbackConfig("openai/gpt-4.1-mini", []);
 
     // Far-future cooldown with no fallback chain: the primary must still be
     // probed so a recovered rolling cap resumes work instead of staying silent

@@ -7,12 +7,13 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { clampThinkingLevel } from "@openclaw/ai/internal/runtime";
 import { resolveThinkingDefaultForModel } from "../../auto-reply/thinking.js";
-import { getRuntimeConfig } from "../../config/io.js";
 import { createSessionEntryWithTranscript } from "../../config/sessions/session-accessor.js";
 import { bindStreamLlmRuntime } from "../../llm/model-runtime-binding.js";
 import type { Message, Model } from "../../llm/types.js";
+import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import { registerResolvedAgentDir } from "../agent-dir-registry.js";
 import { sanitizeCompactionReplayMessages } from "../compaction-replay.js";
-import { getAgentDir } from "../config.js";
+import { getAgentDirResolution } from "../config.js";
 import { projectModelThinkingCompat } from "../model-catalog-lookup.js";
 import {
   Agent,
@@ -50,7 +51,7 @@ import type { ToolName } from "./tools/index.js";
 export interface CreateAgentSessionOptions {
   /** Working directory for project-local discovery. Default: process.cwd() */
   cwd?: string;
-  /** Global config directory. Default: ~/.openclaw/agents/default */
+  /** Agent config directory. Defaults to the configured installation owner. */
   agentDir?: string;
 
   /** Auth storage for credentials. Default: canonical per-agent SQLite auth profiles. */
@@ -87,7 +88,7 @@ export interface CreateAgentSessionOptions {
   /** Resource loader. When omitted, DefaultResourceLoader is used. */
   resourceLoader?: ResourceLoader;
 
-  /** Session manager. Default: a new SQLite-backed main-agent SDK session. */
+  /** Session manager. Defaults to a new SQLite-backed session for the selected agent. */
   sessionManager?: SessionManager;
 
   /** Settings manager. Default: SettingsManager.create(cwd, agentDir) */
@@ -123,10 +124,6 @@ export type {
 } from "./extensions/index.js";
 
 // Helper Functions
-
-function getDefaultAgentDir(): string {
-  return getAgentDir();
-}
 
 function createSessionPrepareNextTurnWithContext(
   getAgent: () => Agent,
@@ -275,17 +272,23 @@ async function createAgentSessionImpl(
   cleanupProviderSessionResourcesOnDispose = true,
 ): Promise<CreateAgentSessionResult> {
   const cwd = options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd();
-  const agentDir = options.agentDir ?? getDefaultAgentDir();
+  const install = getAgentDirResolution(options.agentDir);
+  const { dir: agentDir } = install.directory;
+  if (options.agentDir === undefined && install.directory.owner) {
+    registerResolvedAgentDir({ agentId: install.directory.owner, agentDir, env: install.env });
+  }
   let resourceLoader = options.resourceLoader;
 
   // Use provided or create AuthStorage and ModelRegistry
-  const modelsPath = options.agentDir ? join(agentDir, "models.json") : undefined;
-  const authStorage = options.authStorage ?? AuthStorage.forAgent(agentDir, getRuntimeConfig());
-  const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, modelsPath);
+  const config = options.authStorage && options.modelRegistry ? undefined : install.config;
+  const authStorage = options.authStorage ?? AuthStorage.forAgent(agentDir, config);
+  const modelRegistry =
+    options.modelRegistry ??
+    ModelRegistry.create(authStorage, join(agentDir, "models.json"), { config, workspaceDir: cwd });
 
   const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
   const sessionManager =
-    options.sessionManager ?? (await createDefaultSdkSessionManager(cwd, agentDir));
+    options.sessionManager ?? (await createDefaultSdkSessionManager(cwd, install));
 
   if (!resourceLoader) {
     resourceLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
@@ -555,15 +558,23 @@ async function createAgentSessionImpl(
 
 async function createDefaultSdkSessionManager(
   cwd: string,
-  agentDir: string,
+  install: ReturnType<typeof getAgentDirResolution>,
 ): Promise<SessionManager> {
+  const { dir: agentDir, owner: agentId } = install.directory;
+  if (!agentId) {
+    throw new Error(
+      "Select an agent owner or provide a sessionManager before creating an SDK session.",
+    );
+  }
   const sessionId = randomUUID();
   const target = {
-    agentId: "main",
+    agentId,
     sessionId,
-    sessionKey: `agent:main:sdk:${sessionId}`,
+    sessionKey: `agent:${agentId}:sdk:${sessionId}`,
     storePath: join(agentDir, "openclaw-agent.sqlite"),
+    env: install.env,
   };
+  openOpenClawAgentDatabase({ agentId, env: install.env, path: target.storePath });
   const created = await createSessionEntryWithTranscript(
     target,
     () => ({

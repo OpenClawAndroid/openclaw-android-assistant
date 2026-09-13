@@ -8,6 +8,7 @@ import path from "node:path";
 import { CURRENT_SESSION_VERSION, SessionManager } from "openclaw/plugin-sdk/agent-sessions";
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { afterEach, describe, expect, test } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import type { SessionCompactionCheckpoint } from "../config/sessions.js";
 import { formatSqliteSessionFileMarker } from "../config/sessions/legacy-sqlite-marker.js";
 import {
@@ -259,14 +260,8 @@ describe("session-compaction-checkpoints", () => {
       };
       await upsertSessionEntryCore(scope, { compactionCheckpoints: [checkpoint] });
 
-      let releaseOwnerChange = () => {};
-      const ownerChangeGate = new Promise<void>((resolve) => {
-        releaseOwnerChange = resolve;
-      });
-      let markOwnerChangeStarted = () => {};
-      const ownerChangeStarted = new Promise<void>((resolve) => {
-        markOwnerChangeStarted = resolve;
-      });
+      const { promise: ownerChangeGate, resolve: releaseOwnerChange } = createDeferred();
+      const { promise: ownerChangeStarted, resolve: markOwnerChangeStarted } = createDeferred();
       const ownerChange = updateSessionEntry(scope, async () => {
         markOwnerChangeStarted();
         await ownerChangeGate;

@@ -56,6 +56,7 @@ vi.mock("../talk-session-registry.js", () => ({
   cleanupTalkConnection: cleanupTalkConnectionMock,
 }));
 
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { markPublicWorkerIngress } from "./public-worker-ingress-context.js";
 import { attachGatewayWsConnectionHandler } from "./ws-connection.js";
 import { resolveSharedGatewaySessionGeneration } from "./ws-shared-generation.js";
@@ -658,10 +659,7 @@ describe("attachGatewayWsConnectionHandler", () => {
       connId: "healthy-during-node-drain",
       usesSharedGatewayAuth: false,
     });
-    let releaseDispatch!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      releaseDispatch = resolve;
-    });
+    const { promise: pending, resolve: releaseDispatch } = createDeferred();
     const dispatch = handler.nodeLifecycleDispatch.dispatch("node.invoke.result", () => pending);
     socket.send.mockClear();
     socket.readyState = WebSocket.CLOSING;

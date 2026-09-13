@@ -224,13 +224,6 @@ export class ChatLog extends Container {
     this.tools.clear();
   }
 
-  clearPendingUsers() {
-    for (const entry of this.pendingUsers.values()) {
-      this.removeChild(entry.component);
-    }
-    this.pendingUsers.clear();
-  }
-
   private formatSystemText(text: string, count = 1) {
     const sanitized = sanitizeRenderableText(text);
     const visible = sanitized.trim() || (text ? "(no output)" : "");

@@ -343,6 +343,7 @@ export function transitionMainSessionRecovery(
         });
       }
       entry.status = "running";
+      entry.activeWriterRunId = undefined;
       entry.lifecycleRunId = undefined;
       entry.lastRunId = undefined;
       entry.abortedLastRun = true;

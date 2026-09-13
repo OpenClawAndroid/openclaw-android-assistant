@@ -273,12 +273,15 @@ describe("server-runtime-services", () => {
     if (!deliveryLog || !sessionDeliveryLog) {
       throw new Error("Expected delivery recovery log children");
     }
-    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledWith({
-      deliver: expect.any(Function),
-      cfg: {},
-      log: deliveryLog,
-      shouldContinue: expect.any(Function),
-    });
+    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledWith(
+      {
+        deliver: expect.any(Function),
+        cfg: {},
+        log: deliveryLog,
+        shouldContinue: expect.any(Function),
+      },
+      expect.any(Function),
+    );
     expect(hoisted.recoverPendingRestartContinuationDeliveries).toHaveBeenCalledWith({
       deps: {},
       maxEnqueuedAt: 123,
@@ -760,11 +763,11 @@ describe("server-runtime-services", () => {
 
     expect(hoisted.assertQueuedConversationDeliveryAttemptAuthorized).toHaveBeenCalledWith(
       expect.objectContaining({
-        agentId: "main",
+        readCurrentConfig: expect.any(Function),
         operationId: "operation-recovery",
-        storePath: "/tmp/agent.sqlite",
         routeFingerprint: "route-recovery",
       }),
+      expect.objectContaining({ agentId: "main", storePath: "/tmp/agent.sqlite" }),
     );
     services.heartbeatRunner.stop();
   });
@@ -786,6 +789,7 @@ describe("server-runtime-services", () => {
 
       expect(hoisted.drainPendingDeliveries).toHaveBeenCalledWith(
         expect.objectContaining({ cfg: reloadedConfig }),
+        expect.any(Function),
       );
       expect(runtimeConfig).toHaveBeenCalledOnce();
     } finally {

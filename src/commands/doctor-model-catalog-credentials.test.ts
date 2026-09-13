@@ -3,7 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApiKeyCredential } from "../agents/auth-profiles/credential-fixtures.test-support.js";
+import {
+  createApiKeyCredential,
+  createAuthProfileStoreFixture,
+} from "../agents/auth-profiles/credential-fixtures.test-support.js";
 import {
   loadPersistedAuthProfileStore,
   loadPersistedSharedAuthProfileStore,
@@ -288,12 +291,9 @@ describe("doctor model catalog credential migration", () => {
     const childAgentDir = path.join(state.stateDir, "agents", "child", "agent");
     fs.mkdirSync(childAgentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          "custom:default": { type: "api_key", provider: "custom", key: "stored-secret" },
-        },
-      },
+      createAuthProfileStoreFixture({
+        "custom:default": { type: "api_key", provider: "custom", key: "stored-secret" },
+      }),
       state.agentDir,
     );
     fs.writeFileSync(
@@ -344,21 +344,15 @@ describe("doctor model catalog credential migration", () => {
     const childAgentDir = path.join(state.stateDir, "agents", "child", "agent");
     fs.mkdirSync(childAgentDir, { recursive: true });
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          "custom:default": { type: "api_key", provider: "custom", key: "configured-secret" },
-        },
-      },
+      createAuthProfileStoreFixture({
+        "custom:default": { type: "api_key", provider: "custom", key: "configured-secret" },
+      }),
       state.agentDir,
     );
     saveAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          "custom:default": { type: "api_key", provider: "custom", key: "child-secret" },
-        },
-      },
+      createAuthProfileStoreFixture({
+        "custom:default": { type: "api_key", provider: "custom", key: "child-secret" },
+      }),
       childAgentDir,
     );
 

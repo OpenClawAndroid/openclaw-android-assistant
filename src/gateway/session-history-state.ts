@@ -19,7 +19,6 @@ import { readTranscriptMessageIdempotencyKey } from "./session-transcript-messag
 import { resolveTranscriptPathForComparison } from "./session-transcript-path.js";
 import {
   attachOpenClawTranscriptMeta,
-  readSessionMessagesPageWithStatsAsync,
   readSessionMessagesWithSourceAsync,
 } from "./session-transcript-readers.js";
 
@@ -92,28 +91,13 @@ export async function readSessionHistoryRawSnapshotAsync(
     return { rawMessages: snapshot.messages, transcriptPath: snapshot.transcriptPath };
   }
   const cursorSeq = resolveCursorSeq(params.cursor);
-  const offset =
-    cursorSeq === undefined
-      ? undefined
-      : Math.max(
-          0,
-          (
-            await readSessionMessagesPageWithStatsAsync(params.target, {
-              offset: 0,
-              maxMessages: 0,
-              allowResetArchiveFallback: true,
-            })
-          ).totalMessages -
-            cursorSeq +
-            1,
-        );
   const tail = await readIncrementalChatHistoryTail({
     entry: params.target.sessionEntry,
     readScope: params.target,
     effectiveMaxChars: params.maxChars ?? DEFAULT_CHAT_HISTORY_TEXT_MAX_CHARS,
     max: params.limit,
     maxBytes: getMaxChatHistoryMessagesBytes(),
-    ...(offset === undefined ? {} : { offset }),
+    ...(cursorSeq === undefined ? {} : { beforeSeq: cursorSeq }),
     preserveProjectionContext: true,
   });
   return {

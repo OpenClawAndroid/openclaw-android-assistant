@@ -32,7 +32,7 @@ it("releases inputs and claims after a native execFileSync ENOENT error", async 
     .run(async () => execFileSync(path.join(root, "absent-command"), [], { stdio: "pipe" }))
     .catch((cause: unknown) => cause);
   expect(error).toHaveProperty("code", "ENOENT");
-  expect(error).toHaveProperty("error", error);
+  expect((error as { error?: unknown }).error ?? error).toBe(error);
   await lifetime.cleanup();
   expect(fs.existsSync(root)).toBe(false);
   expect(() => owner.assertReleased()).not.toThrow();

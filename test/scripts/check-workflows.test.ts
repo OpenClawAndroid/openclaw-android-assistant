@@ -5,10 +5,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { createGatewayTaskSupervisorProbe } from "../../src/daemon/schtasks.task-supervisor.native-test-support.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { cleanupTempDirs, makeTempDir } from "../helpers/temp-dir.js";
 
 const scriptPath = path.resolve("scripts/check-workflows.mts");
 const tempDirs: string[] = [];
+const testNodeExecPath = resolveTestNodeExecPath();
 
 type WorkflowStep = {
   name: string;
@@ -55,7 +57,7 @@ afterEach(() => {
 
 describe("check-workflows", () => {
   it("prints an actionable diagnostic when actionlint and go are unavailable", () => {
-    const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
+    const result = spawnSync(testNodeExecPath, ["--import", "tsx", scriptPath], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -101,7 +103,7 @@ describe("check-workflows", () => {
       writeFileSync(path.join(binDir, command), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     }
 
-    const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
+    const result = spawnSync(testNodeExecPath, ["--import", "tsx", scriptPath], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -153,7 +155,7 @@ describe("check-workflows", () => {
       { mode: 0o755 },
     );
 
-    const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
+    const result = spawnSync(testNodeExecPath, ["--import", "tsx", scriptPath], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -194,7 +196,7 @@ describe("check-workflows", () => {
       { mode: 0o755 },
     );
 
-    const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
+    const result = spawnSync(testNodeExecPath, ["--import", "tsx", scriptPath], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -238,7 +240,7 @@ describe("check-workflows", () => {
       { mode: 0o755 },
     );
 
-    const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
+    const result = spawnSync(testNodeExecPath, ["--import", "tsx", scriptPath], {
       encoding: "utf8",
       env: {
         ...process.env,

@@ -29,7 +29,10 @@ import {
 } from "../../plugins/runtime.js";
 import type { CommandQueueEnqueueOptions } from "../../process/command-queue.types.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
-import { createApiKeyCredential } from "../auth-profiles/credential-fixtures.test-support.js";
+import {
+  createApiKeyCredential,
+  createAuthProfileStoreFixture,
+} from "../auth-profiles/credential-fixtures.test-support.js";
 import { createProcessSessionFixture } from "../bash-process-registry.test-helpers.js";
 import { getRegisteredAgentHarness, registerAgentHarness } from "../harness/registry.js";
 import type { AgentHarness } from "../harness/types.js";
@@ -2925,9 +2928,8 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
   it("materializes subscription-auth OpenAI compaction while preserving logical context", async () => {
     resolveAgentHarnessPolicyMock.mockReturnValue({ runtime: "openclaw" });
     mockResolvedModel({ contextWindow: 1_000_000 });
-    ensureAuthProfileStoreMock.mockReturnValue({
-      version: 1,
-      profiles: {
+    ensureAuthProfileStoreMock.mockReturnValue(
+      createAuthProfileStoreFixture({
         "openai:work": {
           type: "oauth",
           provider: "openai",
@@ -2935,8 +2937,8 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
           refresh: "test-refresh",
           expires: Date.now() + 60_000,
         },
-      },
-    });
+      }),
+    );
     getApiKeyForModelMock.mockImplementation(async (params?: { profileId?: string }) => ({
       apiKey: "test-oauth",
       mode: "oauth",
@@ -4696,12 +4698,11 @@ describe("compactEmbeddedAgentSession hooks (ownsCompaction engine)", () => {
 
   it("passes resolved OpenAI runtime context to context-engine compaction", async () => {
     resolveAgentHarnessPolicyMock.mockReturnValue({ runtime: "codex" });
-    ensureAuthProfileStoreMock.mockReturnValue({
-      version: 1,
-      profiles: {
+    ensureAuthProfileStoreMock.mockReturnValue(
+      createAuthProfileStoreFixture({
         "openai:p1": createApiKeyCredential("openai", "platform-key"),
-      },
-    });
+      }),
+    );
     maybeCompactAgentHarnessSessionMock.mockResolvedValueOnce({
       ok: true,
       compacted: true,

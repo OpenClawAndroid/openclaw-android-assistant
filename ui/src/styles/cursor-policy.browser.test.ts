@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readStyleSheet } from "../../../test/helpers/ui-style-fixtures.js";
 import { controlUiHoverGuardPlugin } from "../../config/control-ui-hover-guard.ts";
 import { dockPanelStyles } from "../components/dock-layout-controller.ts";
+import { withBrowserPage } from "../test-helpers/browser-page.ts";
 import {
   canRunPlaywrightChromium,
   resolvePlaywrightChromiumExecutablePath,
@@ -252,8 +253,7 @@ describeCursorPolicy("Control UI cursor policy", () => {
     { theme: "light", hasTouch: true },
     { theme: "dark", hasTouch: true },
   ])("underlines content, not controls ($theme, touch=$hasTouch)", async ({ theme, hasTouch }) => {
-    const page = await tabBrowser.newPage({ hasTouch });
-    try {
+    await withBrowserPage(tabBrowser.newPage({ hasTouch }), async (page) => {
       await page.goto(`file://${fixtureFile}`);
       await page.evaluate((mode) => {
         document.documentElement.dataset.themeMode = mode;
@@ -357,27 +357,21 @@ describeCursorPolicy("Control UI cursor policy", () => {
       expect(
         await participantLink.evaluate((element) => getComputedStyle(element).textDecorationLine),
       ).toBe("none");
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 
   it("uses semantic cursors in a browser tab", async () => {
-    const page = await tabBrowser.newPage();
-    try {
+    await withBrowserPage(tabBrowser.newPage(), async (page) => {
       await page.goto(`file://${fixtureFile}`);
       const probe = await probeWindow(page);
 
       expect(probe.displayMode).toBe("browser");
       expect(probe.cursors).toEqual(expectedCursors());
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 
   it("uses the same semantic cursors in a native app host", async () => {
-    const page = await tabBrowser.newPage();
-    try {
+    await withBrowserPage(tabBrowser.newPage(), async (page) => {
       await page.goto(`file://${fixtureFile}`);
       // The macOS dashboard is a plain web view, so it reports display-mode
       // browser and marks itself with these classes at document end instead.
@@ -388,9 +382,7 @@ describeCursorPolicy("Control UI cursor policy", () => {
 
       expect(probe.displayMode).toBe("browser");
       expect(probe.cursors).toEqual(expectedCursors());
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 
   it("uses the same semantic cursors in an installed window", async () => {

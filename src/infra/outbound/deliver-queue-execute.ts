@@ -9,7 +9,10 @@ import {
 } from "../delivery-recovery.shared.js";
 import { formatErrorMessage } from "../errors.js";
 import { throwIfAborted } from "./abort.js";
-import type { DeliverOutboundPayloadsParams, PlatformSendRoute } from "./deliver-contracts.js";
+import type {
+  InternalDeliverOutboundPayloadsParams,
+  PlatformSendRoute,
+} from "./deliver-contracts.js";
 import { deliverOutboundPayloadsCore } from "./deliver-core.js";
 import { OUTBOUND_DELIVERY_LOG_SCOPE } from "./deliver-log.js";
 import {
@@ -49,7 +52,7 @@ import type { NormalizedOutboundPayload } from "./payloads.js";
 const log = createSubsystemLogger("outbound/deliver");
 
 export async function deliverOutboundPayloadsWithQueueCleanup(
-  params: DeliverOutboundPayloadsParams,
+  params: InternalDeliverOutboundPayloadsParams,
   queueId: string | null,
   auditStartedAt: number,
   producerClaimId?: string,
@@ -70,7 +73,7 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
   const queuePolicy = params.queuePolicy ?? "best_effort";
   const platformQueueId = queueId ?? params.deliveryQueueId;
   const platformQueuePolicy = queueId ? queuePolicy : (params.queuePolicy ?? "required");
-  const platformQueueStateDir = queueId ? undefined : params.deliveryQueueStateDir;
+  const platformQueueStateDir = params.deliveryQueueStateDir;
   const exactReconciliationRequired =
     params.requireUnknownSendReconciliation === true && platformQueueId !== undefined;
   let queuedPreSendState: QueuedPreSendState | undefined;
@@ -93,6 +96,8 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
       params.deliveryCompletion,
       result ? { result } : { platformSendStarted: platformSendStarted && !allPayloadsSuppressed },
       platformQueueStateDir,
+      params.deliveryQueueStateContext,
+      params.conversationDeliveryTarget,
     );
   };
   // Deliberately process-local: message_sent is best-effort after queue
@@ -127,11 +132,14 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
   };
   const queueOwner = queueId ? params.deliveryQueueOwner : undefined;
   const persistPostSendState = (owner: QueuedDeliveryOwner) =>
-    persistQueuedPostSendState({
-      owner,
-      queuePolicy,
-      preserveBatch: Boolean(reusableProducerClaimId),
-    });
+    persistQueuedPostSendState(
+      {
+        owner,
+        queuePolicy,
+        preserveBatch: Boolean(reusableProducerClaimId),
+      },
+      params.deliveryQueueStateContext,
+    );
   const emitTerminals = (
     terminals: Parameters<typeof emitOutboundAuditTerminals>[0]["terminals"],
   ): void => {
@@ -175,7 +183,7 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
       log.warn(`failed to retire cancelled delivery ${queueId}: ${formatErrorMessage(error)}`);
     }
   };
-  const wrappedParams: DeliverOutboundPayloadsParams = {
+  const wrappedParams: InternalDeliverOutboundPayloadsParams = {
     ...params,
     // A provider marker can represent the whole durable intent only when one payload owns it.
     // Adapters must narrow further when one payload can fan out into multiple platform sends.
@@ -192,14 +200,17 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
         !exactReconciliationRequired &&
         queuedPreSendState === undefined
       ) {
-        queuedPreSendState = await persistQueuedPreSendState({
-          owner: params.deliveryQueueOwner,
-          queuePolicy: platformQueuePolicy,
-          route,
-          // Recovery sends read queue-owned media. Removing the row prevents a
-          // duplicate replay, but the active adapter still needs the files.
-          retainSpoolArtifacts: queueId === null && params.deliveryQueueId !== undefined,
-        });
+        queuedPreSendState = await persistQueuedPreSendState(
+          {
+            owner: params.deliveryQueueOwner,
+            queuePolicy: platformQueuePolicy,
+            route,
+            // Recovery sends read queue-owned media. Removing the row prevents a
+            // duplicate replay, but the active adapter still needs the files.
+            retainSpoolArtifacts: queueId === null && params.deliveryQueueId !== undefined,
+          },
+          params.deliveryQueueStateContext,
+        );
         if (queueId && queuedPreSendState === "acked") {
           queuedPostSendState = "acked";
         }
@@ -254,12 +265,15 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
               platformQueueStateDir,
               platformSendRoute,
               producerClaimId,
+              params.deliveryQueueStateContext,
             );
           } else {
             await markDeliveryPlatformSendDispatched(
               platformQueueId,
               platformQueueStateDir,
               platformSendRoute,
+              undefined,
+              params.deliveryQueueStateContext,
             );
           }
           queuedPreSendState ??= "marked";
@@ -620,6 +634,8 @@ export async function deliverOutboundPayloadsWithQueueCleanup(
                       params.deliveryCompletion,
                       permanentRejection.message,
                       platformQueueStateDir,
+                      params.deliveryQueueStateContext,
+                      params.conversationDeliveryTarget,
                     );
                     ownerRejected = true;
                   }

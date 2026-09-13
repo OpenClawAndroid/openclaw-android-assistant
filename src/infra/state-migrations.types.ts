@@ -47,8 +47,8 @@ export type LegacyStateDetection = {
     targetStoreAliases: SessionStoreAliasPlan;
   };
   agentDir: {
-    legacyDir: string;
-    targetDir: string;
+    sources: Array<{ legacyDir: string; standalone: boolean; boundaryRoot: string }>;
+    targetDir?: string;
     hasLegacy: boolean;
   };
   pluginPlans?: {
@@ -183,7 +183,20 @@ export type MigrationMessages = {
   /** The owner classified every warning as advisory, including a source-preserving skip. */
   warningDisposition?: "recoverable";
   /** An intentional non-outcome can carry advisory warnings without becoming a refusal. */
-  outcome?: "skipped";
+  outcome?: "skipped" | "deferred";
+  deferred?: Array<{
+    reason: "owner-mismatch";
+    recordedOwner: string;
+    configuredOwner: string;
+    path: string;
+  }>;
+  sqliteFamilies?: Array<{
+    database: string;
+    files: string[];
+    destination: string;
+    outcome: "deferred";
+    reason: "sqlite-family";
+  }>;
   /** Every blocking warning is an ownership refusal confined to these agent databases. */
   refusedAgentDatabasePaths?: readonly string[];
 };
@@ -210,7 +223,9 @@ export type LegacyStateMigrationStepPlan = {
 };
 
 export type LegacyStateMigrationStepReceipt = Omit<LegacyStateMigrationStepPlan, "outcome"> & {
-  outcome: "completed" | "skipped" | "warning" | "refused";
+  outcome: "completed" | "skipped" | "warning" | "refused" | "deferred";
+  deferred?: MigrationMessages["deferred"];
+  sqliteFamilies?: MigrationMessages["sqliteFamilies"];
   changes: string[];
   warnings: string[];
   notices?: string[];

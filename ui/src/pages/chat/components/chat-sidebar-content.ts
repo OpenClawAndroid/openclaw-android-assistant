@@ -55,6 +55,7 @@ function renderSidebarAttachment(
   content: Extract<SidebarContent, { kind: "attachment" }>,
   onRequestUpdate: () => void,
   runtime: AttachmentSidebarRuntime,
+  embedSandboxMode: EmbedSandboxMode,
 ) {
   const resolution = content.resolveSource?.(onRequestUpdate, runtime);
   const source = resolution ? (resolution.status === "ready" ? resolution : null) : content;
@@ -87,8 +88,10 @@ function renderSidebarAttachment(
     !isCrossOriginHttpSource(src ?? "")
   ) {
     return html`<openclaw-chat-text-attachment
+      .compact=${true}
+      .embedSandboxMode=${embedSandboxMode}
       .src=${src ?? ""}
-      .sourceIdentity=${content.sourceIdentity ?? src ?? ""}
+      .sourceIdentity=${[runtime.connectionEpoch ?? "", runtime.agentId ?? "", runtime.sessionKey ?? "", content.sourceIdentity ?? src ?? ""].join("\u0000")}
       .label=${content.title}
       .mimeType=${content.mimeType ?? ""}
       .sizeBytes=${source?.sizeBytes ?? content.sizeBytes}
@@ -416,6 +419,7 @@ function renderMarkdownSidebar(props: MarkdownSidebarProps) {
                               content,
                               props.onAttachmentUpdate,
                               props.attachmentRuntime,
+                              props.embedSandboxMode ?? "scripts",
                             )}
                           </div>`
                         : html`

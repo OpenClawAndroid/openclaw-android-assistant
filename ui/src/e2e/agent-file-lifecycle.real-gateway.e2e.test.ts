@@ -297,32 +297,51 @@ catalogSuite.define(() => {
             await picker.locator('[role="option"][data-value="ollama/inventory-before"]').count(),
           ).toBe(0);
 
+          const settleCatalogFrames = () =>
+            page.evaluate(async () => {
+              // SAFETY: Gateway readiness above establishes this app's connected runtime.
+              const app = document.querySelector("openclaw-app") as HTMLElement & {
+                runtime: { context: { gateway: { snapshot: { client: GatewayBrowserClient } } } };
+              };
+              await app.runtime.context.gateway.snapshot.client.request("health", {});
+              await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+              });
+            });
+
           holdCatalog = true;
           inventoryModel = "inventory-held";
           commands.push(await refreshInventory());
-          await expect.poll(() => heldCatalogs.length).toBeGreaterThan(0);
-          holdCatalog = false;
+          await expect.poll(() => heldCatalogs.length).toBe(1);
+          const readsWhileHeld = catalogRequests.size;
           inventoryModel = "inventory-latest";
           commands.push(await refreshInventory());
+          await settleCatalogFrames();
+          expect(catalogRequests.size).toBe(readsWhileHeld);
+          expect(heldCatalogs).toHaveLength(1);
+
+          // Release the retired read, but keep its queued replacement behind the wire gate.
+          for (const release of heldCatalogs.splice(0)) {
+            release();
+          }
+          await expect.poll(() => heldCatalogs.length).toBe(1);
+          expect(catalogRequests.size).toBe(readsWhileHeld + 1);
+          await settleCatalogFrames();
+          expect(
+            await picker.locator('[role="option"][data-value="ollama/inventory-held"]').count(),
+          ).toBe(0);
+          expect(
+            await picker.locator('[role="option"][data-value="ollama/inventory-after"]').count(),
+          ).toBe(1);
+          holdCatalog = false;
+          for (const release of heldCatalogs.splice(0)) {
+            release();
+          }
           await expect
             .poll(() =>
               picker.locator('[role="option"][data-value="ollama/inventory-latest"]').count(),
             )
             .toBe(1);
-          for (const release of heldCatalogs) {
-            release();
-          }
-          // Fence the released replies on this connection before checking that stale data was ignored.
-          await page.evaluate(async () => {
-            // SAFETY: Gateway readiness above establishes this app's connected runtime.
-            const app = document.querySelector("openclaw-app") as HTMLElement & {
-              runtime: { context: { gateway: { snapshot: { client: GatewayBrowserClient } } } };
-            };
-            await app.runtime.context.gateway.snapshot.client.request("health", {});
-            await new Promise<void>((resolve) => {
-              requestAnimationFrame(() => resolve());
-            });
-          });
           if (captureEnabled) {
             await page.screenshot({
               path: path.join(catalogSuite.artifactDir, "latest-publication.png"),

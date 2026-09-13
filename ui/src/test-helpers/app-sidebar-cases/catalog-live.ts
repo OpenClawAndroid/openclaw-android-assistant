@@ -3,6 +3,7 @@ import type {
   SessionsCatalogHostEvent,
   SessionsCatalogListResult,
 } from "../../../../packages/gateway-protocol/src/index.ts";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/context.ts";
 import {
@@ -11,7 +12,6 @@ import {
   createGateway,
   createGatewayHarness,
   createSessions,
-  deferred,
   mountSidebar,
   type TestSessionMenu,
 } from "../app-sidebar.ts";

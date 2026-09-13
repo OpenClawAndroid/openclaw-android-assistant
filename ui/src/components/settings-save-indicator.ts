@@ -7,7 +7,7 @@ import { icons } from "./icons.ts";
 const SAVED_VISIBLE_MS = 2_000;
 
 export type SettingsSaveIndicatorProps = {
-  status: ConfigAutoSaveStatus;
+  status: ConfigAutoSaveStatus | "recovery";
   lastError: string | null;
   needsApply: boolean;
   applying: boolean;
@@ -25,7 +25,7 @@ class SettingsSaveIndicator extends LitElement {
 
   @property({ attribute: false }) props?: SettingsSaveIndicatorProps;
   @state() private savedVisible = false;
-  private previousStatus: ConfigAutoSaveStatus | undefined;
+  private previousStatus: SettingsSaveIndicatorProps["status"] | undefined;
   private savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   override willUpdate(): void {
@@ -77,6 +77,16 @@ class SettingsSaveIndicator extends LitElement {
     } else if (props.status === "saving") {
       content = html` ${this.renderClaw("settings-save-indicator__claw--saving")}
         <span>${t("configView.autoSaveSaving")}</span>`;
+    } else if (props.status === "recovery") {
+      modifier = " settings-save-indicator--danger settings-save-indicator--recovery";
+      content = html`<span>${props.lastError}</span>
+        <button
+          class="btn btn--xs settings-save-indicator__action"
+          type="button"
+          @click=${props.onReload}
+        >
+          ${t("configView.recoveryReload")}
+        </button>`;
     } else if (props.status === "error") {
       title = props.lastError?.trim() ?? "";
       label = title ? `${t("configView.autoSaveFailed")}: ${title}` : "";

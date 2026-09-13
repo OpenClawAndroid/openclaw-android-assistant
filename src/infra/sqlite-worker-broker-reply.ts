@@ -1,5 +1,8 @@
 import { deserialize, serialize } from "node:v8";
+import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { retainOpenClawStateWorkerErrorPayload } from "../state/openclaw-state-worker-error.js";
+import { SqliteCoordinatorError } from "./sqlite-coordinator.js";
+import { releaseSqliteWorkerLifecycle } from "./sqlite-worker-broker-admission.js";
 import type { Job } from "./sqlite-worker-broker.types.js";
 import {
   SQLITE_WORKER_MAX_MESSAGE_BYTES,
@@ -143,4 +146,37 @@ export function withSqliteWorkerCleanupFailure(failure: Error, cleanupError: unk
   return failure instanceof SqliteWorkerError
     ? Object.assign(combined, { code: failure.code })
     : combined;
+}
+
+export function settleSqliteWorkerJob(job: Job, error?: unknown, value?: unknown): void {
+  let failure = error;
+  try {
+    releaseSqliteWorkerLifecycle(job);
+  } catch (cleanupError) {
+    if (error === undefined && job.request.type === "execute") {
+      process.emitWarning(
+        new SqliteCoordinatorError(
+          "SQLite worker result received before coordinator cleanup failed",
+          cleanupError,
+        ),
+      );
+    } else {
+      failure =
+        error === undefined
+          ? cleanupError
+          : withSqliteWorkerCleanupFailure(
+              toErrorObject(error, "SQLite worker failed"),
+              cleanupError,
+            );
+    }
+  }
+  job.inputTransfer?.producer.cancel();
+  job.inputTransfer = undefined;
+  job.transfer = undefined;
+  job.detach();
+  if (failure !== undefined) {
+    job.reject(failure);
+  } else {
+    job.resolve(value);
+  }
 }

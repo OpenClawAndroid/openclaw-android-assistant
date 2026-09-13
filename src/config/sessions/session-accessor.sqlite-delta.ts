@@ -6,6 +6,7 @@ import {
 import { coerceRequiredSqliteNumber as sqliteNumber } from "../../infra/sqlite-number.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import type { CurrentTranscriptProjection } from "./session-accessor.sqlite-active-projection.js";
 import type {
   SessionTranscriptRawDeltaLimits,
   SessionTranscriptRawDeltaResult,
@@ -92,12 +93,7 @@ function bootstrapCursor(
   };
 }
 
-/** Read one generation-consistent raw transcript page without parsing excluded payload rows. */
-export function readTranscriptRawDelta(
-  scope: SessionTranscriptReadScope,
-  limits: SessionTranscriptRawDeltaLimits = {},
-): SessionTranscriptRawDeltaResult {
-  const resolved = resolveSqliteTranscriptReadScope(scope);
+function normalizeRawDeltaLimits(limits: SessionTranscriptRawDeltaLimits) {
   const maxEvents = normalizeVisibleMessageLimit(
     limits.maxEvents,
     DEFAULT_RAW_TRANSCRIPT_MAX_EVENTS,
@@ -110,6 +106,16 @@ export function readTranscriptRawDelta(
     MAX_RAW_TRANSCRIPT_BYTES,
     "maxBytes",
   );
+  return { maxEvents, maxBytes };
+}
+
+/** Read one generation-consistent raw transcript page without parsing excluded payload rows. */
+export function readTranscriptRawDelta(
+  scope: SessionTranscriptReadScope,
+  limits: SessionTranscriptRawDeltaLimits = {},
+): SessionTranscriptRawDeltaResult {
+  const resolved = resolveSqliteTranscriptReadScope(scope);
+  const { maxEvents, maxBytes } = normalizeRawDeltaLimits(limits);
   const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
   return runSqliteDeferredTransactionSync(
     database.db,
@@ -135,6 +141,27 @@ export function readTranscriptRawDelta(
   );
 }
 
+/** Read inside the caller's validated projection snapshot on its exact connection. */
+export function readTranscriptRawDeltaFromProjection(
+  projection: CurrentTranscriptProjection,
+  limits: SessionTranscriptRawDeltaLimits = {},
+): SessionTranscriptRawDeltaResult {
+  const { maxEvents, maxBytes } = normalizeRawDeltaLimits(limits);
+  const beforeEventSeq = resolveSqliteSessionTranscriptReadFence({
+    database: projection.database,
+    ...projection.resolved,
+  })?.beforeRawSeq;
+  return readRawDeltaInTransaction(
+    projection.database.db,
+    projection.resolved,
+    limits.cursor,
+    maxEvents,
+    maxBytes,
+    beforeEventSeq,
+    { generation: projection.generation, indexedSeq: projection.state.indexedSeq },
+  );
+}
+
 function readRawDeltaInTransaction(
   database: import("node:sqlite").DatabaseSync,
   scope: ResolvedTranscriptReadScope,
@@ -142,20 +169,23 @@ function readRawDeltaInTransaction(
   maxEvents: number,
   maxBytes: number,
   beforeEventSeq: number | undefined,
+  snapshot?: { generation: string | undefined; indexedSeq: number },
 ): SessionTranscriptRawDeltaResult {
   const db = getSessionKysely(database);
-  const state = executeSqliteQueryTakeFirstSync(
-    database,
-    db
-      .selectFrom("transcript_rewrite_watermarks")
-      .select("generation")
-      .where("session_id", "=", scope.sessionId),
-  );
-  if (!state) {
+  const generation = snapshot
+    ? snapshot.generation
+    : executeSqliteQueryTakeFirstSync(
+        database,
+        db
+          .selectFrom("transcript_rewrite_watermarks")
+          .select("generation")
+          .where("session_id", "=", scope.sessionId),
+      )?.generation;
+  if (generation === undefined) {
     return { kind: "missing" };
   }
 
-  const initialCursor = bootstrapCursor(scope, state.generation);
+  const initialCursor = bootstrapCursor(scope, generation);
   const reset = (
     reason: Extract<SessionTranscriptRawDeltaResult, { kind: "reset" }>["reason"],
   ) => ({
@@ -171,20 +201,22 @@ function readRawDeltaInTransaction(
   if (cursor.agentId !== scope.agentId || cursor.sessionId !== scope.sessionId) {
     return reset("scope_mismatch");
   }
-  if (cursor.generation !== state.generation) {
+  if (cursor.generation !== generation) {
     return reset("generation_mismatch");
   }
-  const frontier = executeSqliteQueryTakeFirstSync(
-    database,
-    db
-      .selectFrom("transcript_events")
-      .select("seq")
-      .where("session_id", "=", scope.sessionId)
-      .orderBy("seq", "desc")
-      .limit(1),
-  );
+  const frontier = snapshot
+    ? snapshot.indexedSeq
+    : executeSqliteQueryTakeFirstSync(
+        database,
+        db
+          .selectFrom("transcript_events")
+          .select("seq")
+          .where("session_id", "=", scope.sessionId)
+          .orderBy("seq", "desc")
+          .limit(1),
+      )?.seq;
   const maxSeq = Math.min(
-    frontier ? sqliteNumber(frontier.seq) : -1,
+    frontier === undefined ? -1 : sqliteNumber(frontier),
     beforeEventSeq === undefined ? Number.POSITIVE_INFINITY : beforeEventSeq - 1,
   );
   if (cursor.lastSeq > maxSeq) {
@@ -196,24 +228,27 @@ function readRawDeltaInTransaction(
     return reset("invalid_cursor");
   }
 
-  const metadata = executeSqliteQuerySync(
-    database,
-    db
-      .selectFrom("transcript_events")
-      .select([
-        "seq",
-        /* kysely-allow-raw: SQLite byte length avoids fetching or parsing excluded JSON. */
-        sql<number>`OCTET_LENGTH(event_json) + 1`.as("serialized_bytes"),
-      ])
-      .where("session_id", "=", scope.sessionId)
-      .where("seq", ">", cursor.lastSeq)
-      .$if(beforeEventSeq !== undefined, (query) => query.where("seq", "<", beforeEventSeq!))
-      .orderBy("seq", "asc")
-      .limit(maxEvents + 1),
-  ).rows.map((row) => ({
-    seq: sqliteNumber(row.seq),
-    serializedBytes: sqliteNumber(row.serialized_bytes),
-  }));
+  const metadata =
+    cursor.lastSeq === maxSeq
+      ? []
+      : executeSqliteQuerySync(
+          database,
+          db
+            .selectFrom("transcript_events")
+            .select([
+              "seq",
+              /* kysely-allow-raw: SQLite byte length avoids fetching or parsing excluded JSON. */
+              sql<number>`OCTET_LENGTH(event_json) + 1`.as("serialized_bytes"),
+            ])
+            .where("session_id", "=", scope.sessionId)
+            .where("seq", ">", cursor.lastSeq)
+            .$if(beforeEventSeq !== undefined, (query) => query.where("seq", "<", beforeEventSeq!))
+            .orderBy("seq", "asc")
+            .limit(maxEvents + 1),
+        ).rows.map((row) => ({
+          seq: sqliteNumber(row.seq),
+          serializedBytes: sqliteNumber(row.serialized_bytes),
+        }));
 
   let serializedBytes = 0;
   let selectedCount = 0;

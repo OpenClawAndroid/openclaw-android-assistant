@@ -1,6 +1,7 @@
 import type { SessionTranscriptReadScope } from "../config/sessions/session-accessor.js";
 import { readSessionTranscriptHistoryAnchorPage } from "../config/sessions/session-accessor.sqlite-history-events.js";
 import { readRestoredSessionTranscript } from "../config/sessions/session-cold-storage-read.js";
+import type { TranscriptAnchorPageOptions } from "../sessions/transcript-anchor-page.js";
 import { projectTranscriptEntryMessage } from "./session-transcript-message.js";
 import {
   resolveTranscriptReadTarget,
@@ -18,7 +19,7 @@ type ReadSessionMessagesAroundIdResult = ReadRecentSessionMessagesResult & {
 /** Reads one message-id-anchored page from a single transcript snapshot. */
 export async function readSessionMessagesAroundIdWithStatsAsync(
   scope: SessionTranscriptReadScope,
-  opts: { messageId: string; maxMessages: number; allowResetArchiveFallback?: boolean },
+  opts: TranscriptAnchorPageOptions & { allowResetArchiveFallback?: boolean },
 ): Promise<ReadSessionMessagesAroundIdResult> {
   const target = resolveTranscriptReadTarget(scope);
   const sessionFile =

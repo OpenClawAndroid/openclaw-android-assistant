@@ -104,8 +104,10 @@ total retry sleep within the agent tool's 15-second deadline. A cancelled caller
 interrupts its retry wait.
 
 After an OpenClaw index-format upgrade, the first search rebuilds the index before
-returning results. This can take longer and call
-the configured embedding provider. Later searches reuse the repaired index;
+returning results. Rebuilding can take longer, and the search result discloses
+possible costs from the configured embedding provider. An index written by a
+newer OpenClaw version remains paused; upgrade OpenClaw or reindex explicitly.
+Later searches reuse the repaired index;
 status inspection alone does not rebuild it.
 Concurrent searches wait for the active repair. A slow repair can exceed the
 interactive tool's deadline; the tool reports unavailability while admitted

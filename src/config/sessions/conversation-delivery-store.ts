@@ -151,6 +151,30 @@ export class ConversationDeliveryInputError extends Error {
 
 export class ConversationDeliveryMissingError extends Error {}
 
+type ConversationDeliveryInput = {
+  operationKind: ConversationDeliveryRecord["operationKind"];
+  conversationRef: string;
+  sourceSessionKey?: string;
+  message: string;
+};
+
+function assertConversationDeliveryInput(
+  record: ConversationDeliveryRecord,
+  input: ConversationDeliveryInput,
+  messageHash = hashMessage(input.message),
+): void {
+  if (
+    record.conversationRef !== input.conversationRef ||
+    record.operationKind !== input.operationKind ||
+    record.sourceSessionKey !== (input.sourceSessionKey?.trim() || undefined) ||
+    record.messageHash !== messageHash
+  ) {
+    throw new ConversationDeliveryInputError(
+      `Conversation delivery operation was reused with different input: ${record.operationId}`,
+    );
+  }
+}
+
 function selectOperation(
   database: ReturnType<typeof openOpenClawAgentDatabase>,
   operationId: string,
@@ -179,20 +203,21 @@ function selectOperation(
 export function getConversationDeliveryOperation(
   scope: ConversationDeliveryStoreScope,
   operationId: string,
+  expectedInput?: ConversationDeliveryInput,
 ): ConversationDeliveryRecord | undefined {
   const database = openOpenClawAgentDatabase(resolveDatabaseOptions(scope));
-  return selectOperation(database, normalizeOperationId(operationId));
+  const record = selectOperation(database, normalizeOperationId(operationId));
+  if (record && expectedInput) {
+    assertConversationDeliveryInput(record, expectedInput);
+  }
+  return record;
 }
 
 /** Creates one idempotent delivery operation or returns its authoritative prior state. */
 export function beginConversationDeliveryOperation(
   scope: ConversationDeliveryStoreScope,
-  params: {
+  params: ConversationDeliveryInput & {
     operationId: string;
-    operationKind: ConversationDeliveryRecord["operationKind"];
-    conversationRef: string;
-    sourceSessionKey?: string;
-    message: string;
     preparedMessageId?: string;
   },
 ): { created: boolean; record: ConversationDeliveryRecord } {
@@ -203,16 +228,7 @@ export function beginConversationDeliveryOperation(
     (database) => {
       const existing = selectOperation(database, operationId);
       if (existing) {
-        if (
-          existing.conversationRef !== params.conversationRef ||
-          existing.operationKind !== params.operationKind ||
-          existing.sourceSessionKey !== sourceSessionKey ||
-          existing.messageHash !== messageHash
-        ) {
-          throw new ConversationDeliveryInputError(
-            `Conversation delivery operation was reused with different input: ${operationId}`,
-          );
-        }
+        assertConversationDeliveryInput(existing, params, messageHash);
         return { created: false, record: existing };
       }
       const now = Date.now();

@@ -66,6 +66,7 @@ import {
   queueEmbeddedAgentMessageWithOutcomeAsync,
 } from "../embedded-agent-runner/runs.js";
 import { resolveNestedAgentLaneForSession } from "../lanes.js";
+import { runOutsidePreparedModelRuntimePluginGenerationScope } from "../prepared-model-runtime-generation-scope.js";
 import { type AgentWaitResult, waitForAgentRunReply } from "../run-wait.js";
 import { loadSessionEntryByKey } from "../subagents/announce/subagent-announce-delivery.js";
 import {
@@ -79,6 +80,7 @@ import {
   callAgentToolGatewayRequest,
   callInProcessGatewayToolWithCreation,
   hasInProcessGatewayToolContext,
+  runWithGatewayToolCleanupContext,
   type AgentToolGatewayRequestCaller,
 } from "./in-process-gateway.js";
 import { runWithScopedSessionAccess } from "./scoped-session-access.js";
@@ -1068,34 +1070,39 @@ export function createSessionsSendTool(opts?: {
               return;
             }
             // This detached flow can outlive the tool request that launched it.
-            // Own a fresh root so parent release cannot retire later nested turns.
-            void runWithGatewayIndependentRootWorkContinuation(
-              () =>
-                runWithoutOwnedSessionTranscriptWrites(() =>
-                  runSessionsSendA2AFlow({
-                    callGateway: gatewayCall,
-                    targetSessionKey: flowTargetSessionKey,
-                    targetAgentId,
-                    displayKey: flowDisplayKey,
-                    message,
-                    announceTimeoutMs,
-                    // Cron runs are isolated jobs; target replies must not become new
-                    // requester turns, but the target-side announce still runs.
-                    maxPingPongTurns: isIsolatedCronRequester ? 0 : maxPingPongTurns,
-                    requesterSessionKey: replyRequesterSessionKey,
-                    requesterAgentId,
-                    requesterChannel,
-                    roundOneReply: reply?.replyText,
-                    sourceReplyDelivered: reply?.sourceReplyDelivered,
-                    waitRunId,
-                    notifyRequesterOnWaitFailure,
-                  }),
-                ),
-              "session:a2a-send",
-            ).catch((err: unknown) => {
-              log.warn("sessions_send announce flow admission failed", {
-                runId: waitRunId ?? "unknown",
-                error: formatErrorMessage(err),
+            // Re-admit later turns without retaining the completed caller or its
+            // prepared-runtime generation.
+            runWithGatewayToolCleanupContext(() => {
+              void runWithGatewayIndependentRootWorkContinuation(
+                () =>
+                  runOutsidePreparedModelRuntimePluginGenerationScope(() =>
+                    runWithoutOwnedSessionTranscriptWrites(() =>
+                      runSessionsSendA2AFlow({
+                        callGateway: gatewayCall,
+                        targetSessionKey: flowTargetSessionKey,
+                        targetAgentId,
+                        displayKey: flowDisplayKey,
+                        message,
+                        announceTimeoutMs,
+                        // Cron runs are isolated jobs; target replies must not become new
+                        // requester turns, but the target-side announce still runs.
+                        maxPingPongTurns: isIsolatedCronRequester ? 0 : maxPingPongTurns,
+                        requesterSessionKey: replyRequesterSessionKey,
+                        requesterAgentId,
+                        requesterChannel,
+                        roundOneReply: reply?.replyText,
+                        sourceReplyDelivered: reply?.sourceReplyDelivered,
+                        waitRunId,
+                        notifyRequesterOnWaitFailure,
+                      }),
+                    ),
+                  ),
+                "session:a2a-send",
+              ).catch((err: unknown) => {
+                log.warn("sessions_send announce flow admission failed", {
+                  runId: waitRunId ?? "unknown",
+                  error: formatErrorMessage(err),
+                });
               });
             });
           };

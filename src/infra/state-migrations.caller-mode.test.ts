@@ -724,9 +724,19 @@ describe("legacy state migration caller mode", () => {
           ),
         ).toBe(false);
       }
-      for (const stepId of ["sessions", "acp-session-metadata", "agent-dir"]) {
+      for (const stepId of ["sessions", "acp-session-metadata"]) {
         expect(plan.steps.find((step) => step.id === stepId)).toBeUndefined();
         expect(result.stepReceipts.find((receipt) => receipt.id === stepId)).toBeUndefined();
+      }
+      if (overrideKey === "OPENCLAW_AGENT_DIR") {
+        expect(plan.steps.find((step) => step.id === "agent-dir")).toBeDefined();
+        expect(result.stepReceipts.find((receipt) => receipt.id === "agent-dir")).toMatchObject({
+          outcome: "refused",
+          refusal: { code: "blocked-by-prior-refusal" },
+        });
+      } else {
+        expect(plan.steps.find((step) => step.id === "agent-dir")).toBeUndefined();
+        expect(result.stepReceipts.find((receipt) => receipt.id === "agent-dir")).toBeUndefined();
       }
       expect(fs.existsSync(sources.legacyAgentDir)).toBe(true);
       expect(fs.existsSync(sources.legacySessionStorePath)).toBe(true);

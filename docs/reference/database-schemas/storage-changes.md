@@ -90,6 +90,27 @@ admission. Publish live session changes and other dependent effects only after
 the durable write succeeds. A future network-backed owner must preserve that
 ordering while awaiting its driver.
 
+Correlated conversation replies retain their original store and state environment
+while waiting for write admission. Capture rechecks the live reply claim and
+session lifecycle before recording a replayable reply. Cancellation or a changed
+session leaves the message for ordinary inbound dispatch. The durable reply is
+recorded before its optional side audit artifact and before completing the waiter;
+an audit failure does not discard an already recorded reply.
+
+Outbound queue work captures its state root and external-supervisor mode before
+asynchronous preparation. Enqueue, media custody, claims, completion and cleanup
+retain that context; SDK reconnect requests capture it before waiting for Gateway
+admission or loading the delivery runtime. A recovery root applies to an existing
+queue entry, while fresh sends use their selected default root. This context stays
+internal and is not added to durable payloads or plugin callback inputs.
+
+Conversation sends, turns, and queue completion retain their logical agent and
+physical store while waiting for agent write admission. Retry validation reads
+existing operations without recreating them; the queue owner records custody
+before transport I/O and reconciles accepted outcomes on that same store. New
+conversation bindings reread source policy from the original store after route
+preparation and retain the destination owner through the final authority check.
+
 Board operations, board inventory reads, and widget document reads expose asynchronous
 contracts. Gateway callers await persistence before publishing board changes or replies.
 Writes carry the caller's current-authority assertion into the synchronous SQLite
@@ -121,6 +142,11 @@ uses the admitted handle. Coalesced callers retain their own guards. History
 eviction also uses this admission when reopening after archive materialization,
 then rereads candidate protection before preparing reclamation.
 
+Artifact cleanup resolves session paths only when its file inventory contains
+candidate transcript, compaction checkpoint, or trajectory files. Prompt-reference
+projection runs only when prompt blobs exist. Age, exclusion, and containment
+checks still govern every removal.
+
 After archive preparation, session deletion rereads its target before admitting
 the final reclamation worker. A missing or changed target returns the existing
 entry-mismatch result without starting that worker, while preserving archives
@@ -136,12 +162,44 @@ native owner's authority after any awaited admission.
 
 Session reclamation keeps its deletion transaction on a worker connection.
 The worker opens its database under the session writer, then releases that writer
-while any required first full integrity and foreign-key checks run on the same connection. Unrelated
-session writes can continue during those checks. Later workers reuse the Gateway's
-remembered verification for the same physical agent database. It reacquires the writer and
+while any required first full integrity and foreign-key checks run on the same
+connection. Unrelated session writes can continue during those checks. Workers
+can borrow the Gateway's remembered verification for the same physical agent
+database under live write admission. The worker reacquires the writer and
 revalidates current authority before index repair, schema work, or deletion.
-The connection and lease remain owned throughout admission; refusal unwinds that
-owner, and final writer admission remains held until the worker exits.
+The process retains at most one validated reclamation worker connection and lease,
+with a 60-second idle retirement. Each deletion keeps its own transaction, retained
+parent claim, numbered write admission, and current-authority checks in its own
+async context. The worker clears operation buffers and acknowledges transaction
+settlement before the parent publishes committed removals and releases that
+operation's writer admission. Later requests reuse the connection only for the
+same physical database and shared-state owner; every request checks its live lease.
+
+Switching databases, deletion, quarantine, maintenance, root retirement, and shutdown
+revoke reuse and join native worker exit before releasing the database owner. Pending
+commit requests are rejected before synchronous close can wait on their writer lock.
+Crash cleanup can release only the exact admitted lease receipt, after native exit;
+uncertain cleanup remains an error and never causes mutation replay. The parent
+adopts newly established integrity verification only after operation cleanup and
+while its database claim remains current. These connection lifetimes are documented in the
+[accepted reclamation design](https://github.com/openclaw/openclaw/pull/140897#issuecomment-5647899202).
+
+Pressure sweeps and explicit deletion reuse one archive worker within their operation
+scope. The shared archive queue admits each materialization or publication separately;
+every request opens a fresh read-only database and closes its database and file handles
+before acknowledging completion. No archive database connection or lease survives
+between requests. Each victim still commits and publishes before the next victim is
+deleted. A preparation or publication failure retires the worker and joins its native
+exit before returning the existing error. Scope completion and database retirement
+revoke queued requests, drain dispatched work, and join native exit. The process keeps
+at most one reusable archive worker; competing scopes retire the previous idle worker.
+Cold preparation and mutations retain their separate one-shot workers; cold mutations
+join their existing page maintenance and native exit.
+
+Single-candidate reference checks narrow which node metadata reaches JavaScript.
+Rows with optional historical references still use the canonical entry parser, and
+ambiguous SQLite text or JSON retains the full read path. Each check reads current rows
+in its existing planning phase or deletion transaction; no reference cache is introduced.
 
 Disk-budget cleanup rechecks protection after archive materialization. A candidate
 already excluded by that fresh protection set is canceled before worker admission
@@ -193,6 +251,13 @@ database path before admission, and refresh-lock release retains that path and i
 original environment when the caller's directory or environment changes. Doctor reports rejected
 pruning operations before continuing to the next agent. Read-only cache snapshots
 retain their existing synchronous owner and do not create missing databases.
+
+Memory managers admit writes on their exact borrowed agent connection. Provider
+calls and source preparation run before admission; generated-cache and source
+writes recheck their generation, revision, and source predicates after waiting.
+Full reindex publication attaches, replaces, and detaches the completed shadow
+inside one synchronous admitted operation. Manager close drains accepted syncs
+through provider preparation and final writes before releasing the borrow.
 
 ### Preserve the data and concurrency contracts
 

@@ -101,6 +101,42 @@ describe("discord voice opus codec", () => {
     expect(onWarn).not.toHaveBeenCalled();
   });
 
+  it.each([2, 3, 6])("decodes a valid %i-frame Opus packet without truncation", async (frames) => {
+    // RFC 6716 code 3 CBR: repeat the standard Discord 20 ms silence frame.
+    const packet = Buffer.from([
+      0xfb,
+      frames,
+      ...Array.from({ length: frames }, () => [0xff, 0xfe]).flat(),
+    ]);
+    const onChunk = vi.fn();
+    const onError = vi.fn();
+    await decodeOpusStreamChunks(Readable.from([packet]), {
+      onChunk,
+      onError,
+      onVerbose: vi.fn(),
+      onWarn: vi.fn(),
+    });
+    expect(onError).not.toHaveBeenCalled();
+    expect(onChunk).toHaveBeenCalledOnce();
+    expect(onChunk.mock.calls[0]?.[0]).toHaveLength(frames * 960 * 2 * 2);
+    expect(onChunk.mock.calls[0]?.[1]).toBe(packet);
+  });
+
+  it("reports corrupt packets and never completes their trailing audio", async () => {
+    const onChunk = vi.fn();
+    const onError = vi.fn();
+    await decodeOpusStreamChunks(
+      Readable.from([
+        Buffer.from([0xf8, 0xff, 0xfe]),
+        Buffer.from([0xfb, 0]),
+        Buffer.from([0xf8, 0xff, 0xfe]),
+      ]),
+      { onChunk, onError, onVerbose: vi.fn(), onWarn: vi.fn() },
+    );
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onChunk).toHaveBeenCalledOnce();
+  });
+
   it("pads final partial PCM frames before encoding", async () => {
     const encoder = createDiscordOpusEncodeStream();
     const packetsPromise = collectBuffers(encoder);

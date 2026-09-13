@@ -535,16 +535,12 @@ describe("backup commands", () => {
             });
       await withInvalidWorkspaceBackupConfig(raw, async (runtime) => {
         await expect(backupCreateCommand(runtime, { dryRun: true })).rejects.toThrow(
-          /--no-include-workspace/i,
+          /ownership could not be resolved/i,
         );
 
-        const result = await backupCreateCommand(runtime, {
-          dryRun: true,
-          includeWorkspace: false,
-        });
-
-        expect(result.includeWorkspace).toBe(false);
-        expect(result.assets.map((asset) => asset.kind)).not.toContain("workspace");
+        await expect(
+          backupCreateCommand(runtime, { dryRun: true, includeWorkspace: false }),
+        ).rejects.toThrow(/ownership could not be resolved/i);
 
         const configOnly = await backupCreateCommand(runtime, {
           dryRun: true,

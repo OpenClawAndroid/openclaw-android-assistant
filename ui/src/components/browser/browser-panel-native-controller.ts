@@ -39,7 +39,12 @@ type BrowserPanelNativeState = {
 interface BrowserPanelNativeHost extends BrowserPanelNativeState {
   readonly host: Pick<
     BrowserPanelControllerHost,
-    "isConnected" | "browserPanelIsOpen" | "renderRoot" | "updateComplete" | "sessionKey"
+    | "isConnected"
+    | "browserPanelIsOpen"
+    | "renderRoot"
+    | "updateComplete"
+    | "sessionKey"
+    | "fixedTab"
   >;
   readonly native: { readonly activeTab: NativeBrowserTab | undefined };
   readonly pendingInput: Pick<BrowserPanelPendingInput, "queueInspection">;
@@ -74,7 +79,10 @@ export class BrowserPanelNativeController {
   }
 
   private includesTab(tab: NativeBrowserTab): boolean {
-    return tab.sessionKey === undefined || tab.sessionKey === this.controller.host.sessionKey;
+    return (
+      !this.controller.host.fixedTab &&
+      (tab.sessionKey === undefined || tab.sessionKey === this.controller.host.sessionKey)
+    );
   }
 
   private get nativeTabs(): NativeBrowserTab[] {

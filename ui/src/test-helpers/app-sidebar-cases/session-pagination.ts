@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { SIDEBAR_SESSION_ROSTER_LIMIT } from "../../../../src/shared/session-list-limits.ts";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import {
   createGateway,
   createGatewayHarness,
   createSessionsHarness,
   createSessionState,
-  deferred,
   mountSidebar,
   TWO_AGENTS,
 } from "../app-sidebar.ts";

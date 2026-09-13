@@ -8,6 +8,7 @@ import {
   getWindowsPowerShellExePath,
   getWindowsSystem32ExePath,
 } from "../infra/windows-install-roots.js";
+import { readWindowsProcessArgsSync } from "../infra/windows-port-pids.js";
 import { killProcessTree } from "../process/kill-tree.js";
 import { sleep } from "../utils.js";
 import { parseCmdScriptCommandLine } from "./cmd-argv.js";
@@ -173,22 +174,52 @@ export async function resolveScheduledTaskOwnedGatewayPids(
 
   const snapshot = readWindowsProcessSnapshot();
   if (process.platform === "win32") {
-    if (!snapshot) {
+    if (snapshot) {
+      // Prefer the Gateway PID; before admission its exact supervisor still owns startup.
+      // /End can leave that supervisor alive, so stop must find it before a Gateway exists.
+      for (const argv of [
+        installedArguments,
+        [...installedArguments, WINDOWS_TASK_SUPERVISOR_FLAG],
+      ]) {
+        const pid = findInstalledProcessPid(snapshot, port, argv, () => true);
+        if (pid) {
+          return [pid];
+        }
+      }
+      // A listener can be dual-stack or belong to another task; Windows control requires CIM argv proof.
       return [];
     }
-    // Prefer the Gateway PID; before admission its exact supervisor still owns startup.
-    // /End can leave that supervisor alive, so stop must find it before a Gateway exists.
-    for (const argv of [
-      installedArguments,
-      [...installedArguments, WINDOWS_TASK_SUPERVISOR_FLAG],
-    ]) {
-      const pid = findInstalledProcessPid(snapshot, port, argv, () => true);
-      if (pid) {
-        return [pid];
+    // The full-process snapshot can be unavailable (CIM timeout/failure) while
+    // per-PID lookups still work. Verify the actual port listeners against the
+    // persisted argv with the same port + exact-argv proof instead of giving up.
+    const probeHosts =
+      context?.probeHosts ?? (await resolveGatewayServiceProbeHosts({ env, command }));
+    const diagnostics = await inspectPortUsage(port, { probeHosts }).catch(() => null);
+    if (diagnostics?.status !== "busy") {
+      return [];
+    }
+    const ownedPids = new Set<number>();
+    const supervisorArguments = [...installedArguments, WINDOWS_TASK_SUPERVISOR_FLAG];
+    for (const listener of diagnostics.listeners) {
+      if (typeof listener.pid !== "number") {
+        continue;
+      }
+      // Windows listener command lines are resolved per PID through CIM (WMIC
+      // fallback), the same proof standard as the full-process snapshot.
+      const argv = listener.commandLine
+        ? parseCmdScriptCommandLine(listener.commandLine)
+        : readWindowsProcessArgsSync(listener.pid);
+      if (!argv || parseTcpPortFromArgs(argv) !== port) {
+        continue;
+      }
+      if (
+        matchesInstalledProgramArguments(argv, installedArguments) ||
+        matchesInstalledProgramArguments(argv, supervisorArguments)
+      ) {
+        ownedPids.add(listener.pid);
       }
     }
-    // A listener can be dual-stack or belong to another task; Windows control requires CIM argv proof.
-    return [];
+    return Array.from(ownedPids);
   }
   // CIM argv proves Windows ownership without loading Gateway config. Only the
   // portable listener path needs bind hosts, after a usable command and port exist.
@@ -211,6 +242,38 @@ export async function resolveScheduledTaskOwnedGatewayPids(
     }
   }
   return Array.from(ownedPids);
+}
+
+/** Describe remaining listeners when ownership verification fails, for actionable errors. */
+export async function describeUnverifiedPortListeners(
+  port: number,
+  probeHosts?: readonly string[],
+): Promise<string> {
+  const diagnostics = await inspectPortUsage(port, probeHosts ? { probeHosts } : undefined).catch(
+    () => null,
+  );
+  const listeners = diagnostics?.status === "busy" ? diagnostics.listeners : [];
+  if (!listeners || listeners.length === 0) {
+    return "";
+  }
+  const described = listeners.map((listener) => {
+    const pid = typeof listener.pid === "number" ? listener.pid : null;
+    const argv = listener.commandLine ? parseCmdScriptCommandLine(listener.commandLine) : null;
+    const identity = argv
+      ? isGatewayArgv(argv, { allowGatewayBinary: true })
+        ? "openclaw gateway"
+        : "not an openclaw gateway"
+      : "argv unavailable";
+    const name = listener.command ?? "unknown";
+    return pid ? `pid ${pid} (${name}, ${identity})` : `${name} (${identity})`;
+  });
+  const pids = listeners
+    .map((listener) => listener.pid)
+    .filter((pid): pid is number => typeof pid === "number");
+  const hint = pids.length
+    ? ` If one of these is this gateway, stop it with "Stop-Process -Id <pid> -Force" and retry.`
+    : "";
+  return ` Remaining listener(s): ${described.join(", ")}.${hint}`;
 }
 
 export async function resolveListenerBackedScheduledTaskRuntime(

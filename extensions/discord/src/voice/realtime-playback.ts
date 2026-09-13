@@ -12,7 +12,6 @@ import {
 } from "openclaw/plugin-sdk/realtime-voice";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
-import { convertRealtimePcm24kMonoToDiscordPcm48kStereo } from "./audio.js";
 import { DiscordRealtimeOutput } from "./realtime-output.js";
 import type { DiscordRealtimePlayer } from "./realtime-player.js";
 import type { DiscordVoiceMode, VoiceSessionEntry } from "./session.js";
@@ -93,19 +92,19 @@ export class DiscordRealtimePlayback<TState> {
     this.clearOutputAudio("session-close");
   }
 
-  handleBargeIn(reason = "barge-in"): void {
+  handleBargeIn(reason = "barge-in"): boolean {
     if (!this.isBargeInEnabled()) {
       logger.info(
         `discord voice: realtime barge-in ignored reason=${reason} bargeIn=false guild=${this.params.entry.guildId} channel=${this.params.entry.channelId}`,
       );
-      return;
+      return false;
     }
     const outputActive = this.hasInterruptibleOutputAudio();
     if (!outputActive) {
       logger.info(
         `discord voice: realtime barge-in ignored reason=${reason} outputActive=false guild=${this.params.entry.guildId} channel=${this.params.entry.channelId} playbackChunks=${this.params.harness.outputActivity.snapshot().chunks}`,
       );
-      return;
+      return false;
     }
     logger.info(
       `discord voice: realtime barge-in requested reason=${reason} guild=${this.params.entry.guildId} channel=${this.params.entry.channelId} outputAudioMs=${this.outputAudioMs()} outputActive=${this.isOutputAudioActive()} playbackChunks=${this.params.harness.outputActivity.snapshot().chunks}`,
@@ -113,11 +112,17 @@ export class DiscordRealtimePlayback<TState> {
     // A native handler may decline short audio as echo. Providers without one
     // still need local interruption when another speaker owns the incoming audio.
     const bridge = this.params.bridge();
+    const outputs = Array.from(this.outputs);
+    const items = Array.from(this.generatingItems.values());
     this.params.harness.handleBargeIn({ audioPlaybackActive: true }, () => {
       if (!bridge?.bridge.handleBargeIn) {
         this.clearOutputAudio(reason);
       }
     });
+    return (
+      outputs.some((output) => !this.outputs.has(output)) ||
+      items.some((item) => this.generatingItems.get(item.itemId) !== item)
+    );
   }
 
   isBargeInEnabled(): boolean {
@@ -190,8 +195,7 @@ export class DiscordRealtimePlayback<TState> {
       return;
     }
     this.params.markProviderGenerationObserved();
-    const discordPcm = convertRealtimePcm24kMonoToDiscordPcm48kStereo(realtimePcm24kMono);
-    if (discordPcm.length === 0) {
+    if (realtimePcm24kMono.length === 0) {
       return;
     }
     this.params.bridge()?.setMediaTimestamp(this.outputAudioMs());
@@ -200,13 +204,13 @@ export class DiscordRealtimePlayback<TState> {
       0,
     );
     if (
-      discordPcm.length > DISCORD_REALTIME_MAX_PENDING_OUTPUT_BYTES - pendingBytes ||
+      realtimePcm24kMono.length * 4 > DISCORD_REALTIME_MAX_PENDING_OUTPUT_BYTES - pendingBytes ||
       (!this.generatingOutput && this.outputs.size >= DISCORD_REALTIME_MAX_RETAINED_RESPONSES)
     ) {
       this.stopAfterPlaybackFailure(
         "output-audio-overflow",
         new Error(
-          `Discord realtime audio playback overflow: responses=${this.outputs.size} pendingBytes=${pendingBytes} incomingBytes=${discordPcm.length}`,
+          `Discord realtime audio playback overflow: responses=${this.outputs.size} pendingBytes=${pendingBytes} incomingBytes=${realtimePcm24kMono.length * 4}`,
         ),
       );
       return;
@@ -219,7 +223,7 @@ export class DiscordRealtimePlayback<TState> {
         realtimePcm24kMono.byteLength,
       ),
       sourceAudioBytes: realtimePcm24kMono.length,
-      sinkAudioBytes: discordPcm.length,
+      sinkAudioBytes: realtimePcm24kMono.length * 4,
     };
     let item: RealtimeVoicePlaybackItem | undefined;
     if (metadata) {
@@ -231,7 +235,7 @@ export class DiscordRealtimePlayback<TState> {
     }
     // Observers may interrupt synchronously; publish ownership before notifying them.
     this.params.harness.recordOutputAudio(realtimePcm24kMono, activity);
-    output.append(discordPcm, activity, audible, item);
+    output.append(realtimePcm24kMono, audible, item);
   }
 
   clearOutputAudio(reason = "clear"): void {

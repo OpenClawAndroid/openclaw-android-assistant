@@ -1,6 +1,7 @@
 // Tests heartbeat runner wake dispatch, cooldown bookkeeping, and cleanup.
 // Interval cadence is owned by persisted, per-agent cron monitor jobs.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   getRuntimeConfig,
   resetConfigRuntimeState,
@@ -102,10 +103,7 @@ describe("startHeartbeatRunner", () => {
 
   it("aborts an active wake when the runner stops", async () => {
     useFakeHeartbeatTime();
-    let finishWake: (() => void) | undefined;
-    const wakeFinished = new Promise<void>((resolve) => {
-      finishWake = resolve;
-    });
+    const { promise: wakeFinished, resolve: finishWake } = createDeferred();
     let wakeSignal: AbortSignal | undefined;
     const runOnce = vi.fn(async () => {
       wakeSignal = getHeartbeatWakeAbortSignal();
@@ -419,10 +417,7 @@ describe("startHeartbeatRunner", () => {
 
   it("does not let a slow agent block another agent's broadcast wake", async () => {
     useFakeHeartbeatTime();
-    let finishMain: (() => void) | undefined;
-    const mainFinished = new Promise<void>((resolve) => {
-      finishMain = resolve;
-    });
+    const { promise: mainFinished, resolve: finishMain } = createDeferred();
     const runSpy = vi.fn(async ({ agentId }: { agentId?: string }) => {
       if (agentId === "main") {
         await mainFinished;

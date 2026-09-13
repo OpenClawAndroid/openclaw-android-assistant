@@ -3,12 +3,14 @@ import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const RELEASE_CHECKS_PATH = ".github/workflows/openclaw-release-checks.yml";
 const WORKFLOW_PATH = ".github/workflows/openclaw-release-telegram-qa.yml";
 const HELPER = "scripts/release-telegram-qa.mjs";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 
 type WorkflowStep = {
   env?: Record<string, unknown>;
@@ -909,8 +911,10 @@ describe("release Telegram QA workflow", () => {
     const env = { ...process.env };
     delete env.OPENCLAW_QA_SUT_PREENTRY_STOP;
     expect(
-      spawnSync(process.execPath, ["--import", preloadPath, "-e", ""], { encoding: "utf8", env })
-        .status,
+      spawnSync(testNodeExecPath, ["--import", preloadPath, "-e", ""], {
+        encoding: "utf8",
+        env,
+      }).status,
     ).not.toBe(0);
   });
 

@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import {
   clearDeviceAuthToken,
@@ -9,14 +10,6 @@ import {
   storeDeviceAuthToken,
 } from "./index.ts";
 import { rotateDeviceToken } from "./page-operations.ts";
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-}
 
 function createState(request: (method: string, params?: unknown) => Promise<unknown>) {
   return {

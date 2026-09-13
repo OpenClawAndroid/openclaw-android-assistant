@@ -30,6 +30,51 @@ const disposableStateReads = resolveGlobalSingleton(
   () => new AsyncLocalStorage<{ path: string; active: boolean }[]>(),
 );
 
+const stateSnapshotReads = resolveGlobalSingleton(
+  Symbol.for("openclaw.stateSnapshotReads"),
+  () =>
+    new AsyncLocalStorage<{
+      path: string;
+      location: string;
+      env: NodeJS.ProcessEnv;
+      active: boolean;
+    }>(),
+);
+
+/** Resolve a composite read from one online snapshot without redirecting live writers. */
+export async function withOpenClawStateDatabaseReadSnapshot<T>(
+  operation: () => Promise<T>,
+  options: OpenClawStateDatabaseOptions = {},
+): Promise<T> {
+  const pathname = resolveReadOnlyPath(options);
+  const current = stateSnapshotReads.getStore();
+  if ((current?.active && current.path === pathname) || !existingPathOrUndefined(pathname)) {
+    return await operation();
+  }
+  const env = options.env ?? process.env;
+  openClawStateDatabaseCache.assertOpenClawStateDatabaseFreshOpenAllowedAtPath(pathname, env);
+  let prepared: PreparedSqliteReadOnlyLocation;
+  try {
+    prepared = await prepareSqliteReadOnlyLocation(pathname);
+  } catch (error) {
+    throw new Error(
+      `Cannot read shared state for discovery: ${pathname}. Retry after the current state operation completes. ${String(error)}`,
+      { cause: error },
+    );
+  }
+  const scope = { path: pathname, location: prepared.location, env, active: true };
+  await using _ = {
+    async [Symbol.asyncDispose]() {
+      scope.active = false;
+      if (!(await prepared.cleanupAsync())) {
+        throw new Error(`Shared-state discovery snapshot cleanup failed: ${pathname}`);
+      }
+    },
+  };
+  openClawStateDatabaseCache.assertOpenClawStateDatabaseFreshOpenAllowedAtPath(pathname, env);
+  return await stateSnapshotReads.run(scope, operation);
+}
+
 /** The caller owns this private database and removes its files after the scope closes. */
 export async function withDisposableOpenClawStateReads<T>(
   pathname: string,
@@ -101,6 +146,17 @@ function withOpenClawStateDatabaseReadOnlyIfOpen<T>(
   operation: (database: OpenClawStateReadOnlyDatabase) => T,
   pathname: string,
 ): ReusedOpenClawStateReadOnlyDatabase<T> {
+  const snapshot = stateSnapshotReads.getStore();
+  if (snapshot?.active && snapshot.path === pathname) {
+    openClawStateDatabaseCache.assertOpenClawStateDatabaseFreshOpenAllowedAtPath(
+      pathname,
+      snapshot.env,
+    );
+    return {
+      reused: true,
+      value: withOpenClawStateReadOnlyLocation(operation, pathname, snapshot.location),
+    };
+  }
   const opened = openClawStateDatabaseCache.getOpenClawStateDatabaseIfOpenAtPath(pathname);
   if (!opened || opened.db.isTransaction) {
     return { reused: false };

@@ -562,11 +562,13 @@ public struct OpenClawChatSessionGroupsMutationResponse: Codable, Sendable, Equa
 public struct OpenClawChatAgentChoice: Codable, Identifiable, Sendable, Hashable {
     public let id: String
     public let name: String?
+    public let emoji: String?
     public let workspaceGit: Bool?
 
-    public init(id: String, name: String? = nil, workspaceGit: Bool? = nil) {
+    public init(id: String, name: String? = nil, emoji: String? = nil, workspaceGit: Bool? = nil) {
         self.id = id
         self.name = name
+        self.emoji = emoji
         self.workspaceGit = workspaceGit
     }
 
@@ -580,10 +582,16 @@ public struct OpenClawChatAgentChoice: Codable, Identifiable, Sendable, Hashable
 public struct OpenClawChatAgentsListResponse: Codable, Sendable, Equatable {
     public let defaultId: String
     public let agents: [OpenClawChatAgentChoice]
+    public let sessionRoutingContract: String?
 
-    public init(defaultId: String, agents: [OpenClawChatAgentChoice]) {
+    public init(
+        defaultId: String,
+        agents: [OpenClawChatAgentChoice],
+        sessionRoutingContract: String? = nil)
+    {
         self.defaultId = defaultId
         self.agents = agents
+        self.sessionRoutingContract = sessionRoutingContract
     }
 }
 

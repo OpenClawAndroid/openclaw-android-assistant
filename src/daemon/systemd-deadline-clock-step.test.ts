@@ -72,8 +72,8 @@ describe.skipIf(process.platform === "win32")("systemd budgets across a wall-clo
       OPENCLAW_SYSTEMD_UNIT: "openclaw-owned",
     };
     unitPath = path.join(env.HOME!, ".config/systemd/user/openclaw-owned.service");
-    await fs.mkdir(path.dirname(unitPath), { recursive: true });
-    await fs.mkdir(env.OPENCLAW_STATE_DIR!);
+    await fs.mkdir(path.dirname(unitPath), { recursive: true, mode: 0o700 });
+    await fs.mkdir(env.OPENCLAW_STATE_DIR!, { mode: 0o700 });
   });
 
   afterEach(async () => {
@@ -150,7 +150,7 @@ describe.skipIf(process.platform === "win32")("systemd budgets across a wall-clo
           "Environment=OPENCLAW_GATEWAY_PORT=18789",
           "",
         ].join("\n"),
-        "utf8",
+        { encoding: "utf8", mode: 0o600 },
       );
       busctl.mockImplementation(async (serviceEnv) =>
         unitNotFound(serviceEnv.OPENCLAW_SYSTEMD_UNIT ?? "openclaw-owned"),

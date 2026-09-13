@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { getDeliveryQueueEntryStatus } from "../delivery-queue-sqlite.js";
@@ -20,14 +21,8 @@ describe("stable delivery preparation", () => {
   });
 
   it("admits only one modifier owner for a stable intent", async () => {
-    let releaseFirst!: () => void;
-    const firstBlocked = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    let notifyFirstStarted!: () => void;
-    const firstStarted = new Promise<void>((resolve) => {
-      notifyFirstStarted = resolve;
-    });
+    const { promise: firstBlocked, resolve: releaseFirst } = createDeferred();
+    const { promise: firstStarted, resolve: notifyFirstStarted } = createDeferred();
     const secondRun = vi.fn();
 
     const first = withStableDeliveryPreparation({

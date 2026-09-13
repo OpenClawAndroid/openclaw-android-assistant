@@ -12,12 +12,15 @@ export async function runNodeScript(
     maxBuffer,
     requireProcessTreeExit,
     onReady,
+    executable,
   }: {
     cwd?: string;
     signal?: AbortSignal;
     maxBuffer?: number;
     requireProcessTreeExit?: boolean;
     onReady?: Parameters<typeof runManagedCommand>[0]["onReady"];
+    /** Override only for a test that must exercise its current Node-compatible runtime. */
+    executable?: string;
   } = {},
 ) {
   const stdout = createBoundedChildOutput(maxBuffer);
@@ -28,7 +31,7 @@ export async function runNodeScript(
   let error: unknown;
   try {
     status = await runManagedCommand({
-      bin: resolveTestNodeExecPath(),
+      bin: executable ?? resolveTestNodeExecPath(),
       args: typeof scriptPathOrArgs === "string" ? [scriptPathOrArgs] : scriptPathOrArgs,
       cwd,
       env,

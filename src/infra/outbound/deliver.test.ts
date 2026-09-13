@@ -15,6 +15,7 @@ import type {
 } from "../../channels/message/types.js";
 import type { ChannelOutboundAdapter, ChannelPlugin } from "../../channels/plugins/types.public.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolveStateDir } from "../../config/state-dir.js";
 import { renderMessagePresentationFallbackText } from "../../interactive/payload.js";
 import * as mediaCapabilityModule from "../../media/read-capability.js";
 import { createHookRunner } from "../../plugins/hooks.js";
@@ -561,6 +562,8 @@ async function runBestEffortPartialFailureDelivery(params?: { onError?: boolean 
 }
 
 describe("deliverOutboundPayloads", () => {
+  let expectedQueueStateDir: string;
+
   beforeAll(async () => {
     ({
       deliverOutboundPayloads,
@@ -570,6 +573,7 @@ describe("deliverOutboundPayloads", () => {
   });
 
   beforeEach(() => {
+    expectedQueueStateDir = resolveStateDir();
     resetDiagnosticEventsForTest();
     setActivePluginRegistry(defaultRegistry);
     vi.clearAllMocks();
@@ -918,7 +922,7 @@ describe("deliverOutboundPayloads", () => {
     expect(beforeParams?.deliveryQueueId).toBe("queue-1");
     expect(queueMocks.markDeliveryPlatformSendDispatched).toHaveBeenCalledWith(
       "queue-1",
-      undefined,
+      expectedQueueStateDir,
       expect.objectContaining({ replyToId: undefined, threadId: undefined }),
     );
     expect(queueMocks.markDeliveryPlatformSendDispatched).toHaveBeenCalledOnce();
@@ -1325,7 +1329,7 @@ describe("deliverOutboundPayloads", () => {
     expect(completionMocks.completeDurableDelivery).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: "operation-chunked" }),
       expect.objectContaining({ messageId: "chunk-2" }),
-      undefined,
+      expectedQueueStateDir,
     );
   });
 
@@ -2072,7 +2076,11 @@ describe("deliverOutboundPayloads", () => {
     );
     expect(commitParams?.kind).toBe("text");
     expect(commitParams?.result?.messageId).toBe("message-adapter-1");
-    expect(queueMocks.ackDelivery).toHaveBeenCalledWith("mock-queue-id");
+    expect(queueMocks.ackDelivery).toHaveBeenCalledWith(
+      "mock-queue-id",
+      expectedQueueStateDir,
+      undefined,
+    );
     expect(queueMocks.failDelivery).not.toHaveBeenCalled();
   });
 
@@ -2215,7 +2223,7 @@ describe("deliverOutboundPayloads", () => {
 
     expect(queueMocks.markDeliveryPlatformSendAttemptStarted).toHaveBeenCalledWith(
       "mock-queue-id",
-      undefined,
+      expectedQueueStateDir,
       { replyToId: null },
     );
     expect(queueMocks.markDeliveryPlatformOutcomeUnknown).not.toHaveBeenCalled();
@@ -2251,7 +2259,7 @@ describe("deliverOutboundPayloads", () => {
 
       expect(queueMocks.moveToFailed).toHaveBeenCalledWith(
         "mock-queue-id",
-        undefined,
+        expectedQueueStateDir,
         expect.any(String),
       );
       expect(queueMocks.failDeliveryBeforePlatformSend).not.toHaveBeenCalled();
@@ -2282,7 +2290,7 @@ describe("deliverOutboundPayloads", () => {
 
     expect(queueMocks.moveToFailed).toHaveBeenCalledWith(
       "mock-queue-id",
-      undefined,
+      expectedQueueStateDir,
       expect.any(String),
     );
     expect(queueMocks.failDeliveryBeforePlatformSend).not.toHaveBeenCalled();
@@ -2440,7 +2448,7 @@ describe("deliverOutboundPayloads", () => {
 
     expect(queueMocks.moveToFailed).toHaveBeenCalledWith(
       "mock-queue-id",
-      undefined,
+      expectedQueueStateDir,
       expect.any(String),
     );
     expect(queueMocks.failDeliveryBeforePlatformSend).not.toHaveBeenCalled();
@@ -2504,7 +2512,7 @@ describe("deliverOutboundPayloads", () => {
 
     expect(queueMocks.moveToFailed).toHaveBeenCalledWith(
       "mock-queue-id",
-      undefined,
+      expectedQueueStateDir,
       expect.any(String),
     );
     expect(queueMocks.failDeliveryBeforePlatformSend).not.toHaveBeenCalled();
@@ -2533,7 +2541,7 @@ describe("deliverOutboundPayloads", () => {
 
     expect(queueMocks.moveToFailed).toHaveBeenCalledWith(
       "mock-queue-id",
-      undefined,
+      expectedQueueStateDir,
       expect.any(String),
     );
     expect(queueMocks.failDeliveryBeforePlatformSend).not.toHaveBeenCalled();
@@ -2639,6 +2647,8 @@ describe("deliverOutboundPayloads", () => {
     expect(completionMocks.rejectDurableDelivery).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: "operation-rejected" }),
       "atomic message limit",
+      expectedQueueStateDir,
+      expect.objectContaining({ stateDir: expectedQueueStateDir }),
       undefined,
     );
     expect(queueMocks.failDeliveryBeforePlatformSend).not.toHaveBeenCalled();
@@ -2679,6 +2689,8 @@ describe("deliverOutboundPayloads", () => {
     expect(completionMocks.rejectDurableDelivery).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: "operation-empty-rejection" }),
       "Platform rejected the message before dispatch",
+      expectedQueueStateDir,
+      expect.objectContaining({ stateDir: expectedQueueStateDir }),
       undefined,
     );
   });
@@ -2723,7 +2735,11 @@ describe("deliverOutboundPayloads", () => {
     });
 
     expect(sendMatrix).toHaveBeenCalled();
-    expect(queueMocks.ackDelivery).toHaveBeenCalledWith("mock-queue-id");
+    expect(queueMocks.ackDelivery).toHaveBeenCalledWith(
+      "mock-queue-id",
+      expectedQueueStateDir,
+      undefined,
+    );
     expect(queueMocks.failDelivery).not.toHaveBeenCalled();
   });
 
@@ -3523,7 +3539,7 @@ describe("deliverOutboundPayloads", () => {
     );
     expect(queueMocks.markDeliveryPlatformSendAttemptStarted).toHaveBeenCalledWith(
       "mock-queue-id",
-      undefined,
+      expectedQueueStateDir,
       { replyToId: "hooked-reply" },
     );
   });
@@ -5099,7 +5115,11 @@ describe("deliverOutboundPayloads", () => {
       unsubscribe();
     }
 
-    expect(queueMocks.ackDelivery).toHaveBeenCalledWith("mock-queue-id");
+    expect(queueMocks.ackDelivery).toHaveBeenCalledWith(
+      "mock-queue-id",
+      expectedQueueStateDir,
+      undefined,
+    );
     expect(queueMocks.failDelivery).not.toHaveBeenCalled();
     expect(hookMocks.runner.runMessageSent).toHaveBeenCalledOnce();
     expect(hookMocks.runner.runMessageSent).toHaveBeenCalledWith(

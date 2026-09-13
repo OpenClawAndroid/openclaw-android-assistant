@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import { createUpdateRunFixture as updateRunFixture } from "../test-helpers/update-run.ts";
 import type { ApplicationGatewaySnapshot } from "./gateway.ts";
 import {
   client,
   createGatewayHarness,
-  deferred,
   flushMicrotasks,
   type RequestFn,
 } from "./overlays-access.test-support.ts";
@@ -152,7 +152,7 @@ describe("application update campaign overlays", () => {
     "does not let a %s replace a newer campaign event",
     async (source) => {
       vi.useFakeTimers();
-      const updateStatus = deferred();
+      const updateStatus = deferred<unknown>();
       const request = vi.fn<RequestFn>((method) =>
         method === "update.status" ? updateStatus.promise : Promise.resolve({}),
       );
@@ -200,7 +200,7 @@ describe("application update campaign overlays", () => {
     "does not restart an in-flight campaign poll after %s",
     async (boundary) => {
       vi.useFakeTimers();
-      const updateStatus = deferred();
+      const updateStatus = deferred<unknown>();
       const request = vi.fn<RequestFn>((method) =>
         method === "update.status" ? updateStatus.promise : Promise.resolve({}),
       );
@@ -232,7 +232,7 @@ describe("application update campaign overlays", () => {
 
   it("keeps a manual status check's error visible when campaign polling becomes due", async () => {
     vi.useFakeTimers();
-    const manualStatus = deferred();
+    const manualStatus = deferred<unknown>();
     const request = vi.fn<RequestFn>((method, params) => {
       if (method !== "update.status") {
         return Promise.resolve({});
@@ -262,7 +262,7 @@ describe("application update campaign overlays", () => {
   it.each([false, true])(
     "discards an explicit refresh after administrator access is revoked (restored: %s)",
     async (restoreAdmin) => {
-      const updateStatus = deferred();
+      const updateStatus = deferred<unknown>();
       let statusReads = 0;
       const request = vi.fn<RequestFn>((method) => {
         if (method !== "update.status") {
@@ -362,7 +362,7 @@ describe("application update campaign overlays", () => {
   });
 
   it("publishes pending and error state when a manual status refresh fails", async () => {
-    const updateStatus = deferred();
+    const updateStatus = deferred<unknown>();
     const request = vi.fn<RequestFn>((method) =>
       method === "update.status" ? updateStatus.promise : Promise.resolve({}),
     );
@@ -565,7 +565,7 @@ describe("application update campaign overlays", () => {
 
   it("holds a campaign surface until its first authoritative status arrives", async () => {
     vi.useFakeTimers();
-    const updateStatus = deferred();
+    const updateStatus = deferred<unknown>();
     const request = vi.fn<RequestFn>((method) =>
       method === "update.status" ? updateStatus.promise : Promise.resolve({}),
     );
@@ -676,7 +676,7 @@ describe("application update campaign overlays", () => {
     { boundary: "revoked", reply: "success" },
     { boundary: "revoked", reply: "error" },
   ])("does not publish a stale hold $reply after $boundary", async ({ boundary, reply }) => {
-    const holdReply = deferred();
+    const holdReply = deferred<unknown>();
     const request = vi.fn<RequestFn>((method) =>
       method === "update.hold" ? holdReply.promise : Promise.resolve({}),
     );

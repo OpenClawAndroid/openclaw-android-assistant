@@ -1,10 +1,14 @@
-// Acknowledges exact outbound custody before releasing its queue-owned media.
+// Settles exact outbound custody before releasing its queue-owned media.
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { loadDeliveryQueueEntryInDatabase } from "../delivery-queue-sqlite-bound.js";
 import { transitionOwnedDeliveryQueueEntry } from "../delivery-queue-sqlite-claim.js";
 import {
   completeDeliveryQueueEntryInDatabase,
+  resolveDeliveryQueueStateEnv,
+  type DeliveryQueueStateContext,
   deleteDeliveryQueueEntryInDatabase,
+  prepareDeliveryQueueTerminalEntry,
+  terminalizePendingDeliveryQueueEntryInDatabase,
 } from "../delivery-queue-sqlite.js";
 import { hasLiveDeliveryQueueClaim } from "../delivery-queue-sqlite.types.js";
 import { collectEntrySpoolPaths, releaseSpoolArtifacts } from "./delivery-queue-media-spool.js";
@@ -26,17 +30,21 @@ type AckDeliveryOptions = {
 };
 
 /** Retires an unsent live claim while its adapter preparation still owns resources. */
-export function retireUnsentDelivery(params: {
-  id: string;
-  producerClaimId: string;
-  stateDir?: string;
-}): (() => Promise<void>) | undefined {
+export function retireUnsentDelivery(
+  params: {
+    id: string;
+    producerClaimId: string;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): (() => Promise<void>) | undefined {
+  const stateDir = context?.stateDir ?? params.stateDir;
   let release: (() => Promise<void>) | undefined;
   transitionOwnedDeliveryQueueEntry(
     {
       queueName: OUTBOUND_DELIVERY_QUEUE_NAME,
       id: params.id,
-      stateDir: params.stateDir,
+      stateDir,
       platformSendAttemptId: params.producerClaimId,
     },
     (current, database) => {
@@ -54,14 +62,15 @@ export function retireUnsentDelivery(params: {
       const entry = current as QueuedDelivery;
       const artifacts = collectEntrySpoolPaths(
         acceptedPreparedOutboundEntries(entry.preparedBatch).map((prepared) => prepared.payload),
-        params.stateDir,
+        stateDir,
       );
       const retention = artifacts.length
         ? createDeliveryQueueMediaRetention(
             artifacts,
             "outbound-media-recovery-lease",
-            params.stateDir,
+            stateDir,
             database,
+            context,
           )
         : undefined;
       // Cancellation removes custody without recording a successful receipt,
@@ -69,12 +78,13 @@ export function retireUnsentDelivery(params: {
       deleteDeliveryQueueEntryInDatabase(database, OUTBOUND_DELIVERY_QUEUE_NAME, entry.id);
       release = async () => {
         try {
-          await releaseSpoolArtifacts(artifacts, params.stateDir);
+          await releaseSpoolArtifacts(artifacts, stateDir);
         } finally {
-          cancelDeliveryQueueMediaRetention(retention, params.stateDir);
+          cancelDeliveryQueueMediaRetention(retention, stateDir, context);
         }
       };
     },
+    context,
   );
   return release;
 }
@@ -82,14 +92,16 @@ export function retireUnsentDelivery(params: {
 /** Remove a successfully delivered entry, or retain its producer-owned receipt. */
 export async function ackDelivery(
   id: string,
-  stateDir?: string,
+  requestedStateDir?: string,
   options?: AckDeliveryOptions,
+  context?: DeliveryQueueStateContext,
 ): Promise<void> {
+  const stateDir = context?.stateDir ?? requestedStateDir;
   // Read the media references before the row goes, then unlink only after the
   // delete commits. A crash in between leaves an orphan for the retention sweep;
   // unlinking first could strip media from a row that still has to replay.
   const database = openOpenClawStateDatabase({
-    env: stateDir ? { ...process.env, OPENCLAW_STATE_DIR: stateDir } : process.env,
+    env: resolveDeliveryQueueStateEnv(stateDir, context),
   });
   let spoolPaths: string[] = [];
   const settle = (current: QueuedDelivery | null): void => {
@@ -120,6 +132,7 @@ export async function ackDelivery(
         // SAFETY: Pending rows in this namespace retain the prepared outbound payload.
         settle(entry as QueuedDelivery);
       },
+      context,
     );
     if (!settled) {
       throw new Error(`Delivery platform claim was lost: ${id}`);
@@ -137,4 +150,65 @@ export async function ackDelivery(
   if (!options?.retainSpoolArtifacts) {
     await releaseSpoolArtifacts(spoolPaths, stateDir);
   }
+}
+
+type FailPendingDeliveryResult = { status: "failed" } | { status: "not_pending" };
+
+/** Conditionally dead-letter a freshly re-read pending entry without a claimed state. */
+export async function failPendingDelivery(
+  params: {
+    id: string;
+    entry: QueuedDelivery;
+    retainSpoolArtifacts?: boolean;
+    expectedPlatformSendAttemptId?: string | null;
+  },
+  requestedStateDir?: string,
+  context?: DeliveryQueueStateContext,
+): Promise<FailPendingDeliveryResult> {
+  const stateDir = context?.stateDir ?? requestedStateDir;
+  const terminal = { queueName: OUTBOUND_DELIVERY_QUEUE_NAME, id: params.id, entry: params.entry };
+  // An unmatched claim must remain a no-op; standalone calls validate before opening state.
+  const prepared =
+    params.expectedPlatformSendAttemptId === undefined
+      ? prepareDeliveryQueueTerminalEntry(terminal)
+      : undefined;
+  const database = openOpenClawStateDatabase({
+    env: resolveDeliveryQueueStateEnv(stateDir, context),
+  });
+  let terminalized = false;
+  const terminalize = (): undefined => {
+    terminalized =
+      terminalizePendingDeliveryQueueEntryInDatabase(
+        database,
+        prepared ?? prepareDeliveryQueueTerminalEntry(terminal),
+      ).status === "terminalized";
+  };
+  if (params.expectedPlatformSendAttemptId !== undefined) {
+    transitionOwnedDeliveryQueueEntry(
+      {
+        queueName: OUTBOUND_DELIVERY_QUEUE_NAME,
+        id: params.id,
+        stateDir,
+        database,
+        platformSendAttemptId: params.expectedPlatformSendAttemptId,
+      },
+      terminalize,
+      context,
+    );
+  } else {
+    terminalize();
+  }
+  if (terminalized) {
+    if (params.retainSpoolArtifacts !== true) {
+      await releaseSpoolArtifacts(
+        collectEntrySpoolPaths(
+          acceptedPreparedOutboundEntries(params.entry.preparedBatch).map((entry) => entry.payload),
+          stateDir,
+        ),
+        stateDir,
+      );
+    }
+    return { status: "failed" };
+  }
+  return { status: "not_pending" };
 }

@@ -694,8 +694,6 @@ describe("memory index", () => {
   });
 
   it("reindexes memory tables in place without deleting unrelated agent rows", async () => {
-    const stateDir = path.join(fixture.paths.workspace, "managed-memory-state");
-    fixture.setStateDir(stateDir);
     const agentDbPath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
     const agentDb = openOpenClawAgentDatabase({ agentId: "main" });
     agentDb.db
@@ -735,8 +733,7 @@ describe("memory index", () => {
   });
 
   it("reports an uninitialized status without creating agent or registry databases", async () => {
-    const stateDir = path.join(fixture.paths.workspace, "missing-status-state");
-    fixture.setStateDir(stateDir);
+    const stateDir = fixture.paths.stateDir;
     const agentPath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
     const statePath = path.join(stateDir, "state", "openclaw.sqlite");
 
@@ -1471,94 +1468,84 @@ describe("memory index", () => {
   });
 
   it("clears dirty after sessions-only identity reindex", async () => {
+    await seedMemoryIndexSessionTranscript({
+      sessionId: "session-identity",
+      messages: [
+        {
+          role: "assistant",
+          timestamp: "2026-04-07T15:25:04.113Z",
+          content: "Session-only identity marker.",
+        },
+      ],
+    });
+
+    const oldCfg = createCfg({
+      sources: ["sessions"],
+      sessionMemory: true,
+      model: "old-embed",
+    });
+    const oldManager = await getFreshManager(oldCfg);
+    await oldManager.sync({ reason: "test", force: true });
+    await oldManager.close?.();
+
+    const nextCfg = createCfg({
+      sources: ["sessions"],
+      sessionMemory: true,
+      provider: "gemini",
+      model: "new-embed",
+    });
+    const nextManager = await getFreshManager(nextCfg);
     try {
-      fixture.setStateDir(path.join(fixture.paths.workspace, ".state-sessions-only-reindex"));
-      await seedMemoryIndexSessionTranscript({
-        sessionId: "session-identity",
-        messages: [
-          {
-            role: "assistant",
-            timestamp: "2026-04-07T15:25:04.113Z",
-            content: "Session-only identity marker.",
-          },
-        ],
-      });
+      expect(nextManager.status().dirty).toBe(true);
 
-      const oldCfg = createCfg({
-        sources: ["sessions"],
-        sessionMemory: true,
-        model: "old-embed",
-      });
-      const oldManager = await getFreshManager(oldCfg);
-      await oldManager.sync({ reason: "test", force: true });
-      await oldManager.close?.();
+      await nextManager.sync({ reason: "test", force: true });
 
-      const nextCfg = createCfg({
-        sources: ["sessions"],
-        sessionMemory: true,
-        provider: "gemini",
-        model: "new-embed",
-      });
-      const nextManager = await getFreshManager(nextCfg);
-      try {
-        expect(nextManager.status().dirty).toBe(true);
-
-        await nextManager.sync({ reason: "test", force: true });
-
-        expect(nextManager.status().dirty).toBe(false);
-        expect(nextManager.status().custom?.indexIdentity).toEqual({ status: "valid" });
-      } finally {
-        await nextManager.close?.();
-      }
+      expect(nextManager.status().dirty).toBe(false);
+      expect(nextManager.status().custom?.indexIdentity).toEqual({ status: "valid" });
     } finally {
-      fixture.restoreStateDir();
+      await nextManager.close?.();
     }
   });
 
   it("marks sessions-only indexes dirty when metadata is missing but chunks exist", async () => {
+    await seedMemoryIndexSessionTranscript({
+      sessionId: "session-missing-meta",
+      messages: [
+        {
+          role: "assistant",
+          timestamp: "2026-04-07T15:25:04.113Z",
+          content: "Sessions missing metadata marker.",
+        },
+      ],
+    });
+
+    const cfg = createCfg({
+      sources: ["sessions"],
+      sessionMemory: true,
+    });
+    const oldManager = await getFreshManager(cfg);
+    await oldManager.sync({ reason: "test", force: true });
+    await oldManager.close?.();
+
+    const nextManager = await getFreshManager(cfg);
     try {
-      fixture.setStateDir(path.join(fixture.paths.workspace, ".state-sessions-missing-meta"));
-      await seedMemoryIndexSessionTranscript({
-        sessionId: "session-missing-meta",
-        messages: [
-          {
-            role: "assistant",
-            timestamp: "2026-04-07T15:25:04.113Z",
-            content: "Sessions missing metadata marker.",
-          },
-        ],
+      (
+        nextManager as unknown as {
+          db: { exec: (sql: string) => void };
+        }
+      ).db.exec(`DELETE FROM memory_index_meta WHERE key = 'memory_index_meta_v1'`);
+
+      const status = nextManager.status();
+
+      expect(status.dirty).toBe(true);
+      expect(status.custom?.indexIdentity).toEqual({
+        status: "missing",
+        reason: "index metadata is missing",
+        code: "metadata_missing",
+        owner: "openclaw",
       });
-
-      const cfg = createCfg({
-        sources: ["sessions"],
-        sessionMemory: true,
-      });
-      const oldManager = await getFreshManager(cfg);
-      await oldManager.sync({ reason: "test", force: true });
-      await oldManager.close?.();
-
-      const nextManager = await getFreshManager(cfg);
-      try {
-        (
-          nextManager as unknown as {
-            db: { exec: (sql: string) => void };
-          }
-        ).db.exec(`DELETE FROM memory_index_meta WHERE key = 'memory_index_meta_v1'`);
-
-        const status = nextManager.status();
-
-        expect(status.dirty).toBe(true);
-        expect(status.custom?.indexIdentity).toEqual({
-          status: "missing",
-          reason: "index metadata is missing",
-          code: "metadata_missing",
-          owner: "openclaw",
-        });
-      } finally {
-        await nextManager.close?.();
-      }
     } finally {
-      fixture.restoreStateDir();
+      await nextManager.close?.();
     }
   });
 
@@ -2061,132 +2048,122 @@ describe("memory index", () => {
   });
 
   it("keeps provider cutover vector search paused during targeted session sync", async () => {
+    const sessionsDir = resolveSessionTranscriptsDirForAgent("main");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const sessionFile = path.join(sessionsDir, "session-targeted-cutover.jsonl");
+    await fs.writeFile(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: "session",
+          id: "session-targeted-cutover",
+          timestamp: "2026-04-07T15:24:04.113Z",
+        }),
+        JSON.stringify({
+          type: "message",
+          message: {
+            role: "assistant",
+            timestamp: "2026-04-07T15:25:04.113Z",
+            content: [{ type: "text", text: "Targeted cutover marker." }],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const oldCfg = createCfg({
+      sources: ["memory", "sessions"],
+      sessionMemory: true,
+      model: "old-embed",
+    });
+    const oldManager = await getFreshManager(oldCfg);
+    await oldManager.sync({ reason: "test", force: true });
+    await oldManager.close?.();
+
+    const nextCfg = createCfg({
+      sources: ["memory", "sessions"],
+      sessionMemory: true,
+      provider: "gemini",
+      model: "new-embed",
+    });
+    const nextManager = await getFreshManager(nextCfg);
     try {
-      fixture.setStateDir(path.join(fixture.paths.workspace, ".state-targeted-cutover"));
-      const sessionsDir = resolveSessionTranscriptsDirForAgent("main");
-      await fs.mkdir(sessionsDir, { recursive: true });
-      const sessionFile = path.join(sessionsDir, "session-targeted-cutover.jsonl");
-      await fs.writeFile(
-        sessionFile,
-        [
-          JSON.stringify({
-            type: "session",
-            id: "session-targeted-cutover",
-            timestamp: "2026-04-07T15:24:04.113Z",
-          }),
-          JSON.stringify({
-            type: "message",
-            message: {
-              role: "assistant",
-              timestamp: "2026-04-07T15:25:04.113Z",
-              content: [{ type: "text", text: "Targeted cutover marker." }],
-            },
-          }),
-        ].join("\n") + "\n",
-        "utf8",
-      );
+      expect(nextManager.status().dirty).toBe(true);
+      providerFixture.embedBatchCalls = 0;
 
-      const oldCfg = createCfg({
-        sources: ["memory", "sessions"],
-        sessionMemory: true,
-        model: "old-embed",
+      await nextManager.sync({ reason: "test", archiveFiles: [sessionFile] });
+
+      expect(providerFixture.embedBatchCalls).toBe(0);
+      expect(nextManager.status().dirty).toBe(true);
+      expect(nextManager.status().custom?.indexIdentity).toEqual({
+        status: "mismatched",
+        reason: "index was built for model old-embed, expected new-embed",
+        code: "model",
+        owner: "configuration",
       });
-      const oldManager = await getFreshManager(oldCfg);
-      await oldManager.sync({ reason: "test", force: true });
-      await oldManager.close?.();
-
-      const nextCfg = createCfg({
-        sources: ["memory", "sessions"],
-        sessionMemory: true,
-        provider: "gemini",
-        model: "new-embed",
-      });
-      const nextManager = await getFreshManager(nextCfg);
-      try {
-        expect(nextManager.status().dirty).toBe(true);
-        providerFixture.embedBatchCalls = 0;
-
-        await nextManager.sync({ reason: "test", archiveFiles: [sessionFile] });
-
-        expect(providerFixture.embedBatchCalls).toBe(0);
-        expect(nextManager.status().dirty).toBe(true);
-        expect(nextManager.status().custom?.indexIdentity).toEqual({
-          status: "mismatched",
-          reason: "index was built for model old-embed, expected new-embed",
-          code: "model",
-          owner: "configuration",
-        });
-        const results = await nextManager.search("alpha");
-        expect(results).toStrictEqual([]);
-      } finally {
-        await nextManager.close?.();
-      }
+      const results = await nextManager.search("alpha");
+      expect(results).toStrictEqual([]);
     } finally {
-      fixture.restoreStateDir();
+      await nextManager.close?.();
     }
   });
 
   it("preserves memory dirty events raised during session identity reindex", async () => {
+    const sessionsDir = resolveSessionTranscriptsDirForAgent("main");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(sessionsDir, "session-dirty-during-reindex.jsonl"),
+      [
+        JSON.stringify({
+          type: "session",
+          id: "session-dirty-during-reindex",
+          timestamp: "2026-04-07T15:24:04.113Z",
+        }),
+        JSON.stringify({
+          type: "message",
+          message: {
+            role: "assistant",
+            timestamp: "2026-04-07T15:25:04.113Z",
+            content: [{ type: "text", text: "Dirty during session marker." }],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const oldCfg = createCfg({
+      sources: ["memory", "sessions"],
+      sessionMemory: true,
+      model: "old-embed",
+    });
+    const oldManager = await getFreshManager(oldCfg);
+    await oldManager.sync({ reason: "test", force: true });
+    await oldManager.close?.();
+
+    const nextCfg = createCfg({
+      sources: ["memory", "sessions"],
+      sessionMemory: true,
+      provider: "gemini",
+      model: "new-embed",
+    });
+    const nextManager = await getFreshManager(nextCfg);
     try {
-      fixture.setStateDir(path.join(fixture.paths.workspace, ".state-dirty-during-session"));
-      const sessionsDir = resolveSessionTranscriptsDirForAgent("main");
-      await fs.mkdir(sessionsDir, { recursive: true });
-      await fs.writeFile(
-        path.join(sessionsDir, "session-dirty-during-reindex.jsonl"),
-        [
-          JSON.stringify({
-            type: "session",
-            id: "session-dirty-during-reindex",
-            timestamp: "2026-04-07T15:24:04.113Z",
-          }),
-          JSON.stringify({
-            type: "message",
-            message: {
-              role: "assistant",
-              timestamp: "2026-04-07T15:25:04.113Z",
-              content: [{ type: "text", text: "Dirty during session marker." }],
-            },
-          }),
-        ].join("\n") + "\n",
-        "utf8",
-      );
+      const fields = nextManager as unknown as {
+        dirty: boolean;
+        syncArchiveFiles: (params: unknown) => Promise<void>;
+      };
+      const syncArchiveFiles = fields.syncArchiveFiles.bind(nextManager);
+      fields.syncArchiveFiles = async (params) => {
+        fields.dirty = true;
+        await syncArchiveFiles(params);
+      };
 
-      const oldCfg = createCfg({
-        sources: ["memory", "sessions"],
-        sessionMemory: true,
-        model: "old-embed",
-      });
-      const oldManager = await getFreshManager(oldCfg);
-      await oldManager.sync({ reason: "test", force: true });
-      await oldManager.close?.();
+      await nextManager.sync({ reason: "test", force: true });
 
-      const nextCfg = createCfg({
-        sources: ["memory", "sessions"],
-        sessionMemory: true,
-        provider: "gemini",
-        model: "new-embed",
-      });
-      const nextManager = await getFreshManager(nextCfg);
-      try {
-        const fields = nextManager as unknown as {
-          dirty: boolean;
-          syncArchiveFiles: (params: unknown) => Promise<void>;
-        };
-        const syncArchiveFiles = fields.syncArchiveFiles.bind(nextManager);
-        fields.syncArchiveFiles = async (params) => {
-          fields.dirty = true;
-          await syncArchiveFiles(params);
-        };
-
-        await nextManager.sync({ reason: "test", force: true });
-
-        expect(nextManager.status().dirty).toBe(true);
-        expect(nextManager.status().custom?.indexIdentity).toEqual({ status: "valid" });
-      } finally {
-        await nextManager.close?.();
-      }
+      expect(nextManager.status().dirty).toBe(true);
+      expect(nextManager.status().custom?.indexIdentity).toEqual({ status: "valid" });
     } finally {
-      fixture.restoreStateDir();
+      await nextManager.close?.();
     }
   });
 
@@ -2650,70 +2627,58 @@ describe("memory index", () => {
   });
 
   it("preserves trusted per-line provenance through session indexing", async () => {
-    try {
-      const manager = await getFtsSessionManager({
-        stateDirName: ".state-session-provenance",
-      });
-      if (!manager) {
-        return;
-      }
-
-      await seedMemoryIndexSessionTranscript({
-        sessionId: "session-provenance",
-        messages: [
-          {
-            role: "user",
-            senderIsOwner: true,
-            timestamp: "2026-07-01T10:00:00.000Z",
-            content: "The owner prefers green tea.",
-          },
-        ],
-      });
-
-      await manager.sync({ reason: "test", force: true });
-      const results = await manager.search("owner prefers green tea", {
-        minScore: 0,
-        maxResults: 3,
-      });
-
-      expect(results[0]?.source).toBe("sessions");
-      expect(results[0]?.provenance).toEqual({
-        originClass: "owner",
-        sessionKind: "interactive",
-        observedAt: Date.parse("2026-07-01T10:00:00.000Z"),
-      });
-    } finally {
-      fixture.restoreStateDir();
+    const manager = await getFtsSessionManager();
+    if (!manager) {
+      return;
     }
+
+    await seedMemoryIndexSessionTranscript({
+      sessionId: "session-provenance",
+      messages: [
+        {
+          role: "user",
+          senderIsOwner: true,
+          timestamp: "2026-07-01T10:00:00.000Z",
+          content: "The owner prefers green tea.",
+        },
+      ],
+    });
+
+    await manager.sync({ reason: "test", force: true });
+    const results = await manager.search("owner prefers green tea", {
+      minScore: 0,
+      maxResults: 3,
+    });
+
+    expect(results[0]?.source).toBe("sessions");
+    expect(results[0]?.provenance).toEqual({
+      originClass: "owner",
+      sessionKind: "interactive",
+      observedAt: Date.parse("2026-07-01T10:00:00.000Z"),
+    });
   });
 
   it("diagnostic status uses canonical session discovery for dirty state and counts", async () => {
     const cfg = createCfg({ sources: ["sessions"], sessionMemory: true });
-    const stateDirName = ".state-status-dirty-test";
-    fixture.setStateDir(path.join(fixture.paths.workspace, stateDirName));
-    try {
-      await seedMemoryIndexSessionTranscript({
-        sessionId: "status-dirty-test",
-        messages: [
-          {
-            role: "user",
-            timestamp: 1,
-            content: "Unindexed session transcript.",
-          },
-        ],
-      });
+    await seedMemoryIndexSessionTranscript({
+      sessionId: "status-dirty-test",
+      messages: [
+        {
+          role: "user",
+          timestamp: 1,
+          content: "Unindexed session transcript.",
+        },
+      ],
+    });
 
-      const manager = await getFreshManager(cfg, "status", true);
-      trackManager(manager);
+    const manager = await getFreshManager(cfg, "status", true);
+    trackManager(manager);
 
-      const result = manager.status();
-      expect(result.dirty).toBe(true);
-      expect(result.sourceCounts).toEqual([
-        expect.objectContaining({ source: "sessions", eligible: 1 }),
-      ]);
-    } finally {
-      fixture.restoreStateDir();
-    }
+    const result = manager.status();
+    expect(result.dirty).toBe(true);
+    expect(result.sourceCounts).toEqual([
+      expect.objectContaining({ source: "sessions", eligible: 1 }),
+    ]);
   });
 
   it("prunes removed sessions without re-embedding unchanged survivors", async () => {
@@ -2723,84 +2688,78 @@ describe("memory index", () => {
       sessionMemory: true,
       minScore: 0,
     });
-    const stateDirName = ".state-status-stale-session-test";
-    fixture.setStateDir(path.join(fixture.paths.workspace, stateDirName));
     const sessionId = "status-stale-session-test";
     const sessionKey = `agent:main:memory:${sessionId}`;
     const survivorId = "status-stale-session-survivor";
     const survivorKey = `agent:main:memory:${survivorId}`;
     const storePath = path.join(resolveSessionTranscriptsDirForAgent("main"), "sessions.json");
-    try {
-      await seedMemoryIndexSessionTranscript({
-        sessionId,
+    await seedMemoryIndexSessionTranscript({
+      sessionId,
+      sessionKey,
+      messages: [
+        {
+          role: "user",
+          timestamp: 1,
+          content: "Deleted session index canary ORBIT-DELETE-91.",
+        },
+      ],
+    });
+    await seedMemoryIndexSessionTranscript({
+      sessionId: survivorId,
+      sessionKey: survivorKey,
+      messages: [
+        {
+          role: "user",
+          timestamp: 2,
+          content: "Surviving session index canary ORBIT-SURVIVE-92.",
+        },
+      ],
+    });
+
+    const initial = await getFreshManager(cfg, "cli");
+    trackManager(initial);
+    await initial.sync({ reason: "cli", force: true });
+    await expect(
+      initial.search("ORBIT-DELETE-91", { minScore: 0, sources: ["sessions"] }),
+    ).resolves.not.toEqual([]);
+    await initial.close?.();
+    const agentDb = new DatabaseSync(resolveOpenClawAgentSqlitePath({ agentId: "main" }));
+    agentDb.exec("DELETE FROM memory_embedding_cache");
+    agentDb.close();
+    providerFixture.embedBatchCalls = 0;
+
+    await expect(
+      deleteSessionEntry({
+        agentId: "main",
+        archiveTranscript: false,
+        expectedSessionId: sessionId,
         sessionKey,
-        messages: [
-          {
-            role: "user",
-            timestamp: 1,
-            content: "Deleted session index canary ORBIT-DELETE-91.",
-          },
-        ],
-      });
-      await seedMemoryIndexSessionTranscript({
-        sessionId: survivorId,
-        sessionKey: survivorKey,
-        messages: [
-          {
-            role: "user",
-            timestamp: 2,
-            content: "Surviving session index canary ORBIT-SURVIVE-92.",
-          },
-        ],
-      });
+        storePath,
+      }),
+    ).resolves.toBe(true);
 
-      const initial = await getFreshManager(cfg, "cli");
-      trackManager(initial);
-      await initial.sync({ reason: "cli", force: true });
-      await expect(
-        initial.search("ORBIT-DELETE-91", { minScore: 0, sources: ["sessions"] }),
-      ).resolves.not.toEqual([]);
-      await initial.close?.();
-      const agentDb = new DatabaseSync(resolveOpenClawAgentSqlitePath({ agentId: "main" }));
-      agentDb.exec("DELETE FROM memory_embedding_cache");
-      agentDb.close();
-      providerFixture.embedBatchCalls = 0;
+    const statusManager = await getFreshManager(cfg, "status", true);
+    trackManager(statusManager);
+    expect(statusManager.status().dirty).toBe(true);
+    await statusManager.close?.();
 
-      await expect(
-        deleteSessionEntry({
-          agentId: "main",
-          archiveTranscript: false,
-          expectedSessionId: sessionId,
-          sessionKey,
-          storePath,
-        }),
-      ).resolves.toBe(true);
-
-      const statusManager = await getFreshManager(cfg, "status", true);
-      trackManager(statusManager);
-      expect(statusManager.status().dirty).toBe(true);
-      await statusManager.close?.();
-
-      const repairManager = await getFreshManager(cfg, "cli");
-      trackManager(repairManager);
-      await repairManager.sync({ reason: "cli" });
-      expect(providerFixture.embedBatchCalls).toBe(0);
-      const deletedResults = await repairManager.search("ORBIT-DELETE-91", {
-        minScore: 0,
-        sources: ["sessions"],
-      });
-      expect(deletedResults.some((result) => result.path.includes(sessionId))).toBe(false);
-      await expect(
-        repairManager.search("ORBIT-SURVIVE-92", { minScore: 0, sources: ["sessions"] }),
-      ).resolves.not.toEqual([]);
-      const db = Reflect.get(repairManager, "db") as DatabaseSync;
-      const sourceCount = db
-        .prepare("SELECT COUNT(*) AS count FROM memory_index_sources WHERE source = 'sessions'")
-        .get() as { count: number };
-      expect(sourceCount.count).toBe(1);
-    } finally {
-      fixture.restoreStateDir();
-    }
+    const repairManager = await getFreshManager(cfg, "cli");
+    trackManager(repairManager);
+    await repairManager.sync({ reason: "cli" });
+    expect(providerFixture.embedBatchCalls).toBe(0);
+    const deletedResults = await repairManager.search("ORBIT-DELETE-91", {
+      minScore: 0,
+      sources: ["sessions"],
+    });
+    expect(deletedResults.some((result) => result.path.includes(sessionId))).toBe(false);
+    await expect(
+      repairManager.search("ORBIT-SURVIVE-92", { minScore: 0, sources: ["sessions"] }),
+    ).resolves.not.toEqual([]);
+    const db = Reflect.get(repairManager, "db") as DatabaseSync;
+    const sourceCount = db
+      .prepare("SELECT COUNT(*) AS count FROM memory_index_sources WHERE source = 'sessions'")
+      .get() as { count: number };
+    expect(sourceCount.count).toBe(1);
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

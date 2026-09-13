@@ -142,6 +142,7 @@ final class DashboardWindowController: NSWindowController, WKNavigationDelegate,
     private(set) var signedOut: DashboardFailurePage.SignedOut?
     private(set) var signedOutNeedsRefresh = false
     private var reconnectTask: (id: UUID, task: Task<Void, Never>)?
+    private var signInProgress: GatewayBrowserSignInProgress?
     private var navigationGeneration: UInt64 = 0
     private var loadGeneration: UInt64 = 0
     private var pendingLoad: Task<Void, Never>?
@@ -978,9 +979,19 @@ extension DashboardWindowController {
               case let .profile(id) = target, self.reconnectTask == nil else { return }
         self.showFailureHTML(DashboardFailurePage.html(signedOut: page, signingIn: true), present: false)
         let attempt = UUID()
+        let progress = GatewayBrowserSignInProgress()
+        self.signInProgress = progress
+        progress.onChange = { [weak self, weak progress] in
+            guard let self, let progress, self.reconnectTask?.id == attempt, self.isWindowOpen else { return }
+            self.showFailureHTML(DashboardFailurePage.html(
+                signedOut: page,
+                signingIn: true,
+                browserAttempt: progress.canOpenBrowser ? attempt : nil,
+                error: progress.error), present: false)
+        }
         let task = Task { @MainActor [weak self] in
             do {
-                try await GatewayBrowserSignInCoordinator.reconnectGateway(id: id)
+                try await GatewayBrowserSignInCoordinator.reconnectGateway(id: id, progress: progress)
                 // The profile-store notification replaces this document in its existing window.
             } catch {
                 guard let self, self.reconnectTask?.id == attempt, self.isWindowOpen else { return }
@@ -1000,6 +1011,12 @@ extension DashboardWindowController {
         self.showFailureHTML(
             DashboardFailurePage.html(signedOut: page, error: String(localized: "Sign-in cancelled. Try again.")),
             present: false)
+    }
+
+    func openGatewaySignInBrowser(_ target: DashboardGatewayTarget, attempt: UUID) {
+        guard self.signedOut?.target == target, self.reconnectTask?.id == attempt,
+              let progress = self.signInProgress, let action = progress.handoff else { return }
+        progress.openBrowser(action)
     }
 
     private func showFailureHTML(

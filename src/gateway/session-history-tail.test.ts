@@ -1,8 +1,125 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { expect, it, vi } from "vitest";
-import { replaceTranscriptEvents } from "../config/sessions/session-accessor.js";
+import {
+  appendTranscriptMessage,
+  replaceTranscriptEvents,
+  waitForSessionTranscriptProjection,
+} from "../config/sessions/session-accessor.js";
+import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import { readIncrementalChatHistoryTail } from "./session-history-tail.js";
+import {
+  readChatHistoryMessageId,
+  readIncrementalChatHistoryTail,
+} from "./session-history-tail.js";
+import * as sessionTranscriptReaders from "./session-transcript-readers.js";
+
+it("applies the head byte budget before loading an older malformed row", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const readScope = {
+      agentId: "main",
+      sessionId: "head-cursor-byte-budget",
+      sessionKey: "agent:main:head-cursor-byte-budget",
+      storePath: `${state.sessionsDir()}/sessions.json`,
+    };
+    const newestText = "x".repeat(1024 * 1024 + 1);
+    await replaceTranscriptEvents(readScope, [
+      { type: "session", version: 3, id: readScope.sessionId },
+      {
+        type: "message",
+        id: "older",
+        parentId: null,
+        message: { role: "user", content: "Old question" },
+      },
+      {
+        type: "message",
+        id: "newest",
+        parentId: "older",
+        message: { role: "assistant", content: newestText },
+      },
+    ]);
+    await waitForSessionTranscriptProjection(readScope);
+    const { db } = openOpenClawAgentDatabase({ agentId: readScope.agentId, env: state.env });
+    expect(
+      db
+        .prepare(
+          "UPDATE transcript_events SET event_json = ? WHERE session_id = ? AND seq = (SELECT seq FROM transcript_event_identities WHERE session_id = ? AND event_id = ?)",
+        )
+        .run("{", readScope.sessionId, readScope.sessionId, "older").changes,
+    ).toBe(1);
+
+    const tail = await readIncrementalChatHistoryTail({
+      entry: undefined,
+      readScope,
+      beforeSeq: 99,
+      preserveProjectionContext: true,
+      effectiveMaxChars: 8_000,
+      max: 1,
+      maxBytes: 1024,
+    });
+
+    expect(tail.readPage.totalMessages).toBe(2);
+    expect(tail.rawMessages).toMatchObject([
+      { content: newestText, __openclaw: { id: "newest", seq: 2 } },
+    ]);
+    expect(tail.projected.map(readChatHistoryMessageId)).toEqual(["newest"]);
+  });
+});
+
+it("keeps a sparse tail below its first snapshot when messages append between pages", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const readScope = {
+      agentId: "main",
+      sessionId: "sparse-tail-append",
+      sessionKey: "agent:main:sparse-tail-append",
+      storePath: `${state.sessionsDir()}/sessions.json`,
+    };
+    const ids = Array.from({ length: 101 }, (_, index) => `row-${index + 1}`);
+    await replaceTranscriptEvents(readScope, [
+      { type: "session", version: 3, id: readScope.sessionId },
+      ...ids.map((id, index) => ({
+        type: "message",
+        id,
+        parentId: ids[index - 1] ?? null,
+        message:
+          index === 0
+            ? { role: "user", content: "Original question" }
+            : { role: "assistant", content: "NO_REPLY" },
+      })),
+    ]);
+    const readRecent = sessionTranscriptReaders.readRecentSessionMessagesWithStatsAsync;
+    const recentSpy = vi
+      .spyOn(sessionTranscriptReaders, "readRecentSessionMessagesWithStatsAsync")
+      .mockImplementationOnce(async (...args) => {
+        const page = await readRecent(...args);
+        for (const seq of [102, 103]) {
+          await appendTranscriptMessage(readScope, {
+            eventId: `row-${seq}`,
+            message: { role: "assistant", content: "NO_REPLY" },
+          });
+        }
+        return page;
+      });
+    try {
+      const tail = await readIncrementalChatHistoryTail({
+        entry: undefined,
+        readScope,
+        effectiveMaxChars: 8_000,
+        max: 1,
+        maxBytes: 1024 * 1024,
+      });
+
+      expect(await sessionTranscriptReaders.readSessionMessageCountAsync(readScope)).toBe(103);
+      expect(tail.rawMessages.map(readChatHistoryMessageId)).toEqual(ids);
+      expect(tail.rawPageMessages).toBe(101);
+      expect(tail.readPage.totalMessages).toBe(101);
+      expect(tail.projected).toMatchObject([
+        { role: "user", content: "Original question", __openclaw: { id: "row-1", seq: 1 } },
+      ]);
+    } finally {
+      recentSpy.mockRestore();
+    }
+  });
+});
 
 it("does not serialize transcript batches when the extended sparse byte guard is unused", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {

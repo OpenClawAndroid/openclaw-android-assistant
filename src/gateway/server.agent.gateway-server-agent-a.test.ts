@@ -4,6 +4,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   getAdmittedRunDelegatedAuthority,
   prepareAgentRunAdmission,
@@ -556,10 +557,7 @@ describe("gateway server agent", () => {
     "agent executes a group-only run without a resolved session key and closes authority after %s",
     async (outcome) => {
       let admittedAuthority: AgentRunDelegatedAuthority | undefined;
-      let finishExecution!: () => void;
-      const executionFinished = new Promise<void>((resolve) => {
-        finishExecution = resolve;
-      });
+      const { promise: executionFinished, resolve: finishExecution } = createDeferred();
       vi.mocked(agentCommandMock).mockImplementationOnce(async (rawOpts) => {
         const opts = rawOpts as {
           runId: string;

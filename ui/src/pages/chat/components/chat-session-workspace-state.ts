@@ -65,6 +65,8 @@ function createSessionWorkspaceState(
   previous?: SessionWorkspaceState,
 ): SessionWorkspaceState {
   return {
+    previews: [],
+    activePreviewId: null,
     activeId: null,
     agentId: resolvePaneAgent(state),
     browserPath: "",
@@ -220,4 +222,55 @@ export function retireSessionWorkspaceCheckout(state: SessionWorkspaceHost) {
   const next = createSessionWorkspaceState(state, current);
   state.sessionWorkspaceState = next;
   requestWorkspaceUpdate(state);
+}
+
+/** File tabs are transient workspace presentation, scoped by this controller's lifecycle. */
+export function openSessionWorkspacePreview(
+  state: SessionWorkspaceHost,
+  id: string,
+  label: string,
+  content: SidebarSelection,
+) {
+  const workspace = getSessionWorkspace(state);
+  let preview = workspace.previews.find(
+    (entry) => entry.id === id || entry.requestIds?.includes(id),
+  );
+  if (!preview) {
+    preview = { id, label, content };
+    workspace.previews = [...workspace.previews, preview];
+  }
+  workspace.activePreviewId = preview.id;
+  requestWorkspaceUpdate(state);
+  return preview;
+}
+
+export function selectSessionWorkspacePreview(state: SessionWorkspaceHost, id: string | null) {
+  const workspace = getSessionWorkspace(state);
+  if (id === null || workspace.previews.some((entry) => entry.id === id)) {
+    workspace.activePreviewId = id;
+    requestWorkspaceUpdate(state);
+  }
+}
+
+export function closeSessionWorkspacePreview(state: SessionWorkspaceHost, id: string) {
+  const workspace = getSessionWorkspace(state);
+  const index = workspace.previews.findIndex((entry) => entry.id === id);
+  if (index < 0) {
+    return;
+  }
+  workspace.previews = workspace.previews.filter((entry) => entry.id !== id);
+  if (workspace.activePreviewId === id) {
+    workspace.activePreviewId =
+      workspace.previews[Math.min(index, workspace.previews.length - 1)]?.id ?? null;
+  }
+  requestWorkspaceUpdate(state);
+}
+
+export function clearSessionWorkspacePreviews(state: SessionWorkspaceHost) {
+  const workspace = state.sessionWorkspaceState;
+  if (workspace) {
+    workspace.previews = [];
+    workspace.activePreviewId = null;
+    requestWorkspaceUpdate(state);
+  }
 }

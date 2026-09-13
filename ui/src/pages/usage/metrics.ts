@@ -76,20 +76,18 @@ function forEachSessionHourSlice(
     return true;
   }
 
-  const totalMinutes = (endMs - startMs) / 60000;
+  const durationMs = endMs - startMs;
   let cursor = startMs;
   while (cursor < endMs) {
     const date = new Date(cursor);
-    const nextHour = setToHourEnd(date, timeZone);
-    const nextMs = Math.min(nextHour.getTime(), endMs);
-    const minutes = Math.max((nextMs - cursor) / 60000, 0);
+    const nextMs = Math.min(nextHourBoundary(date, timeZone), endMs);
     visitor({
       usage,
       hour: getZonedHour(date, timeZone),
       weekday: getZonedWeekday(date, timeZone),
-      share: minutes / totalMinutes,
+      share: (nextMs - cursor) / durationMs,
     });
-    cursor = nextMs + 1;
+    cursor = nextMs;
   }
 
   return true;
@@ -229,14 +227,30 @@ function mapUtcQuarterBucket(
   };
 }
 
-function setToHourEnd(date: Date, zone: "local" | "utc"): Date {
-  const next = new Date(date);
-  if (zone === "utc") {
-    next.setUTCMinutes(59, 59, 999);
-  } else {
-    next.setMinutes(59, 59, 999);
+function nextHourBoundary(date: Date, zone: "local" | "utc"): number {
+  const start = date.getTime();
+  const minutes = zone === "utc" ? date.getUTCMinutes() : date.getMinutes();
+  const seconds = zone === "utc" ? date.getUTCSeconds() : date.getSeconds();
+  // Local setters can move backward into the first occurrence of a repeated hour.
+  const next = start + (60 - minutes) * 60_000 - seconds * 1_000 - date.getMilliseconds();
+  if (zone === "utc" || new Date(next - 1).getTimezoneOffset() === date.getTimezoneOffset()) {
+    return next;
   }
-  return next;
+
+  // Some zones change offset within an hour (Chatham at :45). Split at that
+  // transition so the elapsed interval keeps its original local hour and weekday.
+  const offset = date.getTimezoneOffset();
+  let low = start + 1;
+  let high = next - 1;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (new Date(middle).getTimezoneOffset() === offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
 }
 
 function forEachSessionTokenUsageBucket(
@@ -292,9 +306,10 @@ function sessionSpanTouchesSelectedHours(
     if (hours.includes(hour)) {
       return true;
     }
-    const nextHour = setToHourEnd(date, timeZone);
-    const nextMs = Math.min(nextHour.getTime(), endMs);
-    cursor = nextMs + 1;
+    if (cursor === endMs) {
+      break;
+    }
+    cursor = Math.min(nextHourBoundary(date, timeZone), endMs);
   }
   return false;
 }

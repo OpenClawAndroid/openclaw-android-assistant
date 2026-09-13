@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   getPreparedModelRuntimeBorrowedSnapshot,
   getPreparedModelRuntimePluginGeneration,
@@ -15,10 +16,7 @@ vi.mock("./agent-run-dispatch.js", () => ({
 function createExecution(options: { aborted?: boolean; assertContextCurrent?: () => void } = {}) {
   const abortCleanup = vi.fn();
   const gatewayRelease = vi.fn();
-  let resolveRuntimeReleased!: () => void;
-  const runtimeReleased = new Promise<void>((resolve) => {
-    resolveRuntimeReleased = resolve;
-  });
+  const { promise: runtimeReleased, resolve: resolveRuntimeReleased } = createDeferred();
   const runtimeRelease = vi.fn(async () => resolveRuntimeReleased());
   const controller = new AbortController();
   if (options.aborted) {
@@ -98,14 +96,8 @@ describe("startAgentRunExecution Gateway ownership", () => {
 
   it("dispatches with the runtime generation frozen at admission", async () => {
     const execution = createExecution();
-    let resolveDispatched!: () => void;
-    const dispatched = new Promise<void>((resolve) => {
-      resolveDispatched = resolve;
-    });
-    let resolveCleanupObserved!: () => void;
-    const cleanupObserved = new Promise<void>((resolve) => {
-      resolveCleanupObserved = resolve;
-    });
+    const { promise: dispatched, resolve: resolveDispatched } = createDeferred();
+    const { promise: cleanupObserved, resolve: resolveCleanupObserved } = createDeferred();
     let borrowedAfterCleanup: Promise<unknown> | undefined;
     let dispatchedGeneration: unknown;
     let dispatchedSnapshot: unknown;
@@ -156,10 +148,7 @@ describe("startAgentRunExecution Gateway ownership", () => {
 
   it("joins asynchronous runtime disposal before execution finishes", async () => {
     const execution = createExecution({ aborted: true });
-    let finishDisposal!: () => void;
-    const disposal = new Promise<void>((resolve) => {
-      finishDisposal = resolve;
-    });
+    const { promise: disposal, resolve: finishDisposal } = createDeferred();
     execution.runtimeRelease.mockImplementation(() => disposal);
     const finished = vi.fn();
     const completion = startAgentRunExecution(execution.params).then(finished);

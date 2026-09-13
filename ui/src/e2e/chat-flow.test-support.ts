@@ -154,21 +154,32 @@ export async function waitForChatScrollIdle(page: Page): Promise<void> {
             scrollHeight: thread.scrollHeight,
             scrollTop: Math.round(thread.scrollTop),
           });
-          const before = readGeometry();
-          await new Promise<void>((resolve) => {
-            globalThis.setTimeout(resolve, 180);
-          });
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => resolve());
+          // Returning to the same offset can still leave a virtualizer idle callback pending.
+          let scrolled = false;
+          const onScroll = () => {
+            scrolled = true;
+          };
+          thread.addEventListener("scroll", onScroll, { passive: true });
+          try {
+            const before = readGeometry();
+            await new Promise<void>((resolve) => {
+              globalThis.setTimeout(resolve, 180);
             });
-          });
-          const after = readGeometry();
-          return (
-            before.clientHeight === after.clientHeight &&
-            before.scrollHeight === after.scrollHeight &&
-            before.scrollTop === after.scrollTop
-          );
+            await new Promise<void>((resolve) => {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve());
+              });
+            });
+            const after = readGeometry();
+            return (
+              !scrolled &&
+              before.clientHeight === after.clientHeight &&
+              before.scrollHeight === after.scrollHeight &&
+              before.scrollTop === after.scrollTop
+            );
+          } finally {
+            thread.removeEventListener("scroll", onScroll);
+          }
         }),
       { timeout: 10_000 },
     )

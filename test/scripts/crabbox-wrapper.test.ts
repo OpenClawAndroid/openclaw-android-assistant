@@ -28,6 +28,7 @@ import {
 } from "../../scripts/crabbox-wrapper-providers.mts";
 import { pnpmLockfileDocuments } from "../../scripts/lib/pnpm-lockfile-documents.mjs";
 import { resolvePnpmRunner } from "../../scripts/pnpm-runner.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { isProcessAlive } from "../helpers/process-wait.js";
 import { makeTempDir, useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -3137,9 +3138,10 @@ esac
         [GIT_COMMON_DIR_KEY]: { stdout: `${gitCommonDir}\n` },
       };
       const gitBinDir = makeFakeGit(gitResponses);
+      const nodeExecPath = resolveTestNodeExecPath();
 
       const result = spawnSync(
-        process.execPath,
+        nodeExecPath,
         ["scripts/crabbox-wrapper.mjs", "run", "--provider", "aws", "--", "echo ok"],
         {
           cwd: repoRoot,
@@ -3148,7 +3150,7 @@ esac
             ...process.env,
             OPENCLAW_CRABBOX_WRAPPER_IGNORE_REPO_BINARY: "1",
             OPENCLAW_FAKE_GIT_RESPONSES: JSON.stringify(gitResponses),
-            PATH: [gitBinDir, path.dirname(process.execPath)].join(path.delimiter),
+            PATH: [gitBinDir, path.dirname(nodeExecPath)].join(path.delimiter),
           },
         },
       );

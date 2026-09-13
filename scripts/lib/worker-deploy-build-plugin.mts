@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const WORKER_DEPLOY_BUILD_PLUGIN_NAME = "openclaw:worker-deploy";
 export const WORKER_DEPLOY_OPTIONAL_NATIVE_MODULE_ID = `${path.resolve("src/worker/worker-deploy-runtime.ts")}?optional-native`;
@@ -27,11 +29,19 @@ const UNDICI_REQUIRE_BOOTSTRAP = [
   'return (undiciModule ??= requireUndici("undici/index.js") as typeof import("undici"));',
 ] as const;
 const WORKER_UNDICI_IMPORT = 'import * as bundledUndici from "undici/index.js";';
-const WS_REQUIRE_BOOTSTRAP = `require(
-  path.join(path.dirname(require.resolve("ws/package.json")), "index.js"),
-)`;
+const WS_DIRECT_RUNTIME_FRAGMENTS = [
+  'require.resolve("ws/package.json")',
+  '"lib/websocket.js"',
+  '"lib/websocket-server.js"',
+  '"lib/stream.js"',
+] as const;
 const WS_DYNAMIC_IMPORT =
   'pathToFileURL(path.join(path.dirname(require.resolve("ws/package.json")), "wrapper.mjs")).href';
+
+function resolveOptionalBuildSource(source: string): string {
+  const resolved = path.resolve(source);
+  return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+}
 
 export function resolveWorkerDeployGeneratorInputs(rootDir = process.cwd()) {
   const playwrightRoot = fs.realpathSync(path.resolve(rootDir, "node_modules/playwright-core"));
@@ -51,6 +61,11 @@ export function isUnstagedWorkerDeployRuntimeArtifact(
 
 /** Composes bundled-plugin runtime and removes dependency package reads from the worker build. */
 export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
+  const require = createRequire(import.meta.url);
+  const resolveWsWrapperUrl = () =>
+    pathToFileURL(
+      fs.realpathSync(path.join(path.dirname(require.resolve("ws/package.json")), "wrapper.mjs")),
+    ).href;
   const playwrightRoot = fs.realpathSync(path.resolve(rootDir, "node_modules/playwright-core"));
   const coreBundlePath = fs.realpathSync(path.join(playwrightRoot, "lib/coreBundle.js"));
   const browserRuntimeBridgePath = fs.realpathSync(
@@ -62,16 +77,14 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
   const undiciDispatcherOptionsPath = fs.realpathSync(
     path.resolve("src/infra/net/undici-dispatcher-options.ts"),
   );
-  const websocketRuntimePaths = new Set(
-    [
-      "packages/gateway-client/src/websocket.ts",
-      "src/gateway/desktop/node-stream-broker.ts",
-      "src/gateway/desktop/observe-bridge.ts",
-      "src/gateway/server-runtime-state.ts",
-    ].map((source) => fs.realpathSync(path.resolve(source))),
+  const websocketRuntimePath = fs.realpathSync(
+    path.resolve("packages/gateway-client/src/websocket.ts"),
   );
-  const transcriptionWebsocketPath = fs.realpathSync(
-    path.resolve("src/realtime-transcription/websocket-session.ts"),
+  const dynamicWebsocketRuntimePaths = new Set(
+    [
+      "src/node-host/node-stream-transport.ts",
+      "src/realtime-transcription/websocket-session.ts",
+    ].map(resolveOptionalBuildSource),
   );
   const [packageJsonPath, browsersJsonPath] = resolveWorkerDeployGeneratorInputs(rootDir);
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
@@ -121,17 +134,19 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
       }
       // Installed ws paths avoid Bun's adapter; portable Node workers must bundle
       // that same transport instead of resolving a missing package at runtime.
-      if (websocketRuntimePaths.has(resolvedId)) {
-        if (!code.includes(WS_REQUIRE_BOOTSTRAP)) {
+      if (resolvedId === websocketRuntimePath) {
+        if (WS_DIRECT_RUNTIME_FRAGMENTS.some((fragment) => !code.includes(fragment))) {
           this.error("ws bootstrap changed; update the worker deploy transform");
         }
-        return `import * as bundledWebSocket from "ws";\n${code.replace(WS_REQUIRE_BOOTSTRAP, "bundledWebSocket")}`;
+        const wsWrapperUrl = resolveWsWrapperUrl();
+        return `import * as bundledWebSocket from ${JSON.stringify(wsWrapperUrl)};
+export const { WebSocket, WebSocketServer, createWebSocketStream } = bundledWebSocket;`;
       }
-      if (resolvedId === transcriptionWebsocketPath) {
+      if (dynamicWebsocketRuntimePaths.has(resolvedId)) {
         if (!code.includes(WS_DYNAMIC_IMPORT)) {
           this.error("ws dynamic bootstrap changed; update the worker deploy transform");
         }
-        return code.replace(WS_DYNAMIC_IMPORT, '"ws"');
+        return code.replace(WS_DYNAMIC_IMPORT, JSON.stringify(resolveWsWrapperUrl()));
       }
       if (resolvedId === undiciDispatcherOptionsPath) {
         if (UNDICI_REQUIRE_BOOTSTRAP.some((fragment) => !code.includes(fragment))) {

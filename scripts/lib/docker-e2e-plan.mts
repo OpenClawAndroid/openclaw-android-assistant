@@ -242,7 +242,8 @@ function readFrozenScenarioContract(
   }
   // Canonical frozen refs may expose a dependency-free catalog command. Run it
   // only after the release workflow explicitly establishes the trust boundary.
-  const result = spawnSync(process.execPath, [assertionsFile, "list-scenarios"], {
+  const nodeExecPath = process.versions.bun ? "node" : process.execPath;
+  const result = spawnSync(nodeExecPath, [assertionsFile, "list-scenarios"], {
     cwd: targetRoot,
     encoding: "utf8",
   });

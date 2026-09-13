@@ -93,19 +93,7 @@ describe("Heartbeat event routing", () => {
 
   it("routes wake-triggered heartbeat replies using queued system-event delivery context", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: {
-              every: "5m",
-              target: "last",
-            },
-          },
-        },
-        channels: { telegram: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = createLastTargetConfig({ tmpDir, storePath });
       const sessionKey = resolveMainSessionKey(cfg);
       await writeTelegramSessionStore(storePath, sessionKey, {});
 
@@ -547,19 +535,7 @@ describe("Heartbeat event routing", () => {
   });
   it("keeps output-bearing exec-event delivery pinned to the original Telegram topic when session route drifts", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath }) => {
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: {
-              every: "5m",
-              target: "last",
-            },
-          },
-        },
-        channels: { telegram: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = createLastTargetConfig({ tmpDir, storePath });
       const sessionKey = "agent:main:telegram:group:-1003774691294:topic:47";
       await writeTelegramSessionStore(storePath, sessionKey, {
         lastTo: "telegram:-1003774691294:topic:2175",
@@ -604,19 +580,7 @@ describe("Heartbeat event routing", () => {
 
   it("suppresses metadata-only successful exec completions", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath }) => {
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: {
-              every: "5m",
-              target: "last",
-            },
-          },
-        },
-        channels: { telegram: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = createLastTargetConfig({ tmpDir, storePath });
       const sessionKey = "agent:main:telegram:group:-1003774691294:topic:47";
       await writeTelegramSessionStore(storePath, sessionKey, {
         lastTo: "telegram:-1003774691294:topic:2175",

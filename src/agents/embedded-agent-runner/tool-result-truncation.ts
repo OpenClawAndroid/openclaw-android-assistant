@@ -1553,24 +1553,25 @@ function truncateOversizedToolResultsInExistingSessionManager(params: {
       params.projectionState,
     );
   }
-  const hasRuntimeTarget = Boolean(
-    params.sessionId && params.sessionKey && params.agentId && params.storePath,
-  );
-  if (rewriteResult.changed && (params.sessionFile || hasRuntimeTarget)) {
+  const target =
+    sessionManager.getSessionTarget() ??
+    (params.sessionId && params.sessionKey && params.agentId && params.storePath
+      ? {
+          agentId: params.agentId,
+          sessionId: params.sessionId,
+          sessionKey: params.sessionKey,
+          storePath: params.storePath,
+        }
+      : undefined);
+  if (rewriteResult.changed && (params.sessionFile || target)) {
     emitSessionTranscriptUpdate({
       ...(params.sessionFile ? { sessionFile: params.sessionFile } : {}),
-      sessionKey: params.sessionKey,
-      ...(params.agentId ? { agentId: params.agentId } : {}),
-      ...(params.sessionId && params.sessionKey && params.agentId && params.storePath
-        ? {
-            target: {
-              agentId: params.agentId,
-              sessionId: params.sessionId,
-              sessionKey: params.sessionKey,
-              storePath: params.storePath,
-            },
-          }
-        : {}),
+      ...(target
+        ? { target }
+        : {
+            sessionKey: params.sessionKey,
+            ...(params.agentId ? { agentId: params.agentId } : {}),
+          }),
     });
   }
 

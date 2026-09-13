@@ -3,13 +3,19 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { registerEmbeddingProvider } from "openclaw/plugin-sdk/plugin-test-runtime";
+import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
+import { withSessionTranscriptWriteLock } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { resolveOpenClawAgentSqlitePath } from "openclaw/plugin-sdk/sqlite-runtime";
+import * as sqliteRuntime from "openclaw/plugin-sdk/sqlite-runtime";
 import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "./test-runtime-mocks.js";
+import { recordMemorySessionTombstones } from "../memory-entry-origins.js";
 import type { EmbeddingProvider } from "./embeddings.js";
 import { resetMemoryDatabase } from "./manager-db.js";
 import { waitForMemoryReindexLock } from "./manager-reindex-lock.js";
@@ -150,6 +156,28 @@ describe("memory manager reindex recovery", () => {
     return manager;
   }
 
+  async function reservePublishedWriter(mutate?: () => void | Promise<void>) {
+    const target = {
+      agentId: "main",
+      sessionKey: "agent:main:cache-admission",
+      sessionId: "cache-admission",
+    };
+    await upsertSessionEntry({
+      ...target,
+      entry: { sessionId: target.sessionId, updatedAt: Date.now() },
+    });
+    const entered = createDeferred<void>();
+    const released = createDeferred<void>();
+    const done = withSessionTranscriptWriteLock(target, async () => {
+      entered.resolve();
+      await released.promise;
+      await mutate?.();
+    });
+    void done.catch(() => undefined);
+    await Promise.race([entered.promise, done]);
+    return { done, release: released.resolve };
+  }
+
   it("restores retry state after a shadow full reindex fails late", async () => {
     const memoryManager = await openManager(
       createCfg({
@@ -270,7 +298,7 @@ describe("memory manager reindex recovery", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("recovers when separate provider batches disagree on dimensions", async () => {
+  it("waits for the published writer before clearing conflicting dimensions and recovers", async () => {
     const cfg = createCfg({ sources: ["memory"], cacheEnabled: true });
     const memoryManager = await openManager(cfg);
     await memoryManager.sync({ reason: "cli", force: true });
@@ -287,12 +315,42 @@ describe("memory manager reindex recovery", () => {
       (provider, model, provider_key, hash, embedding, dims, updated_at)
       VALUES ('unrelated', 'unrelated', 'unrelated', 'keep', '[1,0]', 2, 1)`)
       .run();
+    const queued = createDeferred<void>();
+    const admit = sqliteRuntime.withOpenClawAgentDatabaseWrite;
+    let reservation: Awaited<ReturnType<typeof reservePublishedWriter>> | undefined;
+    vi.spyOn(sqliteRuntime, "withOpenClawAgentDatabaseWrite").mockImplementation(
+      (options, write, expectedDatabase) => {
+        const result = admit(options, write, expectedDatabase);
+        if (reservation && expectedDatabase === harness.db) {
+          queued.resolve();
+        }
+        return result;
+      },
+    );
     const embed = vi
       .spyOn(harness.provider, "embedBatch")
-      .mockImplementationOnce(async (inputs) => inputs.map(() => [0, 1]));
-    await expect(memoryManager.sync({ reason: "cli", force: true })).rejects.toThrow(
-      "malformed vector response",
-    );
+      .mockImplementationOnce(async (inputs) => inputs.map(() => [0, 1]))
+      .mockImplementationOnce(async (inputs) => {
+        reservation = await reservePublishedWriter();
+        return inputs.map(() => [0, 1, 0]);
+      });
+    const sync = memoryManager.sync({ reason: "cli", force: true });
+    void sync.catch(() => undefined);
+    try {
+      await Promise.race([queued.promise, sync]);
+      expect(
+        harness.db
+          .prepare("SELECT hash FROM memory_embedding_cache WHERE provider = 'openai'")
+          .all().length,
+      ).toBeGreaterThan(0);
+      reservation?.release();
+      await reservation?.done;
+      await expect(sync).rejects.toThrow("malformed vector response");
+    } finally {
+      reservation?.release();
+      await reservation?.done;
+      await sync.catch(() => undefined);
+    }
     expect(embed.mock.calls.length).toBeGreaterThan(1);
     expect(harness.db.prepare("SELECT provider FROM memory_embedding_cache").all()).toEqual([
       { provider: "unrelated" },
@@ -306,6 +364,120 @@ describe("memory manager reindex recovery", () => {
         .prepare("SELECT DISTINCT dims FROM memory_embedding_cache WHERE provider = 'openai'")
         .all(),
     ).toEqual([{ dims: 3 }]);
+  });
+
+  it.each(["commit", "purge", "replace"] as const)(
+    "revalidates generated cache writes after published writer admission (%s)",
+    async (scenario) => {
+      const cfg = createCfg({ sources: ["memory"], cacheEnabled: true });
+      const memoryManager = await openManager(cfg);
+      await memoryManager.sync({ reason: "cli", force: true });
+      const harness = memoryManager as unknown as ReindexHarness;
+      const publishedDb = harness.db;
+      if (!harness.provider) {
+        throw new Error("fixture provider missing");
+      }
+      await fs.writeFile(path.join(memoryDir, "alpha.md"), "New reusable alpha memory.");
+      const queued = createDeferred<void>();
+      const admit = sqliteRuntime.withOpenClawAgentDatabaseWrite;
+      let reservation: Awaited<ReturnType<typeof reservePublishedWriter>> | undefined;
+      let replacementDb: DatabaseSync | undefined;
+      vi.spyOn(sqliteRuntime, "withOpenClawAgentDatabaseWrite").mockImplementation(
+        (options, write, expectedDatabase) => {
+          const result = admit(options, write, expectedDatabase);
+          if (reservation && expectedDatabase === publishedDb) {
+            queued.resolve();
+          }
+          return result;
+        },
+      );
+      vi.spyOn(harness.provider, "embedBatch").mockImplementationOnce(async (inputs) => {
+        reservation = await reservePublishedWriter(() => {
+          if (scenario === "purge") {
+            recordMemorySessionTombstones({
+              agentId: "main",
+              sessionIds: ["forgotten-during-embedding"],
+            });
+          } else if (scenario === "replace") {
+            closeOpenClawAgentDatabasesForTest();
+            replacementDb = sqliteRuntime.openOpenClawAgentDatabase({ agentId: "main" }).db;
+          }
+        });
+        return inputs.map(() => [0, 1, 0]);
+      });
+      const sync = memoryManager.sync({ reason: "cli", force: true });
+      void sync.catch(() => undefined);
+      try {
+        await Promise.race([queued.promise, sync]);
+        expect(publishedDb.prepare("SELECT hash FROM memory_embedding_cache").all()).toEqual([]);
+        reservation?.release();
+        await reservation?.done;
+        if (scenario === "commit") {
+          await expect(sync).resolves.toBeUndefined();
+          expect(publishedDb.prepare("SELECT text FROM memory_index_chunks").all()).toEqual([
+            { text: "New reusable alpha memory." },
+          ]);
+          expect(publishedDb.prepare("SELECT embedding FROM memory_embedding_cache").all()).toEqual(
+            [{ embedding: "[0,1,0]" }],
+          );
+        } else {
+          await expect(sync).rejects.toThrow(
+            scenario === "replace" ? /closed or changed/ : /Memory index changed/,
+          );
+          expect(
+            (replacementDb ?? publishedDb).prepare("SELECT hash FROM memory_embedding_cache").all(),
+          ).toEqual([]);
+        }
+      } finally {
+        reservation?.release();
+        await reservation?.done;
+        await sync.catch(() => undefined);
+      }
+    },
+  );
+
+  it("drains accepted sync through provider and writer waits before closing", async () => {
+    const memoryManager = await openManager(createCfg({ sources: ["memory"], cacheEnabled: true }));
+    await memoryManager.sync({ reason: "baseline", force: true });
+    const harness = memoryManager as unknown as ReindexHarness; // SAFETY: this fixture owns the manager and provider.
+    if (!harness.provider) {
+      throw new Error("fixture provider missing");
+    }
+    await fs.writeFile(path.join(memoryDir, "alpha.md"), "Accepted sync survives close.");
+    const entered = createDeferred<void>();
+    const releaseProvider = createDeferred<void>();
+    vi.spyOn(harness.provider, "embedBatch").mockImplementationOnce(async (inputs) => {
+      entered.resolve();
+      await releaseProvider.promise;
+      return inputs.map(() => [0, 1, 0]);
+    });
+    const sync = memoryManager.sync({ reason: "closing", force: true });
+    void sync.catch(() => undefined);
+    let reservation: Awaited<ReturnType<typeof reservePublishedWriter>> | undefined;
+    let close: Promise<void> | undefined;
+    let closed = false;
+    try {
+      await Promise.race([entered.promise, sync]);
+      reservation = await reservePublishedWriter();
+      close = memoryManager.close().then(() => {
+        closed = true;
+      });
+      void close.catch(() => undefined);
+      await yieldToEventLoop();
+      expect(closed).toBe(false);
+      releaseProvider.resolve();
+      await yieldToEventLoop();
+      expect(closed).toBe(false);
+      reservation.release();
+      await Promise.all([sync, close, reservation.done]);
+      expect(harness.db.prepare("SELECT text FROM memory_index_chunks").all()).toEqual([
+        { text: "Accepted sync survives close." },
+      ]);
+    } finally {
+      releaseProvider.resolve();
+      reservation?.release();
+      await Promise.allSettled([sync, close, reservation?.done]);
+    }
   });
 
   it("retains completed embeddings across a failed rebuild and manager restart", async () => {

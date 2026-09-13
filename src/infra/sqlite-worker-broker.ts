@@ -9,12 +9,15 @@ import {
   captureSqliteWorkerOpen,
   findUnclaimedSharedStateActors,
   prepareSqliteWorkerActorContext,
+  prepareSqliteWorkerLifecycle,
+  releaseSqliteWorkerActorCoordinators,
   prepareSqliteWorkerDatabaseAdmission,
   resolveOpenedSqliteWorkerIdentity,
   resolveSqliteWorkerModuleUrl,
   validateSqliteWorkerDatabaseLocator,
 } from "./sqlite-worker-broker-admission.js";
 import {
+  settleSqliteWorkerJob,
   decodeSqliteWorkerReplyError,
   decodeSqliteWorkerReplyValue,
   prepareSqliteWorkerRequest,
@@ -164,6 +167,7 @@ export class SqliteWorkerBroker {
     } else {
       const slot = await this.acquireSlot();
       actor = {
+        pendingStateLifecycles: new Set(),
         id: ++this.nextActor,
         key,
         // Native ownership pins its opening paths even after the first client closes.
@@ -224,6 +228,9 @@ export class SqliteWorkerBroker {
           if (actor.initialized) {
             await this.closeActor(actor);
           } else {
+            if (!actor.openDispatch.dispatched && !actor.slot.failed) {
+              actor.backendClosed = true;
+            }
             if (actor.openDispatch.dispatched) {
               // A throwing factory cannot prove that all partially opened native handles closed.
               this.fail(actor.slot, error);
@@ -509,16 +516,17 @@ export class SqliteWorkerBroker {
       job.assertCurrent?.();
       const actor = [...slot.actors].find((candidate) => candidate.id === job.request.actor);
       prepareSqliteWorkerActorContext(actor, job.request);
+      prepareSqliteWorkerLifecycle(job, actor);
       const request = prepareSqliteWorkerRequest(job);
       slot.worker.postMessage(
         request,
-        request.gatewaySchemaFence ? [request.gatewaySchemaFence] : [],
+        [request.gatewaySchemaFence, request.stateLifecycle].filter((port) => port !== undefined),
       );
       if (job.dispatchState) {
         job.dispatchState.dispatched = true;
       }
     } catch (error) {
-      if (job.request.gatewaySchemaFence) {
+      if (job.request.gatewaySchemaFence || job.request.stateLifecycle) {
         // A failed transfer cannot attest that the receiving native owner is gone.
         this.fail(slot, error, toErrorObject(error, "SQLite worker transfer failed"));
       } else {
@@ -530,17 +538,9 @@ export class SqliteWorkerBroker {
   }
 
   private finish(job: Job, error?: unknown, value?: unknown): void {
-    job.inputTransfer?.producer.cancel();
-    job.inputTransfer = undefined;
-    job.transfer = undefined;
-    job.detach();
     this.requests -= 1;
     this.bytes -= job.bytes;
-    if (error !== undefined) {
-      job.reject(error);
-    } else {
-      job.resolve(value);
-    }
+    settleSqliteWorkerJob(job, error, value);
   }
 
   private fail(slot: Slot, reason: unknown, currentError?: Error): void {
@@ -611,7 +611,7 @@ export class SqliteWorkerBroker {
           // Bun retains native statements after close; keep pathname ownership until VM exit.
           await this.retire(actor.slot);
         } else {
-          this.releaseGatewaySchemaFence(actor);
+          releaseSqliteWorkerActorCoordinators(actor);
         }
       } catch (error) {
         errors.push(error);
@@ -632,22 +632,8 @@ export class SqliteWorkerBroker {
     return actor.closing;
   }
 
-  private releaseGatewaySchemaFence(actor: Actor): void {
-    const delegation = actor.gatewaySchemaFence;
-    if (!delegation) {
-      return;
-    }
-    try {
-      delegation.release();
-    } finally {
-      if (delegation.closed) {
-        actor.gatewaySchemaFence = undefined;
-      }
-    }
-  }
-
   private forget(actor: Actor): void {
-    if (actor.gatewaySchemaFence) {
+    if (actor.gatewaySchemaFence || actor.pendingStateLifecycles.size) {
       actor.cleanupState = "pending";
       return;
     }
@@ -677,7 +663,7 @@ export class SqliteWorkerBroker {
       await slot.exit;
       for (const actor of slot.actors) {
         try {
-          this.releaseGatewaySchemaFence(actor);
+          releaseSqliteWorkerActorCoordinators(actor);
         } catch (error) {
           errors.push(error);
         }

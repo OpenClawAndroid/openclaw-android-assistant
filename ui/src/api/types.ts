@@ -5,6 +5,7 @@ import type {
   CronListParams,
   CronRunLogEntry as ProtocolCronRunLogEntry,
   CronRunsParams,
+  ErrorShape,
   SessionsFilesListResult as ProtocolSessionsFilesListResult,
 } from "../../../packages/gateway-protocol/src/index.js";
 import type {
@@ -192,6 +193,7 @@ export type NostrStatus = {
 type ConfigSnapshotIssue = { path: string; message: string };
 
 export type ConfigSnapshot = {
+  writeError?: ErrorShape;
   path?: string | null;
   exists?: boolean | null;
   raw?: string | null;

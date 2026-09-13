@@ -394,9 +394,10 @@ function getShellEnv(sourceEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const pathKey = process.platform === "win32" ? "PATH" : (sourcePathKey ?? "PATH");
   const currentPath = sourcePathKey ? (sourceEnv[sourcePathKey] ?? "") : "";
   const pathEntries = currentPath.split(path.delimiter).filter(Boolean);
-  const updatedPath = pathEntries.includes(binDir)
-    ? currentPath
-    : [binDir, currentPath].filter(Boolean).join(path.delimiter);
+  const updatedPath =
+    !binDir || pathEntries.includes(binDir)
+      ? currentPath
+      : [binDir, currentPath].filter(Boolean).join(path.delimiter);
   const env = { ...sourceEnv };
   if (process.platform === "win32") {
     for (const key of pathKeys) {

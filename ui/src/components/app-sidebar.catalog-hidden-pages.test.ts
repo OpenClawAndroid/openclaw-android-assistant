@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionsCatalogListResult } from "../../../packages/gateway-protocol/src/index.ts";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { ApplicationGatewaySnapshot } from "../app/context.ts";
 import {
@@ -9,7 +10,6 @@ import {
   catalogPage,
   createGatewayHarness,
   createSessions,
-  deferred,
   mountSidebar,
   type SidebarLifecycleState,
 } from "../test-helpers/app-sidebar.ts";

@@ -13,8 +13,11 @@ import {
   readGatewayCpuProfile,
   readGatewayHeapProfile,
 } from "../../scripts/lib/gateway-bench-profile.ts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { withTempDir } from "../../src/test-utils/temp-dir.js";
 import { createDeferred } from "../helpers/promise.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 type BenchmarkRun = Parameters<typeof testing.summarizeRuns>[0][number];
 
@@ -50,7 +53,7 @@ describe("gateway concurrency benchmark script", () => {
   it("writes load CPU and collected allocations before child teardown, excluding startup", async () => {
     await withTempDir("gateway-heap-profile-", async (dir) => {
       const child = spawn(
-        process.execPath,
+        testNodeExecPath,
         [
           "--expose-gc",
           "--import",
@@ -870,7 +873,7 @@ describe("gateway concurrency benchmark script", () => {
   });
 
   it("loads through native Node TypeScript stripping", () => {
-    const result = spawnSync(process.execPath, ["scripts/bench-gateway-concurrency.ts", "--help"], {
+    const result = spawnSync(testNodeExecPath, ["scripts/bench-gateway-concurrency.ts", "--help"], {
       cwd: process.cwd(),
       encoding: "utf8",
     });
@@ -880,7 +883,7 @@ describe("gateway concurrency benchmark script", () => {
   });
 
   it("ends CLI failures with the required wrapper marker", () => {
-    const result = spawnSync(process.execPath, ["scripts/bench-gateway-concurrency.ts", "--wat"], {
+    const result = spawnSync(testNodeExecPath, ["scripts/bench-gateway-concurrency.ts", "--wat"], {
       cwd: process.cwd(),
       encoding: "utf8",
     });

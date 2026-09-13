@@ -117,6 +117,12 @@ export const VITEST_CONFIG_NO_OUTPUT_TIMEOUT_MS = new Map([
     "test/vitest/vitest.full-core-contracts.config.ts",
     DEFAULT_LONG_RUNNING_VITEST_NO_OUTPUT_TIMEOUT_MS,
   ],
+  // The package-acceptance high-cardinality admission test can remain silent
+  // for ~165s under Bun while staying inside its declared 420s test budget.
+  [
+    "test/vitest/vitest.full-core-tooling.config.ts",
+    DEFAULT_LONG_RUNNING_VITEST_NO_OUTPUT_TIMEOUT_MS,
+  ],
   [
     "test/vitest/vitest.contracts-plugin.config.ts",
     DEFAULT_EXTRA_LONG_RUNNING_VITEST_NO_OUTPUT_TIMEOUT_MS,

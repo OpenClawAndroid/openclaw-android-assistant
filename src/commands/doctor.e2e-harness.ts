@@ -212,7 +212,7 @@ function createLegacyStateMigrationDetectionResult(params?: {
       },
     },
     agentDir: {
-      legacyDir: "/tmp/state/agent",
+      sources: [{ legacyDir: "/tmp/state/agent", standalone: false, boundaryRoot: "/tmp/state" }],
       targetDir: "/tmp/state/agents/main/agent",
       hasLegacy: false,
     },

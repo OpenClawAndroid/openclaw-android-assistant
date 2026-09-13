@@ -61,6 +61,7 @@ import {
   startAgentDatabaseOpenTiming,
   closeCachedOpenClawAgentDatabase,
   closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
   closeOpenClawAgentDatabases,
   evictLruAgentDatabaseHandles,
   retainAgentDatabase,
@@ -139,11 +140,11 @@ class IncognitoAgentDatabasePathCollisionError extends Error {
 }
 
 /** Reconfirm an advisory worker failure on the live owner connection. */
-export function confirmOpenClawAgentDatabaseIntegrity(
+export async function confirmOpenClawAgentDatabaseIntegrity(
   pathname: string,
-): SqliteIntegrityConfirmation {
+): Promise<SqliteIntegrityConfirmation> {
   const resolvedPath = path.resolve(pathname);
-  closeOpenClawAgentDatabaseByPath(resolvedPath);
+  await closeOpenClawAgentDatabaseByPathAsync(resolvedPath);
   // Closing breaks process ownership of the pathname. A replacement must
   // revalidate and claim its schema before the path can become trusted again.
   invalidateOpenClawAgentDatabaseValidation(resolvedPath);
@@ -652,6 +653,7 @@ export function closeOpenClawAgentDatabasesForTest(rootPath?: string): void {
 
 export {
   closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
   closeOpenClawAgentDatabases,
   closeOpenClawAgentDatabasesAsync,
   inspectOpenClawAgentDatabaseOwner,

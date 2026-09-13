@@ -103,6 +103,26 @@ describe.each(versions)("memory search after a %s upgrade", (versionKey) => {
     expect(await manager.search("alpha", { lexicalOnly: true })).not.toEqual([]);
   });
 
+  it("preserves newer indexes during forced background recovery until explicit reindex", async () => {
+    const cfg = createConfig();
+    const dbPath = await seedIndex(cfg);
+    withDatabase(dbPath, (db) => {
+      const meta = readMeta(db);
+      db.prepare("UPDATE memory_index_meta SET value = ? WHERE key = 'memory_index_meta_v1'").run(
+        JSON.stringify({ ...meta, [versionKey]: currentVersion + 1 }),
+      );
+    });
+    const manager = await fixture.getFreshManager(cfg);
+    const embedded = fixture.provider.embedBatchCalls;
+    await manager.sync({ reason: "search", force: true });
+    expect(await manager.search("alpha", { lexicalOnly: true })).toEqual([]);
+    expect(withDatabase(dbPath, readMeta)[versionKey]).toBe(currentVersion + 1);
+    expect(fixture.provider.embedBatchCalls).toBe(embedded);
+    await manager.sync({ reason: "cli", force: true });
+    expect(await manager.search("alpha", { lexicalOnly: true })).not.toEqual([]);
+    expect(withDatabase(dbPath, readMeta)[versionKey]).toBe(currentVersion);
+  });
+
   it("preserves configuration-only mismatch behavior", async () => {
     await seedIndex(createConfig("old-model"), false);
     const manager = await fixture.getFreshManager(createConfig("new-model"));

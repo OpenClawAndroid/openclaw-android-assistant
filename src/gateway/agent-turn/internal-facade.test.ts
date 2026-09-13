@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   resetAgentEventsForTest,
   rotateAgentEventLifecycleGeneration,
@@ -111,10 +112,7 @@ describe("createInternalAgentTurnFacade", () => {
         throw new Error("source closed");
       }
     });
-    let emitFinal!: () => void;
-    const finalGate = new Promise<void>((resolve) => {
-      emitFinal = resolve;
-    });
+    const { promise: finalGate, resolve: emitFinal } = createDeferred();
     startTurn.mockImplementation(async ({ io, assertAdmissionCurrent: admissionGuard }) => {
       expect(admissionGuard).toBe(assertAdmissionCurrent);
       admissionGuard();
@@ -366,10 +364,7 @@ describe("createInternalAgentTurnFacade", () => {
   it("cancels a run accepted after its opted-in dispatch deadline", async () => {
     vi.useFakeTimers();
     const context = createContext();
-    let accept!: () => void;
-    const acceptanceGate = new Promise<void>((resolve) => {
-      accept = resolve;
-    });
+    const { promise: acceptanceGate, resolve: accept } = createDeferred();
     let accepted: ReturnType<typeof registerChatAbortController> | undefined;
     startTurn.mockImplementation(async ({ io }) => {
       await acceptanceGate;

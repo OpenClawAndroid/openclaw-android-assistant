@@ -12,6 +12,7 @@ import {
 import { sanitizeCompactionReplayMessages } from "../../compaction-replay.js";
 import type { AgentMessage } from "../../runtime/index.js";
 import { SessionManager } from "../../sessions/index.js";
+import { withSessionManagerWrite } from "../../sessions/session-manager-write-admission.js";
 import {
   markRequesterTurnYielded,
   settleRequesterAfterSessionSpawns,
@@ -195,22 +196,24 @@ export async function runEmbeddedAttemptSettledPhase(
     const beforeAgentFinalizeRevisionEntryId = getBeforeAgentFinalizeRevisionEntryId();
     let rewoundBeforeAgentFinalizeRevision = false;
     if (beforeAgentFinalizeRevisionReason && beforeAgentFinalizeRevisionEntryId) {
-      await input.sessionLock.withOwnedTranscriptWrite(() => {
-        const rejectedEntry = sessionManager.getEntry(beforeAgentFinalizeRevisionEntryId);
-        if (rejectedEntry?.type !== "message" || rejectedEntry.message.role !== "assistant") {
-          throw new Error(
-            `before_agent_finalize persisted assistant entry is missing or invalid ` +
-              `(entry=${beforeAgentFinalizeRevisionEntryId})`,
-          );
-        }
-        // Keep persistence append-only while excluding the rejected draft and
-        // every trailing descendant from the hidden retry's active branch.
-        sessionManager.appendLeafControl({
-          targetId: rejectedEntry.parentId,
-          appendParentId: rejectedEntry.parentId,
-        });
-        rewoundBeforeAgentFinalizeRevision = true;
-      });
+      await input.sessionLock.withOwnedTranscriptWrite(() =>
+        withSessionManagerWrite(sessionManager, () => {
+          const rejectedEntry = sessionManager.getEntry(beforeAgentFinalizeRevisionEntryId);
+          if (rejectedEntry?.type !== "message" || rejectedEntry.message.role !== "assistant") {
+            throw new Error(
+              `before_agent_finalize persisted assistant entry is missing or invalid ` +
+                `(entry=${beforeAgentFinalizeRevisionEntryId})`,
+            );
+          }
+          // Keep persistence append-only while excluding the rejected draft and
+          // every trailing descendant from the hidden retry's active branch.
+          sessionManager.appendLeafControl({
+            targetId: rejectedEntry.parentId,
+            appendParentId: rejectedEntry.parentId,
+          });
+          rewoundBeforeAgentFinalizeRevision = true;
+        }),
+      );
     }
     try {
       if (input.getRepairedRejectedProviderReplay() && !rewoundBeforeAgentFinalizeRevision) {
@@ -324,19 +327,21 @@ export async function runEmbeddedAttemptSettledPhase(
         },
         timestamp: Date.now(),
       };
-      await input.sessionLock.withOwnedTranscriptWrite(() => {
-        const target = sessionManager.getSessionTarget();
-        if (target) {
-          SessionManager.appendMessageToTranscript(
-            target,
-            note,
-            attempt.config ? { config: attempt.config } : undefined,
-          );
-        } else {
-          sessionManager.appendMessage(note);
-        }
-        activeSession.agent.state.messages = [...activeSession.messages, note];
-      });
+      await input.sessionLock.withOwnedTranscriptWrite(() =>
+        withSessionManagerWrite(sessionManager, () => {
+          const target = sessionManager.getSessionTarget();
+          if (target) {
+            SessionManager.appendMessageToTranscript(
+              target,
+              note,
+              attempt.config ? { config: attempt.config } : undefined,
+            );
+          } else {
+            sessionManager.appendMessage(note);
+          }
+          activeSession.agent.state.messages = [...activeSession.messages, note];
+        }),
+      );
       messagesSnapshot = [...messagesSnapshot, note];
     }
   } finally {

@@ -12,7 +12,10 @@ import {
   splitExtensionTestJobTargets,
 } from "../../scripts/lib/extension-test-plan.mts";
 import { createVitestRunSpecs } from "../../scripts/test-projects.test-support.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { createExtensionTelegramVitestConfig } from "../vitest/vitest.extension-telegram.config.ts";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 type WorkflowStep = {
   env?: Record<string, string>;
@@ -76,7 +79,7 @@ function runPluginPrereleaseManifest(cwd = process.cwd()) {
       GITHUB_OUTPUT: outputPath,
     };
     delete env.OPENCLAW_VITEST_INCLUDE_FILE;
-    const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module"], {
+    const result = spawnSync(testNodeExecPath, ["--import", "tsx", "--input-type=module"], {
       cwd,
       encoding: "utf8",
       env,

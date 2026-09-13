@@ -204,7 +204,7 @@ public struct OpenClawChatView: View {
 
     private var readingColumnWidth: CGFloat {
         #if os(macOS)
-        self.isDesktopLayout ? 800 : .infinity
+        self.isDesktopLayout ? 760 : .infinity
         #else
         .infinity
         #endif
@@ -277,12 +277,7 @@ public struct OpenClawChatView: View {
         .sheet(item: self.$fullMessageRequest) { request in
             ChatFullMessageReader(
                 request: request,
-                markdownVariant: self.markdownVariant,
-                load: {
-                    try await self.viewModel.transport.requestFullMessage(
-                        sessionKey: request.sessionKey,
-                        messageID: request.messageID)
-                })
+                markdownVariant: self.markdownVariant)
         }
         #if os(iOS)
         .sheet(item: self.$selectTextMessage) {
@@ -401,7 +396,7 @@ public struct OpenClawChatView: View {
     private var messageList: some View {
         ZStack {
             ScrollView {
-                LazyVStack(spacing: Layout.messageSpacing) {
+                LazyVStack(spacing: self.isDesktopLayout ? 16 : Layout.messageSpacing) {
                     self.messageListRows
 
                     Color.clear
@@ -414,9 +409,9 @@ public struct OpenClawChatView: View {
                 }
                 // Use scroll targets for stable auto-scroll without ScrollViewReader relayout glitches.
                 .scrollTargetLayout()
-                .padding(.top, Layout.messageListPaddingTop)
-                .padding(.horizontal, Layout.messageListPaddingHorizontal)
+                .padding(.top, self.isDesktopLayout ? 24 : Layout.messageListPaddingTop)
                 .frame(maxWidth: self.readingColumnWidth)
+                .padding(.horizontal, self.isDesktopLayout ? 16 : Layout.messageListPaddingHorizontal)
                 .frame(maxWidth: .infinity)
             }
             #if !os(macOS)
@@ -484,7 +479,7 @@ public struct OpenClawChatView: View {
             self.hasPerformedInitialScroll = true
             self.lastTurnStartID = self.latestVisibleTurnStartID
         }
-        .onChange(of: self.viewModel.sessionKey) { _, _ in
+        .onChange(of: self.viewModel.currentSessionTarget) { _, _ in
             self.speech?.stop()
             self.hasPerformedInitialScroll = false
             self.followTarget = .latest
@@ -1335,7 +1330,7 @@ extension OpenClawChatView {
         {
             Button {
                 self.fullMessageRequest = ChatFullMessageReaderRequest(
-                    sessionKey: self.viewModel.sessionKey,
+                    viewModel: self.viewModel,
                     messageID: messageID)
             } label: {
                 Label {

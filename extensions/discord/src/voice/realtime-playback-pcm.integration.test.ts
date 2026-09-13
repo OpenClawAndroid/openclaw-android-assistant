@@ -13,7 +13,7 @@ function pcmTone(audioMs: number, amplitude = 4_000): Buffer {
   return pcm;
 }
 
-it.each([20, 100])(
+it.each([10, 20, 100])(
   "plays and retires a %i ms continuous reply without response completion",
   async (audioMs) => {
     const fixture = createRealtimePlaybackFixture(undefined, { outputAudioMode: "continuous" });
@@ -22,7 +22,11 @@ it.each([20, 100])(
       fixture.playback.enqueueExactSpeechMessage("next answer");
       fixture.callbacks.onAudio(pcmTone(audioMs, 32));
       fixture.callbacks.onMark?.("heard", () => fixture.acknowledgeMark("heard"));
-      expect(fixture.player.state.status).not.toBe(fixture.voiceSdk.AudioPlayerStatus.Idle);
+      await fixture.voiceSdk.entersState(
+        fixture.player,
+        fixture.voiceSdk.AudioPlayerStatus.Playing,
+        4_000,
+      );
       await vi.waitFor(() => expect(fixture.acknowledgeMark).toHaveBeenCalledWith("heard"));
       expect(fixture.sendUserMessage.mock.calls).toEqual([["first answer"]]);
       await fixture.voiceSdk.entersState(

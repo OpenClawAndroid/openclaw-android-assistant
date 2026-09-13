@@ -21,6 +21,7 @@ import { resolveGatewayConnectionTlsFingerprint } from "../../../../src/gateway/
 import { formatErrorMessage } from "../../../../src/infra/errors.js";
 import { loadGatewayTlsServerRuntime } from "../../../../src/infra/tls/gateway.js";
 import { flushLogger, resetLogger } from "../../../../src/logging/logger.js";
+import { waitForFile } from "../../../helpers/process-wait.js";
 import { createDeferred } from "../../../helpers/promise.js";
 import { createQaScriptEvidenceWriter } from "./script-evidence.js";
 
@@ -456,6 +457,7 @@ export async function runGatewayTlsPinningProof(): Promise<GatewayTlsPinningProo
     if (initialTarget?.tlsFingerprint !== preparedTls.fingerprintSha256) {
       throw new Error("A WebSocket-first probe did not verify the initial listener pin");
     }
+    await waitForFile(advertisementPath, CONNECTION_TIMEOUT_MS);
     const advertisedFingerprint = await readAdvertisedFingerprint(advertisementPath);
     const peerFingerprint = await waitForPeerFingerprint(port);
     if (peerFingerprint !== advertisedFingerprint) {

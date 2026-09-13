@@ -4,13 +4,13 @@ import type {
   MentionInboxItem,
   MentionsListResult,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import { GatewayRequestError, type GatewayHelloOk } from "../api/gateway.ts";
 import { createConnectionBootstrapCoordinator } from "./connection-bootstrap.ts";
 import { createMentionsCapability, type MentionsCapability } from "./mentions.ts";
 import {
   client,
   createGatewayHarness,
-  deferred,
   flushMicrotasks,
   type RequestFn,
 } from "./overlays-access.test-support.ts";

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   resetGatewayWorkAdmission,
   tryBeginGatewayRootWorkAdmission,
@@ -150,10 +151,7 @@ describe("scheduleGatewayHandlerPrewarm", () => {
 
   it("waits for gateway readiness before warming handler data", async () => {
     vi.useFakeTimers();
-    let releaseGatewayReady!: () => void;
-    const gatewayReady = new Promise<void>((resolve) => {
-      releaseGatewayReady = resolve;
-    });
+    const { promise: gatewayReady, resolve: releaseGatewayReady } = createDeferred();
     const load = vi.fn(async () => {});
 
     const sidecar = scheduleGatewayHandlerPrewarm({
@@ -198,10 +196,7 @@ describe("scheduleGatewayHandlerPrewarm", () => {
 
   it("stays stopped when readiness arrives after shutdown", async () => {
     vi.useFakeTimers();
-    let releaseGatewayReady!: () => void;
-    const gatewayReady = new Promise<void>((resolve) => {
-      releaseGatewayReady = resolve;
-    });
+    const { promise: gatewayReady, resolve: releaseGatewayReady } = createDeferred();
     const load = vi.fn(async () => {});
 
     const sidecar = scheduleGatewayHandlerPrewarm({

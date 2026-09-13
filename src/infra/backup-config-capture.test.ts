@@ -85,6 +85,10 @@ describe("full backup config include capture", () => {
             .replace('ownership: "explicit"', "defaults: { workspace: 42 }");
           graph.files.set(state.configPath, raw);
           await fs.writeFile(state.configPath, raw);
+          await expect(
+            createBackupArchive({ output: state.path("backup.tar.gz"), includeWorkspace: false }),
+          ).rejects.toThrow(/ownership could not be resolved/i);
+          return;
         }
         if (rootLink) {
           const authoredRoot = state.path("authored-config.json5");

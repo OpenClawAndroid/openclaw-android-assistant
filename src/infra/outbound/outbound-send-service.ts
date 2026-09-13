@@ -135,6 +135,7 @@ async function sendCoreMessage(params: {
     gatewayOwnedDelivery: params.ctx.input.gatewayOwnedDelivery,
     deliveryIntentId: params.ctx.input.deliveryIntentId,
     deliveryCompletion: params.ctx.input.deliveryCompletion,
+    conversationDeliveryTarget: params.ctx.input.conversationDeliveryTarget,
     deliveryRetryOwner: params.ctx.deliveryRetryOwner,
     requireUnknownSendReconciliation: params.ctx.input.requireQueuePersistence ? false : undefined,
     onDeliveryIntent: params.ctx.input.onDeliveryIntent,

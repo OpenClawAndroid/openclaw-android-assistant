@@ -18,6 +18,7 @@ import {
   type DeliverOutboundPayloadsParams,
   type OutboundDeliveryIntent,
 } from "../../infra/outbound/deliver.js";
+import type { ConversationDeliveryTarget } from "../../infra/outbound/delivery-completion.js";
 import { normalizeOutboundReplyFacts } from "../../infra/outbound/reply-policy.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { createLiveMessageState, markLiveMessagePreviewUpdated } from "./live.js";
@@ -211,6 +212,7 @@ export type DurableMessageSendContext = MessageSendContext<
 export async function withDurableMessageSendContextCore<T>(
   params: DurableMessageSendContextParams,
   run: (ctx: DurableMessageSendContext) => Promise<T>,
+  conversationDeliveryTarget?: ConversationDeliveryTarget,
 ): Promise<T> {
   let deliveryIntent: OutboundDeliveryIntent | undefined;
   const {
@@ -258,6 +260,8 @@ export async function withDurableMessageSendContextCore<T>(
       try {
         const results = await deliverOutboundPayloadsInternal({
           ...deliveryParams,
+          // Public SDK callers cannot select a private conversation storage target.
+          conversationDeliveryTarget,
           payloads: rendered.payloads,
           renderedBatchPlan: rendered.plan,
           queuePolicy,
@@ -393,6 +397,7 @@ export async function withDurableMessageSendContextCore<T>(
 
 export async function sendDurableMessageBatchCore(
   params: DurableMessageSendContextParams,
+  conversationDeliveryTarget?: ConversationDeliveryTarget,
 ): Promise<DurableMessageBatchSendResult> {
   const pendingFinalCompletion = params.deliveryCompletion
     ? undefined
@@ -445,5 +450,6 @@ export async function sendDurableMessageBatchCore(
       }
       return result;
     },
+    conversationDeliveryTarget,
   );
 }

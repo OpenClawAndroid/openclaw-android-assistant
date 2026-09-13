@@ -12,6 +12,7 @@ import {
   type CompactionRequestBudget,
 } from "../../sessions/compaction/request-budget.js";
 import type { AgentSession } from "../../sessions/index.js";
+import { withSessionManagerWrite } from "../../sessions/session-manager-write-admission.js";
 import { ackPendingAgentSteeringItems } from "../../subagents/registry/subagent-registry.js";
 import { recordAggregateTruncation } from "../prompt-cache-observability.js";
 import { normalizeAssistantReplayContent } from "../replay-history.js";
@@ -287,7 +288,10 @@ export async function handleEmbeddedAttemptPromptError(input: {
       sessionId: input.attempt.sessionId,
     });
     await input.withOwnedTranscriptWrite(async () => {
-      const transcriptRewritten = stripSessionsYieldArtifacts(input.activeSession);
+      const transcriptRewritten = await withSessionManagerWrite(
+        input.activeSession.sessionManager,
+        () => stripSessionsYieldArtifacts(input.activeSession),
+      );
       if (input.yieldMessage) {
         await persistSessionsYieldContextMessage(input.activeSession, input.yieldMessage);
       }
@@ -305,9 +309,11 @@ export async function handleEmbeddedAttemptPromptError(input: {
 
   if (isMidTurnPrecheckSignal(input.error)) {
     const request = input.error.request;
-    await input.withOwnedTranscriptWrite(() => {
-      input.handleMidTurnPrecheckRequest(request);
-    });
+    await input.withOwnedTranscriptWrite(() =>
+      withSessionManagerWrite(input.activeSession.sessionManager, () =>
+        input.handleMidTurnPrecheckRequest(request),
+      ),
+    );
     return {};
   }
 

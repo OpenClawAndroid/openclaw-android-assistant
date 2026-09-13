@@ -10,11 +10,15 @@ import {
 import { resetAgentRunRegistryForTest } from "../../infra/agent-run-registry.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import {
+  closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
   runOpenClawAgentWriteTransaction,
 } from "../../state/openclaw-agent-db.js";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../../state/openclaw-state-db-readonly.js";
-import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseAsync,
+  closeOpenClawStateDatabaseForTest,
+} from "../../state/openclaw-state-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { migrateLegacyMainSessionKeys } from "./legacy-main-session-migration.js";
 import { readExactSessionEntryRowForCanonicalRepair } from "./session-accessor.sqlite-canonical-repair.js";
@@ -63,7 +67,19 @@ vi.mock("./session-accessor.sqlite-lifecycle.js", async (importOriginal) => {
   };
 });
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(async () => {
+    race.beforeDelete = undefined;
+    race.afterDelete = undefined;
+    race.queued = undefined;
+    resetAgentRunRegistryForTest();
+    await closeOpenClawAgentDatabasesAsync();
+    await closeOpenClawStateDatabaseAsync();
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+    cleanup();
+  }),
+);
 
 function databasePath(stateDir: string, agentId: string): string {
   return path.join(stateDir, "agents", agentId, "agent", "openclaw-agent.sqlite");
@@ -113,15 +129,6 @@ function readClaim(databaseAgentId: string, databasePathname: string, key: strin
   );
   return result.found ? result.value : undefined;
 }
-
-afterEach(() => {
-  race.beforeDelete = undefined;
-  race.afterDelete = undefined;
-  race.queued = undefined;
-  resetAgentRunRegistryForTest();
-  closeOpenClawAgentDatabasesForTest();
-  closeOpenClawStateDatabaseForTest();
-});
 
 it.each(["import queue", "in-place queue", "cleanup queue", "ledger"] as const)(
   "preserves committed work but defers new migration writes after closure at %s",

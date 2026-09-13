@@ -670,7 +670,7 @@ describe("doctor gateway runtime checks", () => {
     mocks.resolveGatewayService.mockReset().mockReturnValue({ label: "openclaw-gateway" });
   });
 
-  it("projects every degraded SecretRef owner from exactly one authenticated read-only status RPC", async () => {
+  it("projects SecretRef and SQLite warnings from one authenticated read-only status RPC", async () => {
     const cfg = { gateway: { mode: "local" as const } };
     const privateToken = "SYNTHETIC_PRIVATE_URL_TOKEN";
     mocks.buildGatewayProbeConnectionDetails.mockResolvedValueOnce({
@@ -708,6 +708,17 @@ describe("doctor gateway runtime checks", () => {
         },
       ],
       degradedPlugins: [{ pluginId: "not-this-check" }],
+      sqliteWal: {
+        state: "blocked",
+        observedAtMs: 1_800_000,
+        walBytes: 128 * 1024 * 1024,
+        databaseBytes: 32 * 1024 * 1024,
+        logFrames: 4000,
+        checkpointedFrames: 100,
+        lastCompletedAtMs: null,
+        consecutiveBlocked: 2,
+        warning: true,
+      },
     });
 
     const findings = await collectGatewayHealthFindings({
@@ -748,6 +759,12 @@ describe("doctor gateway runtime checks", () => {
         message: expect.stringContaining("provider:vault"),
         path: expect.stringContaining("providers.example.0"),
         target: expect.stringContaining("provider:vault"),
+      }),
+      expect.objectContaining({
+        checkId: "core/doctor/gateway-health",
+        severity: "warning",
+        message: expect.stringContaining("SQLite WAL: checkpoint blocked"),
+        fixHint: expect.stringContaining("openclaw status --deep"),
       }),
     ]);
     expect(findings[1]?.message).toContain("tts.providers.elevenlabs.voiceId");

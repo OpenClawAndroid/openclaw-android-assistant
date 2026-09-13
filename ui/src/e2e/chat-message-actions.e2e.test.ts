@@ -962,8 +962,16 @@ describeControlUiE2e("Control UI chat message actions", () => {
       await groupedToolBubble.waitFor({ state: "visible" });
       expect(await groupedToolBubble.getAttribute("data-message-text")).toBe(oversizedNotice);
       await groupedToolBubble.click({ button: "right" });
-      expect(await menu.getByRole("menuitem").allTextContents()).toEqual(["Reply"]);
+      expect(await menu.getByRole("menuitem").allTextContents()).toEqual([
+        "Reply",
+        "Copy as markdown",
+      ]);
       await screenshot(page, "09-oversized-tool-actions.png");
+      await menu.getByRole("menuitem", { name: "Copy as markdown" }).click();
+      await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+        .toBe(oversizedNotice);
+      await groupedToolBubble.click({ button: "right" });
       await menu.getByRole("menuitem", { name: "Reply to message" }).click();
       await expect
         .poll(() => fullTextReplyPreview.locator(".chat-reply-preview__text").textContent())

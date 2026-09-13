@@ -3767,10 +3767,9 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
   }
   // Normal PR CI may not upload this artifact owner. Emit safe facts before any
   // capture I/O so a broken screenshot or output directory cannot hide the state.
-  console.error("[control-ui-e2e] failure state", {
-    browser: summary,
-    models: modelResponses ? summarizeRecordedModelResponses(modelResponses) : null,
-  });
+  // JSON preserves nested facts that Node's default object rendering collapses.
+  const models = modelResponses ? summarizeRecordedModelResponses(modelResponses) : null;
+  console.error("[control-ui-e2e] failure state", JSON.stringify({ browser: summary, models }));
   const configuredDir = process.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR?.trim();
   const artifactDir = createControlUiE2eArtifactDir(
     "failure",

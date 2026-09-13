@@ -294,11 +294,17 @@ export function formatMemoryIndexRebuildGuidance(
 
 export function resolveMemoryIndexSearchDiagnostic(
   diagnostic: MemoryIndexIdentityDiagnostic,
-  status: Partial<Pick<MemoryProviderStatus, "provider" | "requestedProvider" | "lastSyncError">>,
+  status: Partial<
+    Pick<MemoryProviderStatus, "provider" | "requestedProvider" | "lastSyncError" | "custom">
+  >,
   agentId?: string,
 ) {
   const repairFailure = diagnostic.owner === "openclaw" && status.lastSyncError?.trim();
-  if (repairFailure) {
+  const newerIndex =
+    diagnostic.owner === "openclaw" &&
+    diagnostic.status === "mismatched" &&
+    asNullableRecord(status.custom?.indexIdentity)?.versionOrder === "newer";
+  if (repairFailure && !newerIndex) {
     const guidance = {
       warning: `Memory index repair failed: ${repairFailure}. The existing index was left unchanged.`,
       action: `Run: openclaw memory status --deep${agentId?.trim() ? ` --agent ${agentId.trim()}` : ""}. Resolve the reported sync failure before retrying the search.`,
@@ -314,16 +320,23 @@ export function resolveMemoryIndexSearchDiagnostic(
       ? `the current memory configuration no longer matches the index (${diagnostic.reason})`
       : diagnostic.code === "metadata_missing"
         ? `the memory index metadata is missing (${diagnostic.reason}); no configuration change is needed`
-        : `this OpenClaw version changed the memory index format (${diagnostic.reason}); no configuration change is needed`;
+        : newerIndex
+          ? diagnostic.reason
+          : `this OpenClaw version changed the memory index format (${diagnostic.reason}); no configuration change is needed`;
   const guidance = formatMemoryIndexRebuildGuidance(status, agentId);
+  const priorFailure = repairFailure ? ` Previous memory sync failed: ${repairFailure}.` : "";
   return {
     error: diagnostic.reason,
-    warning: `Tell the user: memory search is paused because ${cause}.`,
-    action: `Tell the user to run: ${guidance}`,
+    warning: `Tell the user: memory search is paused because ${cause}.${priorFailure}`,
+    action: newerIndex
+      ? `Tell the user to upgrade OpenClaw or reindex explicitly: ${guidance}`
+      : `Tell the user to run: ${guidance}`,
     staleness: {
       stale: true as const,
-      warning: `Memory index is stale: ${diagnostic.reason} (owner: ${diagnostic.owner}, code: ${diagnostic.code}). Search results may be incomplete.`,
-      action: `Run: ${guidance}`,
+      warning: `Memory index is stale: ${diagnostic.reason} (owner: ${diagnostic.owner}, code: ${diagnostic.code}). Search results may be incomplete.${priorFailure}`,
+      action: newerIndex
+        ? `Upgrade OpenClaw or reindex explicitly: ${guidance}`
+        : `Run: ${guidance}`,
     },
   };
 }

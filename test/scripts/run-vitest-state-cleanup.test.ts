@@ -9,6 +9,7 @@ import { runManagedCommand } from "../../scripts/lib/managed-child-process.mts";
 import { resolveVitestHomeSelection } from "../../scripts/lib/vitest-home-selection.mts";
 import { spawnOwnedVitestProcess } from "../../scripts/lib/vitest-process.mts";
 import { createVitestResourceOwner } from "../../scripts/lib/vitest-resource-ownership.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import { proveNestedRetention } from "./nested-retention.test-support.js";
@@ -18,6 +19,7 @@ const nestedLifetime = createFixtureLifetime();
 afterEach(() => nestedLifetime.cleanup());
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const posixIt = process.platform === "win32" ? it.skip : it;
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function prepareVitestFixture(root: string, homeName = "home") {
   const tmp = path.join(root, "tmp");
@@ -526,7 +528,7 @@ process.exitCode = (await completion).code ?? 1;`,
     try {
       const result = await new Promise<{ code: ExecException["code"]; output: string }>(
         (resolve) => {
-          execFile(process.execPath, args, { cwd: root, env }, (error, stdout, stderr) => {
+          execFile(testNodeExecPath, args, { cwd: root, env }, (error, stdout, stderr) => {
             resolve({ code: error ? error.code : 0, output: stdout + stderr });
           });
         },
@@ -737,7 +739,7 @@ it.each([
     });
     expect(homeMode).toBe(expected);
     const spec = {
-      command: process.execPath,
+      command: testNodeExecPath,
       args: [
         "--input-type=module",
         "-e",
@@ -786,7 +788,7 @@ it("retains native home after child and pipes close when descendants cannot be v
   const parent = createVitestResourceOwner(root);
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   const { child, completion } = spawnOwnedVitestProcess({
-    command: process.execPath,
+    command: testNodeExecPath,
     args: [
       "--input-type=module",
       "-e",
@@ -845,7 +847,7 @@ it("removes only its namespace when spawning fails before acquiring a PID", asyn
   const options = { env: { TMPDIR: root }, stdio: "ignore" as const };
   expect(() => spawnOwnedVitestProcess({ command: "", args: [], options })).toThrow();
   const { child, completion } = spawnOwnedVitestProcess({
-    command: process.execPath,
+    command: testNodeExecPath,
     args: [],
     options: { ...options, cwd: path.join(root, "missing") },
   });
@@ -869,7 +871,7 @@ posixIt.each([
   const parent = createVitestResourceOwner(root);
   const receipt = path.join(root, "namespace");
   const { completion } = spawnOwnedVitestProcess({
-    command: process.execPath,
+    command: testNodeExecPath,
     args: [
       "--input-type=module",
       "-e",
@@ -921,9 +923,9 @@ posixIt("rejects resource registration before allocating inputs or launching wor
   const args = ["-e", `require('node:fs').writeFileSync(${JSON.stringify(launched)}, 'launched')`];
   const env = { TMPDIR: root, TMP: root, TEMP: root };
   expect(() =>
-    spawnOwnedVitestProcess({ command: process.execPath, args, options: { env } }),
+    spawnOwnedVitestProcess({ command: testNodeExecPath, args, options: { env } }),
   ).toThrow();
-  await expect(runManagedCommand({ bin: process.execPath, args, env })).rejects.toThrow();
+  await expect(runManagedCommand({ bin: testNodeExecPath, args, env })).rejects.toThrow();
   for (const [key, value] of Object.entries(env)) {
     vi.stubEnv(key, value);
   }
@@ -948,7 +950,7 @@ posixIt(
     createVitestResourceOwner(root);
     const receipt = path.join(root, "namespace");
     const { child, completion } = spawnOwnedVitestProcess({
-      command: process.execPath,
+      command: testNodeExecPath,
       args: [
         "-e",
         `require("node:fs").writeFileSync(${JSON.stringify(receipt)}, require("node:os").tmpdir())`,

@@ -822,7 +822,13 @@ describe("Models page catalog publication", () => {
         await openModelPicker(page);
         expect(discover).toHaveBeenCalledOnce();
         await retryCatalog(page);
-        expect(discover).toHaveBeenCalledTimes(2);
+        expect(discover).toHaveBeenCalledOnce();
+        coreCatalog.resolve({
+          ...preparedCatalog,
+          defaultModels: { automaticUtilityModel: "openai/prepared-fallback" },
+          pendingProviders: ["stale-provider"],
+        });
+        await waitForFast(() => expect(discover).toHaveBeenCalledTimes(2));
         if (discoveryState === "completed") {
           pickerDiscovery.resolve(newer);
           await waitForFast(() => expect(displayedCatalog(page)?.models).toEqual(newer.models));
@@ -830,11 +836,6 @@ describe("Models page catalog publication", () => {
           expect(page.querySelector('[role="option"][data-value="openai/newer"]')).not.toBeNull();
         }
 
-        coreCatalog.resolve({
-          ...preparedCatalog,
-          defaultModels: { automaticUtilityModel: "openai/prepared-fallback" },
-          pendingProviders: ["stale-provider"],
-        });
         await drainPageUpdates(page);
         coreConfig.resolve({ config: refreshedConfig, hash: "refreshed-model-config" });
         await waitForProviders(page, refreshedConfig);
@@ -922,8 +923,12 @@ describe("Models page catalog publication", () => {
         readPublished.mockReturnValue(newer);
         publishEvent({ type: "event", event: replacement, payload: {} });
       }
-      if (replacement === "Refresh button" || replacement === "route data") {
+      if (replacement === "route data") {
         await waitForFast(() => expect(displayedCatalog(page)?.models).toEqual(newer.models));
+      } else if (replacement === "Refresh button") {
+        await drainPageUpdates(page);
+        expect(discover).toHaveBeenCalledOnce();
+        expect(displayedCatalog(page)?.models).toEqual(preparedCatalog.models);
       }
       pending.resolve({
         models: [{ id: "retired", name: "Retired model", provider: "openai", available: true }],

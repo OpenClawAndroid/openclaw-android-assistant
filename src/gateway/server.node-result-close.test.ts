@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { WORKER_EXECUTION_CONTEXT_PROTOCOL_FEATURE } from "../../packages/gateway-protocol/src/schema/worker-admission.js";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { writeConfigFile } from "../config/config.js";
 import { approveNodePairing, requestNodePairing } from "../infra/device-pairing-node.js";
 import { NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE } from "../infra/node-runner-inventory.js";
@@ -184,12 +185,11 @@ test.each([
   const url = `ws://127.0.0.1:${port}`;
   let operator: Awaited<ReturnType<typeof connectGatewayClient>> | undefined;
   let node: Awaited<ReturnType<typeof connectGatewayClient>> | undefined;
-  let resolveInvokeFrame:
-    | ((frame: { id: string; nodeId: string; command: string }) => void)
-    | undefined;
-  const invokeFrame = new Promise<{ id: string; nodeId: string; command: string }>((resolve) => {
-    resolveInvokeFrame = resolve;
-  });
+  const { promise: invokeFrame, resolve: resolveInvokeFrame } = createDeferred<{
+    id: string;
+    nodeId: string;
+    command: string;
+  }>();
 
   try {
     operator = await connectGatewayClient({
@@ -369,12 +369,11 @@ test("publishes one runner-availability edge before the socket-close refresh", a
   let node: Awaited<ReturnType<typeof connectGatewayClient>> | undefined;
   let armed = false;
   let availabilityEvents = 0;
-  let resolveOffline!: (value: unknown) => void;
-  let rejectOffline!: (reason: unknown) => void;
-  const offlineRefresh = new Promise<unknown>((resolve, reject) => {
-    resolveOffline = resolve;
-    rejectOffline = reject;
-  });
+  const {
+    promise: offlineRefresh,
+    resolve: resolveOffline,
+    reject: rejectOffline,
+  } = createDeferred<unknown>();
   const connectNode = () =>
     connectGatewayClient({
       url,

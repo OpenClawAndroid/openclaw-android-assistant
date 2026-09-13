@@ -202,6 +202,9 @@ describe("production lint suppressions", () => {
         // Gateway metadata uses __openclaw; execFile error causes can expose credential argv.
         "scripts/e2e/lib/upgrade-survivor/probe-volume-gateway.mjs|no-underscore-dangle|1",
         "scripts/e2e/lib/upgrade-survivor/probe-volume-gateway.mjs|preserve-caught-error|1",
+        // Keep explicit removal markers beside temporary upstream Bun workarounds.
+        "scripts/e2e/parallels/host-command.ts|no-warning-comments|1",
+        "scripts/lib/plain-gh.mjs|no-warning-comments|1",
         "src/agents/agent-bundle-mcp-runtime.ts|unicorn/prefer-add-event-listener|1",
         "src/agents/agent-tools.abort.ts|typescript/prefer-promise-reject-errors|1",
         // Cleanup stays in AggregateError.errors; the initiating failure remains cause for classification and remediation.

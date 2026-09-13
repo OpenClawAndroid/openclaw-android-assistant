@@ -31,6 +31,9 @@ import { listBundledPluginBuildEntries } from "../../scripts/lib/bundled-plugin-
 import { createManagedCommandInvocation } from "../../scripts/lib/managed-child-process.mts";
 import { TSDOWN_UNIFIED_CONFIG_GROUP } from "../../scripts/lib/tsdown-config-groups.mts";
 import { runNodeMain } from "../../scripts/run-node.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function getBuildAllStep(label: string) {
   const step = BUILD_ALL_STEPS.find((entry) => entry.label === label);
@@ -349,7 +352,7 @@ describe("resolveBuildAllSteps", () => {
   it("prints CLI help without starting build steps", () => {
     for (const args of [["--help"], ["cliStartup", "--help"]]) {
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         ["--import", "tsx", "scripts/build-all.mts", ...args],
         {
           cwd: process.cwd(),
@@ -367,7 +370,7 @@ describe("resolveBuildAllSteps", () => {
 
   it("rejects unknown CLI args without starting build steps", () => {
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       ["--import", "tsx", "scripts/build-all.mts", "cliStartup", "--bogus"],
       {
         cwd: process.cwd(),
@@ -1245,7 +1248,7 @@ describe("resolveBuildStepCacheState", () => {
     withBuildCacheFixture(({ rootDir }) => {
       // Builds run on the main Node thread; Vitest workers have a different stack budget.
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--import",
           "./scripts/tsx.mjs",

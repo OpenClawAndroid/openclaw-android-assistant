@@ -9,6 +9,7 @@ import type { Message } from "@openclaw/llm-core";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import type { AgentMessage } from "../runtime/index.js";
+import { withSessionManagerWrite } from "../sessions/session-manager-write-admission.js";
 import { redactTranscriptMessage } from "../transcript-redact.js";
 import { compactWithSafetyTimeout } from "./compaction-safety-timeout.js";
 import { log } from "./logger.js";
@@ -46,6 +47,7 @@ export async function attemptServerEndpointCompaction(params: {
   }
   params.assertActive?.();
   let compacted: ServerEndpointCompactionResult;
+  let compactionCommitted = false;
   try {
     const messages = params.context.messages.filter(
       (message): message is Message =>
@@ -94,28 +96,36 @@ export async function attemptServerEndpointCompaction(params: {
     ) {
       throw new Error("Responses compact endpoint window requires transcript redaction");
     }
-    const rewritten = rewriteTranscriptEntriesInSessionManager({
-      sessionManager: params.sessionManager,
-      replacements: [{ entryId: owner.id, message: redacted }],
-      preserveReplacementCompactionReplay: true,
+    await withSessionManagerWrite(params.sessionManager, () => {
+      params.requestOptions.signal?.throwIfAborted();
+      params.assertActive?.();
+      const rewritten = rewriteTranscriptEntriesInSessionManager({
+        sessionManager: params.sessionManager,
+        replacements: [{ entryId: owner.id, message: redacted }],
+        preserveReplacementCompactionReplay: true,
+      });
+      if (
+        replacement.providerReplay?.data !== compacted.item.encrypted_content ||
+        !rewritten.changed
+      ) {
+        throw new Error(
+          `Responses compact endpoint checkpoint was not persisted: ${rewritten.reason}`,
+        );
+      }
+      compactionCommitted = true;
+      params.onCompactionCommitted?.();
     });
-    if (
-      replacement.providerReplay?.data !== compacted.item.encrypted_content ||
-      !rewritten.changed
-    ) {
-      throw new Error(
-        `Responses compact endpoint checkpoint was not persisted: ${rewritten.reason}`,
-      );
-    }
   } catch (err) {
+    // Observer or handle-release failures after commit must not trigger a
+    // second client compaction of the already replaced context.
+    if (compactionCommitted) {
+      throw err;
+    }
     params.assertActive?.();
     log.debug(
       `Responses compact endpoint failed; falling back to client compaction: ${formatErrorMessage(err)}`,
     );
     return undefined;
   }
-  // The rewrite has committed. Observer failures must not trigger a second,
-  // client-side compaction of the already replaced context.
-  params.onCompactionCommitted?.();
   return compacted;
 }

@@ -691,10 +691,8 @@ describe("control UI session PR subscriptions", () => {
 
   it("does not publish a superseded replace-set after its load completes", async () => {
     vi.useFakeTimers();
-    let resolveFirst!: (value: ControlUiSessionPullRequests) => void;
-    const first = new Promise<ControlUiSessionPullRequests>((resolve) => {
-      resolveFirst = resolve;
-    });
+    const { promise: first, resolve: resolveFirst } =
+      createDeferred<ControlUiSessionPullRequests>();
     const load = vi.fn(async ({ sessionKey }: { sessionKey: string }) =>
       sessionKey === "old" ? await first : READY,
     );
@@ -716,10 +714,8 @@ describe("control UI session PR subscriptions", () => {
 
   it("delivers a shared cached key after its earlier hydration was superseded", async () => {
     vi.useFakeTimers();
-    let resolveBlocked!: (value: ControlUiSessionPullRequests) => void;
-    const blocked = new Promise<ControlUiSessionPullRequests>((resolve) => {
-      resolveBlocked = resolve;
-    });
+    const { promise: blocked, resolve: resolveBlocked } =
+      createDeferred<ControlUiSessionPullRequests>();
     const load = vi.fn(async ({ sessionKey }: { sessionKey: string }) =>
       sessionKey.startsWith("blocked") ? await blocked : READY,
     );

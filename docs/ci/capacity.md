@@ -86,8 +86,8 @@ Canonical-repo CI keeps Blacksmith as the default runner path for pushes and fir
 
 ## Measured shard weights
 
-Hybrid main runtime bins retain their existing jobs and runner allocations while
-admitting complete measured runtime groups within 440 seconds, including the
+Complete hybrid main and pull-request runtime plans retain their existing jobs and
+runner allocations while admitting measured runtime groups within 440 seconds, including the
 existing 100-second build allowance. This reserves 40 seconds of the eight-minute
 objective for checkout/setup; it does not change test deadlines or guarantee
 elapsed time. Only non-exclusive ordinary-runtime bins participate. A group can
@@ -98,6 +98,8 @@ reports its over-budget estimate; an optimization cannot suppress test coverage.
 Recipient capacity must preserve the donor job's fixed runner anchor, including
 any earlier promotion of that group. Private-QA, dist, exclusive, hosted,
 and ordinary two-slot policies remain unchanged.
+Precise changed-file plans retain their original placement templates and admission
+floors; a whole-group measurement cannot move a subset onto a different runner.
 
 The refit records separate runtime-placement observations from the emitted group
 descriptor, successful complete envelope and runtime-readiness marker. Configs,

@@ -26,16 +26,19 @@ struct ChatSessionSidebar: View {
         let sections = ChatSessionSidebarModel.sections(
             sessions: self.viewModel.sessions,
             currentSessionKey: self.viewModel.sessionKey,
-            mainSessionKey: self.viewModel.resolvedMainSessionKey,
-            activeAgentID: self.viewModel.activeAgentId,
+            mainSessionKey: self.viewModel.selectedAgentMainSessionKey,
+            activeAgentID: self.viewModel.selectedAgentID,
             groups: self.groups,
-            query: self.query)
+            query: self.query,
+            sessionRoutingContract: self.viewModel.agentCatalog?.sessionRoutingContract ??
+                self.viewModel.sessionRoutingContract)
         List(selection: self.selectionBinding) {
-            Color.clear
-                .frame(height: 8)
-                .listRowInsets(EdgeInsets())
+            self.newThreadButton
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 16, trailing: 0))
+                .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                .accessibilityHidden(true)
+                .selectionDisabled()
+            self.agentsSection
             ForEach(sections) { section in
                 if section.id.hasPrefix("group:"), let title = section.title {
                     Section {
@@ -64,8 +67,22 @@ struct ChatSessionSidebar: View {
                             .font(OpenClawChatTypography.caption)
                     }
                 } else {
-                    self.rows(section.nodes)
+                    Section {
+                        self.rows(section.nodes)
+                    } header: {
+                        Text("Recent")
+                            .font(OpenClawChatTypography.caption)
+                    }
                 }
+            }
+            if sections.isEmpty {
+                Text(self.query
+                    .isEmpty ? String(localized: "No threads yet") : String(localized: "No matching threads"))
+                    .font(OpenClawChatTypography.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 12)
+                    .listRowSeparator(.hidden)
+                    .selectionDisabled()
             }
         }
         .listStyle(.sidebar)
@@ -73,39 +90,7 @@ struct ChatSessionSidebar: View {
             text: self.$query,
             placement: .sidebar,
             prompt: String(localized: "Search threads"))
-        .overlay {
-            if sections.isEmpty {
-                ContentUnavailableView(
-                    self.query.isEmpty
-                        ? String(localized: "No Threads")
-                        : String(localized: "No Results"),
-                    systemImage: "bubble.left.and.bubble.right")
-            }
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) { self.connectionFooter }
-        .toolbar {
-            ToolbarItem {
-                HStack(spacing: 2) {
-                    Button {
-                        Task { await self.viewModel.startNewSession() }
-                    } label: {
-                        chatWindowActionLabel("New Thread", systemImage: "square.and.pencil")
-                    }
-                    .help(String(localized: "New thread"))
-                    Button {
-                        self.isPresentingNewSessionOptions = true
-                    } label: {
-                        Image(systemName: "chevron.down")
-                    }
-                    .help(String(localized: "New thread options"))
-                    .popover(isPresented: self.$isPresentingNewSessionOptions) {
-                        ChatNewSessionOptionsPopover(viewModel: self.viewModel) {
-                            self.isPresentingNewSessionOptions = false
-                        }
-                    }
-                }
-            }
-        }
         .task(id: self.groupRefreshID) {
             self.viewModel.refreshSessions(limit: 200)
             do {
@@ -131,7 +116,7 @@ struct ChatSessionSidebar: View {
             TextField(String(localized: "Thread name"), text: self.$renameText)
             Button(String(localized: "Rename")) {
                 if let session = self.sessionPendingRename {
-                    self.viewModel.renameSession(key: session.key, label: self.renameText)
+                    self.viewModel.renameSession(key: session.key, label: self.renameText, agentID: session.agentId)
                 }
                 self.sessionPendingRename = nil
             }
@@ -142,7 +127,7 @@ struct ChatSessionSidebar: View {
         .confirmationDialog(self.deleteDialogTitle, isPresented: self.isPresentingDeleteDialog) {
                 Button(String(localized: "Delete Thread"), role: .destructive) {
                     if let session = self.sessionPendingDeletion {
-                        self.viewModel.deleteSession(session.key)
+                        self.viewModel.deleteSession(session.key, agentID: session.agentId)
                     }
                     self.sessionPendingDeletion = nil
                 }
@@ -158,13 +143,131 @@ struct ChatSessionSidebar: View {
                 ChatSessionSidebarModel.selectedSessionKey(
                     sessions: self.viewModel.sessions,
                     currentSessionKey: self.viewModel.sessionKey,
-                    mainSessionKey: self.viewModel.resolvedMainSessionKey,
-                    activeAgentID: self.viewModel.activeAgentId)
+                    mainSessionKey: self.viewModel.selectedAgentMainSessionKey,
+                    activeAgentID: self.viewModel.selectedAgentID,
+                    sessionRoutingContract: self.viewModel.agentCatalog?.sessionRoutingContract ??
+                        self.viewModel.sessionRoutingContract)
             },
             set: { next in
                 guard let next, next != self.viewModel.sessionKey else { return }
-                self.viewModel.switchSession(to: next)
+                let agentID = self.viewModel.sessions.first(where: { $0.key == next })?.agentId
+                self.viewModel.switchSession(to: next, agentID: agentID)
             })
+    }
+
+    private var newThreadButton: some View {
+        HStack(spacing: 0) {
+            Button {
+                Task { await self.viewModel.startNewSession() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.pencil")
+                    Text("New Thread")
+                    Spacer(minLength: 4)
+                    Text(verbatim: "⌘N")
+                        .font(OpenClawChatTypography.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 8)
+                .frame(height: 38)
+                .contentShape(Rectangle())
+            }
+            .help(String(localized: "New thread"))
+            .accessibilityIdentifier("chat-new-thread")
+            Divider()
+                .frame(height: 16)
+            Button {
+                self.isPresentingNewSessionOptions = true
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 30, height: 38)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(String(localized: "New thread options"))
+            .help(String(localized: "New thread options"))
+            .popover(isPresented: self.$isPresentingNewSessionOptions) {
+                ChatNewSessionOptionsPopover(viewModel: self.viewModel) {
+                    self.isPresentingNewSessionOptions = false
+                }
+            }
+        }
+        .font(OpenClawChatTypography.body(size: 13, weight: .medium, relativeTo: .body))
+        .buttonStyle(.plain)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(.primary.opacity(0.08), lineWidth: 1)
+        }
+        .disabled(self.viewModel.isCreatingSession)
+    }
+
+    private var agentsSection: some View {
+        Section {
+            ForEach(self.viewModel.agentChoices) { agent in
+                self.agentRow(agent)
+                    .selectionDisabled()
+            }
+            if let error = self.viewModel.agentsErrorText {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(error)
+                        .font(OpenClawChatTypography.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                    Button("Retry") {
+                        Task { await self.viewModel.refreshAgents() }
+                    }
+                    .disabled(self.viewModel.isLoadingAgents)
+                }
+                .selectionDisabled()
+            } else if self.viewModel.isLoadingAgents, self.viewModel.agentChoices.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading agents…")
+                        .font(OpenClawChatTypography.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .selectionDisabled()
+            } else if self.viewModel.agentChoices.isEmpty {
+                Text("No agents are available on this gateway.")
+                    .font(OpenClawChatTypography.caption)
+                    .foregroundStyle(.secondary)
+                    .selectionDisabled()
+            }
+        } header: {
+            Text("Agents")
+                .font(OpenClawChatTypography.caption)
+        }
+    }
+
+    private func agentRow(_ agent: OpenClawChatAgentChoice) -> some View {
+        let isSelected = agent.id.lowercased() == self.viewModel.selectedAgentID
+        return Button {
+            self.viewModel.switchAgent(to: agent.id)
+        } label: {
+            HStack(spacing: 10) {
+                ChatSidebarAgentAvatar(agent: agent)
+                Text(verbatim: agent.displayName)
+                    .font(OpenClawChatTypography.body(
+                        size: 13,
+                        weight: isSelected ? .semibold : .regular,
+                        relativeTo: .body))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat-agent-\(agent.id)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .help(String(format: String(localized: "Open %@"), agent.displayName))
     }
 
     private var groupRefreshID: String {
@@ -198,8 +301,8 @@ struct ChatSessionSidebar: View {
 
     private func row(for node: ChatSessionSidebarModel.Node) -> some View {
         let session = node.session
-        return HStack(spacing: 6) {
-            VStack(alignment: .leading, spacing: 2) {
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(ChatSessionSidebarModel.displayName(for: session))
                     .font(OpenClawChatTypography.body(size: 13, weight: .medium, relativeTo: .body))
                     .lineLimit(1)
@@ -213,6 +316,7 @@ struct ChatSessionSidebar: View {
             Spacer(minLength: 0)
             self.badges(for: node)
         }
+        .padding(.vertical, 4)
         .overlay(alignment: .leading) {
             OpenClawSessionColorStripe(color: session.color)
                 .offset(x: -6)
@@ -267,7 +371,7 @@ struct ChatSessionSidebar: View {
             self.actionLabel(String(localized: "Rename…"), systemImage: "pencil")
         }
         Button {
-            self.viewModel.setSessionPinned(key: session.key, pinned: session.pinned != true)
+            self.viewModel.setSessionPinned(key: session.key, pinned: session.pinned != true, agentID: session.agentId)
         } label: {
             self.actionLabel(
                 session.pinned == true ? String(localized: "Unpin") : String(localized: "Pin"),
@@ -277,7 +381,8 @@ struct ChatSessionSidebar: View {
             Task {
                 await self.viewModel.forkSession(
                     key: session.key,
-                    fromLastCompleted: session.hasActiveRun == true)
+                    fromLastCompleted: session.hasActiveRun == true,
+                    agentID: session.agentId)
             }
         } label: {
             self.actionLabel(
@@ -287,7 +392,7 @@ struct ChatSessionSidebar: View {
                 systemImage: "arrow.triangle.branch")
         }
         Button {
-            self.viewModel.setSessionUnread(key: session.key, unread: session.unread != true)
+            self.viewModel.setSessionUnread(key: session.key, unread: session.unread != true, agentID: session.agentId)
         } label: {
             self.actionLabel(
                 session.unread == true ? String(localized: "Mark Read") : String(localized: "Mark Unread"),
@@ -295,7 +400,7 @@ struct ChatSessionSidebar: View {
         }
         if ChatSessionSidebarModel.canArchiveSession(
             session,
-            mainSessionKey: self.viewModel.resolvedMainSessionKey)
+            mainSessionKey: self.viewModel.selectedAgentMainSessionKey)
         {
             Button {
                 self.viewModel.setSessionArchived(session, archived: !session.isArchived)
@@ -306,7 +411,7 @@ struct ChatSessionSidebar: View {
             }
         }
         OpenClawSessionColorMenu(color: session.color) { color in
-            Task { await self.viewModel.setSessionColor(key: session.key, color: color) }
+            Task { await self.viewModel.setSessionColor(key: session.key, color: color, agentID: session.agentId) }
         }
         Divider()
         Button {
@@ -317,7 +422,7 @@ struct ChatSessionSidebar: View {
         }
         if ChatSessionSidebarModel.canDeleteSession(
             key: session.key,
-            mainSessionKey: self.viewModel.resolvedMainSessionKey)
+            mainSessionKey: self.viewModel.selectedAgentMainSessionKey)
         {
             Button(role: .destructive) {
                 self.sessionPendingDeletion = session
@@ -382,8 +487,30 @@ struct ChatSessionSidebar: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
         .background(.bar)
+    }
+}
+
+struct ChatSidebarAgentAvatar: View {
+    let agent: OpenClawChatAgentChoice
+    var size: CGFloat = 28
+
+    var body: some View {
+        Text(self.avatarText)
+            .font(.system(size: self.size * 0.5, weight: .medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(width: self.size, height: self.size)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: self.size * 0.3))
+            .accessibilityHidden(true)
+    }
+
+    private var avatarText: String {
+        if let emoji = self.agent.emoji?.trimmingCharacters(in: .whitespacesAndNewlines), !emoji.isEmpty {
+            return String(emoji.prefix(1))
+        }
+        return String(self.agent.displayName.prefix(1)).uppercased()
     }
 }
 #endif

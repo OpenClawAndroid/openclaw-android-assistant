@@ -3,6 +3,8 @@ import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js"
 import type { DeliveryQueueDatabase } from "./delivery-queue-sqlite-bound.js";
 import {
   completeDeliveryQueueEntryInDatabase,
+  resolveDeliveryQueueStateEnv,
+  type DeliveryQueueStateContext,
   deleteDeliveryQueueEntryInDatabase,
   getDeliveryQueueEntryOwnersInDatabase,
   upsertDeliveryQueueEntryInDatabase,
@@ -15,14 +17,17 @@ import {
 } from "./kysely-sync.js";
 
 /** Atomically publishes one staged owner only when retired namespaces do not own its id. */
-export function commitStagedDeliveryQueueEntryOnceAcrossNamespaces(params: {
-  queueName: string;
-  conflictQueueNames: readonly string[];
-  entry: DeliveryQueueEntryState;
-  stagingId: string;
-  stagingQueueName: string;
-  stateDir?: string;
-}): "created" | "existing" | "missing" {
+export function commitStagedDeliveryQueueEntryOnceAcrossNamespaces(
+  params: {
+    queueName: string;
+    conflictQueueNames: readonly string[];
+    entry: DeliveryQueueEntryState;
+    stagingId: string;
+    stagingQueueName: string;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): "created" | "existing" | "missing" {
   return runOpenClawStateWriteTransaction(
     (database) => {
       const queueDb = getNodeSqliteKysely<DeliveryQueueDatabase>(database.db);
@@ -73,7 +78,7 @@ export function commitStagedDeliveryQueueEntryOnceAcrossNamespaces(params: {
       return "created";
     },
     {
-      env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+      env: resolveDeliveryQueueStateEnv(params.stateDir, context),
     },
     {
       operationLabel: "commit staged stable delivery queue owner",
@@ -82,12 +87,15 @@ export function commitStagedDeliveryQueueEntryOnceAcrossNamespaces(params: {
 }
 
 /** Inserts one stable owner only when no current or retired namespace owns its id. */
-export function upsertDeliveryQueueEntryOnceAcrossNamespaces(params: {
-  queueName: string;
-  conflictQueueNames: readonly string[];
-  entry: DeliveryQueueEntryState;
-  stateDir?: string;
-}): boolean {
+export function upsertDeliveryQueueEntryOnceAcrossNamespaces(
+  params: {
+    queueName: string;
+    conflictQueueNames: readonly string[];
+    entry: DeliveryQueueEntryState;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): boolean {
   return runOpenClawStateWriteTransaction(
     (database) => {
       const owner = getDeliveryQueueEntryOwnersInDatabase(
@@ -108,7 +116,7 @@ export function upsertDeliveryQueueEntryOnceAcrossNamespaces(params: {
       );
     },
     {
-      env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+      env: resolveDeliveryQueueStateEnv(params.stateDir, context),
     },
     {
       operationLabel: "insert stable delivery queue owner",
@@ -129,12 +137,15 @@ type MovePendingDeliveryQueueEntryNamespaceParams = {
 };
 
 /** Replaces a pending entry only while its authoritative serialized value is unchanged. */
-export function replacePendingDeliveryQueueEntry(params: {
-  queueName: string;
-  expectedEntry: DeliveryQueueEntryState;
-  replacementEntry: DeliveryQueueEntryState;
-  stateDir?: string;
-}): boolean {
+export function replacePendingDeliveryQueueEntry(
+  params: {
+    queueName: string;
+    expectedEntry: DeliveryQueueEntryState;
+    replacementEntry: DeliveryQueueEntryState;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): boolean {
   if (params.expectedEntry.id !== params.replacementEntry.id) {
     throw new Error(
       `Delivery queue replacement id mismatch: ${params.expectedEntry.id} != ${params.replacementEntry.id}`,
@@ -168,7 +179,7 @@ export function replacePendingDeliveryQueueEntry(params: {
       );
     },
     {
-      env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+      env: resolveDeliveryQueueStateEnv(params.stateDir, context),
     },
     {
       operationLabel: "replace pending delivery queue entry",
@@ -177,11 +188,14 @@ export function replacePendingDeliveryQueueEntry(params: {
 }
 
 /** Completes a pending entry only while its authoritative serialized value is unchanged. */
-export function completePendingDeliveryQueueEntry(params: {
-  queueName: string;
-  expectedEntry: DeliveryQueueEntryState;
-  stateDir?: string;
-}): boolean {
+export function completePendingDeliveryQueueEntry(
+  params: {
+    queueName: string;
+    expectedEntry: DeliveryQueueEntryState;
+    stateDir?: string;
+  },
+  context?: DeliveryQueueStateContext,
+): boolean {
   return runOpenClawStateWriteTransaction(
     (database) => {
       const queueDb = getNodeSqliteKysely<DeliveryQueueDatabase>(database.db);
@@ -204,7 +218,7 @@ export function completePendingDeliveryQueueEntry(params: {
       return true;
     },
     {
-      env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+      env: resolveDeliveryQueueStateEnv(params.stateDir, context),
     },
     {
       operationLabel: "complete pending delivery queue entry",
@@ -218,6 +232,7 @@ export function completePendingDeliveryQueueEntry(params: {
  */
 export function movePendingDeliveryQueueEntryNamespace(
   params: MovePendingDeliveryQueueEntryNamespaceParams,
+  context?: DeliveryQueueStateContext,
 ): "moved" | "source-changed" | "destination-exists" | "staging-missing" {
   return runOpenClawStateWriteTransaction(
     (database) => {
@@ -291,7 +306,7 @@ export function movePendingDeliveryQueueEntryNamespace(
       return "moved";
     },
     {
-      env: params.stateDir ? { ...process.env, OPENCLAW_STATE_DIR: params.stateDir } : process.env,
+      env: resolveDeliveryQueueStateEnv(params.stateDir, context),
     },
     {
       operationLabel: "migrate delivery queue namespace",

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { createOperationalRunInstanceRef } from "../agents/admitted-run-context.js";
 import type { ChannelApprovalKind } from "../infra/approval-types.js";
 import { resolveCanonicalPluginApprovalRequestAllowedDecisions } from "../infra/plugin-approval-canonical-decisions.js";
@@ -478,10 +479,7 @@ describe("applyPluginNodeInvokePolicy", () => {
       createDemoPolicy((ctx: OpenClawPluginNodeInvokePolicyContext) => ctx.invokeNode()),
     ]);
     let authorityActive = true;
-    let releasePairingCheck: (() => void) | undefined;
-    const pairingCheck = new Promise<void>((resolve) => {
-      releasePairingCheck = resolve;
-    });
+    const { promise: pairingCheck, resolve: releasePairingCheck } = createDeferred();
     const { context, invoke } = createContext({
       validateAgentRuntimeApprovalAuthority: () => authorityActive,
     });
@@ -531,10 +529,7 @@ describe("applyPluginNodeInvokePolicy", () => {
       createDemoPolicy((ctx: OpenClawPluginNodeInvokePolicyContext) => ctx.invokeNode()),
     ]);
     let approvalActive = true;
-    let releasePairingCheck: (() => void) | undefined;
-    const pairingCheck = new Promise<void>((resolve) => {
-      releasePairingCheck = resolve;
-    });
+    const { promise: pairingCheck, resolve: releasePairingCheck } = createDeferred();
     const { context, invoke } = createContext();
     const resultPromise = applyPluginNodeInvokePolicy({
       context,

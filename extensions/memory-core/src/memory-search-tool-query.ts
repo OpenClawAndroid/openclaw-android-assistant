@@ -14,6 +14,7 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
+import { captureMemoryRebuildNotice } from "./memory-rebuild-notice.js";
 import { filterMemorySearchHitsBySessionVisibility } from "./session-search-visibility.js";
 import { buildMemorySearchUnavailableResult } from "./tools.shared.js";
 
@@ -23,7 +24,10 @@ export function buildPausedMemoryIndexUnavailableResult(
   diagnostic: MemoryIndexIdentityDiagnostic,
   params: {
     agentId: string;
-    status: Pick<MemoryProviderStatus, "provider" | "requestedProvider" | "lastSyncError">;
+    status: Pick<
+      MemoryProviderStatus,
+      "provider" | "requestedProvider" | "lastSyncError" | "custom"
+    >;
   },
 ) {
   const { error, warning, action } = resolveMemoryIndexSearchDiagnostic(
@@ -72,6 +76,7 @@ export async function executeMemorySearchToolQuery(params: {
   visibility: MemorySearchToolVisibility;
   signal: AbortSignal;
   deadlineControl?: MemorySearchDeadlineControl;
+  onRebuildNotice?: (readWarning: () => string | undefined) => void;
   onPartialResults?: (
     result: Awaited<ReturnType<typeof finalizeMemorySearchToolQuery>> | null,
   ) => void;
@@ -92,9 +97,15 @@ export async function executeMemorySearchToolQuery(params: {
           ? query.indexedSources
           : query.defaultSources
         : undefined);
-  const queryContext = { query, visibility, searchSources, startedAt };
+  const queryContext = {
+    query,
+    visibility,
+    searchSources,
+    startedAt,
+  };
 
   const searchOnce = async () => {
+    params.onRebuildNotice?.(captureMemoryRebuildNotice(active.manager.status()));
     const allowedSources = searchSources ? new Set(searchSources) : undefined;
     const searchesSessions = searchSources?.includes("sessions") === true;
     const indexedCandidateCount = searchesSessions

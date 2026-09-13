@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { GatewayRequestError } from "../../api/gateway.ts";
 import { showConfirmDialog } from "../../components/confirm-dialog.ts";
 import { i18n } from "../../i18n/index.ts";
@@ -19,7 +20,6 @@ import {
   createPluginsRouteData,
   createResult,
   createRuntimeConfigHarness,
-  deferred,
   mountPage,
   resetPluginsPageTestState,
 } from "./plugins-page.test-support.ts";
@@ -35,8 +35,8 @@ describe("PluginsPage lifecycle confirmation", () => {
   afterEach(resetPluginsPageTestState);
 
   function createQueuedRuntimeConfig(client: ReturnType<typeof createClient>["client"]) {
-    const queued = deferred<void>();
-    const release = deferred<void>();
+    const queued = deferred();
+    const release = deferred();
     const harness = createRuntimeConfigHarness(
       vi.fn(async () => undefined),
       { configFormDirty: false, lastError: null },

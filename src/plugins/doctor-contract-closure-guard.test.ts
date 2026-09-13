@@ -153,6 +153,15 @@ const FORBIDDEN_SPECIFIER_RULES = new Map<string, { reason: string; kinds: Set<C
     },
   ],
   [
+    "openclaw/plugin-sdk/memory-core-host-engine-schema",
+    {
+      reason:
+        "the memory schema barrel loads SQLite/FTS migration helpers during doctor enumeration; " +
+        "defer sidecar writers behind a dynamic import after legacy state is found",
+      kinds: new Set(["doctor-contract"]),
+    },
+  ],
+  [
     "openclaw/plugin-sdk/memory-host-core",
     {
       reason:

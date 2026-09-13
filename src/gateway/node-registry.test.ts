@@ -1766,10 +1766,7 @@ describe("gateway/node-registry", () => {
 
   it("does not report a replaced polling transport as connected", async () => {
     const registry = createTestNodeRegistry();
-    let resolveProbe: ((result: { ok: true }) => void) | undefined;
-    const transportProbe = new Promise<{ ok: true }>((resolve) => {
-      resolveProbe = resolve;
-    });
+    const { promise: transportProbe, resolve: resolveProbe } = createDeferred<{ ok: true }>();
     registry.registerTransport(
       makeClient("conn-old", "node-1"),
       { pairingIdentity: "identity-a" },
@@ -3604,12 +3601,9 @@ describe("gateway/node-registry", () => {
   });
 
   it("drops a delayed voice-wake snapshot after persistent generation changes", async () => {
-    let resolveCurrent!: (state: { identity: string; generation?: string } | undefined) => void;
-    const currentPairingState = new Promise<{ identity: string; generation?: string } | undefined>(
-      (resolve) => {
-        resolveCurrent = resolve;
-      },
-    );
+    const { promise: currentPairingState, resolve: resolveCurrent } = createDeferred<
+      { identity: string; generation?: string } | undefined
+    >();
     const resolveCurrentPairingState = vi.fn(() => currentPairingState);
     const registry = createNodeRegistry({ resolveCurrentPairingState });
     const frames: string[] = [];
@@ -3632,10 +3626,9 @@ describe("gateway/node-registry", () => {
   });
 
   it("drops a delayed command-free snapshot after pairing identity deletion", async () => {
-    let resolveCurrent!: (state: { identity: string } | undefined) => void;
-    const currentPairingState = new Promise<{ identity: string } | undefined>((resolve) => {
-      resolveCurrent = resolve;
-    });
+    const { promise: currentPairingState, resolve: resolveCurrent } = createDeferred<
+      { identity: string } | undefined
+    >();
     const registry = createNodeRegistry({
       resolveCurrentPairingState: async () => await currentPairingState,
     });
@@ -3658,10 +3651,10 @@ describe("gateway/node-registry", () => {
   });
 
   it("does not retarget an approval refresh when its connection changes during pairing verification", async () => {
-    let resolveCurrent!: (state: { identity: string; generation: string }) => void;
-    const currentPairingState = new Promise<{ identity: string; generation: string }>((resolve) => {
-      resolveCurrent = resolve;
-    });
+    const { promise: currentPairingState, resolve: resolveCurrent } = createDeferred<{
+      identity: string;
+      generation: string;
+    }>();
     const registry = createNodeRegistry({
       resolveCurrentPairingState: async () => await currentPairingState,
     });

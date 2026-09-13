@@ -1,6 +1,9 @@
 // Status scan overview tests cover overview collection and gateway/runtime summary inputs.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createSqliteWalHealth } from "./sqlite-wal-health.test-support.js";
 import { collectStatusScanOverview } from "./status.scan-overview.ts";
+
+const sqliteWal = createSqliteWalHealth();
 
 const mocks = vi.hoisted(() => ({
   hasConfiguredChannelsForReadOnlyScope: vi.fn(),
@@ -154,6 +157,7 @@ describe("collectStatusScanOverview", () => {
             degradedSecretOwners: [],
             degradedPlugins: [],
             startupMigrationWarning: "Retained legacy state; run openclaw doctor --fix.",
+            sqliteWal,
           }
         : { channelAccounts: {} },
     );
@@ -172,6 +176,7 @@ describe("collectStatusScanOverview", () => {
     expect(result.runtimeDegradation?.secretEgressProxy?.message).toBe(
       "Check OpenSSL, then retry.",
     );
+    expect(result.runtimeDegradation?.sqliteWal).toEqual(sqliteWal);
     expect(mocks.readCommandConfigSnapshot).toHaveBeenCalledOnce();
     expect(mocks.callGateway).toHaveBeenCalledTimes(2);
     const channelsRequest = gatewayRequest("channels.status");
@@ -307,6 +312,7 @@ describe("collectStatusScanOverview", () => {
       degradedSecretOwners: [],
       degradedPlugins: [],
       startupMigrationWarning: "fallback warning",
+      sqliteWal,
     };
     mocks.createStatusScanCoreBootstrap.mockResolvedValueOnce({
       ...bootstrap,
@@ -322,6 +328,7 @@ describe("collectStatusScanOverview", () => {
       includeChannelsData: false,
     });
     expect(result.runtimeDegradation?.startupMigrationWarning).toBe("fallback warning");
+    expect(result.runtimeDegradation?.sqliteWal).toEqual(sqliteWal);
     expect(mocks.callGateway).not.toHaveBeenCalled();
     expect(result.cfg).toEqual({ session: {} });
   });

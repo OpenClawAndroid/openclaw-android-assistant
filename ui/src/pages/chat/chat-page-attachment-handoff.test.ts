@@ -2,6 +2,7 @@
 /* @vitest-environment-options {"url":"http://chat-page-attachment-handoff.test/"} */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 
 vi.mock("./chat-pane.ts", () => ({}));
 vi.mock("../../app/native-gateways.runtime.ts", () => ({
@@ -22,14 +23,6 @@ type RenderedPane = HTMLElement & {
   discardStagedAttachments?: () => void;
   resumeStagedAttachments?: () => void;
 };
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
 
 function splitLayout(sessionKey: string): ChatSplitLayout {
   const layout: ChatSplitLayout = {
@@ -100,7 +93,7 @@ describe("chat page staged attachment rebound", () => {
     const resume = vi.fn();
     closingPane.discardStagedAttachments = discard;
     closingPane.resumeStagedAttachments = resume;
-    const teardown = deferred<void>();
+    const teardown = deferred();
     const mcpApp = document.createElement("mcp-app-view");
     const restartAfterTeardown = vi.fn();
     mcpApp.restartAfterTeardown = restartAfterTeardown;

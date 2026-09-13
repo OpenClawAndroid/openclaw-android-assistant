@@ -13,14 +13,16 @@ import {
   ensureMemoryChunkProvenance,
   loadSqliteVecExtension,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
-import { deleteSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
+import { deleteSessionEntry, upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
+import { withSessionTranscriptWriteLock } from "openclaw/plugin-sdk/session-transcript-runtime";
 import * as sqliteRuntime from "openclaw/plugin-sdk/sqlite-runtime";
 import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordMemorySessionTombstones } from "../memory-entry-origins.js";
 import { MemoryIndexRevisionConflictError } from "./manager-db.js";
 import { createManagerIndexFixture } from "./manager-index.test-support.js";
-import { closeAllMemoryIndexManagers, MemoryIndexManager } from "./manager.js";
+import { closeAllMemoryIndexManagers } from "./manager-runtime.js";
+import { MemoryIndexManager } from "./manager.js";
 
 const { closeAllMemorySearchManagers, getMemorySearchManager } = await import("./index.js");
 
@@ -212,6 +214,62 @@ describe("memory manager shared agent connection", () => {
     await first.close();
     await replacement.sync({ reason: "test", force: true });
     expect((await replacement.search("Alpha")).length).toBeGreaterThan(0);
+  });
+
+  it("rejects queued maintenance without reopening its retired source connection", async () => {
+    const cfg = createConfig();
+    const source = await fixture.getFreshManager(cfg, "cli");
+    const sourcePath = source.status().dbPath;
+    const target = {
+      agentId: "main",
+      sessionKey: "agent:main:maintenance-admission",
+      sessionId: "maintenance-admission",
+    };
+    await upsertSessionEntry({
+      ...target,
+      entry: { sessionId: target.sessionId, updatedAt: Date.now() },
+    });
+    const entered = createDeferred<void>();
+    const released = createDeferred<void>();
+    const queued = createDeferred<void>();
+    const writer = withSessionTranscriptWriteLock(target, async () => {
+      entered.resolve();
+      await released.promise;
+      closeOpenClawAgentDatabasesForTest();
+    });
+    await entered.promise;
+    const admit = sqliteRuntime.withOpenClawAgentDatabaseWrite;
+    vi.spyOn(sqliteRuntime, "withOpenClawAgentDatabaseWrite").mockImplementation(
+      (options, write, expectedDatabase) => {
+        const result = admit(options, write, expectedDatabase);
+        queued.resolve();
+        return result;
+      },
+    );
+    const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
+    const creating = MemoryIndexManager.get({
+      cfg,
+      agentId: "main",
+      purpose: "maintenance",
+      maintenanceSource: source,
+    });
+    void creating.catch(() => undefined);
+    try {
+      await Promise.race([queued.promise, creating]);
+      released.resolve();
+      await expect(creating).rejects.toThrow(/connection is unavailable|closed or changed/);
+      expect(
+        prepare.mock.contexts.filter(
+          (database) =>
+            database instanceof DatabaseSync &&
+            database.isOpen &&
+            database.location() === sourcePath,
+        ),
+      ).toEqual([]);
+    } finally {
+      released.resolve();
+      await Promise.allSettled([writer, creating]);
+    }
   });
 
   it("serves published hits while dirty maintenance setup meets a separate writer lock", async () => {

@@ -2,6 +2,8 @@ import { asPositiveSafeInteger } from "@openclaw/normalization-core/number-coerc
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { SessionEntry } from "../config/sessions.js";
 import { SessionTranscriptProjectionUnavailableError } from "../config/sessions/session-transcript-projection-error.js";
+import { resolveTranscriptPageEnd } from "../sessions/transcript-anchor-page.js";
+import type { TranscriptReadWindow } from "../sessions/transcript-read-window.js";
 import {
   dropPreSessionStartAnnouncePairs,
   isHeartbeatHistoryTurnBoundaryMessage,
@@ -73,11 +75,14 @@ async function readAdjacentChatHistoryMessages(params: {
   limit: number;
   readScope: SessionTranscriptReadScope;
   displaySource: string | undefined;
+  expectedReadWindow?: TranscriptReadWindow;
 }): Promise<unknown[]> {
   // Anchor lookup and positioning share one snapshot; numeric offsets drift on appends.
   const page = await readSessionMessagesAroundIdWithStatsAsync(params.readScope, {
     messageId: params.anchorId,
-    maxMessages: params.limit * 2 + 1,
+    maxMessages: params.limit + 1,
+    direction: params.direction,
+    expectedReadWindow: params.expectedReadWindow,
     allowResetArchiveFallback: true,
   });
   if (!page.found || page.displaySource !== params.displaySource) {
@@ -100,6 +105,7 @@ export async function readChatHistoryRecoveryContext(params: {
   project: (messages: unknown[]) => ReturnType<typeof projectChatDisplayMessagesWithState>;
   readScope: SessionTranscriptReadScope;
   displaySource: string | undefined;
+  expectedReadWindow?: TranscriptReadWindow;
   maxBytes: number;
 }): Promise<unknown[]> {
   const context: unknown[] = [];
@@ -116,6 +122,7 @@ export async function readChatHistoryRecoveryContext(params: {
       limit: chunkSize,
       readScope: params.readScope,
       displaySource: params.displaySource,
+      expectedReadWindow: params.expectedReadWindow,
     });
     if (newer.length === 0) {
       break;
@@ -151,34 +158,66 @@ export async function readIncrementalChatHistoryTail(params: {
   max: number;
   maxBytes: number;
   offset?: number;
+  beforeSeq?: number;
   preserveProjectionContext?: boolean;
 }): Promise<IncrementalChatHistoryTail> {
-  const offset = params.offset ?? 0;
+  let offset = params.offset ?? 0;
+  const requestedBeforeSeq = params.beforeSeq;
   const rawHistoryWindowMessages = Math.max(1, Math.floor(params.max)) * 20 + 20;
   // Sequence-cursor transports group tool results and derived mirrors together,
   // so their initial read keeps the established wider projection context.
-  const initialMessages =
-    params.preserveProjectionContext && offset === 0
-      ? rawHistoryWindowMessages
-      : Math.min(rawHistoryWindowMessages, Math.max(1, offset === 0 ? params.max * 3 : params.max));
+  let initialMessages =
+    requestedBeforeSeq !== undefined
+      ? Math.min(rawHistoryWindowMessages, Math.max(1, params.max))
+      : params.preserveProjectionContext && offset === 0
+        ? rawHistoryWindowMessages
+        : Math.min(
+            rawHistoryWindowMessages,
+            Math.max(1, offset === 0 ? params.max * 3 : params.max),
+          );
   const readPage =
-    offset === 0
+    offset === 0 && requestedBeforeSeq === undefined
       ? await readRecentSessionMessagesWithStatsAsync(params.readScope, {
           maxMessages: initialMessages + 1,
           maxLines: initialMessages + 1,
           maxBytes: Math.max(params.maxBytes * 2, 1024 * 1024),
           allowResetArchiveFallback: true,
+          captureReadWindow: true,
         })
       : await readSessionMessagesPageWithStatsAsync(params.readScope, {
           offset,
+          ...(requestedBeforeSeq === undefined ? {} : { beforeSeq: requestedBeforeSeq }),
           maxMessages: initialMessages + 1,
+          ...(requestedBeforeSeq !== undefined && params.preserveProjectionContext
+            ? {
+                recentAtHead: {
+                  maxMessages: rawHistoryWindowMessages + 1,
+                  maxLines: rawHistoryWindowMessages + 1,
+                  maxBytes: Math.max(params.maxBytes * 2, 1024 * 1024),
+                },
+              }
+            : {}),
           allowResetArchiveFallback: true,
+          captureReadWindow: true,
         });
+  const readWindow = readPage.readWindow;
+  const availableMessages = resolveTranscriptPageEnd(readPage.totalMessages, {
+    beforeSeq: requestedBeforeSeq,
+    offset,
+  });
+  // Every later read stays below this snapshot's head, including sparse offset and tail scans.
+  const beforeSeq = availableMessages + 1;
+  if (requestedBeforeSeq !== undefined) {
+    offset = readPage.totalMessages - availableMessages;
+    if (offset === 0 && params.preserveProjectionContext) {
+      initialMessages = rawHistoryWindowMessages;
+    }
+  }
   const sessionStartedAt =
     typeof params.entry?.sessionStartedAt === "number" ? params.entry.sessionStartedAt : undefined;
   let rawPageMessages = Math.min(
     initialMessages,
-    Math.max(readPage.messages.length, readPage.totalMessages > offset ? 1 : 0),
+    Math.max(readPage.messages.length, availableMessages > 0 ? 1 : 0),
   );
   let overreadContextMessage =
     readPage.messages.length > initialMessages ? readPage.messages[0] : undefined;
@@ -240,6 +279,7 @@ export async function readIncrementalChatHistoryTail(params: {
       project: (messages) => project(messages, overreadContextMessage, true, []).projection,
       readScope: params.readScope,
       displaySource: readPage.displaySource,
+      expectedReadWindow: readWindow,
       maxBytes: params.maxBytes,
     });
     return project();
@@ -251,7 +291,7 @@ export async function readIncrementalChatHistoryTail(params: {
   let scannedBytes = 0;
   const unmeasuredPages: unknown[][] = [];
   let nextChunkMessages = SILENT_CHAT_HISTORY_TAIL_SCAN_CHUNK_MESSAGES;
-  while (offset + rawPageMessages < readPage.totalMessages) {
+  while (rawPageMessages < availableMessages) {
     if (projectionDirty && estimatedVisibleMessages >= params.max) {
       result = await projectWindow();
       projectionDirty = false;
@@ -278,10 +318,13 @@ export async function readIncrementalChatHistoryTail(params: {
               limit: chunkMessages + 1,
               readScope: params.readScope,
               displaySource: readPage.displaySource,
+              expectedReadWindow: readWindow,
             }),
           }
         : await readSessionMessagesPageWithStatsAsync(params.readScope, {
-            offset: offset + rawPageMessages,
+            beforeSeq,
+            offset: rawPageMessages,
+            expectedReadWindow: readWindow,
             maxMessages: chunkMessages + 1,
             allowResetArchiveFallback: true,
           });

@@ -220,6 +220,7 @@ defineDiscordVoiceTests(
       await entry.playbackQueue;
 
       expect(controlRealtimeVoiceAgentRunMock).toHaveBeenCalledWith({
+        getToolAuthorityOverlay: expect.any(Function),
         sessionKey: entry.route?.sessionKey,
         text: "use the smaller implementation",
       });

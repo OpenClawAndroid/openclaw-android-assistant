@@ -2,6 +2,7 @@
 
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewaySessionRow, SessionsListResult } from "../api/types.ts";
 import {
   createTestSessionCapability,
@@ -12,7 +13,7 @@ import { createTestChatPane } from "../pages/chat/chat-pane.test-support.ts";
 import { refreshPageChat } from "../pages/chat/chat-state-refresh.ts";
 import { buildSessionsListQuery } from "../pages/sessions/list-query.ts";
 import "../test-helpers/app-sidebar-suite.ts";
-import { createGateway, deferred, mountSidebar } from "../test-helpers/app-sidebar.ts";
+import { createGateway, mountSidebar } from "../test-helpers/app-sidebar.ts";
 import { createTestGatewayClient } from "../test-helpers/gateway-client.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
 import "./app-sidebar.ts";

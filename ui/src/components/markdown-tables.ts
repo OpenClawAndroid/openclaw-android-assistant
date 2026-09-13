@@ -46,7 +46,7 @@ export function installMarkdownTables(markdownParser: MarkdownIt): void {
   };
 }
 
-function tableText(table: HTMLTableElement): string {
+export function markdownTableCopyText(table: HTMLTableElement): string {
   return [...table.rows]
     .map((row) => [...row.cells].map((cell) => cell.textContent?.trim() ?? "").join("\t"))
     .join("\n");
@@ -239,7 +239,7 @@ export function handleMarkdownTableInteraction(event: Event): void {
     const attempt = (tableCopyAttempts.get(copy) ?? 0) + 1;
     tableCopyAttempts.set(copy, attempt);
     const isCurrent = () => copy.isConnected && tableCopyAttempts.get(copy) === attempt;
-    void copyToClipboard(tableText(table), isCurrent).then((copied) => {
+    void copyToClipboard(markdownTableCopyText(table), isCurrent).then((copied) => {
       if (!isCurrent()) {
         return;
       }

@@ -13,7 +13,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { linkPnpmBootstrapShellTools } from "./test-helpers.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 describe("source-server updater bootstrap", () => {
   it.each(
@@ -47,10 +50,11 @@ describe("source-server updater bootstrap", () => {
     const repo = join(root, "repo");
     const bin = join(root, "bin");
     const temp = join(root, "temp");
-    for (const dir of [join(repo, "scripts"), join(repo, ".git"), bin, temp])
+    for (const dir of [join(repo, "scripts"), join(repo, ".git"), bin, temp]) {
       mkdirSync(dir, { recursive: true });
+    }
     linkPnpmBootstrapShellTools(bin);
-    symlinkSync(process.execPath, join(bin, "node"));
+    symlinkSync(testNodeExecPath, join(bin, "node"));
     const script = join(repo, "scripts/update-gateway.sh");
     writeFileSync(script, readFileSync("scripts/update-gateway.sh"));
     const originalManifest = '{"packageManager":"pnpm@11.15.1"}';
@@ -160,7 +164,7 @@ NODE
       esac
     `,
     );
-    if (scenario !== "missing")
+    if (scenario !== "missing") {
       executable(
         "corepack",
         `
@@ -170,8 +174,13 @@ NODE
       cp "$FIXTURE/bin/selected" "$3/pnpm"
     `,
       );
-    if (scenario === "symlink") symlinkSync(root, join(repo, "dist"));
-    if (scenario === "interrupted") mkdirSync(join(repo, ".git/rebase-merge"));
+    }
+    if (scenario === "symlink") {
+      symlinkSync(root, join(repo, "dist"));
+    }
+    if (scenario === "interrupted") {
+      mkdirSync(join(repo, ".git/rebase-merge"));
+    }
     try {
       const result = spawnSync("/bin/bash", [script], {
         encoding: "utf8",
@@ -243,8 +252,9 @@ NODE
                 ? ["probe", "install"]
                 : ["probe"],
       );
-      if (beforeFetch) expect(existsSync(join(root, "git-mutations"))).toBe(false);
-      else if (!preflightFailure) {
+      if (beforeFetch) {
+        expect(existsSync(join(root, "git-mutations"))).toBe(false);
+      } else if (!preflightFailure) {
         expect(lines("git-calls")).toContain(`show ${targetSha}:package.json`);
         expect(lines("git-mutations")).toEqual([
           "fetch origin main",
@@ -253,13 +263,16 @@ NODE
             : `rebase --rebase-merges ${targetSha}`,
           ...(scenario === "rebase-failure" ? ["rebase --abort"] : []),
         ]);
-        if (scenario !== "rebase-failure")
+        if (scenario !== "rebase-failure") {
           expect(readFileSync(join(repo, ".git/HEAD"), "utf8")).toBe(targetSha);
+        }
       }
-      if (scenario === "missing" || scenario === "enable-failure")
+      if (scenario === "missing" || scenario === "enable-failure") {
         expect(result.stdout + result.stderr).toContain("Corepack");
-      if (scenario === "rebase-failure")
+      }
+      if (scenario === "rebase-failure") {
         expect(readFileSync(join(root, "git-mutations"), "utf8")).toContain("rebase --abort");
+      }
       expect(readFileSync(join(repo, "pnpm-lock.yaml"), "utf8")).toBe("untouched\n");
       expect(readFileSync(join(repo, "pnpm-workspace.yaml"), "utf8")).toBe("packages: []\n");
       expect(readdirSync(temp)).toEqual([]);

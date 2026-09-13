@@ -10,15 +10,18 @@ import {
   readBrowserPageMetrics,
   type BrowserPageMetrics,
   type BrowserPanelTab,
+  type BrowserDashboardTarget,
 } from "./browser-client.ts";
 import { loadBrowserPanelImage, type BrowserPanelView } from "./browser-panel-surface.ts";
-import type { BrowserRoute } from "./browser-target.ts";
+import type { BrowserRoute, BrowserTabTarget } from "./browser-target.ts";
 
 export interface BrowserPanelControllerHost extends ReactiveControllerHost {
   readonly client: GatewayBrowserClient | null;
   readonly sessionKey: string;
   readonly available: boolean;
   readonly remoteAvailable?: boolean;
+  readonly fixedTab?: BrowserTabTarget;
+  readonly dashboardTarget?: BrowserDashboardTarget;
   readonly resourceBasePath: string;
   readonly authToken: string | null;
   readonly isConnected: boolean;
@@ -41,7 +44,11 @@ export type BrowserPanelSnapshotOutcome = "accepted" | "rejected" | "failed";
 export class BrowserPanelOperationOwnership {
   private lifecycleEpoch = 0;
   route?: BrowserRoute;
-  private scope?: { gateway: GatewayBrowserClient; client: BrowserRequestClient };
+  private scope?: {
+    gateway: GatewayBrowserClient;
+    client: BrowserRequestClient;
+    dashboardKey: string | undefined;
+  };
   private requestedMutation = 0;
   private requestedSnapshot = 0;
   private acceptedSnapshot = 0;
@@ -66,6 +73,7 @@ export class BrowserPanelOperationOwnership {
 
   captureClient(): BrowserRequestClient | null {
     const gateway = this.host.client;
+    const dashboardKey = JSON.stringify(this.host.dashboardTarget);
     if (
       !(this.host.remoteAvailable ?? this.host.available) ||
       !gateway ||
@@ -74,18 +82,20 @@ export class BrowserPanelOperationOwnership {
     ) {
       return null;
     }
-    if (this.scope?.gateway !== gateway) {
+    if (this.scope?.gateway !== gateway || this.scope.dashboardKey !== dashboardKey) {
       const client = bindBrowserRequestClient(
         gateway,
         this.route,
         () =>
           this.scope?.client === client &&
           this.scope.gateway === this.host.client &&
+          JSON.stringify(this.host.dashboardTarget) === dashboardKey &&
           (this.host.remoteAvailable ?? this.host.available) &&
           this.host.isConnected &&
           this.host.browserPanelIsOpen(),
+        this.host.dashboardTarget,
       );
-      this.scope = { gateway, client };
+      this.scope = { gateway, client, dashboardKey };
     }
     return this.scope.client;
   }
@@ -102,6 +112,7 @@ export class BrowserPanelOperationOwnership {
       this.host.available &&
       this.host.browserPanelIsOpen() &&
       this.lifecycleEpoch === epoch &&
+      this.scope?.dashboardKey === JSON.stringify(this.host.dashboardTarget) &&
       (client === undefined ||
         (this.scope?.gateway === this.host.client && this.scope.client === client))
     );

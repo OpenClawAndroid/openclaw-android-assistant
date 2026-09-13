@@ -1,5 +1,6 @@
 import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../../test/helpers/promise.js";
 import { GatewayRequestError, type GatewayBrowserClient } from "../../../api/gateway.ts";
 import type { TaskSummary } from "../../../lib/tasks/task-summary.ts";
 import { renderBackgroundTasksRail } from "./chat-background-tasks-render.ts";
@@ -16,14 +17,6 @@ function flushAsync() {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
 }
 
 function makeTask(overrides: Partial<TaskSummary> & { id: string }): TaskSummary {

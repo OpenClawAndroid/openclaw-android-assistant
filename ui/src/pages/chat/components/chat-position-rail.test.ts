@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { html, nothing, render } from "lit";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestTranscript } from "../chat-view.test-helpers.ts";
 import { getTranscriptState } from "./chat-thread-interactions.ts";
 import { renderChatThread } from "./chat-thread.ts";
@@ -29,6 +29,111 @@ function message(id: string, role: string, content: unknown, seq: number, runId?
 describe("conversation position rail", () => {
   beforeEach(installTranscriptDomMocks);
   afterEach(resetTranscriptTestDom);
+
+  it("keeps stream edits off target scans while reconciling bubble mounts and identities", async () => {
+    const observed = new Set<Element>();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe = (element: Element) => observed.add(element);
+        unobserve = (element: Element) => observed.delete(element);
+        disconnect = () => observed.clear();
+      },
+    );
+    const props = {
+      ...threadProps("rail-mutations", "agent:main:rail-mutations", [
+        message("question", "user", "Earlier question", 1),
+        message("answer", "assistant", "Earlier answer", 2),
+      ]),
+      runActive: true,
+      stream: "Live **start**",
+      streamStartedAt: 3_000,
+    };
+    const transcript = createTestTranscript();
+    const container = document.body.appendChild(document.createElement("div"));
+    const rerender = () => {
+      render(renderChatThread(props, transcript), container);
+      transcript.hostUpdated();
+    };
+    const settleFrames = () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+    props.onRequestUpdate = rerender;
+    try {
+      rerender();
+      transcript.hostConnected();
+      const root = container.querySelector<HTMLElement>(".chat-thread");
+      const marks = container.querySelector<HTMLElement>(".chat-position-rail__marks");
+      const original = container.querySelector<HTMLElement>(
+        '.chat-bubble[data-entry-id="question"]',
+      );
+      assert(root && marks && original);
+      Object.defineProperty(marks, "clientHeight", { configurable: true, value: 600 });
+      await settleFrames();
+      expect(observed.has(original)).toBe(true);
+      const query = vi.spyOn(root, "querySelectorAll");
+      const targetScans = () =>
+        query.mock.calls.filter(([selector]) => selector === ".chat-bubble[data-entry-id]").length;
+
+      for (const word of ["one", "two", "three"]) {
+        props.stream = `Live **${word}**`;
+        rerender();
+        await settleFrames();
+        expect(container.querySelector(".chat-bubble strong")?.textContent).toBe(word);
+        expect(container.querySelector('.chat-bubble[data-entry-id="question"]')).toBe(original);
+      }
+      expect(targetScans()).toBe(0);
+
+      original.remove();
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(original)).toBe(false);
+      query.mockClear();
+
+      const replacement = original.cloneNode(true) as HTMLElement;
+      root.append(replacement);
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(replacement)).toBe(true);
+      query.mockClear();
+      replacement.remove();
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(replacement)).toBe(false);
+      query.mockClear();
+
+      const wrapper = document.createElement("section");
+      wrapper.append(replacement);
+      root.append(wrapper);
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(replacement)).toBe(true);
+      query.mockClear();
+      wrapper.remove();
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(replacement)).toBe(false);
+      query.mockClear();
+
+      replacement.removeAttribute("data-entry-id");
+      root.append(replacement);
+      await settleFrames();
+      expect(targetScans()).toBe(0);
+      replacement.dataset.entryId = "question";
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(replacement)).toBe(true);
+      query.mockClear();
+      replacement.removeAttribute("data-entry-id");
+      await settleFrames();
+      expect(targetScans()).toBeGreaterThan(0);
+      expect(observed.has(replacement)).toBe(false);
+    } finally {
+      render(nothing, container);
+      transcript.hostDisconnected();
+    }
+  });
 
   it("publishes consecutive reader offsets even when the virtual row range is unchanged", async () => {
     transcriptDomState.measuredRowHeight = 120;

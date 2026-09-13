@@ -7,6 +7,7 @@ import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.
 import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
+  closeOpenClawAgentDatabaseByPathAsync,
   confirmOpenClawAgentDatabaseIntegrity,
   listOpenClawRegisteredAgentDatabases,
   recordOpenClawAgentDatabaseOpenFailure,
@@ -265,7 +266,7 @@ export async function applyOpenClawDatabaseVerificationResults(options: {
     const confirmation =
       target.kind === "state"
         ? await confirmOpenClawStateDatabaseIntegrity(result.path)
-        : confirmOpenClawAgentDatabaseIntegrity(result.path);
+        : await confirmOpenClawAgentDatabaseIntegrity(result.path);
     if (confirmation.status === "healthy") {
       log.info("discarding stale database integrity verification result", {
         kind: target.kind,
@@ -302,6 +303,10 @@ export async function applyOpenClawDatabaseVerificationResults(options: {
         path: result.path,
       });
       continue;
+    }
+    if (target.kind === "agent") {
+      // Confirmation awaited drainage; retire any actor admitted before the terminal latch.
+      await closeOpenClawAgentDatabaseByPathAsync(result.path);
     }
     const recorded = recordOpenClawDatabaseQuarantine({
       env: options.env,

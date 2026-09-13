@@ -22,6 +22,8 @@ export type MessageReplyTarget = {
 };
 
 export type MessageActionDetails = {
+  /** Source for context copy, independent of footer visibility and reply truncation. */
+  copyMarkdown?: string;
   markdown?: string;
   fullMessage?: { messageId: string; state: AssistantMessageExpansionState | undefined };
   replyTarget?: MessageReplyTarget;
@@ -100,15 +102,14 @@ export function resolveMessageActionDetails(
   const visibleMarkdown =
     role === "assistant" ? stripThinkingTags(expandedMarkdown) : expandedMarkdown;
   const markdown = role === "assistant" || pendingInput ? visibleMarkdown : undefined;
-  const replyText =
-    onReply && !pendingInput
-      ? truncateUtf16Safe(resolveMessageReplyText(message, normalizedMessage, visibleMarkdown), 500)
-      : "";
-  if (!markdown && !replyText && !fullMessage) {
+  const copyMarkdown = resolveMessageReplyText(message, normalizedMessage, visibleMarkdown);
+  const replyText = onReply && !pendingInput ? truncateUtf16Safe(copyMarkdown, 500) : "";
+  if (!copyMarkdown && !markdown && !replyText && !fullMessage) {
     return null;
   }
   const sourceMessageId = persistedMessageEntryId(message);
   return {
+    copyMarkdown,
     ...(markdown === undefined ? {} : { markdown }),
     fullMessage,
     ...(replyText

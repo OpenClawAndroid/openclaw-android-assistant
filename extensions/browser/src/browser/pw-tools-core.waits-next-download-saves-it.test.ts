@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getPwToolsCoreSessionMocks,
@@ -390,54 +391,80 @@ describe("pw-tools-core", () => {
     expect(harness.activeHandlerCount()).toBe(0);
   });
 
-  it("clicks a ref and atomically finalizes explicit download paths", async () => {
-    await withTempDir(async (tempDir) => {
-      const harness = createDownloadEventHarness();
+  it.each([false, true])(
+    "atomically finalizes explicit downloads with revocation=%s after the click",
+    async (revoke) => {
+      await withTempDir(async (tempDir) => {
+        const harness = createDownloadEventHarness();
 
-      const click = vi.fn(async () => {});
-      setPwToolsCoreCurrentRefLocator({ click });
+        const clicked = createDeferred<void>();
+        let current = true;
+        const click = vi.fn(async () => {
+          current = false;
+          clicked.resolve();
+        });
+        setPwToolsCoreCurrentRefLocator({ click });
 
-      const saveAs = vi.fn(async (outPath: string) => {
-        await fs.writeFile(outPath, "report-content", "utf8");
-      });
-      const download = {
-        url: () => "https://example.com/report.pdf",
-        suggestedFilename: () => "report.pdf",
-        saveAs,
-      };
+        const saveAs = vi.fn(async (outPath: string) => {
+          await fs.writeFile(outPath, "report-content", "utf8");
+        });
+        const download = {
+          url: () => "https://example.com/report.pdf",
+          suggestedFilename: () => "report.pdf",
+          saveAs,
+        };
 
-      const targetPath = path.join(tempDir, "report.pdf");
-      const p = mod.downloadViaPlaywright({
-        cdpUrl: "http://127.0.0.1:18792",
-        targetId: "T1",
-        ref: "e12",
-        path: targetPath,
-        timeoutMs: 1000,
-        ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
-      });
-
-      await Promise.resolve();
-      harness.expectArmed();
-      expect(click).toHaveBeenCalledWith({ timeout: 1000, signal: expect.any(AbortSignal) });
-      expect(sessionMocks.withPageNavigationRequestGuard).toHaveBeenCalledWith(
-        expect.objectContaining({
+        const targetPath = path.join(tempDir, "report.pdf");
+        const p = mod.downloadViaPlaywright({
+          cdpUrl: "http://127.0.0.1:18792",
+          targetId: "T1",
+          ref: "e12",
+          path: targetPath,
+          timeoutMs: 1000,
           ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
-        }),
-      );
+          ...(revoke
+            ? {
+                assertCurrent: async () => {
+                  if (!current) {
+                    throw new Error("Dashboard revoked after click");
+                  }
+                },
+              }
+            : {}),
+        });
 
-      harness.trigger(download);
+        if (revoke) {
+          await Promise.race([
+            clicked.promise,
+            p.then(() => {
+              throw new Error("Download completed before its trigger");
+            }),
+          ]);
+        } else {
+          await Promise.resolve();
+        }
+        harness.expectArmed();
+        expect(click).toHaveBeenCalledWith({ timeout: 1000, signal: expect.any(AbortSignal) });
+        expect(sessionMocks.withPageNavigationRequestGuard).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
+          }),
+        );
 
-      const res = await p;
-      expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).toHaveBeenCalledWith({
-        url: "https://example.com/report.pdf",
-        ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
-        browserProxyMode: undefined,
-        signal: undefined,
+        harness.trigger(download);
+
+        const res = await p;
+        expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).toHaveBeenCalledWith({
+          url: "https://example.com/report.pdf",
+          ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
+          browserProxyMode: undefined,
+          signal: undefined,
+        });
+        await expectAtomicDownloadSave({ saveAs, targetPath, content: "report-content" });
+        await expect(fs.realpath(res.path)).resolves.toBe(await fs.realpath(targetPath));
       });
-      await expectAtomicDownloadSave({ saveAs, targetPath, content: "report-content" });
-      await expect(fs.realpath(res.path)).resolves.toBe(await fs.realpath(targetPath));
-    });
-  });
+    },
+  );
 
   it("rejects a policy-denied waited download before saving it", async () => {
     await withTempDir(async (tempDir) => {

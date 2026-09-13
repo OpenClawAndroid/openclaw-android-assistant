@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { buildCapabilityConsentErrorDetails } from "../../../../packages/gateway-protocol/src/capability-consent-error-details.js";
 import type { PluginsReloadResult } from "../../../../packages/gateway-protocol/src/schema/plugins.js";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { GatewayRequestError } from "../../api/gateway.ts";
 import { i18n } from "../../i18n/index.ts";
 import { createRuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
@@ -18,7 +19,6 @@ import {
   createPluginsRouteData,
   createPluginsRouteLocation,
   createResult,
-  deferred,
   mountPage,
   resetPluginsPageTestState,
 } from "./plugins-page.test-support.ts";
@@ -52,7 +52,7 @@ it.each(
   async ({ ordering, mutationAllowed }) => {
     const reload = deferred<PluginsReloadResult>();
     const mutationConfig = deferred<typeof configSnapshot>();
-    const mutationConfigStarted = deferred<void>();
+    const mutationConfigStarted = deferred();
     let holdMutationConfig = false;
     let catalog = {
       ...createResult(createPlugin({ removable: true })),
@@ -342,9 +342,9 @@ it.each(["accept", "reconnect", "queued reconnect", "read-only config"] as const
       confirm.click();
       await page.updateComplete;
     } else if (outcome === "queued reconnect") {
-      const queued = deferred<void>();
-      const release = deferred<void>();
-      const settled = deferred<void>();
+      const queued = deferred();
+      const release = deferred();
+      const settled = deferred();
       const run = runtime.runtimeConfig.runExternalMutation;
       runtime.runtimeConfig.runExternalMutation = async (task, options) => {
         queued.resolve();
@@ -400,8 +400,8 @@ it.each(["accept", "reconnect", "queued reconnect", "read-only config"] as const
 it.each(["method", "admin"] as const)(
   "rechecks current %s access after queued config work",
   async (access) => {
-    const queued = deferred<void>();
-    const release = deferred<void>();
+    const queued = deferred();
+    const release = deferred();
     const { client, request } = createClient(async (method) => {
       if (method === "plugins.list") {
         return createResult();

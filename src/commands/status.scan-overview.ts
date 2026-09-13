@@ -108,7 +108,11 @@ export type StatusScanOverviewResult = {
   >;
   runtimeDegradation: Pick<
     StatusSummary,
-    "degradedSecretOwners" | "degradedPlugins" | "startupMigrationWarning" | "secretEgressProxy"
+    | "degradedSecretOwners"
+    | "degradedPlugins"
+    | "startupMigrationWarning"
+    | "secretEgressProxy"
+    | "sqliteWal"
   > | null;
   channelsStatus: unknown;
   channelIssues: ReturnType<typeof collectChannelStatusIssuesFn>;
@@ -296,6 +300,7 @@ export async function collectStatusScanOverview(params: {
           degradedPlugins: status.degradedPlugins ?? [],
           startupMigrationWarning: status.startupMigrationWarning,
           secretEgressProxy: status.secretEgressProxy,
+          sqliteWal: status.sqliteWal,
         }
       : null;
   }

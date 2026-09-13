@@ -1,14 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionsCatalogListResult } from "../../../../packages/gateway-protocol/src/index.ts";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/context.ts";
-import {
-  catalogPage,
-  createGatewayHarness,
-  createSessions,
-  deferred,
-  mountSidebar,
-} from "../app-sidebar.ts";
+import { catalogPage, createGatewayHarness, createSessions, mountSidebar } from "../app-sidebar.ts";
 import "../../components/app-sidebar.ts";
 
 describe("AppSidebar session catalog pagination", () => {
@@ -74,49 +69,85 @@ describe("AppSidebar session catalog pagination", () => {
     }
   });
 
-  it("queues a fresh scan when a hidden tab returns during an active scan", async () => {
-    vi.useFakeTimers();
-    let visibility: DocumentVisibilityState = "visible";
-    const visibilitySpy = vi
-      .spyOn(document, "visibilityState", "get")
-      .mockImplementation(() => visibility);
-    try {
-      const pending = deferred<SessionsCatalogListResult>();
-      const request = vi
-        .fn()
-        .mockReturnValueOnce(pending.promise)
-        .mockResolvedValue(catalogPage([]));
-      const gateway = createGatewayHarness({ request } as unknown as GatewayBrowserClient);
-      gateway.publish({
-        hello: {
-          features: { methods: ["sessions.catalog.list"] },
-        } as ApplicationGatewaySnapshot["hello"],
-      });
-      const { sidebar } = await mountSidebar(
-        gateway.gateway,
-        createSessions("main", ["agent:main:main"]),
-      );
-      sidebar.connected = true;
-      await sidebar.updateComplete;
-      await vi.advanceTimersByTimeAsync(0);
-      expect(request).toHaveBeenCalledOnce();
+  it.each(
+    (["tab return", "node presence"] as const).flatMap((activation) =>
+      [false, true].map((discovery) => ({ activation, discovery })),
+    ),
+  )(
+    "queues a fresh scan after $activation during an active scan (discovery: $discovery)",
+    async ({ activation, discovery }) => {
+      vi.useFakeTimers();
+      let visibility: DocumentVisibilityState = "visible";
+      const visibilitySpy = vi
+        .spyOn(document, "visibilityState", "get")
+        .mockImplementation(() => visibility);
+      try {
+        const pending = deferred<SessionsCatalogListResult>();
+        const pendingDiscovery = deferred<SessionsCatalogListResult>();
+        let fullScans = 0;
+        const request = vi.fn((_method: string, params: { cursors?: Record<string, string> }) => {
+          if (params.cursors) {
+            return pendingDiscovery.promise;
+          }
+          fullScans += 1;
+          return fullScans === 1
+            ? pending.promise
+            : Promise.resolve(
+                catalogPage([{ threadId: "fresh", name: "Newly available session" }]),
+              );
+        });
+        const gateway = createGatewayHarness({ request } as unknown as GatewayBrowserClient);
+        gateway.publish({
+          hello: {
+            features: { methods: ["sessions.catalog.list"] },
+          } as ApplicationGatewaySnapshot["hello"],
+        });
+        const { sidebar } = await mountSidebar(
+          gateway.gateway,
+          createSessions("main", ["agent:main:main"]),
+        );
+        sidebar.connected = true;
+        await sidebar.updateComplete;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(request).toHaveBeenCalledOnce();
 
-      visibility = "hidden";
-      document.dispatchEvent(new Event("visibilitychange"));
-      visibility = "visible";
-      document.dispatchEvent(new Event("visibilitychange"));
-      await vi.advanceTimersByTimeAsync(50);
-      expect(request).toHaveBeenCalledOnce();
+        if (activation === "tab return") {
+          visibility = "hidden";
+          document.dispatchEvent(new Event("visibilitychange"));
+          visibility = "visible";
+          document.dispatchEvent(new Event("visibilitychange"));
+        } else {
+          gateway.publishEvent("presence", {
+            presence: [{ deviceId: "new-node", mode: "node", reason: "connect" }],
+          });
+        }
+        await vi.advanceTimersByTimeAsync(50);
+        expect(request).toHaveBeenCalledOnce();
 
-      pending.resolve(catalogPage([]));
-      await vi.advanceTimersByTimeAsync(0);
-      await sidebar.updateComplete;
-      expect(request).toHaveBeenCalledTimes(2);
-    } finally {
-      visibilitySpy.mockRestore();
-      vi.useRealTimers();
-    }
-  });
+        pending.resolve(catalogPage([], discovery ? "page-2" : undefined));
+        await vi.advanceTimersByTimeAsync(0);
+        await sidebar.updateComplete;
+        if (discovery) {
+          expect(request).toHaveBeenLastCalledWith("sessions.catalog.list", {
+            agentId: "main",
+            catalogId: "codex",
+            hostIds: ["gateway:local"],
+            cursors: { "gateway:local": "page-2" },
+          });
+          await vi.advanceTimersByTimeAsync(1_000);
+          expect(fullScans).toBe(1);
+          pendingDiscovery.resolve(catalogPage([]));
+          await vi.advanceTimersByTimeAsync(0);
+          await sidebar.updateComplete;
+        }
+        expect(fullScans).toBe(2);
+        expect(sidebar.textContent).toContain("Newly available session");
+      } finally {
+        visibilitySpy.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("coalesces the visibility and focus events from one tab activation", async () => {
     vi.useFakeTimers();

@@ -664,6 +664,7 @@ export function installSessionToolResultGuard(
     ) => string;
   },
 ): {
+  hasPendingToolResults: () => boolean;
   flushPendingToolResults: () => void;
   clearPendingToolResults: () => void;
   clearNextUserMessagePersistenceSuppression: () => void;
@@ -1044,6 +1045,7 @@ export function installSessionToolResultGuard(
   sessionManager.appendCompaction = guardedAppendCompaction;
 
   return {
+    hasPendingToolResults: () => pending.size > 0,
     flushPendingToolResults,
     clearPendingToolResults,
     clearNextUserMessagePersistenceSuppression: () => {

@@ -1,10 +1,9 @@
 // Gateway HTTP/WebSocket runtime state factory.
 // Builds one server runtime with lazy plugin route handlers.
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from "node:http";
-import { createRequire } from "node:module";
-import path from "node:path";
 import type { Duplex } from "node:stream";
 import type { WebSocketServer } from "ws";
+import { WebSocketServer as NpmWebSocketServer } from "../../packages/gateway-client/src/websocket.js";
 import { resolveSandboxHostPort } from "../agents/sandbox-host.js";
 import { isCoreCanvasHostEnabled } from "../canvas/config.js";
 import { resolveCanvasNodeCapability } from "../canvas/constants.js";
@@ -51,13 +50,6 @@ import type { GatewayWsClient } from "./server/ws-types.js";
 import type { NodeWorkerBundleTransferHttpCallback } from "./worker-environments/node-worker-bundle-transfer-http.js";
 import type { NodeWorkspaceTransferHttpCallback } from "./worker-environments/node-workspace-transfer-http.js";
 import type { WorkerBootstrapArtifactTransferHttpCallback } from "./worker-environments/worker-bootstrap-artifact-transfer-http.js";
-
-// Gateway admission changes receiver frame limits after authentication. Load the
-// installed ws entry so Bun cannot substitute its receiver-less built-in adapter.
-const require = createRequire(import.meta.url);
-const { WebSocketServer: NpmWebSocketServer }: typeof import("ws") = require(
-  path.join(path.dirname(require.resolve("ws/package.json")), "index.js"),
-);
 
 type GatewayPluginRequestHandler = (
   req: IncomingMessage,

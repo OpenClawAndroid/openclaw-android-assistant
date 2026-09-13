@@ -1,9 +1,9 @@
 import { Readable } from "node:stream";
 import type { DiscordAccountConfig, OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { formatErrorMessage, readErrorName } from "openclaw/plugin-sdk/error-runtime";
 import { unlinkIfExists } from "openclaw/plugin-sdk/media-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
-import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
 import { maybeControlDiscordVoiceAgentRun } from "./agent-control.js";
 import { createDiscordOpusPlaybackStream } from "./audio.js";
 import { type DiscordVoiceIngressContext, runDiscordVoiceAgentTurn } from "./ingress.js";
@@ -143,20 +143,32 @@ export async function respondToDiscordVoiceTranscript(
 ): Promise<void> {
   const { entry, ingress, transcript, userId } = params;
   const conversationCurrent = () =>
-    !entry.captureOnly && entry.sessionLifecycle.status === "active";
+    !entry.captureOnly &&
+    entry.sessionLifecycle.status === "active" &&
+    ingress.isCurrent?.() !== false;
   if (!conversationCurrent()) {
     return;
   }
   let replyText: string;
   const control = await maybeControlDiscordVoiceAgentRun({
     entry,
+    accountId: params.accountId,
+    context: ingress,
+    isCurrent: conversationCurrent,
     text: transcript,
   }).catch((error: unknown) => {
+    if (readErrorName(error) === "AbortError") {
+      logger.warn(`discord voice: active-run control cancelled: ${formatErrorMessage(error)}`);
+      return null;
+    }
     logger.warn(
       `discord voice: active-run control failed; falling back to normal segment handling: ${formatErrorMessage(error)}`,
     );
     return undefined;
   });
+  if (control === null || !conversationCurrent()) {
+    return;
+  }
 
   if (control?.handled) {
     logger.info(
@@ -187,6 +199,9 @@ export async function respondToDiscordVoiceTranscript(
     replyText = turn.text;
   }
 
+  if (!conversationCurrent()) {
+    return;
+  }
   if (!replyText) {
     logVoiceVerbose(
       `reply empty: guild ${entry.guildId} channel ${entry.channelId} user ${userId}`,

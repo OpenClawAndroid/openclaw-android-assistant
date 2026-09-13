@@ -556,7 +556,7 @@ describe("buildModelProviderCards", () => {
     expect(firstCard(cards).localCost).toEqual({
       totalCost: 0.42,
       totalTokens: 150,
-      sessionCount: 3,
+      messageCount: 3,
     });
   });
 

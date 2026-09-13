@@ -18,9 +18,11 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { testing } from "../../scripts/check-cli-startup-memory.mjs";
 import { withEnv } from "../../src/test-utils/env.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempRoots = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 const aliasError = "--json and --summary must refer to different files";
 const successSpawn = () => ({
   signal: null,
@@ -113,7 +115,7 @@ describe("check-cli-startup-memory", () => {
     const repoRoot = path.resolve(__dirname, "..", "..");
     const scriptUrl = pathToFileURL(path.join(repoRoot, "scripts/check-cli-startup-memory.mjs"));
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--input-type=module",
         "--eval",
@@ -522,7 +524,7 @@ describe("check-cli-startup-memory", () => {
           path.resolve(__dirname, "..", "..", "scripts/check-cli-startup-memory.mjs"),
         ).href;
         const result = spawnSync(
-          process.execPath,
+          testNodeExecPath,
           [
             "--input-type=module",
             "--eval",
@@ -623,7 +625,7 @@ describe("check-cli-startup-memory", () => {
     }
 
     const tempRoot = tempRoots.make("openclaw-startup-memory-test-");
-    const result = spawnSync(process.execPath, ["scripts/check-cli-startup-memory.mjs", "--json"], {
+    const result = spawnSync(testNodeExecPath, ["scripts/check-cli-startup-memory.mjs", "--json"], {
       cwd: path.resolve(__dirname, "..", ".."),
       encoding: "utf8",
       env: {
@@ -639,7 +641,7 @@ describe("check-cli-startup-memory", () => {
   });
 
   it("reports CLI argument errors without a Node stack trace", () => {
-    const result = spawnSync(process.execPath, ["scripts/check-cli-startup-memory.mjs", "--wat"], {
+    const result = spawnSync(testNodeExecPath, ["scripts/check-cli-startup-memory.mjs", "--wat"], {
       cwd: path.resolve(__dirname, "..", ".."),
       encoding: "utf8",
     });

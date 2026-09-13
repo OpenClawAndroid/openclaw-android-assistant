@@ -52,6 +52,41 @@ function createDoctorContext(
   };
 }
 
+describe.each(["default", "custom"] as const)("absent %s Voice Call store", (location) => {
+  it.each(["detectLegacyState", "migrateLegacyState"] as const)(
+    "%s leaves absent state untouched without loading repair machinery",
+    async (method) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-voice-call-absent-"));
+      const store = path.join(root, location === "default" ? "voice-calls" : "custom-store");
+      const env = { ...process.env, HOME: root, OPENCLAW_STATE_DIR: root };
+      vi.doMock("openclaw/plugin-sdk/doctor-repair-runtime", () => {
+        throw new Error("absent Voice Call state must not load repair machinery");
+      });
+      try {
+        const result = await expectDefined(stateMigrations[0], "voice-call state migration")[
+          method
+        ]({
+          config:
+            location === "custom"
+              ? { plugins: { entries: { "voice-call": { config: { store } } } } }
+              : {},
+          env,
+          stateDir: root,
+          oauthDir: path.join(root, "oauth"),
+          context: createDoctorContext(env),
+        });
+        expect(result).toEqual(
+          method === "detectLegacyState" ? null : { changes: [], warnings: [] },
+        );
+        expect(await fs.readdir(root)).toEqual([]);
+      } finally {
+        vi.doUnmock("openclaw/plugin-sdk/doctor-repair-runtime");
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
 describe("voice-call doctor state migration", () => {
   let stateDir = "";
   let storePath = "";

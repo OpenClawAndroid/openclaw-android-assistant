@@ -140,9 +140,7 @@ extension OpenClawChatComposer {
             self.cleanContextUsageMenu
             // Camera switching only displaces settings in the compact iOS footer.
             #if os(macOS)
-            if self.viewModel.showsModelPicker {
-                self.cleanInlineModelPicker(compact: compactModel)
-            }
+            self.cleanInlineModelPicker(compact: compactModel)
             self.cleanInlineEffortMenu
             #else
             if !self.cleanShowsCameraFlip {
@@ -196,6 +194,10 @@ extension OpenClawChatComposer {
                         self.viewModel.isSelectedModelPinned ? "Unpin model" : "Pin model",
                         systemImage: self.viewModel.isSelectedModelPinned ? "star.slash" : "star")
                 }
+            }
+            if self.usesDesktopModelMenu {
+                Divider()
+                self.modelSignInButton
             }
             #endif
         } label: {

@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { readAcpSessionMetaForEntry } from "../acp/runtime/session-meta.js";
 import { AgentSelectionRequiredError, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { assertWorkspaceStateMigrationReady } from "../agents/workspace-legacy-state.js";
@@ -1902,15 +1903,9 @@ describe("state migrations", () => {
     const env = createEnv(stateDir);
     // The latch keeps the predicate pending until the migration has returned and the
     // section has closed, which is the exact window the guard has to cover.
-    let releasePredicate!: () => void;
-    const predicateGate = new Promise<void>((resolve) => {
-      releasePredicate = resolve;
-    });
+    const { promise: predicateGate, resolve: releasePredicate } = createDeferred();
     let recoveryOutcome: string | undefined;
-    let recoverySettled!: () => void;
-    const recoveryDone = new Promise<void>((resolve) => {
-      recoverySettled = resolve;
-    });
+    const { promise: recoveryDone, resolve: recoverySettled } = createDeferred();
 
     const seeded = createChannelIngressQueue<{ note: string }>({
       channelId: "line",

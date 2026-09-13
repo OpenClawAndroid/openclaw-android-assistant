@@ -596,7 +596,7 @@ openclaw-board-widget-cell {
     }
   }
 
-  &:has(> .board-view--website) {
+  &:has(> .board-view--page) {
     height: 100%;
     overflow: hidden;
 

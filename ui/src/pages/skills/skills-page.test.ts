@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { SkillsLibraryListResult } from "@openclaw/gateway-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { createAgentSelectionCapability } from "../../app/agent-selection.ts";
 import type { ApplicationContext } from "../../app/context.ts";
@@ -30,16 +31,6 @@ const remoteSkill = {
   installRef: "@alice/calendar",
   displayName: "Calendar",
 };
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
-}
 
 function mountSkills(request: (method: string, params?: unknown) => Promise<unknown>) {
   const client = { request } as unknown as GatewayBrowserClient;

@@ -64,12 +64,14 @@ export function createCompactionRequestBudget(params: {
     prompt: "",
   });
   const pendingUserTokens =
-    estimateFreshLlmBoundaryTokenPressure({
-      ...params,
-      messages: [],
-      prompt: params.pendingPrompt ?? "",
-      imageCount: params.pendingImageCount,
-    }) - fixedTokens;
+    (params.pendingPrompt ?? "") === "" && (params.pendingImageCount ?? 0) === 0
+      ? 0
+      : estimateFreshLlmBoundaryTokenPressure({
+          ...params,
+          messages: [],
+          prompt: params.pendingPrompt ?? "",
+          imageCount: params.pendingImageCount,
+        }) - fixedTokens;
   const pendingQueuedContextTokens = estimateCompactionHistoryTokens(
     params.pendingQueuedContextMessages ?? [],
   );

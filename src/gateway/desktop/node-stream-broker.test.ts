@@ -2,6 +2,7 @@ import http from "node:http";
 import net from "node:net";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { createSuiteLogPathTracker } from "../../logging/log-test-helpers.js";
 import { flushLogger, resetLogger, setLoggerOverride } from "../../logging/logger.js";
 import { createDiagnosticLogRecordCapture } from "../../logging/test-helpers/diagnostic-log-capture.js";
@@ -192,10 +193,7 @@ describe("node desktop stream tickets", () => {
 
   it("buffers early RFB bytes while the pairing binding is rechecked", async () => {
     let pairingChecks = 0;
-    let releaseRecheck!: () => void;
-    const recheck = new Promise<void>((resolve) => {
-      releaseRecheck = resolve;
-    });
+    const { promise: recheck, resolve: releaseRecheck } = createDeferred();
     const broker = createNodeDesktopStreamBroker();
     const session = { connId: "conn-1", pairingGeneration: "generation-1" };
     const baseUrl = await startBrokerServer({
@@ -229,10 +227,7 @@ describe("node desktop stream tickets", () => {
 
   it("rejects a stream error during the asynchronous pairing handoff", async () => {
     let pairingChecks = 0;
-    let releaseRecheck!: () => void;
-    const recheck = new Promise<void>((resolve) => {
-      releaseRecheck = resolve;
-    });
+    const { promise: recheck, resolve: releaseRecheck } = createDeferred();
     const broker = createNodeDesktopStreamBroker();
     const session = { connId: "conn-1", pairingGeneration: "generation-1" };
     const baseUrl = await startBrokerServer({
@@ -356,10 +351,7 @@ describe("node desktop stream tickets", () => {
 
   it("rejects when the raw upgrade socket closes during pairing authorization", async () => {
     let pairingChecks = 0;
-    let releaseCheck!: () => void;
-    const check = new Promise<void>((resolve) => {
-      releaseCheck = resolve;
-    });
+    const { promise: check, resolve: releaseCheck } = createDeferred();
     const broker = createNodeDesktopStreamBroker();
     const session = { connId: "conn-1", pairingGeneration: "generation-1" };
     const baseUrl = await startBrokerServer({

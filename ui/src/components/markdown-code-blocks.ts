@@ -80,6 +80,10 @@ function decodeCodeBlockCopyPayload(value: string, encoding?: string): string {
   }
 }
 
+export function readMarkdownCodeBlockCopyText(button: HTMLElement): string {
+  return decodeCodeBlockCopyPayload(button.dataset.code ?? "", button.dataset.codeEncoding);
+}
+
 /**
  * Single click owner for every fenced-code control. Copy, reveal, and wrap ship
  * in the same markup, so one entry point keeps a host from wiring part of it and
@@ -95,7 +99,7 @@ export function handleMarkdownCodeBlockClick(event: Event): void {
   if (!button) {
     return;
   }
-  const code = decodeCodeBlockCopyPayload(button.dataset.code ?? "", button.dataset.codeEncoding);
+  const code = readMarkdownCodeBlockCopyText(button);
   const attempt = (codeBlockCopyAttempts.get(button) ?? 0) + 1;
   codeBlockCopyAttempts.set(button, attempt);
   const isCurrent = () => button.isConnected && codeBlockCopyAttempts.get(button) === attempt;

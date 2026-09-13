@@ -19,6 +19,7 @@ import {
 import { createVoiceReceiveRecoveryState, DECRYPT_FAILURE_WINDOW_MS } from "./receive-recovery.js";
 import type { VoiceRealtimeSpeakerContext, VoiceSessionEntry } from "./session.js";
 import { createDiscordVoiceTranscriptFixture } from "./transcripts.test-support.js";
+import type { DiscordVoiceReceive } from "./voice-receive.js";
 import { voiceTestMocks } from "./voice-test-mocks.test-support.js";
 
 const {
@@ -32,6 +33,7 @@ const {
   agentCommandMock,
   resolveRealtimeBootstrapContextInstructionsMock,
   resolveVoiceIngressWithParticipantsMock,
+  syntheticVoiceAdmissions,
   transcribeAudioFileMock,
   resolveAudioInputBudgetMock,
   prepareTtsRequestMock,
@@ -293,12 +295,14 @@ function buildVoiceTestHarness() {
   const getVoiceReceive = (manager: InstanceType<typeof managerModule.DiscordVoiceManager>) =>
     (
       manager as unknown as {
-        receive: {
-          daveRecoveryAttempts: Map<string, number>;
-          handleReceiveError: (entry: unknown, error: unknown) => void;
-          handleSpeakingStart: (entry: unknown, userId: string) => Promise<void>;
-          scheduleCaptureFinalize: (entry: unknown, userId: string, reason: string) => void;
-        };
+        receive: Pick<
+          DiscordVoiceReceive,
+          | "daveRecoveryAttempts"
+          | "handleReceiveError"
+          | "handleSpeakingStart"
+          | "scheduleCaptureFinalize"
+          | "resolveDiscordVoiceIngressContext"
+        >;
       }
     ).receive;
 
@@ -314,6 +318,7 @@ function buildVoiceTestHarness() {
     params: Partial<VoiceRealtimeSpeakerContext> & {
       userId?: string;
       initialAudio?: Buffer | null;
+      realAdmission?: boolean;
     } = {},
   ) => {
     const lifecycle = entry.realtimeLifecycle;
@@ -321,17 +326,27 @@ function buildVoiceTestHarness() {
       throw new Error(`expected active Discord realtime session, got ${lifecycle.status}`);
     }
     const senderIsOwner = params.senderIsOwner ?? true;
-    const turn = lifecycle.instance.beginSpeakerTurn(
-      {
-        extraSystemPrompt: params.extraSystemPrompt,
-        senderIsOwner,
-        speakerLabel: params.speakerLabel ?? (senderIsOwner ? "Owner" : "Guest"),
-      },
-      params.userId ?? (senderIsOwner ? "u-owner" : "u-guest"),
-    );
+    const userId = params.userId ?? (senderIsOwner ? "u-owner" : "u-guest");
+    const context = {
+      extraSystemPrompt: params.extraSystemPrompt,
+      senderIsOwner,
+      speakerLabel: params.speakerLabel ?? (senderIsOwner ? "Owner" : "Guest"),
+    };
+    // Manual turns bypass ingress; retain only their explicit synthetic admission for rechecks.
+    if (params.realAdmission) {
+      syntheticVoiceAdmissions.get(entry)?.delete(userId);
+    } else {
+      let speakers = syntheticVoiceAdmissions.get(entry);
+      if (!speakers) {
+        speakers = new Map();
+        syntheticVoiceAdmissions.set(entry, speakers);
+      }
+      speakers.set(userId, context);
+    }
+    const turn = lifecycle.instance.beginSpeakerTurn(context, userId);
     // Null preserves cases that start provider output before sending the first speaker audio.
     if (params.initialAudio !== null) {
-      turn.sendInputAudio(params.initialAudio ?? Buffer.alloc(8));
+      turn.sendInputAudio(params.initialAudio ?? Buffer.alloc(3840));
     }
     return turn;
   };
@@ -340,7 +355,10 @@ function buildVoiceTestHarness() {
     const manager = createAgentProxyManager(
       undefined,
       { voice: { realtime: { consultPolicy: "auto", requireWakeName: true } } },
-      { agents: { list: [{ id: "agent-1", identity: { name: agentName } }] } },
+      {
+        agents: { list: [{ id: "agent-1", identity: { name: agentName } }] },
+        commands: { ownerAllowFrom: ["user:u-owner"] },
+      },
     );
     await manager.join({ guildId: "g1", channelId: "1001" });
     return {
@@ -575,7 +593,7 @@ function buildVoiceTestHarness() {
 
   const handleSpeakingStart = async (
     manager: InstanceType<typeof managerModule.DiscordVoiceManager>,
-    entry: unknown,
+    entry: VoiceSessionEntry,
     userId: string,
   ) => await getVoiceReceive(manager).handleSpeakingStart(entry, userId);
 

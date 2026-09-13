@@ -405,12 +405,19 @@ export async function runAgentHarnessAttempt(
       yieldAborted:
         result.terminal.kind === "aborted" && result.terminal.source === "yield_cleanup",
       isHeartbeat: isHeartbeatLifecycleRunKind(internalParams.bootstrapContextRunKind),
-      runtimeContext: {
-        provider: internalParams.provider,
-        modelId: internalParams.modelId,
-        modelContextWindow: internalParams.modelContextWindow,
-        tokenBudget: internalParams.contextTokenBudget,
-      },
+      // Native model identity does not attest the host's window or context cap.
+      runtimeContext:
+        nativeSessionRuntime && result.runtimeModelSelection
+          ? {
+              provider: result.runtimeModelSelection.provider,
+              modelId: result.runtimeModelSelection.model,
+            }
+          : {
+              provider: internalParams.provider,
+              modelId: internalParams.modelId,
+              modelContextWindow: internalParams.modelContextWindow,
+              tokenBudget: internalParams.contextTokenBudget,
+            },
     });
   }
   const { contextEngineTerminalAnchor: _contextEngineTerminalAnchor, ...publicResult } = result;

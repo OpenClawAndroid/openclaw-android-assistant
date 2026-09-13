@@ -43,6 +43,7 @@ function getOperatorApproval(params: Parameters<typeof getOperatorApprovalDetail
   const result = getOperatorApprovalDetailed(params);
   return result.outcome === "found" ? result.record : null;
 }
+import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   cancelAgentRuntimeBoundApprovals,
   cancelUnboundRunApprovals,
@@ -1484,10 +1485,7 @@ describe("unified approval handlers", () => {
     const databaseOptions = createDatabaseOptions();
     const managers = createManagers(databaseOptions);
     const pending = registerExec(managers.exec, { id: "exec-slow-resolution-forwarder" });
-    let releaseForwarder!: () => void;
-    const forwarderPending = new Promise<void>((resolve) => {
-      releaseForwarder = resolve;
-    });
+    const { promise: forwarderPending, resolve: releaseForwarder } = createDeferred();
     const handleResolved = vi.fn(() => forwarderPending);
     const forwarder = {
       handleRequested: vi.fn(async () => false),

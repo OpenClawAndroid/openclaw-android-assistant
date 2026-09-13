@@ -18,6 +18,8 @@ OpenClaw sets fs-safe's optional native helper to **off** by default:
 
 fs-safe publishes prebuilt native helpers as optional platform packages for Linux x64/arm64 (glibc and musl), macOS x64/arm64, and Windows x64. A normal package install selects the matching package without a compiler. OpenClaw loads it through fs-safe's own dependency scope, including nested pnpm installs. Installs that omit optional dependencies retain the guarded JavaScript path. The `require` mode fails when the binding is unavailable.
 
+Managed worktree acceleration uses isolated native helpers for APFS and Btrfs, without enabling native primitives in the Gateway process. These helpers use fs-safe's automatic native selection and honor the explicit mode settings below. See [Managed worktrees](/concepts/managed-worktrees#filesystem-acceleration).
+
 OpenClaw only changes the _default_. An explicit setting always wins:
 
 ```bash
@@ -32,6 +34,8 @@ OPENCLAW_FS_SAFE_NATIVE_MODE=require
 ```
 
 The generic fs-safe environment name also works: `FS_SAFE_NATIVE_MODE`.
+
+[Managed worktree acceleration](/concepts/managed-worktrees#filesystem-acceleration) uses isolated native operations for APFS and Btrfs cloning and metadata reads. Those operations use an available platform binding by default without enabling native helpers in the Gateway process. An explicit native mode applies to the isolated operations too; `off` selects normal Git checkout. Native writes remain owned by a supervised child until it exits, so cancellation cannot release the destination for cleanup while the child is still writing.
 
 fs-safe still maps the retired `FS_SAFE_PYTHON_MODE` and `OPENCLAW_FS_SAFE_PYTHON_MODE` values to native modes with a deprecation warning. Replace them with `FS_SAFE_NATIVE_MODE` or `OPENCLAW_FS_SAFE_NATIVE_MODE`. Python interpreter path settings are no longer used.
 

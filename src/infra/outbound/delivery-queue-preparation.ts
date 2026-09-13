@@ -8,6 +8,7 @@ import {
 } from "../delivery-queue-sqlite-namespace.js";
 import {
   loadDeliveryQueueEntry,
+  type DeliveryQueueStateContext,
   terminalizePendingDeliveryQueueEntry,
   type DeliveryQueueEntryState,
 } from "../delivery-queue-sqlite.js";
@@ -66,28 +67,39 @@ function createStablePreparation(
   };
 }
 
-function failStablePreparation(entry: StableDeliveryPreparation, stateDir?: string): void {
-  terminalizePendingDeliveryQueueEntry({
-    queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
-    id: entry.id,
-    entry,
-    stateDir,
-  });
+function failStablePreparation(
+  entry: StableDeliveryPreparation,
+  stateDir?: string,
+  context?: DeliveryQueueStateContext,
+): void {
+  terminalizePendingDeliveryQueueEntry(
+    {
+      queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
+      id: entry.id,
+      entry,
+      stateDir,
+    },
+    context,
+  );
 }
 
 function claimStablePreparation(
   id: string,
   stateDir?: string,
+  context?: DeliveryQueueStateContext,
 ): { status: "claimed"; entry: StableDeliveryPreparation } | { status: "existing" } {
   const ownerId = randomUUID();
   const proposed = createStablePreparation(id, ownerId);
   if (
-    upsertDeliveryQueueEntryOnceAcrossNamespaces({
-      queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
-      conflictQueueNames: STABLE_PREPARATION_CONFLICT_QUEUES,
-      entry: proposed,
-      stateDir,
-    })
+    upsertDeliveryQueueEntryOnceAcrossNamespaces(
+      {
+        queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
+        conflictQueueNames: STABLE_PREPARATION_CONFLICT_QUEUES,
+        entry: proposed,
+        stateDir,
+      },
+      context,
+    )
   ) {
     return { status: "claimed", entry: proposed };
   }
@@ -96,6 +108,8 @@ function claimStablePreparation(
     OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
     id,
     stateDir,
+    "pending",
+    context,
   ) as StableDeliveryPreparation | null;
   if (!current) {
     return { status: "existing" };
@@ -104,26 +118,32 @@ function claimStablePreparation(
     return { status: "existing" };
   }
   if (current.preparationState !== "claimed") {
-    failStablePreparation(current, stateDir);
+    failStablePreparation(current, stateDir, context);
     return { status: "existing" };
   }
   const reclaimed = createStablePreparation(id, ownerId);
-  return replacePendingDeliveryQueueEntry({
-    queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
-    expectedEntry: current,
-    replacementEntry: reclaimed,
-    stateDir,
-  })
+  return replacePendingDeliveryQueueEntry(
+    {
+      queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
+      expectedEntry: current,
+      replacementEntry: reclaimed,
+      stateDir,
+    },
+    context,
+  )
     ? { status: "claimed", entry: reclaimed }
     : { status: "existing" };
 }
 
-export async function withStableDeliveryPreparation<T>(params: {
-  id: string;
-  stateDir?: string;
-  run: (owner: StableDeliveryPreparationOwner) => Promise<T>;
-}): Promise<{ status: "claimed"; value: T } | { status: "existing" }> {
-  const claim = claimStablePreparation(params.id, params.stateDir);
+export async function withStableDeliveryPreparation<T>(
+  params: {
+    id: string;
+    stateDir?: string;
+    run: (owner: StableDeliveryPreparationOwner) => Promise<T>;
+  },
+  context?: DeliveryQueueStateContext,
+): Promise<{ status: "claimed"; value: T } | { status: "existing" }> {
+  const claim = claimStablePreparation(params.id, params.stateDir, context);
   if (claim.status === "existing") {
     return claim;
   }
@@ -134,12 +154,15 @@ export async function withStableDeliveryPreparation<T>(params: {
   const replaceEntry = (next: StableDeliveryPreparation): void => {
     if (
       leaseLost ||
-      !replacePendingDeliveryQueueEntry({
-        queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
-        expectedEntry: entry,
-        replacementEntry: next,
-        stateDir: params.stateDir,
-      })
+      !replacePendingDeliveryQueueEntry(
+        {
+          queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
+          expectedEntry: entry,
+          replacementEntry: next,
+          stateDir: params.stateDir,
+        },
+        context,
+      )
     ) {
       leaseLost = true;
       throw new StableDeliveryPreparationLostError(params.id);
@@ -183,11 +206,14 @@ export async function withStableDeliveryPreparation<T>(params: {
     const value = await params.run(owner);
     if (
       !published &&
-      !completePendingDeliveryQueueEntry({
-        queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
-        expectedEntry: entry,
-        stateDir: params.stateDir,
-      })
+      !completePendingDeliveryQueueEntry(
+        {
+          queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
+          expectedEntry: entry,
+          stateDir: params.stateDir,
+        },
+        context,
+      )
     ) {
       throw new Error(`Stable outbound preparation could not be settled: ${params.id}`);
     }
@@ -200,14 +226,17 @@ export async function withStableDeliveryPreparation<T>(params: {
           preparationOwnerId: undefined,
           preparationLeaseExpiresAt: 0,
         };
-        replacePendingDeliveryQueueEntry({
-          queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
-          expectedEntry: entry,
-          replacementEntry: released,
-          stateDir: params.stateDir,
-        });
+        replacePendingDeliveryQueueEntry(
+          {
+            queueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,
+            expectedEntry: entry,
+            replacementEntry: released,
+            stateDir: params.stateDir,
+          },
+          context,
+        );
       } else {
-        failStablePreparation(entry, params.stateDir);
+        failStablePreparation(entry, params.stateDir, context);
       }
     }
     throw error;

@@ -4,10 +4,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { spawnOwnedVitestProcess } from "../../scripts/lib/vitest-process.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import { resolveNativeFixtureShortPath } from "./native-boundary-fixture.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 const tsxPreload = pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm")).href;
 
 it.each(["hermetic", "live-aware", "tooling"] as const)(
@@ -40,7 +42,7 @@ console.log(JSON.stringify({ namespace, output: result.stdout, cached: fs.exists
       ESBUILD_WORKER_THREADS: "0",
     };
     const { child, completion } = spawnOwnedVitestProcess({
-      command: process.execPath,
+      command: testNodeExecPath,
       args: ["--input-type=module", "-e", script],
       homeMode,
       options: { env, stdio: ["ignore", "pipe", "pipe"] },
@@ -76,7 +78,7 @@ it.skipIf(process.platform !== "win32")(
       return;
     }
     const { child, completion } = spawnOwnedVitestProcess({
-      command: process.execPath,
+      command: testNodeExecPath,
       args: [
         "-e",
         "console.log(JSON.stringify([process.env.TMPDIR, process.env.TMP, process.env.TEMP]))",

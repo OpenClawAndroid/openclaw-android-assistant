@@ -30,6 +30,7 @@ vi.mock("../../infra/session-cost-usage.js", async () => {
   };
 });
 
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { usageHandlers } from "./usage.js";
 
 let config = {
@@ -365,14 +366,8 @@ describe("sessions.usage result cache", () => {
   });
 
   it("coalesces concurrent cold misses into one transcript aggregation", async () => {
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let started!: () => void;
-    const aggregationStarted = new Promise<void>((resolve) => {
-      started = resolve;
-    });
+    const { promise: blocked, resolve: release } = createDeferred();
+    const { promise: aggregationStarted, resolve: started } = createDeferred();
     mocks.loadSessionCostSummariesFromCache.mockImplementationOnce(
       async (params: { sessions: unknown[] }) => {
         started();

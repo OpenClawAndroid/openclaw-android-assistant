@@ -32,12 +32,14 @@ import { collectControlUiRawCopyFromSource } from "../../scripts/lib/control-ui-
 import { flattenTranslations } from "../../scripts/lib/control-ui-i18n-sync-plan.ts";
 import { makeAgentAssistantMessage } from "../../src/agents/test-helpers/agent-message-fixtures.js";
 import { createZeroUsageFixture } from "../../src/agents/test-helpers/usage-fixtures.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { configHintTranslationKey } from "../../ui/src/i18n/lib/config-hint-translation.ts";
 import { registerTranscriptsEnglish } from "../../ui/src/i18n/locales/en-transcripts.ts";
 import { waitForChildClose, waitForPidFile } from "../helpers/process-wait.js";
 import { createTempDirTracker } from "../helpers/temp-dir.js";
 
 vi.mock("../../scripts/lib/sleep.mjs", () => ({ sleep: async () => {} }));
+const testNodeExecPath = resolveTestNodeExecPath();
 const llm = vi.hoisted(() => ({ completeSimple: vi.fn() }));
 vi.mock("@openclaw/ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@openclaw/ai")>();
@@ -297,7 +299,7 @@ describe("control-ui config hint source catalog", () => {
 describe("control-ui-i18n generated ownership", () => {
   it("includes lazy transcript copy and shared search labels in the generator catalog", () => {
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         "./scripts/tsx.mjs",

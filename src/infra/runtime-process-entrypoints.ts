@@ -14,6 +14,11 @@ export const runtimeProcessEntrypoints = {
     sourceWorkerName: "git-operation.worker",
     distWorkerPath: "infra/git-operation.worker.js",
   },
+  fsSafeCopy: {
+    currentModuleUrl,
+    sourceWorkerName: "fs-safe-copy.worker",
+    distWorkerPath: "infra/fs-safe-copy.worker.js",
+  },
   sharedStateStore: {
     currentModuleUrl,
     sourceWorkerName: "../state/openclaw-state.worker",

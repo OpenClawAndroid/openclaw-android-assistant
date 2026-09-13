@@ -2,6 +2,7 @@
 
 import { nothing } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { CostUsageSummary } from "../../api/types.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/context.ts";
@@ -10,7 +11,6 @@ import {
   cleanupUsagePageTest,
   contextWithClient,
   createPage,
-  deferred,
   focusDocument,
   preloadUsage,
   refreshButton,

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   getAdmittedRunDelegatedAuthority,
   prepareSystemAgentRunAdmission,
@@ -560,10 +561,7 @@ it("refuses to bind new authority to the old handle when a run ID is reused", as
 it.each(["pending", "answered", "cancelled", "expired", "requester-inactive"] as const)(
   "rechecks a question accepted after recovery was queued (%s)",
   async (terminal) => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: gate, resolve: release } = createDeferred();
     const recovery = vi.fn(async (params: Parameters<typeof recoverStuckDiagnosticSession>[0]) => {
       await gate;
       return recoverStuckDiagnosticSession(params);

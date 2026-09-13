@@ -928,6 +928,42 @@ describe("memory cli", () => {
     expect(close).toHaveBeenCalled();
   });
 
+  it("keeps newer-index upgrade advice in registered deep status without reindexing", async () => {
+    const sync = vi.fn();
+    const probeEmbeddingAvailability = vi.fn(async () => ({ ok: true }));
+    mockManager({
+      sync,
+      probeVectorAvailability: vi.fn(async () => false),
+      probeEmbeddingAvailability,
+      status: () =>
+        makeMemoryStatus({
+          workspaceDir: undefined,
+          custom: {
+            indexIdentity: {
+              status: "mismatched",
+              reason:
+                "the index was written by a newer OpenClaw version; upgrade OpenClaw or reindex explicitly",
+              code: "provenance_version",
+              owner: "openclaw",
+              versionOrder: "newer",
+            },
+          },
+        }),
+      close: vi.fn(async () => {}),
+    });
+
+    const log = spyRuntimeLogs(defaultRuntime);
+    await runMemoryCli(["status", "--deep"]);
+
+    expectLogged(log, "upgrade OpenClaw or reindex explicitly");
+    expectLogged(log, "Vector search: paused");
+    expectNotLogged(log, "paused until memory is rebuilt");
+    expectLogged(log, "openclaw memory status --index --agent main");
+    expectLogged(log, "provider cost");
+    expect(probeEmbeddingAvailability).toHaveBeenCalledOnce();
+    expect(sync).not.toHaveBeenCalled();
+  });
+
   it("keeps plain status from probing vector or embeddings", async () => {
     const close = vi.fn(async () => {});
     const probeVectorAvailability = vi.fn(async () => {

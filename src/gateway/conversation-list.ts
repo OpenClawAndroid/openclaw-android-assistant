@@ -11,6 +11,7 @@ import {
   listConversations,
   registerConversationAddresses,
   resolveConversationRegistryScope,
+  runConversationDatabaseWrite,
   type ConversationRecord,
   type ConversationRegistryScope,
 } from "../config/sessions/conversation-registry.js";
@@ -195,19 +196,22 @@ async function discoverChannelAddresses(params: {
       }
     }
   }
-  const currentConfig = params.readCurrentConfig?.() ?? params.config;
-  const eligibleIdentities = [...identities.values()].filter((identity) => {
-    const eligibility = resolveConversationRouteEligibilityForAgent({
-      config: currentConfig,
-      agentId: params.agentId,
-      conversation: { ...identity, target: identity.deliveryTarget },
+  const eligibleIdentities = await runConversationDatabaseWrite(params.scope, (scope) => {
+    const currentConfig = params.readCurrentConfig?.() ?? params.config;
+    const eligible = [...identities.values()].filter((identity) => {
+      const eligibility = resolveConversationRouteEligibilityForAgent({
+        config: currentConfig,
+        agentId: params.agentId,
+        conversation: { ...identity, target: identity.deliveryTarget },
+      });
+      if (eligibility === "unavailable") {
+        throw new Error("Conversation route ownership is temporarily unavailable");
+      }
+      return eligibility === "eligible";
     });
-    if (eligibility === "unavailable") {
-      throw new Error("Conversation route ownership is temporarily unavailable");
-    }
-    return eligibility === "eligible";
+    params.deps.registerConversationAddresses(scope, eligible);
+    return eligible;
   });
-  params.deps.registerConversationAddresses(params.scope, eligibleIdentities);
   return {
     channel: plugin.id,
     discoveredConversationRefs: new Set(

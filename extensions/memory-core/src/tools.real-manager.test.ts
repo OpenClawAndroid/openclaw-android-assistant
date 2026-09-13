@@ -18,7 +18,6 @@ import {
   createManagerIndexFixture,
   type ManagerIndexFixture,
 } from "./memory/manager-index.test-support.js";
-import { MEMORY_INDEX_PROVENANCE_VERSION } from "./memory/manager-reindex-state.js";
 import { createMemoryGetTool, createMemorySearchTool, testing } from "./tools.js";
 
 const { closeAllMemorySearchManagers, getMemorySearchManager } = await import("./memory/index.js");
@@ -239,14 +238,20 @@ describe("memory_search real manager", () => {
     }
   });
 
-  it.each(["before", "after"] as const)(
+  it.each(["before", "after", "before status", "after repair"] as const)(
     "recovers when the memory manager closes %s retrieval without rebuilding its index",
     async (closeAt) => {
       const cfg = fixture.createConfig({ vectorEnabled: false, minScore: 0 });
+      cfg.memory = { ...cfg.memory, search: { ...cfg.memory?.search, cache: { enabled: false } } };
       const manager = await fixture.getFreshManager(cfg);
       await manager.sync({ reason: "cli", force: true });
       const db = openOpenClawAgentDatabase({ agentId: "main" }).db;
       const embeddingCalls = fixture.provider.embedBatchCalls;
+      if (closeAt === "after repair") {
+        db.prepare(
+          "UPDATE memory_index_meta SET value = json_set(value, '$.provenanceVersion', 0) WHERE key = 'memory_index_meta_v1'",
+        ).run();
+      }
       const search = manager.search.bind(manager);
       const close = async () => {
         await manager.close();
@@ -258,12 +263,16 @@ describe("memory_search real manager", () => {
           await close();
         }
         const results = await search(...args);
-        if (closeAt === "after") {
+        if (closeAt === "after" || closeAt === "after repair") {
           await close();
         }
         return results;
       });
       const getSpy = vi.spyOn(MemoryIndexManager, "get");
+      if (closeAt === "before status") {
+        await close();
+        getSpy.mockResolvedValueOnce(manager);
+      }
       try {
         const tool = createMemorySearchTool({ config: cfg, agentId: "main" });
         if (!tool) {
@@ -278,7 +287,15 @@ describe("memory_search real manager", () => {
           results: [expect.objectContaining({ path: "memory/2026-01-12.md" })],
         });
         expect(result.details).not.toHaveProperty("unavailable");
-        expect(fixture.provider.embedBatchCalls).toBe(embeddingCalls);
+        expect(fixture.provider.embedBatchCalls).toBe(
+          embeddingCalls + (closeAt === "after repair" ? 1 : 0),
+        );
+        if (closeAt === "after repair") {
+          expect(result.details).toHaveProperty(
+            "warning",
+            expect.stringContaining("provider cost"),
+          );
+        }
         expect(
           getSpy.mock.calls.filter(([params]) => (params.purpose ?? "default") === "default"),
         ).toHaveLength(2);
@@ -286,56 +303,6 @@ describe("memory_search real manager", () => {
         getSpy.mockRestore();
         searchSpy.mockRestore();
       }
-    },
-  );
-
-  it.each([undefined, 0, MEMORY_INDEX_PROVENANCE_VERSION])(
-    "memory_search repairs provenance %s once and preserves current indexes",
-    async (provenanceVersion) => {
-      const cfg = fixture.createConfig({
-        provider: "none",
-        vectorEnabled: false,
-      });
-      const manager = await fixture.getFreshManager(cfg);
-      await manager.sync({ reason: "cli", force: true });
-      await manager.close();
-      await closeAllMemorySearchManagers();
-
-      const db = openOpenClawAgentDatabase({ agentId: "main" }).db;
-      const row = db
-        .prepare("SELECT value FROM memory_index_meta WHERE key = 'memory_index_meta_v1'")
-        .get() as { value: string };
-      db.prepare("UPDATE memory_index_meta SET value = ? WHERE key = 'memory_index_meta_v1'").run(
-        JSON.stringify({ ...JSON.parse(row.value), provenanceVersion }),
-      );
-      const before = readMemoryDatabaseRevision(db);
-
-      const tool = createMemorySearchTool({ config: cfg, agentId: "main" });
-      if (!tool) {
-        throw new Error("memory_search tool missing");
-      }
-      const result = await tool.execute("provenance-mismatch", {
-        query: "alpha",
-        corpus: "memory",
-      });
-      expect(result.details).toMatchObject({
-        results: [
-          expect.objectContaining({
-            path: "memory/2026-01-12.md",
-            citation: expect.stringContaining("memory/2026-01-12.md"),
-          }),
-        ],
-      });
-      expect(result.details).not.toHaveProperty("unavailable");
-      const after = readMemoryDatabaseRevision(db);
-      if (provenanceVersion === MEMORY_INDEX_PROVENANCE_VERSION) {
-        expect(after).toBe(before);
-      } else {
-        expect(after).toBeGreaterThan(before);
-      }
-      await tool.execute("provenance-current", { query: "alpha", corpus: "memory" });
-      expect(readMemoryDatabaseRevision(db)).toBe(after);
-      expect(fixture.provider.embedQueryCalls).toBe(0);
     },
   );
 

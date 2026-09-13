@@ -270,8 +270,8 @@ syncFixtureBuiltinExports(["node:child_process", "node:fs", "node:fs/promises"])
                   OPENCLAW_NODE_TEST_PLAN_CONCURRENCY: route === "ci-shared" ? "2" : "1",
                 }
               : {}),
-            // The direct JavaScript shim owns a Node implementation; the serial entry uses this runtime.
-            ...fixturePreloadEnv(preload, route === "direct" ? "node" : undefined),
+            // runNodeScript owns every wrapper route, so its fixture preload is always a Node import.
+            ...fixturePreloadEnv(preload, "node"),
           },
           20_000,
           {

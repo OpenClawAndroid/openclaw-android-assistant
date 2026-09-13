@@ -3,13 +3,15 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const SCRIPT_PATH = "scripts/e2e/lib/browser-cdp-snapshot/assert-snapshot.mjs";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function runAssertSnapshot(snapshotPath: string, env: Record<string, string | undefined> = {}) {
-  return spawnSync(process.execPath, [SCRIPT_PATH, snapshotPath], {
+  return spawnSync(testNodeExecPath, [SCRIPT_PATH, snapshotPath], {
     encoding: "utf8",
     env: { ...process.env, OPENCLAW_BROWSER_CDP_SNAPSHOT_MAX_BYTES: undefined, ...env },
   });

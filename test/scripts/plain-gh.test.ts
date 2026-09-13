@@ -20,7 +20,10 @@ import {
   plainGhAuthenticatedEnv,
   resolvePlainGhBin,
 } from "../../scripts/lib/plain-gh.mjs";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const commandDirs = useAutoCleanupTempDirTracker(afterAll);
@@ -55,7 +58,7 @@ function makeCommandFixture() {
     const gh = path.join(dir, "gh");
     writeFileSync(
       gh,
-      `#!${process.execPath}
+      `#!${testNodeExecPath}
 const fs = require("node:fs");
 const env = process.env;
 const argv = process.argv.slice(2);
@@ -227,7 +230,7 @@ describe.each(engines)("%s plain gh execution", (engine) => {
       const output =
         engine === "Node"
           ? execFileSync(
-              process.execPath,
+              testNodeExecPath,
               [
                 "--input-type=module",
                 "-e",

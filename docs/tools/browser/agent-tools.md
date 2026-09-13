@@ -54,6 +54,22 @@ Example agent tool arguments (reuse a `targetId` from `tabs` or `open`):
 { "action": "snapshot", "targetId": "t1", "query": "sign in", "maxChars": 4000 }
 ```
 
+For a [Browser dashboard](/web/dashboards#share-a-browser-dashboard-with-your-agent),
+use its stable widget name instead of a tab ID:
+
+```json
+{ "action": "snapshot", "dashboard": "service-status", "refs": "aria" }
+```
+
+The `dashboard` selector applies to the current session. Create the saved
+`browser:dashboard` widget with the `dashboard` tool first; its props choose
+the URL and optional managed profile. `browser` resolves the same page shown
+in the dashboard for snapshots, clicks, typing, and navigation. Do not combine
+the selector with an explicit profile, node, or target ID. `open` explicitly
+resumes a stopped dashboard, and `close` stops its running browser. Other
+actions leave a stopped dashboard stopped. Ordinary raw-tab closing cannot
+close a dashboard-owned tab.
+
 ```json
 {
   "action": "emulate",

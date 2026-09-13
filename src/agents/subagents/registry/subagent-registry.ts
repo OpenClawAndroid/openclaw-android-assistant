@@ -13,6 +13,7 @@ import {
   runWithGatewayIndependentRootWorkAdmission,
 } from "../../../process/gateway-work-admission.js";
 import { prependAgentSteeringPrompt } from "../../agent-steering-queue.js";
+import { reconcileRetiredSubagentCancellation } from "../completion/subagent-completion-admission.store.js";
 import { terminateAcceptedCollectorRun } from "../spawn/subagent-spawn-cleanup.js";
 import { isDeliverySuspended } from "./subagent-delivery-state.js";
 import { SUBAGENT_ENDED_REASON_ERROR } from "./subagent-lifecycle-events.js";
@@ -278,21 +279,28 @@ export function resumeSubagentRun(runId: string, source: "live" | "restore" = "l
       });
     return;
   }
-  if (entry.execution.outcome && entry.suppressAnnounceReason !== "steer-restart") {
+  try {
+    if (
+      entry.killReconciliation &&
+      reconcileRetiredSubagentCancellation(entry, Date.now()) === false
+    ) {
+      scheduleSubagentRegistrySweep();
+      return;
+    }
     // The child result can reach disk before its task projection. Replay that
     // idempotent projection before terminal cleanup exits during restoration.
     // A steer restart deliberately leaves the shared task writable for its
     // successor run, so the retired row must not terminalize it.
-    try {
+    if (entry.execution.outcome && entry.suppressAnnounceReason !== "steer-restart") {
       finalizeSubagentTaskRun(subagentLifecycleController.options, {
         entry,
         outcome: entry.execution.outcome,
       });
-    } catch (error) {
-      log.warn("subagent task settlement deferred before cleanup", { runId, error });
-      scheduleSubagentDeliveryResumeRetry(runId, entry, GATEWAY_ADMISSION_RETRY_DELAY_MS);
-      return;
     }
+  } catch (error) {
+    log.warn("subagent task settlement deferred before cleanup", { runId, error });
+    scheduleSubagentDeliveryResumeRetry(runId, entry, GATEWAY_ADMISSION_RETRY_DELAY_MS);
+    return;
   }
   const yieldedWakeWaitingForDelivery =
     entry.requesterSettleWake?.requesterYieldBatch === true &&
@@ -343,8 +351,7 @@ export function resumeSubagentRun(runId: string, source: "live" | "restore" = "l
 
   if (typeof entry.execution.endedAt === "number" && entry.execution.endedAt > 0) {
     if (entry.killReconciliation) {
-      // Restored kills remain reconciliation tombstones; only the sweeper may
-      // accept late provider completion or stabilize their task cancellation.
+      // Without a pending requester wake, the sweeper owns provisional cancellation cleanup.
       resumedRuns.add(runId);
       return;
     }

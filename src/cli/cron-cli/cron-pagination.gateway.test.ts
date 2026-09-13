@@ -155,6 +155,45 @@ afterEach(() => {
 });
 
 describe("cron CLI with the real Gateway pagination contract", () => {
+  it.each(["list", "show"])(
+    "preserves active run status in %s with a disabled stream source",
+    async (surface) => {
+      const job = createJob(400, {
+        agentId: "main",
+        schedule: { kind: "stream", command: ["node", "events.mjs"] },
+        state: {
+          runningAtMs: Date.now(),
+          streamStatus: "disabled",
+          streamError: "cron is disabled",
+        },
+      });
+      installRealCronGateway([job]);
+      const args = surface === "list" ? ["list"] : ["show", job.id];
+
+      await runCron(args);
+
+      const lines = mocks.runtime.log.mock.calls.flatMap(([line]) => String(line).split("\n"));
+      if (surface === "list") {
+        const row = lines.find((line) => line.includes(job.id));
+        expect(row).toContain("running");
+        expect(row).not.toContain("disabled");
+      } else {
+        expect(lines).toContain("status: running");
+        expect(lines).toContain("stream status: disabled");
+        expect(lines).toContain("stream error: cron is disabled");
+      }
+
+      await runCron([...args, "--json"]);
+      const result = mocks.runtime.writeJson.mock.calls.at(-1)?.[0];
+      const expected = {
+        id: job.id,
+        status: "running",
+        state: { runningAtMs: job.state.runningAtMs, streamStatus: "disabled" },
+      };
+      expect(result).toMatchObject(surface === "list" ? { jobs: [expected] } : expected);
+    },
+  );
+
   it.each([
     { name: "all jobs as JSON", args: ["--json"], ids: ["job-000", "job-001", "job-002"] },
     { name: "the agent filter", args: ["--json", "--agent", "ops"], ids: ["job-002"] },

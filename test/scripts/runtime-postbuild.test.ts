@@ -26,8 +26,11 @@ import {
   writeStableRootRuntimeAliases,
 } from "../../scripts/runtime-postbuild.mts";
 import { expectNoNodeFsScans } from "../../src/test-utils/fs-scan-assertions.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { readBuildIdFromBuildInfoForModuleUrl } from "../../src/version.js";
 import { createScriptTestHarness } from "./test-helpers.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 import {
   previousReleaseInventory,
   writeUpdateCompatibilityBuildFixture,
@@ -1199,7 +1202,7 @@ describe("runtime postbuild static assets", () => {
       'export async function restart() { return (await import("./shared-1Uyqkfns.js")).resolveNodeRunner(); }\n',
     );
     const output = childProcess.execFileSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         path.join(MODULE_ROOT, "scripts/tsx.mjs"),
@@ -1221,7 +1224,7 @@ describe("runtime postbuild static assets", () => {
       { encoding: "utf8" },
     );
 
-    expect(output).toBe(process.execPath);
+    expect(output).toBe(testNodeExecPath);
   });
 
   it.each(["shared-Y6bNiw2w.js", "shared-DTaQo6Hi.js"])(
@@ -1232,7 +1235,7 @@ describe("runtime postbuild static assets", () => {
       writeLegacyCliExitCompatChunks({ rootDir });
 
       const bridge = await import(pathToFileURL(path.join(rootDir, "dist", chunk)).href);
-      expect(bridge.resolveNodeRunner()).toBe(process.execPath);
+      expect(bridge.resolveNodeRunner()).toBe(process.versions.bun ? "node" : process.execPath);
     },
   );
 });
@@ -1513,7 +1516,7 @@ describe("previous release update compatibility", () => {
       write(root, "dist/left.mjs", '//#region src/infra/original.ts\nexport const x = "left";\n');
       write(root, "dist/right.mjs", '//#region src/infra/other.ts\nexport const x = "right";\n');
       const namespaceHasX = childProcess.execFileSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--input-type=module",
           "-e",
@@ -1626,7 +1629,7 @@ describe("previous release update compatibility", () => {
       root,
       "bin/npm.cjs",
       [
-        `#!${process.execPath}`,
+        `#!${testNodeExecPath}`,
         'const fs = require("node:fs");',
         `const callsFile = ${JSON.stringify(callsFile)};`,
         `const replies = ${JSON.stringify(replies)};`,
@@ -1640,13 +1643,13 @@ describe("previous release update compatibility", () => {
       ].join("\n"),
     );
     if (process.platform === "win32") {
-      write(root, "bin/npm.cmd", `@"${process.execPath}" "${stub}" %*\r\n`);
+      write(root, "bin/npm.cmd", `@"${testNodeExecPath}" "${stub}" %*\r\n`);
     } else {
       fsSync.copyFileSync(stub, path.join(bin, "npm"));
       fsSync.chmodSync(path.join(bin, "npm"), 0o755);
     }
     const result = childProcess.spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [path.join(MODULE_ROOT, "scripts/update-compat-inventory.mts"), ...args],
       {
         encoding: "utf8",

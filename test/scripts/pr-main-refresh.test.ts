@@ -36,6 +36,54 @@ function recoverFixtureLock(f: ReturnType<typeof fixture>, oid: string) {
 }
 
 describePosix("native PR main refresh boundaries", () => {
+  it.each([
+    "review-init",
+    "review-checkout-pr",
+    "prepare-init",
+    "prepare-run",
+    "prepare-sync-head",
+    "merge-verify",
+  ])("%s acquires the authenticated head despite a stale pull ref", (command) => {
+    const f = fixture();
+    if (command === "prepare-sync-head" || command === "merge-verify") {
+      const prepared = f.run("prepare-run");
+      expect(prepared.status, prepared.stdout + prepared.stderr).toBe(0);
+    }
+    f.git(f.origin, "update-ref", "refs/pull/42/head", f.main);
+    const result = f.run(command);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(f.git(f.worktree, "rev-parse", "refs/heads/pr-42")).toBe(f.head);
+    expect(f.git(f.origin, "rev-parse", "refs/pull/42/head")).toBe(f.main);
+    expect(f.git(f.origin, "rev-parse", "refs/heads/topic")).toBe(f.head);
+    expect(f.git(f.worktree, "status", "--porcelain")).toBe("");
+    expect(f.events().filter((event) => event.kind === "unexpected-push")).toEqual([]);
+  });
+
+  it.each(["oid", "branch", "repository"] as const)(
+    "rejects PR %s drift during acquisition before preparation stamps",
+    (boundary) => {
+      const f = fixture();
+      f.configure({ prIdentityDriftAfterFetch: boundary });
+      const result = f.run("prepare-init");
+      expect(result.status, result.stdout + result.stderr).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain("PR head changed");
+      expect(existsSync(join(f.local, "prep-context.env"))).toBe(false);
+      expect(f.git(f.worktree, "rev-parse", "HEAD")).toBe(f.head);
+      expect(f.git(f.worktree, "status", "--porcelain")).toBe("");
+    },
+  );
+
+  it("refuses a non-SHA PR source before fetching or replacing its local ref", () => {
+    const f = fixture();
+    f.git(f.canonical, "branch", "pr-42", f.head);
+    f.configure({ metadata: { ...f.metadata, headRefOid: "refs/heads/main" } });
+    const result = f.run("review-init");
+    expect(result.status, result.stdout + result.stderr).not.toBe(0);
+    expect(result.stderr).toContain("full lowercase commit SHA");
+    expect(f.git(f.worktree, "rev-parse", "refs/heads/pr-42")).toBe(f.head);
+    expect(existsSync(join(f.local, "review-context.env"))).toBe(false);
+  });
+
   it.each(["detached", "pr-42", "pr-42-prep"])(
     "prepares directly from the reviewed head (%s) without visiting main",
     (branch) => {
@@ -442,27 +490,38 @@ ${readFileSync(gitShim, "utf8")}
     expect(readFileSync(join(f.local, "prep.env"), "utf8")).toContain(`PREP_HEAD_SHA=${f.head}\n`);
   });
 
-  it("captures private FETCH_HEAD despite a competing shared-ref write and worktree origin/refmap overrides", () => {
-    const f = fixture();
-    f.git(f.canonical, "remote", "set-url", "origin", "../origin.git");
-    f.git(f.worktree, "config", "--worktree", "remote.origin.url", join(f.root, "wrong-origin"));
-    f.git(
-      f.worktree,
-      "config",
-      "--worktree",
-      "remote.origin.fetch",
-      "+refs/heads/movement:refs/remotes/origin/main",
-    );
-    f.git(f.canonical, "update-ref", "refs/heads/origin/main", f.movedMain);
-    f.configure({ moveSharedAfterFetch: true });
-    const result = f.run("review-checkout-main");
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(f.git(f.worktree, "rev-parse", "HEAD")).toBe(f.main);
-    expect(f.events().filter((e) => e.kind === "fetched")).toEqual([
-      { kind: "fetched", sha: f.main, shared: f.movedMain },
-    ]);
-    expect(f.git(f.canonical, "rev-parse", "refs/remotes/origin/main")).toBe(f.movedMain);
-  });
+  it.each(["review-checkout-main", "prepare-init"])(
+    "%s preserves private FETCH_HEAD despite shared-ref writes and worktree origin/refmap overrides",
+    (command) => {
+      const f = fixture();
+      const sharedFetchHead = join(f.canonical, ".git", "FETCH_HEAD");
+      const readSharedFetchHead = () =>
+        existsSync(sharedFetchHead) ? readFileSync(sharedFetchHead, "utf8") : null;
+      const beforeSharedFetchHead = readSharedFetchHead();
+      f.git(f.canonical, "remote", "set-url", "origin", "../origin.git");
+      f.git(f.worktree, "config", "--worktree", "remote.origin.url", join(f.root, "wrong-origin"));
+      f.git(
+        f.worktree,
+        "config",
+        "--worktree",
+        "remote.origin.fetch",
+        "+refs/heads/movement:refs/remotes/origin/main",
+      );
+      f.git(f.canonical, "update-ref", "refs/heads/origin/main", f.movedMain);
+      f.configure({ moveSharedAfterFetch: true });
+      const result = f.run(command);
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(f.git(f.worktree, "rev-parse", "HEAD")).toBe(
+        command === "prepare-init" ? f.head : f.main,
+      );
+      expect(f.git(f.worktree, "rev-parse", "FETCH_HEAD")).toBe(f.main);
+      expect(readSharedFetchHead()).toBe(beforeSharedFetchHead);
+      expect(f.events().filter((e) => e.kind === "fetched")).toEqual([
+        { kind: "fetched", sha: f.main, shared: f.movedMain },
+      ]);
+      expect(f.git(f.canonical, "rev-parse", "refs/remotes/origin/main")).toBe(f.movedMain);
+    },
+  );
 
   it("starts a new operation fresh and rejects a stale detached main review", () => {
     const f = fixture();
@@ -697,11 +756,11 @@ read -r release < "$OPENCLAW_TEST_FETCH_HOLD"
         f.configure({ metadata: { ...f.metadata, headRefName: "renamed" } });
       }
       if (boundary === "fetched") {
-        f.git(f.canonical, "push", "origin", `${f.sameTreeHead}:refs/pull/42/head`);
+        f.configure({ wrongPrFetch: true });
       }
       const result = f.run("prepare-run");
       expect(result.status, result.stdout + result.stderr).not.toBe(0);
-      expect(result.stdout).toContain(
+      expect(result.stdout + result.stderr).toContain(
         boundary === "branch" ? "PR head branch changed" : "PR head changed",
       );
       expect(existsSync(join(f.local, "prep-context.env"))).toBe(false);

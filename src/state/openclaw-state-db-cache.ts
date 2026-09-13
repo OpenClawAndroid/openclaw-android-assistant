@@ -19,7 +19,7 @@ import {
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "../infra/sqlite-readonly-location.js";
 import { createSqliteTerminalOpenLatch } from "../infra/sqlite-terminal-open-latch.js";
-import { registerSqliteCacheExitClose } from "../infra/sqlite-wal.js";
+import { registerSqliteCacheExitClose, type SqliteWalHealth } from "../infra/sqlite-wal.js";
 import type { DatabasePathIdentity } from "../infra/sqlite-worker-identity.js";
 import {
   acquireStateDatabaseCoordinator,
@@ -41,6 +41,7 @@ import {
 } from "./openclaw-state-db-contract.js";
 import { closeTrackedStateDatabase } from "./openclaw-state-db-handle.js";
 import { createOpenClawStateDatabaseRuntimeFailureOwner } from "./openclaw-state-db-runtime-failure.js";
+import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 import type { OpenClawStateWorkerContext } from "./openclaw-state-worker-context.types.js";
 
 type StateDatabaseHandle = Pick<OpenClawStateDatabase, "db" | "path"> &
@@ -516,6 +517,12 @@ export function isOpenClawStateDatabaseOpen(pathname?: string): boolean {
     return cachedDatabases.get(path.resolve(pathname))?.db.isOpen === true;
   }
   return Array.from(cachedDatabases.values()).some((database) => database.db.isOpen);
+}
+
+/** Report the live owner's last observation without opening or querying SQLite. */
+export function readOpenClawStateWalHealth(): SqliteWalHealth | undefined {
+  const database = cachedDatabases.get(path.resolve(resolveOpenClawStateSqlitePath()));
+  return database?.db.isOpen ? database.walMaintenance.health : undefined;
 }
 
 /** Close shared state handles and clear terminal failure latches for test isolation. */

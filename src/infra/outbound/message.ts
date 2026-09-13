@@ -29,7 +29,10 @@ import {
   type OutboundDeliveryQueuePolicy,
   type OutboundSendDeps,
 } from "./deliver.js";
-import type { DurableDeliveryCompletion } from "./delivery-completion.js";
+import type {
+  ConversationDeliveryTarget,
+  DurableDeliveryCompletion,
+} from "./delivery-completion.js";
 import {
   resolveOutboundMessageGatewayOptions,
   type OutboundMessageGatewayOptionsInput,
@@ -113,6 +116,7 @@ type MessageSendParams = {
   deliveryIntentId?: string;
   /** @internal Serializable owner state finalized by live send or recovery. */
   deliveryCompletion?: DurableDeliveryCompletion;
+  conversationDeliveryTarget?: ConversationDeliveryTarget;
   /** @internal Retry the same pending producer intent only before platform I/O begins. */
   reusePendingDeliveryIntent?: boolean;
   /** @internal The caller resends proven-not-sent payloads itself, so recovery must not. */
@@ -439,53 +443,56 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
         silent: params.silent,
       });
     }
-    const send = await sendDurableMessageBatchCore({
-      cfg,
-      channel: outboundChannel,
-      to: resolvedTarget.to,
-      session: outboundSession,
-      runId: params.runId,
-      executionIdentityToken: params.executionIdentityToken,
-      accountId: params.accountId,
-      conversationReadOrigin: params.conversationReadOrigin,
-      payloads: normalizedPayloads,
-      reply,
-      threadId: params.threadId,
-      gifPlayback: params.gifPlayback,
-      forceDocument: params.forceDocument,
-      deps: params.deps,
-      bestEffort: params.bestEffort,
-      ...(requireUnknownSendReconciliation ? { requireUnknownSendReconciliation: true } : {}),
-      durability:
-        params.bestEffort || params.queuePolicy === "best_effort" ? "best_effort" : "required",
-      signal: params.abortSignal,
-      silent: params.silent,
-      mediaAccess: params.mediaAccess,
-      formatting: params.parseMode ? { parseMode: params.parseMode } : undefined,
-      preparedMessageId: params.preparedMessageId,
-      deliveryIntentId: params.deliveryIntentId,
-      deliveryCompletion: params.deliveryCompletion,
-      reusePendingDeliveryIntent: params.reusePendingDeliveryIntent,
-      deliveryRetryOwner: params.deliveryRetryOwner,
-      completionRetention: params.completionRetention,
-      ...(params.onDeliveryIntent ? { onDeliveryIntent: params.onDeliveryIntent } : {}),
-      ...(params.onDeliveryAttempt ? { onDeliveryAttempt: params.onDeliveryAttempt } : {}),
-      ...(params.onDeliveryResult ? { onDeliveryResult: params.onDeliveryResult } : {}),
-      ...(params.onPlatformSendDispatch
-        ? { onPlatformSendDispatch: params.onPlatformSendDispatch }
-        : {}),
-      assertDirectAdapterHandoff: params.assertDirectAdapterHandoff,
-      skipQueue: params.skipQueue,
-      ...(params.onDeliveredPayload ? { onDeliveredPayload: params.onDeliveredPayload } : {}),
-      mirror: params.mirror
-        ? {
-            ...params.mirror,
-            text: mirrorText || params.content,
-            mediaUrls: mirrorMediaUrls.length ? mirrorMediaUrls : undefined,
-            idempotencyKey: params.mirror.idempotencyKey ?? params.idempotencyKey,
-          }
-        : undefined,
-    });
+    const send = await sendDurableMessageBatchCore(
+      {
+        cfg,
+        channel: outboundChannel,
+        to: resolvedTarget.to,
+        session: outboundSession,
+        runId: params.runId,
+        executionIdentityToken: params.executionIdentityToken,
+        accountId: params.accountId,
+        conversationReadOrigin: params.conversationReadOrigin,
+        payloads: normalizedPayloads,
+        reply,
+        threadId: params.threadId,
+        gifPlayback: params.gifPlayback,
+        forceDocument: params.forceDocument,
+        deps: params.deps,
+        bestEffort: params.bestEffort,
+        ...(requireUnknownSendReconciliation ? { requireUnknownSendReconciliation: true } : {}),
+        durability:
+          params.bestEffort || params.queuePolicy === "best_effort" ? "best_effort" : "required",
+        signal: params.abortSignal,
+        silent: params.silent,
+        mediaAccess: params.mediaAccess,
+        formatting: params.parseMode ? { parseMode: params.parseMode } : undefined,
+        preparedMessageId: params.preparedMessageId,
+        deliveryIntentId: params.deliveryIntentId,
+        deliveryCompletion: params.deliveryCompletion,
+        reusePendingDeliveryIntent: params.reusePendingDeliveryIntent,
+        deliveryRetryOwner: params.deliveryRetryOwner,
+        completionRetention: params.completionRetention,
+        ...(params.onDeliveryIntent ? { onDeliveryIntent: params.onDeliveryIntent } : {}),
+        ...(params.onDeliveryAttempt ? { onDeliveryAttempt: params.onDeliveryAttempt } : {}),
+        ...(params.onDeliveryResult ? { onDeliveryResult: params.onDeliveryResult } : {}),
+        ...(params.onPlatformSendDispatch
+          ? { onPlatformSendDispatch: params.onPlatformSendDispatch }
+          : {}),
+        assertDirectAdapterHandoff: params.assertDirectAdapterHandoff,
+        skipQueue: params.skipQueue,
+        ...(params.onDeliveredPayload ? { onDeliveredPayload: params.onDeliveredPayload } : {}),
+        mirror: params.mirror
+          ? {
+              ...params.mirror,
+              text: mirrorText || params.content,
+              mediaUrls: mirrorMediaUrls.length ? mirrorMediaUrls : undefined,
+              idempotencyKey: params.mirror.idempotencyKey ?? params.idempotencyKey,
+            }
+          : undefined,
+      },
+      params.conversationDeliveryTarget,
+    );
     const shouldThrowFailure =
       !params.bestEffort && params.gateway?.clientName !== GATEWAY_CLIENT_NAMES.CLI;
     if (shouldThrowFailure && (send.status === "failed" || send.status === "partial_failed")) {

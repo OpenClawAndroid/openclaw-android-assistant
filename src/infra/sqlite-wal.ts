@@ -13,6 +13,14 @@ import { normalizeSqliteNonNegativeInteger } from "./sqlite-busy-timeout.js";
 import { createSqliteLifecycleAggregateError } from "./sqlite-coordinator.js";
 import { isSqliteLockError } from "./sqlite-error-diagnostics.js";
 import { runSqliteImmediateTransactionSync } from "./sqlite-transaction.js";
+import {
+  createSqliteWalCheckpoint,
+  type SqliteWalCheckpointMode,
+  type SqliteWalCheckpointOptions,
+  type SqliteWalHealth,
+} from "./sqlite-wal-checkpoint.js";
+
+export type { SqliteWalHealth } from "./sqlite-wal-checkpoint.js";
 
 // WAL maintenance configures SQLite write-ahead logging and schedules bounded
 // checkpoints so state databases do not accumulate unbounded WAL files.
@@ -53,7 +61,6 @@ type IntervalHandle = ReturnType<typeof setInterval> & {
   unref?: () => void;
 };
 
-type SqliteWalCheckpointMode = "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE";
 type SqliteFilesystemJournalPolicy = "rollback" | "unsupported" | "wal";
 type MountEntry = { mountPoint: string; fsType: string; source?: string };
 
@@ -68,19 +75,18 @@ type SqliteWalSplitBrainEvent = {
 };
 
 export type SqliteWalMaintenance = {
+  /** Last maintenance observation; reading it never checkpoints or probes storage. */
+  readonly health?: SqliteWalHealth;
   checkpoint: () => boolean;
   close: (options?: { checkpointMode?: SqliteWalCheckpointMode }) => boolean;
 };
 
 /** Options controlling WAL autocheckpoint and periodic checkpoint behavior. */
-export type SqliteWalMaintenanceOptions = {
+export type SqliteWalMaintenanceOptions = SqliteWalCheckpointOptions & {
   autoCheckpointPages?: number;
   busyTimeoutMs?: number;
   checkpointIntervalMs?: number;
   checkpointMode?: SqliteWalCheckpointMode;
-  databaseLabel?: string;
-  databasePath?: string;
-  onCheckpointError?: (error: unknown) => void;
   /** Owner-held synchronous exclusion around maintenance writes, including periodic vacuum. */
   runMaintenance?: (operation: () => boolean) => boolean;
 };
@@ -367,15 +373,6 @@ function hasInMemoryMainDatabase(db: DatabaseSync): boolean {
   return main?.file === "";
 }
 
-function readCheckpointBusyResult(row: unknown): boolean {
-  if (!row || typeof row !== "object") {
-    return false;
-  }
-  const record = row as Record<string, unknown>;
-  const value = record.busy ?? Object.values(record)[0];
-  return value === 1 || value === 1n;
-}
-
 function statSqliteSidecarTarget(pathname: string): BigIntStats | undefined {
   try {
     return fs.statSync(pathname, { bigint: true });
@@ -628,19 +625,15 @@ export function configureSqliteWalMaintenance(
   let invalidated = false;
   let splitBrainDetectionEnabled = Boolean(tripwireDatabasePath);
   let splitBrainDetectionWarningLogged = false;
-
+  const checkpointOwner = createSqliteWalCheckpoint(
+    options,
+    DEFAULT_SQLITE_WAL_JOURNAL_SIZE_LIMIT_BYTES,
+  );
   const runCheckpoint = (mode: SqliteWalCheckpointMode): boolean => {
     try {
-      const row = db.prepare(`PRAGMA wal_checkpoint(${mode});`).get();
-      if (readCheckpointBusyResult(row)) {
-        const label = options.databaseLabel ?? "sqlite database";
-        const error = new Error(`${label} WAL checkpoint ${mode} remained busy`);
-        options.onCheckpointError?.(error);
-        return false;
-      }
-      return true;
+      return checkpointOwner.record(mode, db.prepare(`PRAGMA wal_checkpoint(${mode});`).get());
     } catch (error) {
-      options.onCheckpointError?.(error);
+      checkpointOwner.recordError(error);
       return false;
     }
   };
@@ -672,7 +665,7 @@ export function configureSqliteWalMaintenance(
     try {
       return options.runMaintenance ? options.runMaintenance(operation) : operation();
     } catch (error) {
-      options.onCheckpointError?.(error);
+      checkpointOwner.recordError(error);
       return false;
     }
   };
@@ -718,6 +711,9 @@ export function configureSqliteWalMaintenance(
   }
 
   return {
+    get health() {
+      return checkpointOwner.health;
+    },
     checkpoint,
     close: (closeOptions) => {
       if (timer) {

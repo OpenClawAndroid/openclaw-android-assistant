@@ -232,11 +232,18 @@ export async function completeSubagentRunAttempt(
       completeParams.reason === SUBAGENT_ENDED_REASON_KILLED &&
       entry.killIntent === undefined &&
       entry.endedReason !== undefined &&
-      entry.endedReason !== SUBAGENT_ENDED_REASON_KILLED &&
-      entry.execution.outcome !== undefined
+      entry.execution.outcome !== undefined &&
+      (entry.endedReason !== SUBAGENT_ENDED_REASON_KILLED ||
+        (entry.execution.status === "terminal" &&
+          entry.killReconciliation === undefined &&
+          entry.pauseReason === undefined &&
+          typeof entry.execution.endedAt === "number" &&
+          Number.isFinite(entry.execution.endedAt) &&
+          typeof entry.cleanupCompletedAt === "number" &&
+          Number.isFinite(entry.cleanupCompletedAt) &&
+          entry.cleanupCompletedAt >= entry.execution.endedAt))
     ) {
-      // Any finalized provider outcome is canonical. A delayed abort listener
-      // must not replace success, failure, or timeout with a killed marker.
+      // A delayed abort must not replace a finalized result or reopen a cleaned cancellation.
       return;
     }
     let requestedEndedAt =

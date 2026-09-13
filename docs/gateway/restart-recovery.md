@@ -133,6 +133,10 @@ remain terminal. Recovery startup uses the admitted run's existing deadline,
 including runtime preparation and waiting for session or global capacity. Waiting
 in a healthy queue does not consume separate failed-start attempts.
 
+`sessions.abort` waits for the cancellation's session write before acknowledging
+success. Restarting immediately after that acknowledgment preserves the terminal
+outcome even if the run's finalizer has not finished.
+
 ## Host sleep and process freezes
 
 When a gateway host wakes from sleep, a virtual machine resumes, or the process
@@ -326,6 +330,17 @@ Three complementary mechanisms mark sessions whose turn did not finish:
   hard crashes and kills where no shutdown code ran. Stale transcript lock
   files are cleaned up at the same time.
 
+A failed store scan leaves that store eligible for the scheduled retry while
+other stores continue recovery. `openclaw status` and `openclaw doctor` show
+outstanding startup recovery failures from the running Gateway; the warning clears
+when the store scan succeeds.
+
+If an older Gateway left a session running with a dead writer and an unfinished
+recovery cycle, `sessions.recover` reconciles that writer and starts a continuation
+in the same session. It preserves the session key and transcript. A live run or
+cloud worker still prevents this repair. Tombstoned sessions retain their separate
+recovery path into a new session.
+
 ## Automatic resume
 
 A few seconds after startup, the gateway re-dispatches each marked session
@@ -439,6 +454,10 @@ not exhaust the obligation. Existing delivery retry limits still apply.
 Settling a yielded turn's wake leaves its unfinished task and final delivery
 intact. A completed cancellation can also finish wake bookkeeping after its
 task record expires, without recreating the task or repeating cleanup.
+Recovery reconciles an expired cancellation's retained marker before retrying
+its requester wake, preserving the original cleanup record. Live child cancellation
+can wake a waiting requester while normal cleanup reconciliation completes.
+A delayed cancellation callback cannot reopen completed cleanup.
 
 Two safety valves apply:
 

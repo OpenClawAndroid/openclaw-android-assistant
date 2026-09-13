@@ -233,3 +233,22 @@ export const getFirstReplyContext = (replySpy: ReturnType<typeof vi.fn>): Heartb
   }
   return ctx as HeartbeatReplyContext;
 };
+
+/** Create the five-minute, wildcard-channel fixture shared by heartbeat tests. */
+export function heartbeatTestConfig(
+  workspace: string,
+  target: "whatsapp" | "telegram" | "last" | "none",
+  channel: "whatsapp" | "telegram",
+  storePath: string,
+): OpenClawConfig {
+  return {
+    agents: {
+      defaults: {
+        workspace,
+        heartbeat: { every: "5m", target },
+      },
+    },
+    channels: { [channel]: { allowFrom: ["*"] } },
+    session: { store: storePath },
+  };
+}

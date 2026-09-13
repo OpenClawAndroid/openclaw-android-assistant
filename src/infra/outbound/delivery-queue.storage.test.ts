@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
+import { failPendingDelivery } from "./delivery-queue-ack.js";
 import { OUTBOUND_DELIVERY_QUEUE_NAME } from "./delivery-queue-media-staging.js";
 import { renewDeliveryPlatformSendLease } from "./delivery-queue-platform-lease.js";
 import {
@@ -14,7 +15,6 @@ import {
   failDelivery,
   failDeliveryAfterPlatformSend,
   failDeliveryBeforePlatformSend,
-  failPendingDelivery,
   loadPendingDelivery,
   markDeliveryPlatformOutcomeUnknown,
   markDeliveryPlatformSendDispatched,

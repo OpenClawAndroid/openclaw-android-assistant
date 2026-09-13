@@ -4144,7 +4144,7 @@ describe("createBackupArchive", () => {
             includeWorkspace: false,
             nowMs: Date.UTC(2026, 4, 9, 8, 34, 45),
           }),
-        ).rejects.toThrow(/Canonical global SQLite path must be a regular file or symlink/);
+        ).rejects.toThrow(`Cannot read shared state for discovery: ${globalDbPath}`);
         expect(await fs.readdir(outputDir)).toEqual([]);
       },
     );

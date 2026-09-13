@@ -40,6 +40,7 @@ import {
   GATEWAY_HEALTH_RATE_LIMITED_MESSAGE,
   gatewayConnectErrorWasRateLimited,
 } from "../commands/gateway-health-auth-diagnostic.js";
+import { formatSqliteWalHealthWarning } from "../commands/sqlite-wal-health.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isNodeRuntime } from "../daemon/runtime-binary.js";
 import { resolveNodeRuntimeInfo } from "../daemon/runtime-paths.js";
@@ -162,14 +163,23 @@ export async function collectGatewayHealthFindings(
       tlsFingerprint: probeDetails.tlsFingerprint,
       preauthHandshakeTimeoutMs: probeDetails.preauthHandshakeTimeoutMs,
     });
-    return projectDoctorSecretRuntimeDegradations(status).map((owner) => ({
-      checkId: "core/doctor/gateway-health",
-      severity: "warning",
-      message: `Secret runtime degradation: ${owner.message}`,
-      path: owner.path,
-      target: owner.target,
-      fixHint: `Retry: ${owner.retryHint}`,
-    }));
+    const findings: HealthFinding[] = projectDoctorSecretRuntimeDegradations(status).map(
+      (owner) => ({
+        checkId: "core/doctor/gateway-health",
+        severity: "warning",
+        message: `Secret runtime degradation: ${owner.message}`,
+        path: owner.path,
+        target: owner.target,
+        fixHint: `Retry: ${owner.retryHint}`,
+      }),
+    );
+    const sqliteWalWarning = formatSqliteWalHealthWarning(status.sqliteWal);
+    if (sqliteWalWarning) {
+      findings.push(
+        warning(`SQLite WAL: ${sqliteWalWarning}`, "Inspect openclaw status --deep output."),
+      );
+    }
+    return findings;
   } catch (error) {
     if (!probeDetails) {
       return [

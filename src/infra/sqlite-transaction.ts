@@ -404,6 +404,7 @@ export async function runSqliteImmediateTransaction<T>(
   db: DatabaseSync,
   prepare: () => Promise<(() => T) | undefined>,
   options?: SqliteTransactionOptions,
+  admit: (write: () => T) => T | Promise<T> = (write) => write(),
 ): Promise<T | undefined> {
   assertTransactionUsable(db);
   if (db.isTransaction) {
@@ -421,21 +422,28 @@ export async function runSqliteImmediateTransaction<T>(
       return undefined;
     }
     try {
-      return runWithSqliteBusyTimeout(
-        db,
-        0,
-        (restore) =>
-          runSqliteImmediateTransactionSync(
-            db,
-            () => {
-              entered = true;
-              restore();
-              return operation();
-            },
-            options,
-          ),
-        { lockFailureReporting: "suppress" },
-      );
+      return await admit(() => {
+        assertTransactionUsable(db);
+        // Owner admission may wait; never join a transaction opened during that wait.
+        if (db.isTransaction) {
+          throw new Error("Asynchronous SQLite preparation cannot join an existing transaction");
+        }
+        return runWithSqliteBusyTimeout(
+          db,
+          0,
+          (restore) =>
+            runSqliteImmediateTransactionSync(
+              db,
+              () => {
+                entered = true;
+                restore();
+                return operation();
+              },
+              options,
+            ),
+          { lockFailureReporting: "suppress" },
+        );
+      });
     } catch (error) {
       if (entered || !isSqliteLockError(error) || performance.now() >= deadline) {
         throw error;

@@ -1,6 +1,7 @@
 // Tests local port probing and availability detection.
 import net from "node:net";
 import { describe, expect, it, vi, type TestContext } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { probePortUsage, tryListenOnPort } from "./ports-probe.js";
 
 async function withListeningServer(
@@ -46,14 +47,8 @@ describe("tryListenOnPort", () => {
   });
 
   it("returns an ephemeral port only after its listener closes", async ({ skip }) => {
-    let signalClose: () => void = () => {};
-    const closeSignaled = new Promise<void>((resolve) => {
-      signalClose = resolve;
-    });
-    let releaseClose: () => void = () => {};
-    const closeReleased = new Promise<void>((resolve) => {
-      releaseClose = resolve;
-    });
+    const { promise: closeSignaled, resolve: signalClose } = createDeferred();
+    const { promise: closeReleased, resolve: releaseClose } = createDeferred();
     const closeSpy = vi.spyOn(net.Server.prototype, "close").mockImplementation(function (
       this: net.Server,
       callback?: (error?: Error) => void,

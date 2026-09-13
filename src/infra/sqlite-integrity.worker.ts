@@ -50,7 +50,7 @@ try {
   database.exec("PRAGMA cache_size = -65536;"); // sqlite-allow-raw -- Connection-local page-cache policy for this disposable integrity child.
   readSqliteIntegrityFileIdentity(input.pathname, input.identity);
   await sendPhase("checking");
-  assertSqliteIntegrity(database, input.pathname);
+  assertSqliteIntegrity(database, input.databaseLabel);
 } catch (error) {
   failure = toStringifiedError(error);
 } finally {

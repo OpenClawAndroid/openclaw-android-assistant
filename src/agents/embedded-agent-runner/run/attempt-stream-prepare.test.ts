@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMessageInjectionAuthority } from "../../../auto-reply/reply/message-injection-authority.js";
 import {
@@ -5,6 +6,13 @@ import {
   expireStaleReplyOperation,
   type ReplyOperation,
 } from "../../../auto-reply/reply/reply-run-registry.js";
+import { CliPluginInvocationResources } from "../../../cli/plugin-invocation-resources.js";
+import { resolveDefaultSessionStorePath } from "../../../config/sessions/paths.js";
+import { replaceSessionEntry } from "../../../config/sessions/session-accessor.js";
+import {
+  resolveSqliteReadScope,
+  toDatabaseOptions,
+} from "../../../config/sessions/session-accessor.sqlite-scope.js";
 import { createDiagnosticEmbeddedRunOwner } from "../../../logging/diagnostic-run-activity.js";
 import {
   projectNestedToolActivityForHooks,
@@ -13,6 +21,11 @@ import {
 import { createUserTurnTranscriptRecorder } from "../../../sessions/user-turn-transcript.js";
 import { createTestUserTurnTranscriptTarget } from "../../../sessions/user-turn-transcript.test-support.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
+import {
+  runOpenClawAgentWorkerWrite,
+  runOpenClawAgentWriteAdmission,
+} from "../../../state/openclaw-agent-write-admission.js";
+import { withStateDirEnv } from "../../../test-helpers/state-dir-env.js";
 import {
   prepareAgentRunAdmission,
   createOperationalRunInstanceRef,
@@ -193,6 +206,110 @@ describe("prepareEmbeddedAttemptStream", () => {
       expect.objectContaining({ trustedLocalMediaToolNames }),
     );
   });
+
+  it.each(["current", "aborted", "replacement", "cancelled"] as const)(
+    "admits nested tool transcript writes only for the current attempt (%s)",
+    async (owner) => {
+      await withStateDirEnv("openclaw-nested-tool-admission-", async () => {
+        const target = {
+          agentId: "main",
+          sessionId: "session-output-schema",
+          sessionKey: "agent:main:nested-admission",
+          storePath: resolveDefaultSessionStorePath("main"),
+        };
+        await replaceSessionEntry(target, { sessionId: target.sessionId, updatedAt: Date.now() });
+        const manager = SessionManager.open(target);
+        const { session } = await createTestSession({ sessionManager: manager });
+        const originalEntries = manager.getEntries();
+        const activities: NestedToolActivity[] = [];
+        let aborted = false;
+        const controller = new AbortController();
+        const parent = new CliPluginInvocationResources();
+        const releaseRuntime = vi.fn(async () => {});
+        parent.adopt({ release: releaseRuntime });
+        const { subscribeEmbeddedAgentSession } = await vi.importActual<
+          typeof import("../../embedded-agent-subscribe.js")
+        >("../../embedded-agent-subscribe.js");
+        mocks.subscribe.mockImplementation(subscribeEmbeddedAgentSession);
+        const prepared = prepareCatalogExecutor(activities, {
+          activeSession: session,
+          sessionKey: target.sessionKey,
+          attempt: { ...target, sessionTarget: target },
+          runAbortController: controller,
+          getRunState: () => ({
+            aborted: aborted || controller.signal.aborted,
+            promptError: undefined,
+            timedOut: false,
+            yieldDetected: false,
+          }),
+        });
+        const entered = createDeferredCore();
+        const release = createDeferredCore();
+        const databaseOptions = toDatabaseOptions(resolveSqliteReadScope(target));
+        const held = runOpenClawAgentWorkerWrite(databaseOptions, async () => {
+          entered.resolve();
+          await release.promise;
+        });
+        let execution: Promise<unknown> | undefined;
+        try {
+          await entered.promise;
+          let settled = false;
+          execution = parent
+            .run(() =>
+              prepared.toolSearchCatalogExecutor({
+                tool: {
+                  name: "lookup",
+                  execute: async () => ({ content: [{ type: "text", text: "synthetic result" }] }),
+                } as never,
+                toolName: "lookup",
+                source: "openclaw",
+                toolCallId: "nested-admission",
+                parentToolCallId: "outer-exec",
+                input: {},
+                acceptResultBeforeProjection: async (result) => result,
+              }),
+            )
+            .then((result) => {
+              settled = true;
+              return result;
+            });
+          void execution.catch(() => {});
+          await yieldToEventLoop();
+          expect(settled).toBe(false);
+          expect(activities).toEqual([]);
+          expect(manager.getEntries()).toEqual(originalEntries);
+          if (owner === "aborted") {
+            aborted = true;
+          } else if (owner === "replacement") {
+            mocks.setActiveRun(target.sessionId, { ...prepared.queueHandle }, target.sessionKey);
+          } else if (owner === "cancelled") {
+            controller.abort();
+            await expect(execution).rejects.toMatchObject({ name: "AbortError" });
+            void parent.release();
+            await yieldToEventLoop();
+            expect(releaseRuntime).not.toHaveBeenCalled();
+          }
+          release.resolve();
+          if (owner === "cancelled") {
+            await Promise.allSettled([held, execution]);
+          } else {
+            await Promise.all([held, execution]);
+          }
+          await parent.release();
+          expect(activities).toHaveLength(owner === "current" ? 1 : 0);
+          expect(SessionManager.open(target).getEntries()).toHaveLength(
+            originalEntries.length + (owner === "current" ? 1 : 0),
+          );
+        } finally {
+          release.resolve();
+          await Promise.allSettled([held, execution]);
+          await runOpenClawAgentWriteAdmission(databaseOptions, () => undefined);
+          await parent.release();
+          prepared.subscription.unsubscribe();
+        }
+      });
+    },
+  );
 
   it.each([
     ["replacement", "steering"],

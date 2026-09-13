@@ -8,7 +8,6 @@ import { deleteSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
 import { appendSessionTranscriptMessageByIdentity } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { openOpenClawAgentDatabase } from "openclaw/plugin-sdk/sqlite-runtime";
 import { openOpenClawStateDatabase } from "openclaw/plugin-sdk/sqlite-runtime-testing";
-import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DREAMING_MEMORY_BACKUP_NAMESPACE,
@@ -24,7 +23,6 @@ import {
 import { forgetMemoryEntries } from "./memory-forget.js";
 import {
   createMemoryForgetFixture,
-  closeMemoryForgetFixture,
   seedMemoryForgetSession,
 } from "./memory-forget.test-helpers.js";
 import { runSessionBackfill } from "./session-backfill.js";
@@ -33,21 +31,19 @@ import { readPhaseSignalStore, writePhaseSignalStore } from "./short-term-promot
 import { readShortTermRecallEntries } from "./short-term-promotion.js";
 
 describe("memory forget", () => {
+  let fixture: Awaited<ReturnType<typeof createMemoryForgetFixture>>;
   let stateDir: string;
   let workspaceDir: string;
   let cfg: OpenClawConfig;
 
   beforeEach(async () => {
-    stateDir = tempDirs.make("openclaw-memory-forget-");
-    ({ workspaceDir, cfg } = await createMemoryForgetFixture(stateDir));
+    fixture = await createMemoryForgetFixture();
+    ({ stateDir, workspaceDir, cfg } = fixture);
   });
 
-  const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
-    afterEach(() => {
-      closeMemoryForgetFixture();
-      cleanup();
-    }),
-  );
+  afterEach(async () => {
+    await fixture.cleanup();
+  });
 
   it.each([true, false])(
     "reports no cache deletion for an empty selection (dryRun=%s)",

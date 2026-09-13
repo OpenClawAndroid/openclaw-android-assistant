@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../api/types.ts";
 import { childSessionListQuery } from "../lib/sessions/child-session-data.ts";
@@ -9,7 +10,6 @@ import "../test-helpers/app-sidebar-suite.ts";
 import {
   createGatewayHarness,
   createSessionsHarness,
-  deferred,
   mountSidebar,
 } from "../test-helpers/app-sidebar.ts";
 import { createTestGatewayClient } from "../test-helpers/gateway-client.ts";

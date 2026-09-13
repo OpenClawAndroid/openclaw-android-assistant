@@ -122,7 +122,7 @@ describe("cleanupEmbeddedAttemptResources", () => {
           order.push("dispose");
         },
       },
-      sessionManager: {},
+      sessionManager: undefined,
       aborted: true,
       abortSettlePromise: settle.promise,
       runId: "run-1",
@@ -153,7 +153,7 @@ describe("cleanupEmbeddedAttemptResources", () => {
           order.push("dispose");
         },
       },
-      sessionManager: {},
+      sessionManager: undefined,
       aborted: true,
       abortSettlePromise: new Promise(() => {}),
       runId: "run-1",
@@ -191,7 +191,7 @@ describe("cleanupEmbeddedAttemptResources", () => {
           order.push("dispose");
         },
       },
-      sessionManager: {},
+      sessionManager: undefined,
       bundleMcpRuntime: {
         dispose: async () => {
           order.push("runtime-dispose-start");
@@ -216,7 +216,7 @@ describe("cleanupEmbeddedAttemptResources", () => {
         agent: {},
         dispose,
       },
-      sessionManager: {},
+      sessionManager: undefined,
       aborted: false,
       abortSettlePromise: new Promise(() => {}),
       runId: "run-1",

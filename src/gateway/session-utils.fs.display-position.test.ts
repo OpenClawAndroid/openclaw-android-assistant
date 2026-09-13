@@ -163,6 +163,14 @@ describe("archive transcript display positions", () => {
     }
     expect(recent.totalMessages).toBe(11);
     expect(page).toMatchObject({ totalMessages: 11, displaySource: source });
+    expect(
+      await reader.readPage({
+        offset: 0,
+        maxMessages: 0,
+        recentAtHead: { maxMessages: 0, maxLines: 0, maxBytes: 1024 },
+        ...archiveOptions,
+      }),
+    ).toMatchObject({ messages: [], totalMessages: 11, displaySource: source });
     expect(full.messages.at(-2)).toMatchObject({
       role: "custom",
       customType: "run-failed-before-reply",
@@ -189,6 +197,29 @@ describe("archive transcript display positions", () => {
       );
       expect(around).toMatchObject({ found: true, displaySource: source });
       expect(around.messages.find((row) => metadata(row).id === id)).toEqual(message);
+    }
+    for (const [messageId, direction, maxMessages, messages, offset] of [
+      ["root", "older", 4, full.messages.slice(0, 1), 10],
+      ["final", "newer", 4, full.messages.slice(-1), 0],
+      ["progress", "newer", 2, full.messages.slice(1, 3), 8],
+      ["fast", "older", 2, full.messages.slice(1, 3), 8],
+      ["notice", "older", 1, full.messages.slice(9, 10), 1],
+      ["notice", "newer", 1, full.messages.slice(9, 10), 1],
+    ] as const) {
+      const directionalPage = await reader.readAroundId({
+        messageId,
+        direction,
+        maxMessages,
+        ...archiveOptions,
+      });
+      expect(directionalPage).toMatchObject({
+        found: true,
+        displaySource: source,
+        totalMessages: 11,
+        hasOverreadContext: false,
+        offset,
+      });
+      expect(directionalPage.messages).toEqual(messages);
     }
   });
 

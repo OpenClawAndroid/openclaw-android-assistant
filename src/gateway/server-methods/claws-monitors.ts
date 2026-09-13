@@ -255,7 +255,12 @@ export const clawsMonitorHandlers = {
         );
       }
       if (input.phase === "quiesce") {
-        prepareAgentDeleteDatabases(context.getRuntimeConfig(), input.agentId, journal.agentDir);
+        await prepareAgentDeleteDatabases(
+          context.getRuntimeConfig(),
+          input.agentId,
+          journal.agentDir,
+        );
+        assertCurrent();
       }
       respond(true, { drained: true }, undefined);
     } catch (error) {

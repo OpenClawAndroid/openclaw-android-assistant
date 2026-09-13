@@ -1,5 +1,5 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import type { ModelCatalogResult } from "../../api/types.ts";
+import type { GatewaySessionRow, ModelCatalogResult } from "../../api/types.ts";
 import type { ChatMetadataResult } from "../../lib/chat/chat-metadata-cache.ts";
 import {
   loadChatMetadata,
@@ -49,9 +49,11 @@ type ChatStartupMetadataHandler = (
 
 type ChatMetadataBinding = {
   client: GatewayBrowserClient;
+  sessions: ChatPageHost["sessions"];
   scope: { agentId?: string; sessionKey: string };
   version: number;
   sessionFactsInvalidated: boolean;
+  sessionFactsRequest?: { version: number; promise: Promise<void> };
   catalogRequest?: { version: number; controller: AbortController; promise: Promise<boolean> };
   isCurrent: () => boolean;
   unsubscribe: () => void;
@@ -149,6 +151,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
   const epoch = host.connectionEpoch;
   const binding: ChatMetadataBinding = {
     client,
+    sessions: host.sessions,
     scope,
     version: 0,
     sessionFactsInvalidated: false,
@@ -156,6 +159,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
       metadataBindings.get(host) === binding &&
       host.connected &&
       host.client === client &&
+      host.sessions === binding.sessions &&
       host.connectionEpoch === epoch &&
       host.sessionKey === scope.sessionKey &&
       (resolveChatAgentId(host) ?? undefined) === scope.agentId,
@@ -193,18 +197,75 @@ export async function refreshChatMetadata(host: ChatPageHost): Promise<void> {
   // Only accepted store publications update availability or fetch errors.
   const metadata = loadChatMetadata(binding.client, binding.scope).catch(() => undefined);
   const version = binding.version;
-  const catalog = loadChatModelCatalog(host, binding).then((accepted) => {
+  const catalog = loadChatModelCatalog(host, binding).then(async (accepted) => {
     if (
       binding.sessionFactsInvalidated &&
       accepted &&
       binding.isCurrent() &&
       binding.version === version
     ) {
-      binding.sessionFactsInvalidated = false;
-      host.sessions.invalidate();
+      await refreshChatSessionFacts(host, binding);
     }
   });
   await Promise.all([metadata, catalog]);
+}
+
+function refreshChatSessionFacts(host: ChatPageHost, binding: ChatMetadataBinding): Promise<void> {
+  const version = binding.version;
+  if (binding.sessionFactsRequest?.version === version) {
+    return binding.sessionFactsRequest.promise;
+  }
+  const agentId = binding.scope.agentId;
+  if (!agentId || !binding.isCurrent()) {
+    return Promise.resolve();
+  }
+  // A catalog changes descriptor facts, not roster membership. The row owner
+  // projects the accepted read into held windows without issuing new list queries.
+  const observation = binding.sessions.observeRow(
+    { key: binding.scope.sessionKey, agentId },
+    () => {},
+  );
+  const reconcile = observation.captureReconcile();
+  binding.sessionFactsInvalidated = false;
+  const promise = binding.client
+    .request<{ session?: GatewaySessionRow | null }>("sessions.describe", {
+      key: binding.scope.sessionKey,
+      agentId,
+    })
+    .then((result) => {
+      if (!binding.isCurrent() || binding.version !== version) {
+        return;
+      }
+      const outcome = reconcile(result.session ?? undefined);
+      if (!binding.isCurrent() || binding.version !== version) {
+        return;
+      }
+      if (outcome.status === "invalidated") {
+        binding.sessionFactsInvalidated = true;
+        binding.sessionFactsRequest = undefined;
+      }
+      if (outcome.status === "current" && host.sessionsResult) {
+        host.sessionsResult = {
+          ...host.sessionsResult,
+          sessions: binding.sessions.projectRows(host.sessionsResult.sessions),
+        };
+        host.requestUpdate?.();
+      }
+    })
+    .catch(() => {
+      if (binding.isCurrent() && binding.version === version) {
+        binding.sessionFactsInvalidated = true;
+        binding.sessionFactsRequest = undefined;
+      }
+    })
+    .finally(() => {
+      observation.dispose();
+      if (binding.sessionFactsRequest?.promise === promise) {
+        binding.sessionFactsRequest = undefined;
+      }
+    });
+  binding.sessionFactsRequest = { version, promise };
+  return promise;
 }
 
 export async function refreshChatModelAuthStatus(host: ChatPageHost, opts?: { refresh?: boolean }) {
@@ -322,7 +383,7 @@ export async function refreshChatModelCatalogOnDemand(host: ChatPageHost): Promi
   }
   if (binding && (await loadChatModelCatalog(host, binding)) && binding.isCurrent()) {
     // Session-owned thinking/context facts must converge with the published model catalog.
-    host.sessions.invalidate();
+    await refreshChatSessionFacts(host, binding);
   }
 }
 

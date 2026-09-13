@@ -30,6 +30,7 @@ import {
   type BrowserNoDisplayErrorDetails,
 } from "./errors.js";
 import { resolveBrowserRateLimitMessage } from "./rate-limit-message.js";
+import { getBrowserRequestScope } from "./request-scope.js";
 
 // Application-level error from the browser control service (service is reachable
 // but returned an error response). Must NOT be wrapped with "Can't reach ..." messaging.
@@ -428,9 +429,13 @@ export async function fetchBrowserJson<T>(
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<T> {
   const timeoutMs = resolveBrowserFetchTimeoutMs(init?.timeoutMs);
+  const scope = getBrowserRequestScope();
   let isDispatcherPath = false;
   try {
     if (isAbsoluteHttp(url)) {
+      if (scope) {
+        throw new Error("Dashboard browser requests must stay on the local managed browser");
+      }
       const httpInit = withLoopbackBrowserAuth(url, init);
       return await fetchHttpJson<T>(url, { ...httpInit, timeoutMs });
     }
@@ -440,6 +445,9 @@ export async function fetchBrowserJson<T>(
     const query: Record<string, unknown> = {};
     for (const [key, value] of parsed.searchParams.entries()) {
       query[key] = value;
+    }
+    if (scope) {
+      query.managedOnly = true;
     }
     let body = init?.body;
     if (typeof body === "string") {
@@ -491,6 +499,7 @@ export async function fetchBrowserJson<T>(
       query,
       body,
       signal: abortCtrl.signal,
+      ...(scope ? { assertCurrent: scope.assertCurrent } : {}),
     });
 
     const result = await Promise.race([dispatchPromise, abortPromise]).finally(() => {

@@ -28,11 +28,13 @@ import {
   discoverBundledPluginManifests,
   selectPluginEntries,
 } from "../../scripts/lib/plugin-gateway-gauntlet.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { isProcessAlive } from "../helpers/process-wait.js";
 import { withTestTimeout } from "../helpers/promise.js";
 import { runQaGatewayFixture } from "../helpers/qa-gateway-cleanup.js";
 
 const tsxImport = import.meta.resolve("tsx");
+const testNodeExecPath = resolveTestNodeExecPath();
 
 describe("plugin gateway gauntlet helpers", () => {
   let repoRoot: string;
@@ -946,7 +948,7 @@ await runMeasuredCommandLive({
         "utf8",
       );
 
-      const harness = spawn(process.execPath, ["--import", tsxImport, harnessPath], {
+      const harness = spawn(testNodeExecPath, ["--import", tsxImport, harnessPath], {
         cwd: repoRoot,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -1083,7 +1085,7 @@ try {
         "utf8",
       );
 
-      const harness = spawn(process.execPath, ["--import", tsxImport, harnessPath], {
+      const harness = spawn(testNodeExecPath, ["--import", tsxImport, harnessPath], {
         cwd: repoRoot,
         stdio: ["ignore", "pipe", "pipe"],
       });

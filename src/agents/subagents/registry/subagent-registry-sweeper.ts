@@ -6,6 +6,7 @@ import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-requ
 import { runWithGatewayIndependentRootWorkAdmission } from "../../../process/gateway-work-admission.js";
 import { emitSessionLifecycleEvent } from "../../../sessions/session-lifecycle-events.js";
 import { createLazyImportLoader } from "../../../shared/lazy-promise.js";
+import { reconcileRetiredSubagentCancellation } from "../completion/subagent-completion-admission.store.js";
 import { SUBAGENT_ENDED_REASON_ERROR } from "./subagent-lifecycle-events.js";
 import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
 import type { createSubagentRegistryCompletionRuntime } from "./subagent-registry-completion-runtime.js";
@@ -301,6 +302,12 @@ export function createSubagentRegistrySweeper(params: {
         }
         if (isRestoredQueuedFailureSettlementClaimed(entry)) {
           // The restored FIFO callback owns this row until durable settlement.
+          continue;
+        }
+        if (
+          entry.killReconciliation &&
+          reconcileRetiredSubagentCancellation(entry, now) === false
+        ) {
           continue;
         }
         // Yield freezes the parent's wake before its children finish. Keep

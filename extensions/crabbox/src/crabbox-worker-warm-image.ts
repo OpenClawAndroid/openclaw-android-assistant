@@ -21,6 +21,7 @@ import {
   resolveCrabboxWarmImagePolicy,
   type CrabboxWarmImagePolicy,
 } from "./crabbox-worker-warm-image-policy.js";
+import { WARM_IMAGE_MAX_ENTRIES } from "./crabbox-worker-warm-image-records.js";
 import {
   assertCrabboxWarmImageMigrationReady,
   crabboxWarmImageCaptureStatus,
@@ -32,7 +33,6 @@ import {
   openCrabboxWarmImageStore,
   listCrabboxWarmImages,
   sameCrabboxWarmImageGeneration as sameImage,
-  WARM_IMAGE_MAX_ENTRIES,
   withCrabboxWarmImageDisplayFacts,
   withCrabboxWarmImageGeneration,
   withoutCrabboxWarmImageOperation,

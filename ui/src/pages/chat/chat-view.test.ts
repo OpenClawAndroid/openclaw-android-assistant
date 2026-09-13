@@ -9992,7 +9992,7 @@ describe("right-click Reply", () => {
     const labels = [...document.querySelectorAll(".chat-reply-context-menu button")].map((button) =>
       button.textContent?.trim(),
     );
-    expect(labels).toEqual(["Reply", "Rewind to here", "Fork from here"]);
+    expect(labels).toEqual(["Reply", "Rewind to here", "Copy as markdown", "Fork from here"]);
     getContextMenuAction("Fork from here").click();
     expect(onForkMessage).toHaveBeenCalledWith("persisted-user");
 
@@ -10021,7 +10021,9 @@ describe("right-click Reply", () => {
     expect(onCopy).toHaveBeenCalledOnce();
   });
 
-  it("offers Reply only for the bubble that owns the frame actions", () => {
+  it("copies commentary without offering Reply for another bubble's frame actions", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
     const onSetReply = vi.fn();
     const { bubble, group } = renderChatBubble(
       { onSetReply },
@@ -10034,8 +10036,15 @@ describe("right-click Reply", () => {
 
     const event = dispatchContextMenu(bubble);
 
-    expect(event.defaultPrevented).toBe(false);
-    expect(document.querySelector(".chat-reply-context-menu")).toBeNull();
+    expect(event.defaultPrevented).toBe(true);
+    expect(
+      [...document.querySelectorAll(".chat-reply-context-menu button")].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["Copy as markdown"]);
+    getContextMenuAction("Copy as markdown").click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("Intermediate commentary"));
+    expect(onSetReply).not.toHaveBeenCalled();
   });
 
   it("dismisses an inline confirmation before opening the reply context menu", () => {
@@ -10366,7 +10375,7 @@ describe("right-click Reply", () => {
       [...document.querySelectorAll(".chat-reply-context-menu button")].map((button) =>
         button.textContent?.trim(),
       ),
-    ).toEqual(["Copy", "Reply"]);
+    ).toEqual(["Copy", "Reply", "Copy as markdown"]);
     getContextMenuAction("Copy").click();
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("selectable"));
 
@@ -10379,7 +10388,7 @@ describe("right-click Reply", () => {
       [...document.querySelectorAll(".chat-reply-context-menu button")].map((button) =>
         button.textContent?.trim(),
       ),
-    ).toEqual(["Reply"]);
+    ).toEqual(["Reply", "Copy as markdown"]);
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

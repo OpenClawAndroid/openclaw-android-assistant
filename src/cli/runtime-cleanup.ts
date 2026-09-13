@@ -108,6 +108,16 @@ export async function closeCliResources(cleanup?: CliHarnessCleanup): Promise<vo
         await closeActiveMemorySearchManagersCore();
       }
     },
+    "agent-databases": async () => {
+      const { hasOpenClawAgentDatabaseAsyncResources } =
+        await import("../state/openclaw-agent-db-resources.js");
+      if (!hasOpenClawAgentDatabaseAsyncResources()) {
+        return;
+      }
+      const { closeOpenClawAgentDatabasesAsync } =
+        await import("../state/openclaw-agent-db-lifecycle.js");
+      await closeOpenClawAgentDatabasesAsync();
+    },
   };
   for (const [name, finalize] of Object.entries(finalizers)) {
     await runCliDisposer(name, finalize, runCleanup);

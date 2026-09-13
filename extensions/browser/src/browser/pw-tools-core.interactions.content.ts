@@ -16,6 +16,7 @@ import {
   restoreRoleRefsForTarget,
 } from "./pw-session.js";
 import {
+  assertInteractionCurrent,
   awaitActionWithAbort,
   awaitNavigationGuardedInteraction,
   createAbortPromiseWithListener,
@@ -207,10 +208,17 @@ export async function waitForViaPlaywright(
       await waitFor(page.waitForLoadState(opts.loadState, { timeout }));
     }
     if (fn) {
+      if (opts.assertCurrent) {
+        await assertInteractionCurrent(opts);
+        throwIfInteractionAborted(opts.signal);
+      }
       // Passing the live document handle makes Playwright fail instead of
       // recreating this predicate in a replacement execution context.
       const documentHandle = await page.evaluateHandle(() => globalThis.document);
       try {
+        if (opts.assertCurrent) {
+          await assertInteractionCurrent(opts);
+        }
         throwIfInteractionAborted(opts.signal);
         await waitFor(
           page.waitForFunction(
@@ -244,6 +252,7 @@ export async function waitForViaPlaywright(
         page,
         ...interactionNavigationPolicy(opts),
         targetId: opts.targetId,
+        assertCurrent: opts.assertCurrent,
       },
       abortPromise,
       opts.signal,

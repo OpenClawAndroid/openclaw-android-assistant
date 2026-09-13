@@ -40,7 +40,7 @@ describeControlUiE2e("Control UI chat file links", () => {
   });
 
   it.each(["file", "task", "close", "list"] as const)(
-    "shows Review before file completion and honors the %s intent",
+    "shows a file tab before completion and honors the %s intent",
     async (intent) => {
       const context = await browser.newContext({
         recordVideo: { dir: artifactDir, size: { height: 900, width: 1280 } },
@@ -136,12 +136,13 @@ describeControlUiE2e("Control UI chat file links", () => {
         expect(await page.locator(".sidebar-file-view").count()).toBe(0);
         await page.screenshot({ path: path.join(artifactDir, "latency-panel-before-file.png") });
 
+        const fileTab = page.locator(".side-panel__header wa-tab").filter({ hasText: "slow.ts" });
+        expect(await fileTab.count()).toBe(1);
         if (intent === "task") {
           await page.locator('button[data-subagent-task-id="review-intent-task"]').click();
         } else if (intent === "close") {
-          await page.getByRole("button", { name: "Close Review", exact: true }).click();
-          await page.locator('[data-panel-slot="detail"]').waitFor({ state: "detached" });
-          expect(await page.locator('[data-panel-slot="detail"]').count()).toBe(0);
+          await page.getByRole("button", { name: "Close tab: slow.ts", exact: true }).click();
+          await fileTab.waitFor({ state: "detached" });
         } else if (intent === "list") {
           await gateway.resolveDeferred("sessions.files.list");
           await gateway.waitForRequest("artifacts.list");
@@ -151,8 +152,8 @@ describeControlUiE2e("Control UI chat file links", () => {
         await page.evaluate(
           "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
         );
-        const fileView = page.locator(".sidebar-file-view");
-        const taskView = page.locator("[data-task-detail-panel]");
+        const fileView = page.locator(".sidebar-file-view:visible");
+        const taskView = page.locator("[data-task-detail-panel]:visible");
         // Capture either settled outcome before the strict assertion, including a failing baseline.
         if ((await fileView.count()) > 0) {
           await expect
@@ -188,11 +189,16 @@ describeControlUiE2e("Control UI chat file links", () => {
           expect(await taskView.textContent()).toContain("Inspect current task");
           expect(await taskView.textContent()).toContain("Current task result.");
           expect(await fileView.count()).toBe(0);
+          expect(await page.locator(".sidebar-file-view").count()).toBe(1);
+          await fileTab.click();
+          await fileView.waitFor({ state: "visible" });
+          await expect
+            .poll(() => fileView.locator(".cm-content").textContent())
+            .toContain("export const loaded = true;");
+          expect(await gateway.getRequests("sessions.files.get")).toHaveLength(1);
         } else if (intent === "close") {
-          expect(await page.locator('[data-panel-slot="detail"]').count()).toBe(0);
-          expect(
-            await page.getByRole("button", { name: "Close Review", exact: true }).count(),
-          ).toBe(0);
+          expect(await fileTab.count()).toBe(0);
+          expect(await page.locator(".sidebar-file-view").count()).toBe(0);
         } else {
           expect(await fileView.count()).toBe(1);
           expect(await fileView.locator(".cm-content").textContent()).toContain(
@@ -204,6 +210,142 @@ describeControlUiE2e("Control UI chat file links", () => {
       }
     },
   );
+
+  it("keeps root-distinct file labels and targets through click and keyboard", async () => {
+    const files = [
+      {
+        requestPath: "/workspace/src/file.ts",
+        workspacePath: "src/file.ts",
+        marker: "export const absoluteTarget = true;",
+      },
+      {
+        requestPath: "workspace/src/file.ts",
+        workspacePath: "workspace/src/file.ts",
+        marker: "export const relativeTarget = true;",
+      },
+    ];
+    const context = await browser.newContext({
+      recordVideo: { dir: artifactDir, size: { height: 900, width: 1280 } },
+      viewport: { height: 900, width: 1280 },
+    });
+    try {
+      const page = await context.newPage();
+      page.setDefaultTimeout(controlUiE2eWaitTimeoutMs);
+      const gateway = await installMockGateway(page, {
+        workspace: "/workspace",
+        historyMessages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "Compare /workspace/src/file.ts:7 and `workspace/src/file.ts:7`; see docs/README.md.",
+              },
+            ],
+            timestamp: 1,
+          },
+        ],
+        methodResponses: {
+          "sessions.files.get": {
+            cases: files.map((file) => ({
+              match: { path: file.requestPath },
+              response: {
+                root: "/workspace",
+                sessionKey: "agent:main:main",
+                file: {
+                  content: `// 1\n// 2\n// 3\n// 4\n// 5\n// 6\n${file.marker}\n`,
+                  contentEncoding: "utf8",
+                  kind: "read",
+                  missing: false,
+                  name: "file.ts",
+                  path: file.workspacePath,
+                  previewKind: "text",
+                  workspacePath: file.workspacePath,
+                },
+              },
+            })),
+          },
+        },
+      });
+      const response = await page.goto(`${server.baseUrl}chat`);
+      const links = page.locator(".chat-thread a.markdown-file-link");
+      await links.nth(2).waitFor({ state: "visible" });
+      const labels = await links.evaluateAll((anchors) =>
+        anchors.map((anchor) => ({
+          path: anchor.getAttribute("data-file-path"),
+          line: anchor.getAttribute("data-file-line"),
+          text: anchor.textContent,
+        })),
+      );
+      // Keep the wrong-label baseline visible even when the final assertion fails.
+      await page.screenshot({ path: path.join(artifactDir, "root-identity-links.png") });
+      const opened = [];
+      for (const [index, file] of files.entries()) {
+        const before = (await gateway.getRequests("sessions.files.get")).length;
+        const target = page.locator(`.chat-thread a[data-file-path="${file.requestPath}"]`);
+        if (index === 0) {
+          await target.click();
+        } else {
+          await target.focus();
+          await page.keyboard.press("Enter");
+        }
+        await gateway.waitForRequest("sessions.files.get", { after: before });
+        const fileView = page.locator(".sidebar-file-view");
+        await fileView.waitFor({ state: "visible" });
+        await expect
+          .poll(() => fileView.locator(".cm-content").textContent())
+          .toContain(file.marker);
+        await expect
+          .poll(() => fileView.locator(".file-view__line--target").getAttribute("data-line"))
+          .toBe("7");
+        opened.push({
+          path: await fileView.locator(".sidebar-file-view__path").textContent(),
+          content: await fileView.locator(".cm-content").textContent(),
+          line: await fileView.locator(".file-view__line--target").getAttribute("data-line"),
+        });
+        await page.screenshot({
+          path: path.join(artifactDir, `root-identity-file-${index + 1}.png`),
+        });
+        await page.getByRole("button", { name: "Close tab: file.ts", exact: true }).click();
+        await fileView.waitFor({ state: "detached" });
+      }
+      const requests = await gateway.getRequests("sessions.files.get");
+      fs.writeFileSync(
+        path.join(artifactDir, "root-identity.json"),
+        JSON.stringify(
+          {
+            labels,
+            requests,
+            opened,
+            indexSha256: response
+              ? createHash("sha256")
+                  .update(await response.body())
+                  .digest("hex")
+              : null,
+          },
+          null,
+          2,
+        ),
+      );
+      expect(response?.status()).toBe(200);
+      expect(labels.map(({ path: targetPath, line }) => ({ path: targetPath, line }))).toEqual([
+        { path: "/workspace/src/file.ts", line: "7" },
+        { path: "workspace/src/file.ts", line: "7" },
+        { path: "docs/README.md", line: null },
+      ]);
+      expect(requests.map((request) => request.params)).toEqual([
+        { agentId: "main", path: "/workspace/src/file.ts", sessionKey: "agent:main:main" },
+        { agentId: "main", path: "workspace/src/file.ts", sessionKey: "agent:main:main" },
+      ]);
+      expect(labels.map((label) => label.text)).toEqual([
+        "/workspace/src/file.ts:7",
+        "workspace/src/file.ts:7",
+        "README.md",
+      ]);
+    } finally {
+      await context.close();
+    }
+  });
 
   it("reveals the selected file from chat in the workspace root after filtering", async () => {
     const context = await browser.newContext({
@@ -290,6 +432,7 @@ describeControlUiE2e("Control UI chat file links", () => {
 
       const fileView = page.locator(".sidebar-file-view");
       await fileView.waitFor({ state: "visible" });
+      const originalEditor = await fileView.locator(".cm-editor").elementHandle();
       expect(await fileView.locator(".file-view__line--target").getAttribute("data-line")).toBe(
         "2",
       );
@@ -311,9 +454,17 @@ describeControlUiE2e("Control UI chat file links", () => {
         .locator(".chat-workspace-rail__list--browser .chat-workspace-rail__file")
         .filter({ hasText: "README.md" });
       await browserRow.locator(".chat-workspace-rail__file-open").click();
-      await expect
-        .poll(async () => (await gateway.getRequests("sessions.files.get"))[1]?.params)
-        .toMatchObject({ path: "/workspace/packages/app/README.md" });
+      await fileView.waitFor({ state: "visible" });
+      expect(
+        await page.locator(".side-panel__header wa-tab").filter({ hasText: "README.md" }).count(),
+      ).toBe(1);
+      const reads = await gateway.getRequests("sessions.files.get");
+      expect(reads).toHaveLength(2);
+      expect(reads[1]?.params).toMatchObject({ path: "/workspace/packages/app/README.md" });
+      expect(await originalEditor!.evaluate((element) => element.isConnected)).toBe(true);
+      expect(await fileView.locator(".file-view__line--target").getAttribute("data-line")).toBe(
+        "2",
+      );
       await page.screenshot({ path: path.join(artifactDir, "03-workspace-file-preview.png") });
     } finally {
       await context.close();
@@ -408,8 +559,8 @@ describeControlUiE2e("Control UI chat file links", () => {
           .filter({ hasText: filePath });
         await fileRow.locator(".chat-workspace-rail__file-open").click();
       };
-      const closePreview = async () => {
-        await page.getByRole("button", { name: "Close Review" }).click();
+      const closePreview = async (filePath: string) => {
+        await page.getByRole("button", { name: `Close tab: ${filePath}`, exact: true }).click();
         await page.locator("openclaw-chat-detail-panel").waitFor({ state: "detached" });
       };
 
@@ -423,7 +574,7 @@ describeControlUiE2e("Control UI chat file links", () => {
         "Exact-head workspace preview proof.",
       );
       await page.screenshot({ path: path.join(artifactDir, "04-text-preview.png") });
-      await closePreview();
+      await closePreview("notes.txt");
 
       await openPreview("openclaw.png");
       const image = page.locator('.chat-tool-card__preview[data-kind="image"] img');
@@ -438,7 +589,7 @@ describeControlUiE2e("Control UI chat file links", () => {
         )
         .toBe(true);
       await page.screenshot({ path: path.join(artifactDir, "05-png-preview.png") });
-      await closePreview();
+      await closePreview("openclaw.png");
 
       await openPreview("unsupported-binary.bmp");
       const fallback = page.locator(".sidebar-markdown-shell");

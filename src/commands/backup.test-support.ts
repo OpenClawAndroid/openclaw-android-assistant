@@ -50,7 +50,7 @@ export async function resetBackupTempHome(tempHome: { home: string }) {
 export async function mockStateOnlyBackupPlan(stateDir: string) {
   await fs.writeFile(
     path.join(stateDir, "openclaw.json"),
-    JSON.stringify({ agents: { ownership: "explicit", entries: {} } }),
+    JSON.stringify({ agents: { ownership: "explicit", entries: { main: {} } } }),
     "utf8",
   );
   const plan = await backupShared.resolveBackupPlanFromDisk({

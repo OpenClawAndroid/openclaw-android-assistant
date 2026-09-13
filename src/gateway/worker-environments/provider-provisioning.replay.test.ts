@@ -581,10 +581,7 @@ describe("worker environment service provision replay", () => {
     let active = 0;
     let maxActive = 0;
     let originalProvisionCalls = 0;
-    let finishFirstProvision: (() => void) | undefined;
-    const firstProvisionPending = new Promise<void>((resolve) => {
-      finishFirstProvision = resolve;
-    });
+    const { promise: firstProvisionPending, resolve: finishFirstProvision } = createDeferredCore();
     const destroy = vi.fn(async () => {
       events.push("destroy:start");
       active += 1;

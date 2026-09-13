@@ -28,7 +28,7 @@ import {
 } from "../../../tasks/task-registry.store.kernel.js";
 import type { TaskRecord } from "../../../tasks/task-registry.types.js";
 import { resolveTaskCleanupAfter } from "../../../tasks/task-retention.js";
-import { ensureDeliveryState } from "../registry/subagent-delivery-state.js";
+import { ensureCompletionState, ensureDeliveryState } from "../registry/subagent-delivery-state.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "../registry/subagent-lifecycle-events.js";
 import { resolveFinalizedSubagentTaskState } from "../registry/subagent-registry-completion.js";
 import {
@@ -182,6 +182,87 @@ export function settleSubagentCompletionDelivery(params: {
   );
 }
 
+function retiredCancellationEndedAt(subagent: SubagentRunRecord, now: number): number | undefined {
+  const endedAt = subagent.execution.endedAt;
+  if (
+    subagent.execution.status !== "terminal" ||
+    subagent.execution.outcome?.status !== "error" ||
+    subagent.endedReason !== SUBAGENT_ENDED_REASON_KILLED ||
+    typeof endedAt !== "number" ||
+    !Number.isFinite(endedAt) ||
+    typeof subagent.cleanupCompletedAt !== "number" ||
+    !Number.isFinite(subagent.cleanupCompletedAt) ||
+    subagent.cleanupCompletedAt < endedAt ||
+    subagent.pauseReason ||
+    subagent.killIntent ||
+    subagent.terminalOwner ||
+    subagent.execution.restartRecovery ||
+    subagent.suppressAnnounceReason === "steer-restart" ||
+    subagent.expectsCompletionMessage !== true ||
+    subagent.completion?.required !== true ||
+    !subagent.requesterSettleWake ||
+    subagent.delivery?.status !== "pending" ||
+    subagent.delivery.queueId ||
+    resolveTaskCleanupAfter({ status: "cancelled", endedAt, createdAt: subagent.createdAt }) > now
+  ) {
+    return undefined;
+  }
+  return endedAt;
+}
+
+function ownsRetiredCancellation(
+  database: OpenClawStateDatabase,
+  subagent: SubagentRunRecord,
+  expected: SubagentRunRecord,
+): boolean {
+  const newerSibling = (candidate: SubagentRunRecord) =>
+    candidate.childSessionKey === subagent.childSessionKey &&
+    compareSubagentRunGeneration(candidate, subagent) > 0;
+  return (
+    subagentRuns.get(subagent.runId) === expected &&
+    bindSubagentRunRecord(subagent).payload_json === bindSubagentRunRecord(expected).payload_json &&
+    !findTaskRecordByRunIdForViewInDatabase(database.db, subagent.taskRunId ?? subagent.runId) &&
+    ![...subagentRuns.values()].some(newerSibling) &&
+    !loadSubagentRunsForChildSessionFromSqlite(subagent.childSessionKey, database).some(
+      newerSibling,
+    )
+  );
+}
+
+/** A changed historical owner stays deferred instead of falling through to repeat cleanup. */
+export function reconcileRetiredSubagentCancellation(
+  expected: SubagentRunRecord,
+  now: number,
+): boolean | undefined {
+  const endedAt = retiredCancellationEndedAt(expected, now);
+  const marker = expected.killReconciliation;
+  if (
+    endedAt === undefined ||
+    !marker ||
+    !Number.isFinite(marker.killedAt) ||
+    marker.killedAt > endedAt
+  ) {
+    return undefined;
+  }
+  return runOpenClawStateWriteTransaction((database) => {
+    const subagent = readSubagentRun(database, expected.runId);
+    if (!subagent || retiredCancellationEndedAt(subagent, now) !== endedAt) {
+      return false;
+    }
+    // Retained tasks still use ordinary cancellation and requester-wake ordering.
+    if (findTaskRecordByRunIdForViewInDatabase(database.db, subagent.taskRunId ?? subagent.runId)) {
+      return undefined;
+    }
+    if (!ownsRetiredCancellation(database, subagent, expected)) {
+      return false;
+    }
+    subagent.killReconciliation = undefined;
+    upsertSubagentRunRowInDatabase(database, bindSubagentRunRecord(subagent));
+    deferSqlitePostCommitPublication(database.db, () => publishCommittedSubagent(subagent));
+    return true;
+  });
+}
+
 export function blockSubagentCompletionDelivery(params: {
   subagent: SubagentRunRecord;
   taskId: string;
@@ -196,50 +277,23 @@ export function blockSubagentCompletionDelivery(params: {
     const subagent = readSubagentRun(database, params.subagent.runId);
     const task = readTaskRecord(database.db, params.taskId);
     if (subagent && !task && !params.taskId && params.suspendedReason === undefined) {
-      const endedAt = subagent.execution.endedAt;
-      const newerSibling = (candidate: SubagentRunRecord) =>
-        candidate.childSessionKey === subagent.childSessionKey &&
-        compareSubagentRunGeneration(candidate, subagent) > 0;
+      const endedAt = retiredCancellationEndedAt(subagent, now);
       // Old cancellation cleanup can outlive its task's retention window.
       // Recover that exact completed owner without recreating historical work.
       if (
-        subagentRuns.get(subagent.runId) !== params.subagent ||
-        subagent.execution.status !== "terminal" ||
-        subagent.execution.outcome?.status !== "error" ||
-        subagent.endedReason !== SUBAGENT_ENDED_REASON_KILLED ||
-        !Number.isFinite(endedAt) ||
-        typeof endedAt !== "number" ||
-        !Number.isFinite(subagent.cleanupCompletedAt) ||
-        typeof subagent.cleanupCompletedAt !== "number" ||
-        subagent.cleanupCompletedAt < endedAt ||
-        subagent.pauseReason ||
-        subagent.killIntent ||
+        endedAt === undefined ||
         subagent.killReconciliation ||
-        subagent.terminalOwner ||
-        subagent.execution.restartRecovery ||
-        subagent.suppressAnnounceReason === "steer-restart" ||
-        subagent.expectsCompletionMessage !== true ||
-        subagent.completion?.required !== true ||
-        !subagent.requesterSettleWake ||
-        subagent.delivery?.status !== "pending" ||
-        subagent.delivery.queueId ||
-        resolveTaskCleanupAfter({ status: "cancelled", endedAt, createdAt: subagent.createdAt }) >
-          now ||
-        bindSubagentRunRecord(subagent).payload_json !==
-          bindSubagentRunRecord(params.subagent).payload_json ||
-        findTaskRecordByRunIdForViewInDatabase(database.db, subagent.taskRunId ?? subagent.runId) ||
-        [...subagentRuns.values()].some(newerSibling) ||
-        loadSubagentRunsForChildSessionFromSqlite(subagent.childSessionKey, database).some(
-          newerSibling,
-        )
+        !ownsRetiredCancellation(database, subagent, params.subagent)
       ) {
         return false;
       }
-      subagent.completion.resultText ??= null;
-      subagent.completion.capturedAt ??= endedAt;
-      Object.assign(subagent.delivery, {
+      const completion = ensureCompletionState(subagent);
+      const delivery = ensureDeliveryState(subagent);
+      completion.resultText ??= null;
+      completion.capturedAt ??= endedAt;
+      Object.assign(delivery, {
         status: "failed" as const,
-        disposition: params.disposition ?? subagent.delivery.disposition,
+        disposition: params.disposition ?? delivery.disposition,
         lastError: params.reason,
         nextAttemptAt: undefined,
       });

@@ -30,9 +30,10 @@ Principles:
 - **Agent parity.** Everything the user can do on a board, the agent can do
   with tools: add/update/remove widgets, arrange them, manage tabs, switch the
   visible tab, and request split or expanded presentation.
-- **Native, not embedded.** The board is Lit components in the Control UI shell
+- **Native shell.** The board is Lit components in the Control UI shell
   (the same design system as the rest of the app). Data reports render directly.
-  Executable widget content is sandboxed in iframes. No URL bar, no browser chrome.
+  Custom executable widgets use sandboxed iframes; Browser dashboards reuse the
+  Browser panel and its navigation controls.
 - **Small agent surface.** Widgets are addressed by stable name and updated in
   place. Layout is a fluid auto-compacting grid. The agent speaks sizes and
   anchors, never pixels or coordinates.
@@ -286,6 +287,42 @@ That owner continues to block descendant frames. A full-width website can fill
 the existing expanded dashboard; shared grids retain their ordinary sizing.
 See [Show a website fullscreen](/web/dashboards#show-a-website-fullscreen).
 
+### Browser dashboards
+
+The Browser plugin advertises `browser:dashboard` to operators with Browser
+access. Its saved props contain an HTTP(S) URL and optional local managed
+profile. The native renderer reuses the Browser panel's streamed viewport and
+input path, fixed to the dashboard's exact browser target. Ordinary Browser
+preview results do not replace this dashboard presentation.
+
+The board owns the definition and insertion identity. Native plugin widgets
+store an internally generated `pluginInstanceId` in existing manifest metadata
+and expose it as the optional `instanceId` field. Same-owner updates preserve
+it; remove/recreate rotates it. Older native rows receive an identity on their
+next put, with no read-time backfill. Document widgets retain their existing
+per-put view and grant generations; those are a different lifetime.
+
+Browser owns the tab association and stopped state in its existing
+`browser.session-tabs` SQLite namespace, including the browser/profile
+fingerprints used for safe cleanup. Concurrent views and agent calls share
+materialization for one board instance. Stop before the first open persists a
+typed intent in the same store without a browser target or fingerprints; it
+survives reload and is retired after successful Resume or definition removal.
+Calls resolve the current definition
+and revalidate the association through the existing browser route/profile
+admission before acting. A saved target ID alone is not authority.
+
+The existing `browser.request` transport carries the dashboard identity for
+Control UI requests. The model-facing `browser` tool accepts the widget name
+as `dashboard`; `dashboard` remains the board authoring/layout tool. Stop and
+Resume update Browser's lifetime state without rewriting board props or
+overwriting a concurrent definition edit. UI unmount releases only the stream.
+Browser publishes lifetime invalidations through its existing plugin event
+service, so agent Stop/Resume updates the visible dashboard. Board-change and
+session-deletion notifications request reconciliation; the existing cleanup
+cycle also reconciles removed/replaced definitions when ordinary idle cleanup
+is disabled. Conversation reset preserves the board and its valid tab association.
+
 ### Native data reports
 
 `session:report` is an advertised core widget kind. Its validated `props` contain
@@ -457,6 +494,13 @@ board rows. `/new`/`/reset` does not touch them.
 
 RPCs (core method table, typebox schemas in `gateway-protocol`):
 
+- `canvas.document.preview { html }` → unchanged caller-owned HTML and the same
+  isolated sandbox connection metadata as `canvas.document.view` — `operator.read`.
+  It accepts at most 256 KiB of UTF-8 data (including empty HTML), rejects extra
+  fields, and never reads or creates a stored document. It honors Canvas host
+  disablement and returns no capability ticket or prompt/tool/host access. File-tab
+  clients use the default SandboxHost policy with descendant frames blocked, not
+  app-origin active `srcdoc` or the Canvas widget prompt/API bridge.
 - `canvas.document.view { docId }` → HTML and sandbox connection metadata —
   `operator.read`. It accepts managed script-enabled Canvas documents up to 2 MiB,
   creates no board state, and returns no capability ticket.

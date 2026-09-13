@@ -117,9 +117,13 @@ suite.define(() => {
       }
 
       await page.keyboard.press("Escape");
-      await gateway.setMethodResponse("sessions.list", sessionResponse(discoveredLevels, 65_536));
+      await gateway.setSessionsListResponse(sessionResponse(discoveredLevels, 65_536));
       await gateway.setMethodResponse("models.list", { models: [discoveredModel] });
       const sessionListCount = (await gateway.getRequests("sessions.list", rosterMatch)).length;
+      const sessionDescribeMatch = { key: sessionKey, agentId: "main" };
+      const sessionDescribeCount = (
+        await gateway.getRequests("sessions.describe", sessionDescribeMatch)
+      ).length;
       expect(await gateway.getRequests("models.list")).toHaveLength(1);
       await gateway.emitGatewayEvent("chat.metadata.changed", {});
       const modelsRequest = await gateway.waitForRequest("models.list", { after: 1 });
@@ -128,11 +132,11 @@ suite.define(() => {
         agentId: "main",
         sessionKey,
       });
-      const refreshedSessionsRequest = await gateway.waitForRequest("sessions.list", {
-        after: sessionListCount,
-        match: rosterMatch,
+      const refreshedSessionRequest = await gateway.waitForRequest("sessions.describe", {
+        after: sessionDescribeCount,
+        match: sessionDescribeMatch,
       });
-      expect(refreshedSessionsRequest.params).toMatchObject({ agentId: "main" });
+      expect(refreshedSessionRequest.params).toEqual({ key: sessionKey, agentId: "main" });
       await modelSelect.click();
       expect(await gateway.getRequests("models.list")).toHaveLength(2);
       const modelOption = main.locator(
@@ -152,6 +156,9 @@ suite.define(() => {
       await expect
         .poll(() => thinkingSlider.getAttribute("data-chat-thinking-values"))
         .toBe("off,low,medium,high,xhigh");
+      expect(await gateway.getRequests("sessions.list", rosterMatch)).toHaveLength(
+        sessionListCount,
+      );
       if (dynamicCatalogProofDir) {
         await page.screenshot({
           animations: "disabled",

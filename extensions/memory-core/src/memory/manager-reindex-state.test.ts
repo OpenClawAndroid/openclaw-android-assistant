@@ -88,6 +88,7 @@ describe("memory reindex state", () => {
       reason,
       code,
       owner: "openclaw",
+      versionOrder: "older",
     });
   });
 

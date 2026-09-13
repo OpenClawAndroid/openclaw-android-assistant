@@ -2,16 +2,17 @@ import type { AudioPlayer, AudioResource } from "@discordjs/voice";
 import { loadDiscordVoiceSdk } from "./sdk-runtime.js";
 
 export type DiscordRealtimePlayerRequest = {
+  isReady: () => boolean;
   createResource: () => AudioResource;
   onStart: () => void;
   onIdle: () => void;
-  onBargeIn: (reason: string) => void;
+  onBargeIn: (reason: string) => boolean;
   onError: (error: unknown) => void;
 };
 
 type DiscordRealtimePlayerLane = {
   hasOutput: () => boolean;
-  onBargeIn: (reason: string) => void;
+  onBargeIn: (reason: string) => boolean;
   cancelForControl: () => void;
 };
 
@@ -40,16 +41,19 @@ export class DiscordRealtimePlayer {
   }
 
   enqueue(request: DiscordRealtimePlayerRequest): void {
-    if (this.closed || this.current === request || this.queue.includes(request)) {
+    if (this.closed || this.current === request) {
       return;
     }
-    this.queue.push(request);
+    if (!this.queue.includes(request)) {
+      this.queue.push(request);
+    }
     this.drain();
   }
 
   cancel(request: DiscordRealtimePlayerRequest): void {
     this.queue = this.queue.filter((queued) => queued !== request);
     if (this.current !== request) {
+      this.drain();
       return;
     }
     // stop(true) emits Idle synchronously. Retire ownership before stopping so
@@ -58,16 +62,17 @@ export class DiscordRealtimePlayer {
     this.transition(() => this.player.stop(true));
   }
 
-  handleBargeIn(reason = "barge-in"): void {
-    if (this.current) {
-      this.current.onBargeIn(reason);
-      return;
+  handleBargeIn(reason = "barge-in"): boolean {
+    const current = this.current;
+    if (current) {
+      return current.onBargeIn(reason);
     }
-    for (const lane of this.lanes) {
-      if (lane.hasOutput()) {
-        lane.onBargeIn(reason);
-      }
+    let interrupted = false;
+    const activeLanes = Array.from(this.lanes).filter((lane) => lane.hasOutput());
+    for (const lane of activeLanes) {
+      interrupted = lane.onBargeIn(reason) || interrupted;
     }
+    return interrupted;
   }
 
   isActive(): boolean {
@@ -109,10 +114,11 @@ export class DiscordRealtimePlayer {
     if (this.closed || this.changing || this.current) {
       return;
     }
-    const next = this.queue.shift();
-    if (!next) {
+    const next = this.queue[0];
+    if (!next?.isReady()) {
       return;
     }
+    this.queue.shift();
     this.current = next;
     this.transition(() => {
       try {

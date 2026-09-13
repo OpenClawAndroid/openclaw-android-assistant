@@ -801,10 +801,7 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
 
   it("does not admit a replacement while provider cleanup is pending", async () => {
     Reflect.set(openAiAdapter, "transport", "local");
-    let releaseClose: () => void = () => {};
-    const closeGate = new Promise<void>((resolve) => {
-      releaseClose = resolve;
-    });
+    const { promise: closeGate, resolve: releaseClose } = createDeferred();
     closeEmbeddingProviderMock.mockImplementationOnce(async () => {
       await closeGate;
       throw new Error("close failed");
@@ -830,10 +827,7 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
 
   it("does not create a provider for a disconnected request waiting behind cleanup", async () => {
     Reflect.set(openAiAdapter, "transport", "local");
-    let releaseClose: () => void = () => {};
-    const closeGate = new Promise<void>((resolve) => {
-      releaseClose = resolve;
-    });
+    const { promise: closeGate, resolve: releaseClose } = createDeferred();
     closeEmbeddingProviderMock.mockImplementationOnce(async () => {
       await closeGate;
     });
@@ -890,10 +884,7 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
   });
 
   it("serializes cleanup when a remote request creates a local provider", async () => {
-    let releaseClose: () => void = () => {};
-    const closeGate = new Promise<void>((resolve) => {
-      releaseClose = resolve;
-    });
+    const { promise: closeGate, resolve: releaseClose } = createDeferred();
     closeEmbeddingProviderMock.mockImplementationOnce(async () => {
       await closeGate;
     });
@@ -926,10 +917,7 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
 
   it("does not bypass local cleanup with a model override", async () => {
     Reflect.set(openAiAdapter, "transport", "local");
-    let releaseClose: () => void = () => {};
-    const closeGate = new Promise<void>((resolve) => {
-      releaseClose = resolve;
-    });
+    const { promise: closeGate, resolve: releaseClose } = createDeferred();
     closeEmbeddingProviderMock.mockImplementationOnce(async () => {
       await closeGate;
     });
@@ -959,10 +947,7 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
   });
 
   it("allows providers without cleanup resources to embed concurrently", async () => {
-    let releaseFirstEmbed: () => void = () => {};
-    const firstEmbedGate = new Promise<void>((resolve) => {
-      releaseFirstEmbed = resolve;
-    });
+    const { promise: firstEmbedGate, resolve: releaseFirstEmbed } = createDeferred();
     const firstEmbed = vi.fn(async () => {
       await firstEmbedGate;
       return [[1, 2]];

@@ -28,9 +28,11 @@ import {
   runPrepackCommand,
 } from "../scripts/openclaw-prepack.ts";
 import { preparePackageDocsMap } from "../scripts/package-docs-map.mjs";
+import { resolveTestNodeExecPath } from "../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "./helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 const rootPackageManager = (
   JSON.parse(readFileSync("package.json", "utf8")) as {
     packageManager: string;
@@ -284,7 +286,7 @@ function runStandaloneBundledChannelSmoke(
   }
 
   const result = spawnSync(
-    process.execPath,
+    testNodeExecPath,
     [
       path.join(rootDir, "scripts", "test-built-bundled-channel-entry-smoke.mts"),
       "--package-root",
@@ -403,7 +405,7 @@ describe("prepared prepack ownership", () => {
       const receipt = incumbent ? readFileSync(receiptPath, "utf8") : undefined;
       const ownerUrl = pathToFileURL(path.resolve("scripts/openclaw-prepack.ts")).href;
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--import",
           import.meta.resolve("tsx"),
@@ -812,7 +814,7 @@ describe("runPrepackCommand", () => {
   });
 
   it("returns captured output for successful commands", () => {
-    const result = runPrepackCommand(process.execPath, ["--eval", "process.stdout.write('ok')"], {
+    const result = runPrepackCommand(testNodeExecPath, ["--eval", "process.stdout.write('ok')"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 1000,
@@ -825,7 +827,7 @@ describe("runPrepackCommand", () => {
   it("bounds commands that ignore termination", () => {
     const startedAt = Date.now();
     const result = runPrepackCommand(
-      process.execPath,
+      testNodeExecPath,
       ["--eval", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
       {
         stdio: ["ignore", "pipe", "pipe"],

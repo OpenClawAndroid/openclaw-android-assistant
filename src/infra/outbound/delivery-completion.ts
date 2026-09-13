@@ -9,9 +9,48 @@ import {
   markConversationDeliveryUnknown,
   type ConversationDeliveryRecord,
 } from "../../config/sessions/conversation-delivery-store.js";
+import {
+  runConversationDatabaseWrite,
+  type ConversationRegistryScope,
+  type PreparedConversationRegistryScope,
+} from "../../config/sessions/conversation-registry.js";
 import { patchSessionEntryCore } from "../../config/sessions/session-accessor.js";
+import {
+  resolveSqliteReadScope,
+  toDatabaseOptions,
+} from "../../config/sessions/session-accessor.sqlite-scope.js";
 import type { InternalSessionEntry } from "../../config/sessions/types.js";
+import { resolveStateDir } from "../../config/state-dir.js";
+import { normalizeAgentId } from "../../routing/session-key.js";
+import { isSameOpenClawAgentDatabasePath } from "../../state/openclaw-agent-db-registry.js";
+import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
+import {
+  resolveDeliveryQueueStateEnv,
+  type DeliveryQueueStateContext,
+} from "../delivery-queue-sqlite.js";
+import { isGatewayExternallySupervised } from "../gateway-supervision.js";
 import type { OutboundDeliveryResult } from "./deliver-types.js";
+
+/** In-process locator captured before delivery preparation; never queue payload data. */
+export type ConversationDeliveryTarget = Pick<
+  PreparedConversationRegistryScope,
+  "agentId" | "databaseAgentId" | "storePath"
+> & {
+  stateDir: string;
+  supervisorMode?: "external";
+};
+
+export function captureConversationDeliveryTarget(
+  scope: PreparedConversationRegistryScope,
+): ConversationDeliveryTarget {
+  return {
+    agentId: scope.agentId,
+    databaseAgentId: scope.databaseAgentId,
+    storePath: scope.storePath,
+    stateDir: resolveStateDir(scope.env),
+    ...(isGatewayExternallySupervised(scope.env) ? { supervisorMode: "external" as const } : {}),
+  };
+}
 
 /** Serializable owner callback for a durable queue entry. */
 export type DurableDeliveryCompletion =
@@ -39,21 +78,44 @@ type DurableDeliveryCompletionResult = {
   rejectionError?: string;
 };
 
-function scopeForCompletion(
+export function resolveConversationDeliveryScope(
   completion: Extract<DurableDeliveryCompletion, { kind: "conversation" }>,
-) {
-  return {
+  stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
+): ConversationRegistryScope {
+  const scope = {
     agentId: completion.agentId,
     ...(completion.storePath ? { storePath: completion.storePath } : {}),
+    env: resolveDeliveryQueueStateEnv(stateDir, target ?? stateContext),
   };
+  if (!target) {
+    return scope;
+  }
+  const options = toDatabaseOptions(resolveSqliteReadScope(scope));
+  if (
+    normalizeAgentId(scope.agentId) !== normalizeAgentId(target.agentId) ||
+    options.agentId !== target.databaseAgentId ||
+    !isSameOpenClawAgentDatabasePath(resolveOpenClawAgentSqlitePath(options), target.storePath)
+  ) {
+    throw new Error("Conversation delivery target does not match durable custody");
+  }
+  return { ...scope, storePath: target.storePath, databaseAgentId: target.databaseAgentId };
 }
 
-function conversationResult(
-  update: () => ConversationDeliveryRecord,
-): DurableDeliveryCompletionResult {
+async function conversationResult(
+  completion: Extract<DurableDeliveryCompletion, { kind: "conversation" }>,
+  update: (scope: PreparedConversationRegistryScope) => ConversationDeliveryRecord,
+  stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
+): Promise<DurableDeliveryCompletionResult> {
   let record: ConversationDeliveryRecord;
   try {
-    record = update();
+    record = await runConversationDatabaseWrite(
+      resolveConversationDeliveryScope(completion, stateDir, stateContext, target),
+      update,
+    );
   } catch (error) {
     // Full session deletion can retire the owner before its shared queue settles.
     if (error instanceof ConversationDeliveryMissingError) {
@@ -83,12 +145,20 @@ export async function settlePendingFinalDelivery(
   completion: Extract<DurableDeliveryCompletion, { kind: "pending-final" }>,
   state: Exclude<DurableDeliveryCompletionResult["state"], "rejected" | "stale">,
   expectedStates?: readonly ("prepared" | "queued" | "unknown")[],
-  options: { stateDir?: string; preserveActivity?: boolean } = {},
+  options: {
+    stateDir?: string;
+    preserveActivity?: boolean;
+    stateContext?: DeliveryQueueStateContext;
+  } = {},
 ): Promise<DurableDeliveryCompletionResult> {
   let settled: DurableDeliveryCompletionResult["state"] = "stale";
   let wakeRecovery = false;
   await patchSessionEntryCore(
-    { sessionKey: completion.sessionKey, storePath: completion.storePath },
+    {
+      sessionKey: completion.sessionKey,
+      storePath: completion.storePath,
+      env: resolveDeliveryQueueStateEnv(options.stateDir, options.stateContext),
+    },
     (entry) => {
       const internalEntry: InternalSessionEntry = entry;
       if (
@@ -189,6 +259,9 @@ export async function markDurableDeliveryQueued(
   completion: DurableDeliveryCompletion,
   queueId: string,
   expectedPendingFinalState?: "prepared",
+  stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
 ): Promise<DurableDeliveryCompletionResult> {
   return completion.kind === "pending-final"
     ? // The reply dispatcher may have claimed direct custody ("queued") before the
@@ -197,13 +270,14 @@ export async function markDurableDeliveryQueued(
         completion,
         "queued",
         expectedPendingFinalState ? ["prepared", "queued"] : undefined,
+        { stateDir, stateContext },
       )
-    : conversationResult(() =>
-        markConversationDeliveryQueued(
-          scopeForCompletion(completion),
-          completion.operationId,
-          queueId,
-        ),
+    : conversationResult(
+        completion,
+        (scope) => markConversationDeliveryQueued(scope, completion.operationId, queueId),
+        stateDir,
+        stateContext,
+        target,
       );
 }
 
@@ -212,15 +286,25 @@ export async function completeDurableDelivery(
   completion: DurableDeliveryCompletion,
   result: OutboundDeliveryResult,
   stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
 ): Promise<DurableDeliveryCompletionResult> {
   return completion.kind === "pending-final"
-    ? await settlePendingFinalDelivery(completion, "delivered", undefined, { stateDir })
-    : conversationResult(() =>
-        markConversationDeliverySent(
-          scopeForCompletion(completion),
-          completion.operationId,
-          readPlatformMessageId(result),
-        ),
+    ? await settlePendingFinalDelivery(completion, "delivered", undefined, {
+        stateDir,
+        stateContext,
+      })
+    : conversationResult(
+        completion,
+        (scope) =>
+          markConversationDeliverySent(
+            scope,
+            completion.operationId,
+            readPlatformMessageId(result),
+          ),
+        stateDir,
+        stateContext,
+        target,
       );
 }
 
@@ -228,11 +312,20 @@ export async function completeDurableDelivery(
 async function suppressDurableDelivery(
   completion: DurableDeliveryCompletion,
   stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
 ): Promise<DurableDeliveryCompletionResult> {
   return completion.kind === "pending-final"
-    ? await settlePendingFinalDelivery(completion, "suppressed", undefined, { stateDir })
-    : conversationResult(() =>
-        markConversationDeliverySuppressed(scopeForCompletion(completion), completion.operationId),
+    ? await settlePendingFinalDelivery(completion, "suppressed", undefined, {
+        stateDir,
+        stateContext,
+      })
+    : conversationResult(
+        completion,
+        (scope) => markConversationDeliverySuppressed(scope, completion.operationId),
+        stateDir,
+        stateContext,
+        target,
       );
 }
 
@@ -241,17 +334,22 @@ export async function rejectDurableDelivery(
   completion: DurableDeliveryCompletion,
   error: string,
   stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
 ): Promise<DurableDeliveryCompletionResult> {
   // Proven no-send: terminal suppression, not the unknown state that owes an
   // uncertainty notice for a send the provider asserts never began.
   return completion.kind === "pending-final"
-    ? await settlePendingFinalDelivery(completion, "suppressed", undefined, { stateDir })
-    : conversationResult(() =>
-        markConversationDeliveryRejected(
-          scopeForCompletion(completion),
-          completion.operationId,
-          error,
-        ),
+    ? await settlePendingFinalDelivery(completion, "suppressed", undefined, {
+        stateDir,
+        stateContext,
+      })
+    : conversationResult(
+        completion,
+        (scope) => markConversationDeliveryRejected(scope, completion.operationId, error),
+        stateDir,
+        stateContext,
+        target,
       );
 }
 
@@ -259,11 +357,17 @@ export async function rejectDurableDelivery(
 export async function failDurableDelivery(
   completion: DurableDeliveryCompletion,
   stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
 ): Promise<DurableDeliveryCompletionResult> {
   return completion.kind === "pending-final"
-    ? await settlePendingFinalDelivery(completion, "unknown", undefined, { stateDir })
-    : conversationResult(() =>
-        markConversationDeliveryUnknown(scopeForCompletion(completion), completion.operationId),
+    ? await settlePendingFinalDelivery(completion, "unknown", undefined, { stateDir, stateContext })
+    : conversationResult(
+        completion,
+        (scope) => markConversationDeliveryUnknown(scope, completion.operationId),
+        stateDir,
+        stateContext,
+        target,
       );
 }
 
@@ -276,10 +380,12 @@ export async function settleDurableDelivery(
   completion: DurableDeliveryCompletion,
   evidence: DurableDeliveryTerminalEvidence,
   stateDir?: string,
+  stateContext?: DeliveryQueueStateContext,
+  target?: ConversationDeliveryTarget,
 ): Promise<DurableDeliveryCompletionResult> {
   return "result" in evidence
-    ? completeDurableDelivery(completion, evidence.result, stateDir)
+    ? completeDurableDelivery(completion, evidence.result, stateDir, stateContext, target)
     : evidence.platformSendStarted
-      ? failDurableDelivery(completion, stateDir)
-      : suppressDurableDelivery(completion, stateDir);
+      ? failDurableDelivery(completion, stateDir, stateContext, target)
+      : suppressDurableDelivery(completion, stateDir, stateContext, target);
 }

@@ -34,6 +34,7 @@ import {
   runHeartbeatOnce,
 } from "./heartbeat-runner.js";
 import {
+  heartbeatTestConfig,
   readSessionStoreForTest,
   seedHeartbeatScratchForTest,
   seedSessionStore,
@@ -1350,19 +1351,7 @@ describe("runHeartbeatOnce", () => {
       try {
         const tmpDir = await createCaseDir(caseDir);
         const storePath = path.join(tmpDir, "sessions.json");
-        const cfg: OpenClawConfig = {
-          agents: {
-            defaults: {
-              workspace: tmpDir,
-              heartbeat: {
-                every: "5m",
-                target: "last",
-              },
-            },
-          },
-          channels: { whatsapp: { allowFrom: ["*"] } },
-          session: { store: storePath },
-        };
+        const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "last", "whatsapp", storePath);
         const mainSessionKey = resolveMainSessionKey(cfg);
         const agentId = resolveAgentIdFromSessionKey(mainSessionKey);
         const overrideSessionKey = buildAgentPeerSessionKey({
@@ -1425,19 +1414,7 @@ describe("runHeartbeatOnce", () => {
     try {
       const tmpDir = await createCaseDir("hb-subagent-guard");
       const storePath = path.join(tmpDir, "sessions.json");
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: {
-              every: "5m",
-              target: "last",
-            },
-          },
-        },
-        channels: { whatsapp: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "last", "whatsapp", storePath);
       const mainSessionKey = resolveMainSessionKey(cfg);
       const agentId = resolveAgentIdFromSessionKey(mainSessionKey);
       const subagentKey = `agent:${agentId}:subagent:task-abc`;
@@ -1481,16 +1458,7 @@ describe("runHeartbeatOnce", () => {
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.fn();
     try {
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: { every: "5m", target: "whatsapp" },
-          },
-        },
-        channels: { whatsapp: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "whatsapp", "whatsapp", storePath);
       const sessionKey = resolveMainSessionKey(cfg);
 
       await seedWhatsAppSession(storePath, sessionKey, {
@@ -1520,16 +1488,7 @@ describe("runHeartbeatOnce", () => {
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.fn();
     try {
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: { every: "5m", target: "whatsapp" },
-          },
-        },
-        channels: { whatsapp: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "whatsapp", "whatsapp", storePath);
       const sessionKey = resolveMainSessionKey(cfg);
       const nowMs = 60_000;
       await seedWhatsAppSession(storePath, sessionKey, {
@@ -1612,19 +1571,7 @@ describe("runHeartbeatOnce", () => {
       try {
         const tmpDir = await createCaseDir(caseDir);
         const storePath = path.join(tmpDir, "sessions.json");
-        const cfg: OpenClawConfig = {
-          agents: {
-            defaults: {
-              workspace: tmpDir,
-              heartbeat: {
-                every: "5m",
-                target: "whatsapp",
-              },
-            },
-          },
-          channels: { whatsapp: { allowFrom: ["*"] } },
-          session: { store: storePath },
-        };
+        const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "whatsapp", "whatsapp", storePath);
         const sessionKey = resolveMainSessionKey(cfg);
 
         await seedWhatsAppSession(storePath, sessionKey);
@@ -1659,16 +1606,7 @@ describe("runHeartbeatOnce", () => {
     try {
       const tmpDir = await createCaseDir("hb-legacy-reasoning-unset");
       const storePath = path.join(tmpDir, "sessions.json");
-      const cfg: OpenClawConfig = {
-        agents: {
-          defaults: {
-            workspace: tmpDir,
-            heartbeat: { every: "5m", target: "whatsapp" },
-          },
-        },
-        channels: { whatsapp: { allowFrom: ["*"] } },
-        session: { store: storePath },
-      };
+      const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "whatsapp", "whatsapp", storePath);
       const sessionKey = resolveMainSessionKey(cfg);
       await seedWhatsAppSession(storePath, sessionKey);
 
@@ -2155,16 +2093,7 @@ tasks:
   it("uses an internal-only cron prompt when heartbeat delivery target is none", async () => {
     const tmpDir = await createCaseDir("hb-cron-target-none");
     const storePath = path.join(tmpDir, "sessions.json");
-    const cfg: OpenClawConfig = {
-      agents: {
-        defaults: {
-          workspace: tmpDir,
-          heartbeat: { every: "5m", target: "none" },
-        },
-      },
-      channels: { whatsapp: { allowFrom: ["*"] } },
-      session: { store: storePath },
-    };
+    const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "none", "whatsapp", storePath);
     const sessionKey = resolveMainSessionKey(cfg);
     await seedWhatsAppSession(storePath, sessionKey);
     enqueueSystemEvent("Cron: rotate logs", {
@@ -2198,16 +2127,7 @@ tasks:
   it("uses an internal-only exec prompt when heartbeat delivery target is none", async () => {
     const tmpDir = await createCaseDir("hb-exec-target-none");
     const storePath = path.join(tmpDir, "sessions.json");
-    const cfg: OpenClawConfig = {
-      agents: {
-        defaults: {
-          workspace: tmpDir,
-          heartbeat: { every: "5m", target: "none" },
-        },
-      },
-      channels: { whatsapp: { allowFrom: ["*"] } },
-      session: { store: storePath },
-    };
+    const cfg: OpenClawConfig = heartbeatTestConfig(tmpDir, "none", "whatsapp", storePath);
     const sessionKey = resolveMainSessionKey(cfg);
     await seedWhatsAppSession(storePath, sessionKey);
     enqueueSystemEvent("exec finished: backup completed", {

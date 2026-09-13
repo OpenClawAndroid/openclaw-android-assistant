@@ -40,6 +40,7 @@ import { resolveTranscriptLoggingConfig } from "./transcript-redact-text.js";
 import { redactTranscriptMessage } from "./transcript-redact.js";
 
 type GuardedSessionManager = SessionManager & {
+  hasPendingToolResults?: () => boolean;
   /** Flush any synthetic tool results for pending tool calls. Idempotent. */
   flushPendingToolResults?: () => void;
   /** Clear pending tool calls without persisting synthetic tool results. Idempotent. */
@@ -310,6 +311,7 @@ export function guardSessionManager(
   setSessionToolTextPreparer(guardedSessionManager, (block) =>
     prepareModelVisibleToolTextBlock(block, resolveTranscriptLoggingConfig(opts?.config)),
   );
+  guardedSessionManager.hasPendingToolResults = guard.hasPendingToolResults;
   guardedSessionManager.flushPendingToolResults = guard.flushPendingToolResults;
   guardedSessionManager.clearPendingToolResults = guard.clearPendingToolResults;
   guardedSessionManager.clearNextUserMessagePersistenceSuppression =

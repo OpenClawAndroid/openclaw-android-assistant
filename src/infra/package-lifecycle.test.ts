@@ -6,6 +6,7 @@ import {
   PACKAGE_LIFECYCLE_MARKER_CONTRACT_RELATIVE_PATH,
   PACKAGE_LIFECYCLE_PENDING_RELATIVE_PATH,
 } from "../../scripts/lib/package-lifecycle-marker.mjs";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 import { completePendingPackageLifecycle } from "./package-lifecycle.js";
 
@@ -23,14 +24,8 @@ describe("package lifecycle completion", () => {
     await withTestDir({ prefix: "openclaw-package-lifecycle-" }, async (packageRoot) => {
       const markerPath = await markModernLifecyclePending(packageRoot);
       const calls: string[] = [];
-      let releasePreinstall: (() => void) | undefined;
-      const preinstallBlocked = new Promise<void>((resolve) => {
-        releasePreinstall = resolve;
-      });
-      let firstPreinstallStarted: (() => void) | undefined;
-      const firstPreinstall = new Promise<void>((resolve) => {
-        firstPreinstallStarted = resolve;
-      });
+      const { promise: preinstallBlocked, resolve: releasePreinstall } = createDeferred();
+      const { promise: firstPreinstall, resolve: firstPreinstallStarted } = createDeferred();
       const runScript = vi.fn(async (script: { name: string }) => {
         calls.push(script.name);
         if (script.name === "preinstall") {
@@ -90,10 +85,7 @@ describe("package lifecycle completion", () => {
       const preinstallBlocked = new Promise<void>((resolve) => {
         releasePreinstall = resolve;
       });
-      let firstPreinstallStarted: (() => void) | undefined;
-      const firstPreinstall = new Promise<void>((resolve) => {
-        firstPreinstallStarted = resolve;
-      });
+      const { promise: firstPreinstall, resolve: firstPreinstallStarted } = createDeferred();
       const runScript = async (script: { name: string }) => {
         if (script.name === "preinstall") {
           preinstallCalls += 1;

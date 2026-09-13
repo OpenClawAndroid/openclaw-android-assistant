@@ -8,13 +8,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { testing } from "../../scripts/bench-cli-startup.ts";
 import { forceKillVitestProcessGroup } from "../../scripts/vitest-process-group.mts";
 import { withEnv } from "../../src/test-utils/env.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { isProcessAlive, waitForDead } from "../helpers/process-wait.js";
 import { createTempDirTracker, useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const repoRoot = join(__dirname, "../..");
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function runBenchmarkCli(args: string[]) {
-  return spawnSync(process.execPath, ["--import", "tsx", "scripts/bench-cli-startup.ts", ...args], {
+  return spawnSync(testNodeExecPath, ["--import", "tsx", "scripts/bench-cli-startup.ts", ...args], {
     cwd: repoRoot,
     encoding: "utf8",
   });
@@ -68,7 +70,7 @@ console.log("fixture version");
 `,
       );
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--import",
           "tsx",
@@ -93,8 +95,8 @@ console.log("fixture version");
             ...process.env,
             RUNNER_PRIVATE_CANARY: "must-not-forward",
             OPENCLAW_BENCH_TRANSPORT_JSON: JSON.stringify({
-              prefix: [process.execPath, prefix],
-              binary: process.execPath,
+              prefix: [testNodeExecPath, prefix],
+              binary: testNodeExecPath,
               env: { HOME: root, PATH: process.env.PATH, SUT_FIXTURE: "yes" },
             }),
           },
@@ -122,7 +124,7 @@ console.log("fixture version");
     "rejects malformed cross-user transport before candidate execution: %s",
     (transport) => {
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         ["--import", "tsx", "scripts/bench-cli-startup.ts", "--entry", "/not-executed"],
         {
           env: { ...process.env, OPENCLAW_BENCH_TRANSPORT_JSON: transport },
@@ -146,7 +148,7 @@ fs.writeFileSync(${JSON.stringify(witness)}, "launched");
 throw new Error("SUT prefix must not launch");`,
     );
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         "--import",
         "tsx",
@@ -160,8 +162,8 @@ throw new Error("SUT prefix must not launch");`,
         env: {
           ...process.env,
           OPENCLAW_BENCH_TRANSPORT_JSON: JSON.stringify({
-            prefix: [process.execPath, prefix],
-            binary: process.execPath,
+            prefix: [testNodeExecPath, prefix],
+            binary: testNodeExecPath,
             env: { HOME: root, PATH: process.env.PATH },
           }),
         },
@@ -505,7 +507,7 @@ setInterval(() => {}, 1000);
         // Keep real processes, but advance deadlines only after child-owned readiness.
         // The driver isolates Node mock timers from Vitest and the fixture processes.
         const result = spawnSync(
-          process.execPath,
+          testNodeExecPath,
           [
             "--import",
             "tsx",
@@ -719,19 +721,19 @@ try {
           candidatePath,
           JSON.stringify({ primary: { ...makeReport(125, 60).primary, executionMode: after } }),
         );
-        const result = runBenchmarkCli([
+        const modeResult = runBenchmarkCli([
           "--compare-baseline",
           baselinePath,
           "--compare-candidate",
           candidatePath,
           "--json",
         ]);
-        expect(result.status, result.stderr).toBe(error ? 1 : 0);
+        expect(modeResult.status, modeResult.stderr).toBe(error ? 1 : 0);
         if (error) {
-          expect(result.stderr).toContain(error);
-          expect(result.stdout).toBe("");
+          expect(modeResult.stderr).toContain(error);
+          expect(modeResult.stdout).toBe("");
         } else {
-          expect(JSON.parse(result.stdout)).toEqual(comparison);
+          expect(JSON.parse(modeResult.stdout)).toEqual(comparison);
         }
       }
     } finally {

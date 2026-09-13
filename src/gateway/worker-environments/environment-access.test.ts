@@ -303,10 +303,7 @@ describe("worker environment service", () => {
     support.testState.config.cloudWorkers!.profiles!.development!.settings = {
       device: "device-1",
     };
-    let signalStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      signalStarted = resolve;
-    });
+    const { promise: started, resolve: signalStarted } = createDeferred();
     const pendingStart = new Promise<never>(() => {});
     const sshStop = vi.fn(async () => {});
     const tunnelManager = {
@@ -791,10 +788,7 @@ describe("worker environment service", () => {
 
   it("does not hold the environment lock while a tunnel is connecting", async () => {
     support.seedReady("worker-tunnel-pending");
-    let rejectStart: ((error: Error) => void) | undefined;
-    const pendingStart = new Promise<never>((_resolve, reject) => {
-      rejectStart = reject;
-    });
+    const { promise: pendingStart, reject: rejectStart } = createDeferred<never>();
     const order: string[] = [];
     const tunnelManager = {
       status: () => "connecting" as const,
@@ -828,14 +822,8 @@ describe("worker environment service", () => {
   it("stops a poisoned tunnel start and returns a typed deadline error", async () => {
     vi.useFakeTimers();
     support.seedReady("worker-tunnel-timeout");
-    let signalStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      signalStarted = resolve;
-    });
-    let rejectStart!: (error: Error) => void;
-    const pendingStart = new Promise<never>((_resolve, reject) => {
-      rejectStart = reject;
-    });
+    const { promise: started, resolve: signalStarted } = createDeferred();
+    const { promise: pendingStart, reject: rejectStart } = createDeferred<never>();
     const tunnelManager = {
       status: () => "connecting" as const,
       start: vi.fn(() => {

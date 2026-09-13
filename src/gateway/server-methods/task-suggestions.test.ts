@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
 import { addSessionMember } from "../../config/sessions/session-sharing-store.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -420,10 +421,7 @@ describe("task suggestion gateway methods", () => {
       sessionKey: "agent:main:main",
     });
     const taskId = (requirePayload(created) as { taskId: string }).taskId;
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: gate, resolve: release } = createDeferred();
     const createSession = vi
       .spyOn(sessionCreateHandlers, "sessions.create")
       .mockImplementation(async ({ params, respond }) => {

@@ -11,16 +11,27 @@ export type ModelCatalogReadScope = Pick<
 export type ModelCatalogClient = Pick<GatewayBrowserClient, "request">;
 export type ModelCatalogRequest = {
   refresh: boolean;
-  controller?: AbortController;
+  controller: AbortController;
+  read: ModelCatalogRead;
+  preparing: boolean;
+  settled: boolean;
   promise: Promise<ModelCatalogResult>;
   resolve: (result: ModelCatalogResult) => void;
+  reject: (error: unknown) => void;
+  start: () => void;
   subscribers: Set<object>;
+};
+
+export type ModelCatalogRequestLane = {
+  active?: ModelCatalogRequest;
+  queued?: ModelCatalogRequest;
 };
 
 type ModelCatalogCache = {
   entries: Map<string, ModelCatalogEntry>;
   reads: Set<ModelCatalogRead>;
   nextRead: number;
+  requests: Map<string, Map<GatewayProtocolRequestOptions["timeoutMs"], ModelCatalogRequestLane>>;
 };
 
 export type ModelCatalogRead = {
@@ -37,12 +48,20 @@ export type ModelCatalogEntry = {
   invalidated?: boolean;
   expiresAt?: number;
   publishedRead?: number;
-  pending: Map<GatewayProtocolRequestOptions["timeoutMs"], ModelCatalogRequest>;
 };
 
 // Application lifecycle invalidation must not eagerly load catalog readers or presentation.
 export const modelCatalogCache = new WeakMap<ModelCatalogClient, ModelCatalogCache>();
 const observers = new WeakMap<ModelCatalogClient, Set<() => void>>();
+
+export function getModelCatalogCache(client: ModelCatalogClient): ModelCatalogCache {
+  let cache = modelCatalogCache.get(client);
+  if (!cache) {
+    cache = { entries: new Map(), reads: new Set(), nextRead: 0, requests: new Map() };
+    modelCatalogCache.set(client, cache);
+  }
+  return cache;
+}
 
 export function subscribeModelCatalogCache(
   client: ModelCatalogClient,
@@ -71,12 +90,7 @@ export function beginModelCatalogRead(
   signal?: AbortSignal,
   unresolvedScope = false,
 ): ModelCatalogRead {
-  const cache: ModelCatalogCache = modelCatalogCache.get(client) ?? {
-    entries: new Map(),
-    reads: new Set(),
-    nextRead: 0,
-  };
-  modelCatalogCache.set(client, cache);
+  const cache = getModelCatalogCache(client);
   const read: ModelCatalogRead = {
     client,
     cache,
@@ -91,18 +105,19 @@ export function beginModelCatalogRead(
 
 const MAX_CACHED_MODEL_CATALOGS = 64;
 
-export function trimModelCatalogCache(cache: ModelCatalogCache): void {
-  for (const [key, entry] of cache.entries) {
+function trimModelCatalogCache(cache: ModelCatalogCache): void {
+  for (const key of cache.entries.keys()) {
     if (cache.entries.size <= MAX_CACHED_MODEL_CATALOGS) {
       return;
     }
-    if (entry.pending.size === 0) {
-      cache.entries.delete(key);
-      // Unresolved reads cannot outlive the publication order of an evicted projection.
-      for (const read of cache.reads) {
-        if (read.unresolvedScope) {
-          cache.reads.delete(read);
-        }
+    cache.entries.delete(key);
+    // Display eviction retires publication, never an unsettled transport's ownership.
+    for (const read of cache.reads) {
+      if (
+        read.unresolvedScope ||
+        (read.scope && modelCatalogKey(modelCatalogParams(read.scope)) === key)
+      ) {
+        cache.reads.delete(read);
       }
     }
   }
@@ -141,7 +156,7 @@ export function publishModelCatalogResult(
       return false;
     }
   }
-  const entry: ModelCatalogEntry = cache.entries.get(key) ?? { scope: params, pending: new Map() };
+  const entry: ModelCatalogEntry = cache.entries.get(key) ?? { scope: params };
   if (!params.refresh && (entry.publishedRead ?? 0) > read.order) {
     return false;
   }
@@ -179,10 +194,11 @@ export function publishModelCatalogResult(
     : undefined;
   cache.entries.delete(key);
   cache.entries.set(key, entry);
-  for (const [budget, pending] of entry.pending) {
-    if (discoverySucceeded && (params.refresh || !pending.refresh)) {
-      pending.resolve(result);
-      entry.pending.delete(budget);
+  for (const lane of cache.requests.get(key)?.values() ?? []) {
+    for (const pending of [lane.active, lane.queued]) {
+      if (pending && discoverySucceeded && (params.refresh || !pending.refresh)) {
+        pending.resolve(result);
+      }
     }
   }
   trimModelCatalogCache(cache);
@@ -193,12 +209,17 @@ export function publishModelCatalogResult(
 export function invalidateModelCatalogEntry(entry: ModelCatalogEntry): void {
   entry.invalidated = true;
   entry.expiresAt = undefined;
-  entry.pending.clear();
 }
 
 /** A connection boundary retires even the last accepted display snapshot. */
 export function clearModelCatalogCache(client: ModelCatalogClient): void {
+  const cache = modelCatalogCache.get(client);
   modelCatalogCache.delete(client);
+  for (const budgets of cache?.requests.values() ?? []) {
+    for (const lane of budgets.values()) {
+      lane.queued?.reject(new DOMException("Model catalog connection retired", "AbortError"));
+    }
+  }
   notifyModelCatalogCache(client);
 }
 

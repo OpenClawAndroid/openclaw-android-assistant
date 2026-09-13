@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { chromium } from "playwright";
 import { describe, expect, inject, it } from "vitest";
+import type { ModelsListResult } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
 import type { AuthHealthSummary } from "../../../src/agents/auth-health.js";
 import type { ProfileUsageStats } from "../../../src/agents/auth-profiles/types.js";
 import type { ModelAuthStatusResult } from "../../../src/gateway/server-methods/models-auth-status.types.js";
@@ -132,6 +133,12 @@ async function captureFinalStatus(
       });
       socket.on("framereceived", ({ payload }) => {
         const frame = JSON.parse(String(payload));
+        if (
+          frame.type === "event" &&
+          (frame.event === "chat.metadata.changed" || frame.event === "models.snapshot")
+        ) {
+          observations.push({ action: "browser-event", frame });
+        }
         const method = methods.get(frame.id);
         if (method?.startsWith("models.")) {
           observations.push({ action: "browser-rpc", method, frame });
@@ -153,8 +160,23 @@ async function captureFinalStatus(
       const card = page.locator('[data-provider-id="openai"]');
       await card.waitFor({ state: "visible" });
       const badge = card.locator(".model-providers__head .settings-status");
+      let previousStatus: string | undefined;
       await expect
-        .poll(async () => (await badge.textContent())?.trim(), { timeout: 60_000 })
+        .poll(
+          async () => {
+            const badgeStatus = (await badge.textContent())?.trim();
+            if (badgeStatus !== previousStatus) {
+              observations.push({
+                action: "provider-status-poll",
+                ts: Date.now(),
+                status: badgeStatus,
+              });
+              previousStatus = badgeStatus;
+            }
+            return badgeStatus;
+          },
+          { timeout: 60_000 },
+        )
         .toBe("Ready");
       observations.push({
         action: "control-ui-provider-status",
@@ -200,7 +222,7 @@ async function captureFinalStatus(
   }
 }
 
-describe.each(["automatic", "saved-clear"] as const)(
+describe.each(["automatic", "saved-clear", "automatic-during-catalog"] as const)(
   "Running Gateway quota status: %s",
   (recovery) => {
     it(
@@ -215,6 +237,10 @@ describe.each(["automatic", "saved-clear"] as const)(
         });
         const { gateway, client, provider, turn, stats, advanceClock, clock, evidence } = fixture;
         const gatewayProcess = gateway.child;
+        let catalogHold: ReturnType<typeof provider.holdNextCatalog> | undefined;
+        let catalogRefresh:
+          | Promise<{ ok: true; result: ModelsListResult } | { ok: false; error: unknown }>
+          | undefined;
         expect(gatewayProcess?.pid).toEqual(expect.any(Number));
         try {
           expect(await turn(), evidence()).toEqual({ status: "ok", output: [MARKER] });
@@ -228,11 +254,34 @@ describe.each(["automatic", "saved-clear"] as const)(
             blockedSource: "codex_rate_limits",
           });
           expect(blocked?.blockedUntil, evidence()).toBeGreaterThan(Date.now() + 86_400_000);
+          if (recovery === "automatic-during-catalog") {
+            catalogHold = provider.holdNextCatalog();
+            await advanceClock();
+            catalogRefresh = client
+              .request<ModelsListResult>("models.list", {
+                agentId: "main",
+                view: "configured",
+                refresh: true,
+              })
+              .then(
+                (result) => ({ ok: true as const, result }),
+                (error: unknown) => ({ ok: false as const, error }),
+              );
+            const captured = await catalogHold.arrived;
+            observations.push({ action: "catalog-held-before-recovery", captured, state: stats() });
+            expect(captured.phase, evidence()).toBe("initial-exhaustion");
+            expect(stats()?.blockedUntil, evidence()).toBe(blocked?.blockedUntil);
+            const discovering = await client.request<ModelsListResult>("models.list", {
+              agentId: "main",
+              view: "configured",
+            });
+            expect(discovering.pendingProviders, evidence()).toContain("openai");
+          }
           provider.setPhase("restored");
 
           if (recovery === "automatic") {
             await advanceClock();
-          } else {
+          } else if (recovery === "saved-clear") {
             const lastProbeAt = blocked?.lastProbeAt;
             expect(lastProbeAt).toEqual(expect.any(Number));
             if (lastProbeAt === undefined) {
@@ -268,9 +317,34 @@ describe.each(["automatic", "saved-clear"] as const)(
           expect.soft(stats()?.blockedUntil, evidence()).toBeUndefined();
           expect(gateway.child).toBe(gatewayProcess);
           expect(gatewayProcess?.exitCode).toBeNull();
+          if (catalogHold) {
+            catalogHold.release();
+            const refreshed = await catalogRefresh;
+            observations.push({ action: "held-catalog-refresh", result: refreshed });
+            expect(refreshed, evidence()).toMatchObject({ ok: true });
+            let published: ModelsListResult | undefined;
+            await expect
+              .poll(async () => {
+                published = await client.request<ModelsListResult>("models.list", {
+                  agentId: "main",
+                  view: "configured",
+                });
+                return published.pendingProviders?.includes("openai") ?? false;
+              })
+              .toBe(false);
+            observations.push({ action: "catalog-published-after-recovery", result: published });
+            expect
+              .soft(published?.models, evidence())
+              .toContainEqual(
+                expect.objectContaining({ provider: "openai", id: "gpt-5.5", available: true }),
+              );
+            expect(provider.heldCatalogResponses[0]?.releaseReason, evidence()).toBe("explicit");
+          }
           await captureFinalStatus(fixture, artifactDir, observations);
           expect(provider.errors, evidence()).toEqual([]);
         } finally {
+          catalogHold?.release();
+          await catalogRefresh;
           await fs.writeFile(
             path.join(artifactDir, "observations.json"),
             JSON.stringify(observations, null, 2),

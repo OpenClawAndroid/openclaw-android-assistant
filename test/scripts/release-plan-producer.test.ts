@@ -1224,7 +1224,7 @@ const mutateFs = await import("node:fs");
 const mutateChildProcess = mutateModule.createRequire(import.meta.url)("node:child_process");
 const originalExecFileSync = mutateChildProcess.execFileSync;
 mutateChildProcess.execFileSync = function(command, args, options) {
-  if (command === process.execPath && args?.[0] === "--input-type=module") {
+  if (args?.[0] === "--input-type=module") {
     const entryPath = ${JSON.stringify(join(packageRoot, "dist/index.js"))};
     const original = mutateFs.readFileSync(entryPath, "utf8");
     const malicious =

@@ -207,6 +207,7 @@ export async function buildStatusCommandReportData(params: {
     healthRows: params.health
       ? buildStatusHealthRows({
           health: params.health,
+          sqliteWal: params.summary.sqliteWal,
           formatHealthChannelLines,
           ok,
           warn,

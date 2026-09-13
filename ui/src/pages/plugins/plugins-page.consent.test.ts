@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildCapabilityConsentErrorDetails } from "../../../../packages/gateway-protocol/src/capability-consent-error-details.js";
+import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { GatewayRequestError } from "../../api/gateway.ts";
 import { i18n } from "../../i18n/index.ts";
 import type { PluginInstallRequest } from "../../lib/plugins/index.ts";
@@ -16,7 +17,6 @@ import {
   createPluginsRouteData,
   createPluginsRouteLocation,
   createResult,
-  deferred,
   mountPage,
   resetPluginsPageTestState,
 } from "./plugins-page.test-support.ts";

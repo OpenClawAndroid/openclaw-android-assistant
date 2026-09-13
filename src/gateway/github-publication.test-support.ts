@@ -8,7 +8,10 @@ import { insertRegistryWorktree } from "../agents/worktrees/registry.js";
 import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "../config/config.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
 import { insertGitHubPublicationSessionLifecycle } from "../state/github-publication-session-lifecycles.js";
-import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
+import {
+  closeOpenClawAgentDatabasesAsync,
+  closeOpenClawAgentDatabasesForTest,
+} from "../state/openclaw-agent-db.js";
 import {
   closeOpenClawStateDatabaseForTest,
   type OpenClawStateDatabase,
@@ -428,6 +431,7 @@ export function installGitHubPublicationTestHarness(): void {
   });
 
   afterEach(async () => {
+    await closeOpenClawAgentDatabasesAsync();
     clearRuntimeConfigSnapshot();
     // Agent close releases leases through shared state; closing shared state first can
     // reopen it during teardown and leave a Windows handle under the fixture root.

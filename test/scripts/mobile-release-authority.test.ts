@@ -1,13 +1,13 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   cleanupOwnedKeychain,
   createOwnedKeychain,
   probeOwnedKeychain,
-  runBounded,
 } from "../../.github/actions/ios-signing-keychain/keychain.mjs";
 import { verifyAndroidReleaseSource } from "../../apps/android/scripts/build-release-artifacts.ts";
 import {
@@ -15,6 +15,7 @@ import {
   writeMobileReleaseIntent,
 } from "../../scripts/mobile-release-intent.mjs";
 import { applyMobileReleasePlan, planMobileRelease } from "../../scripts/mobile-release-version.ts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const REPOSITORY = "openclaw/openclaw";
@@ -23,6 +24,7 @@ const OTHER_SHA = "c".repeat(40);
 const RECEIPT_ARTIFACT_DIGEST = `sha256:${"d".repeat(64)}`;
 const INTENT_ARTIFACT_DIGEST = `sha256:${"e".repeat(64)}`;
 const BUILD_TIMESTAMP = "2026-09-02T06:00:00.000Z";
+const testNodeExecPath = resolveTestNodeExecPath();
 const RELEASE_PATHS = [
   "apps/mobile/version.json",
   "apps/android/version.json",
@@ -37,6 +39,7 @@ const TOOLING_FILES = [
   "scripts/lib/direct-run.mjs",
   "scripts/lib/ios-release-plan.ts",
   "scripts/lib/ios-version.ts",
+  "scripts/lib/mobile-changelog.ts",
   "scripts/lib/mobile-version.ts",
   "scripts/lib/release-version.mjs",
 ] as const;
@@ -4050,21 +4053,41 @@ fi
           'process.on("SIGTERM", () => {});',
           "setInterval(() => {}, 1000);",
         ].join("\n");
-        const startedAt = Date.now();
-        await expect(
-          runBounded(process.execPath, ["-e", parentSource], {
-            env: { ...process.env, PID_FILE: pidFile },
-            maxOutputBytes,
-            terminateGraceMs: 200,
-            timeoutMs,
-          }),
-        ).rejects.toThrow(expectedError);
-        expect(Date.now() - startedAt).toBeLessThan(3_000);
-        const processIds = fs
-          .readFileSync(pidFile, "utf8")
-          .trim()
-          .split("\n")
-          .map((value) => Number.parseInt(value, 10));
+        const runnerSource = `
+import fs from "node:fs";
+import { runBounded } from ${JSON.stringify(pathToFileURL(path.resolve(".github/actions/ios-signing-keychain/keychain.mjs")).href)};
+const startedAt = Date.now();
+let message = "";
+try {
+  await runBounded(process.execPath, ["-e", ${JSON.stringify(parentSource)}], {
+    env: { ...process.env, PID_FILE: ${JSON.stringify(pidFile)} },
+    maxOutputBytes: ${JSON.stringify(maxOutputBytes)},
+    terminateGraceMs: 200,
+    timeoutMs: ${timeoutMs},
+  });
+} catch (error) {
+  message = error instanceof Error ? error.message : String(error);
+}
+const processIds = fs.readFileSync(${JSON.stringify(pidFile)}, "utf8").trim().split("\\n").map(Number);
+let processGroupAlive = true;
+try { process.kill(-processIds[0], 0); } catch { processGroupAlive = false; }
+process.stdout.write(JSON.stringify({ elapsedMs: Date.now() - startedAt, message, processGroupAlive, processIds }));
+`;
+        const result = spawnSync(
+          testNodeExecPath,
+          ["--input-type=module", "--eval", runnerSource],
+          { cwd: process.cwd(), encoding: "utf8", env: process.env },
+        );
+        expect(result.status, result.stderr).toBe(0);
+        const outcome = JSON.parse(result.stdout) as {
+          elapsedMs: number;
+          message: string;
+          processGroupAlive: boolean;
+          processIds: number[];
+        };
+        expect(outcome.message).toContain(expectedError);
+        expect(outcome.elapsedMs).toBeLessThan(3_000);
+        const processIds = outcome.processIds;
         expect(processIds).toHaveLength(2);
         const processGroupId = processIds[0];
         if (
@@ -4074,7 +4097,7 @@ fi
         ) {
           throw new Error(`Invalid owned process-group ID: ${processGroupId}`);
         }
-        expect(() => process.kill(-processGroupId, 0)).toThrow();
+        expect(outcome.processGroupAlive).toBe(false);
       };
 
       await exerciseOwnedProcessTree({

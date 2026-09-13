@@ -1,5 +1,6 @@
 import os from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   loadTranscriptEvents,
   upsertSessionEntryCore,
@@ -535,10 +536,7 @@ describe("Gateway GitHub publication", () => {
   });
 
   it("singleflights concurrent coordinators before any Git or GitHub mutation", async () => {
-    let releaseRepository: (() => void) | undefined;
-    const repositoryReady = new Promise<void>((resolve) => {
-      releaseRepository = resolve;
-    });
+    const { promise: repositoryReady, resolve: releaseRepository } = createDeferred();
     mocks.resolveRepository.mockImplementationOnce(async () => {
       await repositoryReady;
       return {

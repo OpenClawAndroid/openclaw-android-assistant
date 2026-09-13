@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
+import { createDeferred } from "../../../../test/helpers/promise.js";
 import { MAX_PAYLOAD_BYTES, MAX_PREAUTH_PAYLOAD_BYTES } from "../../server-constants.js";
 import {
   prepareGatewayReceiverHandoff,
@@ -28,10 +29,7 @@ describe("Gateway request start fairness", () => {
   it("releases cheap starts in FIFO order without waiting for their work to finish", async () => {
     vi.spyOn(performance, "now").mockReturnValue(0);
     const starts: number[] = [];
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = createDeferred();
     const first = requestStart().then(async () => {
       starts.push(0);
       await held;

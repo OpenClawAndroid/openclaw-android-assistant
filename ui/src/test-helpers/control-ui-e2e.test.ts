@@ -1,6 +1,7 @@
 // Control UI tests cover control ui e2e behavior.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { format } from "node:util";
 import type { Page } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.ts";
@@ -153,6 +154,11 @@ describe("shared proof capture", () => {
           return Buffer.from("failure-proof");
         },
       } as unknown as Page;
+      const frameEvent = {
+        at: "2026-09-01T00:00:00.000Z",
+        source: "framenavigated" as const,
+        details: { url: "https://private-frame.invalid/?token=private-token" },
+      };
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const original = new Error("private-original-error");
         const failedAction = async () => {
@@ -163,6 +169,7 @@ describe("shared proof capture", () => {
               error: original,
               label: "chat.send",
               modelResponses,
+              pageEvents: [frameEvent],
             });
             throw error;
           }
@@ -172,11 +179,14 @@ describe("shared proof capture", () => {
       const directories = readdirSync(parent, { withFileTypes: true }).filter((entry) =>
         entry.isDirectory(),
       );
-      const summaries = logs.mock.calls
+      const renderedSummaries = logs.mock.calls
         .filter(([message]) => message === "[control-ui-e2e] failure state")
-        .map(([, summary]) => summary);
-      expect(summaries).toHaveLength(2);
-      for (const summary of summaries) {
+        .map((args) => format(...args));
+      expect(renderedSummaries).toHaveLength(2);
+      for (const rendered of renderedSummaries) {
+        expect(rendered).not.toContain("[Object]");
+        expect(rendered).not.toContain("private-");
+        const summary = JSON.parse(rendered.slice("[control-ui-e2e] failure state ".length));
         expect(summary).toMatchObject({
           browser: {
             gatewayPhase: failure === "storage" ? "unknown" : "connected",
@@ -244,6 +254,7 @@ describe("shared proof capture", () => {
         const report = JSON.parse(readFileSync(path.join(root, reportFile!), "utf8"));
         expect(report).toMatchObject({
           label: "chat.send",
+          pageEvents: [frameEvent],
           captureErrors:
             failure === "screenshot" ? [expect.stringContaining("private-screenshot-error")] : [],
           ci: {

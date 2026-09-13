@@ -15,6 +15,9 @@ import {
   workflowRunQueryPaths,
   workflowRunPageCount,
 } from "../../scripts/verify-pr-hosted-gates.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
+
+const testNodeExecPath = resolveTestNodeExecPath();
 
 const sha = "773ffd87a1e1e34451ad6e38fda37380c2569a50";
 const mainSha = "d".repeat(40);
@@ -211,8 +214,9 @@ describe("verify-pr-hosted-gates", () => {
         loadCiReuseCandidates: () => [priorSuccessfulCiRun({ head_sha: candidate })],
         execGit: (args, options) => {
           const result = git(args, options);
-          if (args[0] === "patch-id" && ++comparisons === 1)
+          if (args[0] === "patch-id" && ++comparisons === 1) {
             git(["update-ref", "refs/remotes/origin/main", candidate]);
+          }
           return result;
         },
       });
@@ -257,7 +261,7 @@ describe("verify-pr-hosted-gates", () => {
       );
 
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         [join(process.cwd(), "scripts/verify-pr-hosted-gates.mjs"), "--older-cwd-startup-probe"],
         {
           cwd: targetRoot,
@@ -1590,7 +1594,7 @@ describe("verify-pr-hosted-gates", () => {
 
   it("rejects malformed PR numbers before invoking GitHub", () => {
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       [
         join(process.cwd(), "scripts/verify-pr-hosted-gates.mjs"),
         ...requiredCliArgs.with(5, "1e3"),

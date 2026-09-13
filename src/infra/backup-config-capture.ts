@@ -6,6 +6,7 @@ import { hashConfigIncludeRaw } from "../config/includes.js";
 import { createConfigIO } from "../config/io.factory.js";
 import { containsConfigIncludeDirective } from "../config/io.read-helpers.js";
 import type { ReadConfigFileSnapshotForWriteResult } from "../config/io.types.js";
+import { withOpenClawStateDatabaseReadSnapshot } from "../state/openclaw-state-db-readonly.js";
 
 type CapturedConfigFile = {
   sourcePath: string;
@@ -117,10 +118,12 @@ export async function resolveBackupConfigCapture({
     assertRootAlias,
     revalidate: async () => {
       await assertRootAlias?.();
-      const current = await createConfigIO({
-        configPath: snapshot.path,
-        observe: false,
-      }).readConfigFileSnapshotForWrite();
+      const current = await withOpenClawStateDatabaseReadSnapshot(() =>
+        createConfigIO({
+          configPath: snapshot.path,
+          observe: false,
+        }).readConfigFileSnapshotForWrite(),
+      );
       // A file can be reached repeatedly during discovery. Comparing the resolved
       // source as well as the last hashes prevents accepting mixed observations.
       if (

@@ -427,9 +427,11 @@ export async function handleNotifyCommand(params: {
   }
 
   if (params.action === "status" || params.action === "") {
-    const [current, subscribers, pending] = await Promise.all([
+    const [current, subscriberCount, pending] = await Promise.all([
       subscriberStore.lookup(targetStoreKey),
-      subscriberStore.entries(),
+      subscriberStore.count
+        ? subscriberStore.count()
+        : subscriberStore.entries().then((entries) => entries.length),
       listDevicePairing(),
     ]);
     const enabled = Boolean(current);
@@ -438,7 +440,7 @@ export async function handleNotifyCommand(params: {
       text: [
         `Pair request notifications: ${enabled ? "enabled" : "disabled"} for this chat.`,
         `Mode: ${mode}`,
-        `Subscribers: ${subscribers.length}`,
+        `Subscribers: ${subscriberCount}`,
         `Pending requests: ${pending.pending.length}`,
         "",
         "Use /pair notify on|off|once",

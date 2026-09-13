@@ -48,6 +48,7 @@ import {
   waitForSessionMaintenance,
 } from "../session-maintenance/coordinator.js";
 import { SessionManager } from "../sessions/index.js";
+import { withSessionManagerWrite } from "../sessions/session-manager-write-admission.js";
 import { resolveContextEngineCapabilities } from "./context-engine-capabilities.js";
 import {
   disposeDeferredMaintenanceContextEngine,
@@ -287,10 +288,14 @@ function buildContextEngineMaintenanceRuntimeContext(
           params.assertActive?.();
           sessionManager = SessionManager.open(runtimeTarget);
         }
-        params.assertActive?.();
-        return rewriteTranscriptEntriesInSessionManager({
-          sessionManager,
-          replacements: request.replacements,
+        const manager = sessionManager;
+        return await withSessionManagerWrite(manager, () => {
+          params.abortSignal?.throwIfAborted();
+          params.assertActive?.();
+          return rewriteTranscriptEntriesInSessionManager({
+            sessionManager: manager,
+            replacements: request.replacements,
+          });
         });
       };
       const result = await (params.withSessionManagerRewriteLock
@@ -524,11 +529,7 @@ function scheduleDeferredTurnMaintenance(
       terminalSummary: "Superseded by refreshed deferred maintenance task.",
     });
   }
-  const task =
-    reusableTask ??
-    buildTurnMaintenanceTaskDescriptor({
-      sessionKey,
-    });
+  const task = reusableTask ?? buildTurnMaintenanceTaskDescriptor({ sessionKey });
   if (!task) {
     log.warn("[context-engine] failed to create deferred turn maintenance task", {
       sessionKey,
@@ -681,7 +682,6 @@ function scheduleDeferredTurnMaintenance(
     latestParams: { ...params, sessionKey },
   };
   activeDeferredTurnMaintenanceRuns.set(sessionKey, state);
-  void trackedPromise;
   return trackedPromise;
 }
 

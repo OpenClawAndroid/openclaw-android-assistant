@@ -2,6 +2,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readStyleSheet } from "../../../test/helpers/ui-style-fixtures.js";
+import { withBrowserPage } from "../test-helpers/browser-page.ts";
 import {
   canRunPlaywrightChromium,
   resolvePlaywrightChromiumExecutablePath,
@@ -157,8 +158,7 @@ afterAll(async () => {
 
 describeBrowserLayout("sensitive input visibility", () => {
   it("removes the mask layer from layout when the value is revealed", async () => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setContent(
         `<!doctype html><html data-theme-mode="light"><head><style>${readUiCss()}</style></head><body>${revealedSensitiveInputHtml()}</body></html>`,
       );
@@ -168,16 +168,13 @@ describeBrowserLayout("sensitive input visibility", () => {
         display: getComputedStyle(mask).display,
       }));
       expect(state).toEqual({ hidden: true, display: "none" });
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });
 
 describeBrowserLayout("settings icon buttons", () => {
   it("keeps MCP remove glyphs proportionate to settings buttons", async () => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setContent(`
         <!doctype html>
         <html data-theme-mode="light">
@@ -207,16 +204,13 @@ describeBrowserLayout("settings icon buttons", () => {
           };
         });
       expect(metrics).toEqual({ button: [32, 32], glyph: [18, 18] });
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });
 
 describeBrowserLayout("settings row wrapping", () => {
   it.each([393, 768, 1200])("keeps long copy beside its tile at %ipx", async (width) => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setViewportSize({ width, height: 1000 });
       const description =
         "Calendar notes and reminders remain readable before enabling a connector. ".repeat(8);
@@ -260,16 +254,13 @@ describeBrowserLayout("settings row wrapping", () => {
       expect(geometry.messageBelow).toBe(true);
       expect(geometry.messageWidth).toBeCloseTo(geometry.contentWidth, 0);
       expect(geometry.overflow).toBeLessThanOrEqual(1);
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });
 
 describeBrowserLayout("settings media device controls", () => {
   it("keeps paired selectors the same width across device labels and viewports", async () => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setViewportSize({ width: 1200, height: 800 });
       await page.setContent(
         `<!doctype html><html data-theme-mode="light"><head><style>${readUiCss()}</style></head><body>${mediaDeviceRowsHtml()}</body></html>`,
@@ -305,9 +296,7 @@ describeBrowserLayout("settings media device controls", () => {
       expect(mobile[0]?.selectWidth).toBeCloseTo(mobile[1]?.selectWidth ?? 0, 5);
       expect(mobile[0]?.selectWidth).toBeLessThan(340);
       expect(mobile.every((row) => row.selectTop === row.buttonTop)).toBe(true);
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });
 
@@ -422,8 +411,7 @@ describeBrowserLayout("touch-primary form controls", () => {
 
 describeBrowserLayout("mount fallback cursor", () => {
   it("uses the arrow for recovery controls and the hand for its real link", async () => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setContent(readStyleSheet("ui/index.html"));
       const cursors = await page.evaluate(() => {
         const cursor = (selector: string) => {
@@ -445,16 +433,13 @@ describeBrowserLayout("mount fallback cursor", () => {
         wait: "default",
         docs: "pointer",
       });
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });
 
 describeBrowserLayout("app chrome interaction styles", () => {
   it("scales sidebar typography with the Control UI text-size preference", async () => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setViewportSize({ width: 1200, height: 800 });
       await page.setContent(`
         <!doctype html>
@@ -558,14 +543,11 @@ describeBrowserLayout("app chrome interaction styles", () => {
         const fits = await page.$eval(selector, (node) => node.scrollWidth <= node.clientWidth);
         expect(fits, selector).toBe(true);
       }
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 
   it("scales mobile sidebar variants while preserving the coarse-pointer input floor", async () => {
-    const page = await mobileContext.newPage();
-    try {
+    await withBrowserPage(mobileContext.newPage(), async (page) => {
       await page.setContent(`
         <!doctype html>
         <html>
@@ -625,14 +607,11 @@ describeBrowserLayout("app chrome interaction styles", () => {
       expect(scaled.fileSearch).toBeCloseTo(12 * 1.4, 1);
       expect(scaled.settingsSearch).toBeCloseTo(12.5 * 1.4, 1);
       expect(scaled.navItem).toBeCloseTo(12 * 1.4, 1);
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 
   it("uses one canonical scrollbar width while preserving normal content scroll and text entry", async () => {
-    const page = await desktopContext.newPage();
-    try {
+    await withBrowserPage(desktopContext.newPage(), async (page) => {
       await page.setViewportSize({ width: 1200, height: 800 });
       await page.setContent(`
         <!doctype html>
@@ -701,8 +680,6 @@ describeBrowserLayout("app chrome interaction styles", () => {
         settingsSidebarScrollbar: "12px",
         settingsSidebarSelection: "none",
       });
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });

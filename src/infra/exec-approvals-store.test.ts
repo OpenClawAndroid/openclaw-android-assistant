@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -327,14 +328,8 @@ describe("exec approvals SQLite store", () => {
       },
     });
     seedAgentDeletionJournal("removed");
-    let notifyCommitStarted!: () => void;
-    const commitStarted = new Promise<void>((resolve) => {
-      notifyCommitStarted = resolve;
-    });
-    let finishCommit!: () => void;
-    const commitGate = new Promise<void>((resolve) => {
-      finishCommit = resolve;
-    });
+    const { promise: commitStarted, resolve: notifyCommitStarted } = createDeferred();
+    const { promise: commitGate, resolve: finishCommit } = createDeferred();
     const deletion = withAgentExecApprovalsRemoved("removed", async () => {
       notifyCommitStarted();
       await commitGate;
@@ -362,14 +357,8 @@ describe("exec approvals SQLite store", () => {
   it("allows unrelated writers while deleting an agent with no approval policy", async () => {
     saveExecApprovals({ version: 1, agents: { kept: { security: "deny" } } });
     seedAgentDeletionJournal("missing");
-    let notifyCommitStarted!: () => void;
-    const commitStarted = new Promise<void>((resolve) => {
-      notifyCommitStarted = resolve;
-    });
-    let finishCommit!: () => void;
-    const commitGate = new Promise<void>((resolve) => {
-      finishCommit = resolve;
-    });
+    const { promise: commitStarted, resolve: notifyCommitStarted } = createDeferred();
+    const { promise: commitGate, resolve: finishCommit } = createDeferred();
     const deletion = withAgentExecApprovalsRemoved("missing", async () => {
       notifyCommitStarted();
       await commitGate;

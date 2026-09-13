@@ -5,6 +5,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import { resolveAgentConfig } from "../agents/agent-scope.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
+import { readStartupRecoveryWarning } from "../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
 import { areRuntimeModelRefsEquivalent } from "../agents/model-runtime-aliases.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { resolveProjectedSessionContextTokens } from "../config/sessions/context-token-provenance.js";
@@ -42,6 +43,7 @@ import {
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { sortAndLimitBy } from "../shared/sort-and-limit.js";
+import { readOpenClawStateWalHealth } from "../state/openclaw-state-db-cache.js";
 import {
   summarizeActionableTaskAuditFindings,
   summarizeRetainedLostTaskAuditFindings,
@@ -526,8 +528,10 @@ export async function getStatusSummary(
         await import("../gateway/desktop/host-source.js")
       ).inspectHostDesktop({ config: cfg.desktop?.host })
     ).status;
+  const sqliteWal = readOpenClawStateWalHealth();
   return {
     runtimeVersion: resolveRuntimeServiceVersion(process.env),
+    sqliteWal: sqliteWal && !includeSensitive ? { ...sqliteWal, error: undefined } : sqliteWal,
     hostDesktop: hostDesktopStatus,
     linkChannel: linkContext
       ? {
@@ -544,6 +548,7 @@ export async function getStatusSummary(
     channelSummary,
     queuedSystemEvents,
     startupMigrationWarning: readStartupMigrationWarning(includeSensitive),
+    startupRecoveryWarning: readStartupRecoveryWarning(includeSensitive),
     secretEgressProxy: getSecretEgressCertificateStatus(),
     degradedSecretOwners: listActiveDegradedSecretOwners().map(
       ({ ownerKind, ownerId, state, degradationState, paths: ownerPaths, reason }) => {

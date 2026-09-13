@@ -1,9 +1,11 @@
 import type { IncomingMessage } from "node:http";
-import { createRequire } from "node:module";
-import path from "node:path";
 import type { Duplex } from "node:stream";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { RawData } from "ws";
+import {
+  createWebSocketStream,
+  WebSocketServer as NpmWebSocketServer,
+} from "../../../packages/gateway-client/src/websocket.js";
 import { registerSecretValueForRedaction } from "../../logging/secret-redaction-registry.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
@@ -15,11 +17,6 @@ import { rejectWebSocketUpgrade } from "../../shared/websocket-upgrade-reject.js
 import type { NodeRegistry } from "../node-registry.js";
 import { startWebSocketKeepalive } from "../websocket-keepalive.js";
 
-// Node desktop and portal streams need ws's Duplex bridge, which Bun's adapter does not implement.
-const require = createRequire(import.meta.url);
-const { createWebSocketStream, WebSocket, WebSocketServer }: typeof import("ws") = require(
-  path.join(path.dirname(require.resolve("ws/package.json")), "index.js"),
-);
 type WebSocket = import("ws").WebSocket;
 
 const DEFAULT_TICKET_TTL_MS = 60_000;
@@ -168,7 +165,7 @@ export function createNodeDesktopStreamBroker(deps: { ttlMs?: number; now?: () =
     onExpire: (entry, ticket) =>
       rejectTicket(ticket, new Error(`node ${entry.kind} stream ticket expired`)),
   });
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_ATTACH_FRAME_BYTES });
+  const wss = new NpmWebSocketServer({ noServer: true, maxPayload: MAX_ATTACH_FRAME_BYTES });
 
   const remove = (ticket: string): TicketEntry | undefined => {
     const entry = pending.get(ticket);

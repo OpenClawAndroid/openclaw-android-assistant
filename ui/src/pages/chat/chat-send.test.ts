@@ -510,11 +510,11 @@ describe("refreshChat", () => {
       ]),
     );
     expect(host.request).not.toHaveBeenCalledWith("chat.metadata", expect.anything());
-    expect(host.request).toHaveBeenCalledWith(
-      "models.list",
-      { view: "configured", agentId: "main", sessionKey: host.sessionKey },
-      { signal: expect.any(AbortSignal) },
-    );
+    expect(host.request).toHaveBeenCalledWith("models.list", {
+      view: "configured",
+      agentId: "main",
+      sessionKey: host.sessionKey,
+    });
     expect(host.request).not.toHaveBeenCalledWith("commands.list", expect.anything());
   });
 

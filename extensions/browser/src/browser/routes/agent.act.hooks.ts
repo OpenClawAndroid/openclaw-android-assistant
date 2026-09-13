@@ -48,7 +48,7 @@ export function registerBrowserAgentActHookRoutes(
       ctx,
       targetId,
       enforceCurrentUrlAllowed: true,
-      run: async ({ profileCtx, cdpUrl, tab, signal }) => {
+      run: async ({ profileCtx, cdpUrl, tab, signal, assertCurrent }) => {
         const resolvedResult = await resolveExistingUploadPaths({ requestedPaths: paths });
         if (!resolvedResult.ok) {
           res.status(400).json({ error: resolvedResult.error });
@@ -64,6 +64,9 @@ export function registerBrowserAgentActHookRoutes(
           const uid = inputRef || ref;
           if (!uid) {
             return jsonError(res, 501, EXISTING_SESSION_LIMITS.hooks.uploadRefRequired);
+          }
+          if (assertCurrent) {
+            await assertCurrent();
           }
           await uploadChromeMcpFile({
             profileName: profileCtx.profile.name,
@@ -96,6 +99,7 @@ export function registerBrowserAgentActHookRoutes(
             paths: resolvedPaths,
             ssrfPolicy: ctx.state().resolved.ssrfPolicy,
             signal,
+            ...(assertCurrent ? { assertCurrent } : {}),
           });
         } else if (ref) {
           await pw.uploadViaPlaywright({
@@ -107,6 +111,7 @@ export function registerBrowserAgentActHookRoutes(
             ssrfPolicy: ctx.state().resolved.ssrfPolicy,
             ref,
             signal,
+            ...(assertCurrent ? { assertCurrent } : {}),
           });
         } else {
           await pw.armFileUploadViaPlaywright({
@@ -116,6 +121,7 @@ export function registerBrowserAgentActHookRoutes(
             paths: resolvedPaths,
             timeoutMs: timeoutMs ?? undefined,
             ssrfPolicy: ctx.state().resolved.ssrfPolicy,
+            ...(assertCurrent ? { assertCurrent } : {}),
           });
         }
         res.json({ ok: true });
@@ -145,13 +151,16 @@ export function registerBrowserAgentActHookRoutes(
       ctx,
       targetId,
       enforceCurrentUrlAllowed: true,
-      run: async ({ profileCtx, cdpUrl, tab, signal }) => {
+      run: async ({ profileCtx, cdpUrl, tab, signal, assertCurrent }) => {
         if (getBrowserProfileCapabilities(profileCtx.profile).usesChromeMcp) {
           if (dialogId) {
             return jsonError(res, 501, EXISTING_SESSION_LIMITS.hooks.dialogId);
           }
           if (timeoutMs) {
             return jsonError(res, 501, EXISTING_SESSION_LIMITS.hooks.dialogTimeout);
+          }
+          if (assertCurrent) {
+            await assertCurrent();
           }
           await evaluateChromeMcpScript({
             profileName: profileCtx.profile.name,
@@ -214,6 +223,7 @@ export function registerBrowserAgentActHookRoutes(
           accept,
           promptText,
           timeoutMs: timeoutMs ?? undefined,
+          ...(assertCurrent ? { assertCurrent } : {}),
         });
         res.json({ ok: true });
       },

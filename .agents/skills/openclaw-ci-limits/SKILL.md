@@ -272,7 +272,8 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   250s and co-locate split siblings, provided each original child still fits
   150s. Keep file splits, workers, process isolation and other profiles unchanged.
   Runtime consumers in ordinary bins share preparation only with other consumers;
-  hybrid main runtime-placement observations apply only after file splitting.
+  complete hybrid main and PR runtime-placement observations apply only after file
+  splitting. Precise changed-file templates retain their original capacity and floors.
   Whole pinned groups may move between existing compatible serial runtime bins
   under a 440s budget including the existing 100s build reserve. Preserve runner
   anchors, all descriptors and invocation/generation counts; no additional jobs,

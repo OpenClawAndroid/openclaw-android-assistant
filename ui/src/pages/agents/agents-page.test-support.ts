@@ -6,6 +6,7 @@ import type {
   ToolsEffectiveResult,
 } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
+import { createGatewayMetadataObserver } from "../../app/gateway-observers.ts";
 import type { PanelRefreshStatus } from "../../components/panel-refresh-status.ts";
 import type { AgentsPanel } from "../../lib/agents/panels.ts";
 import { invalidateChatMetadataStore } from "../../lib/chat/chat-metadata-cache.ts";
@@ -45,6 +46,7 @@ export type TestAgentsPage = HTMLElement & {
   };
   willUpdate: (changed: Map<PropertyKey, unknown>) => void;
   gateway: {
+    readonly snapshot: ApplicationGatewaySnapshot | null;
     applySnapshot: (
       snapshot: ApplicationGatewaySnapshot,
       binding: { initial: boolean; sourceChanged: boolean },
@@ -70,20 +72,16 @@ export function setPageGateway(
   connected = true,
   sourceChanged = false,
 ) {
-  if (!page.context?.gateway || sourceChanged) {
-    page.context = { ...page.context, gateway: gateway(snapshot(client, connected)) };
+  const next = snapshot(client, connected);
+  const previous = page.gateway.snapshot;
+  if (previous) {
+    // Application connection retirement precedes page-local request invalidation.
+    createGatewayMetadataObserver((current) => current === next).synchronize(previous, next);
   }
-  page.gateway.applySnapshot(snapshot(client, connected), { initial: false, sourceChanged });
-}
-
-export function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((next, fail) => {
-    resolve = next;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
+  if (!page.context?.gateway || sourceChanged) {
+    page.context = { ...page.context, gateway: gateway(next) };
+  }
+  page.gateway.applySnapshot(next, { initial: false, sourceChanged });
 }
 
 export function snapshot(

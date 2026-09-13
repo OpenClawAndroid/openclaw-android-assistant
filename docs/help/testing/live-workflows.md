@@ -12,6 +12,16 @@ When debugging real providers/models (requires real creds):
 
 - Live suite (models + gateway tool/image probes): `pnpm test:live`
 - Target one live file quietly: `pnpm test:live -- src/agents/models.profiles.live.test.ts`
+- Live subagent handoff stress:
+  `OPENCLAW_LIVE_TEST=1 OPENCLAW_LIVE_SUBAGENT_STRESS=1 pnpm test:live -- src/agents/subagents/announce/subagent-yield-resume.live.test.ts`
+  - Requires `OPENAI_API_KEY` and defaults to `openai/gpt-5.6-luna`; select another
+    OpenAI model with `OPENCLAW_LIVE_SUBAGENT_E2E_MODEL`.
+  - Uses isolated Gateway state and synthetic files to verify concurrent child
+    completion, one final reply per parent, and operator resume with preserved
+    task identity, parent completion, and idempotent replay.
+  - Defaults to two batches of three children. Set
+    `OPENCLAW_LIVE_SUBAGENT_STRESS_BATCHES` (1–5) and
+    `OPENCLAW_LIVE_SUBAGENT_STRESS_CHILDREN` (1–6) to change the bounded workload.
 - Runtime performance reports: dispatch `OpenClaw Performance` with
   `live_openai_candidate=true` for a real `openai/gpt-5.6-luna` agent turn or
   `deep_profile=true` for Kova CPU/heap/trace artifacts. Daily scheduled runs

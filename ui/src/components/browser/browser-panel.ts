@@ -24,6 +24,7 @@ import {
   BROWSER_PANEL_TOGGLE_EVENT,
   type BrowserPanelToggleDetail,
 } from "../panel-toggle-contract.ts";
+import type { BrowserDashboardTarget } from "./browser-client.ts";
 import {
   BrowserPanelController,
   type BrowserPanelControllerHost,
@@ -31,7 +32,12 @@ import {
 import { renderBrowserPanelChrome, type BrowserPanelDock } from "./browser-panel-render.ts";
 import { browserPanelHostedTabs } from "./browser-panel-tabs.ts";
 import { browserPanelStyles } from "./browser-panel.styles.ts";
-import { browserTabKey, readBrowserTabTarget, type BrowserTabSelection } from "./browser-target.ts";
+import {
+  browserTabKey,
+  readBrowserTabTarget,
+  type BrowserTabSelection,
+  type BrowserTabTarget,
+} from "./browser-target.ts";
 import { normalizeBrowserUrlDraft } from "./browser-url.ts";
 
 /** `<openclaw-browser-panel>` — the dockable gateway browser surface. */
@@ -62,8 +68,12 @@ class OpenClawBrowserPanel
 
   @property({ attribute: false }) sessionKey = "";
   @property({ attribute: false }) preferredTab?: BrowserTabSelection;
+  /** A dashboard presents only its owned remote tab; its owner controls removal and restart. */
+  @property({ attribute: false }) fixedTab?: BrowserTabTarget;
+  @property({ attribute: false }) dashboardTarget?: BrowserDashboardTarget;
 
   private activeSessionKey = "";
+  private activeDashboardKey: string | undefined;
   private consumedPreferredRevision?: string;
   private lastHostedTabsChangeKey?: string;
   private readonly browserPanelController = new BrowserPanelController(this);
@@ -208,40 +218,48 @@ class OpenClawBrowserPanel
   private synchronizeBrowserContext(): boolean {
     const clientChanged = this.browserPanelController.synchronizeClient();
     const sessionChanged = this.activeSessionKey !== this.sessionKey;
-    if (sessionChanged) {
+    const dashboardKey = JSON.stringify(this.dashboardTarget);
+    const dashboardChanged = this.activeDashboardKey !== dashboardKey;
+    if (sessionChanged || dashboardChanged) {
       this.activeSessionKey = this.sessionKey;
+      this.activeDashboardKey = dashboardKey;
       this.browserPanelController.operations.resetRoute();
       this.browserPanelController.resetBrowserState();
     }
-    if (clientChanged || sessionChanged) {
+    if (clientChanged || sessionChanged || dashboardChanged) {
       this.browserPanelController.native.cancelPendingActivation();
       this.browserPanelController.native.cancelCapture();
       this.consumedPreferredRevision = undefined;
     }
-    return clientChanged || sessionChanged;
+    return clientChanged || sessionChanged || dashboardChanged;
   }
 
   private preferredRevision(): string | undefined {
-    const preferred = this.preferredTab;
+    const preferred = this.preferredSelection;
     return preferred && readBrowserTabTarget(preferred.tab)
       ? JSON.stringify([browserTabKey(preferred.tab), preferred.revision])
       : undefined;
   }
 
+  private get preferredSelection(): BrowserTabSelection | undefined {
+    return this.fixedTab ? { tab: this.fixedTab, revision: "dashboard" } : this.preferredTab;
+  }
+
   private followPreferredTab(): boolean {
     const revision = this.preferredRevision();
+    const preferred = this.preferredSelection;
     if (
       !this.browserPanelIsOpen() ||
       !this.available ||
       !this.client ||
-      !this.preferredTab ||
+      !preferred ||
       !revision ||
       revision === this.consumedPreferredRevision
     ) {
       return false;
     }
     this.consumedPreferredRevision = revision;
-    const tab = readBrowserTabTarget(this.preferredTab.tab);
+    const tab = readBrowserTabTarget(preferred.tab);
     if (tab) {
       // Session results own the panel route and view, not the user's physical browser focus.
       void this.browserPanelController.selectTab(tab.targetId, tab, { focusBrowserTab: false });
@@ -266,6 +284,9 @@ class OpenClawBrowserPanel
   }
 
   handleToggleRequest(event: Event): void {
+    if (this.fixedTab) {
+      return;
+    }
     const detail =
       event instanceof CustomEvent && typeof event.detail === "object" && event.detail !== null
         ? (event.detail as BrowserPanelToggleDetail)

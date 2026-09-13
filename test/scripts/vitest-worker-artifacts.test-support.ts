@@ -70,6 +70,20 @@ function createWorkerArtifactFixtures({
       return completion;
     }
 
+    function runtime(args: string[], cwd = root, env = process.env) {
+      const completion = fixtureLifetime.track(
+        runNodeScript(args, env, undefined, {
+          cwd,
+          signal: commandSignal,
+          maxBuffer: 2 * 1024 * 1024,
+          requireProcessTreeExit: process.platform !== "win32",
+          executable: process.execPath,
+        }).then((result) => ({ ...result, code: result.status })),
+      );
+      commands.push(completion);
+      return completion;
+    }
+
     function startBorrower(owner: VitestWorkerRun, args: string[], nodeArgs: string[] = []) {
       commandSignal.throwIfAborted();
       const logs = fixtureDirectory();
@@ -132,7 +146,7 @@ function createWorkerArtifactFixtures({
       );
     }
 
-    return { node, startBorrower, prepareWorkers, observeChild };
+    return { node, runtime, startBorrower, prepareWorkers, observeChild };
   }
 
   return { fixtureLifetime, fixtureDirectory, createFixtureCommands };

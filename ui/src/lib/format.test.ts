@@ -2,8 +2,10 @@
 // Control UI tests cover format behavior.
 import { afterEach, describe, expect, it } from "vitest";
 import { i18n } from "../i18n/index.ts";
+import { captureI18nStateForTesting } from "../i18n/lib/translate.test-support.ts";
 import {
   clampText,
+  createMsFormatter,
   formatDateTimeMs,
   formatDateMs,
   formatCompactTokenCount,
@@ -155,6 +157,44 @@ describe("formatMs", () => {
     const formatted = formatMs(new Date(2026, 0, 2, 15, 4, 55).getTime());
     expect(formatted).toContain("2026");
     expect(formatted).not.toMatch(/:55(?:\s|$)/u);
+  });
+});
+
+describe("createMsFormatter", () => {
+  it("honors explicit timestamp fields and an empty invalid fallback", () => {
+    const options: Intl.DateTimeFormatOptions = {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    };
+    const format = createMsFormatter(options, "");
+    for (const timestamp of [0, Date.UTC(2026, 0, 2, 15, 4, 55)]) {
+      expect(format(timestamp)).toBe(new Date(timestamp).toLocaleString(i18n.getLocale(), options));
+    }
+    expect(format(Number.NaN)).toBe("");
+    expect(format(8_640_000_000_000_001)).toBe("");
+    expect(createMsFormatter(undefined, "unavailable")(null)).toBe("unavailable");
+  });
+
+  it("uses the locale of the first valid timestamp and refreshes on the next render", async () => {
+    const restoreI18n = captureI18nStateForTesting();
+    const timestamp = Date.UTC(2026, 0, 2, 15, 4, 55);
+    const options: Intl.DateTimeFormatOptions = { month: "long", day: "numeric", timeZone: "UTC" };
+    try {
+      await i18n.setLocale("en");
+      const format = createMsFormatter(options, "");
+      expect(format(undefined)).toBe("");
+      await i18n.setLocale("fr");
+      expect(format(timestamp)).toBe(new Date(timestamp).toLocaleString("fr", options));
+      await i18n.setLocale("en");
+      expect(createMsFormatter(options)(timestamp)).toBe(
+        new Date(timestamp).toLocaleString("en", options),
+      );
+    } finally {
+      await restoreI18n();
+    }
   });
 });
 

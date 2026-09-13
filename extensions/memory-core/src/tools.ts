@@ -68,6 +68,7 @@ type PrimaryMemorySearchValue = {
   fallback?: unknown;
   mode?: string;
   staleness?: Exclude<ReturnType<typeof resolveMemorySearchStaleness>, null>;
+  automaticRebuildWarning?: string;
   debug?: MemorySearchToolQueryDebug & { toolMs?: number; outsideSearchMs?: number };
   unavailableResult?: ReturnType<typeof buildPausedMemoryIndexUnavailableResult>;
 };
@@ -276,6 +277,9 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
         const memoryManagersToClose = new Set<ActiveMemoryManagerContext["manager"]>();
         let cleanupStarted = false;
         let searchSignal: AbortSignal | undefined;
+        const rebuildNotices: Array<() => string | undefined> = [];
+        const readRebuildWarning = () =>
+          [...new Set(rebuildNotices.map((read) => read()).filter(Boolean))].join(" ") || undefined;
         const trackMemoryManager = (context: MemoryManagerContext): MemoryManagerContext => {
           if (memoryManagerPurpose === "cli" && isActiveMemoryManagerContext(context)) {
             if (cleanupStarted) {
@@ -323,6 +327,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                     ? ["memory"]
                     : undefined;
               return await executeMemorySearchToolQuery({
+                onRebuildNotice: (read) => rebuildNotices.push(read),
                 initialManager: { manager: memory.manager, managerMs: memory.debug?.managerMs },
                 refreshManager: async () => {
                   const refreshed = trackMemoryManager(
@@ -374,7 +379,12 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                   }
                 : { error: "memory search unavailable", deadline: false };
             recordMemorySearchToolCooldown(agentId, cfg, failure);
-            return { corpus: "memory", outcome: "unavailable", value: null, ...failure };
+            return {
+              corpus: "memory",
+              outcome: "unavailable",
+              value: { results: [], automaticRebuildWarning: readRebuildWarning() },
+              ...failure,
+            };
           }
           const executed = attempted.value!;
           if (executed.pausedIndexIdentity) {
@@ -382,6 +392,12 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
               executed.pausedIndexIdentity,
               { agentId, status: executed.status },
             );
+            const rebuildWarning = readRebuildWarning();
+            if (rebuildWarning) {
+              unavailableResult.warning = [unavailableResult.warning, rebuildWarning]
+                .filter(Boolean)
+                .join(" ");
+            }
             return unavailableMemoryCorpus(
               "memory",
               {
@@ -402,6 +418,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
               fallback: status.fallback,
               mode: executed.searchMode,
               staleness: resolveMemorySearchStaleness(status, agentId) ?? undefined,
+              automaticRebuildWarning: readRebuildWarning(),
               debug:
                 attempted.outcome === "partial" && executed.debug
                   ? {
@@ -443,6 +460,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                 return jsonResult(
                   memoryValue?.unavailableResult ??
                     buildMemorySearchUnavailableResult(memory.error, {
+                      warning: readRebuildWarning(),
                       agentId,
                       deadline: memory.deadline,
                       code: memory.code,
@@ -503,6 +521,9 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
               const staleness = memoryValue?.staleness;
               const recovery = memoryValue?.unavailableResult;
               const metadata = composeMemoryCorpusMetadata(attempts, [
+                ...(memoryValue?.automaticRebuildWarning
+                  ? [memoryValue.automaticRebuildWarning]
+                  : []),
                 ...(staleness?.warning ? [staleness.warning] : []),
                 ...(recovery?.warning ? [recovery.warning] : []),
                 ...(memory?.outcome === "partial"
@@ -527,7 +548,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                 citations: citationsMode,
                 mode: memoryValue?.mode,
                 ...staleness,
-                ...(attempts.length > 0 ? metadata : {}),
+                ...(attempts.length > 0 || memoryValue?.automaticRebuildWarning ? metadata : {}),
                 ...(memory?.outcome === "partial" ? { partial: true } : {}),
                 // Another corpus can succeed while primary memory still needs repair.
                 ...(recovery?.action ? { action: recovery.action } : {}),
@@ -545,6 +566,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
           }
           return jsonResult(
             buildMemorySearchUnavailableResult(failed.error, {
+              warning: readRebuildWarning(),
               agentId,
               deadline: failed.deadline,
               code: failed.code,

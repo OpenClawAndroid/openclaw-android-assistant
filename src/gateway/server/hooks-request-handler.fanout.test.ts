@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolveHookMappings } from "../hooks-mapping.js";
 import { createHooksConfig } from "../hooks-test-helpers.js";
@@ -180,10 +181,7 @@ describe("hook fan-out dispatch", () => {
   });
 
   test("answers before the producer client timeout when an item admission hangs", async () => {
-    let releaseHang!: (result: HookAgentDispatchResult) => void;
-    const hang = new Promise<HookAgentDispatchResult>((resolve) => {
-      releaseHang = resolve;
-    });
+    const { promise: hang, resolve: releaseHang } = createDeferred<HookAgentDispatchResult>();
     const { handler, dispatchAgentHook } = createFanOutHandler({
       fanoutResponseDeadlineMs: 50,
       dispatchAgentHook: (value) =>
@@ -387,20 +385,12 @@ describe("hook fan-out dispatch", () => {
   });
 
   test("waits for direct agent completion when explicitly requested", async () => {
-    let resolveCompletion!: (value: {
+    const { promise: completion, resolve: resolveCompletion } = createDeferred<{
       status: "ok";
       replyDisposition: "silent";
       delivered: boolean;
       deliveryAttempted: boolean;
-    }) => void;
-    const completion = new Promise<{
-      status: "ok";
-      replyDisposition: "silent";
-      delivered: boolean;
-      deliveryAttempted: boolean;
-    }>((resolve) => {
-      resolveCompletion = resolve;
-    });
+    }>();
     const { handler, dispatchAgentHook } = createFanOutHandler({
       hooksConfig: createHooksConfig(),
       dispatchAgentHook: () => ({ ok: true, runId: "run:direct", completion }),
@@ -436,22 +426,13 @@ describe("hook fan-out dispatch", () => {
   });
 
   test("keeps direct completion observation outside dispatch identity", async () => {
-    let resolveAdmission!: (value: HookAgentDispatchResult) => void;
-    const admission = new Promise<HookAgentDispatchResult>((resolve) => {
-      resolveAdmission = resolve;
-    });
-    let resolveCompletion!: (value: {
+    const { promise: admission, resolve: resolveAdmission } =
+      createDeferred<HookAgentDispatchResult>();
+    const { promise: completion, resolve: resolveCompletion } = createDeferred<{
       status: "ok";
       replyDisposition: "silent";
       delivered: boolean;
-    }) => void;
-    const completion = new Promise<{
-      status: "ok";
-      replyDisposition: "silent";
-      delivered: boolean;
-    }>((resolve) => {
-      resolveCompletion = resolve;
-    });
+    }>();
     const { handler, dispatchAgentHook } = createFanOutHandler({
       hooksConfig: createHooksConfig(),
       dispatchAgentHook: () => admission,
@@ -501,10 +482,8 @@ describe("hook fan-out dispatch", () => {
   });
 
   test("keeps an active admitted replay owner under terminal cache pressure", async () => {
-    let resolveActiveCompletion!: (value: HookAgentCompletion) => void;
-    const activeCompletion = new Promise<HookAgentCompletion>((resolve) => {
-      resolveActiveCompletion = resolve;
-    });
+    const { promise: activeCompletion, resolve: resolveActiveCompletion } =
+      createDeferred<HookAgentCompletion>();
     let activeDispatches = 0;
     const { handler, dispatchAgentHook } = createFanOutHandler({
       hooksConfig: createHooksConfig(),
@@ -552,10 +531,8 @@ describe("hook fan-out dispatch", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-05T00:00:00.000Z"));
     try {
-      let resolveCompletion!: (value: HookAgentCompletion) => void;
-      const completion = new Promise<HookAgentCompletion>((resolve) => {
-        resolveCompletion = resolve;
-      });
+      const { promise: completion, resolve: resolveCompletion } =
+        createDeferred<HookAgentCompletion>();
       let dispatches = 0;
       const { handler } = createFanOutHandler({
         hooksConfig: createHooksConfig(),

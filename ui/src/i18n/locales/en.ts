@@ -1886,6 +1886,12 @@ export const en: TranslationMap & {
     autoSavePaused: "Autosave paused after reconnect",
     saveNow: "Save",
     autoSaveFailed: "Save failed",
+    recoveryNotRestored:
+      "Settings could not be restored. Your draft is kept. Check {path} before saving again.",
+    recoveryUnknown:
+      "Settings restoration could not be confirmed. Your draft is kept. Check {path} before saving again.",
+    recoveryBackup: "Inspect the recovery backup at {path}.",
+    recoveryReload: "Discard draft and reload",
     autoSaveConflict: "Settings changed elsewhere",
     retry: "Retry",
     applyChanges: "Apply changes",
@@ -3585,6 +3591,7 @@ export const en: TranslationMap & {
       kindPlugin: "Plugin",
       kindReport: "Report",
       kindWebsite: "Website",
+      kindBrowserDashboard: "Browser dashboard",
       pluginLoading: "Loading plugin widget…",
       disabledPlugin: "Widget from disabled plugin {pluginId}",
     },
@@ -5025,6 +5032,8 @@ export const en: TranslationMap & {
     },
     messages: {
       copySelection: "Copy",
+      copyLink: "Copy link",
+      copyFileName: "Copy file name",
       forkFromHere: "Fork from here",
       reply: "Reply",
       replyToMessage: "Reply to message",
@@ -5188,6 +5197,7 @@ export const en: TranslationMap & {
       nextMatch: "Next match",
       overwrite: "Overwrite",
       viewRawText: "View Raw Text",
+      viewSource: "Source",
       renderedMarkdown: "Rendered Markdown",
       renderedMarkdownHint: "Sanitized rich-text preview for quick reading.",
       noPreviewableMarkdown: "No previewable markdown content.",

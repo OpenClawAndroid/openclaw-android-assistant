@@ -15,11 +15,13 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { PLUGIN_NPM_RELEASE_AUTHORITY_PATHS } from "../../scripts/lib/plugin-publication-candidates.ts";
 import { createStablePluginNpmBootstrapApproval } from "../../scripts/plugin-npm-bootstrap-approval.mjs";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { requireNodeTool } from "../helpers/node-toolchain.js";
 
 const workflowPath = ".github/workflows/plugin-npm-release.yml";
 const metaPackagePath = "extensions/meta/package.json";
 const metaManifestPath = "extensions/meta/openclaw.plugin.json";
+const testNodeExecPath = resolveTestNodeExecPath();
 
 type Step = {
   env?: Record<string, string>;
@@ -128,13 +130,13 @@ function runStableBootstrapAdmission(
     mkdirSync(bin);
     writeFileSync(
       join(bin, "gh"),
-      `#!${process.execPath}\nif(process.argv[2] === "attestation") process.exit(${overrides.attestationExit ?? 0}); process.stdout.write(${JSON.stringify(JSON.stringify(run))});\n`,
+      `#!${testNodeExecPath}\nif(process.argv[2] === "attestation") process.exit(${overrides.attestationExit ?? 0}); process.stdout.write(${JSON.stringify(JSON.stringify(run))});\n`,
       { mode: 0o755 },
     );
     const refs = `${overrides.tagSha ?? targetSha}\trefs/tags/v2026.9.3^{}\n`;
     writeFileSync(
       join(bin, "git"),
-      `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(refs)});\n`,
+      `#!${testNodeExecPath}\nprocess.stdout.write(${JSON.stringify(refs)});\n`,
       { mode: 0o755 },
     );
     return spawnSync(
@@ -144,7 +146,7 @@ function runStableBootstrapAdmission(
         encoding: "utf8",
         timeout: 15_000,
         env: {
-          PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
+          PATH: `${bin}:${dirname(testNodeExecPath)}:/usr/bin:/bin`,
           RUNNER_TEMP: root,
           GITHUB_REPOSITORY: "openclaw/openclaw",
           GITHUB_ACTOR: "github-actions[bot]",

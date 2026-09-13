@@ -21,6 +21,7 @@ import { prepareEmbeddedAttemptHistory } from "./attempt-history-prepare.js";
 import { runEmbeddedAttemptSettledPhase } from "./attempt-settle.js";
 import { prepareEmbeddedAttemptStream } from "./attempt-stream-prepare.js";
 import { installEmbeddedAttemptStreamGuards } from "./attempt-stream.js";
+import { cleanupEmbeddedAttemptResources } from "./attempt-subscription-cleanup.js";
 import { prepareEmbeddedAttemptTimeout } from "./attempt-timeout-prepare.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 
@@ -72,13 +73,12 @@ export async function runEmbeddedAttemptExecutionPhase(
   try {
     preparedHistory = await prepareEmbeddedAttemptHistory(input);
   } catch (error) {
-    await flushPendingToolResultsAfterIdle({
-      agent: activeSession.agent,
+    await cleanupEmbeddedAttemptResources({
+      flushPendingToolResultsAfterIdle,
+      session: activeSession,
       sessionManager: sessionRuntime.sessionManager,
-      // An already-aborted setup must dispose immediately without orphaning tool calls.
-      ...(attempt.abortSignal?.aborted ? { timeoutMs: 0 } : {}),
+      aborted: attempt.abortSignal?.aborted,
     });
-    activeSession.dispose();
     throw error;
   }
 

@@ -8,7 +8,7 @@ import {
 import { coerceRequiredSqliteNumber as sqliteNumber } from "../../infra/sqlite-number.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
-import type { SessionStateDeletePlan } from "./session-accessor.sqlite-archive.js";
+import type { SessionStateDeletePlan } from "./session-accessor.sqlite-archive-types.js";
 import type { SqliteSessionArtifactPreparationDiagnostics } from "./session-accessor.sqlite-contract.js";
 import { readSessionEntryStore } from "./session-accessor.sqlite-entry-store.js";
 import {

@@ -2618,6 +2618,7 @@ describe("grouped chat rendering", () => {
         expect(image?.getAttribute("alt")).toBe("Research Agent");
       }
       if (expected === "face") {
+        await vi.dynamicImportSettled();
         await vi.waitFor(() =>
           expect(container.querySelector(".identity-avatar__agent-face")).not.toBeNull(),
         );

@@ -18,6 +18,7 @@ import {
   readControlUiSourceCatalog,
 } from "../../../scripts/lib/control-ui-i18n-catalog.ts";
 import { flattenTranslations } from "../../../scripts/lib/control-ui-i18n-sync-plan.ts";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import { controlUiLocaleModulesPlugin } from "../../config/control-ui-locales.ts";
 import {
   controlUiBrowserOnlySharedModuleAliases,
@@ -114,16 +115,6 @@ async function loadControlUiLocaleModuleSource(
 
 function dataModuleUrl(source: string): string {
   return `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, reject, resolve };
 }
 
 async function executeControlUiLocaleModule(

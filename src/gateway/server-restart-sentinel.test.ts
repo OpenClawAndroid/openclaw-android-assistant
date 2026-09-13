@@ -415,11 +415,14 @@ vi.mock("../infra/outbound/delivery-queue-storage.js", () => ({
   failDelivery: mocks.failDelivery,
   failDeliveryAfterPlatformSend: mocks.failDeliveryAfterPlatformSend,
   failDeliveryBeforePlatformSend: mocks.failDeliveryBeforePlatformSend,
-  failPendingDelivery: mocks.failPendingDelivery,
   findDeliveryIntentOwner: mocks.findDeliveryIntentOwner,
   loadPendingDelivery: async () =>
     mocks.takeInitialOutboundDelivery() ?? (await mocks.loadPendingDelivery()),
   reserveDeliveryAttempt: mocks.reserveDeliveryAttempt,
+}));
+vi.mock("../infra/outbound/delivery-queue-ack.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../infra/outbound/delivery-queue-ack.js")>()),
+  failPendingDelivery: mocks.failPendingDelivery,
 }));
 vi.mock("../infra/outbound/delivery-queue-recovery.js", () => ({
   drainPendingDeliveriesCore: mocks.drainPendingDeliveries,

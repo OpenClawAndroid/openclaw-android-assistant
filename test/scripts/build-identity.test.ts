@@ -3,15 +3,17 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveBuildIdentityEnvironment } from "../../scripts/lib/build-identity.mts";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const buildIdentityUrl = new URL("../../scripts/lib/build-identity.mts", import.meta.url).href;
 const tsxPreloadUrl = new URL("../../scripts/tsx.mjs", import.meta.url).href;
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 
 function readGitCommitInChild(cwd: string, env: NodeJS.ProcessEnv = process.env) {
   const result = spawnSync(
-    process.execPath,
+    testNodeExecPath,
     [
       "--import",
       tsxPreloadUrl,

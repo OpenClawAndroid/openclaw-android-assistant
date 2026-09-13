@@ -98,6 +98,11 @@ let configSchemaResponseCache: {
   response: ConfigSchemaResponse;
 } | null = null;
 
+const configWriteRecovery = new WeakMap<
+  GatewayConfigRevisionProjector,
+  { configPath: string; error: ReturnType<typeof errorShape> }
+>();
+
 type ConfigRedactionHints = Parameters<typeof redactConfigObject>[1];
 type ConfigWriteCommitResult = Awaited<ReturnType<typeof commitGatewayConfigWrite>>;
 type ConfigRestartWriteKind = Parameters<typeof resolveGatewayConfigRestartWriteResult>[0]["kind"];
@@ -778,16 +783,25 @@ function loadSchemaWithPlugins(): ConfigSchemaResponse {
 }
 
 async function commitGatewayConfigWriteOrRespond(
-  params: Parameters<typeof commitGatewayConfigWrite>[0] & { respond: RespondFn },
+  params: Parameters<typeof commitGatewayConfigWrite>[0] & {
+    respond: RespondFn;
+    context: GatewayRequestContext;
+  },
 ): Promise<Awaited<ReturnType<typeof commitGatewayConfigWrite>> | null> {
+  const gateway = params.context.configRevisionProjector;
+  const recoveryAtStart = configWriteRecovery.get(gateway);
   try {
-    return await commitGatewayConfigWrite(params);
+    const result = await commitGatewayConfigWrite(params);
+    if (configWriteRecovery.get(gateway) === recoveryAtStart) {
+      configWriteRecovery.delete(gateway);
+    }
+    return result;
   } catch (error) {
     if (error instanceof ConfigWritePostCommitError) {
-      params.respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, redactToolDetail(formatErrorMessage(error)), {
+      const outcome = errorShape(
+        ErrorCodes.UNAVAILABLE,
+        redactToolDetail(formatErrorMessage(error)),
+        {
           details: {
             publication: error.publication,
             rollbackStatus: error.rollbackStatus,
@@ -796,8 +810,14 @@ async function commitGatewayConfigWriteOrRespond(
               ? { recoveryBackupPath: error.recoveryBackupPath }
               : {}),
           },
-        }),
+        },
       );
+      if (error.rollbackStatus !== "restored") {
+        configWriteRecovery.set(gateway, { configPath: error.configPath, error: outcome });
+        // A pre-publication cached read must not admit a fresh tab after this failure.
+        invalidateConfigGetResponseCache();
+      }
+      params.respond(false, undefined, outcome);
       return null;
     }
     if (!(error instanceof ConfigMutationConflictError)) {
@@ -864,15 +884,24 @@ export const configHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateConfigGetParams, "config.get", respond)) {
       return;
     }
-    respond(
-      true,
-      await readConfigGetResponse({
-        getHotReloadStatus: context.getConfigReloaderHotReloadStatus,
-        loadUiHints: () => loadSchemaWithPlugins().uiHints,
-        revisionProjector: context.configRevisionProjector,
-      }),
-      undefined,
-    );
+    const gateway = context.configRevisionProjector;
+    const recoveryAtStart = configWriteRecovery.get(gateway);
+    const snapshot = await readConfigGetResponse({
+      getHotReloadStatus: context.getConfigReloaderHotReloadStatus,
+      loadUiHints: () => loadSchemaWithPlugins().uiHints,
+      revisionProjector: context.configRevisionProjector,
+    });
+    const recovery = configWriteRecovery.get(gateway);
+    if (recovery?.configPath === snapshot.path) {
+      // Only a read started after this failure can reconcile its recorded outcome.
+      if (recovery === recoveryAtStart && snapshot.exists && snapshot.valid) {
+        configWriteRecovery.delete(gateway);
+      } else {
+        respond(true, { ...snapshot, writeError: recovery.error }, undefined);
+        return;
+      }
+    }
+    respond(true, snapshot, undefined);
   },
   "config.schema": ({ params, respond }) => {
     if (!assertValidParams(params, validateConfigSchemaParams, "config.schema", respond)) {

@@ -20,6 +20,7 @@ vi.mock("../secrets/store/secret-store.js", () => {
     writeSecretStoreEntry: secretStoreMocks.writeEntry,
   };
 });
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   getRuntimeAuthProfileStoreCredentialsRevision,
   getRuntimeAuthProfileStoreSnapshotsRevision,
@@ -496,14 +497,8 @@ describe("gateway aux handlers", () => {
       },
     });
     activateSecretsRuntimeSnapshot(createSourceSnapshot(sourceConfig));
-    let releaseFirst: (() => void) | undefined;
-    const firstBlocked = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    let firstStarted: (() => void) | undefined;
-    const firstEntered = new Promise<void>((resolve) => {
-      firstStarted = resolve;
-    });
+    const { promise: firstBlocked, resolve: releaseFirst } = createDeferred();
+    const { promise: firstEntered, resolve: firstStarted } = createDeferred();
     const activateRuntimeSecrets = vi
       .fn()
       .mockImplementationOnce(async () => {

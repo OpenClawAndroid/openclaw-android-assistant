@@ -1,8 +1,13 @@
-import { createHash } from "node:crypto";
 import type { WorkerProvider } from "openclaw/plugin-sdk/plugin-entry";
 import { createPluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-store-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { CrabboxOperatingSystem } from "./crabbox-worker-profile.js";
+import {
+  legacyLeaseSelector,
+  LEGACY_WARM_LEASE_MAX_ENTRIES,
+  projectCrabboxLegacyWarmLeases,
+  WARM_IMAGE_MAX_ENTRIES,
+} from "./crabbox-worker-warm-image-records.js";
 
 type WorkerNodeRuntimeIdentity = NonNullable<
   NonNullable<Parameters<WorkerProvider["provision"]>[2]>["nodeRuntimeIdentity"]
@@ -66,36 +71,21 @@ export type WarmProfileRecord = {
     | { type: "retire"; checkpointId: string };
 };
 
-export const WARM_IMAGE_MAX_ENTRIES = 128;
 export class CrabboxWarmImageRequestError extends Error {}
 // Match the former enrollment registry's capacity without evicting replay obligations;
 // 256 bounded lease records leave ample room under the plugin store's 1 MiB row limit.
 const WARM_IMAGE_MAX_ALLOCATIONS = 256;
 const CAPTURE_WARNING_AGE_MS = 1_200_000;
 
-export function crabboxLegacyWarmImageCaptureSelector(key: string, record: unknown): string {
-  return `legacy-${createHash("sha256").update(JSON.stringify({ key, record })).digest("hex")}`;
-}
-
 const openLegacyLeases = (env?: NodeJS.ProcessEnv) =>
   createPluginStateSyncKeyedStore<unknown>("crabbox", {
     namespace: "warm-leases",
-    maxEntries: 256,
+    maxEntries: LEGACY_WARM_LEASE_MAX_ENTRIES,
     overflowPolicy: "evict-oldest",
     ...(env ? { env } : {}),
   });
-const legacyLeaseSelector = (key: string, value: unknown) =>
-  `legacy-lease-${createHash("sha256").update(JSON.stringify({ key, value })).digest("hex")}`;
-
 export function listCrabboxLegacyWarmLeases(env?: NodeJS.ProcessEnv) {
-  return openLegacyLeases(env)
-    .entries()
-    .map(({ key, value }) => ({
-      leaseId: key,
-      machineClass:
-        isRecord(value) && typeof value.machineClass === "string" ? value.machineClass : undefined,
-      selector: legacyLeaseSelector(key, value),
-    }));
+  return projectCrabboxLegacyWarmLeases(openLegacyLeases(env).entries());
 }
 
 export function assertCrabboxWarmImageMigrationReady(): void {

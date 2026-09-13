@@ -27,6 +27,7 @@ export type SqliteWorkerRequest = {
   actor: number;
   stateContext?: SqliteWorkerStateContext;
   gatewaySchemaFence?: MessagePort;
+  stateLifecycle?: MessagePort;
 } & (
   | {
       type: "open";

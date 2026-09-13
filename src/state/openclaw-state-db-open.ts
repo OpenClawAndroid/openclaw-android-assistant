@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { formatErrorMessage } from "../infra/errors.js";
 import { enableNodeSqliteKyselyStatementCache } from "../infra/kysely-sync.js";
 import {
   runWithSqliteBusyTimeout,
@@ -97,6 +98,12 @@ export function openUnpublishedStateDatabase(params: {
           busyTimeoutMs,
           databaseLabel: "openclaw-state",
           databasePath: params.pathname,
+          onCheckpointError: (error) =>
+            stateDbLog.warn("Shared-state WAL maintenance failed", {
+              error: formatErrorMessage(error),
+              path: params.pathname,
+              checkpoint: walMaintenance?.health,
+            }),
           runMaintenance: (operation) =>
             runWithSqliteCoordinator(
               acquireStateDatabaseCoordinator({

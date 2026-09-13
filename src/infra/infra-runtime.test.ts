@@ -1,6 +1,7 @@
 import { importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 // Tests infra runtime loading and platform-dependent helpers.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { clearRuntimeConfigSnapshot } from "../config/config.js";
 import {
   beginGatewayRestartSignalAdmission,
@@ -211,10 +212,7 @@ describe("infra runtime", () => {
     });
 
     it("does not leave admission closed when a deferred emission is cancelled mid-prepare", async () => {
-      let releasePrepare: (() => void) | undefined;
-      const prepareGate = new Promise<void>((resolve) => {
-        releasePrepare = resolve;
-      });
+      const { promise: prepareGate, resolve: releasePrepare } = createDeferred();
       const handle = deferGatewayRestartUntilIdle({
         getPendingCount: () => 0,
         reason: "config.reload.cancelled",
@@ -241,10 +239,7 @@ describe("infra runtime", () => {
 
     it("keeps admission open when a deferred restart emission races config supersession", async () => {
       let pending = 1;
-      let releasePrepare: (() => void) | undefined;
-      const prepareGate = new Promise<void>((resolve) => {
-        releasePrepare = resolve;
-      });
+      const { promise: prepareGate, resolve: releasePrepare } = createDeferred();
       const handle = deferGatewayRestartUntilIdle({
         getPendingCount: () => pending,
         reason: "config.reload.superseded",
@@ -272,10 +267,7 @@ describe("infra runtime", () => {
     });
 
     it("keeps the signal fence closed when cancel races a concurrent emitted SIGUSR1", async () => {
-      let releasePrepare: (() => void) | undefined;
-      const prepareGate = new Promise<void>((resolve) => {
-        releasePrepare = resolve;
-      });
+      const { promise: prepareGate, resolve: releasePrepare } = createDeferred();
       const handler = () => {};
       process.on("SIGUSR1", handler);
       try {
@@ -446,10 +438,7 @@ describe("infra runtime", () => {
     );
 
     it("promotes update.auto while restart preparation is in flight", async () => {
-      let releasePreparation: () => void = () => {};
-      const preparationBlocked = new Promise<void>((resolve) => {
-        releasePreparation = resolve;
-      });
+      const { promise: preparationBlocked, resolve: releasePreparation } = createDeferred();
       const beforeEmit = vi.fn(async () => {
         await preparationBlocked;
       });
@@ -717,10 +706,7 @@ describe("infra runtime", () => {
       // must stay alive through await beforeEmit(), otherwise a coalesced
       // different-session caller slips past canReplacePendingRestartEmitHooks
       // and chains its own hooks while preparation runs.
-      let releaseSessionAPrep: () => void = () => {};
-      const sessionAPrepBlocked = new Promise<void>((resolve) => {
-        releaseSessionAPrep = resolve;
-      });
+      const { promise: sessionAPrepBlocked, resolve: releaseSessionAPrep } = createDeferred();
       const sessionAHooks = vi.fn(async () => {
         await sessionAPrepBlocked;
       });

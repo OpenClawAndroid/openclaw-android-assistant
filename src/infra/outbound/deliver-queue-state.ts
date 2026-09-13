@@ -1,5 +1,6 @@
 // Persists queue state around the irreversible platform-send boundary.
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import type { DeliveryQueueStateContext } from "../delivery-queue-sqlite.js";
 import { formatErrorMessage } from "../errors.js";
 import {
   OutboundDeliveryError,
@@ -12,6 +13,7 @@ import {
   ackDelivery,
   failDelivery,
   failDeliveryAfterPlatformSend,
+  failDeliveryBeforePlatformSend,
   markDeliveryPlatformOutcomeUnknown,
   markDeliveryPlatformSendAttemptStarted,
   moveToFailed,
@@ -23,19 +25,27 @@ export type QueuedPostSendState = "marked" | "acked" | "failed";
 
 export type QueuedPreSendState = "marked" | "acked";
 
-type QueuedDeliveryFailureRecorder = typeof failDelivery | typeof failDeliveryAfterPlatformSend;
+type QueuedDeliveryFailureRecorder = (
+  id: string,
+  error: string,
+  stateDir?: string,
+  expectedPlatformSendAttemptId?: string | null,
+) => Promise<void>;
 
 /** Keeps live and recovered queue transitions on the same producer claim. */
-export function createQueuedDeliveryOwner(params: {
-  queueId: string;
-  stateDir?: string;
-  expectedPlatformSendAttemptId?: string | null;
-  signal?: AbortSignal;
-}) {
+export function createQueuedDeliveryOwner(
+  params: {
+    queueId: string;
+    stateDir?: string;
+    expectedPlatformSendAttemptId?: string | null;
+    signal?: AbortSignal;
+  },
+  context?: DeliveryQueueStateContext,
+) {
   let custody: "held" | "released" = "held";
   const owner = {
     queueId: params.queueId,
-    stateDir: params.stateDir,
+    stateDir: context?.stateDir ?? params.stateDir,
     claimId: params.expectedPlatformSendAttemptId,
     signal: params.signal,
     get custody() {
@@ -60,11 +70,14 @@ export function createQueuedDeliveryOwner(params: {
       if (!owner.claimId) {
         return undefined;
       }
-      const release = retireUnsentDelivery({
-        id: owner.queueId,
-        producerClaimId: owner.claimId,
-        stateDir: owner.stateDir,
-      });
+      const release = retireUnsentDelivery(
+        {
+          id: owner.queueId,
+          producerClaimId: owner.claimId,
+          stateDir: owner.stateDir,
+        },
+        context,
+      );
       // Cleanup is returned only after the exact unsent claim has been retired.
       if (release) {
         custody = "released";
@@ -73,19 +86,40 @@ export function createQueuedDeliveryOwner(params: {
     },
     async ack(options?: Parameters<typeof ackDelivery>[2]): Promise<void> {
       owner.signal?.throwIfAborted();
-      await ackDelivery(owner.queueId, owner.stateDir, {
-        ...options,
-        ...(owner.claimId !== undefined ? { expectedPlatformSendAttemptId: owner.claimId } : {}),
-      });
+      await ackDelivery(
+        owner.queueId,
+        owner.stateDir,
+        {
+          ...options,
+          ...(owner.claimId !== undefined ? { expectedPlatformSendAttemptId: owner.claimId } : {}),
+        },
+        context,
+      );
       custody = "released";
     },
     fail(record: QueuedDeliveryFailureRecorder, error: string): Promise<void> {
       owner.signal?.throwIfAborted();
-      return record(owner.queueId, error, owner.stateDir, owner.claimId);
+      // Internal transitions retain captured state; caller-supplied recorders keep their public arguments.
+      const recordInState =
+        record === failDelivery
+          ? failDelivery
+          : record === failDeliveryAfterPlatformSend
+            ? failDeliveryAfterPlatformSend
+            : record === failDeliveryBeforePlatformSend
+              ? failDeliveryBeforePlatformSend
+              : undefined;
+      return recordInState
+        ? recordInState(owner.queueId, error, owner.stateDir, owner.claimId, context)
+        : record(owner.queueId, error, owner.stateDir, owner.claimId);
     },
     async retire(): Promise<void> {
       owner.signal?.throwIfAborted();
-      const spooled = await moveToFailed(owner.queueId, owner.stateDir, owner.claimId ?? null);
+      const spooled = await moveToFailed(
+        owner.queueId,
+        owner.stateDir,
+        owner.claimId ?? null,
+        context,
+      );
       custody = "released";
       await releaseSpoolArtifacts(spooled, owner.stateDir);
     },
@@ -95,12 +129,15 @@ export function createQueuedDeliveryOwner(params: {
 
 export type QueuedDeliveryOwner = ReturnType<typeof createQueuedDeliveryOwner>;
 
-export async function persistQueuedPreSendState(params: {
-  owner: QueuedDeliveryOwner;
-  queuePolicy: OutboundDeliveryQueuePolicy;
-  route: PlatformSendRoute;
-  retainSpoolArtifacts?: boolean;
-}): Promise<QueuedPreSendState> {
+export async function persistQueuedPreSendState(
+  params: {
+    owner: QueuedDeliveryOwner;
+    queuePolicy: OutboundDeliveryQueuePolicy;
+    route: PlatformSendRoute;
+    retainSpoolArtifacts?: boolean;
+  },
+  context?: DeliveryQueueStateContext,
+): Promise<QueuedPreSendState> {
   const { owner } = params;
   owner.signal?.throwIfAborted();
   try {
@@ -111,9 +148,16 @@ export async function persistQueuedPreSendState(params: {
         owner.stateDir,
         route,
         owner.claimId,
+        context,
       );
     } else {
-      await markDeliveryPlatformSendAttemptStarted(owner.queueId, owner.stateDir, route);
+      await markDeliveryPlatformSendAttemptStarted(
+        owner.queueId,
+        owner.stateDir,
+        route,
+        undefined,
+        context,
+      );
     }
     return "marked";
   } catch (markErr: unknown) {
@@ -130,17 +174,20 @@ export async function persistQueuedPreSendState(params: {
   }
 }
 
-export async function persistQueuedPostSendState(params: {
-  owner: QueuedDeliveryOwner;
-  queuePolicy: OutboundDeliveryQueuePolicy;
-  preserveBatch?: boolean;
-  retainSpoolArtifacts?: boolean;
-  onPostSendMarkerError?: (error: unknown) => void;
-}): Promise<QueuedPostSendState> {
+export async function persistQueuedPostSendState(
+  params: {
+    owner: QueuedDeliveryOwner;
+    queuePolicy: OutboundDeliveryQueuePolicy;
+    preserveBatch?: boolean;
+    retainSpoolArtifacts?: boolean;
+    onPostSendMarkerError?: (error: unknown) => void;
+  },
+  context?: DeliveryQueueStateContext,
+): Promise<QueuedPostSendState> {
   const { owner } = params;
   owner.signal?.throwIfAborted();
   try {
-    await markDeliveryPlatformOutcomeUnknown(owner.queueId, owner.stateDir, owner.claimId);
+    await markDeliveryPlatformOutcomeUnknown(owner.queueId, owner.stateDir, owner.claimId, context);
     return "marked";
   } catch (markErr: unknown) {
     if (params.preserveBatch) {

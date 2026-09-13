@@ -264,6 +264,8 @@ vi.mock("../../infra/exec-approvals.js", () => ({
 
 vi.mock("../../state/openclaw-agent-db.js", () => ({
   closeOpenClawAgentDatabaseByPath: mocks.closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync: async (pathname?: string, expectedAgentId?: string) =>
+    mocks.closeOpenClawAgentDatabaseByPath(pathname, expectedAgentId),
   listOpenClawRegisteredAgentDatabases: mocks.listOpenClawRegisteredAgentDatabases,
   resolveOpenClawAgentSqlitePath: mocks.resolveOpenClawAgentSqlitePath,
   resolveIncognitoOpenClawAgentSqlitePath: () =>

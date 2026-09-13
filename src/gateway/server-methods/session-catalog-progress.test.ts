@@ -59,10 +59,7 @@ describe("session catalog progress ownership", () => {
   });
 
   it("single-flights identical concurrent lists for one caller and fans progress to active followers", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: gate, resolve: release } = createDeferredCore();
     const host = {
       hostId: "gateway:local",
       label: "Local",

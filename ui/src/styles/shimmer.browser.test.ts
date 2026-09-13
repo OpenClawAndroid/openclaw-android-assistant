@@ -1,6 +1,7 @@
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readStyleSheet } from "../../../test/helpers/ui-style-fixtures.js";
+import { withBrowserPage } from "../test-helpers/browser-page.ts";
 import {
   canRunPlaywrightChromium,
   resolvePlaywrightChromiumExecutablePath,
@@ -24,8 +25,7 @@ afterAll(async () => {
 
 describeShimmer("Control UI shimmer", () => {
   it("moves loading highlights on compositor-safe pseudo-elements", async () => {
-    const page = await browser.newPage();
-    try {
+    await withBrowserPage(browser.newPage(), async (page) => {
       await page.setContent(`<!doctype html><html><head><style>
         ${readStyleSheet("ui/src/styles/base.css")}
         ${readStyleSheet("ui/src/styles/chat/layout.css")}
@@ -83,14 +83,11 @@ describeShimmer("Control UI shimmer", () => {
         });
         expect(styles.highlightBackground).toContain("linear-gradient");
       }
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 
   it("keeps the global reduced-motion gate", async () => {
-    const page = await browser.newPage({ reducedMotion: "reduce" });
-    try {
+    await withBrowserPage(browser.newPage({ reducedMotion: "reduce" }), async (page) => {
       await page.setContent(`<!doctype html><html><head><style>
         ${readStyleSheet("ui/src/styles/base.css")}
         ${readStyleSheet("ui/src/styles/chat/layout.css")}
@@ -134,8 +131,6 @@ describeShimmer("Control UI shimmer", () => {
         const settledX = Number.parseFloat(animation.settledTransform.split(",")[4] ?? "NaN");
         expect(Math.abs(settledX + animation.width)).toBeLessThanOrEqual(1);
       }
-    } finally {
-      await page.close().catch(() => {});
-    }
+    });
   });
 });

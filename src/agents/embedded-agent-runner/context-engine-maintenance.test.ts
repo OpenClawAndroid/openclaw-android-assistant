@@ -3,6 +3,8 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveDefaultSessionStorePath } from "../../config/sessions/paths.js";
+import type { SessionTranscriptRuntimeTarget } from "../../config/sessions/session-accessor.js";
 import { registerLegacyContextEngine } from "../../context-engine/legacy.registration.js";
 import {
   registerContextEngineForOwner,
@@ -36,13 +38,16 @@ const rewriteTranscriptEntriesInSessionManagerMock = vi.fn((_params?: unknown) =
   bytesFreed: 77,
   rewrittenEntries: 1,
 }));
-const openedSessionManager = { kind: "opened-session-manager" };
-const sessionManagerOpenMock = vi.fn((_target?: unknown) => openedSessionManager);
+let openedSessionManager: { getSessionTarget: () => SessionTranscriptRuntimeTarget } | undefined;
+const sessionManagerOpenMock = vi.fn((target: SessionTranscriptRuntimeTarget) => {
+  openedSessionManager = { getSessionTarget: () => target };
+  return openedSessionManager;
+});
 const resolveRuntimeTranscriptReadTargetMock = vi.fn(async (scope: Record<string, unknown>) => ({
   agentId: scope.agentId ?? "main",
   sessionId: scope.sessionId,
   sessionKey: scope.sessionKey,
-  storePath: scope.storePath ?? "/tmp/default-openclaw.sqlite",
+  storePath: scope.storePath ?? resolveDefaultSessionStorePath("main"),
 }));
 let createDeferredTurnMaintenanceAbortSignal: typeof import("./context-engine-maintenance.test-support.js").createDeferredTurnMaintenanceAbortSignal;
 let resetDeferredTurnMaintenanceStateForTest: typeof import("./context-engine-maintenance.test-support.js").resetDeferredTurnMaintenanceStateForTest;
@@ -130,7 +135,9 @@ vi.mock("./transcript-rewrite.js", () => ({
 }));
 
 vi.mock("../sessions/index.js", () => ({
-  SessionManager: { open: (target: unknown) => sessionManagerOpenMock(target) },
+  SessionManager: {
+    open: (target: SessionTranscriptRuntimeTarget) => sessionManagerOpenMock(target),
+  },
 }));
 
 vi.mock("./transcript-runtime-state.js", () => ({
@@ -202,81 +209,84 @@ describe("runContextEngineMaintenance", () => {
   beforeEach(async () => {
     vi.useRealTimers();
     rewriteTranscriptEntriesInSessionManagerMock.mockClear();
+    openedSessionManager = undefined;
     sessionManagerOpenMock.mockClear();
     resolveRuntimeTranscriptReadTargetMock.mockClear();
     await loadFreshContextEngineMaintenanceModuleForTest();
   });
 
   it("passes a rewrite-capable runtime context into maintain()", async () => {
-    const sessionTarget = {
-      agentId: "main",
-      sessionId: "session-1",
-      sessionKey: "agent:main:session-1",
-      storePath: "/tmp/state/openclaw.sqlite",
-    };
-    const maintain = vi.fn(async (_params?: unknown) => ({
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-    }));
+    await withStateDirEnv("openclaw-maintenance-runtime-context-", async () => {
+      const sessionTarget = {
+        agentId: "main",
+        sessionId: "session-1",
+        sessionKey: "agent:main:session-1",
+        storePath: resolveDefaultSessionStorePath("main"),
+      };
+      const maintain = vi.fn(async (_params?: unknown) => ({
+        changed: false,
+        bytesFreed: 0,
+        rewrittenEntries: 0,
+      }));
 
-    const result = await runContextEngineMaintenance({
-      contextEngine: {
-        info: { id: "test", name: "Test Engine" },
-        ingest: async () => ({ ingested: true }),
-        assemble: async ({ messages }) => ({ messages, estimatedTokens: 0 }),
-        compact: async () => ({ ok: true, compacted: false }),
-        maintain,
-      },
-      sessionId: "session-1",
-      sessionKey: "agent:main:session-1",
-      sessionTarget,
-      sessionFile: "/tmp/session.jsonl",
-      reason: "turn",
-      runtimeContext: { workspaceDir: "/tmp/workspace" },
-    });
+      const result = await runContextEngineMaintenance({
+        contextEngine: {
+          info: { id: "test", name: "Test Engine" },
+          ingest: async () => ({ ingested: true }),
+          assemble: async ({ messages }) => ({ messages, estimatedTokens: 0 }),
+          compact: async () => ({ ok: true, compacted: false }),
+          maintain,
+        },
+        sessionId: "session-1",
+        sessionKey: "agent:main:session-1",
+        sessionTarget,
+        sessionFile: "/tmp/session.jsonl",
+        reason: "turn",
+        runtimeContext: { workspaceDir: "/tmp/workspace" },
+      });
 
-    expect(result).toEqual({
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-    });
-    const maintainParams = firstMaintainParams(maintain);
-    expectRecordFields(maintainParams, {
-      sessionId: "session-1",
-      sessionKey: "agent:main:session-1",
-      sessionTarget,
-      sessionFile: "/tmp/session.jsonl",
-    });
-    expect(maintainParams.abortSignal).toBeUndefined();
-    const maintainRuntimeContext = requireRecord(
-      maintainParams.runtimeContext,
-      "maintain runtime context",
-    );
-    expect(maintainRuntimeContext.workspaceDir).toBe("/tmp/workspace");
-    expect(maintainRuntimeContext.sessionTarget).toEqual(sessionTarget);
-    const runtimeContext = maintainParams.runtimeContext as
-      | { rewriteTranscriptEntries?: (request: unknown) => Promise<unknown> }
-      | undefined;
-    if (!runtimeContext?.rewriteTranscriptEntries) {
-      throw new Error("expected maintain runtime context rewrite helper");
-    }
-    const rewriteResult = await runtimeContext.rewriteTranscriptEntries({
-      replacements: [
-        { entryId: "entry-2", message: { role: "user", content: "hello", timestamp: 2 } },
-      ],
-    });
-    expect(rewriteResult).toEqual({
-      changed: true,
-      bytesFreed: 77,
-      rewrittenEntries: 1,
-    });
-    expect(sessionManagerOpenMock).toHaveBeenCalledWith(sessionTarget);
-    expect(rewriteTranscriptEntriesInSessionManagerMock).toHaveBeenCalledWith({
-      sessionManager: openedSessionManager,
-      replacements: [
-        { entryId: "entry-2", message: { role: "user", content: "hello", timestamp: 2 } },
-      ],
+      expect(result).toEqual({
+        changed: false,
+        bytesFreed: 0,
+        rewrittenEntries: 0,
+      });
+      const maintainParams = firstMaintainParams(maintain);
+      expectRecordFields(maintainParams, {
+        sessionId: "session-1",
+        sessionKey: "agent:main:session-1",
+        sessionTarget,
+        sessionFile: "/tmp/session.jsonl",
+      });
+      expect(maintainParams.abortSignal).toBeUndefined();
+      const maintainRuntimeContext = requireRecord(
+        maintainParams.runtimeContext,
+        "maintain runtime context",
+      );
+      expect(maintainRuntimeContext.workspaceDir).toBe("/tmp/workspace");
+      expect(maintainRuntimeContext.sessionTarget).toEqual(sessionTarget);
+      const runtimeContext = maintainParams.runtimeContext as
+        | { rewriteTranscriptEntries?: (request: unknown) => Promise<unknown> }
+        | undefined;
+      if (!runtimeContext?.rewriteTranscriptEntries) {
+        throw new Error("expected maintain runtime context rewrite helper");
+      }
+      const rewriteResult = await runtimeContext.rewriteTranscriptEntries({
+        replacements: [
+          { entryId: "entry-2", message: { role: "user", content: "hello", timestamp: 2 } },
+        ],
+      });
+      expect(rewriteResult).toEqual({
+        changed: true,
+        bytesFreed: 77,
+        rewrittenEntries: 1,
+      });
+      expect(sessionManagerOpenMock).toHaveBeenCalledWith(sessionTarget);
+      expect(rewriteTranscriptEntriesInSessionManagerMock).toHaveBeenCalledWith({
+        sessionManager: openedSessionManager,
+        replacements: [
+          { entryId: "entry-2", message: { role: "user", content: "hello", timestamp: 2 } },
+        ],
+      });
     });
   });
 

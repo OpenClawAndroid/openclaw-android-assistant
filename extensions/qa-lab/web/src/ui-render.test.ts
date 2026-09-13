@@ -369,6 +369,72 @@ describe("QA Lab UI evidence render", () => {
     expect(html).not.toContain("/Users/");
   });
 
+  it("renders capture filters with escaped options, selections, and bounded sizes", () => {
+    const kinds = ["response", 'custom<"&>', "request", "ws-frame"];
+    const hosts = ["g.test", "a.test", "f.test", "b.test", 'c<"&>.test', "e.test", "d.test"];
+    const html = renderQaLabUi(
+      evidenceState({
+        activeTab: "capture",
+        captureEvents: hosts.map((host, index) => ({
+          direction: "outbound",
+          flowId: `flow-${index}`,
+          host,
+          kind: kinds[index % kinds.length]!,
+          protocol: "https",
+          provider: 'provider<"&>',
+          ts: index,
+        })),
+        captureHostFilter: ['c<"&>.test', "g.test"],
+        captureKindFilter: ['custom<"&>', "response"],
+        captureProviderFilter: ['provider<"&>'],
+      }),
+    );
+    const controls = [
+      ...html.matchAll(
+        /<label>(Kind|Provider|Host)\s+<select id="([^"]+)" multiple size="(\d+)">([\s\S]*?)<\/select>/g,
+      ),
+    ];
+
+    expect(controls.map(([, label, id, size]) => [label, id, Number(size)])).toEqual([
+      ["Kind", "capture-kind-filter", 4],
+      ["Provider", "capture-provider-filter", 3],
+      ["Host", "capture-host-filter", 6],
+    ]);
+    expect(controls.map((match) => match[4]?.match(/<option[^>]*>[\s\S]*?<\/option>/g))).toEqual([
+      [
+        '<option value="custom&lt;&quot;&amp;&gt;" selected>custom&lt;&quot;&amp;&gt;</option>',
+        '<option value="request">request</option>',
+        '<option value="response" selected>response</option>',
+        '<option value="ws-frame">ws-frame</option>',
+      ],
+      ['<option value="provider&lt;&quot;&amp;&gt;" selected>provider&lt;&quot;&amp;&gt;</option>'],
+      [
+        '<option value="a.test">a.test</option>',
+        '<option value="b.test">b.test</option>',
+        '<option value="c&lt;&quot;&amp;&gt;.test" selected>c&lt;&quot;&amp;&gt;.test</option>',
+        '<option value="d.test">d.test</option>',
+        '<option value="e.test">e.test</option>',
+        '<option value="f.test">f.test</option>',
+        '<option value="g.test" selected>g.test</option>',
+      ],
+    ]);
+  });
+
+  it("keeps empty capture filters visible with three rows", () => {
+    const html = renderQaLabUi(evidenceState({ activeTab: "capture" }));
+    const controls = [
+      ...html.matchAll(
+        /<select id="(capture-(?:kind|provider|host)-filter)" multiple size="3">\s*<\/select>/g,
+      ),
+    ];
+
+    expect(controls.map((match) => match[1])).toEqual([
+      "capture-kind-filter",
+      "capture-provider-filter",
+      "capture-host-filter",
+    ]);
+  });
+
   it("maps blocked and skipped evidence statuses to styled tones", () => {
     const html = renderQaLabUi(
       evidenceState({

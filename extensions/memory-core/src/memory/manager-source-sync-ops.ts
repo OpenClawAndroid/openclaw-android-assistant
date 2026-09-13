@@ -66,9 +66,14 @@ export abstract class MemoryManagerSourceSyncOps extends MemoryManagerSessionSyn
     source: MemorySource,
     expectedHash = resolveMemorySourceExistingHash({ db: this.db, path: pathname, source }),
   ): Promise<void> {
-    await runSqliteImmediateTransaction(this.db, async () => () => {
-      this.database.sourceIndex.deleteIfCurrent({ path: pathname, source, expectedHash });
-    });
+    await runSqliteImmediateTransaction(
+      this.db,
+      async () => () => {
+        this.database.sourceIndex.deleteIfCurrent({ path: pathname, source, expectedHash });
+      },
+      undefined,
+      (write) => this.withDatabaseWrite(write),
+    );
   }
 
   private async deleteStaleSourceFiles(
@@ -299,6 +304,8 @@ export abstract class MemoryManagerSourceSyncOps extends MemoryManagerSessionSyn
                 entry.path,
                 entry.hash,
               ).changes === 1,
+            undefined,
+            (write) => this.withDatabaseWrite(write),
           ))
         ) {
           throw new MemoryIndexRevisionConflictError(

@@ -12,14 +12,26 @@ export type ChatMetadataUpdate =
   | { type: "loading" }
   | { type: "result"; result: ChatMetadataResult }
   | { type: "error"; error: unknown };
-export type ChatMetadataWriter = {
-  pending?: Promise<ChatMetadataResult>;
-  revalidating: boolean;
+export type ChatMetadataPublication = {
+  isCurrent: () => boolean;
+  publish: (
+    result: ChatMetadataResult & { models?: unknown; accountSelection?: unknown },
+  ) => ChatMetadataResult;
+  fail: (error: unknown) => void;
+};
+export type ChatMetadataRequest = {
+  promise: Promise<ChatMetadataResult>;
+  publication: ChatMetadataPublication;
+  revalidation: boolean;
+  setStartupRetryDeadline: (deadlineAt?: number) => void;
+  start: () => void;
 };
 export type ChatMetadataEntry = {
   scope: ChatMetadataParams;
   result?: ChatMetadataResult;
-  writer?: ChatMetadataWriter;
+  activeRequest?: ChatMetadataRequest;
+  queuedRequest?: ChatMetadataRequest;
+  writer?: object;
   listeners: Set<(update: ChatMetadataUpdate) => void>;
   release: () => void;
 };

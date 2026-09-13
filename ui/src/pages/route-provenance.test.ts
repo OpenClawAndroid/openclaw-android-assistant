@@ -1,6 +1,7 @@
 // @vitest-environment node
 import type { RouteLoaderOptions } from "@openclaw/uirouter";
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../app/context.ts";
 import { page as agentsPage, type AgentsRouteData } from "./agents/route.ts";
@@ -32,14 +33,6 @@ const loaderOptions: RouteLoaderOptions = {
   deps: "",
   cause: "preload",
 };
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
 
 function snapshot(
   client: GatewayBrowserClient | null,

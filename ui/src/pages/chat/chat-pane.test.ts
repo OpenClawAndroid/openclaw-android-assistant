@@ -28,6 +28,7 @@ import {
   type TestChatPane,
 } from "./chat-pane.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
+import { openSessionWorkspacePreview } from "./components/chat-session-workspace-state.ts";
 import type { SidebarContent } from "./components/chat-sidebar.ts";
 import { cacheChatSessionSnapshot, type ChatMessageCache } from "./session-message-cache.ts";
 import { openSlot } from "./sidebar-layout.ts";
@@ -798,12 +799,12 @@ describe("chat pane keyboard shortcuts", () => {
       "workspace",
     ]);
     expect(state.sidebarContent).toBe(canvasContent);
-    state.attachmentSidebarContent = {
+    openSessionWorkspacePreview(state, "attachment:report", "report.pdf", {
       kind: "attachment",
       attachmentKind: "document",
       title: "report.pdf",
       src: "/media/report.pdf",
-    };
+    });
 
     const collapseEvent = new KeyboardEvent("keydown", {
       cancelable: true,
@@ -818,7 +819,7 @@ describe("chat pane keyboard shortcuts", () => {
     expect(hasWorkspace()).toBe(false);
     expect(state.sidebarLayout.columns[0]?.panels[0]?.slot).toBe("detail");
     expect(state.sidebarContent).toBe(canvasContent);
-    expect(state.attachmentSidebarContent).toBeNull();
+    expect(state.sessionWorkspaceState?.previews ?? []).toEqual([]);
 
     const mainSidebarEvent = dispatchSidebarShortcut(pane, false);
     expect(mainSidebarEvent.defaultPrevented).toBe(false);

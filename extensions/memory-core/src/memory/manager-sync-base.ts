@@ -123,7 +123,6 @@ export abstract class MemoryManagerSyncBase extends MemoryManagerDatabaseContext
   protected fallbackReason?: string;
   protected intervalTimer: NodeJS.Timeout | null = null;
   protected memoryWatchPressureStartupTimer: NodeJS.Timeout | null = null;
-  protected closed = false;
   protected dirty = false;
   // A success clears only the failure visible when it started. This keeps a
   // concurrent failure visible even when older or no-op work settles later.
@@ -202,6 +201,10 @@ export abstract class MemoryManagerSyncBase extends MemoryManagerDatabaseContext
     this.clearMemoryRetryState();
     this.clearSessionRetryState();
     return snapshot;
+  }
+
+  adoptReindexRetryState(snapshot: MemoryReindexRetryState): void {
+    this.restoreReindexRetryState(snapshot);
   }
 
   protected restoreReindexRetryState(snapshot: MemoryReindexRetryState): void {
@@ -468,7 +471,7 @@ export abstract class MemoryManagerSyncBase extends MemoryManagerDatabaseContext
       if (persistedMeta && persistedMeta.vectorDims !== this.vector.dims) {
         this.vector.dims = persistedMeta.vectorDims;
       }
-      this.ensureVectorTable(dimensions);
+      await this.withDatabaseWrite(() => this.ensureVectorTable(dimensions));
     }
     return ready;
   }
@@ -502,7 +505,10 @@ export abstract class MemoryManagerSyncBase extends MemoryManagerDatabaseContext
         this.markConfiguredSourcesForFullReindex();
         return false;
       }
-      if (!this.database.readOnly && this.dropLegacyVectorTable()) {
+      if (
+        !this.database.readOnly &&
+        (await this.withDatabaseWrite(() => this.dropLegacyVectorTable()))
+      ) {
         // A broad dirty sync can skip unchanged files whose source hashes were
         // migrated. Force the next sync to republish the derived vector rows.
         this.dirty = true;

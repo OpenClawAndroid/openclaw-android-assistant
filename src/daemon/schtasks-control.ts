@@ -10,6 +10,7 @@ import {
   resolveTaskScriptPath,
 } from "./schtasks-layout.js";
 import {
+  describeUnverifiedPortListeners,
   findInstalledProcessPid,
   isNodeHostArgv,
   readWindowsProcessSnapshot,
@@ -358,8 +359,9 @@ export async function stopScheduledTask({
     const probeHosts = stopContext?.probeHosts ?? [];
     const released = await waitForGatewayPortRelease(stopPort, 5_000, { probeHosts });
     if (!released) {
+      const listenerDetails = await describeUnverifiedPortListeners(stopPort, probeHosts);
       throw new Error(
-        `gateway port ${stopPort} is still busy after stop; remaining listener ownership could not be verified`,
+        `gateway port ${stopPort} is still busy after stop; remaining listener ownership could not be verified.${listenerDetails}`,
       );
     }
   }
@@ -453,8 +455,9 @@ export async function restartRegisteredScheduledTask(params: {
           `replacement gateway port ${restartPort} is occupied by an unverified process`,
         );
       }
+      const listenerDetails = await describeUnverifiedPortListeners(restartPort, probeHosts);
       throw new Error(
-        `gateway port ${restartPort} is still busy before restart; remaining listener ownership could not be verified`,
+        `gateway port ${restartPort} is still busy before restart; remaining listener ownership could not be verified.${listenerDetails}`,
       );
     }
   }
