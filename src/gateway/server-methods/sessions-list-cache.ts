@@ -14,6 +14,7 @@ import {
 } from "../../state/openclaw-agent-db.js";
 import { readUserProfileVersion } from "../../state/user-profile-events.js";
 import { operatorSessionCap } from "../operator-role-policy.js";
+import { readSessionActivitySummaryVersion } from "../session-activity-summary-state.js";
 import { readSessionAutomationVersion } from "../session-automation-index.js";
 import { readSessionLifecyclePersistenceVersion } from "../session-lifecycle-state.js";
 import { readSessionObserverDigestVersion } from "../session-observer-model.js";
@@ -34,6 +35,7 @@ type SessionListFence = {
   sessionIdentityMutationVersion: number;
   sessionLifecycleVersion: number;
   sessionObserverDigestVersion: number;
+  sessionActivitySummaryVersion: number;
   userProfileVersion: number;
   sessionsMutationVersion: number;
   sessionTranscriptUpdateVersion: number;
@@ -103,6 +105,7 @@ function readSessionListFence(context: GatewayRequestContext): SessionListFence 
     sessionIdentityMutationVersion: readSessionIdentityMutationVersion(),
     sessionLifecycleVersion: readSessionLifecycleVersion(),
     sessionObserverDigestVersion: readSessionObserverDigestVersion(),
+    sessionActivitySummaryVersion: readSessionActivitySummaryVersion(),
     userProfileVersion: readUserProfileVersion(),
     sessionsMutationVersion: readSessionsMutationVersion(context),
     // Rows embed transcript-derived previews/titles; a committed transcript
@@ -127,6 +130,7 @@ function matchesSessionListFence(value: SessionListFence, fence: SessionListFenc
     value.sessionIdentityMutationVersion === fence.sessionIdentityMutationVersion &&
     value.sessionLifecycleVersion === fence.sessionLifecycleVersion &&
     value.sessionObserverDigestVersion === fence.sessionObserverDigestVersion &&
+    value.sessionActivitySummaryVersion === fence.sessionActivitySummaryVersion &&
     value.userProfileVersion === fence.userProfileVersion &&
     value.sessionsMutationVersion === fence.sessionsMutationVersion &&
     value.sessionTranscriptUpdateVersion === fence.sessionTranscriptUpdateVersion &&

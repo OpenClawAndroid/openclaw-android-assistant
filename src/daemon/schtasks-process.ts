@@ -368,7 +368,7 @@ export async function describeUnverifiedPortListeners(
   const hint = pids.length
     ? ` If one of these is this gateway, stop it with "Stop-Process -Id <pid> -Force" and retry.`
     : "";
-  return ` Remaining listener(s): ${described.join(", ")}.${hint}`;
+  return ` Remaining listener(s): ${described.join(", ")}. If gateway.cmd redirects output, quote the entire redirection target, including environment variables.${hint}`;
 }
 
 export async function resolveListenerBackedScheduledTaskRuntime(

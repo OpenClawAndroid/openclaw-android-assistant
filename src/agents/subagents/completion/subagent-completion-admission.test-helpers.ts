@@ -6,6 +6,7 @@ import type { TaskRecord } from "../../../tasks/task-registry.types.js";
 import { createSubagentRunRecord } from "../../subagent-test-fixtures.test-helpers.js";
 import { SubagentLifecycleController } from "../registry/subagent-registry-lifecycle.js";
 import { subagentRuns } from "../registry/subagent-registry-memory.js";
+import { getLatestLiveSubagentRunByChildSessionKey } from "../registry/subagent-registry-read.js";
 import { saveSubagentRegistryToSqlite } from "../registry/subagent-registry.store.sqlite.js";
 import type { SubagentRunRecord } from "../registry/subagent-registry.types.js";
 
@@ -91,6 +92,7 @@ export function requesterWakeDriver(inputs: ReturnType<typeof records>[]) {
     persistOrThrow: persist,
     clearPendingLifecycleError: vi.fn(),
     countPendingDescendantRuns: () => 0,
+    getLatestRunForChildSession: getLatestLiveSubagentRunByChildSessionKey,
     suppressAnnounceForSteerRestart: () => false,
     resolveSubagentTask: (entry) => ({
       lookup: "available",

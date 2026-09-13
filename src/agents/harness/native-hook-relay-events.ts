@@ -156,6 +156,16 @@ async function runNativeHookRelayPreToolUse(params: {
             : {}),
         },
       });
+  try {
+    params.registration.signal?.throwIfAborted();
+    params.registration.assertActive?.();
+  } catch (error) {
+    // A disconnected request cannot leave an approval for a later tool to consume.
+    if (!outcome.blocked && outcome.deferredApproval) {
+      cancelDeferredPluginToolApproval(outcome.deferredApproval);
+    }
+    throw error;
+  }
   if (outcome.blocked) {
     return params.adapter.renderPreToolUseBlockResponse(
       outcome.reason,

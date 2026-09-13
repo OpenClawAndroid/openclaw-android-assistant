@@ -5,7 +5,6 @@ import {
   buildProviderPluginMethodChoice,
   resolveProviderModelPickerEntries,
   resolveProviderPluginChoiceCore,
-  resolveProviderWizardOptions,
   runProviderModelSelectedHookCore,
 } from "./provider-wizard.js";
 import type { ProviderPlugin } from "./types.js";
@@ -176,11 +175,8 @@ function setResolvedProviders(...providers: ProviderPlugin[]) {
 function expectSingleWizardChoice(params: {
   provider: ProviderPlugin;
   choice: string;
-  expectedOption: Record<string, unknown>;
   expectedWizard: unknown;
 }) {
-  setResolvedProviders(params.provider);
-  expect(resolveProviderWizardOptions({})).toEqual([params.expectedOption]);
   expect(
     resolveProviderPluginChoiceCore({
       providers: [params.provider],
@@ -232,16 +228,10 @@ describe("provider wizard boundaries", () => {
         },
       }),
       choice: "self-hosted-vllm",
-      expectedOption: {
-        value: "self-hosted-vllm",
-        label: "vLLM local",
-        groupId: "local-runtimes",
-        groupLabel: "Local runtimes",
-      },
       resolveWizard: (provider: ProviderPlugin) => provider.wizard?.setup,
     },
     {
-      name: "builds wizard options from method-level metadata",
+      name: "resolves choices from method-level wizard metadata",
       provider: makeProvider({
         id: "openai",
         label: "OpenAI",
@@ -262,17 +252,10 @@ describe("provider wizard boundaries", () => {
         ],
       }),
       choice: "openai-api-key",
-      expectedOption: {
-        value: "openai-api-key",
-        label: "OpenAI API key",
-        groupId: "openai",
-        groupLabel: "OpenAI",
-        onboardingScopes: ["text-inference"],
-      },
       resolveWizard: (provider: ProviderPlugin) => provider.auth[0]?.wizard,
     },
     {
-      name: "preserves onboarding scopes on wizard options",
+      name: "returns method wizard metadata for media-only choices",
       provider: makeProvider({
         id: "fal",
         label: "fal",
@@ -293,13 +276,6 @@ describe("provider wizard boundaries", () => {
         ],
       }),
       choice: "fal-api-key",
-      expectedOption: {
-        value: "fal-api-key",
-        label: "fal API key",
-        groupId: "fal",
-        groupLabel: "fal",
-        onboardingScopes: ["image-generation"],
-      },
       resolveWizard: (provider: ProviderPlugin) => provider.auth[0]?.wizard,
     },
     {
@@ -325,21 +301,12 @@ describe("provider wizard boundaries", () => {
         ],
       }),
       choice: "anthropic-cli",
-      expectedOption: {
-        value: "anthropic-cli",
-        label: "Anthropic",
-        groupId: "anthropic",
-        groupLabel: "Anthropic",
-        groupHint: undefined,
-        hint: undefined,
-      },
       resolveWizard: (provider: ProviderPlugin) => provider.auth[0]?.wizard,
     },
-  ] as const)("$name", ({ provider, choice, expectedOption, resolveWizard }) => {
+  ] as const)("$name", ({ provider, choice, resolveWizard }) => {
     expectSingleWizardChoice({
       provider,
       choice,
-      expectedOption,
       expectedWizard: resolveWizard(provider),
     });
   });
@@ -369,17 +336,16 @@ describe("provider wizard boundaries", () => {
     ]);
   });
 
-  it("resolves providers in setup mode across wizard consumers", () => {
+  it("resolves providers in setup mode for the model picker", () => {
     const provider = createSglangWizardProvider({ includeModelPicker: true });
     const config = {};
     const env = createHomeEnv();
     setResolvedProviders(provider);
 
     const runtimeParams = createWizardRuntimeParams({ config, env });
-    expect(resolveProviderWizardOptions(runtimeParams)).toHaveLength(1);
     expect(resolveProviderModelPickerEntries(runtimeParams)).toHaveLength(1);
 
-    expectProviderResolutionCall({ config, env, count: 2 });
+    expectProviderResolutionCall({ config, env });
   });
 
   it("uses the prepared matching provider when the runtime inventory does not contain it", async () => {

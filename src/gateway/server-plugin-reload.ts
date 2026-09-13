@@ -161,6 +161,7 @@ export async function reloadGatewayPlugins(
   let releaseChannelStarts: ReturnType<typeof channelManager.pauseChannelStarts> | undefined;
   const channelTargets = new Set<ChannelId>();
   const quiescedInstances: PluginInstanceHandle[] = [];
+  let rollbackConfigEffects: (() => Promise<void>) | undefined;
   const skipChannels =
     isTruthyEnvValue(params.env?.OPENCLAW_SKIP_CHANNELS) ||
     isTruthyEnvValue(params.env?.OPENCLAW_SKIP_PROVIDERS);
@@ -343,9 +344,12 @@ export async function reloadGatewayPlugins(
     }
     await params.checkpoint?.();
     assertCurrent();
-    params.prepareConfigEffects({ pluginIds: changedPluginIds, channels: channelTargets });
-    releaseChannelStarts = channelManager.pauseChannelStarts(channelTargets);
+    rollbackConfigEffects = params.prepareConfigEffects({
+      pluginIds: changedPluginIds,
+      channels: channelTargets,
+    });
     phase = "drain";
+    releaseChannelStarts = channelManager.pauseChannelStarts(channelTargets);
     for (const sidecar of runtimeState.gatewayLifetimeSidecars.snapshot()) {
       const prepared = sidecar.preparePluginReload?.({
         previousRegistry,
@@ -644,6 +648,9 @@ export async function reloadGatewayPlugins(
           recoveryErrors.push(recoveryError);
         } finally {
           await releaseChannelHandoffs(recoveryErrors);
+        }
+        if (recoveryErrors.length === 0) {
+          await attempt(recoveryErrors, () => rollbackConfigEffects?.());
         }
         if (recoveryErrors.length > 0) {
           const recoveryError =

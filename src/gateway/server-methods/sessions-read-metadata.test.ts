@@ -9,7 +9,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
-import * as transcriptReaders from "../session-transcript-readers.js";
+import * as transcriptPreview from "../session-transcript-preview.js";
 import {
   directSessionReq,
   seedLinearSessionTranscript,
@@ -152,8 +152,8 @@ test("sessions.preview rechecks visibility after yielding between keys", async (
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
     const { opts, storePath } = await seedMetadataReads();
     const firstRead = createDeferred();
-    const read = transcriptReaders.readSessionPreviewItemsFromTranscript;
-    vi.spyOn(transcriptReaders, "readSessionPreviewItemsFromTranscript").mockImplementation(
+    const read = transcriptPreview.readSessionPreviewItemsFromTranscript;
+    vi.spyOn(transcriptPreview, "readSessionPreviewItemsFromTranscript").mockImplementation(
       (...args) => {
         const result = read(...args);
         if (args[0].sessionKey === "agent:main:first") {

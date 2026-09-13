@@ -1,18 +1,20 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { readTranscriptDisplayPosition } from "../../chat/transcript-display-position.js";
-import { resolveSessionTranscriptActiveLeafEntryId } from "../../config/sessions/session-accessor.js";
+import { getCliSessionBinding } from "../../config/sessions/cli-session-binding.js";
+import { resolveSessionTranscriptActiveLeafEntryId } from "../../config/sessions/session-accessor.sqlite-message-cut.js";
+import type {
+  ChatHistoryPage,
+  ChatHistoryPageParams,
+} from "../../config/sessions/session-history-types.js";
+import { isIncognitoSessionKey } from "../../shared/incognito-session-key.js";
 import {
   dropPreSessionStartAnnouncePairs,
   isHeartbeatHistoryTurnBoundaryMessage,
   projectChatDisplayMessages,
   projectChatDisplayMessagesWithState,
   augmentChatHistoryWithCanvasBlocks,
+  createCurrentUserProfileMessageProjector,
 } from "../chat-display-projection.js";
-import {
-  readChatHistoryCliSessionImportSnapshot,
-  resolveChatHistoryWithCliSessionImports,
-  resolveClaudeCliBindingSessionId,
-} from "../cli-session-history.js";
 import { resolveCurrentUserProfileDisplay } from "../current-user-profile-display.js";
 import {
   capOffsetChatHistoryProjectedMessages,
@@ -28,24 +30,6 @@ import {
   readSessionMessagesAsync,
   type ReadRecentSessionMessagesResult,
 } from "../session-transcript-readers.js";
-import type { loadSessionEntry } from "../session-utils.js";
-
-type ChatHistoryPage = {
-  activeLeafEntryId?: string | null;
-  deltaCursor?: string;
-  messages: unknown[];
-  responseOffset?: number;
-  completeCliImport?: true;
-  // Absent only for anchored (messageId) reads: the anchor may resolve a
-  // reset-archive transcript that numeric offset cursors cannot address, so
-  // anchored responses expose no paging metadata.
-  pagination?: {
-    offset: number;
-    totalMessages: number;
-    rawPageMessages: number;
-    exhausted?: true;
-  };
-};
 
 function readCliIdentityProjectionKey(message: unknown): string | undefined {
   const id = readChatHistoryMessageId(message);
@@ -144,7 +128,7 @@ function resolveChatHistoryActiveLeafEntryId(
 /** Add checkpoint token metrics to the synthetic transcript compaction marker. */
 export function enrichChatHistoryCompactionMarkers(
   messages: unknown[],
-  entry: ReturnType<typeof loadSessionEntry>["entry"],
+  entry: ChatHistoryPageParams["entry"],
 ): unknown[] {
   const checkpoints = entry?.compactionCheckpoints;
   if (!Array.isArray(checkpoints) || checkpoints.length === 0) {
@@ -260,20 +244,55 @@ export function capChatHistoryAroundMessage(params: {
   return params.messages.slice(start, end);
 }
 
-export async function readChatHistoryPage(params: {
-  entry: ReturnType<typeof loadSessionEntry>["entry"];
-  provider: string | undefined;
-  sessionId: string | undefined;
-  storePath: string | undefined;
-  sessionAgentId: string;
-  canonicalKey: string;
-  max: number;
-  maxHistoryBytes: number;
-  effectiveMaxChars: number;
-  offset: number | undefined;
-  messageId: string | undefined;
-  ignoreCliSessionImports?: boolean;
-}): Promise<ChatHistoryPage> {
+export async function readChatHistoryPage(
+  params: ChatHistoryPageParams,
+  signal?: AbortSignal,
+): Promise<ChatHistoryPage> {
+  signal?.throwIfAborted();
+  if (
+    !params.sessionId ||
+    !params.storePath ||
+    params.entry?.incognito ||
+    isIncognitoSessionKey(params.canonicalKey) ||
+    getCliSessionBinding(params.entry, "claude-cli")?.sessionId
+  ) {
+    return readChatHistoryPageLocal(params);
+  }
+  const { readSessionHistoryPageInWorker } =
+    await import("../../config/sessions/session-history-worker-runtime.js");
+  const page = await readSessionHistoryPageInWorker(
+    {
+      kind: "rpc",
+      params: {
+        ...params,
+        sessionId: params.sessionId,
+        storePath: params.storePath,
+        entry: params.entry
+          ? {
+              sessionId: params.entry.sessionId,
+              updatedAt: params.entry.updatedAt,
+              sessionStartedAt: params.entry.sessionStartedAt,
+            }
+          : undefined,
+      },
+    },
+    signal,
+  );
+  const project = createCurrentUserProfileMessageProjector(resolveCurrentUserProfileDisplay);
+  return {
+    ...page,
+    messages: page.messages.map((message) => {
+      const record = asOptionalRecord(message);
+      return record ? project(record) : message;
+    }),
+  };
+}
+
+/** One page kernel is shared by process-memory reads and the transcript worker. */
+export async function readChatHistoryPageLocal(
+  params: ChatHistoryPageParams,
+  options: { readOnly?: boolean; deferProfileDisplay?: boolean } = {},
+): Promise<ChatHistoryPage> {
   const {
     entry,
     provider,
@@ -308,7 +327,7 @@ export async function readChatHistoryPage(params: {
   };
   const cliSessionId = params.ignoreCliSessionImports
     ? undefined
-    : resolveClaudeCliBindingSessionId(entry);
+    : getCliSessionBinding(entry, "claude-cli")?.sessionId;
   // Bound snapshots are terminal by contract, so offset requests return the same
   // full snapshot. Paging oversized imports needs an opaque snapshot cursor and
   // is deferred to a follow-up issue. Anchored reads fall through with them: the
@@ -323,6 +342,7 @@ export async function readChatHistoryPage(params: {
         messageId,
         maxMessages: max,
         allowResetArchiveFallback: true,
+        readOnly: options.readOnly,
       });
       if (!anchoredPage.found) {
         return { messages: [] };
@@ -338,6 +358,7 @@ export async function readChatHistoryPage(params: {
         max,
         maxBytes: maxHistoryBytes,
         offset: pageOffset,
+        ...options,
       });
       readPage = incrementalTail.readPage;
     }
@@ -366,7 +387,7 @@ export async function readChatHistoryPage(params: {
       projectChatDisplayMessagesWithState(messages, {
         includeCommentaryFallbacks: true,
         maxChars: effectiveMaxChars,
-        resolveCurrentUserProfileDisplay,
+        ...(options.deferProfileDisplay ? {} : { resolveCurrentUserProfileDisplay }),
         turnBoundaryPending: isHeartbeatHistoryTurnBoundaryMessage(overreadContextMessage),
       });
     const projection = incrementalTail?.projection ?? project(localMessages);
@@ -384,6 +405,7 @@ export async function readChatHistoryPage(params: {
         readScope,
         displaySource: readPage.displaySource,
         maxBytes: maxHistoryBytes,
+        readOnly: options.readOnly,
       });
       if (recoveryContext.length > 0) {
         projected = project([...localMessages, ...recoveryContext]).messages.filter(
@@ -430,30 +452,51 @@ export async function readChatHistoryPage(params: {
     max,
     maxBytes: maxHistoryBytes,
     offset,
+    ...options,
   });
   const { readPage } = incrementalTail;
   const activeLeafEntryId = resolveChatHistoryActiveLeafEntryId(readPage);
   const localMessagesWithBoundaryFilter = incrementalTail.rawMessages;
-  // The ignore flag must gate this resolver too: the tail-window merge can report
-  // imported=true while the full merge below dedupes everything to imported=false,
-  // and an ungated re-resolve here would recurse through this branch forever.
-  const importedMessages = params.ignoreCliSessionImports
-    ? []
-    : await readChatHistoryCliSessionImportSnapshot({
-        entry,
-        provider,
-        localMessages: localMessagesWithBoundaryFilter,
-      });
-  const cliHistory = params.ignoreCliSessionImports
-    ? { messages: localMessagesWithBoundaryFilter, imported: false, expanded: false }
-    : resolveChatHistoryWithCliSessionImports({
-        entry,
-        provider,
-        localMessages: localMessagesWithBoundaryFilter,
-        preparedImportedMessages: importedMessages,
-      });
+  const buildTailPage = (messages: unknown[]): ChatHistoryPage => {
+    const windowedTailMessages =
+      offset === undefined
+        ? messages.length > max
+          ? messages.slice(-max)
+          : messages
+        : capOffsetChatHistoryProjectedMessages(messages, max);
+    return {
+      activeLeafEntryId,
+      ...(readPage.transcriptSource === "active" &&
+      readPage.deltaCursor &&
+      !incrementalTail.projection.assistantErrorPending
+        ? { deltaCursor: readPage.deltaCursor }
+        : {}),
+      messages: augmentChatHistoryWithCanvasBlocks(windowedTailMessages),
+      pagination: {
+        offset: offset ?? 0,
+        totalMessages: readPage.totalMessages,
+        rawPageMessages: incrementalTail.rawPageMessages,
+      },
+    };
+  };
+  if (!cliSessionId) {
+    return buildTailPage(incrementalTail.projected);
+  }
+  const { readChatHistoryCliSessionImportSnapshot, resolveChatHistoryWithCliSessionImports } =
+    await import("../cli-session-history.js");
+  const importedMessages = await readChatHistoryCliSessionImportSnapshot({
+    entry,
+    provider,
+    localMessages: localMessagesWithBoundaryFilter,
+  });
+  const cliHistory = resolveChatHistoryWithCliSessionImports({
+    entry,
+    provider,
+    localMessages: localMessagesWithBoundaryFilter,
+    preparedImportedMessages: importedMessages,
+  });
   if ((offset !== undefined || messageId) && !cliHistory.imported) {
-    return readChatHistoryPage({ ...params, ignoreCliSessionImports: true });
+    return readChatHistoryPageLocal({ ...params, ignoreCliSessionImports: true }, options);
   }
   if (cliHistory.expanded || messageId) {
     // Reuse this request's redacted external snapshot after the full local read;
@@ -463,6 +506,7 @@ export async function readChatHistoryPage(params: {
         mode: "full",
         reason: "chat.history CLI import merge",
         allowResetArchiveFallback: true,
+        readOnly: options.readOnly,
       }),
       typeof entry?.sessionStartedAt === "number" ? entry.sessionStartedAt : undefined,
     );
@@ -473,7 +517,7 @@ export async function readChatHistoryPage(params: {
       preparedImportedMessages: importedMessages,
     });
     if (!completeCliHistory.imported) {
-      return readChatHistoryPage({ ...params, ignoreCliSessionImports: true });
+      return readChatHistoryPageLocal({ ...params, ignoreCliSessionImports: true }, options);
     }
     const mergedMessages = dropPreSessionStartAnnouncePairs(
       completeCliHistory.messages,
@@ -482,13 +526,16 @@ export async function readChatHistoryPage(params: {
     const displayMessages = projectChatDisplayMessages(mergedMessages, {
       includeCommentaryFallbacks: true,
       maxChars: effectiveMaxChars,
-      resolveCurrentUserProfileDisplay,
+      ...(options.deferProfileDisplay ? {} : { resolveCurrentUserProfileDisplay }),
     });
     if (!completeCliHistory.expanded && !messageId) {
       // A tail-only merge can look expanded because older imported rows are absent
       // from that local window. Preserve normal local pagination after the full merge
       // proves that the import only contributes identity metadata.
-      const localPage = await readChatHistoryPage({ ...params, ignoreCliSessionImports: true });
+      const localPage = await readChatHistoryPageLocal(
+        { ...params, ignoreCliSessionImports: true },
+        options,
+      );
       return {
         ...localPage,
         messages: projectCliIdentityOntoPagedMessages({
@@ -522,24 +569,5 @@ export async function readChatHistoryPage(params: {
         completeMessages: cliHistory.messages,
       })
     : incrementalTail.projected;
-  const windowedTailMessages =
-    offset === undefined
-      ? projectedTailMessages.length > max
-        ? projectedTailMessages.slice(-max)
-        : projectedTailMessages
-      : capOffsetChatHistoryProjectedMessages(projectedTailMessages, max);
-  return {
-    activeLeafEntryId,
-    ...(readPage.transcriptSource === "active" &&
-    readPage.deltaCursor &&
-    !incrementalTail.projection.assistantErrorPending
-      ? { deltaCursor: readPage.deltaCursor }
-      : {}),
-    messages: augmentChatHistoryWithCanvasBlocks(windowedTailMessages),
-    pagination: {
-      offset: offset ?? 0,
-      totalMessages: readPage.totalMessages,
-      rawPageMessages: incrementalTail.rawPageMessages,
-    },
-  };
+  return buildTailPage(projectedTailMessages);
 }

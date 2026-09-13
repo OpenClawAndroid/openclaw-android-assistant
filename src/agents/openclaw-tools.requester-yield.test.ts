@@ -178,6 +178,37 @@ describe("requester yield ownership", () => {
   );
 
   it.each([
+    { name: "with a registry turn", requesterTurnRunId: "run-collector-turn" },
+    { name: "without a registry turn", requesterTurnRunId: undefined },
+  ])("rejects a swarm collector yield $name", async ({ requesterTurnRunId }) => {
+    seedRequiredChild("agent:main:subagent:collector");
+    const before = structuredClone(getSubagentRunByRunId("run-child"));
+    const runtimeClaim = vi.fn(() => true);
+    const onYield = vi.fn();
+    const tool = createSessionsYieldTool({
+      sessionId: "collector-session",
+      claimYield: createRequesterYieldCallback({
+        requesterSessionKey: "agent:main:subagent:collector",
+        requesterAgentId: "main",
+        requesterTurnRunId,
+        swarmCollector: true,
+        claimYieldCompletion: runtimeClaim,
+      }),
+      onYield,
+    });
+
+    expect((await tool.execute("yield-call", {})).details).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("collected explicitly"),
+    });
+    // A collector owns no requester continuation, so no claim source may admit
+    // its yield or record durable intent against a child row.
+    expect(runtimeClaim).not.toHaveBeenCalled();
+    expect(onYield).not.toHaveBeenCalled();
+    expect(getSubagentRunByRunId("run-child")).toEqual(before);
+  });
+
+  it.each([
     { policy: { profile: "coding" as const }, runtime: undefined, allowed: true },
     {
       policy: { profile: "coding" as const, deny: ["sessions_yield"] },

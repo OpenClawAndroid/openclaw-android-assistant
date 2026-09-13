@@ -194,14 +194,14 @@
       "count": 2,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/components/lobster-pet-look.ts",
+      "path": "ui/src/components/lobster-pet-scene-view.ts",
       "text": "z"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/components/lobster-pet-look.ts",
+      "path": "ui/src/components/lobster-pet-scene-view.ts",
       "text": "Z"
     },
     {

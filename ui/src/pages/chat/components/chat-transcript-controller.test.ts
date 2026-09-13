@@ -669,7 +669,10 @@ describe("chat transcript controller", () => {
           requestUpdate: vi.fn(),
           updateComplete: Promise.resolve(true),
         },
-        { onViewportResize, onReaderScroll: () => handleChatScrollTakeover(policy) },
+        {
+          onViewportResize,
+          onReaderScroll: (towardEnd) => handleChatScrollTakeover(policy, towardEnd),
+        },
       );
       const rows: TestContentRow[] = Array.from({ length: 12 }, (_, index) => ({
         kind: "content",

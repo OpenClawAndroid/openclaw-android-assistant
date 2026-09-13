@@ -2,7 +2,7 @@
 import type { buildControlledSubagentRunsReadContext } from "../../agents/subagents/registry/subagent-control-scope.js";
 import {
   hasSubagentRunEnded,
-  isLiveUnendedSubagentRun,
+  isRetainedUnendedSubagentRun,
 } from "../../agents/subagents/registry/subagent-run-liveness.js";
 import { formatDurationCompact } from "../../infra/format-time/format-duration.ts";
 import { formatRunLabel } from "./subagents-utils.js";
@@ -23,7 +23,7 @@ export function buildSubagentsStatusLine(params: {
   const detailLines: string[] = [];
   for (const entry of context.runs) {
     const pendingDescendants = context.countPendingDescendantRuns(entry.childSessionKey);
-    if (isLiveUnendedSubagentRun(entry, now) || pendingDescendants > 0) {
+    if (isRetainedUnendedSubagentRun(entry, now) || pendingDescendants > 0) {
       active += 1;
       if (detailLines.length >= 3) {
         continue;

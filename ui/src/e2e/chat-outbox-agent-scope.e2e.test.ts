@@ -168,12 +168,12 @@ suite.define(() => {
         ],
       });
       await gateway.emitGatewayEvent("sessions.changed", {
-        activeRunIds: ["main-active-run"],
-        agentId: "main",
-        hasActiveRun: true,
+        activeRunIds: [],
+        agentId: "work",
+        hasActiveRun: false,
         key: "global",
         kind: "global",
-        status: "running",
+        status: "done",
       });
 
       const request = await gateway.waitForRequest("chat.send");

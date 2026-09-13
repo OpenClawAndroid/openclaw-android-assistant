@@ -17,7 +17,7 @@ export type ChatTranscriptPendingScrollOffset = {
 
 export type TranscriptCallbacks = {
   onViewportResize?: () => void;
-  onReaderScroll?: () => void;
+  onReaderScroll?: (towardEnd?: boolean) => void;
 };
 
 export const CHAT_TRANSCRIPT_ESTIMATED_ROW_PX = 120;

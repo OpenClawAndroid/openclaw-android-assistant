@@ -23,6 +23,7 @@ import { createRuntimeDependencyOwnershipBuildPlugin } from "./scripts/lib/runti
 import { runtimeProcessBuildEntries } from "./scripts/lib/runtime-process-build-entries.mts";
 import {
   sharedRuntimeProcessBuildEntries,
+  shouldBundleStandaloneRuntimeDependency,
   standaloneRuntimeProcessBuildEntries,
 } from "./scripts/lib/runtime-process-core-build-entries.mts";
 import {
@@ -856,7 +857,6 @@ const configs: UserConfig[] = [
             ([name]) => !bundledInventoryEntryNames.has(name),
           ),
         ),
-        "native-hook-relay/entry": "src/cli/native-hook-relay-entry.ts",
       },
       deps: unifiedDeps,
       // Explicit ESM chunks avoid repeated package-format parsing in Node;
@@ -867,6 +867,18 @@ const configs: UserConfig[] = [
         createGatewayRunChunkMetadataPlugin(),
         createRuntimeDependencyOwnershipBuildPlugin(),
       ],
+    },
+    false,
+  ),
+  nodeBuildConfig(
+    {
+      name: TSDOWN_UNIFIED_CONFIG_GROUP,
+      // One-shot relays must not load shared Gateway/SDK chunks just to read a locator.
+      // Keep splitting enabled so the existing Gateway fallback stays lazy.
+      entry: { "native-hook-relay/entry": "src/cli/native-hook-relay-entry.ts" },
+      deps: unifiedDeps,
+      outputOptions: { chunkFileNames: "native-hook-relay/[name]-[hash].mjs" },
+      plugins: [createStateSchemaInlinePlugin()],
     },
     false,
   ),
@@ -898,7 +910,11 @@ const configs: UserConfig[] = [
     {
       name: TSDOWN_UNIFIED_CONFIG_GROUP,
       entry: standaloneRuntimeProcessBuildEntries,
-      deps: unifiedDeps,
+      deps: {
+        ...unifiedDeps,
+        alwaysBundle: (id) =>
+          shouldAlwaysBundleDependency(id) || shouldBundleStandaloneRuntimeDependency(id),
+      },
       outputOptions: { codeSplitting: false },
       plugins: [createStateSchemaInlinePlugin()],
     },

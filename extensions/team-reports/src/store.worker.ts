@@ -78,12 +78,11 @@ type ReportsDatabase = {
   team_reports_runs: RunRow;
 };
 
-function readPeriod(row: PeriodRow): StoredPeriod {
+function readPeriod(row: Pick<PeriodRow, "data_json" | "summary_json">) {
   return {
     report: reportDocumentSchema.parse(JSON.parse(row.data_json)),
     summary:
       row.summary_json === null ? null : summaryDocumentSchema.parse(JSON.parse(row.summary_json)),
-    markdown: row.markdown,
   };
 }
 
@@ -175,7 +174,7 @@ class TeamReportsDatabase {
         .where("period", "=", period)
         .where("period_key", "=", key),
     );
-    return row ? readPeriod(row) : undefined;
+    return row ? { ...readPeriod(row), markdown: row.markdown } : undefined;
   }
 
   listPeriods(
@@ -185,41 +184,7 @@ class TeamReportsDatabase {
       limit?: number;
     } = {},
   ): PeriodListEntry[] {
-    let query = this.query
-      .selectFrom("team_reports_periods")
-      .select([
-        "period",
-        "period_key as key",
-        "since_ms as sinceMs",
-        "until_ms as untilMs",
-        "status",
-        "generated_at_ms as generatedAtMs",
-      ])
-      // SQLite extracts only the chart totals instead of materializing every report in JavaScript.
-      .select((eb) => [
-        eb.fn<number>("json_extract", ["data_json", eb.val("$.activeMembers")]).as("activeMembers"),
-        eb.fn<number>("json_extract", ["data_json", eb.val("$.memberCount")]).as("memberCount"),
-        eb
-          .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.total")])
-          .as("githubTotal"),
-        eb
-          .fn<number>("json_extract", ["data_json", eb.val("$.totals.discord.messages")])
-          .as("discordMessages"),
-        eb
-          .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.commits")])
-          .as("commits"),
-        eb
-          .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.prsOpened")])
-          .as("prsOpened"),
-        eb
-          .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.prsMerged")])
-          .as("prsMerged"),
-        eb
-          .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.securityAdvisories")])
-          .as("securityAdvisories"),
-      ])
-      .orderBy("since_ms", "desc")
-      .orderBy("period", "asc");
+    let query = this.selectPeriods();
     if (options.period) {
       query = query.where("period", "=", options.period);
     }
@@ -227,6 +192,66 @@ class TeamReportsDatabase {
       query = query.where("status", "=", options.status);
     }
     return executeSqliteQuerySync(this.db, query.limit(options.limit ?? 180)).rows;
+  }
+
+  private selectPeriods() {
+    return (
+      this.query
+        .selectFrom("team_reports_periods")
+        .select([
+          "period",
+          "period_key as key",
+          "since_ms as sinceMs",
+          "until_ms as untilMs",
+          "status",
+          "generated_at_ms as generatedAtMs",
+        ])
+        // SQLite extracts only the chart totals instead of materializing every report in JavaScript.
+        .select((eb) => [
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.activeMembers")])
+            .as("activeMembers"),
+          eb.fn<number>("json_extract", ["data_json", eb.val("$.memberCount")]).as("memberCount"),
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.total")])
+            .as("githubTotal"),
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.totals.discord.messages")])
+            .as("discordMessages"),
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.commits")])
+            .as("commits"),
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.prsOpened")])
+            .as("prsOpened"),
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.prsMerged")])
+            .as("prsMerged"),
+          eb
+            .fn<number>("json_extract", ["data_json", eb.val("$.totals.github.securityAdvisories")])
+            .as("securityAdvisories"),
+        ])
+        .orderBy("since_ms", "desc")
+        .orderBy("period", "asc")
+    );
+  }
+
+  latestSourceWarnings(): string[] {
+    const row = executeSqliteQueryTakeFirstSync(
+      this.db,
+      this.selectPeriods()
+        .select(["data_json", "summary_json"])
+        .where("period", "=", "day")
+        .limit(1),
+    );
+    if (!row) {
+      return [];
+    }
+    const { report, summary } = readPeriod(row);
+    return report.sources.github.warnings.concat(
+      report.sources.discord?.warnings ?? [],
+      summary?.warnings ?? [],
+    );
   }
 
   getDayReports(sinceMs: number, untilMs: number): ReportDocument[] {
@@ -469,6 +494,8 @@ export function createSqliteWorkerBackend(_input: undefined, context: { database
           return database.getPeriod(command.input.period, command.input.key);
         case "listPeriods":
           return database.listPeriods(command.input);
+        case "latestSourceWarnings":
+          return database.latestSourceWarnings();
         case "getDayReports":
           return database.getDayReports(command.input.sinceMs, command.input.untilMs);
         case "listPersonDays":

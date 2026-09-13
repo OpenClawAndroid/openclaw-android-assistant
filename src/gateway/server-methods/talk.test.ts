@@ -202,13 +202,9 @@ vi.mock("../../agents/agent-scope.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../session-transcript-readers.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../session-transcript-readers.js")>();
-  return {
-    ...actual,
-    readSessionPreviewItemsFromTranscript: mocks.readSessionPreviewItemsFromTranscript,
-  };
-});
+vi.mock("../session-transcript-preview.js", () => ({
+  readSessionPreviewItemsFromTranscript: mocks.readSessionPreviewItemsFromTranscript,
+}));
 
 vi.mock("../../talk/client-voice-session.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../talk/client-voice-session.js")>();

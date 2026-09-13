@@ -33,6 +33,10 @@ export class TeamReportsStore {
     return this.execute("listPeriods", options);
   }
 
+  latestSourceWarnings() {
+    return this.execute("latestSourceWarnings", undefined);
+  }
+
   getDayReports(sinceMs: number, untilMs: number) {
     return this.execute("getDayReports", { sinceMs, untilMs });
   }

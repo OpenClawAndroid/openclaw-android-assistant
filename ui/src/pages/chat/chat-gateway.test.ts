@@ -4364,6 +4364,13 @@ describe("loadChatHistory retry handling", () => {
 
     expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
       ["chat.history", { sessionKey: "main", limit: 80, maxBytes: 256 * 1024 }],
+    ]);
+    expect(state.chatMessages).toEqual([pending]);
+
+    staleHistory.resolve(createAssistantHistory("stale history"));
+    await firstLoad;
+    expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
+      ["chat.history", { sessionKey: "main", limit: 80, maxBytes: 256 * 1024 }],
       [
         "chat.history",
         {
@@ -4374,10 +4381,6 @@ describe("loadChatHistory retry handling", () => {
         },
       ],
     ]);
-    expect(state.chatMessages).toEqual([pending]);
-
-    staleHistory.resolve(createAssistantHistory("stale history"));
-    await firstLoad;
     expect(state.chatMessages).toEqual([pending]);
     expect(state.chatLoading).toBe(true);
 

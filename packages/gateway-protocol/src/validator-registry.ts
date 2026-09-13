@@ -270,6 +270,9 @@ export const validateSessionsDiffParams = compile(S.SessionsDiffParamsSchema);
 export const validateSessionsCompanionAskParams = compile(S.SessionsCompanionAskParamsSchema);
 export const validateSessionsCompanionStateParams = compile(S.SessionsCompanionStateParamsSchema);
 export const validateSessionsCompanionResetParams = compile(S.SessionsCompanionResetParamsSchema);
+export const validateSessionsActivitySummaryEnsureParams = compile(
+  S.SessionsActivitySummaryEnsureParamsSchema,
+);
 export const validateSessionsObserverVisibilityParams = compile(
   S.SessionsObserverVisibilityParamsSchema,
 );

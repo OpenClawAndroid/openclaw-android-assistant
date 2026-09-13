@@ -6,7 +6,7 @@ import type {
   ControlUiAppearancePickerProps,
 } from "../../../src/plugin-sdk/control-ui-components.js";
 import { OpenClawLightDomElement, OpenClawLitElement } from "../lit/openclaw-element.ts";
-import { resolveSessionIconGlyph } from "./session-icon-glyph-registry.ts";
+import { resolveSessionIconGraphic } from "./session-icon-glyph-registry.ts";
 import { handleAppearanceGridKeydown, renderAppearancePicker } from "./session-icon-picker.ts";
 import "../styles/sidebar-menus.css";
 
@@ -49,13 +49,13 @@ export class AppearancePicker extends OpenClawLightDomElement {
         this.customIcon = "";
         void this.updateComplete.then(() => {
           if (this.isConnected) {
-            this.querySelector<HTMLInputElement>(".session-menu__icon-custom-input")?.focus();
+            this.querySelector<HTMLTextAreaElement>(".session-menu__icon-custom-input")?.focus();
           }
         });
       },
       onBack: () => this.showGrid(),
       onInput: (event) => {
-        if (event.currentTarget instanceof HTMLInputElement) {
+        if (event.currentTarget instanceof HTMLTextAreaElement) {
           this.customIcon = event.currentTarget.value;
         }
       },
@@ -83,15 +83,19 @@ export class AppearanceGlyph extends OpenClawLitElement {
       width: 1em;
       height: 1em;
     }
-    svg {
+    svg,
+    img {
       width: 100%;
       height: 100%;
+    }
+    img {
+      object-fit: contain;
     }
   `;
 
   override render() {
     const icon = this.props.icon?.trim();
-    return html`${icon ? (resolveSessionIconGlyph(icon) ?? icon) : this.props.fallback}`;
+    return html`${icon ? (resolveSessionIconGraphic(icon) ?? icon) : this.props.fallback}`;
   }
 }
 

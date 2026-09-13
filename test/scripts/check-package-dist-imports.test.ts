@@ -13,6 +13,32 @@ afterEach(() => {
 });
 
 describe("collectPackageDistImports", () => {
+  it("excludes only the handoff runtime's staged native URL", () => {
+    const stagedPath = "./node_modules/koffi/indirect.cjs";
+    const source = [
+      `new URL("${stagedPath}", import.meta.url);`,
+      `import "${stagedPath}";`,
+      `export * from "${stagedPath}";`,
+      `import("${stagedPath}");`,
+      `require("${stagedPath}");`,
+      'new URL("./node_modules/koffi/other.cjs", import.meta.url);',
+    ].join("\n");
+    for (const importerPath of ["dist/managed-handoff-runtime.mjs", "dist/other.mjs"]) {
+      const imports = collectPackageDistImports({
+        files: [importerPath],
+        readText: () => source,
+      });
+      const expectedNativeEdges = importerPath === "dist/managed-handoff-runtime.mjs" ? 4 : 5;
+      expect(imports).toEqual([
+        ...Array.from({ length: expectedNativeEdges }, () => ({
+          importerPath,
+          importedPath: "dist/node_modules/koffi/indirect.cjs",
+        })),
+        { importerPath, importedPath: "dist/node_modules/koffi/other.cjs" },
+      ]);
+    }
+  });
+
   it("limits URL dependencies without filtering ordinary relative imports", () => {
     const imports = collectPackageDistImports({
       files: ["package\\dist\\index.mjs"],

@@ -53,6 +53,13 @@ export async function publishSessionPatchEffects(params: {
       },
       { accessChanged },
     );
+    if (typeof target.fullPatch.archived === "boolean") {
+      params.context.sessionActivitySummaries?.handleLifecycle({
+        sessionKey: target.canonicalKey,
+        agentId: target.targetAgentId,
+        reason: target.fullPatch.archived ? "archive" : "unarchive",
+      });
+    }
     if (target.fullPatch.archived === true) {
       archivedSessionKeys.add(target.canonicalKey);
     }

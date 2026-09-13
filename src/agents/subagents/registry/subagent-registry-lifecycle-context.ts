@@ -24,6 +24,10 @@ export type SubagentLifecycleOptions = {
   persistOrThrow(...runIds: string[]): void;
   clearPendingLifecycleError(runId: string): void;
   countPendingDescendantRuns(rootSessionKey: string): number;
+  getLatestRunForChildSession(
+    childSessionKey: string,
+    matches?: (entry: SubagentRunRecord) => boolean,
+  ): SubagentRunRecord | null;
   suppressAnnounceForSteerRestart(entry?: SubagentRunRecord): boolean;
   resolveSubagentTask(entry: SubagentRunRecord): DetachedTaskFindResult;
   shouldEmitEndedHookForRun(args: {
@@ -79,6 +83,7 @@ export interface SubagentLifecycleCleanupContext extends SubagentLifecycleCommon
   clearCleanupFailureCount(entry: SubagentRunRecord): void;
   deleteScheduledResumeTimer(timer: ReturnType<typeof setTimeout>): void;
   incrementCleanupFailureCount(entry: SubagentRunRecord): number;
+  hasCleanupFailure(entry: SubagentRunRecord): boolean;
   isCleanupAttemptCurrent(runId: string, entry: SubagentRunRecord, generation: number): boolean;
   isCleanupGeneration(entry: SubagentRunRecord, generation: number): boolean;
   isCleanupGenerationCurrent(runId: string, entry: SubagentRunRecord, generation: number): boolean;
@@ -92,6 +97,7 @@ export interface SubagentLifecycleAnnounceCleanupContext
 }
 
 export interface SubagentLifecycleWakeContext extends SubagentLifecycleCommonContext {
+  resumeAncestorCleanup(settledEntry: SubagentRunRecord): void;
   deleteRequesterSettleWakeTimer(runId: string): void;
   getRequesterSettleWakeTimer(runId: string): ScheduledRequesterSettleWake | undefined;
   hasScheduledRequesterSettleWakeRun(entry: SubagentRunRecord): boolean;

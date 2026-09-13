@@ -8,7 +8,6 @@ import {
   createSessions,
   createSessionsHarness,
   createSessionState,
-  type LobsterPetElement,
   mountSidebar,
   type TestSessionMenu,
   TWO_AGENTS,
@@ -125,50 +124,6 @@ describe("AppSidebar session pagination", () => {
     expect(button("Show more")).not.toBeNull();
     expect(button("Collapse")).toBeNull();
   });
-});
-
-describe("AppSidebar lobster outcome wiring", () => {
-  it.each([
-    ["panel", "failed", "error"],
-    ["panel", "killed", "aborted"],
-    ["drawer", "failed", "error"],
-    ["drawer", "killed", "aborted"],
-  ] as const)(
-    "passes the %s variant's latest %s session outcome",
-    async (variant, status, expectedOutcome) => {
-      const client = {} as GatewayBrowserClient;
-      const gateway = createGateway(client);
-      const sessions = createSessionsHarness("main", ["agent:main:main"]);
-      const { sidebar } = await mountSidebar(gateway, sessions.sessions, variant);
-      const terminalState = createSessionState("main", ["agent:main:main"]);
-      const result = terminalState.result;
-      if (!result) {
-        throw new Error("expected terminal session result");
-      }
-      const row = result.sessions[0];
-      if (!row) {
-        throw new Error("expected terminal session row");
-      }
-
-      sessions.publishList({
-        result: {
-          ...result,
-          sessions: [
-            {
-              ...row,
-              status,
-              endedAt: 100,
-            },
-          ],
-        },
-        agentId: terminalState.agentId,
-      });
-      await sidebar.updateComplete;
-
-      const pet = sidebar.querySelector<LobsterPetElement>("openclaw-lobster-pet");
-      expect(pet?.runOutcome).toBe(expectedOutcome);
-    },
-  );
 });
 
 describe("AppSidebar session source lifecycle", () => {

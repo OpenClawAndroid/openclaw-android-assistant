@@ -185,10 +185,12 @@ const completeRequesterSettleWakeBatch = (
     });
     throw error;
   }
+  const retiredEntries: SubagentRunRecord[] = [];
   for (const entry of entries) {
     const { runId } = entry;
     if (!params.runs.has(runId)) {
       subagentRuns.confirmRetirement(entry);
+      retiredEntries.push(entry);
     }
   }
   for (const entry of settledDeliveries) {
@@ -215,6 +217,11 @@ const completeRequesterSettleWakeBatch = (
   for (const [runId, entry] of params.runs) {
     if (entry.requesterSettleWake && requesterSessionKeys.has(entry.requesterSessionKey)) {
       scheduleRequesterSettleWake(context, runId, entry);
+    }
+  }
+  for (const entry of retiredEntries) {
+    if (!params.runs.has(entry.runId)) {
+      context.resumeAncestorCleanup(entry);
     }
   }
 };
@@ -420,7 +427,6 @@ export function scheduleRequesterSettleWake(
 export function completeCleanupBookkeeping(
   context: SubagentLifecycleWakeContext,
   cleanupParams: CleanupBookkeepingParams,
-  retryDeferredCompletedAnnounces: (excludeRunId?: string) => void,
 ): void {
   const params = context.options;
   const suppressSessionEffects = shouldSuppressSubagentRecoverySessionEffects(cleanupParams.entry);
@@ -535,7 +541,7 @@ export function completeCleanupBookkeeping(
     }
     clearGatewayContextResolver(cleanupParams.entry);
     scheduleCleanupTails({ allowRetiredRow: false, isDeleteCleanup });
-    retryDeferredCompletedAnnounces(cleanupParams.runId);
+    context.resumeAncestorCleanup(cleanupParams.entry);
     return;
   }
   const retireAfterSettle =
@@ -558,7 +564,7 @@ export function completeCleanupBookkeeping(
       subagentRuns.confirmRetirement(cleanupParams.entry);
       clearGatewayContextResolver(cleanupParams.entry);
       scheduleCleanupTails({ allowRetiredRow: true, isDeleteCleanup });
-      retryDeferredCompletedAnnounces(cleanupParams.runId);
+      context.resumeAncestorCleanup(cleanupParams.entry);
       return;
     }
     persistRequesterSettleWakePending(context, cleanupParams.entry, {
@@ -570,7 +576,7 @@ export function completeCleanupBookkeeping(
     // the detached tails start. Absence is still stale-safe because any
     // replacement row or newer child generation rejects the cleanup.
     scheduleCleanupTails({ allowRetiredRow: true, isDeleteCleanup });
-    retryDeferredCompletedAnnounces(cleanupParams.runId);
+    context.resumeAncestorCleanup(cleanupParams.entry);
     scheduleRequesterSettleWake(context, cleanupParams.runId, cleanupParams.entry);
     return;
   }
@@ -603,7 +609,7 @@ export function completeCleanupBookkeeping(
     clearGatewayContextResolver(cleanupParams.entry);
   }
   scheduleCleanupTails({ allowRetiredRow: false, isDeleteCleanup });
-  retryDeferredCompletedAnnounces(cleanupParams.runId);
+  context.resumeAncestorCleanup(cleanupParams.entry);
   if (!cleanupParams.skipRequesterSettleWake) {
     scheduleRequesterSettleWake(context, cleanupParams.runId, cleanupParams.entry);
   }

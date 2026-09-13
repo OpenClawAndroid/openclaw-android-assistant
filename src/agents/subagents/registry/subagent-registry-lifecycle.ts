@@ -9,7 +9,7 @@ import {
 } from "./subagent-delivery-state.js";
 import {
   finalizeResumedAnnounceGiveUp,
-  retryDeferredCompletedAnnounces,
+  resumeAncestorCleanup,
   startSubagentAnnounceCleanupFlow,
 } from "./subagent-registry-lifecycle-announce-cleanup.js";
 import { completeSubagentRunAttempt } from "./subagent-registry-lifecycle-completion.js";
@@ -55,15 +55,14 @@ export class SubagentLifecycleController {
   constructor(readonly options: SubagentLifecycleOptions) {}
 
   newerGenerationOwnsSession(entry: SubagentRunRecord): boolean {
-    return (
-      entry.killReconciliation?.supersededAt !== undefined ||
-      Array.from(this.options.runs.values()).some(
-        (candidate) =>
-          candidate.runId !== entry.runId &&
-          candidate.childSessionKey === entry.childSessionKey &&
-          compareSubagentRunGeneration(candidate, entry) > 0,
-      )
+    if (entry.killReconciliation?.supersededAt !== undefined) {
+      return true;
+    }
+    const latest = this.options.getLatestRunForChildSession(
+      entry.childSessionKey,
+      (candidate) => candidate.runId !== entry.runId,
     );
+    return latest !== null && compareSubagentRunGeneration(latest, entry) > 0;
   }
 
   async acquireTerminalCompletionLock(runId: string): Promise<() => void> {
@@ -178,6 +177,7 @@ export class SubagentLifecycleController {
   markProgressEnded = (entry: SubagentRunRecord): void => void this.progressEndedEntries.add(entry);
   clearCleanupFailureCount = (entry: SubagentRunRecord): void =>
     void this.cleanupFailureCounts.delete(entry);
+  hasCleanupFailure = (entry: SubagentRunRecord): boolean => this.cleanupFailureCounts.has(entry);
 
   incrementCleanupFailureCount(entry: SubagentRunRecord): number {
     const count = (this.cleanupFailureCounts.get(entry) ?? 0) + 1;
@@ -246,10 +246,11 @@ export class SubagentLifecycleController {
   };
 
   completeCleanupBookkeeping = (params: CleanupBookkeepingParams) => {
-    completeCleanupBookkeeping(this, params, (excludeRunId) =>
-      retryDeferredCompletedAnnounces(this, excludeRunId),
-    );
+    completeCleanupBookkeeping(this, params);
   };
+
+  resumeAncestorCleanup = (settledEntry: SubagentRunRecord): void =>
+    resumeAncestorCleanup(this, settledEntry);
 
   static discardTerminalDelivery(
     this: void,

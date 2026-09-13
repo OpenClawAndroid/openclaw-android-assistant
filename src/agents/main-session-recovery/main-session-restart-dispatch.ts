@@ -47,10 +47,17 @@ import { normalizeFiniteTimestamp } from "./main-session-restart-recovery-shared
 const log = createSubsystemLogger("main-session-restart-recovery");
 const RESTART_RECOVERY_RESUME_MESSAGE = formatSystemTurnPrompt(
   "Your previous turn was interrupted by a gateway restart while " +
-    "OpenClaw was waiting on tool/model work. Continue from the existing " +
-    "transcript and finish the interrupted response. Treat a tool result marked interrupted or " +
-    `missing as having an unknown outcome. ${TOOL_FAILURE_INSTRUCTION}`,
+    "OpenClaw was waiting on tool/model work. The restart did not cancel the user's task. " +
+    "Continue from the existing transcript: check the current state, recover interrupted work, " +
+    "and finish the task without asking the user to repeat the request. Treat a tool result " +
+    "marked interrupted or missing as having an unknown outcome; verify what happened before " +
+    `repeating an action. ${TOOL_FAILURE_INSTRUCTION}`,
 );
+
+const RESTART_SAFE_TOOLS_NOTICE =
+  "For this turn only, the tool surface has been narrowed to replay-safe tools as a " +
+  "recovery precaution. Use the tools that are available to report status or continue " +
+  "read-only work; the full tool surface restores on the next user turn.";
 
 type RestartRecoveryTerminalStatus = "error" | "ok" | "timeout";
 
@@ -70,15 +77,21 @@ export function requiresRestartRecoveryMessageActionAuthority(entry: SessionEntr
   );
 }
 
-function buildResumeMessage(pendingFinalDeliveryText?: string | null): string {
+function buildResumeMessage(
+  pendingFinalDeliveryText?: string | null,
+  forceRestartSafeTools?: boolean,
+): string {
   const sanitizedPendingText =
     typeof pendingFinalDeliveryText === "string"
       ? sanitizePendingFinalDeliveryText(pendingFinalDeliveryText)
       : "";
+  const base = forceRestartSafeTools
+    ? `${RESTART_RECOVERY_RESUME_MESSAGE}\n\n${RESTART_SAFE_TOOLS_NOTICE}`
+    : RESTART_RECOVERY_RESUME_MESSAGE;
   if (sanitizedPendingText) {
-    return `${RESTART_RECOVERY_RESUME_MESSAGE}\n\nNote: The interrupted final reply was captured: "${sanitizedPendingText}"`;
+    return `${base}\n\nNote: The interrupted final reply was captured: "${sanitizedPendingText}"`;
   }
-  return RESTART_RECOVERY_RESUME_MESSAGE;
+  return base;
 }
 
 function normalizeRestartRecoveryTerminalStatus(
@@ -483,7 +496,7 @@ export async function resumeMainSession(params: {
     }
     const agentParams: AgentRunRequest = {
       agentId: params.agentId,
-      message: buildResumeMessage(sanitizedPendingText),
+      message: buildResumeMessage(sanitizedPendingText, params.forceRestartSafeTools),
       sessionKey: dispatchSessionKey,
       expectedExistingSessionId: params.entry.sessionId,
       ...(params.sessionWorkAdmissionHandoffId

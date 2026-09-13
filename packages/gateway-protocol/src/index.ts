@@ -41,6 +41,7 @@ export {
 export * from "./schema/session-classification.js";
 export * from "./schema/session-participant.js";
 export * from "./schema/sessions-suggestions.js";
+export * from "./schema/sessions-activity-summary.js";
 export * from "./schema/sessions-delete.js";
 export * from "./schema/sessions-goal.js";
 export {

@@ -1052,6 +1052,28 @@ syncBuiltinESMExports();
 
   const packageContractCases: NamedTarballCheck[] = [
     {
+      name: "accepts the handoff native URL staged before helper launch",
+      inventory: ["dist/managed-handoff-runtime.mjs"],
+      files: {
+        "dist/managed-handoff-runtime.mjs":
+          'new URL("./node_modules/koffi/indirect.cjs", import.meta.url);\n',
+      },
+      options: { pnpmPack: true, postinstall: true },
+      status: 0,
+      successText: true,
+    },
+    {
+      name: "rejects a handoff static import of the unpackaged native runtime",
+      inventory: ["dist/managed-handoff-runtime.mjs"],
+      files: {
+        "dist/managed-handoff-runtime.mjs": 'import "./node_modules/koffi/indirect.cjs";\n',
+      },
+      status: "nonzero",
+      stderr: [
+        "dist/managed-handoff-runtime.mjs imports missing dist/node_modules/koffi/indirect.cjs",
+      ],
+    },
+    {
       name: "accepts historical packages published before the Code Mode worker existed",
       version: "2026.5.14-beta.1",
       status: 0,

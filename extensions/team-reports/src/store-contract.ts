@@ -57,6 +57,7 @@ export type TeamReportsOperations = {
     input: { period?: Period; status?: "partial" | "closed"; limit?: number };
     output: PeriodListEntry[];
   };
+  latestSourceWarnings: { input: undefined; output: string[] };
   getDayReports: { input: { sinceMs: number; untilMs: number }; output: ReportDocument[] };
   listPersonDays: {
     input: { login: string; options: { since?: string; until?: string; limit?: number } };

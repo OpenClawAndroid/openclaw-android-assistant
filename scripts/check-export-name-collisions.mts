@@ -655,6 +655,12 @@ function collectSdkExportNames(modulesByPath: ReadonlyMap<string, ModuleExports>
 // exports its own `testing`/`testApi` object and tests import it qualified from that
 // exact module. Flagging them would push burn-down work to "fix" a deliberate idiom.
 const intentionalSameNameFamilies = new Set(["testing", "testApi"]);
+// The handoff build substitutes this exact module pair, so both loaders must
+// implement the same export. A third implementation is still a collision.
+const managedHandoffNativeLoaderModules = [
+  "src/infra/update-managed-service-handoff-native-loader.ts",
+  "src/shared/freebsd-process-identity-native.ts",
+];
 
 function analyzeExportNames(modules: SourceModule[]) {
   const aliasingReExports: AliasingReExport[] = [];
@@ -686,7 +692,13 @@ function analyzeExportNames(modules: SourceModule[]) {
 
   const collisions: ExportNameCollision[] = [];
   for (const [name, fileSet] of filesByName) {
-    if (fileSet.size < 2 || intentionalSameNameFamilies.has(name)) {
+    if (
+      fileSet.size < 2 ||
+      intentionalSameNameFamilies.has(name) ||
+      (name === "loadFreeBsdProcessIdentityNative" &&
+        fileSet.size === managedHandoffNativeLoaderModules.length &&
+        managedHandoffNativeLoaderModules.every((file) => fileSet.has(file)))
+    ) {
       continue;
     }
     const collision: ExportNameCollision = {

@@ -1,5 +1,5 @@
 import type { QueueMode } from "../../../../packages/gateway-protocol/src/schema/logs-chat.js";
-import { GatewayRequestError } from "../../api/gateway.ts";
+import { GatewayRequestError, type GatewayEventFrame } from "../../api/gateway.ts";
 import { t } from "../../i18n/index.ts";
 import {
   chatQueueMovableSegments,
@@ -155,8 +155,8 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string): Promis
   await retryQueuedChatMessage(host, id);
 }
 
-export const resumeStoredChatOutboxes = (host: ChatHost) =>
-  resumeStoredChatOutboxesDrain(host, chatOutboxDrainDependencies);
+export const resumeStoredChatOutboxes = (host: ChatHost, event?: GatewayEventFrame) =>
+  resumeStoredChatOutboxesDrain(host, chatOutboxDrainDependencies, event);
 
 export const flushChatQueueForEvent = (host: ChatHost) =>
   flushStoredChatOutbox(host, chatOutboxDrainDependencies);

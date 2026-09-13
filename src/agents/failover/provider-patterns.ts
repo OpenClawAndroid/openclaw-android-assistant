@@ -1,5 +1,4 @@
 import { classifyProviderFailoverSignalWithPlugin } from "../../plugins/provider-failover.js";
-import { isRateLimitErrorMessage } from "./message-patterns.js";
 import type { FailoverReason } from "./signal.js";
 type ProviderErrorPattern = {
   /** Regex to match against the raw error message. */
@@ -27,19 +26,6 @@ const PROVIDER_SPECIFIC_PATTERNS: readonly ProviderErrorPattern[] = [
     reason: "model_not_found",
   },
 ];
-
-const PROVIDER_CONTEXT_OVERFLOW_SIGNAL_RE =
-  /\b(?:context|window|prompt|token|tokens|input|request|model)\b/i;
-const PROVIDER_CONTEXT_OVERFLOW_ACTION_RE =
-  /\b(?:too\s+(?:large|long|many)|exceed(?:s|ed|ing)?|overflow|limit|maximum|max)\b/i;
-
-export function looksLikeProviderContextOverflowCandidate(errorMessage: string): boolean {
-  return (
-    !isRateLimitErrorMessage(errorMessage) &&
-    PROVIDER_CONTEXT_OVERFLOW_SIGNAL_RE.test(errorMessage) &&
-    PROVIDER_CONTEXT_OVERFLOW_ACTION_RE.test(errorMessage)
-  );
-}
 
 type ProviderSpecificErrorContext = {
   provider?: string;

@@ -15,6 +15,7 @@ import {
 } from "../../shared/assistant-error-format.js";
 import { formatExecDeniedUserMessage } from "../exec-approval-result.js";
 import type { CliTimeoutContext, FallbackAttemptRecord } from "../failover-error.js";
+import { ERROR_PREFIX_RE, renderFormatErrorCopy } from "./assistant-request-failure-copy.js";
 import {
   classifyFailoverReason,
   isPeriodicUsageLimitErrorMessage,
@@ -56,19 +57,10 @@ const RATE_LIMIT_RETRY_MESSAGE =
 const MODEL_CAPACITY_ERROR_RE = /\b(?:selected\s+)?model\s+(?:is\s+)?at capacity\b/i;
 const RATE_LIMIT_SPECIFIC_HINT_RE =
   /\bmin(ute)?s?\b|\bhours?\b|\bseconds?\b|\btry again in\b|\bresets?\b|\bplan\b|\bquota\b/i;
-const ERROR_PREFIX_RE =
-  /^(?:error|(?:[a-z][\w-]*\s+)?api\s*error|openai\s*error|anthropic\s*error|gateway\s*error|codex\s*error|request failed|failed|exception)(?:\s+\d{3})?[:\s-]+/i;
 const CONTEXT_OVERFLOW_ERROR_HEAD_RE =
   /^(?:context overflow:|request_too_large\b|request size exceeds\b|request exceeds the maximum size\b|context length exceeded\b|maximum context length\b|prompt is too long\b|exceeds model context window\b)/i;
 const NON_ERROR_PROVIDER_PAYLOAD_MAX_LENGTH = 16_384;
 const NON_ERROR_PROVIDER_PAYLOAD_PREFIX_RE = /^codex\s*error(?:\s+\d{3})?[:\s-]+/i;
-export const PROVIDER_SCHEMA_REJECTION_USER_TEXT =
-  "LLM request failed: provider rejected the request schema or tool payload.";
-const PROVIDER_OUTPUT_TOKEN_LIMIT_RE =
-  /^['"]?max_(?:tokens|output_tokens|completion_tokens|new_tokens)['"]?\s*(?:[:=]\s*)?\(?(\d[\d,]*)\)?\s+exceeds?\b.{0,120}?\b(?:maximum|max|limit)\b(?:\s+(?:output\s+)?tokens?)?(?:\s+(?:is|of)|\s*[:=])?\s*\(?(\d[\d,]*)\)?(?:\D|$)/i;
-
-const PROVIDER_CACHE_CONTROL_LIMIT_RE =
-  /^A maximum of (\d{1,6}) blocks with cache_control may be provided\. Found (\d{1,6})\.$/i;
 
 /** Format billing copy with optional provider/model and credential context. */
 export function formatBillingErrorMessage(
@@ -92,50 +84,6 @@ export function formatBillingErrorMessage(
 }
 
 const BILLING_ERROR_USER_MESSAGE = formatBillingErrorMessage();
-
-/** Surface only bounded numeric limit facts, never arbitrary provider-controlled error text. */
-export function renderFormatErrorCopy(raw: string): string {
-  const trimmed = raw.trim();
-  const normalized =
-    extractErrorHttpStatus(trimmed)?.rest ?? trimmed.replace(ERROR_PREFIX_RE, "").trim();
-  const candidate = extractErrorHttpStatus(normalized)?.rest ?? normalized;
-  const cacheLimit = candidate.match(PROVIDER_CACHE_CONTROL_LIMIT_RE);
-  if (cacheLimit) {
-    return `LLM request rejected: provider allows at most ${cacheLimit[1]} cache_control blocks; the request contained ${cacheLimit[2]}.`;
-  }
-  const match = candidate.length <= 300 ? candidate.match(PROVIDER_OUTPUT_TOKEN_LIMIT_RE) : null;
-  const [, value, maximum] = match ?? [];
-  if (!value || !maximum) {
-    return PROVIDER_SCHEMA_REJECTION_USER_TEXT;
-  }
-  return `LLM request rejected: configured maxTokens is ${value}, above the provider maximum of ${maximum}. Lower maxTokens and try again.`;
-}
-
-/** Share bounded request-limit facts between live failures and persisted chat history. */
-export function renderAssistantFormatFailureCopy(message: {
-  errorMessage?: unknown;
-  errorBody?: unknown;
-}): string | undefined {
-  for (const raw of [message.errorMessage, message.errorBody]) {
-    if (typeof raw !== "string") {
-      continue;
-    }
-    const info = parseApiErrorInfo(raw);
-    const status = extractErrorHttpStatus(raw)?.code;
-    if (
-      !info?.type?.toLowerCase().includes("invalid_request") &&
-      status !== 400 &&
-      status !== 422
-    ) {
-      continue;
-    }
-    const copy = renderFormatErrorCopy(info?.message ?? raw);
-    if (copy !== PROVIDER_SCHEMA_REJECTION_USER_TEXT) {
-      return copy;
-    }
-  }
-  return undefined;
-}
 
 function extractProviderRateLimitMessage(raw: string): string | undefined {
   const withoutPrefix = raw.replace(ERROR_PREFIX_RE, "").trim();

@@ -596,6 +596,41 @@ describe("sessions_yield completion ownership", () => {
     }
   });
 
+  it("rejects a collector yield before any claim source runs", async () => {
+    const registry = await import("./subagents/registry/subagent-registry.js");
+    const markRequesterTurnYielded = vi
+      .spyOn(registry, "markRequesterTurnYielded")
+      .mockReturnValue(1);
+    const claimYieldCompletion = vi.fn(() => true);
+    const onYield = vi.fn(async () => undefined);
+
+    try {
+      const tool = expectToolNamed(
+        createTestOpenClawTools({
+          agentSessionKey: "agent:main:subagent:collector",
+          sessionId: "collector-session",
+          runId: "run-collector",
+          swarmCollector: true,
+          claimYieldCompletion,
+          onYield,
+          disableMessageTool: true,
+          disablePluginTools: true,
+          wrapBeforeToolCallHook: false,
+        }),
+        "sessions_yield",
+      );
+
+      await expect(tool.execute("yield-collector", {})).resolves.toMatchObject({
+        details: { status: "error", error: expect.stringContaining("collected explicitly") },
+      });
+      expect(claimYieldCompletion).not.toHaveBeenCalled();
+      expect(markRequesterTurnYielded).not.toHaveBeenCalled();
+      expect(onYield).not.toHaveBeenCalled();
+    } finally {
+      markRequesterTurnYielded.mockRestore();
+    }
+  });
+
   it("accepts a runtime completion owner while recording the registry claim", async () => {
     const registry = await import("./subagents/registry/subagent-registry.js");
     const markRequesterTurnYielded = vi

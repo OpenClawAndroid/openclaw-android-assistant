@@ -88,6 +88,7 @@ export function runWithOperatorToolGatewayCleanupContext<T>(run: () => T): T {
 }
 
 type DispatchGatewayMethodInProcessOptions = {
+  privateCompletion?: true;
   allowSyntheticModelOverride?: boolean;
   allowSyntheticCronRunContinuation?: boolean;
   agentToolCaller?: TrustedAgentToolCaller;
@@ -446,6 +447,7 @@ export async function dispatchGatewayMethodInProcess<T>(
       return method === "agent"
         ? await facade.dispatch<T>(params as AgentRunRequest, {
             assertAdmissionCurrent: options?.sessionMutationCommitGuard,
+            privateCompletion: options?.privateCompletion,
             cancelOnDeadline: options?.cancelOnDeadline,
             expectFinal: options?.expectFinal,
             onAccepted: options?.onAccepted,

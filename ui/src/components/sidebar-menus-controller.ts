@@ -12,11 +12,12 @@ import {
   SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
   sessionPullRequestsForGateway,
 } from "../lib/session-pull-requests.ts";
-import { parseCatalogSessionKey } from "../lib/sessions/catalog-key.ts";
-import { openCatalogSessionInTerminal } from "../lib/sessions/catalog-terminal.ts";
 import { sessionNavigationTarget } from "../lib/sessions/route-navigation.ts";
 import { parseAgentSessionKey, scopedSessionArtifactKey } from "../lib/sessions/session-key.ts";
-import { SidebarCatalogMenuController } from "./app-sidebar-catalog-menu.ts";
+import {
+  createSidebarCatalogMenuController,
+  type SidebarCatalogMenuController,
+} from "./app-sidebar-catalog-menu.ts";
 import { isSidebarRouteActive, renderSidebarNavRoute } from "./app-sidebar-nav-menus.ts";
 import type {
   SidebarRecentSession,
@@ -102,35 +103,8 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
   constructor(readonly host: SidebarMenusControllerHost) {
     host.addController(this);
     this.agentMenuAvatars = new IdentityAvatarController(host);
-    this.catalogMenu = new SidebarCatalogMenuController({
-      // Closing every transient menu keeps one popover at a time.
-      beforeOpen: () => void this.dismissTransientMenus(),
-      requestUpdate: () => host.requestUpdate(),
-      terminalAvailable: () => host.terminalAvailable,
-      openTerminal: (key, agentId) => openCatalogSessionInTerminal(host, key, agentId),
-      beginMutation: () => host.sessionData.beginSessionMutation(),
-      isMutationCurrent: (scope) => host.sessionData.isSessionMutationScopeCurrent(scope),
-      archive: (scope, params) => scope.client.request("sessions.catalog.archive", params),
-      afterDelete: async (scope, key) => {
-        host.sessionData.invalidateSessionCatalogs();
-        if (!host.sessionData.isSessionMutationScopeCurrent(scope)) {
-          return;
-        }
-        const active = parseCatalogSessionKey(host.getRouteSessionKey());
-        if (
-          host.activeRouteId === "chat" &&
-          active?.catalogId === key.catalogId &&
-          active.hostId === key.hostId &&
-          active.threadId === key.threadId
-        ) {
-          host.onNavigate?.("chat", {
-            pathname: pathForRoute("chat", host.basePath),
-            search: "",
-            hash: "",
-          });
-        }
-      },
-      navigate: ({ routeId, navigation }) => host.onNavigate?.(routeId, navigation),
+    this.catalogMenu = createSidebarCatalogMenuController(host, () => {
+      this.dismissTransientMenus();
     });
   }
 

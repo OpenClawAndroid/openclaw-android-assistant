@@ -280,6 +280,53 @@ function startCollector(id: string) {
   expect(subagentRuns.get(id)?.execution.status).toBe("running");
 }
 
+function startAnnouncingSubagent(id: string) {
+  registerSubagentRun({
+    runId: id,
+    childSessionKey: key,
+    requesterSessionKey: "agent:main:main",
+    requesterAgentId: "main",
+    agentId: "main",
+    requesterDisplayKey: "main",
+    task: "announced subagent",
+    cleanup: "delete",
+    queued: true,
+    expectsCompletionMessage: true,
+    taskRowOwnership: "required",
+  });
+  emitAgentEvent({
+    runId: id,
+    stream: "lifecycle",
+    data: { phase: "start", startedAt: Date.now() },
+  });
+  expect(subagentRuns.get(id)?.execution.status).toBe("running");
+}
+
+/**
+ * A settled collector's cleanup: "delete" work is dispatched detached, so its registry
+ * root outlives the lifecycle event that settled the run. Wait for the durable cleanup
+ * mark that detached attempt publishes, then hold the residual-roots guard for the
+ * remaining bookkeeping tails.
+ */
+async function settleCollectorCleanup(id: string) {
+  const cleanupMarked = createDeferredCore();
+  const isCleanupMarked = () => typeof subagentRuns.get(id)?.cleanupCompletedAt === "number";
+  const unsubscribe = onSubagentRegistryPersisted(() => {
+    if (isCleanupMarked()) {
+      cleanupMarked.resolve();
+    }
+  });
+  try {
+    if (isCleanupMarked()) {
+      cleanupMarked.resolve();
+    }
+    await cleanupMarked.promise;
+  } finally {
+    unsubscribe();
+  }
+  await settleSubagentRegistryPersistenceWork();
+}
+
 test("same-turn reset keeps its active continuation and task unsuppressed", async () => {
   const activeId = "active-continuation";
   startCollector(activeId);
@@ -544,7 +591,9 @@ test.each([false, true])(
 
 test("reset preserves a yielded continuation instead of revoking it as completed cleanup", async () => {
   const id = "yielded-continuation";
-  startCollector(id);
+  // A yielded collector is settled at its terminal (#141474), so it is not a continuation to
+  // preserve; this case uses an announcing subagent, and the sibling case below pins the collector.
+  startAnnouncingSubagent(id);
   emitAgentEvent({
     runId: id,
     stream: "lifecycle",
@@ -554,4 +603,21 @@ test("reset preserves a yielded continuation instead of revoking it as completed
   await request("sessions.reset", { key });
   expect(loadSubagentRegistryFromSqlite().get(id)).toMatchObject({ pauseReason: "sessions_yield" });
   expect(loadSubagentRegistryFromSqlite().get(id)?.execution.suppressSessionEffects).not.toBe(true);
+});
+
+test("reset revokes a yielded collector that settled at its own terminal", async () => {
+  const id = "yielded-collector";
+  startCollector(id);
+  emitAgentEvent({
+    runId: id,
+    stream: "lifecycle",
+    data: { phase: "end", yielded: true, endedAt: Date.now() },
+  });
+  await settleCollectorCleanup(id);
+  const settled = expectDefined(subagentRuns.get(id), "settled collector");
+  expect(settled.pauseReason).toBeUndefined();
+  expect(settled.execution.status).toBe("terminal");
+  expect(settled.collectorCompletion).toBeDefined();
+  await request("sessions.reset", { key });
+  expect(loadSubagentRegistryFromSqlite().get(id)?.execution.suppressSessionEffects).toBe(true);
 });

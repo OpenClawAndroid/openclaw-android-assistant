@@ -163,7 +163,11 @@ export const hasPriorRequesterDeliveryMirror = async (
 ): Promise<boolean> => {
   const completion = ensureCompletionState(entry);
   const expectedText = extractTextFromChatContent(completion.resultText, { joinWith: "" });
-  if (entry.expectsCompletionMessage !== true || expectedText == null) {
+  if (
+    entry.completionTarget === "parent" ||
+    entry.expectsCompletionMessage !== true ||
+    expectedText == null
+  ) {
     return false;
   }
   const mirrorNotBefore = entry.execution.startedAt ?? entry.createdAt;
@@ -541,6 +545,8 @@ export const loadPendingFinalDeliveryPayload = (
     outcome: entry.delivery?.payload?.outcome ?? entry.execution.outcome,
     expectsCompletionMessage:
       entry.delivery?.payload?.expectsCompletionMessage ?? entry.expectsCompletionMessage,
+    completionTarget: entry.completionTarget,
+    completionRequesterSessionId: entry.completionRequesterSessionId,
     spawnMode: entry.delivery?.payload?.spawnMode ?? entry.spawnMode,
     wakeOnDescendantSettle:
       entry.delivery?.payload?.wakeOnDescendantSettle ?? entry.wakeOnDescendantSettle,

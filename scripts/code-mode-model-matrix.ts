@@ -17,6 +17,15 @@ import {
 } from "../extensions/qa-lab/api.js";
 import type { AgentExecEnvelope } from "../src/commands/agent-exec-result.ts";
 import { requireOptionArgument } from "./lib/arg-utils.mts";
+import { summarizeGatewayMatrixOutcomes } from "./lib/code-mode-matrix-comparison.ts";
+import {
+  GATEWAY_MATRIX_TASKS,
+  type GatewayMatrixTask,
+} from "./lib/code-mode-matrix-gateway-fixtures.ts";
+import type {
+  GatewayMatrixEvidence,
+  GatewayMatrixWorkload,
+} from "./lib/code-mode-matrix-gateway.ts";
 import { previewForDevToolLog, redactJsonValueForDevToolLog } from "./lib/dev-tooling-safety.ts";
 
 export { validateQaEvidenceSummaryJson };
@@ -36,6 +45,7 @@ const MATRIX_TASKS = [
   "large-result-reduction",
   "parallel-independent-reads",
   "dependent-chain",
+  ...GATEWAY_MATRIX_TASKS,
 ] as const;
 export type CodeModeMatrixTask = (typeof MATRIX_TASKS)[number];
 
@@ -48,12 +58,14 @@ export type CodeModeMatrixOptions = {
   outputDir?: string;
   repetitions: number;
   repoRoot: string;
+  runtimeDir?: string;
+  baselineResults?: string;
   tasks: CodeModeMatrixTask[];
   thinking: string;
   timeoutSeconds: number;
 };
 
-type MatrixCell = {
+export type MatrixCell = {
   id: string;
   mode: CodeModeMatrixMode;
   model: string;
@@ -67,7 +79,7 @@ type MatrixTaskFixture = {
   resultPath?: string;
 };
 
-type MatrixRuntimeEntrypoint = {
+export type MatrixRuntimeEntrypoint = {
   args: string[];
   cwd: string;
 };
@@ -78,6 +90,7 @@ type CellFailureCategory =
   | "answer_mismatch"
   | "effect_mismatch"
   | "harness_error"
+  | "interview_mismatch"
   | "model_mismatch"
   | "provider_auth"
   | "provider_billing"
@@ -119,9 +132,12 @@ export type CodeModeMatrixCellResult = {
   timestamp: string;
   toolSummary?: AgentExecEnvelope["toolSummary"];
   usage?: AgentExecEnvelope["usage"];
+  gateway?: GatewayMatrixEvidence;
+  workload?: GatewayMatrixWorkload;
 };
 
-type RunCellParams = {
+export type RunCellParams = {
+  abortSignal?: AbortSignal;
   buildSha256: string;
   cell: MatrixCell;
   gitSha: string;
@@ -164,6 +180,8 @@ Options:
   --timeout <seconds>       Per-run agent deadline (default: ${DEFAULT_TIMEOUT_SECONDS})
   --thinking <level>        Agent thinking level (default: off)
   --output-dir <path>       Repo-relative artifact directory
+  --runtime-dir <path>      Use a clean, already-built checkout without rebuilding it
+  --baseline-results <path> Compare matching cells from an earlier results.jsonl
   --keep-state              Retain per-cell state and workspace directories
   --allow-failures          Exit zero after writing evidence even when cells fail
   --dry-run                 Write the manifest without calling models
@@ -207,6 +225,10 @@ function parseTask(raw: string): CodeModeMatrixTask {
   throw new Error(`--task must be one of ${MATRIX_TASKS.join(", ")}; got ${JSON.stringify(raw)}`);
 }
 
+function isGatewayTask(task: CodeModeMatrixTask): task is GatewayMatrixTask {
+  return GATEWAY_MATRIX_TASKS.some((candidate) => candidate === task);
+}
+
 export function parseCodeModeMatrixOptions(
   argv: readonly string[],
   cwd = process.cwd(),
@@ -218,6 +240,8 @@ export function parseCodeModeMatrixOptions(
   let dryRun = false;
   let keepState = false;
   let outputDir: string | undefined;
+  let runtimeDir: string | undefined;
+  let baselineResults: string | undefined;
   let repetitions = DEFAULT_REPETITIONS;
   let thinking = "off";
   let timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
@@ -280,6 +304,17 @@ export function parseCodeModeMatrixOptions(
       index += 1;
       continue;
     }
+    if (arg === "--runtime-dir" || arg === "--baseline-results") {
+      recordOnce(arg);
+      const value = path.resolve(cwd, requireOptionArgument(argv, index, arg));
+      if (arg === "--runtime-dir") {
+        runtimeDir = value;
+      } else {
+        baselineResults = value;
+      }
+      index += 1;
+      continue;
+    }
     if (arg === "--allow-failures") {
       recordOnce(arg);
       allowFailures = true;
@@ -304,6 +339,19 @@ export function parseCodeModeMatrixOptions(
   if (models.length === 0) {
     throw new Error("At least one --model <provider/model> is required");
   }
+  if (tasks.some(isGatewayTask)) {
+    if (modes.length !== 1 || modes[0] !== "code") {
+      throw new Error("Gateway interview tasks require --mode code.");
+    }
+    if (models.some((model) => !model.startsWith("openai/"))) {
+      throw new Error("Gateway interview tasks currently require explicit OpenAI models.");
+    }
+  }
+  if (baselineResults && (tasks.length === 0 || tasks.some((task) => !isGatewayTask(task)))) {
+    throw new Error(
+      "--baseline-results requires Gateway interview tasks with fixed workload fingerprints.",
+    );
+  }
   return {
     allowFailures,
     dryRun,
@@ -313,6 +361,8 @@ export function parseCodeModeMatrixOptions(
     outputDir,
     repetitions,
     repoRoot: path.resolve(cwd),
+    ...(runtimeDir ? { runtimeDir } : {}),
+    ...(baselineResults ? { baselineResults } : {}),
     tasks: tasks.length > 0 ? tasks : ["read", "dependent-read-write"],
     thinking,
     timeoutSeconds,
@@ -1034,6 +1084,7 @@ async function executeAgentExec(params: {
       env,
       maxBuffer: 4 * 1024 * 1024,
       timeout: (params.matrix.timeoutSeconds + 30) * 1_000,
+      signal: params.matrix.abortSignal,
     });
     const parsed = parseAgentExecOutput(stdout);
     return {
@@ -1083,6 +1134,13 @@ async function executeAgentExec(params: {
 }
 
 async function runMatrixCell(params: RunCellParams): Promise<CodeModeMatrixCellResult> {
+  if (isGatewayTask(params.cell.task)) {
+    const { runGatewayMatrixCell } = await import("./lib/code-mode-matrix-gateway.ts");
+    return await runGatewayMatrixCell({
+      ...params,
+      cell: { ...params.cell, task: params.cell.task },
+    });
+  }
   const retainedRoot = path.join(params.outputDir, "state", params.cell.id);
   if (params.keepState) {
     await fs.rm(retainedRoot, { force: true, recursive: true });
@@ -1170,7 +1228,7 @@ function harnessFailureResult(
     diagnostics: message,
     elapsedMs,
     error: { kind: "harness_error", message },
-    expected: taskFixture(cell).expected,
+    expected: isGatewayTask(cell.task) ? "Gateway task result" : taskFixture(cell).expected,
     failureCategory: "harness_error",
     final: "",
     gitSha: provenance.gitSha,
@@ -1254,7 +1312,7 @@ function summarizeResults(results: CodeModeMatrixCellResult[]) {
   return [...groups.entries()].map(([key, group]) => {
     const [model, mode, task] = key.split("\0");
     const sortedWallMs = group.wallMs.toSorted((a, b) => a - b);
-    return {
+    const summary = {
       codeModeEngaged: group.codeModeEngaged,
       failed: group.failed,
       failures: group.failures,
@@ -1265,7 +1323,9 @@ function summarizeResults(results: CodeModeMatrixCellResult[]) {
       p50WallMs: sortedWallMs[Math.floor(sortedWallMs.length / 2)] ?? 0,
       metrics: {
         assistantTurns: summarizeMetric(group.results.map((result) => result.assistantTurns)),
-        outerToolCalls: summarizeMetric(group.results.map((result) => result.toolSummary?.calls)),
+        outerToolCalls: summarizeMetric(
+          group.results.map((result) => result.toolSummary?.calls ?? result.gateway?.outerCalls),
+        ),
         bridgeSearchCalls: summarizeMetric(
           group.results.map((result) => result.bridgeCalls?.search),
         ),
@@ -1274,12 +1334,23 @@ function summarizeResults(results: CodeModeMatrixCellResult[]) {
         ),
         bridgeToolCalls: summarizeMetric(group.results.map((result) => result.bridgeCalls?.call)),
         costUsd: summarizeMetric(group.results.map((result) => result.costUsd)),
+        gatewayUpstreamCalls: summarizeMetric(
+          group.results.map((result) => result.gateway?.upstreamCalls),
+        ),
+        gatewayTaskElapsedMs: summarizeMetric(
+          group.results.map((result) => result.gateway?.taskElapsedMs),
+        ),
+        inputTokens: summarizeMetric(group.results.map((result) => result.usage?.input)),
+        outputTokens: summarizeMetric(group.results.map((result) => result.usage?.output)),
       },
       passRate: group.total === 0 ? 0 : group.passed / group.total,
       passed: group.passed,
       task,
       total: group.total,
     };
+    return group.results.some((result) => result.workload)
+      ? Object.assign(summary, { gatewayOutcomes: summarizeGatewayMatrixOutcomes(group.results) })
+      : summary;
   });
 }
 
@@ -1378,31 +1449,57 @@ export async function runCodeModeModelMatrix(
 ): Promise<{ exitCode: number; outputDir: string; summary: unknown }> {
   const now = deps.now?.() ?? new Date();
   const outputDir = resolveCodeModeMatrixOutputDir(options.repoRoot, options.outputDir, now);
+  const runtimeRepoRoot = options.runtimeDir ?? options.repoRoot;
   const sourceIdentity = deps.readSourceIdentity
-    ? await deps.readSourceIdentity(options.repoRoot)
+    ? await deps.readSourceIdentity(runtimeRepoRoot)
     : deps.readGitSha
       ? {
-          gitSha: await deps.readGitSha(options.repoRoot),
+          gitSha: await deps.readGitSha(runtimeRepoRoot),
           sourceDirty: false,
           sourcePatchSha256: null,
         }
-      : await readSourceIdentity(options.repoRoot);
+      : await readSourceIdentity(runtimeRepoRoot);
+  if (options.runtimeDir && sourceIdentity.sourceDirty) {
+    throw new Error("--runtime-dir must identify a clean committed checkout.");
+  }
   const cells = buildCells(options);
   await assertOutputOutsideGitMetadata(options.repoRoot, outputDir);
-  if (!options.dryRun) {
+  if (!options.dryRun && !options.runtimeDir) {
     await (deps.buildCliArtifacts ?? buildMatrixCliArtifacts)(options.repoRoot);
+  }
+  if (!options.dryRun && options.runtimeDir) {
+    for (const stamp of [".buildstamp", ".runtime-postbuildstamp"]) {
+      const value: unknown = JSON.parse(
+        await fs.readFile(path.join(runtimeRepoRoot, "dist", stamp), "utf8"),
+      );
+      if (
+        !value ||
+        typeof value !== "object" ||
+        !("head" in value) ||
+        value.head !== sourceIdentity.gitSha
+      ) {
+        throw new Error(
+          `Frozen runtime ${stamp} does not match its committed source; rebuild it first.`,
+        );
+      }
+    }
   }
   // Build first so its output set is complete, then reserve evidence storage
   // before hashing. Dry runs also write evidence, so every run needs isolation.
   await assertOutputOutsideRuntimeArtifacts(options.repoRoot, outputDir);
+  if (options.runtimeDir) {
+    await assertOutputOutsideRuntimeArtifacts(runtimeRepoRoot, outputDir);
+  }
   await reserveCodeModeMatrixOutputDir(options.repoRoot, outputDir);
   const buildSha256 = options.dryRun
     ? null
-    : await (deps.readBuildSha256 ?? hashRuntimeArtifacts)(options.repoRoot);
+    : await (deps.readBuildSha256 ?? hashRuntimeArtifacts)(runtimeRepoRoot);
   const manifest = {
     schemaVersion: MATRIX_SCHEMA_VERSION,
     generatedAt: now.toISOString(),
     source: SOURCE_PATH,
+    ...(options.runtimeDir ? { harness: await readSourceIdentity(options.repoRoot) } : {}),
+    ...(options.runtimeDir ? { runtimeDir: runtimeRepoRoot } : {}),
     ...sourceIdentity,
     buildSha256,
     models: options.models,
@@ -1432,25 +1529,39 @@ export async function runCodeModeModelMatrix(
   const runtimeRoot = deps.runCell
     ? undefined
     : await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-code-mode-runtime-"));
+  const abortController = new AbortController();
+  const interrupt = () => abortController.abort(new Error("Code Mode matrix interrupted"));
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", interrupt);
   try {
     const runtime = runtimeRoot
-      ? await prepareRuntimeEntrypoint(options.repoRoot, runtimeRoot)
+      ? await prepareRuntimeEntrypoint(runtimeRepoRoot, runtimeRoot)
       : undefined;
     const results: CodeModeMatrixCellResult[] = [];
     const resultsPath = path.join(outputDir, "results.jsonl");
     await fs.writeFile(resultsPath, "", "utf8");
     const executeCell = deps.runCell ?? runMatrixCell;
     for (const cell of cells) {
+      abortController.signal.throwIfAborted();
+      const workload = isGatewayTask(cell.task)
+        ? (await import("./lib/code-mode-matrix-gateway.ts")).createGatewayMatrixWorkload(
+            cell.task,
+            cell.repetition,
+            options.thinking,
+            options.timeoutSeconds,
+          )
+        : undefined;
       let result: CodeModeMatrixCellResult;
       const cellStartedAt = Date.now();
       try {
         result = await executeCell({
+          abortSignal: abortController.signal,
           buildSha256: buildSha256 ?? "dry-run",
           cell,
           gitSha: sourceIdentity.gitSha,
           keepState: options.keepState,
           outputDir,
-          repoRoot: options.repoRoot,
+          repoRoot: runtimeRepoRoot,
           runtime,
           sourceDirty: sourceIdentity.sourceDirty,
           sourcePatchSha256: sourceIdentity.sourcePatchSha256,
@@ -1468,6 +1579,9 @@ export async function runCodeModeModelMatrix(
           error,
         );
       }
+      if (workload) {
+        result.workload = workload;
+      }
       results.push(result);
       await fs.appendFile(
         resultsPath,
@@ -1476,6 +1590,15 @@ export async function runCodeModeModelMatrix(
       );
       const label = result.passed ? "PASS" : `FAIL ${result.failureCategory ?? "unknown"}`;
       console.log(`[code-mode-matrix] ${label} ${result.id} ${result.elapsedMs}ms`);
+    }
+    abortController.signal.throwIfAborted();
+    if (options.runtimeDir && !deps.runCell) {
+      const finalIdentity = await readSourceIdentity(runtimeRepoRoot);
+      if (finalIdentity.sourceDirty || finalIdentity.gitSha !== sourceIdentity.gitSha) {
+        throw new Error(
+          "Frozen runtime changed during the benchmark; per-cell evidence is retained but cannot establish a fixed-source comparison.",
+        );
+      }
     }
 
     const groups = summarizeResults(results);
@@ -1497,9 +1620,20 @@ export async function runCodeModeModelMatrix(
         firstPassPassed,
         eventualPassed,
       },
+      ...(results.some((result) => result.workload)
+        ? { gatewayOutcomes: summarizeGatewayMatrixOutcomes(results) }
+        : {}),
       groups,
     };
     await writeJson(path.join(outputDir, "summary.json"), summary);
+    if (options.baselineResults) {
+      const { compareCodeModeMatrixResultsFile } =
+        await import("./lib/code-mode-matrix-comparison.ts");
+      await writeJson(
+        path.join(outputDir, "comparison.json"),
+        await compareCodeModeMatrixResultsFile(options.baselineResults, results),
+      );
+    }
     await writeJson(
       path.join(outputDir, QA_EVIDENCE_FILENAME),
       buildCodeModeMatrixEvidence({
@@ -1514,6 +1648,8 @@ export async function runCodeModeModelMatrix(
       summary,
     };
   } finally {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", interrupt);
     if (runtimeRoot) {
       await fs.rm(runtimeRoot, { force: true, recursive: true });
     }

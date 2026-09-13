@@ -96,12 +96,8 @@ docker_e2e_docker_run_with_resource_diagnostics() {
   local stderr_fifo="${diagnostic_dir}/stderr.pipe"
   local capture_fifo="${diagnostic_dir}/capture.pipe"
   local mkfifo_bin=""
-  if command -v mkfifo >/dev/null 2>&1; then
-    mkfifo_bin="$(command -v mkfifo)"
-  elif [ -x /usr/bin/mkfifo ]; then
-    mkfifo_bin=/usr/bin/mkfifo
-  fi
-  if [ -z "$mkfifo_bin" ] || ! "$mkfifo_bin" "$stderr_fifo" "$capture_fifo"; then
+  if ! mkfifo_bin="$(docker_e2e_diagnostic_bin mkfifo)" ||
+    ! "$mkfifo_bin" "$stderr_fifo" "$capture_fifo"; then
     docker_e2e_remove_diagnostic_dir "$diagnostic_dir"
     docker_e2e_timeout_cmd \
       "$timeout_value" \

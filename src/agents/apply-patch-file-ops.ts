@@ -1,10 +1,7 @@
 import syncFs from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import {
-  openRootFileFollowingParents,
-  type RootFileOpenResult,
-} from "../infra/boundary-file-read.js";
+import { openRootFile, type RootFileOpenResult } from "../infra/boundary-file-read.js";
 import {
   canonicalPathFromExistingAncestor,
   FsSafeError,
@@ -157,10 +154,11 @@ export async function resolvePatchFileOps(options: ApplyPatchFileOptions): Promi
     observer: options.memoryWriteProvenance,
     operations: {
       readFile: async (filePath) => {
-        const opened = await openRootFileFollowingParents({
+        const opened = await openRootFile({
           absolutePath: filePath,
           rootPath: containmentRoot,
           boundaryLabel: "workspace root",
+          symlinks: "follow-parents-within-root",
         });
         assertBoundaryRead(opened, filePath);
         try {

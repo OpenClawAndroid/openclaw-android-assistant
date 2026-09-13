@@ -66,6 +66,16 @@ private struct ChatSubagentActivityRow: View {
         }
     }
 
+    private var statusLabel: LocalizedStringResource {
+        switch self.activity.status {
+        case .queued: "Queued"
+        case .running: "Working"
+        case .completed: "Finished"
+        case .failed, .timedOut: "Failed"
+        case .cancelled: "Cancelled"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if self.isDesktopLayout, self.detail != nil {
@@ -112,10 +122,18 @@ private struct ChatSubagentActivityRow: View {
                     .accessibilityHidden(true)
             }
 
-            Text(self.title)
+            (self.activity.title.map { Text(verbatim: $0) } ?? Text(self.title))
                 .font(OpenClawChatTypography.footnoteSemiBold)
                 .foregroundStyle(self.titleColor)
                 .lineLimit(1)
+                .help(self.activity.title ?? String(localized: self.title))
+
+            if self.activity.title != nil {
+                Text(self.statusLabel)
+                    .font(OpenClawChatTypography.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
 
             if let detail = self.detail {
                 Text(verbatim: detail)

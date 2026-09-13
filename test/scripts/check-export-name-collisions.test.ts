@@ -70,6 +70,28 @@ describe("export name collision guard", () => {
     expect([...result.exportedNames]).toEqual(["importedValue", "remoteValue"]);
   });
 
+  it("exempts only the exact handoff loader substitution", () => {
+    const name = "loadFreeBsdProcessIdentityNative";
+    const paths = [
+      "src/infra/update-managed-service-handoff-native-loader.ts",
+      "src/shared/freebsd-process-identity-native.ts",
+    ];
+    const modules = paths.map((id) => ({ path: id, content: `export function ${name}() {}` }));
+    expect(findExportNameCollisions(modules)).toEqual([]);
+    const extra = { path: "src/extra.ts", content: `export function ${name}() {}` };
+    expect(findExportNameCollisions([...modules, extra])).toEqual([
+      { name, files: [...paths, extra.path].toSorted() },
+    ]);
+    expect(findExportNameCollisions([modules[0]!, extra])).toEqual([
+      { name, files: [paths[0]!, extra.path].toSorted() },
+    ]);
+    expect(
+      findExportNameCollisions(
+        paths.map((id) => ({ path: id, content: "export function otherBehavior() {}" })),
+      ),
+    ).toEqual([{ name: "otherBehavior", files: paths }]);
+  });
+
   it("reports direct aliasing re-exports only outside the Plugin SDK", () => {
     expect(
       findAliasingReExports([

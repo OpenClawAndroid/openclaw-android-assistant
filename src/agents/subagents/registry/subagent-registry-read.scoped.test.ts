@@ -8,7 +8,6 @@ import {
   getLatestSubagentRunByChildSessionKeyFromRuns,
   getSubagentRunByChildSessionKeyFromRuns,
   hasDescendantRunAwaitingSettleFromRuns,
-  isSubagentSessionRunActiveFromRuns,
   listDescendantRunsForRequesterFromRuns,
   listRunsForControllerFromRuns,
   listRunsForRequesterFromRuns,
@@ -358,9 +357,9 @@ describe("subagent registry scoped reads", () => {
           getLatestSubagentRunByChildSessionKeyFromRuns([freshTerminal], reusedChild) ?? null,
       },
       {
-        name: "active child ownership from raw live map",
+        name: "raw registration without an execution owner is not executor-live",
         actual: mod.isSubagentSessionRunActive(parent),
-        expected: isSubagentSessionRunActiveFromRuns(mocks.liveRuns, parent),
+        expected: false,
       },
       {
         name: "requester runs from raw live map",

@@ -21,7 +21,7 @@ type TsdownConfigEntry = {
   minify?: unknown;
   dts?: boolean | { emitDtsOnly?: boolean };
   define?: Record<string, unknown>;
-  outputOptions?: { codeSplitting?: boolean };
+  outputOptions?: { codeSplitting?: boolean; chunkFileNames?: string };
   outExtensions?: () => { js: string };
   outDir?: string;
   plugins?: Array<{ name?: string }>;
@@ -81,6 +81,14 @@ function requireSqliteReadOnlyChildGraph(): TsdownConfigEntry {
   );
   expect(graphs).toHaveLength(1);
   return expectDefined(graphs[0], "read-only snapshot child graph");
+}
+
+function requireNativeHookRelayGraph(): TsdownConfigEntry {
+  const graphs = asConfigArray(tsdownConfig).filter((config) =>
+    entryKeys(config).includes("native-hook-relay/entry"),
+  );
+  expect(graphs).toHaveLength(1);
+  return expectDefined(graphs[0], "native hook relay graph");
 }
 
 function bundledEntry(pluginId: string): string {
@@ -203,13 +211,28 @@ describe("tsdown config", () => {
     expect(handoffGraph?.plugins).toContainEqual(
       expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
     );
-    expect(entrySources(unifiedGraph)["native-hook-relay/entry"]).toBe(
-      "src/cli/native-hook-relay-entry.ts",
+    expect(requireNativeHookRelayGraph().plugins).toContainEqual(
+      expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
     );
     expect(requireSqliteReadOnlyChildGraph().plugins).toContainEqual(
       expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
     );
-    expect(inlinePlugins).toHaveLength(4);
+    expect(inlinePlugins).toHaveLength(5);
+  });
+
+  it("isolates relay startup from shared runtime chunks while retaining lazy fallback", () => {
+    const relay = requireNativeHookRelayGraph();
+    expect(entrySources(relay)).toEqual({
+      "native-hook-relay/entry": "src/cli/native-hook-relay-entry.ts",
+    });
+    expect(relay).not.toBe(requireUnifiedDistGraph());
+    expect(relay.dts).toBe(false);
+    expect(relay.outputOptions?.codeSplitting).not.toBe(false);
+    expect(relay.outputOptions?.chunkFileNames).toBe("native-hook-relay/[name]-[hash].mjs");
+    // Only the shared graph may publish the global plugin ownership manifest.
+    expect(relay.plugins).not.toContainEqual(
+      expect.objectContaining({ name: "openclaw:runtime-dependency-ownership" }),
+    );
   });
 
   it("keeps core, plugin runtime, plugin-sdk, bundled root plugins, and bundled hooks in one dist graph", () => {

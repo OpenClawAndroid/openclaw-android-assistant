@@ -256,7 +256,7 @@ export async function createPluginReloadRecoveryFixture(
           nextConfig,
           sourceConfig: nextConfig,
           changedPaths,
-          prepareConfigEffects: options.prepareConfigEffects ?? (() => {}),
+          prepareConfigEffects: options.prepareConfigEffects ?? (() => async () => {}),
           pluginLifecycle: {
             reason: "reload",
             operationId: "service-recovery",

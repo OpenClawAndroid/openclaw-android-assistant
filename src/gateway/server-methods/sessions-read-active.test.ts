@@ -24,7 +24,9 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resetAgentEventsForTest } from "../../infra/agent-events.js";
 import { registerAgentRunCapacityWait } from "../../infra/agent-run-capacity-wait.js";
 import {
+  claimAgentRunContext,
   clearAgentRunContext,
+  releaseAgentRunContext,
   getAgentRunLifecycleGeneration,
   registerAgentRunContext,
 } from "../../infra/agent-run-registry.js";
@@ -112,9 +114,14 @@ it("selects current work before pagination and represents an isolated cron run o
       createdAt: 1,
       startedAt: 2,
     });
-    registerAgentRunContext("child-run", { sessionKey: childKey, agentId: "main" });
+    const childClaim = claimAgentRunContext(
+      "child-run",
+      { sessionKey: childKey, agentId: "main" },
+      { trackOwner: true, ownsContext: true },
+    );
     const releaseWait = registerAgentRunCapacityWait("child-run", getAgentRunLifecycleGeneration());
     try {
+      expect(childClaim).toBeDefined();
       const normal = await listSessions({ client, context, request: { limit: 2 } });
       expect(normal.sessions.map((row) => row.key)).toEqual([
         "agent:main:stale-status",
@@ -150,6 +157,7 @@ it("selects current work before pagination and represents an isolated cron run o
       ]);
     } finally {
       releaseWait?.();
+      releaseAgentRunContext("child-run", childClaim);
       for (const runId of ["remote-run", "cron-run", "child-run"]) {
         clearAgentRunContext(runId);
       }

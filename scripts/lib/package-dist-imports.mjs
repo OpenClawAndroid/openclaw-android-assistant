@@ -40,6 +40,15 @@ function appendImportEdges(source, importerPath, imports) {
       const importedPath = path.posix.normalize(
         path.posix.join(path.posix.dirname(importerPath), stripSpecifierSuffix(specifier)),
       );
+      // stageManagedHandoffRuntime copies this entry and stages its private Koffi
+      // closure before launch; this URL belongs to that runtime, not the tarball.
+      if (
+        kind === "import-meta-url" &&
+        importerPath === "dist/managed-handoff-runtime.mjs" &&
+        importedPath === "dist/node_modules/koffi/indirect.cjs"
+      ) {
+        return;
+      }
       if (kind !== "import-meta-url" || importedPath.startsWith("dist/")) {
         imports.push({ importerPath, importedPath });
       }

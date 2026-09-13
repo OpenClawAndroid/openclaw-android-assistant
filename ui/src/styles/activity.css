@@ -382,6 +382,37 @@ a.activity-current-work__row:hover {
   position: relative;
 }
 
+.activity-feed__recap {
+  min-width: 0;
+  padding: 0 var(--space-4) var(--space-3) calc(var(--space-4) + 28px + var(--space-3));
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.activity-feed__recap-text {
+  max-width: 88ch;
+  margin: 0;
+}
+
+.activity-feed__recap-feedback {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--control-ui-text-xs);
+}
+
+.activity-feed__recap-retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+}
+
 .activity-feed__git {
   display: flex;
   align-items: center;

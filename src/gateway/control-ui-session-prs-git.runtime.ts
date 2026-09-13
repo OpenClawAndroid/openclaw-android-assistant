@@ -143,8 +143,15 @@ export async function readPullRequestBranchFacts(
   input: GitReadOperations["pull-request.branch-facts"]["input"],
 ): Promise<GitReadOperations["pull-request.branch-facts"]["output"]> {
   const landing = await resolveBranchLanding(input.root, input);
+  // A matching stats base proves Git resolved the common tip. Equal recorded
+  // IDs alone can name missing objects and must retain the error fallback.
+  const noPushedChanges =
+    landing.defaultSha !== null &&
+    landing.defaultSha === landing.pushedSha &&
+    landing.statsBase === landing.defaultSha;
   const creatable =
     (!landing.hasLandedPullRequest || landing.provenNewPushedWork) &&
+    !noPushedChanges &&
     (await branchHasCreatablePullRequest(
       input.root,
       landing.defaultSha,

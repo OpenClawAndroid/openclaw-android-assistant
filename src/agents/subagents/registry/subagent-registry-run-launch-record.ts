@@ -36,6 +36,8 @@ export function createSubagentRegistrationRecord(
     taskName: registerParams.taskName,
     cleanup: registerParams.cleanup,
     expectsCompletionMessage: registerParams.expectsCompletionMessage,
+    completionTarget: registerParams.completionTarget,
+    completionRequesterSessionId: registerParams.completionRequesterSessionId,
     spawnMode,
     label: registerParams.label,
     model: registerParams.model,

@@ -146,6 +146,82 @@ For cells that return an agent envelope, `elapsedMs` measures the agent process 
 
 This is evaluation-only evidence, not a CI or release gate. Results do not change model capabilities, runtime routing, fallback, or repair policy.
 
+#### Gateway tasks and follow-up interviews
+
+The same matrix can exercise a disposable built Gateway and then interview the
+agent in a new run of the same conversation. These tasks are opt-in, require
+`--mode code`, and currently use explicit OpenAI models with `OPENAI_API_KEY`.
+The default matrix above is unchanged.
+
+| Task                      | Independent behavior check                                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoices-auto-retention` | Return an oversized unfamiliar export, then calculate from its automatically retained reference in a later cell, with one fetch and bounded model-visible data. The prompt does not ask the agent to save it. |
+| `inventory-join`          | Solve a natural reorder-summary request across nested, heterogeneous inventory and supplier data, including missing quantities and unavailable prices.                                                        |
+| `automation-contracts`    | Use checked TypeScript for a disabled job's create/read/update/history/delete flow, then verify that pre-existing jobs remain unchanged.                                                                      |
+| `process-contracts`       | Start one supplied finite helper, use the real process tools through checked TypeScript, and verify its output and successful exit.                                                                           |
+| `partial-failure`         | A synthetic tool records an effect before returning malformed declared output. Verify one dispatch, useful validation details, and a subsequent read of actual state.                                         |
+| `checked-cell-cache`      | Complete three separate checked cells. This records live outcomes, not inferred compiler-cache hits.                                                                                                          |
+
+Build clean baseline and candidate checkouts first. Use the same harness,
+models, prompts, fixtures, thinking setting, timeout, and repetitions for both:
+
+```bash
+pnpm qa:code-mode-models -- --model openai/gpt-5.6-luna --mode code \
+  --task invoices-auto-retention --task inventory-join --repetitions 1 \
+  --thinking low --runtime-dir ../baseline \
+  --output-dir artifacts/code-mode/baseline --allow-failures
+
+pnpm qa:code-mode-models -- --model openai/gpt-5.6-luna --mode code \
+  --task invoices-auto-retention --task inventory-join --repetitions 1 \
+  --thinking low --runtime-dir ../candidate \
+  --output-dir artifacts/code-mode/candidate \
+  --baseline-results artifacts/code-mode/baseline/results.jsonl --allow-failures
+```
+
+`--runtime-dir` uses existing build artifacts without rebuilding. It requires a
+clean committed checkout and build stamps matching that commit. The matrix
+records source and artifact hashes and refuses a comparison when paired cells
+or their workload fingerprints differ. Add `--model` for another model and
+repeat task selectors to include more scenarios. Failed trials remain in the
+results; `--allow-failures` changes only the command's exit status.
+
+Each Gateway owns temporary home, state, workspace, configuration, and a free
+loopback port. The process receives only its selected provider key and required
+host paths. Synthetic plugin tools implement the fixture exports and mutation
+receipt; automation and process operations use the real built-ins. Operator
+Gateways, stored operator credentials, real channels, and real devices are not used.
+Each scenario exposes only its required tools. A Gateway catalog preflight
+checks fixture availability before any paid model call; missing capabilities
+are harness failures, rather than failed model tasks.
+
+Per-cell artifacts include actual task/interview transcripts, tool-effect
+receipts, checks, and sanitized diagnostics. Task receipts are captured before
+the interview; separate task and interview receipt files preserve that boundary
+alongside the complete ledger. The process helper's exact written source bytes
+are part of its workload fingerprint. Checked-cell tasks validate each cell's
+returned value, including completion through `wait`, and require that completion
+before the next cell starts. Preview-completeness checks use the observed metadata
+for probed references; missing or conflicting metadata remains unknown.
+Keep transcripts local unless their
+publication is explicitly requested. Interview claims about sample coverage,
+freshness, lifetime, limits, and retry safety must be reviewed against these
+records: structured answers alone do not establish understanding. A prior
+result reference is tested in the interview's new admitted run when one was
+actually observed; it must not become durable conversation state.
+
+Gateway rows separate startup, task, and interview timing. Their ordinary
+`assistantTurns`, `usage`, and `costUsd` describe the task; interview measurements
+are separate. Missing cost or usage remains unavailable. Summary and comparison
+output also separate observed task-behavior checks from interview-consistency
+checks; neither replaces manual assessment of the interview. The original
+overall pass flags and comparison deltas still require complete success.
+`taskBehavior.deltas` reports task-only differences when both paired task-behavior
+checks pass and the requested model identities are verified, even if an interview has inconsistent flags. Missing traces or
+check results remain unavailable, and all original failures are retained.
+These are observations, not statistical
+speed guarantees. Compiler cache microbenchmarks need their own controlled
+measurements because model latency and worker-pool routing obscure cache hits.
+
 ### `agent exec` options
 
 - `[message]`: positional prompt text

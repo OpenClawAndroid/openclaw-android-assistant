@@ -146,14 +146,78 @@ suite.define(() => {
       await expect.poll(() => card.count()).toBe(1);
       await waitForChatScrollIdle(page);
       report.afterCard = await dockGeometry(page);
+      await expect.poll(() => card.getAttribute("open")).toBe("");
+      if (proofDir) {
+        await page.screenshot({ path: path.join(proofDir, "01-expanded-at-bottom.png") });
+      }
 
       await scrollChatThreadToTop(page);
+      if (proofDir) {
+        await waitForChatScrollIdle(page);
+        await page.screenshot({ path: path.join(proofDir, "02-reading-history.png") });
+      }
+      await expect.poll(() => card.getAttribute("open")).toBeNull();
+      await waitForChatScrollIdle(page);
+      expect(await page.locator(".chat-thread").evaluate((thread) => thread.scrollTop)).toBe(0);
       const button = page.locator(".chat-scroll-to-bottom[data-visible='true']");
       await button.waitFor();
       await button.click();
       await waitForChatScrollIdle(page);
       report.afterButton = await dockGeometry(page);
+      await expect.poll(() => card.getAttribute("open")).toBe("");
       expectDockClear(report);
+      if (proofDir) {
+        await page.screenshot({ path: path.join(proofDir, "03-returned-to-bottom.png") });
+      }
+
+      // Shrinking the dock can clamp the offset to its new end. That resize
+      // must not be mistaken for a reader returning to the latest messages.
+      await page.locator(".chat-thread").evaluate((thread) => {
+        thread.scrollTop -= 32;
+      });
+      await waitForChatScrollIdle(page);
+      expect(await card.getAttribute("open")).toBeNull();
+      await page.locator(".chat-thread").dispatchEvent("pointerdown");
+      await waitForChatScrollIdle(page);
+      expect(await card.getAttribute("open")).toBeNull();
+      await page.locator(".chat-thread").hover();
+      await page.mouse.wheel(0, -1);
+      await waitForChatScrollIdle(page);
+      expect(await card.getAttribute("open")).toBeNull();
+      await page.mouse.wheel(0, 600);
+      await waitForChatScrollIdle(page);
+      await expect.poll(() => card.getAttribute("open")).toBe("");
+
+      await page.locator(".chat-thread").evaluate((thread) => {
+        thread.scrollTop -= 32;
+      });
+      await waitForChatScrollIdle(page);
+      await page.locator(".chat-thread").evaluate((thread) => {
+        const touch = new Touch({ identifier: 1, target: thread, clientY: 200 });
+        thread.dispatchEvent(new TouchEvent("touchstart", { touches: [touch] }));
+      });
+      await waitForChatScrollIdle(page);
+      expect(await card.getAttribute("open")).toBeNull();
+      await page.locator(".chat-thread").evaluate((thread) => {
+        const touch = new Touch({ identifier: 1, target: thread, clientY: 100 });
+        thread.dispatchEvent(new TouchEvent("touchmove", { touches: [touch] }));
+        thread.dispatchEvent(new TouchEvent("touchend"));
+      });
+      await waitForChatScrollIdle(page);
+      expect(await card.getAttribute("open")).toBe("");
+
+      // Keyboard activation, like pointer input, pins the explicit choice.
+      await card.locator("summary").press("Enter");
+      await scrollChatThreadToTop(page);
+      await button.click();
+      await waitForChatScrollIdle(page);
+      expect(await card.getAttribute("open")).toBeNull();
+      await scrollChatThreadToTop(page);
+      await card.locator("summary").click();
+      await button.click();
+      await waitForChatScrollIdle(page);
+      await scrollChatThreadToTop(page);
+      expect(await card.getAttribute("open")).toBe("");
     } finally {
       if (proofDir) {
         writeFileSync(path.join(proofDir, "geometry.json"), JSON.stringify(report, null, 2));

@@ -104,6 +104,7 @@ vi.mock("../../config/sessions/main-session.js", () => ({
 
 vi.mock("../../agents/subagents/registry/subagent-registry-read.js", () => ({
   countActiveDescendantRuns: countActiveDescendantRunsMock,
+  getLatestLiveSubagentRunByChildSessionKey: () => null,
 }));
 
 vi.mock("../../agents/agent-bundle-mcp-tools.js", () => ({
@@ -4291,11 +4292,11 @@ describe("dispatchCronDelivery — double-announce guard", () => {
           }),
         );
 
+        expect(result.error).toBeUndefined();
         expect(sendText).toHaveBeenCalledTimes(2);
         expect(harness.runEmbeddedAgentMock).toHaveBeenCalledTimes(1);
         expect(deliverOutboundPayloads).toHaveBeenCalledTimes(partialSend ? 1 : 2);
         expect(result.status).toBe("ok");
-        expect(result.error).toBeUndefined();
         expect(result.deliveryAttempted).toBe(true);
         expect.soft(result.delivered).toBe(!partialSend);
         if (partialSend) {

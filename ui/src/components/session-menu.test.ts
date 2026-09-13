@@ -595,7 +595,7 @@ describe("session menu", () => {
     ).toEqual(["🦞", "🚀", "🐛", "✅", "🔥", "📦", "🧪", "📝", "🔍", "⚡", "🎯", ""]);
     expect(grids[0]?.querySelectorAll("button")).toHaveLength(12);
     expect(grids[0]?.querySelector("button:nth-child(12)")?.getAttribute("aria-label")).toBe(
-      "Custom emoji…",
+      "Custom icon…",
     );
     const noIcon = grids[1]?.querySelector<HTMLButtonElement>('[aria-label="No icon"]');
     expect(noIcon).not.toBeNull();
@@ -620,7 +620,15 @@ describe("session menu", () => {
     expect(onAction).toHaveBeenCalledWith({ kind: "reset-appearance" });
   });
 
-  it("validates and applies a custom emoji with Enter", async () => {
+  it.each([
+    { name: "emoji", value: "🧜‍♀️", icon: "🧜‍♀️" },
+    {
+      name: "multiline SVG",
+      value:
+        '<svg\nxmlns="http://www.w3.org/2000/svg"\nviewBox="0 0 24 24">\n<circle cx="12" cy="12" r="10"/>\n</svg>',
+      icon: `data:image/svg+xml,${encodeURIComponent('<svg\nxmlns="http://www.w3.org/2000/svg"\nviewBox="0 0 24 24">\n<circle cx="12" cy="12" r="10"/>\n</svg>')}`,
+    },
+  ])("validates and applies custom $name with Enter", async ({ value, icon }) => {
     const calls: string[] = [];
     const menu = await mountMenu({
       onClose: () => calls.push("close"),
@@ -628,13 +636,13 @@ describe("session menu", () => {
         calls.push(`${action.kind}:${action.kind === "set-icon" ? action.icon : ""}`),
     });
     const submenu = menuItem(menu, "Icon & color");
-    submenu.querySelector<HTMLButtonElement>('[aria-label="Custom emoji…"]')?.click();
+    submenu.querySelector<HTMLButtonElement>('[aria-label="Custom icon…"]')?.click();
     await menu.updateComplete;
 
-    const input = submenu.querySelector<HTMLInputElement>(".session-menu__icon-custom-input");
+    const input = submenu.querySelector<HTMLTextAreaElement>(".session-menu__icon-custom-input");
     const set = submenu.querySelector<HTMLButtonElement>(".session-menu__icon-set");
     expect(input).not.toBeNull();
-    expect(input?.getAttribute("aria-label")).toBe("Custom emoji");
+    expect(input?.getAttribute("aria-label")).toBe("Custom icon");
     expect(document.activeElement).toBe(input);
     expect(set?.disabled).toBe(true);
 
@@ -648,26 +656,38 @@ describe("session menu", () => {
       true,
     );
 
-    input.value = "🧜‍♀️";
+    input.value = value;
+    expect(input.value).toBe(value);
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await menu.updateComplete;
     expect(submenu.querySelector<HTMLButtonElement>(".session-menu__icon-set")?.disabled).toBe(
       false,
     );
+    for (const composition of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        ...composition,
+        bubbles: true,
+        cancelable: true,
+      });
+      input.dispatchEvent(event);
+      expect(calls).toEqual([]);
+      expect(event.defaultPrevented).toBe(false);
+    }
     input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
     );
 
-    expect(calls).toEqual(["set-icon:🧜‍♀️"]);
+    expect(calls).toEqual([`set-icon:${icon}`]);
   });
 
   it("returns from custom entry on Escape without closing the menu", async () => {
     const onClose = vi.fn();
     const menu = await mountMenu({ onClose, session: { icon: "braces" } });
     const submenu = menuItem(menu, "Icon & color");
-    submenu.querySelector<HTMLButtonElement>('[aria-label="Custom emoji…"]')?.click();
+    submenu.querySelector<HTMLButtonElement>('[aria-label="Custom icon…"]')?.click();
     await menu.updateComplete;
-    const input = submenu.querySelector<HTMLInputElement>(".session-menu__icon-custom-input");
+    const input = submenu.querySelector<HTMLTextAreaElement>(".session-menu__icon-custom-input");
     if (!input) {
       throw new Error("Expected custom emoji input");
     }
@@ -681,7 +701,7 @@ describe("session menu", () => {
     expect(customEntry?.getAttribute("aria-hidden")).toBe("true");
     expect(customEntry?.hasAttribute("inert")).toBe(true);
     expect(submenu.querySelector(".session-menu__icon-options")?.hasAttribute("inert")).toBe(false);
-    expect(document.activeElement).toBe(submenu.querySelector('[aria-label="Custom emoji…"]'));
+    expect(document.activeElement).toBe(submenu.querySelector('[aria-label="Custom icon…"]'));
     const currentIcon = submenu.querySelector<HTMLButtonElement>(
       '.session-menu__icon-options button[tabindex="0"]',
     );
@@ -704,7 +724,7 @@ describe("session menu", () => {
   it("keeps custom entry open when Web Awesome rebinds its open submenu slot", async () => {
     const menu = await mountMenu();
     const submenu = menuItem(menu, "Icon & color");
-    submenu.querySelector<HTMLButtonElement>('[aria-label="Custom emoji…"]')?.click();
+    submenu.querySelector<HTMLButtonElement>('[aria-label="Custom icon…"]')?.click();
     await menu.updateComplete;
     submenu.setAttribute("aria-expanded", "true");
 

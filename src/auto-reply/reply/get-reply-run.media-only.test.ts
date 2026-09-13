@@ -254,10 +254,6 @@ vi.mock("./agent-runner.runtime.js", () => ({
   runReplyAgent: vi.fn().mockResolvedValue({ text: "ok" }),
 }));
 
-vi.mock("./body.js", () => ({
-  applySessionHints: vi.fn().mockImplementation(async ({ baseBody }) => baseBody),
-}));
-
 const resolveCurrentTurnImagesMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock("./current-turn-images.js", () => ({
   resolveCurrentTurnImages: resolveCurrentTurnImagesMock,

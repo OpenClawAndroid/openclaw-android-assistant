@@ -107,6 +107,78 @@ describe("Code Mode model matrix options", () => {
     }
   });
 
+  it("keeps Gateway interviews opt-in and resolves comparison inputs independently of output storage", () => {
+    const selection = ["--model", "openai/gpt-5.6-luna", "--task", "inventory-join"];
+    expect(() => parseCodeModeMatrixOptions(selection, "/harness")).toThrow("--mode code");
+    expect(
+      parseCodeModeMatrixOptions(
+        [
+          ...selection,
+          "--mode",
+          "code",
+          "--runtime-dir",
+          "../baseline",
+          "--baseline-results",
+          "artifacts/previous/results.jsonl",
+          "--repetitions",
+          "1",
+        ],
+        "/harness",
+      ),
+    ).toMatchObject({
+      repoRoot: "/harness",
+      runtimeDir: "/baseline",
+      baselineResults: "/harness/artifacts/previous/results.jsonl",
+      tasks: ["inventory-join"],
+      modes: ["code"],
+      repetitions: 1,
+    });
+    expect(() =>
+      parseCodeModeMatrixOptions([
+        "--model",
+        "fixture/model",
+        "--mode",
+        "code",
+        "--task",
+        "partial-failure",
+      ]),
+    ).toThrow("OpenAI models");
+  });
+
+  it("rejects a dirty frozen runtime before building or dispatching any model", async () => {
+    const root = tempDirs.make("openclaw-code-mode-frozen-runtime-");
+    const options = parseCodeModeMatrixOptions(
+      [
+        "--model",
+        "openai/gpt-5.6-luna",
+        "--runtime-dir",
+        root,
+        "--output-dir",
+        "artifacts/frozen",
+        "--dry-run",
+      ],
+      root,
+    );
+    await expect(
+      runCodeModeModelMatrix(options, {
+        readSourceIdentity: async () => ({
+          gitSha: "dirty",
+          sourceDirty: true,
+          sourcePatchSha256: "patch",
+        }),
+        buildCliArtifacts: async () => {
+          throw new Error("must not build a frozen runtime");
+        },
+        runCell: async () => {
+          throw new Error("must not dispatch a dirty runtime");
+        },
+      }),
+    ).rejects.toThrow("clean committed checkout");
+    await expect(fs.stat(path.join(root, "artifacts/frozen"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("rejects ambiguous selectors and output paths", () => {
     expect(() => parseCodeModeMatrixOptions([])).toThrow("At least one --model");
     expect(() => parseCodeModeMatrixOptions(["--model", "qwen3.5:9b"])).toThrow("provider/model");

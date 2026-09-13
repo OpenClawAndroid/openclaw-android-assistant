@@ -24,6 +24,33 @@ type HttpConnection = {
 
 const connections = new WeakMap<Duplex, HttpConnection>();
 
+/** Abort disconnected work without treating normal request/response completion as cancellation. */
+export function createHttpRequestAbortSignal(req: IncomingMessage, res: ServerResponse) {
+  const controller = new AbortController();
+  const abortIfRequestIncomplete = () => {
+    if (!req.complete) {
+      controller.abort();
+    }
+  };
+  const abortIfResponseStillOpen = () => {
+    if (!res.writableEnded) {
+      controller.abort();
+    }
+  };
+  req.once("close", abortIfRequestIncomplete);
+  res.once("close", abortIfResponseStillOpen);
+  if ((req.destroyed && !req.complete) || (res.destroyed && !res.writableEnded)) {
+    controller.abort();
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      req.off("close", abortIfRequestIncomplete);
+      res.off("close", abortIfResponseStillOpen);
+    },
+  };
+}
+
 function connectionFor(socket: Duplex): HttpConnection {
   const existing = connections.get(socket);
   if (existing) {

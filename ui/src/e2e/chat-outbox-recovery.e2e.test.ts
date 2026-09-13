@@ -91,6 +91,17 @@ suite.define(() => {
 
           if (action === "exact authoritative history proof") {
             await captureProof("01-delivery-uncertain");
+            const historyReads = (await gateway.getRequests("chat.history")).length;
+            await expectRequestCountStable(gateway, "chat.history", historyReads);
+            for (const event of ["session.message", "sessions.changed"]) {
+              await gateway.emitGatewayEvent(event, {
+                sessionKey: "agent:main:unrelated-conversation",
+                hasActiveRun: true,
+                phase: "message",
+              });
+            }
+            await expectRequestCountStable(gateway, "chat.history", historyReads);
+            await deliveryStatus.getByText("Delivery unconfirmed").waitFor();
 
             await gateway.setHistoryMessages([
               {

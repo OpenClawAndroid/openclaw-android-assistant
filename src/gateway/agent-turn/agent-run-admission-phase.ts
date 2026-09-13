@@ -34,7 +34,6 @@ import { assertAgentRunLifecycleGenerationCurrent } from "../../infra/agent-even
 import { claimAgentRunContext } from "../../infra/agent-run-registry.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
 import type { SessionWorkAdmissionLease } from "../../sessions/session-lifecycle-admission.js";
-import { recordSessionParticipantBestEffort } from "../../sessions/session-participant-recording.js";
 import { registerChatAbortController, resolveAgentRunExpiresAtMs } from "../chat-abort.js";
 import type { ChatImageContent, OffloadedRef } from "../chat-attachments.js";
 import { errorShapeFromError } from "../error-shape.js";
@@ -49,7 +48,6 @@ import {
   resolveGatewayCronCreatorAuthorityAdmission,
   type GatewayCronCreatorAuthorityAdmission,
 } from "../server-methods/cron-creator-authority-admission.js";
-import { resolveGatewayInputParticipant } from "../session-input-participant.js";
 import { loadSessionEntry, resolveSessionModelRef } from "../session-utils.js";
 import { consumeSubagentCompletionToolHandoff } from "../subagent-completion-tool-handoff.js";
 import { formatForLog } from "../ws-log.js";
@@ -63,6 +61,8 @@ import type { AgentDeliveryPhaseResult } from "./agent-delivery-phase.js";
 import type { RestoredCronContinuation } from "./agent-handler-helpers.js";
 import {
   prepareAgentRunUserTurn,
+  recordAgentRunUserTurnParticipant,
+  reconcileAgentRunUserTurnCompletion,
   releasePreparedAgentRunUserTurn,
   type PreparedAgentRunUserTurn,
 } from "./agent-run-user-turn.js";
@@ -130,6 +130,7 @@ export async function prepareAgentRunDispatch(params: {
   offloadedRefs: OffloadedRef[];
   onUserTurnMediaPersisted: () => void;
   requestedPromptPersistenceSuppression: boolean;
+  privateCompletion?: true;
   runId: string;
   agentDedupeKeys: readonly string[];
   context: AgentTurnContext;
@@ -570,22 +571,29 @@ export async function prepareAgentRunDispatch(params: {
   }
   let assertInputAdmissionCurrent = params.assertAdmissionCurrent;
   let userTurn: PreparedAgentRunUserTurn;
+  const assertInputOwnerCurrent = (terminal = false) => {
+    assertInputAdmissionCurrent?.();
+    assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration);
+    const entry = params.context.chatAbortControllers.get(params.runId);
+    if (
+      !entry ||
+      entry !== activeRunAbort.entry ||
+      entry.operationalRunInstance !== operationalRunInstance ||
+      (!terminal && entry.registrationCleanupRequested)
+    ) {
+      throw new Error("agent input admission no longer owns this run");
+    }
+  };
   try {
     userTurn = await prepareAgentRunUserTurn({
       assertCurrent: () => {
-        assertInputAdmissionCurrent?.();
-        assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration);
+        assertInputOwnerCurrent();
         activeRunAbort.controller.signal.throwIfAborted();
-        const entry = params.context.chatAbortControllers.get(params.runId);
-        if (
-          !entry ||
-          entry !== activeRunAbort.entry ||
-          entry.operationalRunInstance !== operationalRunInstance ||
-          entry.registrationCleanupRequested
-        ) {
-          throw new Error("agent input admission no longer owns this run");
-        }
       },
+      assertCompletionCurrent: () => assertInputOwnerCurrent(true),
+      abortSignal: activeRunAbort.controller.signal,
+      getAbortStopReason: () => activeRunAbort.entry?.abortStopReason ?? "rpc",
+      privateCompletion: params.privateCompletion,
       request: params.request,
       cfg: params.cfg,
       cfgForAgent: params.cfgForAgent,
@@ -633,6 +641,16 @@ export async function prepareAgentRunDispatch(params: {
     acceptedAt: Date.now(),
     ...(taskTrackingMode === "plugin_subagent" ? { runtime: resolvedRuntime } : {}),
   };
+  const completedInput = reconcileAgentRunUserTurnCompletion(
+    userTurn,
+    accepted,
+    cleanupPreaccept,
+    params.io,
+  );
+  if (completedInput) {
+    await completedInput;
+    return undefined;
+  }
   params.markAgentRunAccepted(true);
   setGatewayDedupeEntries({
     dedupe: params.context.dedupe,
@@ -653,25 +671,7 @@ export async function prepareAgentRunDispatch(params: {
   // may reject its execution after this synchronous ownership transfer.
   assertInputAdmissionCurrent = undefined;
   params.io.emitAcceptance([true, accepted, undefined], { runId: params.runId });
-  const participant = resolveGatewayInputParticipant(params.client, params.inputProvenance);
-  if (
-    participant &&
-    params.resolvedSessionKey &&
-    !params.suppressVisibleSessionEffects &&
-    !userTurn.suppressPromptPersistence
-  ) {
-    recordSessionParticipantBestEffort({
-      identity: participant,
-      promptedAt: params.promptedAt,
-      agentId: params.activeSessionAgentId,
-      sessionKey: params.resolvedSessionKey,
-      storePath: lifecycleStorePath,
-      onError: (error) =>
-        params.context.logGateway.warn(
-          `agent participant persistence failed: ${formatForLog(error)}`,
-        ),
-    });
-  }
+  recordAgentRunUserTurnParticipant(params, userTurn, lifecycleStorePath);
   const cronCreatorAuthority = resolveGatewayCronCreatorAuthorityAdmission({
     runId: params.runId,
     resolvedSessionKey: params.resolvedSessionKey,

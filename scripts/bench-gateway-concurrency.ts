@@ -35,10 +35,13 @@ import {
 } from "./lib/gateway-bench-probes.ts";
 import {
   controlGatewayProfile,
+  measureGatewayCpuUsage,
   readGatewayCpuProfile,
+  readGatewayCpuUsage,
   readGatewayHeapProfile,
   type GatewayHeapProfile,
   type GatewayCpuProfile,
+  type GatewayCpuUsage,
 } from "./lib/gateway-bench-profile.ts";
 import {
   BASE_GATEWAY_BENCH_CONFIG,
@@ -128,6 +131,7 @@ type BenchmarkRun = {
   loadCpuProfile?: GatewayCpuProfile;
   controlPlane: Array<TimedProbe & { method: string }>;
   controlUi: ControlUiProbe[];
+  cpuUsage: GatewayCpuUsage;
   durationMs: number;
   freshConnection: FreshConnectionProbe;
   gatewayExit?: Awaited<ReturnType<typeof stopChild>>;
@@ -1244,16 +1248,16 @@ async function runGatewaySample(options: {
         mkdirSync(options.cpuProfDir, { recursive: true });
       }
       const gatewayArgs = buildGatewayBenchChildArgs(options.entry, port);
+      gatewayArgs.unshift(
+        "--import",
+        new URL("./lib/gateway-bench-profile-preload.ts", import.meta.url).href,
+      );
       if (heapProfilePath || loadCpuProfilePath) {
         for (const profilePath of [heapProfilePath, loadCpuProfilePath]) {
           if (profilePath) {
             mkdirSync(path.dirname(profilePath), { recursive: true });
           }
         }
-        gatewayArgs.unshift(
-          "--import",
-          new URL("./lib/gateway-bench-profile-preload.ts", import.meta.url).href,
-        );
       }
       gateway = spawn(
         process.execPath,
@@ -1263,10 +1267,7 @@ async function runGatewaySample(options: {
         {
           cwd: process.cwd(),
           detached: process.platform !== "win32",
-          stdio:
-            heapProfilePath || loadCpuProfilePath
-              ? ["pipe", "pipe", "pipe", "ipc"]
-              : ["pipe", "pipe", "pipe"],
+          stdio: ["pipe", "pipe", "pipe", "ipc"],
           env: {
             ...createGatewayBenchEnv(root, configPath, {
               caseEnv: {
@@ -1513,6 +1514,7 @@ async function runGatewaySample(options: {
       const allTurnsStarted = new Promise<void>((resolve) => {
         resolveAllTurnsStarted = resolve;
       });
+      const cpuBefore = await readGatewayCpuUsage(gateway);
       const turnsStartedAt = performance.now();
       // Keep the live artifact intact: buffered setup writes can arrive after this boundary.
       // Inclusive millisecond timestamps conservatively include events on the boundary.
@@ -1688,6 +1690,7 @@ async function runGatewaySample(options: {
         historyLoad,
         sessionUpdateLoad,
       ]);
+      const cpuAfter = await readGatewayCpuUsage(gateway);
       const loadEndMonotonicMicros = Number(process.hrtime.bigint() / 1_000n);
       const turnsDurationMs = performance.now() - turnsStartedAt;
       const memoryAfter = await readGatewayMemory(rpc, runStartedAt);
@@ -1727,6 +1730,7 @@ async function runGatewaySample(options: {
         ...(loadCpuProfile ? { loadCpuProfile } : {}),
         controlPlane,
         controlUi,
+        cpuUsage: measureGatewayCpuUsage(cpuBefore, cpuAfter),
         durationMs: performance.now() - runStartedAt,
         freshConnection: freshConnectionResult,
         history,
@@ -1896,6 +1900,14 @@ function summarizeRuns(
         }
       : {}),
     budgetViolations,
+    gatewayProcessCpuMs: summarizeNumbers(runs.map((run) => run.cpuUsage.process.totalMs)),
+    gatewayProcessCpuMsPerTurn: summarizeNumbers(
+      runs.map((run) => run.cpuUsage.process.totalMs / run.turnCount),
+    ),
+    gatewayMainThreadCpuMs: summarizeNumbers(runs.map((run) => run.cpuUsage.mainThread.totalMs)),
+    gatewayProcessCpuCoreRatio: summarizeNumbers(
+      runs.map((run) => run.cpuUsage.process.totalMs / run.cpuUsage.wallMs),
+    ),
     gatewaySampledAllocatedBytes: summarizeNumbers(
       runs.flatMap((run) => (run.heapProfile ? [run.heapProfile.sampledAllocatedBytes] : [])),
     ),

@@ -248,9 +248,14 @@ openclaw-session-owner-chip {
 }
 
 .session-glyph__icon,
-.session-glyph__icon svg {
+.session-glyph__icon svg,
+.session-glyph__icon img {
   width: 16px;
   height: 16px;
+}
+
+.session-glyph__icon img {
+  object-fit: contain;
 }
 
 .session-glyph__icon {
@@ -2220,6 +2225,42 @@ select.input {
   min-height: min(50dvh, 360px);
   width: 100%;
   margin: 0;
+}
+
+.lazy-element-loading-modal {
+  --openclaw-modal-width: 360px;
+  --openclaw-modal-backdrop-filter: none;
+  --wa-color-overlay-modal: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.lazy-element-loading {
+  padding: 16px 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.lazy-element-loading__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.lazy-element-loading__header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lazy-element-loading__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* Lazy route load failure — a centered panel state, not a stretched callout. */
@@ -5475,6 +5516,7 @@ td.data-table-key-col {
 
 .device-pair-setup__body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   gap: 15px;
   padding: 0 28px 24px;
@@ -5622,7 +5664,19 @@ td.data-table-key-col {
 .device-pair-setup__command {
   display: grid;
   width: min(540px, 100%);
+  min-width: 0;
+  max-width: 100%;
   gap: 10px;
+}
+
+.device-pair-setup .login-gate__command {
+  min-width: 0;
+}
+
+.device-pair-setup .login-gate__command code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .device-pair-setup__meta {

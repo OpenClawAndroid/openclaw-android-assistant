@@ -2,10 +2,11 @@ import { html, nothing } from "lit";
 import {
   normalizeSessionIconValue,
   SESSION_ICON_GLYPH_IDS,
+  SESSION_ICON_SVG_DATA_URL_PREFIX,
 } from "../../../packages/gateway-protocol/src/session-agent-status.js";
 import { t } from "../i18n/index.ts";
 import { icons } from "./icons.ts";
-import { resolveSessionIconGlyph } from "./session-icon-glyph-registry.ts";
+import { resolveSessionIconGraphic } from "./session-icon-glyph-registry.ts";
 import { renderSessionColorOptions } from "./session-menu-options.ts";
 
 const SESSION_ICON_EMOJI_CHOICES = [
@@ -32,6 +33,7 @@ function sessionEmojiPickerShortcut(): string | null {
 
 type AppearancePickerProps = {
   inline?: boolean;
+  allowSvg?: boolean;
   clearable?: boolean;
   mode: "grid" | "custom";
   currentIcon: string | null;
@@ -53,6 +55,8 @@ type AppearancePickerProps = {
 
 function renderCustomSessionIconEntry(props: AppearancePickerProps) {
   const normalized = normalizeSessionIconValue(props.customIconValue);
+  const accepted =
+    normalized && (props.allowSvg || !normalized.startsWith(SESSION_ICON_SVG_DATA_URL_PREFIX));
   const shortcut = sessionEmojiPickerShortcut();
   return html`
     <div
@@ -69,14 +73,16 @@ function renderCustomSessionIconEntry(props: AppearancePickerProps) {
         >
           ${icons.arrowLeft}
         </button>
-        <span>${t("sessionsView.customEmojiTitle")}</span>
+        <span
+          >${t(props.allowSvg ? "sessionsView.customIconTitle" : "sessionsView.customEmojiTitle")}</span
+        >
       </div>
       <div class="session-menu__icon-custom-controls">
-        <input
+        <textarea
           class="session-menu__icon-custom-input"
-          type="text"
+          rows="1"
           autocomplete="off"
-          aria-label=${t("sessionsView.customEmojiTitle")}
+          aria-label=${t(props.allowSvg ? "sessionsView.customIconTitle" : "sessionsView.customEmojiTitle")}
           .value=${props.customIconValue}
           @input=${props.onInput}
           @keydown=${(event: KeyboardEvent) => {
@@ -85,15 +91,15 @@ function renderCustomSessionIconEntry(props: AppearancePickerProps) {
             }
             event.preventDefault();
             event.stopPropagation();
-            if (normalized && !props.disabled) {
+            if (accepted && !props.disabled) {
               props.onApply(event);
             }
           }}
-        />
+        ></textarea>
         <button
           type="button"
           class="session-menu__icon-set"
-          ?disabled=${!normalized || props.disabled}
+          ?disabled=${!accepted || props.disabled}
           @click=${props.onApply}
         >
           ${t("sessionsView.customEmojiSet")}
@@ -102,8 +108,14 @@ function renderCustomSessionIconEntry(props: AppearancePickerProps) {
       <div class="session-menu__icon-custom-hint">
         ${
           shortcut
-            ? t("sessionsView.customEmojiHint", { shortcut })
-            : t("sessionsView.customEmojiHintNoShortcut")
+            ? t(props.allowSvg ? "sessionsView.customIconHint" : "sessionsView.customEmojiHint", {
+                shortcut,
+              })
+            : t(
+                props.allowSvg
+                  ? "sessionsView.customIconHintNoShortcut"
+                  : "sessionsView.customEmojiHintNoShortcut",
+              )
         }
       </div>
     </div>
@@ -128,7 +140,7 @@ function renderSessionIconGrid(props: AppearancePickerProps) {
       title=${props.disabledReason ?? nothing}
       @click=${(event: MouseEvent) => props.onSelect(event, icon)}
     >
-      ${glyph ? resolveSessionIconGlyph(icon) : icon}
+      ${glyph ? resolveSessionIconGraphic(icon) : icon}
     </button>
   `;
   return html`
@@ -147,7 +159,7 @@ function renderSessionIconGrid(props: AppearancePickerProps) {
           <button
             type="button"
             class="session-menu__icon-choice session-menu__icon-choice--custom"
-            aria-label=${t("sessionsView.customEmojiCell")}
+            aria-label=${t(props.allowSvg ? "sessionsView.customIconCell" : "sessionsView.customEmojiCell")}
             aria-pressed="false"
             tabindex="-1"
             ?disabled=${props.disabled}

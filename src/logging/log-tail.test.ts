@@ -131,6 +131,56 @@ describe("readConfiguredLogTail", () => {
     expect(result.lines).toEqual(["old line", "recent one", "recent two"]);
   });
 
+  it.each([
+    { name: "initial read", prior: "", visible: true },
+    { name: "continuation", prior: "seen\n", visible: true },
+    { name: "filtered read", prior: "", visible: false },
+  ])("does not skip regrowth after a truncated $name", async ({ prior, visible }) => {
+    const { readConfiguredLogTail } = await import("./log-tail.js");
+    const file = path.join(tempDirs.make("openclaw-log-tail-"), "configured.log");
+    const kept = "kept ✅\n";
+    const retired = "retired-record\n";
+    const arrived = "arrived-record\n";
+    const retainedBytes = Buffer.byteLength(prior + kept);
+    const sampledSize = retainedBytes + Buffer.byteLength(retired);
+    expect(Buffer.byteLength(arrived)).toBe(Buffer.byteLength(retired));
+    await fs.writeFile(file, prior + kept + retired);
+    setLoggerOverride({ file });
+
+    const realOpen = fs.open.bind(fs);
+    let truncated = false;
+    vi.spyOn(fs, "open").mockImplementation(async (...args) => {
+      if (!truncated && String(args[0]) === file && args[1] === "r") {
+        truncated = true;
+        // Schedule a real truncate after metadata sampling, before the native read.
+        await fs.truncate(file, retainedBytes);
+      }
+      return realOpen(...args);
+    });
+
+    const first = await readConfiguredLogTail(
+      { cursor: Buffer.byteLength(prior) },
+      visible ? undefined : () => false,
+    );
+    expect(truncated).toBe(true);
+    expect(first).toMatchObject({
+      lines: visible ? ["kept ✅"] : [],
+      cursor: retainedBytes,
+      size: sampledSize,
+      reset: false,
+    });
+
+    await fs.appendFile(file, arrived);
+    // Regrow to the sampled size, so the next read cannot recover by a shrink reset.
+    expect((await fs.stat(file)).size).toBe(sampledSize);
+    const next = await readConfiguredLogTail({ cursor: first.cursor });
+    expect(next).toMatchObject({
+      lines: ["arrived-record"],
+      cursor: sampledSize,
+      reset: false,
+    });
+  });
+
   it("holds an unterminated record until a later read completes it", async () => {
     const { readConfiguredLogTail } = await import("./log-tail.js");
     const tempDir = tempDirs.make("openclaw-log-tail-");

@@ -11,6 +11,29 @@ import { TeamReportsScheduler } from "./scheduler.js";
 import { createTeamReportsStore, type TeamReportsStore } from "./store.js";
 import type { DiscordSource, GithubSource, SourceRuntime, SourceStatus } from "./types.js";
 
+const workerReads = vi.hoisted(() => ({ enabled: false, calls: 0, bytes: 0 }));
+vi.mock("openclaw/plugin-sdk/sqlite-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/sqlite-runtime")>();
+  return {
+    ...actual,
+    openSqliteWorkerStore: async (...args: Parameters<typeof actual.openSqliteWorkerStore>) => {
+      const worker = await actual.openSqliteWorkerStore(...args);
+      if (worker) {
+        const execute = worker.execute.bind(worker);
+        vi.spyOn(worker, "execute").mockImplementation(async (command, options) => {
+          const result = await execute(command, options);
+          if (workerReads.enabled) {
+            workerReads.calls += 1;
+            workerReads.bytes += Buffer.byteLength(JSON.stringify(result) ?? "");
+          }
+          return result;
+        });
+      }
+      return worker;
+    },
+  };
+});
+
 const resources: Array<{
   scheduler: TeamReportsScheduler;
   store: TeamReportsStore;
@@ -650,7 +673,21 @@ describe("Team Reports scheduler lifecycle", () => {
     expect(stored?.summary?.warnings).toEqual([reason]);
     expect(stored?.markdown).toContain(`> ${reason}`);
     expect((await scheduler.status()).sourceWarnings).toEqual(["Roster coverage warning", reason]);
-    expect((await scheduler.health()).warnings).toBe(2);
+    if (!stored) {
+      throw new Error("Generated report is missing");
+    }
+    await store.upsertPeriod({ ...stored, markdown: stored.markdown + "x".repeat(256 * 1024) });
+    workerReads.calls = 0;
+    workerReads.bytes = 0;
+    workerReads.enabled = true;
+    try {
+      expect((await scheduler.health()).warnings).toBe(2);
+    } finally {
+      workerReads.enabled = false;
+    }
+    expect(workerReads.calls).toBeGreaterThan(0);
+    expect(workerReads.calls).toBeLessThanOrEqual(3);
+    expect(workerReads.bytes).toBeLessThan(16 * 1024);
     expect(context.logger.warn.mock.calls).toEqual([[reason]]);
     complete.mockResolvedValue(modelResponse());
     await scheduler.generate({ intraday: true });

@@ -277,6 +277,7 @@ export function dispatchAgentRunFromGateway(params: {
         params.abortController.signal,
       )
     : runAgent();
+  let inputCompletionWriteFailed = false;
   const runCompletion = agentRun
     .then(async (result) => {
       const recordedOutcome = readAgentRunTerminalOutcome(result);
@@ -292,7 +293,7 @@ export function dispatchAgentRunFromGateway(params: {
           : undefined;
       const timeoutPhase = normalizeAgentRunTimeoutPhase(result?.meta?.timeoutPhase);
       const terminalError = readAgentRunTerminalError(result) ?? result?.meta?.error?.message;
-      const terminalOutcome = buildAgentRunTerminalOutcome({
+      let terminalOutcome = buildAgentRunTerminalOutcome({
         status:
           aborted || result?.meta?.stopReason === "timeout" || timeoutPhase
             ? "timeout"
@@ -307,6 +308,15 @@ export function dispatchAgentRunFromGateway(params: {
         timeoutPhase,
         providerStarted: result?.meta?.providerStarted,
       });
+      let recordedInputCompletion: AgentRunTerminalOutcome | undefined;
+      try {
+        recordedInputCompletion =
+          params.ingressOpts.userTurnTranscriptRecorder?.completeProcessing?.(terminalOutcome);
+        terminalOutcome = recordedInputCompletion ?? terminalOutcome;
+      } catch (error) {
+        inputCompletionWriteFailed = true;
+        throw error;
+      }
       const responseStatus =
         RESOLVED_GATEWAY_STATUS_BY_TERMINAL_CLASSIFICATION[
           classifyAgentRunTerminalOutcome(terminalOutcome)
@@ -350,6 +360,8 @@ export function dispatchAgentRunFromGateway(params: {
           : {}),
         result,
       };
+      const inputProcessingCompleted =
+        recordedInputCompletion?.reason === "completed" && responseStatus === "ok";
       const persistTerminalDedupe = () => {
         setGatewayDedupeEntries({
           dedupe: params.context.dedupe,
@@ -357,7 +369,10 @@ export function dispatchAgentRunFromGateway(params: {
           entry: {
             ts: Date.now(),
             ok: true,
-            payload,
+            payload: {
+              ...payload,
+              ...(inputProcessingCompleted ? { inputProcessingCompleted: true } : {}),
+            },
           },
         });
       };
@@ -384,7 +399,14 @@ export function dispatchAgentRunFromGateway(params: {
       cleanupRunOwner();
       // Send a second res frame (same id) so TS clients with expectFinal can wait.
       // Swift clients will typically treat the first res as the result and ignore this.
-      params.io.emitFinal([true, payload, undefined], { runId: params.runId });
+      params.io.emitFinal(
+        [
+          true,
+          { ...payload, ...(inputProcessingCompleted ? { inputProcessingCompleted: true } : {}) },
+          undefined,
+        ],
+        { runId: params.runId },
+      );
       return { terminalOutcome, settled };
     })
     .catch(async (cause: unknown) => {
@@ -396,12 +418,25 @@ export function dispatchAgentRunFromGateway(params: {
         : isAbortError(cause)
           ? "aborted"
           : undefined;
-      const terminalOutcome = buildAgentRunTerminalOutcome({
+      let terminalOutcome = buildAgentRunTerminalOutcome({
         status: aborted || isTimeoutError(cause) ? "timeout" : "error",
         error: renderedErr,
         stopReason,
         timeoutPhase: stopReason === "restart" ? "gateway_draining" : undefined,
       });
+      // A failed required write cannot be its own retry loop. Publish failure
+      // and release the accepted owner even while the receipt store is unavailable.
+      if (!inputCompletionWriteFailed) {
+        try {
+          terminalOutcome =
+            params.ingressOpts.userTurnTranscriptRecorder?.completeProcessing?.(terminalOutcome) ??
+            terminalOutcome;
+        } catch (completionError) {
+          params.context.logGateway.warn(
+            `input completion persistence failed: ${formatForLog(completionError)}`,
+          );
+        }
+      }
       const responseStatus = projectRejectedGatewayStatus(terminalOutcome);
       if (trackedTask) {
         const status = mapAgentRunTerminalOutcomeToTaskStatus(terminalOutcome);

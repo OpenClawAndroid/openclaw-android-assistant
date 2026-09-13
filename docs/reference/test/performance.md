@@ -165,6 +165,24 @@ continuous peak-RSS coverage of the entire agent workload.
 Equal request counts do not equalize their overlap with agent turns or the
 Gateway's time-dependent background work.
 
+Each run's `cpuUsage` records user, system, and total CPU milliseconds for the
+Gateway process and its main thread. Two private IPC snapshots bound the load
+after setup and profiler activation through completion of all configured work,
+before the final memory probe, profile export, and teardown. Their child-side
+monotonic timestamps define `wallMs`; CPU time can exceed wall time when threads
+run in parallel. Ordinary runs do not connect an inspector or start a profiler.
+
+The process counters include Workers and native threads, including Workers that
+exit during the load, but exclude separate child processes, the mock provider,
+and the browser. Main-thread CPU is part of process CPU; do not add them. Their
+difference estimates work on other threads, with small skew from reading the
+counters sequentially. The summary reports `gatewayProcessCpuMs`,
+`gatewayProcessCpuMsPerTurn`, `gatewayMainThreadCpuMs`, and
+`gatewayProcessCpuCoreRatio`. CPU per turn includes the configured concurrent
+probes and mutations. Compare fixed workloads and identical profiling settings;
+moving work to Workers can improve responsiveness without reducing process CPU.
+The existing `cpuCoreRatio` summary remains sampled readiness-window data.
+
 To measure clicking an existing session in the Control UI sidebar during load,
 build the UI and install Playwright Chromium, then enable the browser probe:
 

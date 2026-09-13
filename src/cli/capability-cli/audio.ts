@@ -39,6 +39,7 @@ async function runAudioTranscribe(params: {
     activeModel: requireProviderModelOverride(params.model),
     filePath: path.resolve(params.file),
     cfg,
+    agentId,
     language: params.language,
     prompt: params.prompt,
   });

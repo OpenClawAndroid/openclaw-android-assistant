@@ -9,6 +9,7 @@ import {
   SessionParticipantSchema,
   SessionParticipantIdentitySchema,
 } from "./session-participant.js";
+import { SessionActivitySummarySchema } from "./sessions-activity-summary.js";
 import { SessionSharingRoleSchema, SessionVisibilitySchema } from "./sessions-sharing-values.js";
 
 export const SessionPermissionModeSchema = Type.Union([
@@ -131,6 +132,7 @@ export const SessionRowSchema = Type.Object(
     chatType: Type.Optional(
       Type.Union([Type.Literal("direct"), Type.Literal("group"), Type.Literal("channel")]),
     ),
+    activitySummary: Type.Optional(SessionActivitySummarySchema),
     updatedAt: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
     archived: Type.Optional(Type.Boolean()),
     archivedAt: Type.Optional(Type.Number()),

@@ -125,16 +125,12 @@ suite.define(() => {
           .toBe(true);
         await page.keyboard.press("Shift+Tab");
         const iconCount = await picker.locator(".session-menu__icon-choice").count();
-        for (
-          let index = 0;
-          index < iconCount && (await focused()) !== "Custom emoji…";
-          index += 1
-        ) {
+        for (let index = 0; index < iconCount && (await focused()) !== "Custom icon…"; index += 1) {
           await page.keyboard.press("ArrowRight");
         }
-        await expect.poll(focused).toBe("Custom emoji…");
+        await expect.poll(focused).toBe("Custom icon…");
         await page.keyboard.press("Enter");
-        const custom = picker.getByRole("textbox", { name: "Custom emoji", exact: true });
+        const custom = picker.getByRole("textbox", { name: "Custom icon", exact: true });
         await expect
           .poll(() => custom.evaluate((element) => element === document.activeElement))
           .toBe(true);
@@ -144,7 +140,7 @@ suite.define(() => {
         await waitForPatch(gateway, (params) => params.key === key && params.icon === "✨");
         await page.keyboard.press("Shift+Tab");
         await page.keyboard.press("Escape");
-        await expect.poll(focused).toBe("Custom emoji…");
+        await expect.poll(focused).toBe("Custom icon…");
         await page.keyboard.press("Tab");
         await expect
           .poll(() =>

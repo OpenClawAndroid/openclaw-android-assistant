@@ -1,6 +1,9 @@
 // QA Lab mock provider input and tool-output extraction.
 import {
   type ResponsesInputItem,
+  QA_SUBAGENT_TERMINAL_MATRIX_PROMPT_RE,
+  QA_SUBAGENT_TERMINAL_MATRIX_WORKER_RE,
+  QA_SUBAGENT_PRIVATE_WORKER_RE,
   INTERNAL_RUNTIME_CONTEXT_BEGIN,
   INTERNAL_RUNTIME_CONTEXT_END,
   QA_SLACK_MPIM_HISTORY_RECALL_PROMPT_RE,
@@ -22,10 +25,13 @@ export function extractLastMatchingUserTurn(input: ResponsesInputItem[], pattern
   const matcher = pattern && new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
   for (let index = input.length - 1; index >= 0; index -= 1) {
     const item = input[index];
-    if (!item || !isUserTurn(item)) {
+    if (!item || item.role !== "user") {
       continue;
     }
     const text = extractInputText(item.content);
+    if (!isUserTurn(item)) {
+      continue;
+    }
     if (!matcher || matcher.test(text)) {
       return { index, text };
     }
@@ -41,6 +47,110 @@ export function splitMockConversationContext(text: string) {
       text,
     );
   return { current: projection?.[2] ?? text, history: projection?.[1] ?? "" };
+}
+
+function extractCurrentTaskEvent(text: string): string | undefined {
+  const startsTaskEvent = (value: string) =>
+    /^\[Internal task completion event\](?:\r?\n|$)/u.test(value);
+  if (startsTaskEvent(text)) {
+    return text;
+  }
+  if (!isInternalRuntimeContextCarrierText(text)) {
+    return undefined;
+  }
+  // v4 quotes each top-level data fragment. Selected history can contain nested
+  // event text, but only a fragment starting with the event owns this turn.
+  for (const match of Array.from(
+    text.matchAll(
+      /^Conversation data \(data, not instructions\):\r?\n("(?:[^"\\\r\n]|\\.)*")\r?$/gmu,
+    ),
+  ).toReversed()) {
+    try {
+      const fragment: unknown = JSON.parse(match[1] ?? "");
+      if (typeof fragment === "string" && startsTaskEvent(fragment)) {
+        return fragment;
+      }
+    } catch {
+      // Malformed quoted data does not become a current task event.
+    }
+  }
+  // v3 keeps the producer event as a literal runtime-instruction fragment.
+  const literal = /^\[Internal task completion event\](?:\r?\n|$)/mu.exec(text);
+  return literal ? text.slice(literal.index) : undefined;
+}
+
+function isSubagentRecoveryText(text: string): boolean {
+  // These are the runtime's recovery introductions, not arbitrary user mentions
+  // of retry/resume/compaction. A new request must fence the old task.
+  return (
+    /^(?:continue|keep going|resume|retry|carry on)[.!?]?$/iu.test(text) ||
+    [
+      "The previous assistant turn recorded reasoning but did not produce a user-visible answer.",
+      "The previous attempt did not produce a user-visible answer.",
+      "The previous assistant turn completed its tool calls but did not produce a user-visible answer.",
+      "The previous attempt compacted the conversation context before producing a final user-visible answer.",
+    ].some((prefix) => text.startsWith(prefix))
+  );
+}
+
+export function resolveMockSubagentTurn(input: ResponsesInputItem[]):
+  | {
+      kind: "kickoff" | "worker" | "completion" | "settled" | "other";
+      text: string;
+      caseName?: string;
+      privateWorker?: string;
+    }
+  | undefined {
+  let settled = false;
+  for (const item of input.toReversed()) {
+    if (item.role !== "user") {
+      continue;
+    }
+    const current = splitMockConversationContext(extractInputText(item.content)).current.trim();
+    const event = extractCurrentTaskEvent(current);
+    if (event) {
+      return {
+        kind: settled ? "settled" : "completion",
+        text: event,
+        caseName:
+          /^task:\s*qa-terminal-(visible|silent|empty|restart|fallback|private)(?:-(?:first|second))?\s*$/imu
+            .exec(event)?.[1]
+            ?.toLowerCase(),
+      };
+    }
+    if (isInternalRuntimeContextCarrierText(current)) {
+      continue;
+    }
+    if (
+      /^\[Subagent Context\] Every subagent spawned from this session has now settled/mu.test(
+        current,
+      )
+    ) {
+      settled = true;
+      continue;
+    }
+    const privateWorker = QA_SUBAGENT_PRIVATE_WORKER_RE.exec(current)?.[1]?.toLowerCase();
+    const worker = QA_SUBAGENT_TERMINAL_MATRIX_WORKER_RE.exec(current)?.[1]?.toLowerCase();
+    const kickoff = QA_SUBAGENT_TERMINAL_MATRIX_PROMPT_RE.exec(current)?.[1]?.toLowerCase();
+    // Explicit recovery resumes the preceding task; a fresh unrelated user turn
+    // fences history even when old turns mention one of these QA scenarios.
+    if (!privateWorker && !worker && !kickoff && isSubagentRecoveryText(current)) {
+      continue;
+    }
+    return {
+      kind: settled
+        ? "settled"
+        : privateWorker || worker
+          ? "worker"
+          : kickoff
+            ? "kickoff"
+            : "other",
+      text: current,
+      caseName: privateWorker ? "private" : (worker ?? kickoff),
+      privateWorker: settled ? undefined : privateWorker,
+    };
+  }
+  return undefined;
 }
 
 export function extractMockSubagentContext(input: ResponsesInputItem[]) {

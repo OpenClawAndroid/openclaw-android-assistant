@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { readDeliveryMock, getChannelPluginMock } = vi.hoisted(() => ({
-  readDeliveryMock: vi.fn(),
-  getChannelPluginMock: vi.fn(),
-}));
+const { readDeliveryMock, getChannelPluginMock, getBootstrapChannelPluginMock } = vi.hoisted(
+  () => ({
+    readDeliveryMock: vi.fn(),
+    getChannelPluginMock: vi.fn(),
+    getBootstrapChannelPluginMock: vi.fn(),
+  }),
+);
 
+vi.mock("../../channels/plugins/bootstrap-registry.js", () => ({
+  getBootstrapChannelPlugin: getBootstrapChannelPluginMock,
+}));
 vi.mock("../../config/sessions/delivery-info.js", () => ({
   readExactSessionDeliveryContext: readDeliveryMock,
 }));
@@ -31,6 +37,7 @@ const request = { config: {}, action: "send" as const, params: {} };
 
 describe("session-derived message destinations", () => {
   beforeEach(() => {
+    getBootstrapChannelPluginMock.mockReset();
     readDeliveryMock.mockReset();
     readDeliveryMock.mockReturnValue({
       channel: "googlechat",
@@ -54,6 +61,47 @@ describe("session-derived message destinations", () => {
       currentThreadTs: undefined,
     });
   });
+
+  it.each([
+    { name: "selected aliases", selected: true, hasAliases: true, expected: foldedSpace },
+    { name: "selected absence", selected: true, hasAliases: false, expected: canonicalSpace },
+    { name: "unselected bootstrap", selected: false, hasAliases: false, expected: foldedSpace },
+  ])(
+    "uses $name when deciding whether to recover a destination",
+    ({ selected, hasAliases, expected }) => {
+      getBootstrapChannelPluginMock.mockReturnValue({
+        actions: { messageActionTargetAliases: { read: { aliases: ["messageId"] } } },
+      });
+      const channels: PreparedMessageToolCatalog["channels"] = hasAliases
+        ? [
+            {
+              id: "googlechat",
+              reconcilesUnknownSend: false,
+              actions: {
+                describeMessageTool: () => ({ actions: ["read"] }),
+                messageActionTargetAliases: { read: { aliases: ["messageId"] } },
+              },
+            },
+          ]
+        : [];
+      const catalog = {
+        version: 1,
+        channels,
+        getChannel: (id: string) => channels.find((entry) => entry.id === id),
+      };
+      expect(
+        resolveEffectiveCurrentChannelContext(options, {
+          ...request,
+          action: "read",
+          params: { messageId: "message-1" },
+          preparedMessageToolCatalog: selected ? catalog : undefined,
+        }).currentMessagingTarget,
+      ).toBe(expected);
+      if (selected) {
+        expect(getBootstrapChannelPluginMock).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it.each([
     { name: "missing delivery", delivery: undefined },

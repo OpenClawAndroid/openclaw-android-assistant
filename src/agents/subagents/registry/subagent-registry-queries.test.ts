@@ -10,7 +10,6 @@ import {
   countPendingDescendantRunsFromRuns,
   hasDescendantRunAwaitingSettleFromRuns,
   getSubagentRunByChildSessionKeyFromRuns,
-  isSubagentSessionRunActiveFromRuns,
   listRunsForRequesterFromRuns,
   resolveRequesterForChildSessionFromRuns,
   shouldIgnorePostCompletionAnnounceForSessionFromRuns,
@@ -61,40 +60,12 @@ describe("subagent registry query regressions", () => {
       }),
     ]);
 
-    expect(isSubagentSessionRunActiveFromRuns(runs, childSessionKey)).toBe(true);
     expect(resolveRequesterForChildSessionFromRuns(runs, childSessionKey)).toMatchObject({
       requesterSessionKey: "agent:main:new-parent",
     });
     expect(getSubagentRunByChildSessionKeyFromRuns(runs, childSessionKey)?.runId).toBe(
       "run-live-successor",
     );
-  });
-
-  it("does not treat stale unended rows as active child-session liveness", () => {
-    const now = Date.now();
-    const childSessionKey = "agent:main:subagent:stale-live-check";
-    const runs = toRunMap([
-      makeRun({
-        runId: "run-stale",
-        childSessionKey,
-        createdAt: now - STALE_UNENDED_SUBAGENT_RUN_MS - 1,
-        startedAt: now - STALE_UNENDED_SUBAGENT_RUN_MS - 1,
-      }),
-    ]);
-
-    expect(isSubagentSessionRunActiveFromRuns(runs, childSessionKey)).toBe(false);
-
-    runs.set(
-      "run-fresh",
-      makeRun({
-        runId: "run-fresh",
-        childSessionKey,
-        createdAt: now - 60_000,
-        startedAt: now - 60_000,
-      }),
-    );
-
-    expect(isSubagentSessionRunActiveFromRuns(runs, childSessionKey)).toBe(true);
   });
 
   it("does not count stale unended direct children as active concurrency", () => {

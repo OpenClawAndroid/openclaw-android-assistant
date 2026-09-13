@@ -196,9 +196,15 @@ function setTaskStateProbeResult(state: number) {
 
 async function withPreparedGatewayTask(
   run: (context: { env: Record<string, string>; stdout: PassThrough }) => Promise<void>,
+  launcherSuffix = "",
 ) {
   await withWindowsEnv("openclaw-win-stop-", async ({ tmpDir, env }) => {
     await writeGatewayScript(env, GATEWAY_PORT);
+    if (launcherSuffix) {
+      const scriptPath = resolveTaskScriptPath(env);
+      const script = await fs.readFile(scriptPath, "utf8");
+      await fs.writeFile(scriptPath, `${script.trimEnd()} ${launcherSuffix}\r\n`);
+    }
     const stdout = new PassThrough();
     await withStateDatabaseCoordinatorRuntimeDirectory(path.join(tmpDir, "coordinators"), () =>
       run({ env, stdout }),
@@ -561,28 +567,33 @@ describe("Scheduled Task stop/restart cleanup", () => {
     },
   );
 
-  it("kills the lingering gateway process owned by the persisted task command", async () => {
-    await withPreparedGatewayTask(async ({ env, stdout }) => {
-      const onMutation = vi.fn();
-      pushSuccessfulSchtasksResponses(3);
-      mockWindowsTaskkillSuccess();
-      findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([4242]);
-      inspectPortUsageMock
-        .mockResolvedValueOnce(busyPortUsage(4242, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }))
-        .mockResolvedValueOnce(freePortUsage());
+  it.each(["", '< NUL >> "gateway output.log" 2>&1'])(
+    "kills the lingering gateway owned by the persisted task with suffix %s",
+    async (launcherSuffix) => {
+      await withPreparedGatewayTask(async ({ env, stdout }) => {
+        const onMutation = vi.fn();
+        pushSuccessfulSchtasksResponses(3);
+        mockWindowsTaskkillSuccess();
+        findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([4242]);
+        inspectPortUsageMock
+          .mockResolvedValueOnce(
+            busyPortUsage(4242, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }),
+          )
+          .mockResolvedValueOnce(freePortUsage());
 
-      await stopScheduledTask({ env, stdout, onMutation });
+        await stopScheduledTask({ env, stdout, onMutation });
 
-      expect(findVerifiedGatewayListenerPidsOnPortSync).not.toHaveBeenCalled();
-      expectGatewayTermination(4242);
-      expectTaskkill(4242);
-      expect(inspectPortUsageMock).toHaveBeenCalledTimes(2);
-      expect(inspectPortUsageMock).toHaveBeenCalledWith(GATEWAY_PORT, {
-        probeHosts: ["127.0.0.1"],
-      });
-      expect(onMutation).toHaveBeenCalledWith({ mode: "schtasks-stop" });
-    });
-  });
+        expect(findVerifiedGatewayListenerPidsOnPortSync).not.toHaveBeenCalled();
+        expectGatewayTermination(4242);
+        expectTaskkill(4242);
+        expect(inspectPortUsageMock).toHaveBeenCalledTimes(2);
+        expect(inspectPortUsageMock).toHaveBeenCalledWith(GATEWAY_PORT, {
+          probeHosts: ["127.0.0.1"],
+        });
+        expect(onMutation).toHaveBeenCalledWith({ mode: "schtasks-stop" });
+      }, launcherSuffix);
+    },
+  );
 
   it("does not adopt a portless arbitrary task action", async () => {
     await withPreparedGatewayTask(async ({ env }) => {
@@ -984,36 +995,41 @@ describe("Scheduled Task stop/restart cleanup", () => {
     });
   });
 
-  it("kills the owned gateway process and waits for port release before restart", async () => {
-    await withPreparedGatewayTask(async ({ env, stdout }) => {
-      const onMutation = vi.fn();
-      pushSuccessfulSchtasksResponses(4);
-      mockWindowsTaskkillSuccess();
-      findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([5151]);
-      inspectPortUsageMock
-        .mockResolvedValueOnce(busyPortUsage(5151, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }))
-        .mockResolvedValueOnce(freePortUsage());
+  it.each(["", '2>&1 >> "gateway output.log" < NUL'])(
+    "waits for the owned gateway port before restart with suffix %s",
+    async (launcherSuffix) => {
+      await withPreparedGatewayTask(async ({ env, stdout }) => {
+        const onMutation = vi.fn();
+        pushSuccessfulSchtasksResponses(4);
+        mockWindowsTaskkillSuccess();
+        findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([5151]);
+        inspectPortUsageMock
+          .mockResolvedValueOnce(
+            busyPortUsage(5151, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE }),
+          )
+          .mockResolvedValueOnce(freePortUsage());
 
-      await expect(restartScheduledTask({ env, stdout, onMutation })).resolves.toEqual({
-        outcome: "completed",
-      });
+        await expect(restartScheduledTask({ env, stdout, onMutation })).resolves.toEqual({
+          outcome: "completed",
+        });
 
-      expect(findVerifiedGatewayListenerPidsOnPortSync).not.toHaveBeenCalled();
-      expectGatewayTermination(5151);
-      expectTaskkill(5151);
-      expect(inspectPortUsageMock.mock.calls.length).toBeGreaterThanOrEqual(2);
-      expect(inspectPortUsageMock).toHaveBeenCalledWith(GATEWAY_PORT, {
-        probeHosts: ["127.0.0.1"],
-      });
-      expect(onMutation).toHaveBeenCalledWith({ mode: "schtasks-restart" });
-      expect(schtasksCalls).toEqual([
-        ["/Query"],
-        ["/Query", "/TN", "OpenClaw Gateway"],
-        ["/End", "/TN", "OpenClaw Gateway"],
-        ["/Run", "/TN", "OpenClaw Gateway"],
-      ]);
-    });
-  });
+        expect(findVerifiedGatewayListenerPidsOnPortSync).not.toHaveBeenCalled();
+        expectGatewayTermination(5151);
+        expectTaskkill(5151);
+        expect(inspectPortUsageMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(inspectPortUsageMock).toHaveBeenCalledWith(GATEWAY_PORT, {
+          probeHosts: ["127.0.0.1"],
+        });
+        expect(onMutation).toHaveBeenCalledWith({ mode: "schtasks-restart" });
+        expect(schtasksCalls).toEqual([
+          ["/Query"],
+          ["/Query", "/TN", "OpenClaw Gateway"],
+          ["/End", "/TN", "OpenClaw Gateway"],
+          ["/Run", "/TN", "OpenClaw Gateway"],
+        ]);
+      }, launcherSuffix);
+    },
+  );
 
   it.each(["routing", "activation"] as const)(
     "refuses Scheduled Task restart after losing continuation authority during %s",

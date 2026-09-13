@@ -1,7 +1,5 @@
-import {
-  resolveSessionTranscriptReadTarget,
-  type SessionTranscriptReadScope,
-} from "../config/sessions/session-accessor.js";
+import type { SessionTranscriptReadScope } from "../config/sessions/session-accessor.js";
+import { resolveSessionTranscriptReadTarget } from "../config/sessions/session-accessor.transcript-target.js";
 
 export type ResolvedTranscriptReadTarget = {
   agentId?: string;

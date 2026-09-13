@@ -127,6 +127,8 @@
 
 .session-progress-card--composer {
   --session-progress-marker-size: var(--chat-stack-icon-size, 14px);
+  --session-progress-disclosure-duration: 240ms;
+  --session-progress-disclosure-ease: var(--ease-in-out);
 
   position: relative;
   display: block;
@@ -146,16 +148,23 @@
   backdrop-filter: blur(8px);
 }
 
+/* Ease into closing instead of losing most of the body in the first frame.
+   Opening keeps its quicker response; the chevron shares the fold timeline. */
+.session-progress-card--composer[open] {
+  --session-progress-disclosure-duration: 180ms;
+  --session-progress-disclosure-ease: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 .session-progress-card--composer::details-content {
   block-size: 0;
   overflow: hidden;
   opacity: 0;
   transform: translateY(-4px);
   transition:
-    content-visibility 180ms allow-discrete,
-    block-size 180ms cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+    content-visibility var(--session-progress-disclosure-duration) allow-discrete,
+    block-size var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease),
+    opacity var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease),
+    transform var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease);
   transition-behavior: allow-discrete;
 }
 
@@ -716,7 +725,7 @@
   color: var(--muted);
   transition:
     color 140ms ease,
-    transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+    transform var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease);
 }
 
 .session-progress-card__summary-chevron svg {
@@ -868,7 +877,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .session-progress-card--composer,
+  .session-progress-card--composer::details-content,
   .session-progress-card__summary,
+  .session-progress-card__summary-chevron,
   .session-progress-card__summary-indicator > .session-run-spinner {
     animation: none;
     transition: none;

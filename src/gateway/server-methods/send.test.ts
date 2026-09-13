@@ -4449,7 +4449,12 @@ describe("gateway send mirroring", () => {
             resolveDefaultTo: ({ accountId }) => `${accountId ?? "default"}-room`,
           },
         }),
-        actions: { describeMessageTool: () => ({ actions: ["send"] }) },
+        actions: {
+          describeMessageTool: () => ({ actions: ["send"] }),
+          messageActionTargetAliases: {
+            send: { aliases: ["roomId"], deliveryTargetAliases: ["roomId"] },
+          },
+        },
         messaging: {
           targetResolver: { looksLikeId: () => true, hint: "<room>" },
         },
@@ -4500,6 +4505,14 @@ describe("gateway send mirroring", () => {
         gatewayMode: true,
         nativeDeclines: false,
         expectedTarget: "secondary-room",
+      },
+      {
+        name: "a selected plugin target alias",
+        params: { roomId: "owner-room" },
+        accountId: undefined,
+        gatewayMode: false,
+        nativeDeclines: false,
+        expectedTarget: "owner-room",
       },
     ])("routes $name through one canonical outbound send", async (testCase) => {
       if (testCase.nativeDeclines) {

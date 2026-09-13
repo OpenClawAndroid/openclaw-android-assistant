@@ -7,6 +7,7 @@ import {
   asDateTimestampMs,
   resolveTimestampMsToIsoString,
 } from "@openclaw/normalization-core/number-coercion";
+import { startsWithSvgRootElement } from "../../packages/gateway-protocol/src/svg-image.js";
 import {
   type AgentAvatarResolution,
   resolvePublicAgentAvatarSource,
@@ -109,7 +110,6 @@ import {
 import {
   applyHttpImageContentSecurityPolicy,
   sendHttpImageResponse,
-  startsWithSvgRootElement,
 } from "./http-image-response.js";
 import { authorizeControlUiReadRequestOrReply } from "./http-utils.js";
 import { isTerminalConfigEnabled } from "./terminal/enabled.js";

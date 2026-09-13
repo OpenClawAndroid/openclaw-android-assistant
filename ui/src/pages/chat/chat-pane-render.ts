@@ -398,6 +398,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       providerPolicyNotice: catalogKey ? null : state.providerPolicyNotice,
       progressCard: this.progressCard.card,
       collapseTaskProgress: state.settings.chatCollapseTaskProgress === true,
+      readingHistory: state.chatReadingHistory,
       onDismissProgressCard,
       gatewayQuestionPrompts:
         catalogKey || sessionParticipationBlocked

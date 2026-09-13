@@ -38,31 +38,6 @@ function visibleDrawerButton(page: Page) {
   return page.locator(".topbar-nav-toggle:visible, .chat-pane__nav-toggle:visible").first();
 }
 
-async function expectLobsterOnInviteLedge(sidebar: Locator) {
-  const invite = sidebar.locator(".sidebar-shell__invite");
-  const sprite = invite.locator(".lobster-pet:not(.lobster-pet--passer)").first();
-  await sprite.waitFor();
-
-  await expect
-    .poll(async () => {
-      const [inviteBox, spriteBox, borderTopWidth] = await Promise.all([
-        invite.boundingBox(),
-        sprite.boundingBox(),
-        invite.evaluate((element) =>
-          Number.parseFloat(window.getComputedStyle(element).borderTopWidth),
-        ),
-      ]);
-      if (!inviteBox || !spriteBox) {
-        return null;
-      }
-      return {
-        bottomOverlap: Math.round(spriteBox.y + spriteBox.height - inviteBox.y - borderTopWidth),
-        isAboveInvite: spriteBox.y < inviteBox.y,
-      };
-    })
-    .toEqual({ bottomOverlap: 3, isAboveInvite: true });
-}
-
 async function captureUiProof(page: Page, fileName: string, surface = page.locator(".shell")) {
   if (!captureUiProofEnabled) {
     return;
@@ -110,19 +85,6 @@ async function setThemeMode(page: Page, mode: "dark" | "light") {
     root.style.colorScheme = nextMode;
   }, mode);
   await expect.poll(() => page.locator("html").getAttribute("data-theme-mode")).toBe(mode);
-}
-
-async function openSidebarTestPage() {
-  const context = await suite.browser.newContext({
-    locale: "en-US",
-    serviceWorkers: "block",
-    viewport: { height: 900, width: 1440 },
-  });
-  const page = await context.newPage();
-  await installMockGateway(page);
-  await page.goto(`${suite.server.baseUrl}chat`);
-  await page.waitForFunction(() => Boolean(customElements.get("openclaw-lobster-pet")));
-  return { context, page };
 }
 
 suite.define(() => {
@@ -923,119 +885,5 @@ suite.define(() => {
         expect(floatingKinds).toEqual([]);
       },
     );
-  });
-
-  it("passes failed run outcomes through the desktop and drawer sidebar", async () => {
-    await suite.withPage(
-      {
-        locale: "en-US",
-        serviceWorkers: "block",
-        viewport: { height: 900, width: 1440 },
-      },
-      async ({ page }) => {
-        await installMockGateway(page, {
-          methodResponses: {
-            "sessions.list": {
-              count: 1,
-              defaults: {
-                contextTokens: null,
-                model: "gpt-5.5",
-                modelProvider: "openai",
-              },
-              path: "",
-              sessions: [
-                {
-                  endedAt: 100,
-                  key: "main",
-                  kind: "direct",
-                  status: "failed",
-                  updatedAt: 100,
-                },
-              ],
-              ts: 100,
-            },
-          },
-        });
-
-        const outcome = (locator: Locator) =>
-          locator.evaluate(
-            (element) => (element as HTMLElement & { runOutcome: string }).runOutcome,
-          );
-
-        await page.goto(`${suite.server.baseUrl}chat`);
-        const sidebar = page.locator("openclaw-app-sidebar");
-        const pet = sidebar.locator(".sidebar-shell openclaw-lobster-pet");
-        await expect.poll(() => pet.count()).toBe(1);
-        await expect.poll(() => outcome(pet)).toBe("error");
-        await expect.poll(() => page.locator(".topbar").isVisible()).toBe(false);
-
-        await page.setViewportSize({ height: 900, width: 900 });
-        const drawerButton = visibleDrawerButton(page);
-        await expect.poll(() => drawerButton.isVisible()).toBe(true);
-        await drawerButton.click();
-        await expect.poll(() => sidebar.isVisible()).toBe(true);
-        await expect.poll(() => pet.count()).toBe(1);
-        await expect.poll(() => outcome(pet)).toBe("error");
-      },
-    );
-  });
-
-  it("keeps the lobster on the community invite ledge across desktop and drawer layouts", async () => {
-    const { context, page } = await openSidebarTestPage();
-
-    try {
-      const sidebar = page.locator("openclaw-app-sidebar");
-      const pet = sidebar.locator("openclaw-lobster-pet");
-      const movement = await pet.evaluate(async (element) => {
-        const lobster = element as HTMLElement & {
-          anchor: "bar";
-          mode: "offline";
-          performAct(act: "scuttle"): void;
-          requestUpdate(): void;
-          updateComplete: Promise<unknown>;
-        };
-        lobster.mode = "offline";
-        await lobster.updateComplete;
-        lobster.anchor = "bar";
-        lobster.setAttribute("data-spot", "bar");
-        lobster.requestUpdate();
-        await lobster.updateComplete;
-
-        const sprite = lobster.querySelector<HTMLElement>(".lobster-pet:not(.lobster-pet--passer)");
-        const before = sprite?.style.getPropertyValue("--lob-x") ?? "";
-        lobster.performAct("scuttle");
-        await lobster.updateComplete;
-        const after = sprite?.style.getPropertyValue("--lob-x") ?? "";
-        return { after, before, spot: lobster.getAttribute("data-spot") };
-      });
-
-      expect(movement.spot).toBe("bar");
-      expect(movement.after).not.toBe(movement.before);
-      expect(Number.parseFloat(movement.after)).toBeGreaterThanOrEqual(18);
-      expect(Number.parseFloat(movement.after)).toBeLessThanOrEqual(50);
-      await expectLobsterOnInviteLedge(sidebar);
-      // startle clears itself after LOBSTER_PET_ACT_DURATION_MS.startle (750ms), so
-      // poking over one round trip and then polling for the class over another can
-      // straddle the entire window on a loaded runner and never observe it. Poke and
-      // read the resulting class in a single in-page step, as the unit test does.
-      const startleClasses = await pet.evaluate(async (element) => {
-        const lobster = element as HTMLElement & { updateComplete: Promise<unknown> };
-        const target = lobster.querySelector<HTMLElement>(".lobster-pet:not(.lobster-pet--passer)");
-        target?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-        target?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-        await lobster.updateComplete;
-        return target?.getAttribute("class") ?? "";
-      });
-      expect(startleClasses).toContain("lobster-pet--act-startle");
-      await captureUiProof(page, "08-lobster-invite-ledge-desktop.png");
-
-      await page.setViewportSize({ height: 900, width: 900 });
-      await visibleDrawerButton(page).click();
-      await expect.poll(() => sidebar.isVisible()).toBe(true);
-      await expectLobsterOnInviteLedge(sidebar);
-      await captureUiProof(page, "09-lobster-invite-ledge-drawer.png");
-    } finally {
-      await context.close();
-    }
   });
 });

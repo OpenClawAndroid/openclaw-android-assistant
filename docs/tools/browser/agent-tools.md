@@ -36,7 +36,7 @@ How it maps:
   - `target` (`sandbox` | `host` | `node`) to select where the browser lives.
   - In sandboxed sessions, `target: "host"` requires `agents.defaults.sandbox.browser.allowHostControl=true`.
   - If `target` is omitted: sandboxed sessions default to `sandbox`, non-sandbox sessions default to `host`.
-  - If a browser-capable node is connected, the tool may auto-route to it unless you pin `target="host"` or `target="node"`.
+  - Automatic routing prefers the host browser. If local browser capability is unavailable, it can use a single connected browser node. Explicit `target="node"`, a `node` selector, or a configured node pin overrides that preference; `target="host"` stays local.
 
 This keeps the agent deterministic and avoids brittle selectors.
 

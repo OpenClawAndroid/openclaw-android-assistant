@@ -354,11 +354,16 @@ export function readTranscriptDisplayDelta(
 
 export function readSessionTranscriptHistoryEvents(
   scope: SessionTranscriptReadScope,
+  options: { readOnly?: boolean } = {},
 ): SessionTranscriptMessageEvent[] {
-  return withCurrentProjectionSnapshot(scope, (projection) => {
-    const history = resolveVisibleHistoryProjection(projection);
-    return readVisibleHistoryRange(projection, 0, history.total, history);
-  });
+  return withCurrentProjectionSnapshot(
+    scope,
+    (projection) => {
+      const history = resolveVisibleHistoryProjection(projection);
+      return readVisibleHistoryRange(projection, 0, history.total, history);
+    },
+    options,
+  );
 }
 
 function readRecentHistoryInSnapshot(
@@ -419,10 +424,13 @@ function readRecentHistoryInSnapshot(
 
 export function readRecentSessionTranscriptHistoryEvents(
   scope: SessionTranscriptReadScope,
-  options: TranscriptRecentReadLimits & TranscriptReadWindowOptions,
+  options: TranscriptRecentReadLimits & TranscriptReadWindowOptions & { readOnly?: boolean },
 ): SessionTranscriptMessageEventPage {
-  return withCurrentProjectionSnapshot(scope, (projection) =>
-    readRecentHistoryInSnapshot(projection, resolveVisibleHistoryProjection(projection), options),
+  return withCurrentProjectionSnapshot(
+    scope,
+    (projection) =>
+      readRecentHistoryInSnapshot(projection, resolveVisibleHistoryProjection(projection), options),
+    options,
   );
 }
 
@@ -578,35 +586,39 @@ export function readSessionTranscriptHistoryEventLookup(
 
 export function readSessionTranscriptHistoryAnchorPage(
   scope: SessionTranscriptReadScope,
-  options: TranscriptAnchorPageOptions,
+  options: TranscriptAnchorPageOptions & { readOnly?: boolean },
 ): SessionTranscriptMessageAnchorPage {
-  return withCurrentProjectionSnapshot(scope, (projection) => {
-    const history = resolveVisibleHistoryProjection(projection);
-    assertHistoryReadWindow(projection, history, options.expectedReadWindow);
-    const anchor = resolveHistoryEventById(projection, options.messageId, history);
-    if (!anchor) {
-      // Explicit anchors reopen the closed reset interval that still contains the
-      // active-path row. Unanchored history and current-display lookup stay
-      // latest-reset-relative; missing or off-path IDs stay not-found.
-      return (
-        readHistoricalHistoryAnchorPage(projection, history.displaySource, options) ?? {
-          events: [],
-          found: false,
-          hasOverreadContext: false,
-          offset: 0,
-          displaySource: history.displaySource,
-          totalMessages: history.total,
-        }
-      );
-    }
-    const range = resolveHistoryAnchorPageRange(history.total, anchor.seq - 1, options);
-    return {
-      events: readVisibleHistoryRange(projection, range.readStart, range.endExclusive, history),
-      found: true,
-      hasOverreadContext: range.hasOverreadContext,
-      offset: range.offset,
-      displaySource: history.displaySource,
-      totalMessages: history.total,
-    };
-  });
+  return withCurrentProjectionSnapshot(
+    scope,
+    (projection) => {
+      const history = resolveVisibleHistoryProjection(projection);
+      assertHistoryReadWindow(projection, history, options.expectedReadWindow);
+      const anchor = resolveHistoryEventById(projection, options.messageId, history);
+      if (!anchor) {
+        // Explicit anchors reopen the closed reset interval that still contains the
+        // active-path row. Unanchored history and current-display lookup stay
+        // latest-reset-relative; missing or off-path IDs stay not-found.
+        return (
+          readHistoricalHistoryAnchorPage(projection, history.displaySource, options) ?? {
+            events: [],
+            found: false,
+            hasOverreadContext: false,
+            offset: 0,
+            displaySource: history.displaySource,
+            totalMessages: history.total,
+          }
+        );
+      }
+      const range = resolveHistoryAnchorPageRange(history.total, anchor.seq - 1, options);
+      return {
+        events: readVisibleHistoryRange(projection, range.readStart, range.endExclusive, history),
+        found: true,
+        hasOverreadContext: range.hasOverreadContext,
+        offset: range.offset,
+        displaySource: history.displaySource,
+        totalMessages: history.total,
+      };
+    },
+    options,
+  );
 }

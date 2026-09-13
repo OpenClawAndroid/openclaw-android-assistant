@@ -30,7 +30,7 @@ import {
 import { resolveConfiguredRealtimeVoiceProvider } from "../../talk/provider-resolver.js";
 import { resolveSandboxedSessionCreation } from "../operator-role-policy.js";
 import { SessionMutationAuthorizationChangedError } from "../session-sharing.js";
-import { readSessionPreviewItemsFromTranscript } from "../session-transcript-readers.js";
+import { readSessionPreviewItemsFromTranscript } from "../session-transcript-preview.js";
 import { createTalkClientAgentConsultRunner } from "../talk-client-agent-consult.js";
 import {
   boundTalkClientRealtimeInitialItems,

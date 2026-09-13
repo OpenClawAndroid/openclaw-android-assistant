@@ -38,10 +38,8 @@ import {
 } from "../../talk/client-voice-session.js";
 import { projectChatDisplayMessages } from "../chat-display-projection.js";
 import { createTranscriptUpdateBroadcastHandler } from "../server-session-events.js";
-import {
-  readSessionMessagesAsync,
-  readSessionPreviewItemsFromTranscript,
-} from "../session-transcript-readers.js";
+import { readSessionPreviewItemsFromTranscript } from "../session-transcript-preview.js";
+import { readSessionMessagesAsync } from "../session-transcript-readers.js";
 import { closeTalkClientGatewayControlSession } from "../talk-client-gateway-control.js";
 import {
   AGENT_ID,

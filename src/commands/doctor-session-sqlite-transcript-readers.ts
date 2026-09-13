@@ -40,6 +40,7 @@ export class ReadOnlySqliteTranscriptReader {
   repairSnapshot(
     sessionId: string,
     needsRepair: (event: unknown) => boolean,
+    mayNeedRepair: (eventJson: string) => boolean,
   ): ReadOnlyTranscriptSnapshot {
     let iterator: ReturnType<StatementSync["iterate"]> | undefined;
     try {
@@ -49,6 +50,9 @@ export class ReadOnlySqliteTranscriptReader {
       iterator = this.labelDetection.iterate(sessionId);
       for (const row of iterator) {
         if (typeof row.event_json !== "string" || typeof row.seq !== "number") {
+          continue;
+        }
+        if (!mayNeedRepair(row.event_json)) {
           continue;
         }
         let event: unknown;
@@ -86,6 +90,7 @@ export class ReadOnlySqliteTranscriptReader {
   /** Reads exact row metadata for a guarded transcript replacement without opening a writer. */
   headerlessSnapshot(
     sessionId: string,
+    acceptRow: (row: SqliteTranscriptStorageRow) => boolean,
   ):
     | { ok: true; rows: SqliteTranscriptStorageRow[]; sessionKey?: string }
     | { ok: false; error: unknown } {
@@ -128,11 +133,17 @@ export class ReadOnlySqliteTranscriptReader {
             error: new Error(`Invalid transcript row metadata for session ${sessionId}`),
           };
         }
-        storageRows.push({
+        const storageRow = {
           createdAt: row.created_at,
           eventJson: row.event_json,
           seq: row.seq,
-        });
+        };
+        // Reject an ineligible prefix before retaining the rest of a large history.
+        // Positive repairs still carry every exact row into writer revalidation.
+        if (!acceptRow(storageRow)) {
+          return { ok: true, rows: [] };
+        }
+        storageRows.push(storageRow);
       }
       return {
         ok: true,

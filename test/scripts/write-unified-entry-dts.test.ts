@@ -33,9 +33,33 @@ describe("write-unified-entry-dts", () => {
         "extensions/memory-core/src/memory/manager-search-knn-entrypoint.ts",
         "src/state/openclaw-state-schema.sql",
         "src/state/openclaw-agent-schema.sql",
+        "src/shared/freebsd-process-identity.ts",
+        "src/infra/update-managed-service-handoff-native-loader.ts",
       ]),
     );
     expect(closure).not.toContain("scripts/lib/ci-node-test-plan.mts");
+    expect(closure).not.toContain("src/infra/node_modules/koffi/indirect.cjs");
+  });
+
+  it("still traverses a compiler source when the generator also imports it", () => {
+    const readFileSync = fs.readFileSync.bind(fs);
+    const read = vi.spyOn(fs, "readFileSync").mockImplementation((file, options) => {
+      const contents = readFileSync(file, options);
+      return typeof contents === "string" &&
+        String(file).endsWith("managed-handoff-build-config.mts")
+        ? `${contents}\nimport "../../src/infra/update-managed-service-handoff-native-loader.ts";\n`
+        : contents;
+    });
+    try {
+      expect(() =>
+        resolveTsdownDeclarationGeneratorInputs(
+          process.cwd(),
+          "scripts/write-unified-entry-dts.ts",
+        ),
+      ).toThrow(/node_modules[/\\]koffi[/\\]indirect\.cjs/u);
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it.each([

@@ -20,7 +20,7 @@ function createRefreshHarness(method: "cron.status" | "cron.runs") {
     const promise =
       method === "cron.status"
         ? loadCronStatus(state, { coalesce })
-        : loadCronRuns(state, null, { coalesce });
+        : loadCronRuns(state, { coalesce });
     loads.push(promise);
     return promise;
   };
@@ -197,7 +197,7 @@ describe("cron event refresh replacement", () => {
       harness.state.cronRuns = [{ ts: 1, jobId: "job", action: "finished", status: "ok" }];
       harness.state.cronRunsHasMore = true;
       harness.state.cronRunsNextOffset = 1;
-      const append = loadCronRuns(harness.state, null, { append: true });
+      const append = loadCronRuns(harness.state, { append: true });
       const current = harness.load();
       expect(harness.request).toHaveBeenCalledTimes(2);
       expect(harness.state.cronRunsLoadingMore).toBe(false);

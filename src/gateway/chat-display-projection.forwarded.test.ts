@@ -1,20 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { annotateInterSessionPromptText } from "../sessions/input-provenance.js";
 import { projectChatDisplayMessages } from "./chat-display-projection.js";
-import {
-  CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES,
-  replaceOversizedChatHistoryMessages,
-} from "./server-methods/chat-history-budget.js";
-import { buildSessionHistorySnapshot } from "./session-history-state.js";
-
-function projectHistoryTransports(message: Record<string, unknown>) {
-  const websocket = replaceOversizedChatHistoryMessages({
-    messages: projectChatDisplayMessages([message]),
-    maxSingleMessageBytes: CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES,
-  }).messages;
-  const sse = buildSessionHistorySnapshot({ rawMessages: [message], limit: 5 }).history.messages;
-  return [websocket, sse];
-}
 
 describe("forwarded session attribution", () => {
   it.each([
@@ -46,7 +32,7 @@ describe("forwarded session attribution", () => {
       senderSession: undefined,
       senderLabel: "Forwarded agent message",
     },
-  ])("preserves $name across history transports", (testCase) => {
+  ])("preserves $name in display history", (testCase) => {
     const provenance = {
       kind: "inter_session" as const,
       sourceTool: "sessions_send",
@@ -62,19 +48,17 @@ describe("forwarded session attribution", () => {
       }),
     };
 
-    for (const messages of projectHistoryTransports(message)) {
-      expect(messages).toStrictEqual([
-        {
-          role: "assistant",
-          provenance,
-          content: "Forwarded status update",
-          senderLabel: testCase.senderLabel,
-          ...(testCase.senderSession ? { senderSession: testCase.senderSession } : {}),
-        },
-      ]);
-    }
+    expect(projectChatDisplayMessages([message])).toStrictEqual([
+      {
+        role: "assistant",
+        provenance,
+        content: "Forwarded status update",
+        senderLabel: testCase.senderLabel,
+        ...(testCase.senderSession ? { senderSession: testCase.senderSession } : {}),
+      },
+    ]);
   });
-  it("retains forwarded code indentation through both history transports", () => {
+  it("retains forwarded code indentation in display history", () => {
     const body = "\n    indented body\n\n";
     const provenance = {
       kind: "inter_session" as const,
@@ -86,16 +70,14 @@ describe("forwarded session attribution", () => {
       provenance,
       content: annotateInterSessionPromptText(body, provenance),
     };
-    for (const messages of projectHistoryTransports(message)) {
-      expect(messages).toStrictEqual([
-        {
-          role: "assistant",
-          provenance,
-          content: body,
-          senderLabel: "Forwarded from helper",
-          senderSession: { sessionKey: "agent:helper:main", agentId: "helper" },
-        },
-      ]);
-    }
+    expect(projectChatDisplayMessages([message])).toStrictEqual([
+      {
+        role: "assistant",
+        provenance,
+        content: body,
+        senderLabel: "Forwarded from helper",
+        senderSession: { sessionKey: "agent:helper:main", agentId: "helper" },
+      },
+    ]);
   });
 });

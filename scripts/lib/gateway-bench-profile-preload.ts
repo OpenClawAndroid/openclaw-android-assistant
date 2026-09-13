@@ -5,6 +5,7 @@ import {
   GATEWAY_PROFILE_CHANNEL,
   GATEWAY_CPU_SAMPLE_INTERVAL_MICROS,
   GATEWAY_HEAP_SAMPLE_INTERVAL,
+  type GatewayBenchCommand,
   type GatewayProfileCommand,
 } from "./gateway-bench-profile.ts";
 import { GatewayBenchWorkerProfiler } from "./gateway-bench-worker-profile.ts";
@@ -17,11 +18,25 @@ if (isMainThread) {
   }
   const inspector = new Session();
   const workers = new GatewayBenchWorkerProfiler(inspector);
-  inspector.connect();
+  let inspectorConnected = false;
   const active = new Set<GatewayProfileCommand["kind"]>();
   let busy = false;
-  process.on("message", (message: GatewayProfileCommand) => {
+  process.on("message", (message: GatewayBenchCommand) => {
     if (message?.channel !== GATEWAY_PROFILE_CHANNEL) {
+      return;
+    }
+    if (message.kind === "cpu-usage" && message.action === "sample") {
+      process.send?.({
+        channel: GATEWAY_PROFILE_CHANNEL,
+        kind: message.kind,
+        action: message.action,
+        cpuUsage: {
+          pid: process.pid,
+          atMonotonicMicros: Number(process.hrtime.bigint() / 1_000n),
+          process: process.cpuUsage(),
+          mainThread: process.threadCpuUsage(),
+        },
+      });
       return;
     }
     const reply = (error?: string) => {
@@ -40,6 +55,10 @@ if (isMainThread) {
     void (async () => {
       if (message.kind !== "cpu" && message.kind !== "heap") {
         throw new Error("Unknown Gateway profile kind");
+      }
+      if (!inspectorConnected) {
+        inspector.connect();
+        inspectorConnected = true;
       }
       if (message.action === "start") {
         if (active.has(message.kind)) {
@@ -93,6 +112,10 @@ if (isMainThread) {
       },
     );
   });
-  process.once("disconnect", () => inspector.disconnect());
+  process.once("disconnect", () => {
+    if (inspectorConnected) {
+      inspector.disconnect();
+    }
+  });
   process.channel?.unref();
 }

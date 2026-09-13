@@ -26,6 +26,7 @@ import {
 } from "../../src/config/sessions/session-accessor.js";
 import { importSqliteSessionRows } from "../../src/config/sessions/session-accessor.sqlite-import.js";
 import type { SessionEntry } from "../../src/config/sessions/types.js";
+import { isGatewayProtocolResponseError } from "../../src/gateway/client.js";
 import {
   connectGatewayClient,
   disconnectGatewayClient,
@@ -1537,11 +1538,13 @@ async function runConcurrentMultiClientLifecycle(
         context.concurrentSendSessionKey,
         CONCURRENT_SEND_TEXT,
       );
-      const historyPromise = historyClient.request(
-        "chat.history",
-        { sessionKey: context.concurrentResetSessionKey, limit: 50 },
-        { timeoutMs: SQLITE_FLIP_PROOF_OPERATION_TIMEOUT_MS },
-      );
+      const historyPromise = historyClient
+        .request(
+          "chat.history",
+          { sessionKey: context.concurrentResetSessionKey, limit: 50 },
+          { timeoutMs: SQLITE_FLIP_PROOF_OPERATION_TIMEOUT_MS },
+        )
+        .catch(acceptSupersededHistoryRead);
       const resetPromise = resetSession(lifecycleClient, context.concurrentResetSessionKey);
 
       const requests = [sendPromise, historyPromise, resetPromise] as const;
@@ -1573,17 +1576,42 @@ async function runConcurrentMultiClientLifecycle(
         context.concurrentResetSessionKey,
         resetSessionId,
       );
+      const afterReset = await readRecoverySession(
+        context,
+        historyClient,
+        context.concurrentResetSessionKey,
+      );
+      const resetBoundaryId = afterReset.events
+        .map(({ eventJson }) => parseJsonObject(eventJson))
+        .findLast((event) => event?.type === "reset")?.id;
+      const resetMarker = asRecord(asRecord(afterReset.history.messages[0])?.["__openclaw"]);
+      if (
+        afterReset.sessionId !== resetSessionId ||
+        afterReset.history.sessionId !== resetSessionId ||
+        typeof resetBoundaryId !== "string" ||
+        afterReset.history.messages.length !== 1 ||
+        resetMarker?.kind !== "reset" ||
+        resetMarker.id !== resetBoundaryId
+      ) {
+        throw new Error(
+          `chat.history after reset did not match the committed reset boundary: ${tail(
+            JSON.stringify(afterReset.history),
+          )}`,
+        );
+      }
 
       const deleteRunId = await sendGatewayUserMessage(
         historyClient,
         context.concurrentDeleteSessionKey,
         CONCURRENT_DELETE_TEXT,
       );
-      const deleteHistoryPromise = lifecycleClient.request(
-        "chat.history",
-        { sessionKey: context.concurrentDeleteSessionKey, limit: 50 },
-        { timeoutMs: SQLITE_FLIP_PROOF_OPERATION_TIMEOUT_MS },
-      );
+      const deleteHistoryPromise = lifecycleClient
+        .request(
+          "chat.history",
+          { sessionKey: context.concurrentDeleteSessionKey, limit: 50 },
+          { timeoutMs: SQLITE_FLIP_PROOF_OPERATION_TIMEOUT_MS },
+        )
+        .catch(acceptSupersededHistoryRead);
       const deleteRequests = [
         deleteHistoryPromise,
         deleteSession(primaryClient, context.concurrentDeleteSessionKey),
@@ -1595,8 +1623,31 @@ async function runConcurrentMultiClientLifecycle(
       await joinDeleteRequests();
       await waitForAgentRunSettled(historyClient, deleteRunId);
       await waitForSessionEntryAbsent(context.agentDbPath, context.concurrentDeleteSessionKey);
+      const afterDelete = await lifecycleClient.request<{
+        sessionId?: string;
+        messages: unknown[];
+      }>("chat.history", { sessionKey: context.concurrentDeleteSessionKey, limit: 50 });
+      if (afterDelete.sessionId !== undefined || afterDelete.messages.length !== 0) {
+        throw new Error(
+          `chat.history retained a deleted session: ${tail(JSON.stringify(afterDelete))}`,
+        );
+      }
     }, disconnectLifecycleClient);
   }, disconnectHistoryClient);
+}
+
+function acceptSupersededHistoryRead(error: unknown): void {
+  if (
+    isGatewayProtocolResponseError(error) &&
+    error.code === "UNAVAILABLE" &&
+    error.retryable &&
+    error.message === "session changed while reading history; reload the conversation" &&
+    asRecord(error.details)?.method === "chat.history" &&
+    error.responsePayload === undefined
+  ) {
+    return;
+  }
+  throw error;
 }
 
 async function resetSession(client: GatewayClient, key: string): Promise<string> {

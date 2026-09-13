@@ -205,6 +205,7 @@ export function createActionHubPluginFixture() {
         ],
       }),
       messageActionTargetAliases: {
+        "list-pins": { aliases: ["chatId"] },
         edit: {
           aliases: ["messageId", "chatId", "chat_id", "channel_id"],
           deliveryTargetAliases: ["chatId", "chat_id", "channel_id"],

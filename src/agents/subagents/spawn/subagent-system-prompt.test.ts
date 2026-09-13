@@ -67,6 +67,16 @@ describe("subagent spawn envelope", () => {
     },
   );
 
+  it("describes private completion consistently for child and parent", () => {
+    const envelope = buildEnvelope({ completionTarget: "parent" });
+    for (const text of [envelope.systemPrompt, envelope.acceptedNote]) {
+      expect(text).toContain("No result is automatically sent to a channel");
+      expect(text).toContain("remain silent");
+    }
+    expect(envelope.acceptedNote).toContain("private requester turn");
+    expect(envelope.acceptedNote).not.toContain("after your final answer");
+  });
+
   it("describes the bounded default recursive depth", () => {
     const envelope = buildEnvelope();
 

@@ -24,6 +24,7 @@ import { isCronRunSessionKey, isSubagentSessionKey } from "../sessions/session-k
 import { SESSIONS_LIST_OWNER_LIMIT } from "../shared/session-list-limits.js";
 import type { SessionOwnerFacetIdentity } from "../shared/session-types.js";
 import { runSynchronousWork, type SynchronousWork } from "../shared/synchronous-work.js";
+import { projectActivitySummaryList } from "./session-activity-summary-list.js";
 import {
   projectSessionOwner,
   addSessionOwnerFacetIdentity,
@@ -453,10 +454,8 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
   const userProfileIdentityById = new Map<string, SessionActorProfileIdentity | undefined>();
   const configuredAgentIds = new Set(listAgentIds(cfg));
   let rowContext: SessionListRowContext | undefined;
-  const getRowContext = () => {
-    rowContext ??= buildSessionListRowMetadataContext({ now, userProfileIdentityById });
-    return rowContext;
-  };
+  const getRowContext = () =>
+    (rowContext ??= buildSessionListRowMetadataContext({ now, userProfileIdentityById }));
   const hasSpawnedByFilter = typeof opts.spawnedBy === "string" && opts.spawnedBy.length > 0;
   const filteredSessionKeys = new Set<string>();
   let hasIncognito = false;
@@ -531,6 +530,7 @@ function buildSessionsListResult(
   list: ReturnType<typeof prepareSessionList> extends SynchronousWork<infer T> ? T : never,
   sessions: GatewaySessionRow[],
 ): SessionsListResult {
+  projectActivitySummaryList(params, sessions);
   const { cfg, opts, modelCatalog } = params;
   // The defaults projection uses the same agent identity as getSessionDefaults:
   // the requested agent when scoped, otherwise the legacy compatibility agent.

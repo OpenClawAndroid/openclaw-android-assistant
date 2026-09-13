@@ -154,6 +154,13 @@ through a generated `gateway.vbs` WScript wrapper, so the background Gateway
 does not open a visible console window. If task creation is denied, OpenClaw
 falls back to a per-user Startup-folder login item.
 
+If you append output redirection to the `gateway.cmd` launch line, quote the
+entire target, for example `>> "%USERPROFILE%\.openclaw\logs\gateway-stdout.log" 2>&1`.
+Complete trailing redirections are excluded from process ownership checks.
+Unquoted environment expansions can leave filename fragments in the Gateway's
+arguments; OpenClaw preserves ambiguous launcher commands and refuses to terminate
+a listener whose ownership cannot be verified. Quote the target before retrying.
+
 The hidden launcher owns the supervised Gateway process tree. Ending the task
 with `schtasks /end /tn "OpenClaw Gateway"`, `Stop-ScheduledTask`, or Task
 Scheduler's **End** action terminates the Gateway and its descendants. After

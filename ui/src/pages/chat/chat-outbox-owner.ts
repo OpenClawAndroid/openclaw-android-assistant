@@ -225,6 +225,7 @@ class ChatOutboxGatewayOwner {
     if (!previous || previous === this) {
       return;
     }
+    let adopted = false;
     // A shared client's credentials change before pane callbacks run. Move peers
     // together so the first reconnect drain still observes every pane's edit hold.
     for (const pane of previous.panes) {
@@ -247,6 +248,11 @@ class ChatOutboxGatewayOwner {
       pane.chatQueue = [];
       previous.detach(pane);
       this.attach(pane);
+      adopted = true;
+    }
+    if (adopted) {
+      // Publish only after every peer has moved, preserving shared edit holds.
+      this.publish();
     }
   }
   private attach(host: Host): void {

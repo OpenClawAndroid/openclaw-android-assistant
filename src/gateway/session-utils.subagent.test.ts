@@ -20,7 +20,7 @@ import { resolveSessionStorePathCore, type SessionEntry } from "../config/sessio
 import { canPrewarmCombinedSessionStoresForGateway } from "../config/sessions/combined-store-gateway.js";
 import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import { resetAgentEventsForTest } from "../infra/agent-events.js";
-import { registerAgentRunContext } from "../infra/agent-run-registry.js";
+import { claimAgentRunContext } from "../infra/agent-run-registry.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   resolveIncognitoOpenClawAgentSqlitePath,
@@ -109,7 +109,11 @@ describe("session list subagent metadata", () => {
             createdAt: now - 100,
             startedAt: now - 50,
           });
-          registerAgentRunContext("live-child", { sessionKey: childKey });
+          claimAgentRunContext(
+            "live-child",
+            { sessionKey: childKey },
+            { trackOwner: true, ownsContext: true },
+          );
           subagentRegistryState.clearSubagentRunsReadCacheForTest();
           const parse = vi.spyOn(JSON, "parse");
           try {
@@ -364,9 +368,11 @@ describe("session list subagent metadata", () => {
       startedAt: now - 9_000,
       model: "openai/gpt-5.4",
     });
-    registerAgentRunContext("run-parent", {
-      sessionKey: "agent:main:subagent:parent",
-    });
+    claimAgentRunContext(
+      "run-parent",
+      { sessionKey: "agent:main:subagent:parent" },
+      { trackOwner: true, ownsContext: true },
+    );
     addSubagentRunForTests({
       runId: "run-child",
       childSessionKey: "agent:main:subagent:child",
@@ -863,9 +869,11 @@ describe("session list subagent metadata", () => {
       accumulatedRuntimeMs: 120_000,
       model: "openai/gpt-5.4",
     });
-    registerAgentRunContext("run-followup-new", {
-      sessionKey: "agent:main:subagent:followup",
-    });
+    claimAgentRunContext(
+      "run-followup-new",
+      { sessionKey: "agent:main:subagent:followup" },
+      { trackOwner: true, ownsContext: true },
+    );
 
     const result = await listSessionFixture({
       cfg,

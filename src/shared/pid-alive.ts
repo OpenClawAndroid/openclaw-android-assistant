@@ -3,6 +3,7 @@ import childProcess from "node:child_process";
 import fsSync from "node:fs";
 import { resolveDiagnosticProcessEnv } from "../infra/process-env.ts";
 import { readWindowsProcessStartTimeSync } from "../infra/windows-process-start.ts";
+import { readFreeBsdProcessStartTime } from "./freebsd-process-identity.ts";
 
 const PROCESS_START_TIMEOUT_MS = 1000;
 // Cache only a successful self read: this identity lasts for the process.
@@ -124,7 +125,9 @@ export function getFileLockProcessStartTime(
       ? getDarwinProcessStartTime(pid, env)
       : process.platform === "win32"
         ? readWindowsProcessStartTimeSync(pid, windowsTimeoutMs, env)
-        : getProcessStartTime(pid);
+        : process.platform === "freebsd"
+          ? readFreeBsdProcessStartTime(pid)
+          : getProcessStartTime(pid);
   if (isSelf && startTime !== null) {
     selfStartTime = startTime;
   }

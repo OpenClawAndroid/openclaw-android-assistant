@@ -167,6 +167,13 @@ const browserConfigMocks = vi.hoisted(() => ({
 }));
 vi.mock("./browser/config.js", () => browserConfigMocks);
 
+const browserHostAvailabilityMocks = vi.hoisted(() => ({
+  isBrowserHostAvailable: vi.fn<(_config: OpenClawConfig, _profileName?: string) => boolean>(
+    () => false,
+  ),
+}));
+vi.mock("./browser-host-availability.js", () => browserHostAvailabilityMocks);
+
 const nodesUtilsMocks = vi.hoisted(() => ({
   listNodes: vi.fn(async (..._args: unknown[]): Promise<Array<Record<string, unknown>>> => []),
 }));
@@ -370,6 +377,7 @@ function mockSingleBrowserProxyNode() {
 function resetBrowserToolMocks() {
   vi.clearAllMocks();
   gatewayMocks.hasGatewayToolRoutingContext.mockReturnValue(true);
+  browserHostAvailabilityMocks.isBrowserHostAvailable.mockReset().mockReturnValue(false);
   configMocks.loadConfig.mockReturnValue({ browser: {} });
   browserConfigMocks.resolveBrowserConfig.mockReturnValue({
     enabled: true,
@@ -2330,6 +2338,7 @@ describe("browser tool snapshot maxChars", () => {
   });
 
   it("does not fall back to the host when a configured browser node is disconnected", async () => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     configMocks.loadConfig.mockReturnValue({
       browser: {},
       gateway: { nodes: { browser: { node: "node-1" } } },
@@ -2345,6 +2354,7 @@ describe("browser tool snapshot maxChars", () => {
 
   it("honors a configured browser node in manual routing mode", async () => {
     mockSingleBrowserProxyNode();
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     configMocks.loadConfig.mockReturnValue({
       browser: {},
       gateway: { nodes: { browser: { mode: "manual", node: "node-1" } } },
@@ -2358,6 +2368,7 @@ describe("browser tool snapshot maxChars", () => {
 
   it('allows profile="user" with target="node"', async () => {
     mockSingleBrowserProxyNode();
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     setResolvedBrowserProfiles({
       user: { driver: "existing-session", attachOnly: true, color: "#00AA00" },
     });
@@ -2377,6 +2388,7 @@ describe("browser tool snapshot maxChars", () => {
 
   it('allows profile="user" with an explicit node pin', async () => {
     mockSingleBrowserProxyNode();
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     setResolvedBrowserProfiles({
       user: { driver: "existing-session", attachOnly: true, color: "#00AA00" },
     });
@@ -2405,6 +2417,65 @@ describe("browser tool snapshot maxChars", () => {
     const opts = lastMockCallArg<{ profile?: string }>(browserClientMocks.browserStatus, 1);
     expect(opts.profile).toBe("user");
     expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("browser tool local-first routing", () => {
+  registerBrowserToolAfterEachReset();
+
+  it("uses the available host browser without discovering a connected browser node", async () => {
+    mockSingleBrowserProxyNode();
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
+
+    const result = await createBrowserTool().execute("local-status", { action: "status" });
+
+    expect(result.details).toMatchObject({ ok: true, running: true });
+    expect(browserClientMocks.browserStatus).toHaveBeenCalledOnce();
+    expect(nodesUtilsMocks.listNodes).not.toHaveBeenCalled();
+    expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { profile: "local-work", local: true },
+    { profile: "node-work", local: false },
+  ])("routes the selected $profile profile to its available owner", async ({ profile, local }) => {
+    mockSingleBrowserProxyNode();
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockImplementation(
+      (_config, profileName) => profileName === "local-work",
+    );
+
+    await createBrowserTool().execute("profile-status", { action: "status", profile });
+
+    if (local) {
+      expect(browserClientMocks.browserStatus).toHaveBeenCalledWith(undefined, { profile });
+      expect(nodesUtilsMocks.listNodes).not.toHaveBeenCalled();
+      expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+    } else {
+      expect(lastNodeInvokeCall().request.params?.profile).toBe(profile);
+      expect(browserClientMocks.browserStatus).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not replay a failed local navigation on a connected node", async () => {
+    mockSingleBrowserProxyNode();
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
+    const error = new Error("navigation timed out after the page received the request");
+    browserActionsMocks.browserNavigate.mockRejectedValue(error);
+
+    try {
+      await expect(
+        createBrowserTool().execute("local-navigation", {
+          action: "navigate",
+          targetId: "local-tab",
+          url: "https://example.com",
+        }),
+      ).rejects.toBe(error);
+      expect(browserActionsMocks.browserNavigate).toHaveBeenCalledOnce();
+      expect(nodesUtilsMocks.listNodes).not.toHaveBeenCalled();
+      expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+    } finally {
+      browserActionsMocks.browserNavigate.mockResolvedValue({ ok: true });
+    }
   });
 });
 

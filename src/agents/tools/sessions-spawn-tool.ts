@@ -221,6 +221,10 @@ function createSessionsSpawnToolSchema(params: {
           "false: fire-and-forget; requester gets no completion handoff when the child finishes.",
       }),
     ),
+    completionTarget: optionalStringEnum(["parent"] as const, {
+      description:
+        "parent: return results in a private requester turn; no automatic channel delivery. Native hidden run only; unavailable with ACP, collect, visible, thread, session mode, or expectsCompletionMessage=false.",
+    }),
     sandbox: optionalStringEnum(SESSIONS_SPAWN_SANDBOX_MODES, {
       description: '"inherit" parent sandbox policy; "require" fails unless child is sandboxed.',
     }),
@@ -443,6 +447,15 @@ export function createSessionsSpawnTool(
         const taskName = taskNameResult.taskName;
         const label = readToolStringParam(params, "label") ?? "";
         const runtime = params.runtime === "acp" ? "acp" : "subagent";
+        const completionTarget = params.completionTarget;
+        if (completionTarget !== undefined && completionTarget !== "parent") {
+          throw new ToolInputError('sessions_spawn completionTarget must be "parent" or omitted.');
+        }
+        if (completionTarget === "parent" && (runtime === "acp" || params.visible === true)) {
+          throw new ToolInputError(
+            'sessions_spawn completionTarget="parent" requires a hidden native subagent run.',
+          );
+        }
         if (collect && runtime === "acp") {
           throw new ToolInputError('sessions_spawn collect=true supports runtime="subagent" only.');
         }
@@ -645,6 +658,7 @@ export function createSessionsSpawnTool(
             context,
             lightContext,
             expectsCompletionMessage,
+            completionTarget,
             attachments,
             attachMountPath:
               params.attachAs && typeof params.attachAs === "object"

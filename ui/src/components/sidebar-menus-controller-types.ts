@@ -57,7 +57,8 @@ export interface SidebarMenusControllerHost
       | "sessionResultsByAgent"
       | "sessionsLoading"
       | "sessionsResult"
-      | "invalidateSessionCatalogs"
+      | "archiveSessionCatalog"
+      | "sessionScopeGeneration"
     >;
   readonly sessionDataContext: ApplicationContext<RouteId> | undefined;
   readonly sessionOrganizer: SessionOrganizerController;

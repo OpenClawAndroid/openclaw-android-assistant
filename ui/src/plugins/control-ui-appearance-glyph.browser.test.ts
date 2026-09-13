@@ -4,7 +4,7 @@ import { createTestGatewayClient } from "../test-helpers/gateway-client.ts";
 import { createControlUiComponents } from "./control-ui-components.ts";
 
 describe.runIf("__vitest_browser__" in globalThis)("mounted appearance glyph", () => {
-  it("renders palette, custom, and cleared colors through the host component handle", async () => {
+  it("renders and clears colors and SVG artwork through the host component handle", async () => {
     const gateway = createGateway(createTestGatewayClient(() => ({})));
     const sessions = createSessions("main", []);
     const context = createContext(gateway, sessions);
@@ -44,6 +44,24 @@ describe.runIf("__vitest_browser__" in globalThis)("mounted appearance glyph", (
     expect(renderedColor(1)).toBe("rgb(32, 96, 64)");
     handle.update({ ...props, color: null });
     await expect.poll(() => renderedColor()).toBe("rgb(110, 115, 120)");
+    expect(renderedColor(1)).toBe("rgb(32, 96, 64)");
+
+    const svgIcon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12"><rect width="24" height="12" fill="#206040"/></svg>')}`;
+    handle.update({ ...props, icon: svgIcon });
+    const glyph = () => container.querySelector("openclaw-appearance-glyph");
+    const image = () => glyph()?.shadowRoot?.querySelector("img");
+    await expect.poll(() => image()?.naturalWidth).toBe(24);
+    expect(image()?.naturalHeight).toBe(12);
+    expect(image()?.getAttribute("src")).toBe(svgIcon);
+    expect(image()?.alt).toBe("");
+    expect(glyph()?.shadowRoot?.querySelector("svg")).toBeNull();
+    expect(getComputedStyle(image()!).objectFit).toBe("contain");
+    expect(image()?.getBoundingClientRect().width).toBe(glyph()?.getBoundingClientRect().width);
+    expect(renderedColor(1)).toBe("rgb(32, 96, 64)");
+
+    handle.update({ ...props, icon: null });
+    await expect.poll(() => glyph()?.shadowRoot?.textContent?.trim()).toBe("B");
+    expect(image()).toBeNull();
     expect(renderedColor(1)).toBe("rgb(32, 96, 64)");
 
     handle.dispose();

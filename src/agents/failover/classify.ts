@@ -31,7 +31,10 @@ import {
   toPluginClassification,
   toReasonClassification,
 } from "./classification-rules.js";
-import { isContextOverflowErrorFromTables } from "./context-overflow.js";
+import {
+  isContextOverflowErrorFromTables,
+  looksLikeProviderContextOverflowCandidate,
+} from "./context-overflow-tables.js";
 import {
   isAuthErrorMessage,
   isAuthPermanentErrorMessage,
@@ -47,16 +50,11 @@ import {
 import {
   classifyLegacyProviderSpecificError,
   classifyProviderPluginError,
-  looksLikeProviderContextOverflowCandidate,
   type PreparedProviderFailoverOwner,
 } from "./provider-patterns.js";
 import type { FailoverClassification, FailoverReason, FailoverSignal } from "./signal.js";
 export { isUnclassifiedNoBodyHttpSignal } from "./classification-rules.js";
-export {
-  isContextOverflowError,
-  isLikelyContextOverflowError,
-  isReasoningConstraintErrorMessage,
-} from "./context-overflow.js";
+export { isContextOverflowError, isLikelyContextOverflowError } from "./context-overflow.js";
 export {
   isAuthErrorMessage,
   isBillingErrorMessage,

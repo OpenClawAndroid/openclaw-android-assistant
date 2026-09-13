@@ -102,6 +102,15 @@ This opt-in check inspects shared credentials and each configured agent's local
 auth store, including fleets without a default agent. Shared credential problems
 are reported once; agent-specific cooldowns remain attributed to their local store.
 
+`core/doctor/runtime-tool-schemas` does not probe OAuth-backed MCP servers in read-only
+Doctor reports, including triage and update checks. A probe can rotate a refresh token
+at the external server even when local state writes go to a disposable snapshot.
+Doctor reports this deferral at informational severity; use `--severity-min info` to
+display it. For servers in `mcp.servers`, run `openclaw mcp probe <name>` against the
+serving configuration. Validate plugin-provided servers or agent-local auth profiles
+from an authenticated serving-agent turn so refreshed credentials persist with their
+owner. Non-OAuth MCP schema checks still run.
+
 ## Post-upgrade mode
 
 `openclaw doctor --post-upgrade` runs plugin compatibility probes for chaining after a build or upgrade. Findings go to stdout; exit code is 1 if any finding has `level: "error"`. Add `--json` for a machine-readable envelope (`{ probesRun, findings }`), suitable for CI, the community `fork-upgrade` skill, and other post-upgrade smoke tooling. If the installed plugin index is missing or malformed, JSON mode still emits the envelope with a `plugin.index_unavailable` error finding.

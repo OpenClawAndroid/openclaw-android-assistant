@@ -758,6 +758,30 @@ describe("memory session sync targets", () => {
 });
 
 describe("buildSessionEntry", () => {
+  it("preserves the persisted export hash for wrapped Unicode messages", async () => {
+    const records = Array.from({ length: 4 }, (_, index) => ({
+      type: "message",
+      id: `m${index}`,
+      timestamp: "2026-09-01T00:00:00Z",
+      message: {
+        role: index % 2 ? "assistant" : "user",
+        content: `sample-${index} café 🦞 ordinary text. `.repeat(32).slice(0, 1024),
+        __openclaw: { senderIsOwner: true },
+      },
+    }));
+    const filePath = path.join(tmpDir, "hash-contract.jsonl");
+    fsSync.writeFileSync(filePath, records.map((record) => JSON.stringify(record)).join("\n"));
+    const entry = requireSessionEntry(
+      await buildSessionEntry(filePath, {
+        generatedByCronRun: false,
+        generatedByDreamingNarrative: false,
+        sessionKind: "interactive",
+      }),
+    );
+    expect(entry.lineMap).toEqual([1, 1, 2, 2, 3, 3, 4, 4]);
+    expect(entry.hash).toBe("c0c681f57b6caea32f1a6baee132322c0dbc6f93e75656725fe3ef7158f195ae");
+  });
+
   it("returns lineMap tracking original JSONL line numbers", async () => {
     // Simulate a real session JSONL file with metadata records interspersed
     // Lines 1-3: non-message metadata records

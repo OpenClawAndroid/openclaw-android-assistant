@@ -3206,7 +3206,8 @@ wa-dropdown-item.session-menu__item::part(submenu-icon) {
 .session-menu__icon-custom-input {
   min-width: 0;
   height: 30px;
-  padding: 0 7px;
+  padding: 5px 7px;
+  resize: none;
   border: 1px solid var(--border);
   border-radius: var(--menu-item-radius);
   background: var(--bg);

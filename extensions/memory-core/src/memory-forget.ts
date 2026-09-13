@@ -41,6 +41,7 @@ import {
   recordMemorySessionTombstones,
 } from "./memory-entry-origins.js";
 import { collectTranscriptWrites } from "./memory-forget-curated-writes.js";
+import { deleteMemoryIndexSources } from "./memory-forget-index-sources.js";
 import { summarizeParticipantMatches, type MemoryForgetReport } from "./memory-forget-report.js";
 import { withMemoryWorkspaceLock } from "./memory-workspace-lock.js";
 import { isMemorySessionIndexable } from "./memory/manager-session-sync-state.js";
@@ -672,15 +673,7 @@ async function forgetWorkspaceMemory(
           kysely.deleteFrom("memory_index_chunks").where("id", "in", chunkIds),
         );
       }
-      for (const source of indexPlan.sources) {
-        executeSqliteQuerySync(
-          db,
-          kysely
-            .deleteFrom("memory_index_sources")
-            .where("path", "=", source.path)
-            .where("source", "=", source.source),
-        );
-      }
+      deleteMemoryIndexSources(db, indexPlan.sources);
       if (tableExists(db, "memory_embedding_cache")) {
         executeSqliteQuerySync(db, kysely.deleteFrom("memory_embedding_cache"));
       }

@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildAgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.js";
+import { createAgentCommandLifecycle } from "../../agents/command/lifecycle.js";
 import { AgentHarnessPreflightError } from "../../agents/harness/errors.js";
 import { createAgentLifecycleTerminalBackstop } from "../../auto-reply/reply/agent-lifecycle-terminal.js";
 import { emitAgentEvent, getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
@@ -8,6 +10,48 @@ import { setGatewayDedupeEntry, waitForAgentJob } from "./agent-job.js";
 let runSequence = 0;
 
 describe("waitForAgentJob settled execution", () => {
+  it("normalizes an outer timeout after yield before publishing the wait snapshot", async () => {
+    const runId = `outer-timeout-after-yield-${runSequence++}`;
+    const waiter = waitForAgentJob({ runId, timeoutMs: 60_000 });
+    const controller = new AbortController();
+    const lifecycle = createAgentCommandLifecycle({
+      runId,
+      lifecycleGeneration: getAgentEventLifecycleGeneration,
+      startedAt: 100,
+      abortSignal: controller.signal,
+      state: {
+        currentTurnUserMessagePersisted: true,
+        lifecycleFinishing: false,
+        lifecycleEnded: false,
+      },
+    });
+    const terminal = {
+      metadata: { yielded: true, aborted: false },
+      outcome: buildAgentRunTerminalOutcome({
+        status: "ok",
+        stopReason: "end_turn",
+        livenessState: "paused",
+      }),
+    };
+    controller.abort(new DOMException("outer deadline", "TimeoutError"));
+    lifecycle.emitEnd(terminal);
+    try {
+      await expect(waiter).resolves.toMatchObject({
+        status: "timeout",
+        stopReason: "timeout",
+        yielded: true,
+      });
+      await expect(waitForAgentJob({ runId, timeoutMs: 0 })).resolves.toMatchObject({
+        status: "timeout",
+        stopReason: "timeout",
+        yielded: true,
+      });
+    } finally {
+      await vi.advanceTimersByTimeAsync(60_000);
+      await waiter;
+    }
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });

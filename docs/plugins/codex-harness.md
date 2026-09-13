@@ -132,8 +132,8 @@ Proxy launch arguments are rejected to avoid changing a shared daemon's login.
 
 - The official `@openclaw/codex` plugin installed. Include `codex` in
   `plugins.allow` if your config uses an allowlist.
-- Managed Codex app-server `0.153.4`. The plugin ships and manages
-  `@openai/codex` `0.153.4` by default, so a `codex` command on `PATH` does not
+- Managed Codex app-server `0.154.0`. The plugin ships and manages
+  `@openai/codex` `0.154.0` by default, so a `codex` command on `PATH` does not
   affect normal startup. Explicit custom, remote, and macOS desktop-owned
   app-servers must report a parseable semantic version of `0.149.0` or newer.
   Newer versions continue with a compatibility warning and normal runtime

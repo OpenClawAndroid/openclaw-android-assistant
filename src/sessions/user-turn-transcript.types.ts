@@ -1,6 +1,7 @@
 // User-turn transcript type contracts shared by runtime and queue option types.
 import type { HumanMention } from "@openclaw/gateway-protocol";
 import type { AgentMessage } from "../../packages/agent-core/src/types.js";
+import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.types.js";
 import type { TranscriptSenderIdentity } from "../chat/sender-identity.js";
 import type {
   SessionTranscriptTurnMutation,
@@ -179,6 +180,7 @@ type UserTurnInputResolver = () => UserTurnInput | undefined | Promise<UserTurnI
 export type CreateUserTurnTranscriptRecorderParams = {
   /** Authenticated input identity independent of prepared media paths. */
   pendingInputRequestFingerprint?: string;
+  trackInputCompletion?: boolean;
   /** Exact admitted source recorders consumed by this collected transcript message. */
   pendingInputSources?: readonly UserTurnTranscriptRecorder[];
   sessionTurnMutation?: SessionTranscriptTurnMutation;
@@ -201,7 +203,13 @@ export type UserTurnTranscriptRecorder = {
   readonly message: PersistedUserTurnMessage | undefined;
   resolveMessage: () => Promise<PersistedUserTurnMessage | undefined>;
   /** Durable input custody leaves the active transcript unchanged until execution owns it. */
-  stageApproved?: (options: { runId: string; assertCurrent: () => void }) => Promise<boolean>;
+  stageApproved?: (options: {
+    runId: string;
+    assertCurrent: () => void;
+    assertCompletionCurrent?: () => void;
+  }) => Promise<boolean>;
+  getProcessingCompletion?: () => AgentRunTerminalOutcome | undefined;
+  completeProcessing?: (outcome: AgentRunTerminalOutcome) => AgentRunTerminalOutcome | undefined;
   getPendingInputMessage?: () => PersistedUserTurnMessage | undefined;
   isPendingInputConsumed?: () => boolean;
   withPendingInput?: <T>(run: () => T) => T;

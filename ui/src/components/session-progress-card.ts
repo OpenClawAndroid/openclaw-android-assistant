@@ -96,12 +96,15 @@ const progressActivityTime = directive(ProgressActivityTimeDirective);
 type ComposerProgressRunLifecycle = {
   activeRunId?: string | null;
   completedRunId?: string | null;
+  readingHistory?: boolean;
 };
 
 type ComposerDisclosureOwner = {
   activeRunId: string | null;
   handledCompletedRunId: string | null;
   sessionKey: string;
+  automaticOpen: boolean;
+  manualOpen?: boolean;
 };
 
 const composerDisclosureOwners = new WeakMap<HTMLDetailsElement, ComposerDisclosureOwner>();
@@ -118,24 +121,22 @@ function reconcileComposerDisclosure(
   }
   const activeRunId = lifecycle?.activeRunId ?? null;
   const completedRunId = lifecycle?.completedRunId ?? null;
-  const owner = composerDisclosureOwners.get(element);
+  let owner = composerDisclosureOwners.get(element);
   if (!owner || owner.sessionKey !== sessionKey) {
-    element.open = initialOpen;
-    composerDisclosureOwners.set(element, {
+    owner = {
       activeRunId,
       handledCompletedRunId: completedRunId,
       sessionKey,
-    });
-    return;
-  }
-  // Run boundaries intentionally override the native disclosure. Same-run
-  // rerenders leave the operator's manual open/closed choice untouched.
-  if (activeRunId && activeRunId !== owner.activeRunId) {
+      automaticOpen: initialOpen,
+    };
+    composerDisclosureOwners.set(element, owner);
+  } else if (activeRunId && activeRunId !== owner.activeRunId) {
+    // A new run starts a fresh task choice. Revisions and completion belong
+    // to the same task and must not discard an explicit disclosure choice.
     owner.activeRunId = activeRunId;
     owner.handledCompletedRunId = null;
-    if (collapseByDefault) {
-      element.open = false;
-    }
+    owner.manualOpen = undefined;
+    owner.automaticOpen = !collapseByDefault;
   }
   if (
     completedRunId &&
@@ -143,9 +144,22 @@ function reconcileComposerDisclosure(
     completedRunId !== owner.handledCompletedRunId
   ) {
     owner.handledCompletedRunId = completedRunId;
-    if (collapseByDefault) {
-      element.open = true;
-    }
+    owner.automaticOpen = true;
+  }
+  element.open = owner.manualOpen ?? (owner.automaticOpen && !lifecycle?.readingHistory);
+}
+
+function handleComposerDisclosureClick(event: MouseEvent): void {
+  const summary = event.currentTarget;
+  const element = summary instanceof HTMLElement ? summary.parentElement : null;
+  if (!(element instanceof HTMLDetailsElement) || event.defaultPrevented) {
+    return;
+  }
+  const owner = composerDisclosureOwners.get(element);
+  if (owner) {
+    // Summary activation covers pointer and keyboard input. A toggle event also
+    // fires for automatic changes, so it cannot establish operator intent.
+    owner.manualOpen = !element.open;
   }
 }
 
@@ -449,7 +463,11 @@ export function renderSessionProgressCard(
         ),
       )}
     >
-      <summary class="session-progress-card__summary" aria-label=${summaryLabel}>
+      <summary
+        class="session-progress-card__summary"
+        aria-label=${summaryLabel}
+        @click=${handleComposerDisclosureClick}
+      >
         <span
           class="session-progress-card__summary-indicator session-progress-card__current-marker${
             complete || effectiveSessionStatus === "done"

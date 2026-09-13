@@ -12,10 +12,7 @@ import type {
 import {
   CROSS_OS_GATEWAY_STATUS_COMMAND_TIMEOUT_MS,
   CROSS_OS_GATEWAY_STATUS_RPC_TIMEOUT_MS,
-  CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE,
-  buildCrossOsReleaseSmokeMemorySlotConfigArgs,
-  buildCrossOsReleaseSmokePluginAllowlist,
-  buildReleaseProviderConfigOverride,
+  buildReleaseModelConfigCommands,
   gatewayReadyDeadlineMs,
   installTimeoutMs,
   looksLikeCommitSha,
@@ -741,70 +738,16 @@ export async function runInstalledModelsSet(params: {
   providerConfig: ProviderConfig;
   logPath: string;
 }) {
-  await runInstalledCli({
-    cliPath: params.cliPath,
-    args: ["models", "set", params.providerConfig.model],
-    cwd: params.cwd,
-    env: params.env,
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  const providerConfigOverride = buildReleaseProviderConfigOverride(params.providerConfig);
-  if (providerConfigOverride) {
+  for (const args of buildReleaseModelConfigCommands(params.providerConfig)) {
     await runInstalledCli({
       cliPath: params.cliPath,
-      args: [
-        "config",
-        "set",
-        `models.providers.${params.providerConfig.extensionId}`,
-        JSON.stringify(providerConfigOverride),
-        "--strict-json",
-        "--merge",
-      ],
+      args,
       cwd: params.cwd,
       env: params.env,
       logPath: params.logPath,
       timeoutMs: 2 * 60 * 1000,
     });
   }
-  await runInstalledCli({
-    cliPath: params.cliPath,
-    args: [
-      "config",
-      "set",
-      "plugins.allow",
-      JSON.stringify(buildCrossOsReleaseSmokePluginAllowlist(params.providerConfig)),
-      "--strict-json",
-    ],
-    cwd: params.cwd,
-    env: params.env,
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  await runInstalledCli({
-    cliPath: params.cliPath,
-    args: buildCrossOsReleaseSmokeMemorySlotConfigArgs(),
-    cwd: params.cwd,
-    env: params.env,
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  await runInstalledCli({
-    cliPath: params.cliPath,
-    args: ["config", "set", "agents.defaults.skipBootstrap", "true", "--strict-json"],
-    cwd: params.cwd,
-    env: params.env,
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  await runInstalledCli({
-    cliPath: params.cliPath,
-    args: ["config", "set", "tools.profile", CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE],
-    cwd: params.cwd,
-    env: params.env,
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
 }
 
 export async function runInstalledAgentTurn(params: {

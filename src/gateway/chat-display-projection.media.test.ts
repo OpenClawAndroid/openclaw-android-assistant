@@ -20,7 +20,6 @@ import {
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
 import { projectChatDisplayMessages } from "./chat-display-projection.js";
-import { buildSessionHistorySnapshot } from "./session-history-state.js";
 import { projectSessionMessagePayload } from "./session-transcript-message.js";
 import { readRecentSessionMessagesWithStatsAsync } from "./session-transcript-readers.js";
 
@@ -54,7 +53,6 @@ describe("assistant media directive display projection", () => {
       const rawMessages = [user, mediaReply, ...(recovered ? [reply] : [])];
       const expected = [user, { ...mediaReply, content: [] }, ...(recovered ? [reply] : [])];
       expect(projectChatDisplayMessages(rawMessages)).toEqual(expected);
-      expect(buildSessionHistorySnapshot({ rawMessages }).history.messages).toEqual(expected);
     },
   );
 

@@ -567,6 +567,45 @@ describe("doctor runtime tool schema checks", () => {
     });
   });
 
+  it.each([undefined, "provider:default"])(
+    "defers shared OAuth without suppressing non-OAuth probes (auth profile=%s)",
+    async (authProfileId) => {
+      const findings = await collectRuntimeToolSchemaFindings({
+        agents: {
+          entries: {
+            main: { default: true, workspace: "/tmp/main-workspace" },
+            worker: { workspace: "/tmp/worker-workspace" },
+          },
+        },
+        mcp: {
+          servers: {
+            authenticated: {
+              url: "https://oauth.example.test/mcp",
+              transport: "streamable-http",
+              auth: "oauth",
+              ...(authProfileId ? { oauth: { authProfileId } } : {}),
+            },
+            public: { url: "https://public.example.test/mcp", transport: "sse" },
+            local: { command: "fixture-mcp" },
+          },
+        },
+      });
+      expect(findings).toEqual([
+        expect.objectContaining({
+          severity: "info",
+          path: "mcp.servers.authenticated",
+          message: expect.stringContaining("OAuth may rotate external credentials"),
+          fixHint: expect.stringContaining("openclaw mcp probe"),
+        }),
+      ]);
+      expect(mocks.createBundleMcpToolRuntime).toHaveBeenCalledTimes(1);
+      expect(mocks.createBundleMcpToolRuntime).toHaveBeenCalledWith(
+        expect.objectContaining({ excludeServerNames: new Set(["authenticated"]) }),
+      );
+      expect(mocks.disposeBundleRuntime).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("does not report bundle MCP schemas filtered out by the final runtime tool policy", async () => {
     mocks.createBundleMcpToolRuntime.mockReturnValueOnce({
       tools: [

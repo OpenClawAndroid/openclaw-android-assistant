@@ -728,14 +728,14 @@ suite.define(() => {
           },
         });
 
-        await firstRow.getByText("Subagent cancelled").waitFor();
+        await firstRow.getByText("Cancelled", { exact: true }).waitFor();
         await detailPanel.getByText("Failed").waitFor();
         expect(await firstRow.textContent()).not.toContain("Cross-checking requester ownership");
         expect(await activity.locator(".chat-diffstat").count()).toBe(0);
         expect(await detailPanel.locator(".chat-diffstat__add").textContent()).toBe("+14");
         expect(await detailPanel.locator(".chat-diffstat__del").textContent()).toBe("-3");
         expect(await secondRow.locator(".chat-subagent-activity__label").textContent()).toBe(
-          "Subagent",
+          second.title,
         );
         expect(await secondRow.textContent()).toContain("Checking tool card rendering");
         await writeFile(

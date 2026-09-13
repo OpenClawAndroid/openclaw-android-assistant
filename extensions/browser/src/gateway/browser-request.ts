@@ -253,9 +253,10 @@ export async function handleBrowserGatewayRequest({
   let nodeTarget: NodeSession | null = null;
   if (!forceHostLocal && typed.target !== "host") {
     try {
-      nodeTarget = resolveBrowserNodeTarget({
-        nodes: context.nodeRegistry.listConnected(),
-        policy: cfg.gateway?.nodes?.browser,
+      nodeTarget = await resolveBrowserNodeTarget({
+        nodes: () => context.nodeRegistry.listConnected(),
+        config: cfg,
+        profile: resolveRequestedBrowserProfile({ query, body }),
         explicitTarget: explicitNode,
         requestedNode,
       });

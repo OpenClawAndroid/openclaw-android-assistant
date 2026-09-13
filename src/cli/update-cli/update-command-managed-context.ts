@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { LegacyConfigUpdatePlan } from "../../commands/doctor/legacy-config-repair.js";
 import { readConfigFileSnapshot } from "../../config/config.js";
+import { hashConfigRaw } from "../../config/io.read-helpers.js";
 import type { ConfigFileSnapshot } from "../../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../../config/types.plugins.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
@@ -100,4 +101,22 @@ export async function captureOwnedManagedUpdateContext(params: {
     const pluginInstallRecords = await loadInstalledPluginIndexInstallRecords({ env });
     return { env, configSnapshot, pluginInstallRecords };
   });
+}
+
+export async function readUpdateCandidateSource(
+  env: NodeJS.ProcessEnv,
+  legacyConfigPlan?: LegacyConfigUpdatePlan,
+) {
+  if (legacyConfigPlan) {
+    const context = await captureTargetDatabaseSchemaContext(env, {
+      legacyConfigPlan,
+    });
+    if (context.legacyConfigPlan) {
+      return { config: context.config, hash: hashConfigRaw(context.configSnapshot.raw) };
+    }
+  }
+  const snapshot = await withOwnedManagedUpdateEnv(env, () =>
+    readConfigFileSnapshot({ skipPluginValidation: true, observe: false }),
+  );
+  return { config: snapshot.config, hash: hashConfigRaw(snapshot.raw) };
 }

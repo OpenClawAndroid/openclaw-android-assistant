@@ -20,19 +20,6 @@ import type {
 
 const PROVIDER_PLUGIN_CHOICE_PREFIX = "provider-plugin:";
 
-type ProviderWizardOption = {
-  value: string;
-  label: string;
-  hint?: string;
-  groupId: string;
-  groupLabel: string;
-  groupHint?: string;
-  onboardingScopes?: Array<"text-inference" | "image-generation" | "music-generation">;
-  assistantPriority?: number;
-  assistantVisibility?: "visible" | "manual-only";
-  onboardingFeatured?: boolean;
-};
-
 export type ProviderModelPickerEntry = {
   value: string;
   label: string;
@@ -100,34 +87,6 @@ function listMethodWizardSetups(provider: ProviderPlugin): Array<{
     );
 }
 
-function buildSetupOptionForMethod(params: {
-  provider: ProviderPlugin;
-  wizard: ProviderPluginWizardSetup;
-  method: ProviderAuthMethod;
-  value: string;
-}): ProviderWizardOption {
-  const normalizedGroupId = normalizeOptionalString(params.wizard.groupId) || params.provider.id;
-  return {
-    value: normalizeOptionalString(params.value) ?? "",
-    label:
-      normalizeOptionalString(params.wizard.choiceLabel) ||
-      (params.provider.auth.length === 1 ? params.provider.label : params.method.label),
-    hint: normalizeOptionalString(params.wizard.choiceHint) || params.method.hint,
-    groupId: normalizedGroupId,
-    groupLabel: normalizeOptionalString(params.wizard.groupLabel) || params.provider.label,
-    groupHint: normalizeOptionalString(params.wizard.groupHint),
-    ...(params.wizard.onboardingScopes ? { onboardingScopes: params.wizard.onboardingScopes } : {}),
-    ...(typeof params.wizard.assistantPriority === "number" &&
-    Number.isFinite(params.wizard.assistantPriority)
-      ? { assistantPriority: params.wizard.assistantPriority }
-      : {}),
-    ...(params.wizard.assistantVisibility
-      ? { assistantVisibility: params.wizard.assistantVisibility }
-      : {}),
-    ...(params.wizard.onboardingFeatured ? { onboardingFeatured: true } : {}),
-  };
-}
-
 export function buildProviderPluginMethodChoice(providerId: string, methodId: string): string {
   return `${PROVIDER_PLUGIN_CHOICE_PREFIX}${normalizeOptionalString(providerId) ?? ""}:${normalizeOptionalString(methodId) ?? ""}`;
 }
@@ -148,63 +107,6 @@ function resolveProviderWizardProviders(params: {
     mode: "setup",
     ...(params.providerRefs?.length ? { providerRefs: params.providerRefs } : {}),
   });
-}
-
-export function resolveProviderWizardOptions(params: {
-  config?: OpenClawConfig;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
-}): ProviderWizardOption[] {
-  const providers = resolveProviderWizardProviders(params);
-  const options: ProviderWizardOption[] = [];
-
-  for (const provider of providers) {
-    const methodSetups = listMethodWizardSetups(provider);
-    for (const { method, wizard } of methodSetups) {
-      options.push(
-        buildSetupOptionForMethod({
-          provider,
-          wizard,
-          method,
-          value:
-            normalizeOptionalString(wizard.choiceId) ||
-            buildProviderPluginMethodChoice(provider.id, method.id),
-        }),
-      );
-    }
-    if (methodSetups.length > 0) {
-      continue;
-    }
-    const setup = provider.wizard?.setup;
-    if (!setup) {
-      continue;
-    }
-    const explicitMethod = resolveMethodById(provider, setup.methodId);
-    if (explicitMethod) {
-      options.push(
-        buildSetupOptionForMethod({
-          provider,
-          wizard: setup,
-          method: explicitMethod,
-          value: resolveWizardSetupChoiceId(provider, setup),
-        }),
-      );
-      continue;
-    }
-
-    for (const method of provider.auth) {
-      options.push(
-        buildSetupOptionForMethod({
-          provider,
-          wizard: setup,
-          method,
-          value: buildProviderPluginMethodChoice(provider.id, method.id),
-        }),
-      );
-    }
-  }
-
-  return options;
 }
 
 function resolveModelPickerChoiceValue(

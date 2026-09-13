@@ -567,6 +567,105 @@ process.stdout.write("eligible.txt\\0".repeat(count));
 });
 
 describe("preflightWorkerWorkspace", () => {
+  it("honors cancellation during file inspection after Git enumeration finishes", async () => {
+    const root = await fs.realpath(tempDirs.make("openclaw-workspace-preflight-cancel-"));
+    await git(root, "init", "--quiet");
+    await git(
+      root,
+      "-c",
+      "user.name=OpenClaw Test",
+      "-c",
+      "user.email=test@openclaw.invalid",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "base",
+    );
+    const file = path.join(root, "content.txt");
+    await fs.writeFile(file, "content\n");
+    const controller = new AbortController();
+    const cancellation = new Error("workspace preparation stopped");
+    const originalLstat = fs.lstat.bind(fs);
+    vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
+      const result = await originalLstat(...args);
+      if (args[0] === file) {
+        controller.abort(cancellation);
+      }
+      return result;
+    });
+
+    await expect(
+      preflightWorkerWorkspace({ localPath: root, signal: controller.signal }),
+    ).rejects.toBe(cancellation);
+  });
+
+  it.each([false, true])(
+    "settles concurrent file reads in Git order (cancel=%s)",
+    async (cancel) => {
+      const root = await fs.realpath(tempDirs.make("openclaw-workspace-preflight-parallel-"));
+      const temporaryDirectory = path.join(
+        tempDirs.make("openclaw-workspace-transfer-"),
+        "inventory",
+      );
+      await git(root, "init", "--quiet");
+      await fs.writeFile(path.join(root, "alpha.txt"), "alpha\n");
+      await fs.writeFile(path.join(root, "beta.txt"), "beta\n");
+      const releaseFirst = createDeferred();
+      let secondStarted = false;
+      let settled = false;
+      const controller = new AbortController();
+      const cancellation = new Error("workspace preparation stopped");
+      const originalLstat = fs.lstat.bind(fs);
+      vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
+        if (args[0] === path.join(root, "alpha.txt")) {
+          await releaseFirst.promise;
+        } else if (args[0] === path.join(root, "beta.txt")) {
+          secondStarted = true;
+        }
+        return await originalLstat(...args);
+      });
+      const producing = createWorkspaceGitTransferList({
+        gitRoot: root,
+        temporaryDirectory,
+        signal: controller.signal,
+        timeoutMs: 10_000,
+      }).then(
+        (value) => {
+          settled = true;
+          return value;
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        },
+      );
+      try {
+        await expect.poll(() => secondStarted).toBe(true);
+        if (cancel) {
+          controller.abort(cancellation);
+          await new Promise<void>((resolve) => {
+            setImmediate(resolve);
+          });
+          expect(settled).toBe(false);
+        }
+      } finally {
+        releaseFirst.resolve();
+        await producing;
+      }
+      const result = await producing;
+      if (cancel) {
+        expect(result).toBe(cancellation);
+      } else {
+        expect(typeof result).toBe("string");
+        if (typeof result !== "string") {
+          throw result;
+        }
+        await expect(fs.readFile(result, "utf8")).resolves.toBe("alpha.txt\0beta.txt\0");
+      }
+    },
+  );
+
   it("measures the canonical Git eligibility boundary without hashing content", async () => {
     const root = tempDirs.make("openclaw-workspace-preflight-");
     const transferDirectory = `${root}-transfer`;

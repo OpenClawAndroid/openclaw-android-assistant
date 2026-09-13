@@ -1,12 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
+import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
 import {
   appendTranscriptEvent,
   appendTranscriptMessage,
+  replaceSessionEntry,
   replaceTranscriptEvents,
   waitForSessionTranscriptProjection,
 } from "../config/sessions/session-accessor.js";
+import type { SessionHistorySnapshot } from "../config/sessions/session-history-types.js";
 import { SessionTranscriptProjectionUnavailableError } from "../config/sessions/session-transcript-projection-error.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import {
@@ -16,11 +19,148 @@ import {
   textContent,
   userTextMessage,
 } from "./session-history-fixtures.test-support.js";
-import { SessionHistorySseState } from "./session-history-state.js";
+import {
+  readSessionHistorySnapshotAsync,
+  readSessionHistorySnapshotLocal,
+  SessionHistorySseState,
+} from "./session-history-state.js";
 import { readChatHistoryMessageId } from "./session-history-tail.js";
 import * as sessionTranscriptReaders from "./session-transcript-readers.js";
 
-describe("SessionHistorySseState", () => {
+describe("session history snapshot reads", () => {
+  test("keeps commentary fallback rows reachable across SQLite cursor pages", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const target = {
+        agentId: "main",
+        sessionId: "history-commentary-cursor",
+        sessionKey: "agent:main:history-commentary-cursor",
+        storePath: path.join(state.sessionsDir(), "sessions.json"),
+      };
+      const messages = [
+        userTextMessage("check the workspace", 1),
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "Checking the workspace before answering.",
+              textSignature: JSON.stringify({ v: 1, id: "msg_commentary", phase: "commentary" }),
+            },
+          ],
+        },
+        assistantTextMessage("Done.", 3),
+      ];
+      await replaceTranscriptEvents(target, [
+        { type: "session", version: 3, id: target.sessionId },
+        ...messages.map((message, index) => ({
+          type: "message",
+          id: `row-${index + 1}`,
+          parentId: index === 0 ? null : `row-${index}`,
+          message,
+        })),
+      ]);
+      const newest = await readSessionHistorySnapshotLocal({ target, limit: 1 });
+      expect(newest.history.messages).toMatchObject([
+        { content: textContent("Done."), __openclaw: { seq: 3 } },
+      ]);
+      expect(newest.history.nextCursor).toBe("3");
+
+      const middle = await readSessionHistorySnapshotLocal({
+        target,
+        limit: 1,
+        cursor: newest.history.nextCursor,
+      });
+      expect(middle.history.messages).toMatchObject([
+        {
+          content: textContent("Checking the workspace before answering."),
+          openclawStreamFallback: { itemId: "msg_commentary" },
+          __openclaw: { seq: 2 },
+        },
+      ]);
+      expect(middle.history).toMatchObject({ hasMore: true, nextCursor: "2" });
+
+      const oldest = await readSessionHistorySnapshotLocal({
+        target,
+        limit: 1,
+        cursor: middle.history.nextCursor,
+      });
+      expect(oldest.history.messages).toMatchObject([
+        { content: textContent("check the workspace"), __openclaw: { seq: 1 } },
+      ]);
+      expect(oldest.history.hasMore).toBe(false);
+      expect(oldest.history.nextCursor).toBeUndefined();
+    });
+  });
+
+  test.each([
+    {
+      name: "hidden heartbeat boundary",
+      message: { role: "user", content: HEARTBEAT_PROMPT },
+      turnBoundaryPending: true,
+      assistantErrorPending: false,
+    },
+    {
+      name: "pending runtime failure",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        __openclaw: { runId: "run-pending" },
+      },
+      turnBoundaryPending: false,
+      assistantErrorPending: true,
+    },
+  ])("carries $name from the transcript worker into incremental SSE", async (fixture) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const target = {
+        agentId: "main",
+        sessionId: "history-pending-state",
+        sessionKey: "agent:main:history-pending-state",
+        storePath: path.join(state.sessionsDir(), "sessions.json"),
+      };
+      const entry = { sessionId: target.sessionId, updatedAt: 1 };
+      await replaceSessionEntry(target, entry);
+      await replaceTranscriptEvents(target, [
+        { type: "session", version: 3, id: target.sessionId },
+        {
+          type: "message",
+          id: "visible",
+          parentId: null,
+          message: assistantTextMessage("Already visible", 1),
+        },
+        { type: "message", id: "pending", parentId: "visible", message: fixture.message },
+      ]);
+      await waitForSessionTranscriptProjection(target);
+
+      const snapshot = await readSessionHistorySnapshotAsync({
+        target: { ...target, sessionEntry: entry },
+      });
+      expect(snapshot).toMatchObject({
+        rawTranscriptSeq: 2,
+        turnBoundaryPending: fixture.turnBoundaryPending,
+        assistantErrorPending: fixture.assistantErrorPending,
+      });
+      expect(snapshot.history.items).toBe(snapshot.history.messages);
+      const history = SessionHistorySseState.fromSnapshot({ target, snapshot });
+      const appended = history.appendInlineMessage({
+        message: {
+          role: "assistant",
+          content: textContent("The next reply"),
+          stopReason: "stop",
+          __openclaw: { runId: "run-pending" },
+        },
+      });
+      if (fixture.assistantErrorPending) {
+        expect(appended).toEqual({ shouldRefresh: true });
+      } else {
+        expect(appended?.message).toMatchObject({
+          content: textContent("The next reply"),
+          __openclaw: { seq: 3, turnBoundary: true },
+        });
+      }
+    });
+  });
+
   test.each([
     { cursor: "1", expectedSeq: undefined },
     { cursor: "8", expectedSeq: 7 },
@@ -59,14 +199,15 @@ describe("SessionHistorySseState", () => {
             return page;
           });
         try {
-          const history = SessionHistorySseState.fromRawSnapshot({
+          const history = {
             target,
-            rawMessages: [],
             limit: 1,
             cursor,
-          });
+          };
 
-          const refreshed = await history.refreshAsync();
+          const refreshed = await readSessionHistorySnapshotLocal(history).then(
+            (snapshot) => snapshot.history,
+          );
 
           expect(await sessionTranscriptReaders.readSessionMessageCountAsync(target)).toBe(10);
           expect(refreshed.messages).toMatchObject(
@@ -210,16 +351,15 @@ describe("SessionHistorySseState", () => {
           return page;
         });
       try {
-        const history = SessionHistorySseState.fromRawSnapshot({
+        const history = {
           target,
-          rawMessages: [],
           limit: fixture.limit,
           cursor: fixture.cursor,
-        });
+        };
 
-        await expect(history.refreshAsync()).rejects.toThrow(
-          SessionTranscriptProjectionUnavailableError,
-        );
+        await expect(
+          readSessionHistorySnapshotLocal(history).then((snapshot) => snapshot.history),
+        ).rejects.toThrow(SessionTranscriptProjectionUnavailableError);
       } finally {
         pageReadSpy.mockRestore();
       }
@@ -268,16 +408,17 @@ describe("SessionHistorySseState", () => {
           await fs.mkdir(state.sessionsDir(), { recursive: true });
           await fs.writeFile(archivePath, events.map((event) => JSON.stringify(event)).join("\n"));
         }
-        let originalSnapshot: ReturnType<SessionHistorySseState["snapshot"]> | undefined;
+        let originalSnapshot: SessionHistorySnapshot["history"] | undefined;
         for (const cursor of ["6", "99"]) {
-          const history = SessionHistorySseState.fromRawSnapshot({
+          const history = {
             target,
-            rawMessages: [],
             limit: 1,
             cursor,
-          });
+          };
 
-          const refreshed = await history.refreshAsync();
+          const refreshed = await readSessionHistorySnapshotLocal(history).then(
+            (snapshot) => snapshot.history,
+          );
           originalSnapshot ??= refreshed;
 
           expect(refreshed.messages).toMatchObject([
@@ -327,13 +468,14 @@ describe("SessionHistorySseState", () => {
               return page;
             });
           try {
-            const history = SessionHistorySseState.fromRawSnapshot({
+            const history = {
               target,
-              rawMessages: [],
               limit: 1,
               cursor: "6",
-            });
-            await expect(history.refreshAsync()).resolves.toEqual(originalSnapshot);
+            };
+            await expect(
+              readSessionHistorySnapshotLocal(history).then((snapshot) => snapshot.history),
+            ).resolves.toEqual(originalSnapshot);
             expect(archiveChanged).toBe(true);
           } finally {
             pageReadSpy.mockRestore();

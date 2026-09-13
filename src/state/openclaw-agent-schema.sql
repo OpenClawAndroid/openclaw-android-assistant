@@ -795,3 +795,18 @@ CREATE TABLE IF NOT EXISTS session_pending_inputs (
 
 CREATE INDEX IF NOT EXISTS idx_agent_session_pending_inputs_session
   ON session_pending_inputs(session_key, session_id, seq DESC);
+
+-- Processing completion is separate from input consumption; neither schedules replay.
+CREATE TABLE IF NOT EXISTS session_input_completions (
+  session_key TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  outcome_json TEXT NOT NULL,
+  succeeded INTEGER NOT NULL CHECK (succeeded IN (0, 1)),
+  completed_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, idempotency_key),
+  FOREIGN KEY (session_key) REFERENCES session_nodes(session_key) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES session_windows(session_id) ON DELETE CASCADE
+) STRICT;

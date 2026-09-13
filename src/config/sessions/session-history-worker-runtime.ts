@@ -1,0 +1,131 @@
+import {
+  DEFAULT_WORKER_PENDING_BYTES,
+  DEFAULT_WORKER_PENDING_TASKS,
+} from "../../infra/worker-task-capacity.js";
+import { WorkerTaskError } from "../../infra/worker-task-pool.js";
+import { createDeferredCore } from "../../shared/deferred.js";
+import type { SessionTranscriptReadScope } from "./session-accessor.js";
+import {
+  resolveSqliteTranscriptReadScope,
+  toDatabaseOptions,
+} from "./session-accessor.sqlite-scope.js";
+import { readRestoredSessionTranscript } from "./session-cold-storage-read.js";
+import type {
+  ChatHistoryPage,
+  SessionHistorySnapshot,
+  SessionHistoryWorkerRequest,
+  SessionHistoryWorkerResult,
+} from "./session-history-types.js";
+import { isSessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
+import { resolveSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
+import { startSessionTranscriptIndexReconcile } from "./session-transcript-reconcile.js";
+import { runSessionHistoryWorkerRequest } from "./session-transcript-worker-runtime.js";
+import type { SessionTranscriptHistoryWorkerInput } from "./session-transcript.worker.js";
+
+type QueuedHistoryRead = {
+  promise: Promise<SessionHistoryWorkerResult>;
+  shared: boolean;
+};
+const queuedHistoryReads = new Map<string, QueuedHistoryRead>();
+let pendingHistoryReaders = 0;
+let pendingHistoryBytes = 0;
+
+function receivePage(
+  queued: QueuedHistoryRead,
+  signal?: AbortSignal,
+): Promise<SessionHistoryWorkerResult> {
+  return queued.promise.then((page) => {
+    signal?.throwIfAborted();
+    return queued.shared ? structuredClone(page) : page;
+  });
+}
+
+function readQueuedPage(
+  input: SessionTranscriptHistoryWorkerInput,
+  key: string,
+  signal?: AbortSignal,
+): Promise<SessionHistoryWorkerResult> {
+  signal?.throwIfAborted();
+  const existing = queuedHistoryReads.get(key);
+  if (existing) {
+    existing.shared = true;
+    return receivePage(existing, signal);
+  }
+  const pending = createDeferredCore<SessionHistoryWorkerResult>();
+  const queued = { promise: pending.promise, shared: false };
+  queuedHistoryReads.set(key, queued);
+  void runSessionHistoryWorkerRequest(() => {
+    // A later caller must not join a SQLite snapshot that has already started.
+    queuedHistoryReads.delete(key);
+    return input;
+  }, key.length * 2)
+    .then(pending.resolve, pending.reject)
+    .finally(() => {
+      if (queuedHistoryReads.get(key) === queued) {
+        queuedHistoryReads.delete(key);
+      }
+    });
+  return receivePage(queued, signal);
+}
+
+export function readSessionHistoryPageInWorker(
+  request: Extract<SessionHistoryWorkerRequest, { kind: "rpc" }>,
+  signal?: AbortSignal,
+): Promise<ChatHistoryPage>;
+export function readSessionHistoryPageInWorker(
+  request: Extract<SessionHistoryWorkerRequest, { kind: "http" }>,
+  signal?: AbortSignal,
+): Promise<SessionHistorySnapshot>;
+export async function readSessionHistoryPageInWorker(
+  request: SessionHistoryWorkerRequest,
+  signal?: AbortSignal,
+): Promise<ChatHistoryPage | SessionHistorySnapshot> {
+  signal?.throwIfAborted();
+  const scope: SessionTranscriptReadScope =
+    request.kind === "rpc"
+      ? {
+          agentId: request.params.sessionAgentId,
+          sessionId: request.params.sessionId,
+          sessionKey: request.params.canonicalKey,
+          storePath: request.params.storePath,
+        }
+      : request.params.target;
+  const resolved = resolveSqliteTranscriptReadScope(scope);
+  const admission = resolveSessionTranscriptReadFence(resolved);
+  const input: SessionTranscriptHistoryWorkerInput = {
+    kind: "history-page",
+    request,
+    ...(admission ? { admission: { ...admission } } : {}),
+  };
+  const key = JSON.stringify(input);
+  const inputBytes = key.length * 2;
+  // Coalescing bounds execution, but every retained caller still needs admission.
+  if (
+    pendingHistoryReaders >= DEFAULT_WORKER_PENDING_TASKS ||
+    pendingHistoryBytes + inputBytes > DEFAULT_WORKER_PENDING_BYTES
+  ) {
+    throw new WorkerTaskError("worker task capacity reached", "overloaded");
+  }
+  pendingHistoryReaders++;
+  pendingHistoryBytes += inputBytes;
+  try {
+    const result = await readRestoredSessionTranscript(scope, () =>
+      readQueuedPage(input, key, signal),
+    );
+    if (result.kind !== request.kind) {
+      throw new Error("Session history worker returned the wrong page type");
+    }
+    return result.kind === "rpc" ? result.page : result.snapshot;
+  } catch (error) {
+    if (isSessionTranscriptProjectionUnavailableError(error)) {
+      startSessionTranscriptIndexReconcile({
+        ...toDatabaseOptions(resolved),
+        preferredSessionId: resolved.sessionId,
+      });
+    }
+    throw error;
+  } finally {
+    pendingHistoryReaders--;
+    pendingHistoryBytes -= inputBytes;
+  }
+}

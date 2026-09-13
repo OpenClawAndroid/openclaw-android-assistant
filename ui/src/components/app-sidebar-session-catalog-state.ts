@@ -7,7 +7,33 @@ import type {
 import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
 import { t } from "../i18n/index.ts";
 import { formatUiError } from "../lib/format-error.ts";
+import { buildCatalogSessionKey } from "../lib/sessions/catalog-key.ts";
 import { sessionCatalogHostKey } from "./app-sidebar-session-types.ts";
+
+export function excludeSessionCatalogRows(
+  catalogs: SessionCatalog[],
+  excluded: ReadonlySet<string>,
+): SessionCatalog[] {
+  if (excluded.size === 0) {
+    return catalogs;
+  }
+  return catalogs.map((catalog) => ({
+    ...catalog,
+    hosts: catalog.hosts.map((host) => ({
+      ...host,
+      sessions: host.sessions.filter(
+        (session) =>
+          !excluded.has(
+            buildCatalogSessionKey({
+              catalogId: catalog.id,
+              hostId: host.hostId,
+              threadId: session.threadId,
+            }),
+          ),
+      ),
+    })),
+  }));
+}
 
 function repeatedCatalogCursorError(): NonNullable<SessionCatalog["error"]> {
   return { code: "PAGINATION_FAILED", message: t("chat.sidebar.catalogPaginationFailed") };

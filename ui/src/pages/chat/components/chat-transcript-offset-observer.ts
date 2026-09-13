@@ -35,7 +35,7 @@ type OffsetOwner = {
   readonly prependAnchor: TranscriptPrependAnchor;
   cancelScroll(): void;
   requestUpdate(): void;
-  onReaderScroll(): void;
+  onReaderScroll(towardEnd?: boolean): void;
 };
 
 /** Observe native offsets and input with the transcript's touch and command lifecycle. */
@@ -46,6 +46,7 @@ export function observeTranscriptOffset(
 ): () => void {
   const element = owner.getScrollElement();
   let nativeOffset = element?.scrollTop ?? 0;
+  let touchY: number | undefined;
   const publishOffset = (offset: number, scrolling: boolean) => {
     if (
       scrolling &&
@@ -76,6 +77,7 @@ export function observeTranscriptOffset(
   };
   owner.state.syncNativeOffset = syncOffset;
   const finishTouch = () => {
+    touchY = undefined;
     owner.state.touching = false;
     // Idle may have arrived while the finger was still down; no further
     // offset notification is guaranteed after releasing a stationary touch.
@@ -102,6 +104,7 @@ export function observeTranscriptOffset(
     }
     if (event.type === "touchstart") {
       owner.state.touching = true;
+      touchY = event instanceof TouchEvent ? event.touches[0]?.clientY : undefined;
     }
     owner.state.pendingInteractionAnchor = null;
     // Contact alone does not supersede a captured message. Actual native
@@ -114,8 +117,23 @@ export function observeTranscriptOffset(
       owner.cancelScroll();
     }
     syncOffset();
-    owner.onReaderScroll();
+    const towardEnd =
+      (event instanceof WheelEvent && event.deltaY > 0) ||
+      (event instanceof KeyboardEvent &&
+        (["ArrowDown", "PageDown", "End"].includes(event.key) ||
+          (event.key === " " && !event.shiftKey)));
+    owner.onReaderScroll(towardEnd);
   };
+  const moveTouch = (event: TouchEvent) => {
+    const nextY = event.touches[0]?.clientY;
+    // At a resize-clamped end there may be no offset event. Contact alone is
+    // not a return; only a gesture moving toward the end can resume following.
+    if (touchY !== undefined && nextY !== undefined && nextY < touchY) {
+      owner.onReaderScroll(true);
+    }
+    touchY = nextY;
+  };
+  element?.addEventListener("touchmove", moveTouch, { passive: true });
   for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) {
     element?.addEventListener(type, interrupt, { passive: true });
   }
@@ -159,6 +177,7 @@ export function observeTranscriptOffset(
     owner.state.touchScrolling = false;
     element?.removeEventListener("scrollend", finishScroll);
     element?.removeEventListener("touchend", finishTouch);
+    element?.removeEventListener("touchmove", moveTouch);
     element?.removeEventListener("touchcancel", finishTouch);
     for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) {
       element?.removeEventListener(type, interrupt);

@@ -36,6 +36,7 @@ import { persistAgentSessionPhase } from "./agent-session-persist.js";
 import type { AgentTurnIo, AgentTurnPrincipal } from "./types.js";
 
 type AgentTurnStartRequest = {
+  privateCompletion?: true;
   assertAdmissionCurrent?: () => void;
   preflight: AgentRequestPreflight;
   principal: AgentTurnPrincipal | null;
@@ -48,6 +49,7 @@ export function createAgentTurnService(
   assertContextCurrent?: () => void,
 ) {
   const startTurn = async ({
+    privateCompletion,
     assertAdmissionCurrent,
     preflight,
     principal,
@@ -56,7 +58,7 @@ export function createAgentTurnService(
   }: AgentTurnStartRequest): Promise<void> => {
     const promptedAt = Date.now();
     assertAdmissionCurrent?.();
-    if (replayAgentTurnIfCached({ preflight, context, io })) {
+    if (replayAgentTurnIfCached({ preflight, context, io, acceptedOnly: privateCompletion })) {
       return;
     }
     const respond: RespondFn = (ok, payload, error, meta) =>
@@ -95,6 +97,7 @@ export function createAgentTurnService(
     const ownerDeviceId =
       typeof principal?.connect?.device?.id === "string" ? principal.connect.device.id : undefined;
     const dedupeLifecycle = createAgentDedupeLifecycle({
+      privateCompletion,
       cfg,
       request,
       runId,
@@ -519,6 +522,7 @@ export function createAgentTurnService(
           preparedOffloadedRefs = [];
         },
         requestedPromptPersistenceSuppression,
+        privateCompletion,
         runId,
         agentDedupeKeys,
         context,

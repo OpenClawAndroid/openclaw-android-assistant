@@ -19,6 +19,44 @@ vi.mock("../../logging/subsystem.js", () => ({
 }));
 
 describe("createAgentCommandLifecycle", () => {
+  it("publishes an outer timeout that arrives after a yielded result", () => {
+    emitAgentEvent.mockClear();
+    const controller = new AbortController();
+    const lifecycle = createAgentCommandLifecycle({
+      runId: "yield-then-outer-timeout",
+      lifecycleGeneration: () => "test-generation",
+      startedAt: 100,
+      abortSignal: controller.signal,
+      state: {
+        currentTurnUserMessagePersisted: true,
+        lifecycleFinishing: false,
+        lifecycleEnded: false,
+      },
+    });
+    const terminal = {
+      metadata: { yielded: true, aborted: false },
+      outcome: buildAgentRunTerminalOutcome({
+        status: "ok",
+        stopReason: "end_turn",
+        livenessState: "paused",
+      }),
+    };
+    controller.abort(new DOMException("outer deadline", "TimeoutError"));
+    lifecycle.emitEnd(terminal);
+    expect(emitAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "yield-then-outer-timeout",
+        data: expect.objectContaining({
+          phase: "end",
+          yielded: true,
+          aborted: true,
+          stopReason: "timeout",
+          executionSettled: true,
+        }),
+      }),
+    );
+  });
+
   it.each(["basic", "post-turn"] as const)(
     "turns an embedded-runtime stale install %s error into restart guidance",
     (source) => {

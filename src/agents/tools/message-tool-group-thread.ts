@@ -56,9 +56,10 @@ export function prepareMessageToolGroupThread(
       args.channelId,
       resolveActionDeliveryTargetAlias(action, args, {
         channel,
-        aliasSpec: catalog?.getChannel(channel ?? "")?.actions?.messageActionTargetAliases?.[
-          action
-        ],
+        aliasSpec: catalog
+          ? (catalog.getChannel(channel ?? "")?.actions?.messageActionTargetAliases?.[action] ??
+            null)
+          : undefined,
       }),
     ]
       .map(normalizeOptionalStringifiedId)

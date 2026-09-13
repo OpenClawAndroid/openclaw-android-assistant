@@ -922,7 +922,8 @@ describe("subagent registry steer restarts", () => {
       },
     };
 
-    expect(mod.isSubagentSessionRunActive(childSessionKey)).toBe(true);
+    // Registration alone does not own an executor; the admitted transition has an owner test.
+    expect(mod.isSubagentSessionRunActive(childSessionKey)).toBe(false);
     const updated = mod.markSubagentRunTerminated({
       childSessionKey,
       reason: "manual kill",

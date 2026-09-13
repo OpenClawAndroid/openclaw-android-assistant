@@ -1,5 +1,5 @@
 // Gateway HTTP session history endpoint.
-// Serves JSON and SSE history snapshots backed by transcript files.
+// Serves JSON and SSE history snapshots backed by session transcripts.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
@@ -10,7 +10,6 @@ import {
 } from "../../packages/gateway-protocol/src/client-info.js";
 import { PROTOCOL_VERSION } from "../../packages/gateway-protocol/src/index.js";
 import { getRuntimeConfig } from "../config/io.js";
-import { isSessionTranscriptProjectionUnavailableError } from "../config/sessions/session-accessor.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import {
@@ -37,9 +36,9 @@ import {
 } from "./http-utils.js";
 import { authorizeOperatorScopesForMethod } from "./method-scopes.js";
 import type { GatewayClient } from "./server-methods/shared-types.js";
+import { resolveSessionHistoryUnavailableMessage } from "./session-history-error.js";
 import {
-  buildSessionHistorySnapshot,
-  readSessionHistoryRawSnapshotAsync,
+  readSessionHistorySnapshotAsync,
   resolveCursorSeq,
   SessionHistorySseState,
 } from "./session-history-state.js";
@@ -195,12 +194,7 @@ export async function handleSessionHistoryHttpRequest(
     });
     return true;
   }
-  const historyClient = resolveSessionHistoryHttpClient(requestAuth, operatorScopes);
-  if (
-    !entry?.sessionId ||
-    createSessionListEntryFilter({ cfg, client: historyClient })?.(target.canonicalKey, entry) ===
-      false
-  ) {
+  const sendSessionNotFound = () =>
     sendJson(res, 404, {
       ok: false,
       error: {
@@ -208,6 +202,13 @@ export async function handleSessionHistoryHttpRequest(
         message: `Session not found: ${sessionKey}`,
       },
     });
+  const historyClient = resolveSessionHistoryHttpClient(requestAuth, operatorScopes);
+  if (
+    !entry?.sessionId ||
+    createSessionListEntryFilter({ cfg, client: historyClient })?.(target.canonicalKey, entry) ===
+      false
+  ) {
+    sendSessionNotFound();
     return true;
   }
   const limitResult = resolveLimit(req);
@@ -229,17 +230,75 @@ export async function handleSessionHistoryHttpRequest(
     sessionKey: target.canonicalKey,
     storePath: target.storePath,
   };
+  const publishAuthorizedHistory = async (publish: () => void): Promise<boolean> => {
+    const cfgLocal = getRuntimeConfig();
+    const currentRequestAuth = await checkGatewayHttpRequestAuth({
+      req,
+      auth: opts.getResolvedAuth?.() ?? opts.auth,
+      trustedProxies: cfgLocal.gateway?.trustedProxies,
+      allowRealIpFallback: cfgLocal.gateway?.allowRealIpFallback,
+      rateLimiter: opts.rateLimiter,
+      cfg: cfgLocal,
+    });
+    if (!currentRequestAuth.ok) {
+      return false;
+    }
+    if (
+      currentRequestAuth.requestAuth.authenticatedUserProfile?.profileId !==
+      requestAuth.authenticatedUserProfile?.profileId
+    ) {
+      return false;
+    }
+    const requestedScopes = resolveSharedSecretHttpOperatorScopes(
+      req,
+      currentRequestAuth.requestAuth,
+    );
+    if (!authorizeOperatorScopesForMethod("chat.history", requestedScopes).allowed) {
+      return false;
+    }
+    const currentClient = resolveSessionHistoryHttpClient(
+      currentRequestAuth.requestAuth,
+      requestedScopes,
+    );
+    const currentConfig = getRuntimeConfig();
+    const currentTarget = resolveSessionSharingTarget({
+      cfg: currentConfig,
+      sessionKey: target.canonicalKey,
+      agentId: target.agentId,
+    });
+    if (
+      currentTarget === null ||
+      currentTarget.agentId !== historyTarget.agentId ||
+      currentTarget.canonicalKey !== historyTarget.sessionKey ||
+      currentTarget.storePath !== historyTarget.storePath ||
+      currentTarget.entry.sessionId !== historyTarget.sessionId ||
+      currentTarget.entry.lifecycleRevision !== entry.lifecycleRevision ||
+      (entry.sessionStartedAt !== undefined &&
+        currentTarget.entry.sessionStartedAt !== entry.sessionStartedAt) ||
+      createSessionListEntryFilter({ cfg: currentConfig, client: currentClient })?.(
+        currentTarget.canonicalKey,
+        currentTarget.entry,
+      ) === false
+    ) {
+      return false;
+    }
+    // Keep the final owner check and publication in the same synchronous continuation.
+    publish();
+    return true;
+  };
+
   const snapshotVersion = readSessionTranscriptUpdateVersion();
-  let rawSnapshot: Awaited<ReturnType<typeof readSessionHistoryRawSnapshotAsync>>;
+  let historySnapshot: Awaited<ReturnType<typeof readSessionHistorySnapshotAsync>>;
   try {
-    rawSnapshot = await readSessionHistoryRawSnapshotAsync({
+    historySnapshot = await readSessionHistorySnapshotAsync({
       cursor,
       target: historyTarget,
       limit,
       maxChars: effectiveMaxChars,
     });
   } catch (error) {
-    if (!isSessionTranscriptProjectionUnavailableError(error)) {
+    const unavailableMessage = resolveSessionHistoryUnavailableMessage(error);
+    if (unavailableMessage === undefined) {
       throw error;
     }
     res.setHeader("Retry-After", "1");
@@ -247,19 +306,27 @@ export async function handleSessionHistoryHttpRequest(
       ok: false,
       error: {
         type: "unavailable",
-        message: "session history is rebuilding; retry shortly",
+        message: unavailableMessage,
         retryable: true,
       },
     });
     return true;
   }
-  const historySnapshot = { ...rawSnapshot, maxChars: effectiveMaxChars, limit, cursor };
-  if (!shouldStreamSse(req)) {
-    const history = buildSessionHistorySnapshot(historySnapshot).history;
-    sendJson(res, 200, {
-      sessionKey: target.canonicalKey,
-      ...history,
-    });
+  const stream = shouldStreamSse(req);
+  if (
+    !(await publishAuthorizedHistory(() => {
+      if (!stream) {
+        sendJson(res, 200, {
+          sessionKey: target.canonicalKey,
+          ...historySnapshot.history,
+        });
+      }
+    }))
+  ) {
+    sendSessionNotFound();
+    return true;
+  }
+  if (!stream) {
     return true;
   }
 
@@ -274,9 +341,12 @@ export async function handleSessionHistoryHttpRequest(
       .filter((candidate): candidate is string => typeof candidate === "string"),
   );
 
-  const sseState = SessionHistorySseState.fromRawSnapshot({
-    ...historySnapshot,
+  const sseState = SessionHistorySseState.fromSnapshot({
     target: historyTarget,
+    maxChars: effectiveMaxChars,
+    limit,
+    cursor,
+    snapshot: historySnapshot,
   });
   let streamStopped = false;
   let streamQueue = Promise.resolve();
@@ -293,6 +363,20 @@ export async function handleSessionHistoryHttpRequest(
     // Send the entire requested page before bounding private live state.
     // Cursor refreshes reread SQLite, so their next page remains complete.
     sseState.retainRecentMessages(MAX_SESSION_HISTORY_LIMIT);
+  }
+
+  async function writeAuthorizedStreamHistory(
+    snapshot: ReturnType<SessionHistorySseState["snapshot"]>,
+  ) {
+    if (
+      !(await publishAuthorizedHistory(() => {
+        if (!isStreamClosed()) {
+          writeStreamHistory(snapshot);
+        }
+      }))
+    ) {
+      closeStream();
+    }
   }
 
   function releaseStreamResources() {
@@ -390,66 +474,19 @@ export async function handleSessionHistoryHttpRequest(
     if (snapshotVersion !== readSessionTranscriptUpdateVersion()) {
       await sseState.refreshAsync();
     }
-    if (!isStreamClosed()) {
-      writeStreamHistory(sseState.snapshot());
-    }
+    await writeAuthorizedStreamHistory(sseState.snapshot());
   });
-
-  const isStreamStillAuthorized = async (): Promise<boolean> => {
-    const cfgLocal = getRuntimeConfig();
-    const currentRequestAuth = await checkGatewayHttpRequestAuth({
-      req,
-      auth: opts.getResolvedAuth?.() ?? opts.auth,
-      trustedProxies: cfgLocal.gateway?.trustedProxies,
-      allowRealIpFallback: cfgLocal.gateway?.allowRealIpFallback,
-      rateLimiter: opts.rateLimiter,
-      cfg: cfgLocal,
-    });
-    if (!currentRequestAuth.ok) {
-      return false;
-    }
-    if (
-      currentRequestAuth.requestAuth.authenticatedUserProfile?.profileId !==
-      requestAuth.authenticatedUserProfile?.profileId
-    ) {
-      return false;
-    }
-    const requestedScopes = resolveSharedSecretHttpOperatorScopes(
-      req,
-      currentRequestAuth.requestAuth,
-    );
-    if (!authorizeOperatorScopesForMethod("chat.history", requestedScopes).allowed) {
-      return false;
-    }
-    const currentClient = resolveSessionHistoryHttpClient(
-      currentRequestAuth.requestAuth,
-      requestedScopes,
-    );
-    if (!currentClient) {
-      return true;
-    }
-    const currentTarget = resolveSessionSharingTarget({
-      cfg: cfgLocal,
-      sessionKey: target.canonicalKey,
-      agentId: target.agentId,
-    });
-    return (
-      currentTarget !== null &&
-      createSessionListEntryFilter({ cfg: cfgLocal, client: currentClient })?.(
-        currentTarget.canonicalKey,
-        currentTarget.entry,
-      ) !== false
-    );
-  };
 
   streamResources.heartbeat = setInterval(() => {
     queueStreamWork(async () => {
-      if (!(await isStreamStillAuthorized())) {
+      if (
+        !(await publishAuthorizedHistory(() => {
+          if (!isStreamClosed()) {
+            res.write(": keepalive\n\n");
+          }
+        }))
+      ) {
         closeStream();
-        return;
-      }
-      if (!res.writableEnded) {
-        res.write(": keepalive\n\n");
       }
     });
   }, 15_000);
@@ -468,13 +505,17 @@ export async function handleSessionHistoryHttpRequest(
       return;
     }
     queueStreamWork(async () => {
-      if (!(await isStreamStillAuthorized())) {
-        closeStream();
-        return;
-      }
-      if (update.message !== undefined && limit === undefined && cursor === undefined) {
+      let refresh = false;
+      const authorized = await publishAuthorizedHistory(() => {
+        if (isStreamClosed()) {
+          return;
+        }
+        if (update.message === undefined || limit !== undefined || cursor !== undefined) {
+          refresh = true;
+          return;
+        }
         if (sseState.shouldRefreshForTranscriptPath(updatePath)) {
-          writeStreamHistory(await sseState.refreshAsync());
+          refresh = true;
           return;
         }
         const nextEvent = sseState.appendInlineMessage({
@@ -486,7 +527,7 @@ export async function handleSessionHistoryHttpRequest(
           return;
         }
         if (nextEvent.shouldRefresh) {
-          writeStreamHistory(await sseState.refreshAsync());
+          refresh = true;
           return;
         }
         if (nextEvent.message === undefined) {
@@ -499,9 +540,12 @@ export async function handleSessionHistoryHttpRequest(
           ...(typeof update.messageId === "string" ? { messageId: update.messageId } : {}),
           messageSeq: nextEvent.messageSeq,
         });
-        return;
+      });
+      if (!authorized) {
+        closeStream();
+      } else if (refresh && !isStreamClosed()) {
+        await writeAuthorizedStreamHistory(await sseState.refreshAsync());
       }
-      writeStreamHistory(await sseState.refreshAsync());
     });
   });
   return true;

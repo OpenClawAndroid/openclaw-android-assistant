@@ -28,6 +28,8 @@ export const SessionsListParamsSchema = closedObject({
    * The returned short preview excludes tool, system, reasoning, and silent rows.
    */
   includeLastMessage: Type.Optional(Type.Boolean()),
+  /** Include the durable Activity recap and its canonical transcript freshness. */
+  includeActivitySummary: Type.Optional(Type.Boolean()),
   label: Type.Optional(SessionLabelString),
   /** Limit rows to sessions with an explicitly stored Control UI face preference. */
   boardFace: Type.Optional(Type.Union([Type.Literal("chat"), Type.Literal("dashboard")])),

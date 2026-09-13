@@ -5,6 +5,7 @@ import type { SessionCreatedActor } from "../../packages/gateway-protocol/src/in
 import type { OpenClawConfig } from "../config/config.js";
 import type { SessionEntry } from "../config/sessions.js";
 import { contextBudgetStatusFixture } from "../config/sessions/context-budget.test-support.js";
+import { projectCanonicalSessionEntryShape } from "../config/sessions/store-entry-shape.js";
 import type { PluginManifestRecord } from "../plugins/manifest-registry.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
@@ -316,6 +317,23 @@ describe("gateway sessions patch", () => {
     acpSessionMetaMocks.readAcpSessionMetaForEntry.mockReset();
     clearPluginMetadataLifecycleCaches();
     resetPluginRuntimeStateForTest();
+  });
+
+  test("keeps a custom SVG icon through store normalization, unrelated patches, and clearing", async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>';
+    const icon = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    const store = mainStoreEntry({ label: "Night watch", color: "purple" });
+    const patch = async (fields: { icon?: string | null; label?: string }) =>
+      runPatch({ store, patch: { key: MAIN_SESSION_KEY, ...fields } });
+    const entry = expectPatchOk(await patch({ icon: svg }));
+    expect(entry).toMatchObject({ icon, color: "purple" });
+    store[MAIN_SESSION_KEY] = projectCanonicalSessionEntryShape({ ...entry });
+    expect(expectPatchOk(await patch({ label: "Updated night watch" }))).toMatchObject({ icon });
+    expectPatchError(await patch({ icon: "https://example.com/icon.svg" }), "icon must be");
+    expect(store[MAIN_SESSION_KEY].icon).toBe(icon);
+    expect(expectPatchOk(await patch({ icon: null })).icon).toBeUndefined();
+    expect(store[MAIN_SESSION_KEY].color).toBe("purple");
   });
 
   test("keeps manual renames independent of automatic device-label writes and clears", async () => {

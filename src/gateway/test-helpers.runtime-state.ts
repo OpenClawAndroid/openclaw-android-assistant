@@ -24,7 +24,10 @@ export type GetReplyFromConfigFn = (
   configOverride?: OpenClawConfig,
 ) => Promise<ReplyPayload | ReplyPayload[] | undefined>;
 type CronIsolatedRunFn = (...args: unknown[]) => Promise<RunCronAgentTurnResult>;
-type AgentCommandFn = (...args: unknown[]) => Promise<void>;
+type AgentCommandResult = Awaited<
+  ReturnType<(typeof import("../agents/agent-command.js"))["agentCommand"]>
+>;
+type AgentCommandFn = (...args: unknown[]) => Promise<AgentCommandResult | void>;
 type SendWhatsAppFn = (...args: unknown[]) => Promise<{ messageId: string; toJid: string }>;
 export type RunBtwSideQuestionFn = (...args: unknown[]) => Promise<unknown>;
 type DispatchInboundMessageFn = (...args: unknown[]) => Promise<unknown>;

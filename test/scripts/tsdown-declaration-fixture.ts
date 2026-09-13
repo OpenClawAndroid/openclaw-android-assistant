@@ -165,6 +165,8 @@ export function createFixture(
   const runtimeEntryOwners = new Set([
     ...Object.values(runtimeProcessDeclarationEntries),
     "src/infra/update-managed-service-handoff-runtime-assets.ts",
+    "src/infra/update-managed-service-handoff-native-loader.ts",
+    "src/shared/freebsd-process-identity.ts",
     "src/infra/node-runtime-executable.ts",
     "packages/normalization-core/src/mountinfo-path.ts",
     "packages/normalization-core/src/record-coerce.ts",

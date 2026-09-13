@@ -12,10 +12,7 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { Minimatch } from "minimatch";
 import { extractFrontmatterBlock } from "../../packages/markdown-core/src/frontmatter.js";
 import type { ChatType } from "../channels/chat-type.js";
-import {
-  isRootFileMissingFailure,
-  openRootFileFollowingParents,
-} from "../infra/boundary-file-read.js";
+import { isRootFileMissingFailure, openRootFile } from "../infra/boundary-file-read.js";
 import { isHardlinkFallbackError } from "../infra/directory-durability.js";
 import { hasErrnoCode } from "../infra/errno.js";
 import { sameFileIdentity, tempFile, type FileIdentityStat } from "../infra/fs-safe-advanced.js";
@@ -153,10 +150,11 @@ async function readWorkspaceFileWithGuards(params: {
     // in openRootFile still protects against a swapped file between attempts.
     return await retryAsync(
       async () => {
-        const opened = await openRootFileFollowingParents({
+        const opened = await openRootFile({
           absolutePath: params.filePath,
           rootPath: params.workspaceDir,
           boundaryLabel: "workspace root",
+          symlinks: "follow-parents-within-root",
         });
         if (!opened.ok) {
           // Boundary resolution can report transient IO as "validation", while

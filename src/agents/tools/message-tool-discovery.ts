@@ -88,6 +88,7 @@ type MessageToolDeliveryRequest = {
   action: ChannelMessageActionName;
   params: Record<string, unknown>;
   accountId?: string;
+  preparedMessageToolCatalog?: PreparedMessageToolCatalog;
 };
 
 function recoverSessionCanonicalPeerId(params: {
@@ -102,7 +103,13 @@ function recoverSessionCanonicalPeerId(params: {
     !request ||
     normalizeOptionalString(request.params.target) ||
     (Array.isArray(request.params.targets) && request.params.targets.length > 0) ||
-    actionHasTarget(request.action, request.params, { channel: params.channel })
+    actionHasTarget(request.action, request.params, {
+      channel: params.channel,
+      aliasSpec: request.preparedMessageToolCatalog
+        ? (request.preparedMessageToolCatalog.getChannel(params.channel)?.actions
+            ?.messageActionTargetAliases?.[request.action] ?? null)
+        : undefined,
+    })
   ) {
     return params.peerId;
   }

@@ -21,6 +21,7 @@ import {
 } from "../lib/sessions/session-key.ts";
 import { projectSidebarAgentSessionRows } from "./app-sidebar-agent-session-rows.ts";
 import { AppSidebarBase } from "./app-sidebar-base.ts";
+import { excludeSessionCatalogRows } from "./app-sidebar-session-catalog-state.ts";
 import {
   adoptedCatalogSessionKeys,
   projectSidebarSessionCatalogs,
@@ -183,7 +184,10 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
 
   visibleSessionCatalogs = () =>
     visibleSessionCatalogProjection(
-      this.sessionData.sessionCatalogs,
+      excludeSessionCatalogRows(
+        this.sessionData.sessionCatalogs,
+        this.sessionData.pendingCatalogArchives,
+      ),
       this.hiddenSessionCatalogIds,
       this.sessionsStatusFilter === "archived",
     );

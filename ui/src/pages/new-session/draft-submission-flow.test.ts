@@ -32,6 +32,82 @@ afterEach(() => {
 });
 
 describe("DraftSubmissionFlow", () => {
+  it.each(["navigation", "reconnect"] as const)(
+    "consumes an accepted draft before asynchronous cleanup and %s",
+    async (next) => {
+      const { context, flow } = createDraftFixture();
+      const sessionKey = "agent:main:dashboard:accepted-draft";
+      vi.mocked(context.sessions.createResult).mockResolvedValue({
+        key: sessionKey,
+        initialRun: { status: "started", runId: "accepted-draft-run" },
+      });
+      vi.mocked(context.navigateAndWait).mockImplementation(async () => {
+        throw new Error("Chat route failed to load");
+      });
+      let finishCleanup!: () => void;
+      const cleanup = vi.spyOn(flow.draftPersistence, "clearSubmittedDraft").mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishCleanup = resolve;
+          }),
+      );
+      flow.setMessage("@Alex keep the accepted prompt", [
+        { profileId: "profile-alex", start: 0, end: 5 },
+      ]);
+      stubObjectUrls("blob:accepted-note");
+      flow.attachmentDraft.replace([registerTextPayload("accepted-note")]);
+
+      const submission = flow.submit();
+      await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+      const consumed = {
+        message: flow.message,
+        mentions: flow.mentions,
+        attachments: flow.attachmentDraft.attachments,
+      };
+      if (next === "reconnect") {
+        flow.invalidate("gateway-changed");
+      }
+      finishCleanup();
+      await submission;
+
+      expect(consumed).toEqual({ message: "", mentions: [], attachments: [] });
+      expect(flow.message).toBe("");
+      expect(flow.mentions).toEqual([]);
+      expect(flow.attachmentDraft.attachments).toEqual([]);
+      expect(context.sessions.createResult).toHaveBeenCalledOnce();
+      expect(context.navigateAndWait).toHaveBeenCalledTimes(next === "navigation" ? 1 : 0);
+      const retained = context.chatSubmissions.readInitial(
+        sessionKey,
+        context.gateway.snapshot.client,
+      );
+      expect(retained?.message.content).toContainEqual({
+        type: "text",
+        text: "@Alex keep the accepted prompt",
+      });
+      expect(retained?.message["__openclaw"]).toMatchObject({
+        humanMentions: [{ profileId: "profile-alex", start: 0, end: 5 }],
+      });
+      if (next === "reconnect") {
+        cleanup.mockRestore();
+        flow.resumeInterruptedSubmission();
+        expect(flow.submissionOutcomeUnknown).toBeNull();
+        flow.setMessage("a new prompt after reconnect");
+        expect(flow.canSubmit()).toBe(true);
+        vi.mocked(context.sessions.createResult).mockResolvedValue({
+          key: "agent:main:dashboard:next-draft",
+          initialRun: { status: "started", runId: "next-draft-run" },
+        });
+        vi.mocked(context.navigateAndWait).mockImplementation(async () => {
+          queueMicrotask(() => document.dispatchEvent(new Event(CHAT_ROUTE_READY_EVENT)));
+        });
+        await flow.submit();
+        expect(
+          vi.mocked(context.sessions.createResult).mock.calls.map(([params]) => params?.message),
+        ).toEqual(["@Alex keep the accepted prompt", "a new prompt after reconnect"]);
+        expect(flow.message).toBe("");
+      }
+    },
+  );
   it("replaces the native draft route with the started terminal session", async () => {
     const { context, flow } = createDraftFixture({
       scopes: ["operator.admin"],
@@ -736,6 +812,9 @@ describe("DraftSubmissionFlow", () => {
     gateway.synchronize(context.gateway);
     place.setAgentsHydrated(true);
     place.adoptAgentDefaults();
+    flow.setMessage("@Alex keep this cloud task", [
+      { profileId: "profile-alex", start: 0, end: 5 },
+    ]);
     const apiAttachments = [{ fileName: "note.txt", content: "SGk=" }];
     const createParams = buildDraftSessionCreateParams({
       agentId: "cloud",
@@ -800,6 +879,8 @@ describe("DraftSubmissionFlow", () => {
       phase: "dispatching",
     });
     expect(flow.pendingPlacement.capture()).toBeNull();
+    expect(flow.message).toBe("");
+    expect(flow.mentions).toEqual([]);
     expect(flow.attachmentDraft.attachments).toHaveLength(0);
     expect(flow.error).toBe(navigationError);
     expect(flow.submitting).toBe(false);

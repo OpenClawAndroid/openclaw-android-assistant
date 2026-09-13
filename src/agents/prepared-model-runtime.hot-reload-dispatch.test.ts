@@ -5,14 +5,24 @@ import {
   getPreparedModelRuntimeMocks,
   resetPreparedModelRuntimeHarness,
 } from "./prepared-model-runtime.test-harness.js";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { dispatchLowLevelChannelReplyFromConfig } from "../auto-reply/reply/dispatch-from-config.js";
 import { finalizeInboundContext } from "../auto-reply/reply/inbound-context.js";
 import { getPreparedReplyDispatchRuntime } from "../auto-reply/reply/prepared-reply-dispatch-context.js";
 import { createReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
+import {
+  clearRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshot,
+} from "../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { buildGatewayReloadPlan } from "../gateway/config-reload-plan.js";
+import { createGatewayReloadHandlers } from "../gateway/server-reload-hot.js";
 import { refreshModelRuntimeAfterHotReload } from "../gateway/server-reload-model-runtime-scope.js";
+import { PluginInstanceUnavailableError } from "../plugins/plugin-instance-error.js";
+import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -21,9 +31,11 @@ import { PreparedModelCatalogConfigReplacedError } from "./prepared-model-catalo
 import { loadPreparedModelCatalogOwnerSnapshot } from "./prepared-model-catalog.js";
 import { withPreparedModelRuntimePluginGenerationScope } from "./prepared-model-runtime-generation-scope.js";
 import {
+  acquireAgentRunPreparedModelRuntime,
   acquirePreparedModelRuntimeSnapshot,
   advancePreparedModelRuntimeConfig,
   loadPublishedGatewayReplyDispatchRuntime,
+  markPreparedModelRuntimeSnapshotsStale,
   refreshPreparedModelRuntimeSnapshots,
 } from "./prepared-model-runtime.js";
 
@@ -37,6 +49,7 @@ beforeEach(async () => {
 });
 
 afterEach(async ({ task }) => {
+  clearRuntimeConfigSnapshot();
   await cleanupPreparedModelRuntimeHarness(state, task.result?.state === "fail");
 });
 
@@ -55,7 +68,195 @@ async function publish(cfg: OpenClawConfig) {
   });
 }
 
+function createPluginReloadHandler(
+  reloadPlugins: Parameters<typeof createGatewayReloadHandlers>[0]["reloadPlugins"],
+) {
+  type ReloadParams = Parameters<typeof createGatewayReloadHandlers>[0];
+  let reloadState: ReturnType<ReloadParams["getState"]> = {
+    hooksConfig: null,
+    hookClientIpConfig: {},
+    heartbeatRunner: { stop: vi.fn(), updateConfig: vi.fn() } as never,
+    cronState: {
+      cron: { start: vi.fn(), stop: vi.fn() } as never,
+      storePath: state.path("cron.sqlite"),
+      cronEnabled: false,
+      reconcileExitWatchers: vi.fn(async () => {}),
+      reconcileStreamWatchers: vi.fn(async () => {}),
+      stopStreamWatchers: vi.fn(async () => {}),
+      reconcileSystemJobs: vi.fn(async () => "converged" as const),
+    },
+  };
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return createGatewayReloadHandlers({
+    deps: {} as never,
+    broadcast: vi.fn(),
+    getState: () => reloadState,
+    setState: (next) => {
+      reloadState = next;
+    },
+    getPluginRegistry: createEmptyPluginRegistry,
+    startChannel: vi.fn(async () => new Map()),
+    stopChannel: vi.fn(async () => {}),
+    releaseChannelRouteHandoffs: vi.fn(),
+    pruneInactiveChannelAccountState: vi.fn(),
+    reloadPlugins,
+    logHooks: logger,
+    logChannels: logger,
+    logCron: logger,
+    logReload: logger,
+    cronReconciliation: {
+      arm: () => ({ complete: async () => {} }),
+      invalidate: vi.fn(),
+    },
+  });
+}
+
+describe("Gateway plugin reload run admission", () => {
+  it.each([
+    { outcome: "commit", arrival: "during drainage" },
+    { outcome: "rollback", arrival: "during drainage" },
+    { outcome: "commit", arrival: "before drainage" },
+    { outcome: "rollback", arrival: "before drainage" },
+  ] as const)(
+    "preserves a run admitted $arrival through plugin $outcome",
+    async ({ outcome, arrival }) => {
+      const retained = config(true);
+      const committed = config(false);
+      setRuntimeConfigSnapshot(retained, retained);
+      await publish(retained);
+      const catalogStarted = createDeferred();
+      const finishCatalog = createDeferred();
+      const drainageStarted = createDeferred();
+      const finishDrainage = createDeferred();
+      const pluginFailure = new Error("replacement plugin activation failed");
+      const handler = createPluginReloadHandler(async ({ prepareConfigEffects, commitRuntime }) => {
+        const restorePreparedRuntime = prepareConfigEffects({
+          pluginIds: new Set(["synthetic"]),
+          channels: new Set(),
+        });
+        drainageStarted.resolve();
+        await finishDrainage.promise;
+        if (outcome === "rollback") {
+          await restorePreparedRuntime();
+          throw pluginFailure;
+        }
+        await commitRuntime({ publish: () => setRuntimeConfigSnapshot(committed, committed) });
+        return {
+          runtime: { operationId: "synthetic-reload", generation: 1, pluginIds: ["synthetic"] },
+          activeChannels: new Set(),
+        };
+      });
+      const plan = buildGatewayReloadPlan([]);
+      plan.changedPaths = ["plugins.entries.synthetic"];
+      plan.reloadPlugins = true;
+      plan.pluginLifecycle = {
+        operationId: "synthetic-reload",
+        pluginIds: ["synthetic"],
+        reason: "reload",
+      };
+      const input = { ...ownerInput(retained), workspaceDir: state.path("run-workspace") };
+      let settled = false;
+      let admission: ReturnType<typeof acquireAgentRunPreparedModelRuntime> | undefined;
+      let reload: ReturnType<typeof handler.applyHotReload> | undefined;
+      const admit = () => {
+        admission = acquireAgentRunPreparedModelRuntime(input);
+        void admission.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        );
+        return admission;
+      };
+      try {
+        if (arrival === "before drainage") {
+          mocks.prepareStaticCatalog.mockImplementationOnce(async () => {
+            catalogStarted.resolve();
+            await finishCatalog.promise;
+            throw new PluginInstanceUnavailableError("synthetic");
+          });
+          const preparing = admit();
+          await Promise.race([
+            catalogStarted.promise,
+            preparing.then(() => {
+              throw new Error("Run admission bypassed held catalog preparation");
+            }),
+          ]);
+        }
+        reload = handler.applyHotReload(plan, committed);
+        void reload.catch(() => {});
+        await Promise.race([
+          drainageStarted.promise,
+          reload.then(() => {
+            throw new Error("Plugin reload finished before entering drainage");
+          }),
+        ]);
+        if (arrival === "during drainage") {
+          void admit();
+        } else {
+          finishCatalog.resolve();
+        }
+        await nextTurn();
+        expect(settled).toBe(false);
+        finishDrainage.resolve();
+        if (outcome === "rollback") {
+          await expect(reload).rejects.toBe(pluginFailure);
+        } else {
+          await expect(reload).resolves.toMatchObject({ status: "applied" });
+        }
+        const lease = await admission!;
+        expect(lease.snapshot.config).toEqual(outcome === "commit" ? committed : retained);
+        expect(lease.snapshot.workspaceDir).toBe(input.workspaceDir);
+        expect(lease.snapshot.isCurrent()).toBe(true);
+      } finally {
+        finishCatalog.resolve();
+        finishDrainage.resolve();
+        await Promise.allSettled([reload]);
+        await Promise.allSettled([admission?.then((lease) => lease[Symbol.asyncDispose]())]);
+        handler.stopRestartRetries();
+      }
+    },
+  );
+});
+
 describe("retained config and committed model publication", () => {
+  it.each(["build", "cleanup"] as const)(
+    "preserves an unrelated %s failure when preparation is superseded",
+    async (failureKind) => {
+      const retained = config(true);
+      await publish(retained);
+      const entered = createDeferred();
+      const release = createDeferred();
+      const failure =
+        failureKind === "build"
+          ? new Error("fixture catalog failed")
+          : new AggregateError([new Error("fixture cleanup failed")], "fixture build cleanup");
+      mocks.prepareStaticCatalog.mockImplementationOnce(async () => {
+        entered.resolve();
+        await release.promise;
+        throw failure;
+      });
+      const admission = acquireAgentRunPreparedModelRuntime({
+        ...ownerInput(retained),
+        workspaceDir: state.path("failed-run-workspace"),
+      });
+      const result = admission.catch((error: unknown) => error);
+      try {
+        await Promise.race([entered.promise, result]);
+        markPreparedModelRuntimeSnapshotsStale(undefined, { waitForReplacement: true });
+        release.resolve();
+        // Finish replacement so a mistaken retry would return a lease, not hang this assertion.
+        await publish(retained);
+        expect(await result).toBe(failure);
+      } finally {
+        release.resolve();
+        await Promise.allSettled([admission.then((lease) => lease[Symbol.asyncDispose]())]);
+      }
+    },
+  );
+
   it.each(["advance", "hot reload"])(
     "%s preserves exact catalog isolation while dispatch selects the committed config",
     async (publication) => {

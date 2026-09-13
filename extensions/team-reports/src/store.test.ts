@@ -337,6 +337,99 @@ describe("Team Reports storage", () => {
     expect(await store.getPeriod("month", "2026-08")).toBeUndefined();
   });
 
+  it("reads latest daily warnings in source order and follows replacements and pruning", async () => {
+    const { store } = await openStore();
+    expect(await store.latestSourceWarnings()).toEqual([]);
+    const first = report("2026-08-19");
+    first.sources.github.warnings = ["github", "shared"];
+    first.sources.discord = { ok: true, warnings: ["discord", "shared"], stats: {} };
+    await store.upsertPeriod({ report: first, summary, markdown: "first" });
+    expect(await store.latestSourceWarnings()).toEqual([
+      "github",
+      "shared",
+      "discord",
+      "shared",
+      "Model summary unavailable: completion failed",
+    ]);
+    const laterWeek = report("2026-08-25");
+    laterWeek.period.period = "week";
+    laterWeek.period.key = "2026-W35";
+    laterWeek.sources.github.warnings = ["weekly"];
+    await store.upsertPeriod({ report: laterWeek, markdown: "week" });
+    const latest = report("2026-08-20");
+    latest.status = "partial";
+    latest.sources.github.warnings = ["latest partial"];
+    await store.upsertPeriod({ report: latest, markdown: "latest" });
+    expect(await store.latestSourceWarnings()).toEqual(["latest partial"]);
+    latest.sources.github.warnings = [];
+    await store.upsertPeriod({ report: latest, markdown: "refreshed" });
+    expect(await store.latestSourceWarnings()).toEqual([]);
+    await store.prune(1, Date.parse("2026-08-23T00:00:00Z"));
+    expect(await store.latestSourceWarnings()).toEqual([]);
+    await store.close();
+    await expect(store.latestSourceWarnings()).rejects.toThrow("store is closed");
+  });
+
+  it.each([
+    "report member schema",
+    "report JSON syntax",
+    "null report",
+    "summary schema",
+    "summary JSON syntax",
+    "unsafe timestamp",
+    "unsafe extracted total",
+  ])("preserves latest-warning failures for %s", async (failure) => {
+    const { store, dbPath } = await openStore();
+    await store.upsertPeriod({ report: report(), summary, markdown: "kept" });
+    const database = openNodeSqliteDatabase(dbPath);
+    try {
+      const data = report();
+      switch (failure) {
+        case "report member schema":
+          database
+            .prepare("UPDATE team_reports_periods SET data_json = ?")
+            .run(JSON.stringify({ ...data, members: "invalid" }));
+          break;
+        case "report JSON syntax":
+          database.prepare("UPDATE team_reports_periods SET data_json = ?").run("{");
+          break;
+        case "null report":
+          database.prepare("UPDATE team_reports_periods SET data_json = ?").run("null");
+          break;
+        case "summary schema":
+          database
+            .prepare("UPDATE team_reports_periods SET summary_json = ?")
+            .run(JSON.stringify({ ...summary, globalSummary: 123 }));
+          break;
+        case "summary JSON syntax":
+          database.prepare("UPDATE team_reports_periods SET summary_json = ?").run("{");
+          break;
+        case "unsafe timestamp":
+          database.exec("UPDATE team_reports_periods SET generated_at_ms = 9007199254740992");
+          break;
+        case "unsafe extracted total":
+          database
+            .prepare("UPDATE team_reports_periods SET data_json = ?")
+            .run(JSON.stringify({ ...data, activeMembers: 9_007_199_254_740_992 }));
+          break;
+      }
+      const originalRead = async () => {
+        const latest = (await store.listPeriods({ period: "day", limit: 1 }))[0];
+        return latest ? store.getPeriod("day", latest.key) : undefined;
+      };
+      const originalError = await originalRead().catch((error: unknown) => error);
+      if (!(originalError instanceof Error)) {
+        throw new Error("The existing period read must reject this fixture");
+      }
+      await expect(store.latestSourceWarnings()).rejects.toMatchObject({
+        name: originalError.name,
+        message: originalError.message,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("records run outcomes once, including bounded failures and collector statistics", async () => {
     const { store } = await openStore();
     await store.startRun({

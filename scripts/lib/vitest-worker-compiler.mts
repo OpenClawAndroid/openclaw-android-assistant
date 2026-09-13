@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createManagedHandoffBuildConfig } from "./managed-handoff-build-config.mts";
 import {
   sharedRuntimeProcessBuildEntries,
+  shouldBundleStandaloneRuntimeDependency,
   standaloneRuntimeProcessBuildEntries,
 } from "./runtime-process-core-build-entries.mts";
 import { createStateSchemaInlinePlugin } from "./state-schema-inline-plugin.mts";
@@ -66,6 +67,10 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
   };
   const schemaPlugin = createStateSchemaInlinePlugin(root);
   const outDir = path.join(directory, "dist");
+  const shouldBundleWorkspaceDependency = (id: string) =>
+    (id.startsWith("@openclaw/") || id.startsWith("openclaw/")) &&
+    id !== "@openclaw/fs-safe" &&
+    !id.startsWith("@openclaw/fs-safe/");
   const config: NonNullable<Parameters<typeof build>[0]> = {
     config: false,
     cwd: root,
@@ -80,10 +85,7 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
     outExtensions: () => ({ js: ".js" }),
     deps: {
       // Root runtime dependencies stay external; bundled workspace code owns its private deps.
-      alwaysBundle: (id) =>
-        (id.startsWith("@openclaw/") || id.startsWith("openclaw/")) &&
-        id !== "@openclaw/fs-safe" &&
-        !id.startsWith("@openclaw/fs-safe/"),
+      alwaysBundle: shouldBundleWorkspaceDependency,
     },
     logLevel: "warn",
     plugins: [
@@ -149,6 +151,11 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
   await build({
     ...config,
     entry: standaloneRuntimeProcessBuildEntries,
+    deps: {
+      ...config.deps,
+      alwaysBundle: (id) =>
+        shouldBundleWorkspaceDependency(id) || shouldBundleStandaloneRuntimeDependency(id),
+    },
     outputOptions: { codeSplitting: false },
   });
   await build({

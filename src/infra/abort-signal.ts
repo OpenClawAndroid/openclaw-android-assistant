@@ -25,7 +25,9 @@ export function racePromiseWithAbortSignal<T>(
   }
   const abortError = () => createAbortError("Operation aborted", { cause: signal.reason });
   if (signal.aborted) {
-    return Promise.reject(abortError());
+    // The source may already be running. Observe its rejection while preserving
+    // the existing abort's precedence, even over an already-settled source.
+    return Promise.race([Promise.reject(abortError()), promise]);
   }
   let onAbort!: () => void;
   const aborted = new Promise<never>((_, reject) => {

@@ -26,6 +26,11 @@ const {
   };
 });
 
+const browserHostAvailabilityMocks = vi.hoisted(() => ({
+  isBrowserHostAvailable: vi.fn((_config: unknown, _profileName?: string) => false),
+}));
+vi.mock("../browser-host-availability.js", () => browserHostAvailabilityMocks);
+
 const uploadMocks = vi.hoisted(() => ({
   isBrowserProxyUploadRequest: vi.fn(
     (params: { method: string; path: string; body: unknown }) =>
@@ -147,6 +152,7 @@ function firstRespondCall(respond: ReturnType<typeof vi.fn>): RespondCall {
 
 describe("browser.request profile selection", () => {
   beforeEach(() => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReset().mockReturnValue(false);
     loadConfigMock.mockReturnValue({
       gateway: { nodes: { browser: { mode: "auto" } } },
     });
@@ -252,9 +258,15 @@ describe("browser.request profile selection", () => {
     },
   );
 
-  it.each([undefined, "host", "node"] as const)(
-    "dispatches the requested %s execution host while preserving the profile",
-    async (target) => {
+  it.each([
+    { target: undefined, localAvailable: true },
+    { target: undefined, localAvailable: false },
+    { target: "host", localAvailable: false },
+    { target: "node", localAvailable: true },
+  ] as const)(
+    "dispatches target=$target with localAvailable=$localAvailable while preserving the profile",
+    async ({ target, localAvailable }) => {
+      browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(localAvailable);
       startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
       dispatchBrowserRouteMock.mockResolvedValueOnce({
         status: 200,
@@ -270,11 +282,12 @@ describe("browser.request profile selection", () => {
         },
         { ok: true, payload: { result: { targetId: "node-tab" } } },
       );
+      const usesHost = target === "host" || (target === undefined && localAvailable);
       expect(firstRespondCall(respond)).toEqual([
         true,
-        { targetId: target === "host" ? "host-tab" : "node-tab" },
+        { targetId: usesHost ? "host-tab" : "node-tab" },
       ]);
-      if (target === "host") {
+      if (usesHost) {
         expect(nodeRegistry.invoke).not.toHaveBeenCalled();
         expect(nodeRegistry.listConnected).not.toHaveBeenCalled();
         expect(dispatchBrowserRouteMock).toHaveBeenCalledWith({
@@ -294,6 +307,7 @@ describe("browser.request profile selection", () => {
   );
 
   it("resolves an explicit node selector instead of the configured node", async () => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     loadConfigMock.mockReturnValue({
       gateway: { nodes: { browser: { mode: "manual", node: "other" } } },
     });
@@ -309,6 +323,60 @@ describe("browser.request profile selection", () => {
     );
     expect(invokeParams(nodeRegistry).nodeId).toBe("selected");
     expect(firstRespondCall(respond)[0]).toBe(true);
+  });
+
+  it.each([
+    { query: { profile: "local-work" }, body: { profile: "node-work" }, local: true },
+    { query: undefined, body: { profile: "local-work" }, local: true },
+    { query: { profile: "node-work" }, body: { profile: "local-work" }, local: false },
+  ])("uses the selected profile's host availability for %j", async ({ query, body, local }) => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockImplementation(
+      (_config, profileName) => profileName === "local-work",
+    );
+    startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
+    dispatchBrowserRouteMock.mockResolvedValueOnce({
+      status: 200,
+      body: { source: "host" },
+    });
+
+    const { respond, nodeRegistry } = await runBrowserRequest({
+      method: "POST",
+      path: "/start",
+      query,
+      body,
+    });
+
+    if (local) {
+      expect(firstRespondCall(respond)).toEqual([true, { source: "host" }]);
+      expect(nodeRegistry.listConnected).not.toHaveBeenCalled();
+      expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+    } else {
+      expect(firstRespondCall(respond)[0]).toBe(true);
+      expect(invokeParams(nodeRegistry).params?.profile).toBe("node-work");
+      expect(dispatchBrowserRouteMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not replay a failed host action on a connected node", async () => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
+    startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
+    const message = "navigation timed out after the page received the request";
+    dispatchBrowserRouteMock.mockResolvedValueOnce({ status: 500, body: { error: message } });
+
+    const { respond, nodeRegistry } = await runBrowserRequest({
+      method: "POST",
+      path: "/navigate",
+      body: { targetId: "local-tab", url: "https://example.com" },
+    });
+
+    expect(firstRespondCall(respond)).toEqual([
+      false,
+      undefined,
+      { code: "UNAVAILABLE", message, details: { error: message } },
+    ]);
+    expect(dispatchBrowserRouteMock).toHaveBeenCalledOnce();
+    expect(nodeRegistry.listConnected).not.toHaveBeenCalled();
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -463,6 +531,7 @@ describe("browser.request profile selection", () => {
   });
 
   it("honors a configured browser node in manual routing mode", async () => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     loadConfigMock.mockReturnValue({
       gateway: { nodes: { browser: { mode: "manual", node: "node-1" } } },
     });
@@ -712,6 +781,7 @@ describe("browser.request profile selection", () => {
   });
 
   it("preserves a configured node failure instead of falling back to the host", async () => {
+    browserHostAvailabilityMocks.isBrowserHostAvailable.mockReturnValue(true);
     loadConfigMock.mockReturnValue({
       gateway: { nodes: { browser: { mode: "auto", node: "node-1" } } },
     });

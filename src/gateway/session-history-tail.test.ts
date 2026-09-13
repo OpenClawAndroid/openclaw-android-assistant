@@ -7,8 +7,10 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import * as chatDisplayProjection from "./chat-display-projection.js";
 import {
   readChatHistoryMessageId,
+  readChatHistoryMessageSeq,
   readIncrementalChatHistoryTail,
 } from "./session-history-tail.js";
 import * as sessionTranscriptReaders from "./session-transcript-readers.js";
@@ -117,6 +119,61 @@ it("keeps a sparse tail below its first snapshot when messages append between pa
       ]);
     } finally {
       recentSpy.mockRestore();
+    }
+  });
+});
+
+it("fills sparse pages without repeatedly projecting scanned transcript rows", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const readScope = {
+      agentId: "main",
+      sessionId: "sparse-tail-projection-work",
+      sessionKey: "agent:main:sparse-tail-projection-work",
+      storePath: `${state.sessionsDir()}/sessions.json`,
+    };
+    const events = Array.from({ length: 1_500 }, (_, index) => ({
+      type: "message",
+      id: `row-${index}`,
+      parentId: index === 0 ? null : `row-${index - 1}`,
+      message: {
+        role: index % 50 === 0 ? "user" : "assistant",
+        content: index % 50 === 0 ? `visible ${index / 50}` : "NO_REPLY",
+      },
+    }));
+    await replaceTranscriptEvents(readScope, [
+      { type: "session", version: 3, id: readScope.sessionId },
+      ...events,
+    ]);
+    await waitForSessionTranscriptProjection(readScope);
+
+    let projectedRows = 0;
+    const project = chatDisplayProjection.projectChatDisplayMessagesWithState;
+    const projectionSpy = vi
+      .spyOn(chatDisplayProjection, "projectChatDisplayMessagesWithState")
+      .mockImplementation((messages, options) => {
+        projectedRows += messages.length;
+        return project(messages, options);
+      });
+    try {
+      const tail = await readIncrementalChatHistoryTail({
+        entry: undefined,
+        readScope,
+        effectiveMaxChars: 8_000,
+        max: 25,
+        maxBytes: 1024 * 1024,
+        offset: 0,
+        readOnly: true,
+        deferProfileDisplay: true,
+      });
+
+      expect(tail.readPage.totalMessages).toBe(events.length);
+      expect(tail.projected.map(readChatHistoryMessageSeq)).toEqual(
+        Array.from({ length: 25 }, (_, index) => (index + 5) * 50 + 1),
+      );
+      expect(projectedRows).toBeGreaterThan(0);
+      expect(projectedRows).toBeLessThanOrEqual(events.length * 2);
+    } finally {
+      projectionSpy.mockRestore();
     }
   });
 });

@@ -9,7 +9,7 @@ import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { readChatHistoryMessageId } from "../session-history-tail.js";
 import * as anchorReader from "../session-transcript-anchor-reader.js";
 import { readSessionMessagesAsync } from "../session-transcript-readers.js";
-import { readChatHistoryPage } from "./chat-history-pages.js";
+import { readChatHistoryPageLocal } from "./chat-history-pages.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -28,7 +28,7 @@ const answer = {
   __openclaw: { runId: "recovered-run" },
 };
 
-type PageOptions = Pick<Parameters<typeof readChatHistoryPage>[0], "offset" | "messageId"> & {
+type PageOptions = Pick<Parameters<typeof readChatHistoryPageLocal>[0], "offset" | "messageId"> & {
   maxHistoryBytes?: number;
 };
 
@@ -36,7 +36,7 @@ async function withTranscript(
   messages: Array<[id: string, message: Record<string, unknown>]>,
   use: (fixture: {
     append: (id: string, message: Record<string, unknown>) => Promise<unknown>;
-    read: (options: PageOptions) => ReturnType<typeof readChatHistoryPage>;
+    read: (options: PageOptions) => ReturnType<typeof readChatHistoryPageLocal>;
     raw: () => ReturnType<typeof readSessionMessagesAsync>;
   }) => Promise<void>,
 ) {
@@ -61,7 +61,7 @@ async function withTranscript(
     await use({
       append: (id, message) => appendTranscriptMessage(scope, { eventId: id, message }),
       read: (options) =>
-        readChatHistoryPage({
+        readChatHistoryPageLocal({
           entry,
           provider: "openai",
           sessionId: scope.sessionId,

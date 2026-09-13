@@ -1327,6 +1327,10 @@ openclaw-tooltip.chat-tasks-status__preview {
     color var(--duration-fast) ease;
 }
 
+.chat-subagent-activity__row--named {
+  grid-template-columns: 18px fit-content(40%) auto minmax(0, 1fr);
+}
+
 .chat-subagent-activity__row--interactive:hover,
 .chat-subagent-activity__row--interactive:focus-visible {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
@@ -1359,7 +1363,14 @@ openclaw-tooltip.chat-tasks-status__preview {
 }
 
 .chat-subagent-activity__label {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subagent-activity__status {
   white-space: nowrap;
 }
 

@@ -4,7 +4,10 @@ import {
   attachAgentCommandAdmissionFacts,
   attachAgentCommandRecoveryAdmissionFacts,
 } from "../../agents/agent-command-admission-facts.js";
-import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.js";
+import {
+  buildAgentRunTerminalOutcome,
+  type AgentRunTerminalOutcome,
+} from "../../agents/agent-run-terminal-outcome.js";
 import { repairMainSessionRecoveryMutation } from "../../agents/main-session-recovery/main-session-recovery-lifecycle.js";
 import { scheduleMainSessionRecoveryPendingTarget } from "../../agents/main-session-recovery/main-session-recovery-owner-release.js";
 import {
@@ -120,13 +123,13 @@ export async function startAgentRunExecution(params: {
       const refsToDiscard = unpersistedOffloadedRefs;
       unpersistedOffloadedRefs = [];
       try {
-        releasePreparedAgentRunUserTurn(
-          prepared.userTurn,
+        const stopReason = prepared.activeRunAbort.entry?.abortStopReason;
+        const outcome = buildAgentRunTerminalOutcome({ status: "error", stopReason });
+        const cancelled =
           prepared.activeRunAbort.controller.signal.aborted &&
-            prepared.activeRunAbort.entry?.abortStopReason !== "restart"
-            ? "cancelled"
-            : "interrupted",
-        );
+          stopReason !== "restart" &&
+          (!prepared.userTurn.privateCompletion || outcome.reason === "cancelled");
+        releasePreparedAgentRunUserTurn(prepared.userTurn, cancelled ? "cancelled" : "interrupted");
       } catch (error) {
         params.context.logGateway.warn(
           `failed to settle pending agent input: ${formatForLog(error)}`,
@@ -160,9 +163,46 @@ export async function startAgentRunExecution(params: {
       await yieldAfterAgentAcceptedAck();
       let dispatched = false;
       let pendingRecovery: MainSessionRecoveryPendingTarget | undefined;
+      const finishFailure = (err: unknown, recordCompletion = true) => {
+        const error = errorShapeFromError(ErrorCodes.UNAVAILABLE, err);
+        const renderedErr = error.message;
+        if (recordCompletion) {
+          try {
+            prepared.userTurn.recorder?.completeProcessing?.(
+              buildAgentRunTerminalOutcome({ status: "error", error: renderedErr }),
+            );
+          } catch (completionError) {
+            params.context.logGateway.warn(
+              `input completion persistence failed: ${formatForLog(completionError)}`,
+            );
+          }
+        }
+        const payload = { runId: params.runId, status: "error" as const, summary: renderedErr };
+        setGatewayDedupeEntries({
+          dedupe: params.context.dedupe,
+          keys: params.agentDedupeKeys,
+          entry: { ts: Date.now(), ok: false, payload, error },
+        });
+        params.io.emitFinal([false, payload, error], { runId: params.runId, error: renderedErr });
+      };
       const finishUndispatchedAbort = async () => {
-        pendingRecovery = await prepared.restoreAdmittedRestartRecoveryInterrupted?.();
         const stopReason = resolveAbortedAgentStopReason(prepared.activeRunAbort.entry);
+        try {
+          pendingRecovery = await prepared.restoreAdmittedRestartRecoveryInterrupted?.();
+          prepared.userTurn.recorder?.completeProcessing?.(
+            buildAgentRunTerminalOutcome({
+              status: "timeout",
+              stopReason,
+              timeoutPhase: "queue",
+              providerStarted: false,
+            }),
+          );
+        } catch (error) {
+          // This helper also runs from the outer abort catch. A failed required
+          // write must still publish a final error and release the admitted turn.
+          finishFailure(error, false);
+          return;
+        }
         setAbortedAgentDedupeEntries({
           dedupe: params.context.dedupe,
           keys: params.agentDedupeKeys,
@@ -520,22 +560,7 @@ export async function startAgentRunExecution(params: {
           await finishUndispatchedAbort();
           return;
         }
-        const error = errorShapeFromError(ErrorCodes.UNAVAILABLE, err);
-        const renderedErr = error.message;
-        const payload = {
-          runId: params.runId,
-          status: "error" as const,
-          summary: renderedErr,
-        };
-        setGatewayDedupeEntries({
-          dedupe: params.context.dedupe,
-          keys: params.agentDedupeKeys,
-          entry: { ts: Date.now(), ok: false, payload, error },
-        });
-        params.io.emitFinal([false, payload, error], {
-          runId: params.runId,
-          error: renderedErr,
-        });
+        finishFailure(err);
       } finally {
         try {
           if (!dispatched) {

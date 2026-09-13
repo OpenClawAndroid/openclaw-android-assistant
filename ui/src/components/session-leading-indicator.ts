@@ -7,7 +7,7 @@ import {
   renderSessionIdleState,
 } from "./session-attention-presentation.ts";
 import { renderSessionGlyph, renderSessionUnreadBadge } from "./session-glyph.ts";
-import { resolveSessionIconGlyph } from "./session-icon-glyph-registry.ts";
+import { resolveSessionIconGraphic } from "./session-icon-glyph-registry.ts";
 import { renderSessionOwnerChip, type SessionCreatedActor } from "./session-owner-chip.ts";
 
 type SessionAvatarAuth = {
@@ -24,9 +24,9 @@ function ensureChannelAvatarElement(): void {
 }
 
 function renderPersistentSessionIcon(icon: string) {
-  const glyph = resolveSessionIconGlyph(icon);
-  return glyph
-    ? html`<span class="session-glyph__icon" aria-hidden="true">${glyph}</span>`
+  const graphic = resolveSessionIconGraphic(icon);
+  return graphic
+    ? html`<span class="session-glyph__icon" aria-hidden="true">${graphic}</span>`
     : html`<span class="session-glyph__emoji" aria-hidden="true">${icon}</span>`;
 }
 

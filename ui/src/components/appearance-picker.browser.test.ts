@@ -53,11 +53,17 @@ it("applies custom emoji with Enter without submitting the enclosing board form"
   expect(onSubmit).toHaveBeenCalledOnce();
 });
 
-it.each(["empty", "disabled"] as const)(
+it.each(["empty", "disabled", "SVG"] as const)(
   "does not apply or submit custom emoji with Enter when %s",
   async (state) => {
     const { picker, input, onChange, onSubmit } = await appearanceForm();
-    await input.fill(state === "empty" ? "" : "🦉");
+    await input.fill(
+      state === "empty"
+        ? ""
+        : state === "SVG"
+          ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>'
+          : "🦉",
+    );
     if (state === "disabled") {
       picker.props = { ...picker.props, disabled: true };
     }

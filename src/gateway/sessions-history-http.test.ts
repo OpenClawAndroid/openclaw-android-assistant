@@ -1411,21 +1411,27 @@ describe("session history HTTP endpoints", () => {
     },
   );
 
-  test.each(["garbage", "seq:garbage", "seq:0", "seq:99999999999999999999", "0", "-1", "1.5"])(
-    "rejects invalid cursor %j with 400",
-    async (cursor) => {
-      await seedSession({ text: "first message" });
-      await withGatewayHarness(async (harness) => {
-        const res = await fetchSessionHistory(harness.port, "agent:main:main", {
-          query: `?cursor=${encodeURIComponent(cursor)}`,
-        });
-        expect(res.status).toBe(400);
-        const body = await res.json();
-        expect(body.error?.type).toBe("invalid_request_error");
-        expect(body.error?.message).toBe("cursor must be a positive integer");
+  test.each([
+    "garbage",
+    "seq:garbage",
+    "seq:2next",
+    "seq:0",
+    "seq:99999999999999999999",
+    "0",
+    "-1",
+    "1.5",
+  ])("rejects invalid cursor %j with 400", async (cursor) => {
+    await seedSession({ text: "first message" });
+    await withGatewayHarness(async (harness) => {
+      const res = await fetchSessionHistory(harness.port, "agent:main:main", {
+        query: `?cursor=${encodeURIComponent(cursor)}`,
       });
-    },
-  );
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error?.type).toBe("invalid_request_error");
+      expect(body.error?.message).toBe("cursor must be a positive integer");
+    });
+  });
 
   test.each(["1", "+1"])(
     "returns the requested bounded history for valid limit %s",
@@ -1631,9 +1637,9 @@ describe("session history HTTP endpoints", () => {
     const { storePath } = await seedSession({ text: "first message" });
 
     await withGatewayHarness(async (harness) => {
-      const readSnapshot = sessionHistoryState.readSessionHistoryRawSnapshotAsync;
+      const readSnapshot = sessionHistoryState.readSessionHistorySnapshotAsync;
       const snapshotSpy = vi
-        .spyOn(sessionHistoryState, "readSessionHistoryRawSnapshotAsync")
+        .spyOn(sessionHistoryState, "readSessionHistorySnapshotAsync")
         .mockImplementationOnce(async (params) => {
           const snapshot = await readSnapshot(params);
           await appendVisibleAssistantMessage({

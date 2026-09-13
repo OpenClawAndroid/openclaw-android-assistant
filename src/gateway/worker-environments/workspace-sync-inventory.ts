@@ -11,6 +11,7 @@ import {
   STAGED_INPUT_GIT_PATHSPEC,
 } from "../../media/staged-inputs.js";
 import { killProcessTree } from "../../process/kill-tree.js";
+import { runTasksWithConcurrency } from "../../utils/run-with-concurrency.js";
 import { workerSshCommandOptions } from "./ssh.js";
 import { isPortableRootContainedSymlink } from "./workspace-actual-manifest.js";
 import {
@@ -176,11 +177,15 @@ function validateGitRelativePath(file: string): string {
   return file;
 }
 
-async function* readBoundedGitPathCandidates(filePath: string): AsyncGenerator<string> {
+async function* readBoundedGitPathCandidates(
+  filePath: string,
+  signal?: AbortSignal,
+): AsyncGenerator<string> {
   let pending = Buffer.alloc(0);
   let candidateCount = 0;
   let pathBytes = 0;
   for await (const value of createReadStream(filePath)) {
+    signal?.throwIfAborted();
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
     pathBytes += chunk.byteLength;
     if (pathBytes > MAX_WORKSPACE_INVENTORY_PATH_BYTES) {
@@ -189,6 +194,7 @@ async function* readBoundedGitPathCandidates(filePath: string): AsyncGenerator<s
     const buffer = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
     let offset = 0;
     for (;;) {
+      signal?.throwIfAborted();
       const separator = buffer.indexOf(0, offset);
       if (separator < 0) {
         break;
@@ -401,15 +407,19 @@ async function writeEligibleGitFiles(params: {
   ignoredPath: string;
   selectedPath: string;
   outputPath: string;
+  signal: AbortSignal;
 }): Promise<void> {
-  const output = await fs.open(params.outputPath, "wx", 0o600);
+  const { signal } = params;
+  signal.throwIfAborted();
   const canonicalRoot = await fs.realpath(params.gitRoot);
   const isStagedInput = createStagedInputPathMatcher(await fsRoot(canonicalRoot));
+  const output = await fs.open(params.outputPath, "wx", 0o600);
   const budget = new WorkerWorkspaceInventoryBudget();
   const transferredPaths = new Set<string>();
   let buffered: string[] = [];
   let bufferedBytes = 0;
   const flush = async () => {
+    signal.throwIfAborted();
     if (buffered.length === 0) {
       return;
     }
@@ -417,10 +427,14 @@ async function writeEligibleGitFiles(params: {
     buffered = [];
     bufferedBytes = 0;
   };
-  const appendIfTransferable = async (file: string) => {
+  const inspectFile = async (
+    file: string,
+  ): Promise<Exclude<WorkerWorkspaceInventoryEntry, { type: "directory" }> | undefined> => {
+    signal.throwIfAborted();
     if (isDerivedWorkspacePath(file, await isStagedInput(file)) || transferredPaths.has(file)) {
-      return;
+      return undefined;
     }
+    signal.throwIfAborted();
     const absolute = path.join(canonicalRoot, file);
     const stats = await fs.lstat(absolute).catch((error: unknown) => {
       if (hasNodeErrorCode(error, "ENOENT") || hasNodeErrorCode(error, "ENOTDIR")) {
@@ -428,32 +442,38 @@ async function writeEligibleGitFiles(params: {
       }
       throw error;
     });
+    signal.throwIfAborted();
     // Gitlinks are directories. Keep their commit in the base repository without
     // recursively copying nested repositories or their credential-bearing metadata.
     if (!stats || (!stats.isFile() && !stats.isSymbolicLink())) {
-      return;
+      return undefined;
     }
-    transferredPaths.add(file);
-    let symlinkTarget: string | undefined;
     if (stats.isSymbolicLink()) {
       // Mirrors the remote manifest guard, but before transfer: macOS openrsync
       // stat-fails escaping links with an opaque error instead of copying them.
-      symlinkTarget = await fs.readlink(absolute);
+      const symlinkTarget = await fs.readlink(absolute);
+      signal.throwIfAborted();
       if (!isPortableRootContainedSymlink(canonicalRoot, file, symlinkTarget)) {
         throw workspaceInventoryError(
           `Cloud workspace symlink is not portable or escapes the sync root: ${sliceUtf16Safe(file, 0, 160)}`,
         );
       }
+      return { path: file, type: "symlink", target: symlinkTarget };
     }
+    return { path: file, type: "file", mode: stats.mode & 0o777, size: stats.size };
+  };
+  const append = async (entry: Exclude<WorkerWorkspaceInventoryEntry, { type: "directory" }>) => {
+    signal.throwIfAborted();
+    const file = entry.path;
+    if (transferredPaths.has(file)) {
+      return;
+    }
+    transferredPaths.add(file);
     const segments = file.split("/");
     for (let index = 1; index < segments.length; index += 1) {
       budget.addEntry({ path: segments.slice(0, index).join("/"), type: "directory" });
     }
-    if (stats.isSymbolicLink()) {
-      budget.addEntry({ path: file, type: "symlink", target: symlinkTarget! });
-    } else {
-      budget.addEntry({ path: file, type: "file", mode: stats.mode & 0o777, size: stats.size });
-    }
+    budget.addEntry(entry);
     budget.addTransferPath(file);
     const record = `${file}\0`;
     buffered.push(record);
@@ -462,27 +482,60 @@ async function writeEligibleGitFiles(params: {
       await flush();
     }
   };
-  try {
-    for await (const file of readBoundedGitPathCandidates(params.eligiblePath)) {
-      await appendIfTransferable(file);
-    }
-    const selected = readBoundedGitPathCandidates(params.selectedPath)[Symbol.asyncIterator]();
-    let selectedItem = await selected.next();
-    for await (const file of readBoundedGitPathCandidates(params.ignoredPath)) {
-      while (
-        !selectedItem.done &&
-        Buffer.compare(Buffer.from(selectedItem.value), Buffer.from(file)) < 0
-      ) {
+  async function* candidates() {
+    yield* readBoundedGitPathCandidates(params.eligiblePath, signal);
+    const selected = readBoundedGitPathCandidates(params.selectedPath, signal);
+    try {
+      let selectedItem = await selected.next();
+      for await (const file of readBoundedGitPathCandidates(params.ignoredPath, signal)) {
+        while (
+          !selectedItem.done &&
+          Buffer.compare(Buffer.from(selectedItem.value), Buffer.from(file)) < 0
+        ) {
+          selectedItem = await selected.next();
+        }
+        if ((await isStagedInput(file)) || (!selectedItem.done && selectedItem.value === file)) {
+          signal.throwIfAborted();
+          yield file;
+        }
+      }
+      while (!selectedItem.done) {
         selectedItem = await selected.next();
       }
-      if ((await isStagedInput(file)) || (!selectedItem.done && selectedItem.value === file)) {
-        await appendIfTransferable(file);
+    } finally {
+      await selected.return(undefined);
+    }
+  }
+  const inspectBatch = async (files: string[]) => {
+    // Overlap metadata reads on busy Gateways, then account and write in Git order.
+    // The pool settles every started read before scratch-file cleanup can run.
+    const inspected = await runTasksWithConcurrency({
+      tasks: files.map((file) => () => inspectFile(file)),
+      limit: 32,
+      errorMode: "stop",
+    });
+    if (inspected.hasError) {
+      throw inspected.firstError;
+    }
+    signal.throwIfAborted();
+    for (const entry of inspected.results) {
+      if (entry) {
+        await append(entry);
       }
     }
-    while (!selectedItem.done) {
-      selectedItem = await selected.next();
+  };
+  try {
+    let batch: string[] = [];
+    for await (const file of candidates()) {
+      batch.push(file);
+      if (batch.length === 64) {
+        await inspectBatch(batch);
+        batch = [];
+      }
     }
+    await inspectBatch(batch);
     await flush();
+    signal.throwIfAborted();
   } finally {
     await output.close();
   }
@@ -583,6 +636,7 @@ export async function createWorkspaceGitTransferList(params: {
     ignoredPath,
     selectedPath,
     outputPath,
+    signal: params.signal,
   });
   return outputPath;
 }

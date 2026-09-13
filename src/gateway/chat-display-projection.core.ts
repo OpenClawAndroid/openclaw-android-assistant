@@ -5,9 +5,11 @@ import {
   normalizeLowercaseStringOrEmpty as normalizeErrorSignal,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
-import { renderAssistantRequestFailureCopy } from "../agents/failover/assistant-request-failure-copy.js";
-import { isContextOverflowError } from "../agents/failover/classify.js";
-import { renderAssistantFormatFailureCopy } from "../agents/failover/user-copy.js";
+import {
+  renderAssistantFormatFailureCopy,
+  renderAssistantRequestFailureCopy,
+} from "../agents/failover/assistant-request-failure-copy.js";
+import { isContextOverflowErrorFromTables } from "../agents/failover/context-overflow-tables.js";
 import { readTranscriptSenderIdentity } from "../chat/sender-identity.js";
 import { classifyGatewayStorageFailure } from "../infra/sqlite-error-diagnostics.js";
 import {
@@ -131,8 +133,7 @@ function isContextOverflowErrorSignal(value: unknown): boolean {
     return false;
   }
   return (
-    normalizeErrorSignal(value) === "context_overflow" ||
-    isContextOverflowError(value, { providerPlugin: null })
+    normalizeErrorSignal(value) === "context_overflow" || isContextOverflowErrorFromTables(value)
   );
 }
 

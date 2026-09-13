@@ -243,6 +243,11 @@ alone does not refresh plugin discovery; use an explicit metadata refresh. See
 [Apply changes and inspect](/plugins/manage-plugins#apply-changes-and-inspect)
 and [Plugin metadata snapshots](/plugins/architecture#plugin-metadata-snapshot-and-lookup-table).
 
+Agent requests waiting to start pause while plugin hot reload drains the old
+runtime. They continue with the replacement when it is ready, or with the
+previous runtime after a successful rollback. You do not need to resend these
+requests. Failed restoration or Gateway shutdown still reports a failure.
+
 During channel or plugin hot reload, Gateway-hosted channel webhook routes return
 `503` with `Retry-After: 1` until replacement ingress registers. Senders must honor
 retry responses; this does not acknowledge delivery. Disabled or removed accounts,

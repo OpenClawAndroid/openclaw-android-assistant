@@ -502,6 +502,7 @@ suite.define(() => {
           "sessions.create": {
             key: sessionKey,
             runId,
+            entry: { sessionId: "single-image-prompt" },
             runStarted: true,
             messageSeq: 1,
           },

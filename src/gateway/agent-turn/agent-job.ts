@@ -493,6 +493,8 @@ export function setGatewayDedupeEntry(params: {
   dedupe: Map<string, DedupeEntry>;
   key: string;
   entry: DedupeEntry;
+  /** Admission owns a new attempt; retain request identity while retiring its old terminal. */
+  startNewAttempt?: true;
 }) {
   const existing = params.dedupe.get(params.key);
   const existingObservation = existing ? parseDedupeObservation(existing) : undefined;
@@ -508,6 +510,7 @@ export function setGatewayDedupeEntry(params: {
   if (
     existingOutcome &&
     isStickyAgentRunTerminalOutcome(existingOutcome) &&
+    !(params.startNewAttempt && incomingObservation.state === "active") &&
     (!incomingOutcome ||
       mergeAgentRunTerminalOutcome(existingOutcome, incomingOutcome) === existingOutcome)
   ) {

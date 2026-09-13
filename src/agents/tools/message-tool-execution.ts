@@ -105,6 +105,7 @@ function resolvePollVoteEchoRoute(params: {
   currentChannelId?: string;
   currentChatType?: ChatType;
   currentMessagingTarget?: string;
+  preparedMessageToolCatalog?: PreparedMessageToolCatalog;
 }): string | undefined {
   const channel = normalizeMessageChannel(params.channel);
   if (!channel) {
@@ -112,9 +113,15 @@ function resolvePollVoteEchoRoute(params: {
   }
   let deliveryAliasTarget: string | undefined;
   try {
+    const selectedChannel = params.preparedMessageToolCatalog
+      ? params.preparedMessageToolCatalog.getChannel(channel)
+      : getChannelPlugin(channel);
     deliveryAliasTarget = resolveActionDeliveryTargetAlias(params.action, params.args, {
       channel,
-      aliasSpec: getChannelPlugin(channel)?.actions?.messageActionTargetAliases?.[params.action],
+      aliasSpec:
+        params.preparedMessageToolCatalog || selectedChannel
+          ? (selectedChannel?.actions?.messageActionTargetAliases?.[params.action] ?? null)
+          : undefined,
     });
   } catch {
     return undefined;
@@ -307,6 +314,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         action,
         params,
         accountId: requestedAccountId ?? agentAccountId,
+        preparedMessageToolCatalog,
       });
       const decisions = createMessageToolDecisionRecorder({
         actionId: toolCallId,
@@ -472,6 +480,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         accountId,
         currentChannelId: effectiveCurrentChannel.currentChannelId,
         currentMessagingTarget: effectiveCurrentChannel.currentMessagingTarget,
+        preparedMessageToolCatalog,
       });
       const recentPollVote = pollEchoSessionKey
         ? recentPollVoteBySession.get(pollEchoSessionKey)

@@ -3,6 +3,28 @@ import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { ReadOnlySqliteTranscriptReader } from "./doctor-session-sqlite-transcript-readers.js";
 
 describe("read-only SQLite transcript readers", () => {
+  it("closes a rejected header snapshot before the next database operation", () => {
+    const database = openNodeSqliteDatabase(":memory:");
+    try {
+      database.exec(`
+        CREATE TABLE transcript_events (
+          session_id TEXT, seq INTEGER, created_at INTEGER, event_json TEXT
+        );
+        CREATE TABLE session_windows (session_id TEXT, session_key TEXT);
+        INSERT INTO session_windows VALUES ('rejected', 'agent:main:rejected');
+        INSERT INTO transcript_events VALUES
+          ('rejected', 0, 10, '{"type":"message","id":"first"}'),
+          ('rejected', 1, 11, '{"type":"session","id":"rejected"}');
+      `);
+      const reader = new ReadOnlySqliteTranscriptReader(database);
+      expect(reader.headerlessSnapshot("rejected", () => false)).toEqual({ ok: true, rows: [] });
+      // A live native cursor would keep this schema write locked.
+      expect(() => database.exec("DROP TABLE transcript_events")).not.toThrow();
+    } finally {
+      database.close();
+    }
+  });
+
   it.each([
     { stage: "label detection", header: false, failingSeq: 0 },
     { stage: "nested label snapshot", header: false, failingSeq: 1 },
@@ -43,8 +65,12 @@ describe("read-only SQLite transcript readers", () => {
       const reader = new ReadOnlySqliteTranscriptReader(database);
       const read = (sessionId: string) =>
         header
-          ? reader.headerlessSnapshot(sessionId)
-          : reader.repairSnapshot(sessionId, () => true);
+          ? reader.headerlessSnapshot(sessionId, () => true)
+          : reader.repairSnapshot(
+              sessionId,
+              () => true,
+              () => true,
+            );
       expect(read("broken")).toMatchObject({
         ok: false,
         error: { message: expect.stringMatching(/malformed JSON/iu) },

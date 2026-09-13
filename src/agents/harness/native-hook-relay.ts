@@ -4,9 +4,11 @@ import {
   MAX_TIMER_TIMEOUT_MS,
   resolveExpiresAtMsFromDurationMs,
 } from "@openclaw/normalization-core/number-coercion";
+import { racePromiseWithAbortSignal } from "../../infra/abort-signal.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { retainBeforeToolCallForNativeHookRelay } from "./host-private-capabilities.js";
+import { formatPermissionApprovalDescription as formatPermissionApprovalDescriptionForTestsImpl } from "./native-hook-relay-approval-presentation.js";
 import {
   clearNativeHookRelayBridgesForTests,
   NATIVE_HOOK_BRIDGE_REPLACEMENT_RECORD_GRACE_MS,
@@ -27,12 +29,11 @@ import {
 import { processNativeHookRelayInvocation } from "./native-hook-relay-events.js";
 import {
   clearNativeHookRelayPermissionsForTests,
-  formatPermissionApprovalDescriptionForTests as formatPermissionApprovalDescriptionForTestsImpl,
   permissionRequestContentFingerprintForTests as permissionRequestContentFingerprintForTestsImpl,
   permissionRequestToolInputKeyFingerprintForTests as permissionRequestToolInputKeyFingerprintForTestsImpl,
   pruneNativeHookRelayPermissionAllowAlways,
   removeNativeHookRelayPermissionState,
-  removeNativeHookRelayPreToolUseApprovals,
+  detachNativeHookRelayApprovalState,
   setNativeHookRelayDeferredToolApprovalRequesterForTests as setNativeHookRelayDeferredToolApprovalRequesterForTestsImpl,
   setNativeHookRelayPermissionApprovalRequesterForTests as setNativeHookRelayPermissionApprovalRequesterForTestsImpl,
 } from "./native-hook-relay-permissions.js";
@@ -48,12 +49,13 @@ import type {
   InvokeNativeHookRelayParams,
   NativeHookRelayEvent,
   NativeHookRelayInvocation,
-  NativeHookRelayPermissionApprovalRequest,
   NativeHookRelayPermissionApprovalRequester,
   NativeHookRelayProcessResponse,
   NativeHookRelayRegistration,
+  NativeHookRelayRetention,
   OwnedNativeHookRelayRegistrationHandle,
   RegisterNativeHookRelayParams,
+  RelayLifetime,
 } from "./native-hook-relay-types.js";
 import { NATIVE_HOOK_RELAY_EVENTS } from "./native-hook-relay-types.js";
 import {
@@ -82,38 +84,22 @@ const DEFAULT_RELAY_TTL_MS = 30 * 60 * 1000;
 const log = createSubsystemLogger("agents/harness/native-hook-relay");
 
 const { relays, relayBridges, invocations } = nativeHookRelayState;
-type RelayLifetime = {
-  foregroundOpen: boolean;
-  foregroundToken: symbol;
-  policyReady: Promise<void>;
-  retained?: ReturnType<typeof retainBeforeToolCallForNativeHookRelay>;
-  retention?: NativeHookRelayRetention;
-  removeAbortListener?: () => void;
-  expiryTimer?: ReturnType<typeof setTimeout>;
-};
-
 const RELAY_LIFETIME = "__openclawNativeHookRelayLifetimeV1";
-
-/** Private bundled-runtime callbacks for retained direct-child hook policy. */
-export type NativeHookRelayRetention = Readonly<{
-  readClaim: (rawPayload: unknown) => string | undefined;
-  shouldRetainAfterForegroundClose: () => boolean;
-  allowPreToolUse: (claim: string) => boolean;
-  awaitForegroundAdmission?: (claim: string) => Promise<(() => boolean) | undefined>;
-  onDispose: () => void;
-}>;
 
 type OwnedNativeHookRelayParams = RegisterNativeHookRelayParams & {
   retention?: NativeHookRelayRetention;
+  approvalHost?: NativeHookRelayRegistration["approvalHost"];
+};
+
+type RelayLifetimeRegistration = ActiveNativeHookRelayRegistration & {
+  [RELAY_LIFETIME]?: RelayLifetime;
 };
 
 function readRelayLifetime(
   registration: ActiveNativeHookRelayRegistration,
 ): RelayLifetime | undefined {
-  // SAFETY: this private symbol-keyed expando is installed only by setRelayLifetime below.
-  return (registration as ActiveNativeHookRelayRegistration & { [RELAY_LIFETIME]?: RelayLifetime })[
-    RELAY_LIFETIME
-  ];
+  // SAFETY: this private expando is installed only by setRelayLifetime below.
+  return (registration as RelayLifetimeRegistration)[RELAY_LIFETIME];
 }
 
 function setRelayLifetime(
@@ -166,13 +152,14 @@ export function registerNativeHookRelay(
 export function registerOwnedNativeHookRelay(
   params: OwnedNativeHookRelayParams,
 ): OwnedNativeHookRelayRegistrationHandle {
-  const { retention, ...registrationParams } = params;
-  return registerNativeHookRelayInternal(registrationParams, retention);
+  const { retention, approvalHost, ...registrationParams } = params;
+  return registerNativeHookRelayInternal(registrationParams, retention, approvalHost);
 }
 
 function registerNativeHookRelayInternal(
   params: RegisterNativeHookRelayParams,
   retention: NativeHookRelayRetention | undefined,
+  approvalHost?: NativeHookRelayRegistration["approvalHost"],
 ): OwnedNativeHookRelayRegistrationHandle {
   pruneExpiredNativeHookRelays();
   pruneNativeHookRelayPermissionAllowAlways();
@@ -226,6 +213,7 @@ function registerNativeHookRelayInternal(
       preToolUseFailureProjections: new Map(),
       ...(params.signal ? { signal: params.signal } : {}),
       ...(params.runBeforeToolCall ? { runBeforeToolCall: params.runBeforeToolCall } : {}),
+      ...(approvalHost ? { approvalHost } : {}),
       ...(params.assertActive ? { assertActive: params.assertActive } : {}),
       ...(params.onPreToolUseFailure ? { onPreToolUseFailure: params.onPreToolUseFailure } : {}),
       // SAFETY: the literal supplies the complete mutable internal registration contract.
@@ -363,16 +351,14 @@ function unregisterNativeHookRelay(
   lifetime?.removeAbortListener?.();
   lifetime?.retained?.release();
   // SAFETY: this deletes the same private expando installed by setRelayLifetime.
-  delete (registration as ActiveNativeHookRelayRegistration & { [RELAY_LIFETIME]?: RelayLifetime })[
-    RELAY_LIFETIME
-  ];
+  delete (registration as RelayLifetimeRegistration)[RELAY_LIFETIME];
   void unregisterNativeHookRelayBridge(relayId, {
     ...options,
     ...(bridge ? { expectedBridge: bridge } : {}),
   });
   removeNativeHookRelayInvocations(relayId);
-  removeNativeHookRelayPreToolUseApprovals(relayId);
-  removeNativeHookRelayPermissionState(relayId);
+  const cancelApprovals = detachNativeHookRelayApprovalState(relayId);
+  cancelApprovals();
   const deliverOnUnregister = () => {
     try {
       lifetime?.retention?.onDispose();
@@ -417,6 +403,8 @@ function deactivateNativeHookRelayForeground(
     }
   }
   if (shouldRetain) {
+    // Retention covers child PreToolUse only; foreground approval authority ends now.
+    removeNativeHookRelayPermissionState(relayId);
     return;
   }
   unregisterNativeHookRelay(relayId, registration);
@@ -426,13 +414,15 @@ async function resolveNativeHookRelayInvocationBinding(
   registration: ActiveNativeHookRelayRegistration,
   event: NativeHookRelayEvent,
   rawPayload: unknown,
+  signal?: AbortSignal,
 ): Promise<NativeHookRelayRegistration> {
   const lifetime = readRelayLifetime(registration);
   if (!lifetime) {
     throw new Error("native hook relay registration is inactive");
   }
   // Gateway fallback shares policy readiness without depending on HTTP locator publication.
-  await lifetime.policyReady;
+  await racePromiseWithAbortSignal(lifetime.policyReady, signal);
+  signal?.throwIfAborted();
   if (relays.get(registration.relayId) !== registration || Date.now() > registration.expiresAtMs) {
     throw new Error("native hook relay registration is inactive");
   }
@@ -442,6 +432,7 @@ async function resolveNativeHookRelayInvocationBinding(
     const retention = lifetime.retention;
     let assertAdmission: (() => boolean) | undefined;
     const assertRetainedAuthority = () => {
+      signal?.throwIfAborted();
       if (
         relays.get(registration.relayId) !== registration ||
         Date.now() > registration.expiresAtMs
@@ -458,7 +449,10 @@ async function resolveNativeHookRelayInvocationBinding(
       }
     };
     if (lifetime.foregroundOpen && retention.awaitForegroundAdmission) {
-      assertAdmission = await retention.awaitForegroundAdmission(claim);
+      assertAdmission = await racePromiseWithAbortSignal(
+        retention.awaitForegroundAdmission(claim, signal),
+        signal,
+      );
       if (!assertAdmission) {
         throw new Error("native hook relay retained invocation not allowed");
       }
@@ -470,15 +464,18 @@ async function resolveNativeHookRelayInvocationBinding(
       ...registration,
       assertActive: assertRetainedAuthority,
       runBeforeToolCall: retained.runBeforeToolCall,
+      signal,
     };
   }
   if (!lifetime.foregroundOpen) {
     throw new Error("native hook relay foreground invocation not allowed");
   }
   const foregroundToken = lifetime.foregroundToken;
-  const assertActive = () =>
+  const assertActive = () => {
+    signal?.throwIfAborted();
     assertNativeHookRelayForegroundCurrent(registration, lifetime, foregroundToken);
-  return { ...registration, assertActive };
+  };
+  return { ...registration, assertActive, signal };
 }
 
 function normalizeRelayKey(
@@ -497,6 +494,7 @@ function normalizeRelayKey(
 
 export async function invokeNativeHookRelay(
   params: InvokeNativeHookRelayParams,
+  invocationSignal?: AbortSignal,
 ): Promise<NativeHookRelayProcessResponse> {
   const provider = readNativeHookRelayProvider(params.provider);
   const relayId = readNonEmptyString(params.relayId, "relayId");
@@ -506,6 +504,11 @@ export async function invokeNativeHookRelay(
     pruneExpiredNativeHookRelays();
     throw new Error("native hook relay not found");
   }
+  const signal =
+    invocationSignal && registration.signal
+      ? AbortSignal.any([invocationSignal, registration.signal])
+      : (invocationSignal ?? registration.signal);
+  signal?.throwIfAborted();
   if (Date.now() > registration.expiresAtMs) {
     unregisterNativeHookRelay(relayId, registration);
     throw new Error("native hook relay expired");
@@ -542,17 +545,21 @@ export async function invokeNativeHookRelay(
     registration,
     event,
     params.rawPayload,
+    signal,
   );
   if (event === "pre_tool_use" || event === "permission_request") {
     effectiveRegistration.assertActive?.();
   }
   recordNativeHookRelayInvocation(normalized);
   const startedAt = Date.now();
-  const response = await processNativeHookRelayInvocation({
-    registration: effectiveRegistration,
-    invocation: normalized,
-    adapter: getNativeHookRelayProviderAdapter(provider),
-  });
+  const response = await racePromiseWithAbortSignal(
+    processNativeHookRelayInvocation({
+      registration: effectiveRegistration,
+      invocation: normalized,
+      adapter: getNativeHookRelayProviderAdapter(provider),
+    }),
+    signal,
+  );
   // Policy and approval callbacks may yield while their admitted run closes.
   // Never let a late allow cross back into the native runtime.
   if (event === "pre_tool_use" || event === "permission_request") {
@@ -715,16 +722,8 @@ export const testing = {
   isNativeHookRelayBridgeLookupRetryableForTests(error: unknown, elapsedMs = 0): boolean {
     return isRetryableNativeHookRelayBridgeLookupError({ error, elapsedMs });
   },
-  formatPermissionApprovalDescriptionForTests(
-    request: NativeHookRelayPermissionApprovalRequest,
-  ): string {
-    return formatPermissionApprovalDescriptionForTestsImpl(request);
-  },
-  permissionRequestContentFingerprintForTests(
-    request: NativeHookRelayPermissionApprovalRequest,
-  ): string {
-    return permissionRequestContentFingerprintForTestsImpl(request);
-  },
+  formatPermissionApprovalDescriptionForTests: formatPermissionApprovalDescriptionForTestsImpl,
+  permissionRequestContentFingerprintForTests: permissionRequestContentFingerprintForTestsImpl,
   permissionRequestToolInputKeyFingerprintForTests:
     permissionRequestToolInputKeyFingerprintForTestsImpl,
   setNativeHookRelayPermissionApprovalRequesterForTests(

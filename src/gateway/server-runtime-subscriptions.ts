@@ -46,6 +46,7 @@ import type {
 } from "./server-chat-state.js";
 import { resolveVisibleActiveSessionRunState } from "./server-methods/session-active-runs.js";
 import { startGatewayTaskSubscriptions } from "./server-task-subscriptions.js";
+import { createSessionActivitySummaries } from "./session-activity-summaries.js";
 import { defaultSessionCompanionContextReader } from "./session-companion-context.js";
 import { createSessionCompanion } from "./session-companion.js";
 import { createSessionLifecyclePersistenceOwner } from "./session-lifecycle-persistence-owner.js";
@@ -118,6 +119,19 @@ export function startGatewayEventSubscriptions(params: {
   const clearRuntimeActionDecisionSink = configureRuntimeActionDecisionSink(
     auditRecorder.recordExecutionDecision,
   );
+  const sessionActivitySummaries = createSessionActivitySummaries({
+    getConfig: getRuntimeConfig,
+    onChanged: (target) =>
+      params.broadcast(
+        "sessions.changed",
+        {
+          sessionKey: target.key,
+          agentId: target.agentId,
+          reason: "activity-summary",
+        },
+        { sessionKeys: [target.key], agentId: target.agentId, dropIfSlow: true },
+      ),
+  });
   const sessionObserver = createSessionObserver({
     getConfig: getRuntimeConfig,
     subscribers: params.sessionMessageSubscribers,
@@ -315,6 +329,7 @@ export function startGatewayEventSubscriptions(params: {
     let failedDispatchCleanup: (() => void) | undefined;
     let terminalPreparation: Promise<void> | undefined;
     sessionObserver.handleEvent(evt);
+    sessionActivitySummaries.handleEvent(evt);
     if (auditEnabled) {
       auditRecorder.record(evt);
     }
@@ -477,6 +492,7 @@ export function startGatewayEventSubscriptions(params: {
     unsubscribeAgentEvents();
     sessionCompanion.dispose();
     sessionObserver.dispose();
+    await sessionActivitySummaries.dispose();
     unsubscribePrivateAuditEvents?.();
     unsubscribeToolAuditEvents?.();
     unsubscribeMessageAuditEvents?.();
@@ -502,6 +518,7 @@ export function startGatewayEventSubscriptions(params: {
   });
 
   const transcriptUnsub = onInternalSessionTranscriptUpdate((evt) => {
+    sessionActivitySummaries.handleTranscript(evt);
     void dispatchEventHandler({
       loadHandler: getTranscriptUpdateHandler,
       event: evt,
@@ -519,6 +536,7 @@ export function startGatewayEventSubscriptions(params: {
     );
   });
   const unsubscribeLifecycle = onSessionLifecycleEvent((evt) => {
+    sessionActivitySummaries.handleLifecycle(evt);
     if (evt.reason === "progress-card-reset" && evt.agentId) {
       // Card readers need not subscribe to session lists. Preserve the canonical
       // owner tuple even when distinct global rows share a display key.
@@ -549,6 +567,7 @@ export function startGatewayEventSubscriptions(params: {
   const taskUnsub = startGatewayTaskSubscriptions(params);
 
   return {
+    sessionActivitySummaries,
     sessionCompanion,
     sessionObserver,
     agentUnsub,

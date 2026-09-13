@@ -4371,6 +4371,7 @@ describe("native hook relay registry", () => {
     expect(getNativeHookRelaySharedStateForTests().pendingPermissionApprovals.size).toBe(1);
 
     firstRelay.unregister();
+    await expect(firstApproval).rejects.toThrow("registration is inactive");
     registerNativeHookRelay({
       provider: "codex",
       relayId,
@@ -4387,7 +4388,9 @@ describe("native hook relay registry", () => {
     expect(getNativeHookRelaySharedStateForTests().pendingPermissionApprovals.size).toBe(1);
 
     resolvers[0]?.("allow");
-    await expect(firstApproval).rejects.toThrow("registration is inactive");
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
     expect(getNativeHookRelaySharedStateForTests().pendingPermissionApprovals.size).toBe(1);
 
     const duplicateSecondApproval = invokeNativeHookRelay({

@@ -1,13 +1,17 @@
 import type { ReactiveControllerHost } from "lit";
 import type {
   SessionCatalog,
+  SessionsCatalogArchiveParams,
   SessionsCatalogListResult,
 } from "../../../packages/gateway-protocol/src/index.ts";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
-import type { CatalogSessionContinuedDetail } from "../lib/sessions/catalog-key.ts";
+import {
+  buildCatalogSessionKey,
+  type CatalogSessionContinuedDetail,
+} from "../lib/sessions/catalog-key.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
 import {
   refreshSessionCatalogsLive,
@@ -16,12 +20,15 @@ import {
   sessionCatalogListClient,
 } from "./app-sidebar-session-catalog-live.ts";
 import {
+  excludeSessionCatalogRows,
   mergeSessionCatalogPage,
   sessionCatalogRequestError,
 } from "./app-sidebar-session-catalog-state.ts";
 import { bindAdoptedCatalogSession } from "./app-sidebar-session-catalogs.ts";
 import { sessionCatalogHostKey } from "./app-sidebar-session-types.ts";
 import type {
+  SidebarSessionMutationScope,
+  SidebarCatalogSessionMutationScope,
   SidebarSessionOwnerFilter,
   SidebarSessionStatusFilter,
 } from "./app-sidebar-session-types.ts";
@@ -338,7 +345,7 @@ async function discoverHiddenSessionCatalogPages(owner: SessionCatalogDataOwner)
 }
 
 export function invalidateSessionCatalogs(owner: SessionCatalogDataOwner): void {
-  owner.sessionCatalogLive.discoveryPages.clear();
+  owner.sessionCatalogLive.clear();
   owner.sessionCatalogRevision += 1;
   for (const { id } of owner.sessionCatalogs) {
     owner.sessionCatalogRevisions.set(id, (owner.sessionCatalogRevisions.get(id) ?? 0) + 1);
@@ -484,4 +491,32 @@ function isCurrentSessionCatalogRequest(
     revision === (owner.sessionCatalogRevisions.get(catalogId) ?? 0) &&
     client === owner.sessionCatalogGatewayClient()
   );
+}
+
+export async function archiveSessionCatalog(
+  owner: SessionCatalogDataOwner & {
+    readonly pendingCatalogArchives: Set<string>;
+    isSessionMutationScopeCurrent(scope: SidebarSessionMutationScope): boolean;
+    invalidateSessionCatalogs(): void;
+  },
+  scope: SidebarCatalogSessionMutationScope,
+  params: SessionsCatalogArchiveParams,
+): Promise<void> {
+  const generation = scope.catalogGeneration;
+  const key = buildCatalogSessionKey(params);
+  owner.pendingCatalogArchives.add(key);
+  owner.requestSessionDataUpdate();
+  try {
+    await scope.client.request("sessions.catalog.archive", params);
+    if (generation === owner.sessionScopeGeneration && owner.isSessionMutationScopeCurrent(scope)) {
+      owner.sessionCatalogs = excludeSessionCatalogRows(owner.sessionCatalogs, new Set([key]));
+      // Retire pre-delete reads before releasing the optimistic hide.
+      owner.invalidateSessionCatalogs();
+    }
+  } finally {
+    if (generation === owner.sessionScopeGeneration) {
+      owner.pendingCatalogArchives.delete(key);
+      owner.requestSessionDataUpdate();
+    }
+  }
 }

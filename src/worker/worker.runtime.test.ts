@@ -1086,7 +1086,7 @@ describe("worker runtime", () => {
       launch.assignment.systemPrompt = literalPrompt;
     }
 
-    const openedFiles = vi.spyOn(boundaryFileRead, "openRootFileFollowingParents");
+    const openedFiles = vi.spyOn(boundaryFileRead, "openRootFile");
     try {
       await expect(runWorkerDescriptor(launch)).resolves.toMatchObject({ status: "completed" });
       expect(

@@ -349,6 +349,12 @@ interrupted by a restart and to continue from the existing transcript. If a
 final reply had already been produced but not delivered, its text is included
 so the agent can deliver it instead of redoing the work.
 
+The restart does not cancel the user's task. The agent checks the current state,
+reconciles tool results whose outcomes are unknown, and continues without asking
+the user to repeat the request. Preparing a new message cannot consume the
+interruption marker; the recovery owner retains it until work is adopted or
+settled.
+
 When a recovered turn starts with an eligible channel delivery route, OpenClaw
 sends a resumption notice to that conversation, retaining its account and topic.
 The final reply uses the same delivery route. Transcript-only turns stay private,

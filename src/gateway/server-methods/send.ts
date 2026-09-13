@@ -1040,7 +1040,10 @@ export const sendHandlers: GatewayRequestHandlers = {
             canonicalAction &&
             request.action === "send" &&
             !normalizeOptionalString(request.params.target) &&
-            !actionHasTarget("send", request.params, { channel }) &&
+            !actionHasTarget("send", request.params, {
+              channel,
+              aliasSpec: plugin.actions?.messageActionTargetAliases?.send ?? null,
+            }) &&
             !resolveImplicitMessageActionTarget(trustedContext.toolContext)
           ) {
             // Native sends could use account defaults without a target. Resolve that

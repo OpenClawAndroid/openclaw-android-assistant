@@ -340,11 +340,7 @@ export function authorizeSessionAgentRun(params: {
   return null;
 }
 
-export function authorizeSessionSharingTarget(params: {
-  cfg?: OpenClawConfig;
-  client: GatewayClient | null;
-  target: SessionSharingTarget;
-}): ErrorShape | null {
+export function authorizeSessionSharingTarget(params: SessionSharingRoleParams): ErrorShape | null {
   const visibility = resolveSessionVisibility(params.target.entry);
   const sessionCap = params.cfg && operatorSessionCap(params.client, params.cfg);
   const role = resolveSessionSharingRole(params, { value: sessionCap });

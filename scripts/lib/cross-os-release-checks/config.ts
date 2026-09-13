@@ -200,7 +200,7 @@ function shouldSeedProviderConfigModels(providerMeta: ProviderConfig) {
   );
 }
 
-export function buildReleaseProviderConfigOverride(providerMeta: ProviderConfig) {
+function buildReleaseProviderConfigOverride(providerMeta: ProviderConfig) {
   if (!shouldSeedProviderConfigModels(providerMeta)) {
     return null;
   }
@@ -212,6 +212,32 @@ export function buildReleaseProviderConfigOverride(providerMeta: ProviderConfig)
       ? { timeoutSeconds: providerMeta.timeoutSeconds }
       : {}),
   };
+}
+
+// Yield between awaited commands so failed setup does not inspect later configuration.
+export function* buildReleaseModelConfigCommands(providerMeta: ProviderConfig) {
+  yield ["models", "set", providerMeta.model];
+  const providerConfigOverride = buildReleaseProviderConfigOverride(providerMeta);
+  if (providerConfigOverride) {
+    yield [
+      "config",
+      "set",
+      `models.providers.${providerMeta.extensionId}`,
+      JSON.stringify(providerConfigOverride),
+      "--strict-json",
+      "--merge",
+    ];
+  }
+  yield [
+    "config",
+    "set",
+    "plugins.allow",
+    JSON.stringify(buildCrossOsReleaseSmokePluginAllowlist(providerMeta)),
+    "--strict-json",
+  ];
+  yield buildCrossOsReleaseSmokeMemorySlotConfigArgs();
+  yield ["config", "set", "agents.defaults.skipBootstrap", "true", "--strict-json"];
+  yield ["config", "set", "tools.profile", CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE];
 }
 
 export const PACKAGE_DIST_INVENTORY_RELATIVE_PATH = "dist/postinstall-inventory.json";

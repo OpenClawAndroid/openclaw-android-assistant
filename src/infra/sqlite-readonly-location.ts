@@ -539,9 +539,12 @@ async function prepareReadOnlySourceInProcess(
       lastChange = error;
     }
   }
-  throw new Error(`SQLite source did not stabilize for read-only inspection: ${canonicalPath}`, {
-    cause: lastChange,
-  });
+  throw new Error(
+    `SQLite source did not stabilize after ${MAX_SNAPSHOT_ATTEMPTS} read-only inspection attempts (the database may be under concurrent write activity): ${canonicalPath}. Wait a moment for write activity to settle, then retry the inspection`,
+    {
+      cause: lastChange,
+    },
+  );
 }
 
 function prepareReadOnlySourceSyncInProcess(
@@ -577,9 +580,12 @@ function prepareReadOnlySourceSyncInProcess(
       lastChange = error;
     }
   }
-  throw new Error(`SQLite source did not stabilize for read-only inspection: ${canonicalPath}`, {
-    cause: lastChange,
-  });
+  throw new Error(
+    `SQLite source did not stabilize after ${MAX_SNAPSHOT_ATTEMPTS} read-only inspection attempts (the database may be under concurrent write activity): ${canonicalPath}. Wait a moment for write activity to settle, then retry the inspection`,
+    {
+      cause: lastChange,
+    },
+  );
 }
 
 /** Fixed metadata inspection in the read-only child; no payload scan or backup

@@ -60,6 +60,7 @@ import {
 import type { NewSessionVisibility } from "./create-params.ts";
 
 export type NewSessionComposerOptions = {
+  renderCritters: (floorEnabled: boolean) => TemplateResult | typeof nothing;
   attachmentLimits?: { maxBytes: number; maxImageBytes: number };
   attachments: ChatAttachment[];
   canSubmit: boolean;
@@ -135,6 +136,8 @@ function renderStartControl(options: NewSessionComposerOptions) {
 }
 
 export class NewSessionComposerTextareaController {
+  // An opening gets one cast; typing and async picker updates never reroll it.
+  readonly critterVisit = Math.random();
   private textarea: HTMLTextAreaElement | null = null;
   private placeholderFrame: number | null = null;
   private placeholderStartedAt: number | null = null;
@@ -568,6 +571,14 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
           options.requestUpdate();
         }}
       >
+        ${options.renderCritters(
+          !composerLocked &&
+            visibleMessage.length === 0 &&
+            options.attachments.length === 0 &&
+            options.pendingAttachmentReads === 0 &&
+            !menuVisible &&
+            !options.textareaController.capabilityMenuOpen,
+        )}
         ${mentionMenu.render(mentionMenuHost, options.requestUpdate)}
         ${options.nativeTerminal ? nothing : renderChatAttachmentInputs(attachmentProps)}
         ${renderAttachmentPreview(attachmentProps)}

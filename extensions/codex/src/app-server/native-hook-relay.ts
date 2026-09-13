@@ -10,6 +10,7 @@ import type {
   registerNativeHookRelay,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { emitTrustedDiagnosticEvent } from "openclaw/plugin-sdk/diagnostic-runtime";
+import { toErrorObject } from "openclaw/plugin-sdk/error-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { registerNativeHookRelayForBundledRuntime } from "openclaw/plugin-sdk/native-hook-relay-runtime";
 import type { NativeHookRelayCommandPlan } from "openclaw/plugin-sdk/native-hook-relay-runtime";
@@ -223,6 +224,7 @@ export function createCodexNativeHookRelay(params: {
       promise: Promise<symbol>;
       resolve: (claim: symbol) => void;
       reject: (reason: Error) => void;
+      waiters: number;
     }
   >();
   let foregroundClosed = false;
@@ -266,6 +268,7 @@ export function createCodexNativeHookRelay(params: {
     }),
     signal: params.signal,
     runBeforeToolCall: params.hostCapabilities.runBeforeToolCall,
+    approvalHost: params.hostCapabilities,
     assertActive: () => {
       params.hostCapabilities.assertActive();
       params.assertCurrent?.();
@@ -277,7 +280,7 @@ export function createCodexNativeHookRelay(params: {
       shouldRetainAfterForegroundClose: () =>
         successfulYieldRetentionAuthorized && directChildClaims.size > 0,
       allowPreToolUse: (childThreadId) => directChildClaims.has(childThreadId),
-      awaitForegroundAdmission: (childThreadId) => {
+      awaitForegroundAdmission: (childThreadId, signal) => {
         if (foregroundClosed) {
           return Promise.reject(new Error("native hook relay foreground admission unavailable"));
         }
@@ -285,22 +288,44 @@ export function createCodexNativeHookRelay(params: {
         if (existingClaim) {
           return Promise.resolve(assertClaim(childThreadId, existingClaim));
         }
-        const existingPending = pendingDirectChildAdmissions.get(childThreadId);
-        if (existingPending) {
-          return existingPending.promise.then((claim) => assertClaim(childThreadId, claim));
+        let pending = pendingDirectChildAdmissions.get(childThreadId);
+        if (!pending) {
+          if (pendingDirectChildAdmissions.size >= MAX_PENDING_DIRECT_CHILD_ADMISSIONS) {
+            return Promise.reject(
+              new Error("native hook relay foreground admission capacity reached"),
+            );
+          }
+          pending = { ...createDeferred<symbol>(), waiters: 0 };
+          pendingDirectChildAdmissions.set(childThreadId, pending);
         }
-        if (pendingDirectChildAdmissions.size >= MAX_PENDING_DIRECT_CHILD_ADMISSIONS) {
-          return Promise.reject(
-            new Error("native hook relay foreground admission capacity reached"),
-          );
-        }
-        const { promise, resolve, reject } = createDeferred<symbol>();
-        pendingDirectChildAdmissions.set(childThreadId, {
-          promise,
-          resolve,
-          reject,
+        const admission = pending;
+        admission.waiters++;
+        let onAbort: (() => void) | undefined;
+        const wait = new Promise<symbol>((resolve, reject) => {
+          void admission.promise.then(resolve, reject);
+          onAbort = () =>
+            reject(toErrorObject(signal?.reason, "native hook relay admission aborted"));
+          signal?.addEventListener("abort", onAbort, { once: true });
+          if (signal?.aborted) {
+            onAbort();
+          }
         });
-        return promise.then((claim) => assertClaim(childThreadId, claim));
+        return wait
+          .then((claim) => assertClaim(childThreadId, claim))
+          .finally(() => {
+            if (onAbort) {
+              signal?.removeEventListener("abort", onAbort);
+            }
+            // Duplicate callbacks share admission, but each owns its wait. A
+            // disconnected last waiter releases capacity without revoking a child.
+            admission.waiters--;
+            if (
+              admission.waiters === 0 &&
+              pendingDirectChildAdmissions.get(childThreadId) === admission
+            ) {
+              pendingDirectChildAdmissions.delete(childThreadId);
+            }
+          });
       },
       onDispose: () => {
         foregroundClosed = true;

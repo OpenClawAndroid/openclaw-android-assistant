@@ -12,10 +12,7 @@ import {
   CROSS_OS_DASHBOARD_FETCH_TIMEOUT_MS,
   CROSS_OS_DASHBOARD_SMOKE_TIMEOUT_MS,
   CROSS_OS_GATEWAY_STATUS_COMMAND_TIMEOUT_MS,
-  CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE,
-  buildCrossOsReleaseSmokeMemorySlotConfigArgs,
-  buildCrossOsReleaseSmokePluginAllowlist,
-  buildReleaseProviderConfigOverride,
+  buildReleaseModelConfigCommands,
   gatewayReadyDeadlineMs,
   managedGatewayRestartCommandTimeoutMs,
 } from "./config.ts";
@@ -276,64 +273,15 @@ async function resolveGatewayStatusArgs(lane: LaneState, env: NodeJS.ProcessEnv,
 }
 
 export async function runModelsSet(params: LaneCommandParams & { providerConfig: ProviderConfig }) {
-  await runOpenClaw({
-    lane: params.lane,
-    env: params.env,
-    args: ["models", "set", params.providerConfig.model],
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  const providerConfigOverride = buildReleaseProviderConfigOverride(params.providerConfig);
-  if (providerConfigOverride) {
+  for (const args of buildReleaseModelConfigCommands(params.providerConfig)) {
     await runOpenClaw({
       lane: params.lane,
       env: params.env,
-      args: [
-        "config",
-        "set",
-        `models.providers.${params.providerConfig.extensionId}`,
-        JSON.stringify(providerConfigOverride),
-        "--strict-json",
-        "--merge",
-      ],
+      args,
       logPath: params.logPath,
       timeoutMs: 2 * 60 * 1000,
     });
   }
-  await runOpenClaw({
-    lane: params.lane,
-    env: params.env,
-    args: [
-      "config",
-      "set",
-      "plugins.allow",
-      JSON.stringify(buildCrossOsReleaseSmokePluginAllowlist(params.providerConfig)),
-      "--strict-json",
-    ],
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  await runOpenClaw({
-    lane: params.lane,
-    env: params.env,
-    args: buildCrossOsReleaseSmokeMemorySlotConfigArgs(),
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  await runOpenClaw({
-    lane: params.lane,
-    env: params.env,
-    args: ["config", "set", "agents.defaults.skipBootstrap", "true", "--strict-json"],
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
-  await runOpenClaw({
-    lane: params.lane,
-    env: params.env,
-    args: ["config", "set", "tools.profile", CROSS_OS_RELEASE_SMOKE_TOOLS_PROFILE],
-    logPath: params.logPath,
-    timeoutMs: 2 * 60 * 1000,
-  });
 }
 
 export async function runAgentTurn(

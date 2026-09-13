@@ -15,11 +15,11 @@ import {
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { InternalAgentTurnDispatchOptions } from "../../../gateway/agent-turn/internal-facade.types.js";
 import type { callGateway as runtimeCallGateway } from "../../../gateway/call.js";
+import { projectChatDisplayMessages } from "../../../gateway/chat-display-projection.js";
 import { authorizeGatewaySessionCreation } from "../../../gateway/operator-role-policy.js";
 import { waitForGatewayDispatch } from "../../../gateway/server-in-process-dispatch.js";
 import type { GatewayContextResolver } from "../../../gateway/server-methods/types.js";
 import type { dispatchGatewayMethodInProcess as runtimeDispatchGatewayMethodInProcess } from "../../../gateway/server-plugins.js";
-import { buildSessionHistorySnapshot } from "../../../gateway/session-history-state.js";
 import {
   OutboundDeliveryError,
   PlatformMessageNotDispatchedError,
@@ -100,7 +100,13 @@ afterEach(() => {
 });
 
 describe("queued completion handoff", () => {
-  it.each(["delivered", "source retired", "long execution", "delivery deadline"] as const)(
+  it.each([
+    "delivered",
+    "source retired",
+    "long execution",
+    "delivery deadline",
+    "private",
+  ] as const)(
     "keeps an accepted busy-parent completion pending until execution: %s",
     async (outcome) => {
       vi.useFakeTimers();
@@ -125,7 +131,15 @@ describe("queued completion handoff", () => {
           executed = true;
           executionStarted.resolve();
           await executionSettled.promise;
-          return { result: { payloads: [{ text: "Parent received child result" }] } } as T;
+          return {
+            status: "ok",
+            ...(outcome === "private" ? { inputProcessingCompleted: true } : {}),
+            result: {
+              payloads: [
+                { text: outcome === "private" ? "NO_REPLY" : "Parent received child result" },
+              ],
+            },
+          } as T;
         });
         return await waitForGatewayDispatch(
           "agent",
@@ -154,6 +168,9 @@ describe("queued completion handoff", () => {
         triggerMessage: "Child result ready",
         steerMessage: "Child result ready",
         directIdempotencyKey: "busy-parent-completion",
+        ...(outcome === "private"
+          ? { completionTarget: "parent" as const, completionRequesterSessionId: "busy-parent" }
+          : {}),
         isSourceSessionEffectsAllowed: () => sourceAllowed,
         signal: deliveryDeadline.signal,
       }).finally(() => {
@@ -502,6 +519,8 @@ async function deliverSlackThreadAnnouncement(params: {
 async function deliverDiscordDirectMessageCompletion(params: {
   callGateway: typeof runtimeCallGateway;
   sendMessage?: typeof runtimeSendMessage;
+  completionTarget?: "parent";
+  currentRequesterSessionId?: string | null;
   internalEvents?: AgentInternalEvent[];
   isActive?: boolean;
   requesterSessionKey?: string;
@@ -523,7 +542,10 @@ async function deliverDiscordDirectMessageCompletion(params: {
   testing.setDepsForTest({
     callGateway: params.callGateway,
     getRequesterSessionActivity: () => ({
-      sessionId: "requester-session-dm",
+      sessionId:
+        params.currentRequesterSessionId === null
+          ? undefined
+          : (params.currentRequesterSessionId ?? "requester-session-dm"),
       isActive: params.isActive === true,
     }),
     getRuntimeConfig: () => (params.runtimeConfig ?? {}) as never,
@@ -545,6 +567,12 @@ async function deliverDiscordDirectMessageCompletion(params: {
     directOrigin: origin,
     requesterIsSubagent: false,
     expectsCompletionMessage: true,
+    ...(params.completionTarget
+      ? {
+          completionTarget: params.completionTarget,
+          completionRequesterSessionId: "requester-session-dm",
+        }
+      : {}),
     bestEffortDeliver: true,
     directIdempotencyKey: "announce-dm-fallback-empty",
     internalEvents: params.internalEvents,
@@ -1425,8 +1453,9 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
       __openclaw: { seq: 2 },
     };
     expect(
-      buildSessionHistorySnapshot({ rawMessages: [...rawMessages, assistantReply] }).history
-        .messages,
+      projectChatDisplayMessages([...rawMessages, assistantReply], {
+        includeCommentaryFallbacks: true,
+      }),
     ).toEqual([assistantReply]);
   });
 
@@ -1688,6 +1717,129 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
         sourceReplyDeliveryMode: "message_tool_only",
       });
     }
+  });
+
+  it.each([
+    { name: "empty", result: { payloads: [] } },
+    { name: "private text", result: { payloads: [{ text: "private parent review" }] } },
+    { name: "media", result: { payloads: [{ mediaUrl: "https://example.com/private.png" }] } },
+    {
+      name: "next child",
+      result: { payloads: [], meta: { yielded: true }, requesterContinuationSettled: true },
+    },
+  ])(
+    "accepts private parent consumption without an external receipt: $name",
+    async ({ result }) => {
+      const callGateway = createGatewayMock({
+        status: "ok",
+        inputProcessingCompleted: true,
+        result,
+      });
+      const sendMessage = createSendMessageMock();
+      const queue = vi.fn<QueueEmbeddedAgentMessageWithOutcome>();
+      const delivery = await deliverDiscordDirectMessageCompletion({
+        callGateway,
+        sendMessage,
+        completionTarget: "parent",
+        internalEvents: taskCompletionEvents(),
+        isActive: true,
+        queueEmbeddedAgentMessageWithOutcome: queue,
+        runtimeConfig: { tools: { deny: ["message"] } },
+      });
+      expectDeliveryPath(delivery, "direct");
+      expect(delivery).not.toHaveProperty("requesterVisibleFinalDelivered");
+      expect(delivery).not.toHaveProperty("finalAssistantVisibleText");
+      expect(queue).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expectGatewayAgentParams(callGateway, {
+        deliver: false,
+        sourceReplyDeliveryMode: "automatic",
+        expectedExistingSessionId: "requester-session-dm",
+      });
+    },
+  );
+
+  it.each([
+    { status: "accepted", runId: "pending" },
+    { status: "error", result: { payloads: [{ text: "failed" }] } },
+    { status: "ok", result: { payloads: [], meta: { aborted: true } } },
+    { status: "ok", result: { payloads: [], meta: { error: "provider failed" } } },
+    { status: "ok" },
+  ])("keeps an incomplete private handoff pending without raw fallback: %j", async (response) => {
+    const sendMessage = createSendMessageMock();
+    const delivery = await deliverDiscordDirectMessageCompletion({
+      callGateway: createGatewayMock(response),
+      sendMessage,
+      completionTarget: "parent",
+      internalEvents: taskCompletionEvents(),
+    });
+    expect(delivery).toMatchObject({ delivered: false, disposition: "retryable" });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([null, "replacement-parent"])(
+    "does not deliver private completion to a missing or replaced parent: %s",
+    async (currentRequesterSessionId) => {
+      const callGateway = createGatewayMock({ status: "ok", result: { payloads: [] } });
+      const sendMessage = createSendMessageMock();
+      const result = await deliverDiscordDirectMessageCompletion({
+        callGateway,
+        sendMessage,
+        completionTarget: "parent",
+        currentRequesterSessionId,
+        internalEvents: taskCompletionEvents(),
+      });
+      expect(result).toMatchObject({
+        delivered: false,
+        reason: "completion_handoff_unavailable",
+        terminal: true,
+      });
+      expect(callGateway).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["error", "timeout"])(
+    "records %s operator cancellation as an intentional private non-delivery",
+    async (status) => {
+      const sendMessage = createSendMessageMock();
+      const delivery = await deliverDiscordDirectMessageCompletion({
+        callGateway: createGatewayMock({ status, stopReason: "rpc", summary: "cancelled" }),
+        sendMessage,
+        completionTarget: "parent",
+        internalEvents: taskCompletionEvents(),
+      });
+      expect(delivery).toMatchObject({
+        delivered: false,
+        terminal: true,
+        disposition: "intentional_non_delivery",
+      });
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps a parent-only completion private when the requester chooses silence", async () => {
+    const callGateway = createGatewayMock({
+      status: "ok",
+      inputProcessingCompleted: true,
+      result: { payloads: [{ text: "NO_REPLY" }] },
+    });
+    const sendMessage = createSendMessageMock();
+
+    const result = await deliverDiscordDirectMessageCompletion({
+      callGateway,
+      sendMessage,
+      completionTarget: "parent",
+      internalEvents: taskCompletionEvents(),
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expectGatewayAgentParams(callGateway, {
+      deliver: false,
+      sourceReplyDeliveryMode: "automatic",
+    });
+    expectDeliveryPath(result, "direct");
+    expect(result).not.toHaveProperty("requesterVisibleFinalDelivered");
   });
 
   it.each([
@@ -2958,9 +3110,9 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
         content: [{ type: "text" as const, text: "visible final reply" }],
         __openclaw: { seq: 2 },
       };
-      const history = buildSessionHistorySnapshot({
-        rawMessages: [...rawMessages, assistantReply],
-      }).history.messages;
+      const history = projectChatDisplayMessages([...rawMessages, assistantReply], {
+        includeCommentaryFallbacks: true,
+      });
       expect(history).toEqual([assistantReply]);
       expect(JSON.stringify(history)).not.toContain("child done");
     } finally {

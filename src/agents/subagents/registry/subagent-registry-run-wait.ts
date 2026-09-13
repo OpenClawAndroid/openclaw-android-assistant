@@ -361,15 +361,37 @@ export class SubagentWaitManager {
       if (wait.yielded === true && waitStatus !== "timeout" && !waitBlocked) {
         this.options.clearPendingLifecycleError(runId);
         this.options.clearPendingLifecycleTimeout(runId);
-        if (
-          markSubagentRunPausedAfterYield({
-            entry,
-            startedAt: wait.startedAt,
-            endedAt: wait.endedAt,
-          })
-        ) {
-          this.options.persist(entry.runId);
+        if (entry.collect !== true) {
+          if (
+            markSubagentRunPausedAfterYield({
+              entry,
+              startedAt: wait.startedAt,
+              endedAt: wait.endedAt,
+            })
+          ) {
+            this.options.persist(entry.runId);
+          }
+          return;
         }
+        // A collector result is read by an explicit wait and never delivered by a
+        // requester continuation, so nothing can resume a parked collector and its
+        // waiter blocks for good. The attempt's own terminal is the only result
+        // this run will ever have: settle it as the ordinary success it is, which
+        // freezes the collector completion the waiter reads.
+        completionForRetry = {
+          runId,
+          endedAt: typeof wait.endedAt === "number" ? wait.endedAt : Date.now(),
+          outcome: { status: "ok" },
+          reason: SUBAGENT_ENDED_REASON_COMPLETE,
+          sendFarewell: true,
+          accountId: entry.requesterOrigin?.accountId,
+          triggerCleanup: true,
+          terminalReply: wait.terminalReply,
+          ...(typeof wait.startedAt === "number" && Number.isFinite(wait.startedAt)
+            ? { startedAt: wait.startedAt }
+            : {}),
+        };
+        await this.options.completeSubagentRun(completionForRetry);
         return;
       }
       if (

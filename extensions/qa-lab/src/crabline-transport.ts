@@ -105,6 +105,10 @@ function readTelegramLifecycleEvent(params: {
   if (!isRecord(params.event) || params.event.type !== "api") {
     return null;
   }
+  // Rejected API calls are recorded too; they must not consume pending IDs or cursors.
+  if (params.event.accepted !== true) {
+    return null;
+  }
   const pathValue = readStringValue(params.event.path);
   const method = pathValue ? TELEGRAM_LIFECYCLE_METHOD_RE.exec(pathValue)?.[1] : undefined;
   if (!method || !isRecord(params.event.body)) {

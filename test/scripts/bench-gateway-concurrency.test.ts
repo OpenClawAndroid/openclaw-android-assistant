@@ -26,6 +26,14 @@ function createBenchmarkRun(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun
   return {
     controlPlane: [],
     controlUi: [],
+    cpuUsage: {
+      pid: 1,
+      startMonotonicMicros: 1_000,
+      endMonotonicMicros: 101_000,
+      wallMs: 100,
+      process: { userMs: 48, systemMs: 16, totalMs: 64 },
+      mainThread: { userMs: 32, systemMs: 8, totalMs: 40 },
+    },
     durationMs: 10,
     freshConnection: { error: null, latencyMs: 25, ok: true },
     history: [],
@@ -51,6 +59,26 @@ function createBenchmarkRun(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun
 }
 
 describe("gateway concurrency benchmark script", () => {
+  it("reports process CPU per completed turn separately from main-thread CPU and probe samples", () => {
+    const first = createBenchmarkRun();
+    const second = createBenchmarkRun({
+      turnCount: 16,
+      cpuUsage: {
+        ...first.cpuUsage,
+        process: { userMs: 96, systemMs: 24, totalMs: 120 },
+        mainThread: { userMs: 60, systemMs: 20, totalMs: 80 },
+      },
+    });
+
+    expect(testing.summarizeRuns([first, second])).toMatchObject({
+      cpuCoreRatio: null,
+      gatewayProcessCpuMs: { count: 2, p50: 64, max: 120 },
+      gatewayProcessCpuMsPerTurn: { count: 2, p50: 7.5, max: 8 },
+      gatewayMainThreadCpuMs: { count: 2, p50: 40, max: 80 },
+      gatewayProcessCpuCoreRatio: { count: 2, p50: 0.64, max: 1.2 },
+    });
+  });
+
   it.each([
     {
       name: "populated",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { startsWithSvgRootElement } from "./http-image-response.js";
+import { startsWithSvgRootElement } from "./svg-image.js";
 
 describe("startsWithSvgRootElement", () => {
   it.each([

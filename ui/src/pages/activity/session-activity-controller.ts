@@ -1,10 +1,11 @@
 import type { RouteLocation } from "@openclaw/uirouter";
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import type { SessionsListResult } from "../../api/types.ts";
+import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import { activityPersonFromPath, activityPersonLocation } from "../../app-route-paths.ts";
 import type { PresenceViewer } from "../../lib/presence-users.ts";
 import { createSessionEventRefreshCoordinator } from "../../lib/sessions/event-refresh-coordinator.ts";
+import { parseAgentSessionKey } from "../../lib/sessions/session-key.ts";
 import {
   readCurrentWorkChange,
   reconcileCurrentWork,
@@ -18,6 +19,21 @@ import {
 
 type ActivityQuery = SessionActivityFilters | "current";
 const CURRENT_WORK_CHANGE_LIMIT = 1_000;
+export const ACTIVITY_SUMMARY_ENSURE_METHOD = "sessions.activitySummary.ensure";
+const SUMMARY_BATCH_SIZE = 20;
+
+function summaryRowKey(row: Pick<GatewaySessionRow, "key" | "agentId">): string {
+  return JSON.stringify([row.agentId ?? parseAgentSessionKey(row.key)?.agentId, row.key]);
+}
+
+function summaryRevision(row: GatewaySessionRow): string {
+  return JSON.stringify([
+    row.sessionId,
+    row.updatedAt,
+    row.lastActivityAt,
+    row.activitySummary?.updatedAt,
+  ]);
+}
 
 /** The Activity query owns its page; selecting a person must not replace the sidebar roster. */
 export class SessionActivityController implements ReactiveController {
@@ -36,6 +52,10 @@ export class SessionActivityController implements ReactiveController {
   private client: GatewayBrowserClient | null = null;
   private queryKey?: string;
   private pending?: AbortController;
+  private summaryPending?: AbortController;
+  private readonly summaryAttempts = new Map<string, string>();
+  private readonly summaryRetries = new Set<string>();
+  private canEnsureSummaries = false;
   private refreshPending = false;
   private filters: ActivityQuery | null = null;
   private readonly pendingChanges: CurrentWorkChange[] = [];
@@ -69,6 +89,10 @@ export class SessionActivityController implements ReactiveController {
     this.eventRefresh.reset();
     this.pending?.abort();
     this.pending = undefined;
+    this.summaryPending?.abort();
+    this.summaryPending = undefined;
+    this.summaryAttempts.clear();
+    this.summaryRetries.clear();
     this.requestState = "idle";
     this.incomplete = false;
     this.error = undefined;
@@ -80,6 +104,138 @@ export class SessionActivityController implements ReactiveController {
     this.pendingChanges.length = 0;
     this.changesOverflowed = false;
     this.normalizedLocation = "";
+  }
+
+  retrySummary(row: GatewaySessionRow): void {
+    if (
+      !this.canEnsureSummaries ||
+      row.activitySummary?.canEnsure !== true ||
+      !this.result?.sessions.includes(row)
+    ) {
+      return;
+    }
+    this.summaryAttempts.delete(summaryRowKey(row));
+    this.summaryRetries.add(summaryRowKey(row));
+    void this.ensureSummaries();
+  }
+
+  private needsSummary(row: GatewaySessionRow): boolean {
+    const key = summaryRowKey(row);
+    return (
+      row.activitySummary?.canEnsure === true &&
+      (this.summaryRetries.has(key) || row.activitySummary.state === "stale") &&
+      this.summaryAttempts.get(key) !== summaryRevision(row)
+    );
+  }
+
+  private async ensureSummaries(): Promise<void> {
+    const client = this.client;
+    const queryKey = this.queryKey;
+    if (
+      !client ||
+      !this.result ||
+      !this.canEnsureSummaries ||
+      !this.pageActive ||
+      this.filters === "current" ||
+      this.summaryPending
+    ) {
+      return;
+    }
+    const visible = new Set(
+      this.result.sessions
+        .filter((row) => row.activitySummary?.canEnsure === true)
+        .map(summaryRowKey),
+    );
+    for (const key of new Set([...this.summaryAttempts.keys(), ...this.summaryRetries])) {
+      if (!visible.has(key)) {
+        this.summaryAttempts.delete(key);
+        this.summaryRetries.delete(key);
+      }
+    }
+    const candidates = this.result.sessions.filter((row) => this.needsSummary(row));
+    if (candidates.length === 0) {
+      return;
+    }
+    const pending = new AbortController();
+    this.summaryPending = pending;
+    const current = () =>
+      this.summaryPending === pending &&
+      this.client === client &&
+      this.queryKey === queryKey &&
+      this.canEnsureSummaries &&
+      !pending.signal.aborted;
+    try {
+      for (let offset = 0; offset < candidates.length && current(); offset += SUMMARY_BATCH_SIZE) {
+        const latestRows = new Map<string, GatewaySessionRow>(
+          this.result.sessions.map((row) => [summaryRowKey(row), row]),
+        );
+        const rows: GatewaySessionRow[] = candidates
+          .slice(offset, offset + SUMMARY_BATCH_SIZE)
+          .flatMap((candidate) => {
+            const row = latestRows.get(summaryRowKey(candidate));
+            return row && row.sessionId === candidate.sessionId && this.needsSummary(row)
+              ? [row]
+              : [];
+          });
+        if (rows.length === 0) {
+          continue;
+        }
+        for (const row of rows) {
+          const key = summaryRowKey(row);
+          this.summaryAttempts.set(key, summaryRevision(row));
+          this.summaryRetries.delete(key);
+        }
+        try {
+          const result = await client.request<{
+            sessions: Array<Pick<GatewaySessionRow, "key" | "agentId" | "activitySummary">>;
+          }>(
+            ACTIVITY_SUMMARY_ENSURE_METHOD,
+            {
+              sessions: rows.map((row) => ({
+                key: row.key,
+                ...(row.agentId ? { agentId: row.agentId } : {}),
+              })),
+            },
+            { signal: pending.signal },
+          );
+          if (!current() || !this.result) {
+            return;
+          }
+          const summaries = new Map(
+            result.sessions.map((row) => [summaryRowKey(row), row.activitySummary]),
+          );
+          this.result = {
+            ...this.result,
+            sessions: this.result.sessions.map((row) =>
+              rows.includes(row) && summaries.has(summaryRowKey(row))
+                ? { ...row, activitySummary: summaries.get(summaryRowKey(row)) }
+                : row,
+            ),
+          };
+        } catch {
+          if (!current() || !this.result) {
+            return;
+          }
+          this.result = {
+            ...this.result,
+            sessions: this.result.sessions.map((row) =>
+              rows.includes(row)
+                ? { ...row, activitySummary: { ...row.activitySummary, state: "unavailable" } }
+                : row,
+            ),
+          };
+        }
+        this.host.requestUpdate();
+      }
+    } finally {
+      if (this.summaryPending === pending) {
+        this.summaryPending = undefined;
+        this.host.requestUpdate();
+        if (this.summaryRetries.size > 0) {
+          void this.ensureSummaries();
+        }
+      }
+    }
   }
 
   private personLabel(id: string, presence: readonly PresenceViewer[]): string | undefined {
@@ -154,6 +310,12 @@ export class SessionActivityController implements ReactiveController {
   private readonly handlePageLifecycle = (event: Event): void => {
     const leaving = event.type === "pagehide";
     this.pageActive = !leaving && document.visibilityState !== "hidden";
+    if (!this.pageActive) {
+      this.summaryPending?.abort();
+      this.summaryPending = undefined;
+      this.summaryAttempts.clear();
+      this.summaryRetries.clear();
+    }
     this.eventRefresh.setActive(this.pageActive, leaving || this.pending !== undefined);
     if (!this.pageActive) {
       // The lifecycle coordinator owns catch-up after hiding, including queued in-flight work.
@@ -200,7 +362,15 @@ export class SessionActivityController implements ReactiveController {
     client: GatewayBrowserClient | null,
     filters: ActivityQuery | null,
     reason: "query" | "refresh" | "retry" = "query",
+    canEnsureSummaries = this.canEnsureSummaries,
   ): void {
+    this.canEnsureSummaries = canEnsureSummaries;
+    if (!canEnsureSummaries) {
+      this.summaryPending?.abort();
+      this.summaryPending = undefined;
+      this.summaryAttempts.clear();
+      this.summaryRetries.clear();
+    }
     if (!client || !filters) {
       this.resetQuery();
       this.host.requestUpdate();
@@ -222,6 +392,7 @@ export class SessionActivityController implements ReactiveController {
             includeUnknown: true,
             includePeople: true,
             excludeSubagents: true,
+            includeActivitySummary: true,
             includeDerivedTitles: true,
             limit: 100,
             ...(filters.personId ? { involvingProfileId: filters.personId } : {}),
@@ -240,6 +411,7 @@ export class SessionActivityController implements ReactiveController {
       return;
     }
     if (reason === "query" && sameQuery) {
+      void this.ensureSummaries();
       return;
     }
     this.pending?.abort();
@@ -254,6 +426,10 @@ export class SessionActivityController implements ReactiveController {
     this.requestState = reason === "retry" ? "retrying" : "loading";
     this.error = undefined;
     if (!sameQuery) {
+      this.summaryPending?.abort();
+      this.summaryPending = undefined;
+      this.summaryAttempts.clear();
+      this.summaryRetries.clear();
       this.result = undefined;
       this.incomplete = false;
     }
@@ -275,6 +451,7 @@ export class SessionActivityController implements ReactiveController {
             }
           } else {
             this.result = result;
+            void this.ensureSummaries();
           }
         }
       })

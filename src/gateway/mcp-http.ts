@@ -1,11 +1,7 @@
 // MCP loopback HTTP server.
 // Exposes Gateway-scoped tools to local MCP clients over bearer-auth loopback.
 import crypto from "node:crypto";
-import {
-  createServer as createHttpServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { withAgentQuestionAnswerAuthority } from "../agents/harness/host-private-capabilities.js";
 import { acknowledgeInternalToolResult } from "../agents/runtime/internal-hooks.js";
@@ -20,7 +16,10 @@ import { resolveSessionEntryAccessTarget } from "../config/sessions/session-acce
 import { isTruthyEnvValue } from "../infra/env.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { isRequestBodyLimitError, readRequestBodyWithLimit } from "../infra/http-body.js";
-import { sendHttpRequestRejection } from "../infra/http-request-lifecycle.js";
+import {
+  createHttpRequestAbortSignal,
+  sendHttpRequestRejection,
+} from "../infra/http-request-lifecycle.js";
 import { logDebug, logWarn } from "../logger.js";
 import {
   AGENT_HARNESS_SESSION_KEY_RESERVED_MESSAGE,
@@ -130,39 +129,6 @@ function logMcpLoopbackTraffic(step: string, details: Record<string, unknown>): 
   console.error(`[mcp-loopback] ${step} ${JSON.stringify(details)}`);
 }
 
-// Abort tool calls when the request disconnects before completion, but keep
-// completed responses alive through normal response close notifications.
-function createRequestAbortSignal(req: IncomingMessage, res: ServerResponse) {
-  const controller = new AbortController();
-  const abort = () => {
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
-  };
-  const abortIfRequestIncomplete = () => {
-    if (!req.complete) {
-      abort();
-    }
-  };
-  const abortIfResponseStillOpen = () => {
-    if (!res.writableEnded) {
-      abort();
-    }
-  };
-  req.once("close", abortIfRequestIncomplete);
-  res.once("close", abortIfResponseStillOpen);
-  if (req.destroyed && !req.complete) {
-    abort();
-  }
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      req.off("close", abortIfRequestIncomplete);
-      res.off("close", abortIfResponseStillOpen);
-    },
-  };
-}
-
 /** Starts a new MCP loopback HTTP server and registers its bearer tokens. */
 async function startMcpLoopbackServer(port = 0): Promise<() => Promise<void>> {
   const ownerToken = crypto.randomBytes(32).toString("hex");
@@ -209,7 +175,7 @@ async function startMcpLoopbackServer(port = 0): Promise<() => Promise<void>> {
     // an accepted request is still uploading, and retries must not outrun it.
     const cliCaptureKey = resolveMcpCliCaptureKey(req, auth);
     const cliRequestCaptureHandle = markMcpLoopbackRequestStarted(cliCaptureKey);
-    const requestAbort = createRequestAbortSignal(req, res);
+    const requestAbort = createHttpRequestAbortSignal(req, res);
     void (async () => {
       let parsed: unknown;
       let cliCaptureHandles: Array<ReturnType<typeof markMcpLoopbackToolCallStarted>> = [];

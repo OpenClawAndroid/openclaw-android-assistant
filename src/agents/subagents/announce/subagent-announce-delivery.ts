@@ -153,6 +153,8 @@ export async function deliverSubagentAnnouncement(params: {
   targetRequesterSessionKey: string;
   requesterIsSubagent: boolean;
   expectsCompletionMessage: boolean;
+  completionTarget?: "parent";
+  completionRequesterSessionId?: string;
   requireDirectDelivery?: boolean;
   requireVisibleReply?: boolean;
   bestEffortDeliver?: boolean;
@@ -284,7 +286,7 @@ export async function deliverSubagentAnnouncement(params: {
 
   return await runSubagentAnnounceDispatch({
     expectsCompletionMessage: params.expectsCompletionMessage,
-    requireDirectDelivery: params.requireDirectDelivery,
+    requireDirectDelivery: params.requireDirectDelivery || params.completionTarget === "parent",
     signal: params.signal,
     steer: async () => {
       if (sourceOwnerChanged()) {
@@ -319,6 +321,8 @@ export async function deliverSubagentAnnouncement(params: {
         isSourceSessionEffectsAllowed: params.isSourceSessionEffectsAllowed,
         isCompletionOwnedByRequesterYield: params.isCompletionOwnedByRequesterYield,
         requesterIsSubagent: params.requesterIsSubagent,
+        completionTarget: params.completionTarget,
+        completionRequesterSessionId: params.completionRequesterSessionId,
         expectsCompletionMessage: params.expectsCompletionMessage,
         createUserTurnTranscriptRecorder: createCompletionUserTurnTranscriptRecorder,
         requireVisibleReply: params.requireVisibleReply,

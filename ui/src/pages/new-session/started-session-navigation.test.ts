@@ -134,6 +134,7 @@ describe("confirmed session navigation", () => {
   it.each([
     {
       scenario: "the user edits the draft",
+      hasNewDraft: true,
       retire: ({ flow }: ReturnType<typeof createDraftFixture>) => flow.setMessage("a new task"),
     },
     {
@@ -172,36 +173,49 @@ describe("confirmed session navigation", () => {
         }
       },
     },
-  ])("never retries a committed session after $scenario", async ({ retire }) => {
-    const fixture = createDraftFixture({
-      scopes: ["operator.admin", "operator.read", "operator.write"],
-      agents: [
-        { id: "main", workspace: "/workspace", model: { primary: "openai/test" } },
-        { id: "other", workspace: "/workspace", model: { primary: "openai/test" } },
-      ],
-    });
-    const { context, flow } = fixture;
-    vi.mocked(context.sessions.createResult)
-      .mockResolvedValueOnce({ key: "agent:main:dashboard:old", initialRun: { status: "idle" } })
-      .mockImplementationOnce(async (params) => ({
-        key: `agent:${params?.agentId ?? fixture.place.agentId}:dashboard:new`,
-        initialRun: { status: "idle" },
-      }));
-    vi.mocked(context.navigateAndWait)
-      .mockRejectedValueOnce(new Error("old navigation failed"))
-      .mockImplementationOnce(async () => {
-        queueMicrotask(() => document.dispatchEvent(new Event(CHAT_ROUTE_READY_EVENT)));
+  ])(
+    "never retries a committed session after $scenario",
+    async ({ retire, hasNewDraft = false }) => {
+      const fixture = createDraftFixture({
+        scopes: ["operator.admin", "operator.read", "operator.write"],
+        agents: [
+          { id: "main", workspace: "/workspace", model: { primary: "openai/test" } },
+          { id: "other", workspace: "/workspace", model: { primary: "openai/test" } },
+        ],
       });
-    flow.setMessage("the committed task");
-    await flow.submit();
+      const { context, flow } = fixture;
+      vi.mocked(context.sessions.createResult)
+        .mockResolvedValueOnce({ key: "agent:main:dashboard:old", initialRun: { status: "idle" } })
+        .mockImplementationOnce(async (params) => ({
+          key: `agent:${params?.agentId ?? fixture.place.agentId}:dashboard:new`,
+          initialRun: { status: "idle" },
+        }));
+      vi.mocked(context.navigateAndWait)
+        .mockRejectedValueOnce(new Error("old navigation failed"))
+        .mockImplementationOnce(async () => {
+          queueMicrotask(() => document.dispatchEvent(new Event(CHAT_ROUTE_READY_EVENT)));
+        });
+      flow.setMessage("the committed task");
+      await flow.submit();
 
-    retire(fixture);
-    await flow.submit();
+      retire(fixture);
+      expect(flow.canSubmit()).toBe(hasNewDraft);
+      if (!hasNewDraft) {
+        await flow.submit();
+        expect(context.sessions.createResult).toHaveBeenCalledOnce();
+        expect(context.navigateAndWait).toHaveBeenCalledOnce();
+        flow.setMessage("a new task");
+      }
+      await flow.submit();
 
-    expect(context.sessions.createResult).toHaveBeenCalledTimes(2);
-    expect(context.gateway.snapshot.sessionKey).toBe(
-      `agent:${fixture.place.agentId}:dashboard:new`,
-    );
-    expect(context.navigateAndWait).toHaveBeenCalledTimes(2);
-  });
+      expect(context.sessions.createResult).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(context.sessions.createResult).mock.calls[1]?.[0]?.message).toBe(
+        "a new task",
+      );
+      expect(context.gateway.snapshot.sessionKey).toBe(
+        `agent:${fixture.place.agentId}:dashboard:new`,
+      );
+      expect(context.navigateAndWait).toHaveBeenCalledTimes(2);
+    },
+  );
 });

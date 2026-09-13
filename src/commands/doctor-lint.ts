@@ -355,7 +355,8 @@ async function withReadOnlyPluginStateSnapshot<T>(
         }
       }
       const installRoots = resolvePluginInstallRoots(sourceEnv);
-      // Global readers and OAuth refresh/challenge writers share the private state view.
+      // Global readers and local inspector writes share the private state view.
+      // Runtime schema checks defer OAuth probes: external rotation cannot be snapshotted.
       outcome = {
         ok: true,
         value: await withDisposableOpenClawStateReads(privateDatabasePath, () =>

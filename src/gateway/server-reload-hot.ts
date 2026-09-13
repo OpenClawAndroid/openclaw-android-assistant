@@ -8,6 +8,7 @@ import {
 } from "../agents/prepared-model-runtime.js";
 import { resolveDefaultAgentWorkspaceDir } from "../agents/workspace-default.js";
 import { isRestartEnabled } from "../config/commands.flags.js";
+import { getRuntimeConfig } from "../config/io.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { formatErrorMessage } from "../infra/errors.js";
@@ -193,6 +194,23 @@ export function createGatewayReloadHandlers(params: GatewayReloadHandlerParams) 
         ),
       };
       assertIrreversibleReloadPlanHasRecoveryOwner(remainingPlan, restartRecoveryAvailable);
+      const previousConfig = getRuntimeConfig();
+      // Drain revokes plugin calls before commit; new and unfinished model preparation must wait.
+      preparedModelRuntimeReplacementGateId = markPreparedModelRuntimeSnapshotsStale(
+        "prepared model runtime owner is stale before plugin drain",
+        { waitForReplacement: true, ...modelRuntimeRefreshScope },
+      );
+      return async () => {
+        await mrReload.refreshModelRuntimeAfterHotReload({
+          config: previousConfig,
+          agentIds: modelRuntimeAgentIds,
+          pluginMetadataSnapshot: params.getPluginMetadataSnapshot?.(),
+          isPublicationCurrent: () =>
+            isCurrentGatewayReloadGeneration(myGeneration) &&
+            !isLifecycleReloadAborted() &&
+            !isRestartRetryStopped(),
+        });
+      };
     };
     let activePluginChannelsAfterReload: ReadonlySet<ChannelKind> | null = null;
     let pluginReloadAborted = false;

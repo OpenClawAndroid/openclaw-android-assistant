@@ -399,7 +399,7 @@ Navigation verification has a separate shared allowance of the action budget plu
 
 If the Gateway runs on a different machine than the browser, run a **node host** on the machine that has Chrome/Brave/Edge/Chromium. The Gateway proxies browser actions to that node. No separate browser control server is required.
 
-Use `gateway.nodes.browser.mode` to control auto-routing and `gateway.nodes.browser.node` to pin a specific node if multiple are connected.
+Automatic routing prefers the Gateway host's browser and uses a single connected browser node only when local browser capability is unavailable. Use `gateway.nodes.browser.mode` to control this fallback and `gateway.nodes.browser.node` to explicitly select a node, including when the host has a browser. A stopped local managed browser with an installed executable still stays local.
 
 Security + remote setup: [Browser tool](/tools/browser), [Remote access](/gateway/remote), [Tailscale](/gateway/tailscale), [Security](/gateway/security)
 

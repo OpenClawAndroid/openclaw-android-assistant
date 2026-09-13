@@ -66,72 +66,51 @@ export function resolvePositiveNumber(value: number | null | undefined): number 
 
 type SessionCompactionCheckpointEntry = NonNullable<SessionEntry["compactionCheckpoints"]>[number];
 
-function isProjectableCompactionCheckpoint(
-  value: unknown,
-): value is SessionCompactionCheckpointEntry {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const checkpoint = value as {
-    checkpointId?: unknown;
-    createdAt?: unknown;
-    reason?: unknown;
-  };
-  return (
-    Boolean(normalizeOptionalString(checkpoint.checkpointId)) &&
-    typeof checkpoint.createdAt === "number" &&
-    Number.isFinite(checkpoint.createdAt) &&
-    (checkpoint.reason === "manual" ||
-      checkpoint.reason === "auto-threshold" ||
-      checkpoint.reason === "overflow-retry" ||
-      checkpoint.reason === "timeout-retry")
-  );
-}
-
-export function resolveProjectableCompactionCheckpoints(
+export function resolveSessionCompactionSummary(
   entry?: Pick<SessionEntry, "compactionCheckpoints"> | null,
-): SessionCompactionCheckpointEntry[] {
+): Pick<GatewaySessionRow, "compactionCheckpointCount" | "latestCompactionCheckpoint"> {
   const checkpoints = entry?.compactionCheckpoints;
-  if (!Array.isArray(checkpoints) || checkpoints.length === 0) {
-    return [];
+  if (!Array.isArray(checkpoints)) {
+    return {};
   }
-  return checkpoints.filter(isProjectableCompactionCheckpoint);
-}
-
-export function resolveLatestCompactionCheckpoint(
-  checkpoints: readonly SessionCompactionCheckpointEntry[],
-): SessionCompactionCheckpointEntry | undefined {
-  return checkpoints.reduce<SessionCompactionCheckpointEntry | undefined>(
-    (latest, checkpoint) =>
-      !latest || checkpoint.createdAt > latest.createdAt ? checkpoint : latest,
-    undefined,
-  );
-}
-
-export function buildCompactionCheckpointPreview(
-  checkpoint: SessionCompactionCheckpointEntry | undefined,
-): GatewaySessionRow["latestCompactionCheckpoint"] {
-  if (!checkpoint) {
-    return undefined;
-  }
-  const checkpointId = normalizeOptionalString(checkpoint.checkpointId);
-  const createdAt = checkpoint.createdAt;
-  const reason = checkpoint.reason;
-  if (!checkpointId || typeof createdAt !== "number" || !Number.isFinite(createdAt)) {
-    return undefined;
-  }
-  if (
-    reason !== "manual" &&
-    reason !== "auto-threshold" &&
-    reason !== "overflow-retry" &&
-    reason !== "timeout-retry"
-  ) {
-    return undefined;
+  let compactionCheckpointCount = 0;
+  let latest: SessionCompactionCheckpointEntry | undefined;
+  for (const value of checkpoints) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      continue;
+    }
+    const checkpoint = value as {
+      checkpointId?: unknown;
+      createdAt?: unknown;
+      reason?: unknown;
+    };
+    const checkpointId = normalizeOptionalString(checkpoint.checkpointId);
+    const { createdAt, reason } = checkpoint;
+    if (
+      !checkpointId ||
+      typeof createdAt !== "number" ||
+      !Number.isFinite(createdAt) ||
+      (reason !== "manual" &&
+        reason !== "auto-threshold" &&
+        reason !== "overflow-retry" &&
+        reason !== "timeout-retry")
+    ) {
+      continue;
+    }
+    compactionCheckpointCount += 1;
+    if (!latest || createdAt > latest.createdAt) {
+      latest = value;
+    }
   }
   return {
-    checkpointId,
-    createdAt,
-    reason,
+    compactionCheckpointCount,
+    latestCompactionCheckpoint: latest
+      ? {
+          checkpointId: latest.checkpointId.trim(),
+          createdAt: latest.createdAt,
+          reason: latest.reason,
+        }
+      : undefined,
   };
 }
 

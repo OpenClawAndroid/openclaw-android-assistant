@@ -164,7 +164,7 @@ it.each(["active", "closing-memory"] as const)(
         nextConfig: b.cfgAtStart,
         sourceConfig: b.cfgAtStart,
         changedPaths: [],
-        prepareConfigEffects: () => {},
+        prepareConfigEffects: () => async () => {},
         pluginLifecycle: {
           reason: "reload",
           operationId: "queued-model-b",

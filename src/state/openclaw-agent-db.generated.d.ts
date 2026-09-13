@@ -250,6 +250,17 @@ export interface SessionGoalOperations {
   session_key: string;
 }
 
+export interface SessionInputCompletions {
+  completed_at: number;
+  idempotency_key: string;
+  outcome_json: string;
+  request_hash: string;
+  run_id: string;
+  session_id: string;
+  session_key: string;
+  succeeded: number;
+}
+
 export interface SessionKeyContract {
   id: Generated<number>;
   main_key: string;
@@ -556,6 +567,7 @@ export interface DB {
   schema_meta: SchemaMeta;
   session_conversations: SessionConversations;
   session_goal_operations: SessionGoalOperations;
+  session_input_completions: SessionInputCompletions;
   session_key_contract: SessionKeyContract;
   session_members: SessionMembers;
   session_nodes: SessionNodes;

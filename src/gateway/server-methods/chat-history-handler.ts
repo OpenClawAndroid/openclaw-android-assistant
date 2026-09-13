@@ -12,7 +12,6 @@ import { findModelCatalogEntry } from "../../agents/model-catalog.js";
 import { resolveConfiguredThinkingDefault } from "../../agents/model-thinking-default.js";
 import { composeTranscriptDisplay } from "../../chat/transcript-display-position.js";
 import {
-  isSessionTranscriptProjectionUnavailableError,
   listSessionPendingInputReceipts,
   resolveTranscriptSessionKeyBySessionId,
 } from "../../config/sessions/session-accessor.js";
@@ -31,6 +30,7 @@ import { resolveEffectiveChatHistoryMaxChars } from "../chat-display-projection.
 import { resolveClaudeCliBindingSessionId } from "../cli-session-history.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
 import { buildGatewaySessionSnapshot } from "../session-event-payload.js";
+import { resolveSessionHistoryUnavailableMessage } from "../session-history-error.js";
 import {
   resolveRequestedSessionAgentId,
   tryResolveSessionCompatibilityOwnerAgentId,
@@ -79,7 +79,7 @@ type ChatHistoryMethod = "chat.history" | "chat.startup";
 function respondChatHistoryUnavailable(
   method: ChatHistoryMethod,
   respond: GatewayRequestHandlerOptions["respond"],
-  message = "session history is rebuilding; retry shortly",
+  message: string,
 ): void {
   respond(
     false,
@@ -98,6 +98,7 @@ async function handleChatHistoryRequest({
   client,
   context,
   method,
+  signal,
 }: GatewayRequestHandlerOptions & {
   method: ChatHistoryMethod;
 }) {
@@ -277,19 +278,22 @@ async function handleChatHistoryRequest({
       : await measureDiagnosticsTimelineSpan(
           `gateway.${method}.history_page`,
           () =>
-            readChatHistoryPage({
-              entry: historyEntry,
-              provider: resolvedSessionModel.provider,
-              sessionId,
-              storePath,
-              sessionAgentId,
-              canonicalKey,
-              max,
-              maxHistoryBytes,
-              effectiveMaxChars,
-              offset,
-              messageId,
-            }),
+            readChatHistoryPage(
+              {
+                entry: historyEntry,
+                provider: resolvedSessionModel.provider,
+                sessionId,
+                storePath,
+                sessionAgentId,
+                canonicalKey,
+                max,
+                maxHistoryBytes,
+                effectiveMaxChars,
+                offset,
+                messageId,
+              },
+              signal,
+            ),
           {
             config: cfg,
             phase: method,
@@ -301,10 +305,11 @@ async function handleChatHistoryRequest({
           },
         );
   } catch (error) {
-    if (!isSessionTranscriptProjectionUnavailableError(error)) {
+    const unavailableMessage = resolveSessionHistoryUnavailableMessage(error);
+    if (unavailableMessage === undefined) {
       throw error;
     }
-    respondChatHistoryUnavailable(method, respond);
+    respondChatHistoryUnavailable(method, respond, unavailableMessage);
     return;
   }
   const normalized = enrichChatHistoryCompactionMarkers(historyPage.messages, historyEntry);
@@ -380,55 +385,70 @@ async function handleChatHistoryRequest({
   const initialStoreKey = entry
     ? storeKeys.find((candidate) => store[candidate] === entry)
     : undefined;
-  const currentSharingState = entry
-    ? loadGatewaySessionEntryReadOnly(sessionKey, {
-        agentId: sessionAgentId,
-        clone: false,
-        projection: "list",
-      })
-    : null;
-  const currentSharingMatch = currentSharingState
-    ? resolveCanonicalSessionStoreMatchFromStoreKeys(
-        currentSharingState.store,
-        currentSharingState.storeKeys,
-      )
-    : undefined;
-  const sharingTarget =
-    currentSharingState && currentSharingMatch
-      ? {
-          agentId: currentSharingState.agentId,
-          canonicalKey: currentSharingState.canonicalKey,
-          entry: currentSharingMatch.entry,
-          storeKey: currentSharingMatch.key,
-          storeKeys: currentSharingState.storeKeys,
-          storePath: currentSharingState.storePath,
-        }
+  const readCurrentSharing = () => {
+    const currentSharingState = entry
+      ? loadGatewaySessionEntryReadOnly(sessionKey, {
+          agentId: sessionAgentId,
+          clone: false,
+          projection: "list",
+        })
       : null;
-  // History rows replace roster rows in clients. Publish current caller facts,
-  // never roles from the pre-await snapshot or a replacement session instance.
-  if (
-    entry &&
-    (!initialStoreKey ||
-      !sharingTarget ||
-      sharingTarget.agentId !== sessionAgentId ||
-      sharingTarget.canonicalKey !== canonicalKey ||
-      sharingTarget.storeKey !== initialStoreKey ||
-      sharingTarget.entry.sessionId !== entry.sessionId ||
-      sharingTarget.storePath !== storePath)
-  ) {
-    respondChatHistoryUnavailable(
-      method,
-      respond,
-      "session changed while reading history; reload the conversation",
-    );
-    return;
-  }
-  const sharing = prepareSessionSharing({ client, cfg: currentSharingState?.cfg ?? cfg });
-  if (
-    sharingTarget &&
-    sharing.entryFilter?.(sharingTarget.storeKey, sharingTarget.entry) === false
-  ) {
-    respond(false, undefined, hiddenSessionNotFound(canonicalKey));
+    const currentSharingMatch = currentSharingState
+      ? resolveCanonicalSessionStoreMatchFromStoreKeys(
+          currentSharingState.store,
+          currentSharingState.storeKeys,
+        )
+      : undefined;
+    const sharingTarget =
+      currentSharingState && currentSharingMatch
+        ? {
+            agentId: currentSharingState.agentId,
+            canonicalKey: currentSharingState.canonicalKey,
+            entry: currentSharingMatch.entry,
+            storeKey: currentSharingMatch.key,
+            storeKeys: currentSharingState.storeKeys,
+            storePath: currentSharingState.storePath,
+          }
+        : null;
+    // History rows replace roster rows in clients. Publish current caller facts,
+    // never roles from the pre-await snapshot or a replacement session instance.
+    if (
+      entry &&
+      (!initialStoreKey ||
+        !sharingTarget ||
+        sharingTarget.agentId !== sessionAgentId ||
+        sharingTarget.canonicalKey !== canonicalKey ||
+        sharingTarget.storeKey !== initialStoreKey ||
+        sharingTarget.entry.sessionId !== entry.sessionId ||
+        sharingTarget.entry.lifecycleRevision !== entry.lifecycleRevision ||
+        (entry.sessionStartedAt !== undefined &&
+          sharingTarget.entry.sessionStartedAt !== entry.sessionStartedAt) ||
+        sharingTarget.storePath !== storePath)
+    ) {
+      respondChatHistoryUnavailable(
+        method,
+        respond,
+        "session changed while reading history; reload the conversation",
+      );
+      return undefined;
+    }
+    const sharing = prepareSessionSharing({ client, cfg: currentSharingState?.cfg ?? cfg });
+    if (
+      sharingTarget &&
+      sharing.entryFilter?.(sharingTarget.storeKey, sharingTarget.entry) === false
+    ) {
+      respond(false, undefined, hiddenSessionNotFound(canonicalKey));
+      return undefined;
+    }
+    return sharingTarget
+      ? {
+          visibility: resolveSessionVisibility(sharingTarget.entry),
+          sharingRole: sharing.roleForTarget(sharingTarget),
+        }
+      : {};
+  };
+  const currentSharing = readCurrentSharing();
+  if (!currentSharing) {
     return;
   }
   const sessionInfo = measureDiagnosticsTimelineSpanSync(
@@ -452,10 +472,7 @@ async function handleChatHistoryRequest({
       },
     },
   );
-  if (sharingTarget) {
-    sessionInfo.visibility = resolveSessionVisibility(sharingTarget.entry);
-    sessionInfo.sharingRole = sharing.roleForTarget(sharingTarget);
-  }
+  Object.assign(sessionInfo, currentSharing);
   const activeRunAgentId = sessionAgentId;
   const activeRunState = resolveVisibleActiveSessionRunState({
     context,
@@ -582,10 +599,27 @@ async function handleChatHistoryRequest({
         }),
       );
     } catch (error) {
-      if (!isSessionTranscriptProjectionUnavailableError(error)) {
+      const unavailableMessage = resolveSessionHistoryUnavailableMessage(error);
+      if (unavailableMessage === undefined) {
         throw error;
       }
-      respondChatHistoryUnavailable(method, respond);
+      respondChatHistoryUnavailable(method, respond, unavailableMessage);
+      return;
+    }
+    const publicationSharing = readCurrentSharing();
+    if (!publicationSharing) {
+      return;
+    }
+    // Delta envelopes already contain budgeted session metadata from before restoration.
+    if (
+      publicationSharing.visibility !== currentSharing.visibility ||
+      publicationSharing.sharingRole !== currentSharing.sharingRole
+    ) {
+      respondChatHistoryUnavailable(
+        method,
+        respond,
+        "session changed while reading history; reload the conversation",
+      );
       return;
     }
     if (delta.kind === "reset") {

@@ -76,6 +76,7 @@ const activeRequesterSettleWakeBatches = new Map<string, () => boolean>();
 function buildRequesterSettleWakeMessage(params: {
   findings?: string;
   requireVisibleReply: boolean;
+  parentOnly?: boolean;
   modelRouteChange?: string;
   preserveModelRouteNotice: boolean;
 }): string {
@@ -83,9 +84,11 @@ function buildRequesterSettleWakeMessage(params: {
     "[Subagent Context] Every subagent spawned from this session has now settled — none are still running or awaiting completion delivery.",
     "[Subagent Context] Do not keep waiting or call sessions_yield again for this batch; no further completion events will arrive.",
     "[Subagent Context] Child settlement ends this batch, not necessarily the original user request. Review the results against the requested outcome and continue any remaining in-scope work before replying.",
-    params.requireVisibleReply
-      ? "[Subagent Context] Child completion delivery is internal; the original user request still requires your visible final answer only after the requested outcome is complete or genuinely blocked."
-      : `[Subagent Context] Reply ONLY: ${SILENT_REPLY_TOKEN} only if you already delivered the consolidated final answer for this batch.`,
+    params.parentOnly
+      ? `[Subagent Context] Process these results privately. Your final stays internal; no external response is required. Continue in-scope work or reply ONLY: ${SILENT_REPLY_TOKEN}.`
+      : params.requireVisibleReply
+        ? "[Subagent Context] Child completion delivery is internal; the original user request still requires your visible final answer only after the requested outcome is complete or genuinely blocked."
+        : `[Subagent Context] Reply ONLY: ${SILENT_REPLY_TOKEN} only if you already delivered the consolidated final answer for this batch.`,
     ...(params.modelRouteChange
       ? [
           params.modelRouteChange,
@@ -439,6 +442,24 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
       getLatestSubagentRunByChildSessionKey,
     }),
   );
+  // Delivered children remain in yield cohorts. One private result makes the
+  // aggregate private; public siblings keep their individual completion route.
+  const privateRows = completionRows.filter((entry) => entry.completionTarget === "parent");
+  const parentOnly = privateRows.length > 0;
+  if (
+    privateRows.some((entry) => entry.completionRequesterSessionId !== requesterEntry.sessionId)
+  ) {
+    completeBatch(settledBatch, selectedState.rearmGeneration, {
+      delivered: false,
+      path: "none",
+      reason: "completion_handoff_unavailable",
+      error: "private completion requester session was replaced",
+      terminal: true,
+      disposition: "intentional_non_delivery",
+    });
+    finalizeRequesterAttachment(batchRunIds, selectedState);
+    return false;
+  }
   const findings = buildChildCompletionFindings(completionRows);
   const requesterSessionOrigin = normalizeDeliveryContext(params.requesterOrigin);
   const directOrigin = resolveAnnounceOrigin(requesterEntry, requesterSessionOrigin);
@@ -464,6 +485,7 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
   const wakeMessage = buildRequesterSettleWakeMessage({
     findings,
     requireVisibleReply: requesterYieldedAfterDelivery,
+    parentOnly,
     modelRouteChange,
     preserveModelRouteNotice: !completionChannel || !isDeliverableMessageChannel(completionChannel),
   });
@@ -538,7 +560,9 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     }
 
     const directIdempotencyKey = buildAnnounceIdempotencyKey(
-      attemptIndex === 0 ? wakeKeyBase : `${wakeKeyBase}:retry-${attemptIndex}`,
+      privateRows.length > 0 || attemptIndex === 0
+        ? wakeKeyBase
+        : `${wakeKeyBase}:retry-${attemptIndex}`,
     );
     const requesterSessionId = requesterEntry.sessionId;
     const requesterLifecycleRevision = requesterEntry.lifecycleRevision;
@@ -617,7 +641,10 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
         requesterIsSubagent: requesterDepth >= 1,
         expectsCompletionMessage: false,
         requireDirectDelivery: true,
-        ...(requesterYieldedAfterDelivery ? { requireVisibleReply: true } : {}),
+        ...(parentOnly
+          ? { completionTarget: "parent", completionRequesterSessionId: requesterEntry.sessionId }
+          : {}),
+        ...(!parentOnly && requesterYieldedAfterDelivery ? { requireVisibleReply: true } : {}),
         directIdempotencyKey,
         signal: params.signal,
         resolveGatewayContext,

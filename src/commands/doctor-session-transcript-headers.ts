@@ -42,51 +42,61 @@ type HeaderRepairReport = {
   repaired: number;
 };
 
+function createCanonicalHeaderlessEventParser(sessionId: string) {
+  const eventIds = new Set<string>([sessionId]);
+  let indexedEntries = 0;
+  return {
+    hasIndexedEntries: () => indexedEntries > 0,
+    parse(row: SqliteTranscriptStorageRow): Record<string, unknown> | undefined {
+      let event: TranscriptEvent;
+      try {
+        event = JSON.parse(row.eventJson) as TranscriptEvent;
+      } catch {
+        return undefined;
+      }
+      if (!event || typeof event !== "object" || Array.isArray(event)) {
+        return undefined;
+      }
+      const record = event as Record<string, unknown>;
+      if (record.type === "session") {
+        return undefined;
+      }
+      // Opaque plugin rows remain uninterpreted. Known entries and leaf controls
+      // must already satisfy the runtime schema before a replacement can be lossless.
+      if (isCanonicalSessionTranscriptEntry(record)) {
+        if (!isIndexedSessionEntry(event)) {
+          return undefined;
+        }
+        indexedEntries += 1;
+      } else if (record.type === "leaf" && !isSessionTranscriptLeafControl(record)) {
+        return undefined;
+      }
+      if (typeof record.id === "string") {
+        const eventId = record.id.trim();
+        if (!eventId || eventIds.has(eventId)) {
+          return undefined;
+        }
+        eventIds.add(eventId);
+      }
+      return record;
+    },
+  };
+}
+
 function parseCanonicalHeaderlessEvents(
   rows: readonly SqliteTranscriptStorageRow[],
   sessionId: string,
 ): TranscriptEvent[] | undefined {
-  if (rows.length === 0) {
-    return undefined;
-  }
+  const parser = createCanonicalHeaderlessEventParser(sessionId);
   const events: TranscriptEvent[] = [];
-  const eventIds = new Set<string>([sessionId]);
-  let indexedEntries = 0;
   for (const row of rows) {
-    let event: TranscriptEvent;
-    try {
-      event = JSON.parse(row.eventJson) as TranscriptEvent;
-    } catch {
+    const event = parser.parse(row);
+    if (!event) {
       return undefined;
-    }
-    if (!event || typeof event !== "object" || Array.isArray(event)) {
-      return undefined;
-    }
-    const record = event as Record<string, unknown>;
-    if (record.type === "session") {
-      return undefined;
-    }
-    // Known transcript entries must already satisfy the current runtime schema. Opaque plugin
-    // rows remain uninterpreted, but malformed leaf controls and duplicate identities would make
-    // a delete-and-reinsert repair lossy or ambiguous, so fail closed on those shapes.
-    if (isCanonicalSessionTranscriptEntry(record)) {
-      if (!isIndexedSessionEntry(event)) {
-        return undefined;
-      }
-      indexedEntries += 1;
-    } else if (record.type === "leaf" && !isSessionTranscriptLeafControl(record)) {
-      return undefined;
-    }
-    if (typeof record.id === "string") {
-      const eventId = record.id.trim();
-      if (!eventId || eventIds.has(eventId)) {
-        return undefined;
-      }
-      eventIds.add(eventId);
     }
     events.push(event);
   }
-  return indexedEntries > 0 ? events : undefined;
+  return parser.hasIndexedEntries() ? events : undefined;
 }
 
 function snapshotsMatch(
@@ -217,7 +227,11 @@ export async function noteSessionTranscriptHeaderHealth(params: {
       readDatabase = openNodeSqliteDatabase(sqlitePath, { readOnly: true });
       const reader = new ReadOnlySqliteTranscriptReader(readDatabase);
       for (const sessionId of reader.sessionIds()) {
-        const snapshot = reader.headerlessSnapshot(sessionId);
+        const parser = createCanonicalHeaderlessEventParser(sessionId);
+        const snapshot = reader.headerlessSnapshot(
+          sessionId,
+          (row) => parser.parse(row) !== undefined,
+        );
         if (!snapshot.ok) {
           const detail = formatErrorMessage(snapshot.error).replace(/\s+/g, " ").trim();
           note(
@@ -226,7 +240,7 @@ export async function noteSessionTranscriptHeaderHealth(params: {
           );
           continue;
         }
-        if (!snapshot.sessionKey || !parseCanonicalHeaderlessEvents(snapshot.rows, sessionId)) {
+        if (!snapshot.sessionKey || !parser.hasIndexedEntries() || snapshot.rows.length === 0) {
           continue;
         }
         const headerTimestamp = formatHeaderTimestamp(snapshot.rows[0]?.createdAt ?? Number.NaN);

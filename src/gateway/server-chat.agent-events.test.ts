@@ -634,17 +634,16 @@ describe("agent event handler", () => {
     );
   });
 
-  it("sizes retained progress once when a live event evicts old reconnect activity", () => {
+  it("does not reserialize captured progress when registered live events evict old activity", () => {
     const { chatRunState, handler } = createHarness();
     registerChatRun(chatRunState, "provider-run", "session-1", "client-run");
+    const stop = onAgentRuntimeEvent(handler);
     const emit = (seq: number) =>
-      emitAgentEvent(
-        handler,
-        "provider-run",
-        "item",
-        { kind: "preamble", itemId: `item-${seq}`, progressText: "x".repeat(2_048) },
-        { seq },
-      );
+      emitRuntimeAgentEvent({
+        runId: "provider-run",
+        stream: "item",
+        data: { kind: "preamble", itemId: `item-${seq}`, progressText: "x".repeat(2_048) },
+      });
     for (let seq = 1; seq <= 50; seq += 1) {
       emit(seq);
     }
@@ -652,15 +651,14 @@ describe("agent event handler", () => {
     const stringify = vi.spyOn(JSON, "stringify");
     try {
       emit(51);
-      expect(
-        stringify.mock.calls.filter(([value]) => value === retained).length,
-      ).toBeLessThanOrEqual(1);
+      expect(stringify.mock.calls.filter(([value]) => value === retained)).toHaveLength(0);
       const snapshot = chatRunState.runs.get("client-run")?.progressSnapshot;
       expect(snapshot?.events).toHaveLength(50);
       expect(snapshot?.events[0]?.seq).toBe(2);
       expect(snapshot?.events.at(-1)?.seq).toBe(51);
     } finally {
       stringify.mockRestore();
+      stop();
       handler.dispose();
     }
   });

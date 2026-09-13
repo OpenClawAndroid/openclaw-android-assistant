@@ -29,6 +29,11 @@ type ChatHistoryLoadState =
       key: string;
       sessions: ChatHistorySessions;
       promise: Promise<ObservedChatHistoryResult | undefined>;
+      refresh?: {
+        promise: Promise<ObservedChatHistoryResult | undefined>;
+        startup: boolean;
+        deferBranches: boolean;
+      };
     } & ChatHistoryLoadRequest)
   | {
       phase: "committed";

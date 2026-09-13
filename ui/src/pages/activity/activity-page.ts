@@ -45,7 +45,10 @@ import {
   type RunInspectorState,
 } from "./run-inspector-model.ts";
 import { renderRunInspector } from "./run-inspector-view.ts";
-import { SessionActivityController } from "./session-activity-controller.ts";
+import {
+  ACTIVITY_SUMMARY_ENSURE_METHOD,
+  SessionActivityController,
+} from "./session-activity-controller.ts";
 import { renderSessionActivityView } from "./session-activity-view.ts";
 import type { ActivityEntry, ActivityStatus } from "./tool-activity.ts";
 import { renderActivity } from "./view.ts";
@@ -217,6 +220,9 @@ class ActivityPage extends OpenClawLightDomElement {
           ? "current"
           : null,
       reason,
+      canCallGatewayMethod(snapshot, ACTIVITY_SUMMARY_ENSURE_METHOD, "operator.write", {
+        requireAdvertisement: false,
+      }),
     );
   }
 
@@ -540,6 +546,14 @@ class ActivityPage extends OpenClawLightDomElement {
         retrying: this.sessionActivity.retrying,
         error: this.sessionActivity.error,
         onRetry: () => this.syncSessionActivity("retry"),
+        onSummaryRetry: canCallGatewayMethod(
+          this.context.gateway.snapshot,
+          ACTIVITY_SUMMARY_ENSURE_METHOD,
+          "operator.write",
+          { requireAdvertisement: false },
+        )
+          ? (row) => this.sessionActivity.retrySummary(row)
+          : undefined,
         onAutomationDayToggle: (dayKey) => {
           const next = new Set(this.expandedAutomationDays);
           if (next.has(dayKey)) {

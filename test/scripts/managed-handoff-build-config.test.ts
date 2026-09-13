@@ -51,6 +51,13 @@ it("loads the staged production handoff runtime without neighboring SQL or JSON 
   // Use the production graph unchanged, not the invocation compiler's extra plugins.
   const { bundles } = await build({ ...config, config: false, outDir, logLevel: "silent" });
   try {
+    const modules = bundles.flatMap(({ chunks }) =>
+      chunks.flatMap((chunk) => (chunk.type === "chunk" ? chunk.moduleIds : [])),
+    );
+    expect(modules).toContain(
+      path.resolve("src/infra/update-managed-service-handoff-native-loader.ts"),
+    );
+    expect(modules).not.toContain(path.resolve("src/shared/freebsd-process-identity-native.ts"));
     vi.mocked(resolveRuntimeWorkerUrl).mockReturnValue(
       pathToFileURL(path.join(outDir, MANAGED_HANDOFF_RUNTIME_ENTRY)),
     );

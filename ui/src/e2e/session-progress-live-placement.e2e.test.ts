@@ -50,7 +50,7 @@ async function expectInsideProgressBody(item: Locator): Promise<void> {
 const suite = createChatFlowE2eSuite();
 
 suite.define(() => {
-  it("collapses each enabled run, expands its final, and preserves manual disclosure", async () => {
+  it("collapses enabled runs and preserves manual disclosure through finals", async () => {
     const sessionKey = "agent:main:progress-final-expand";
     const proofDir = captureUiProofEnabled
       ? path.join(suite.artifactDir, "session-progress-live-placement")
@@ -181,11 +181,8 @@ suite.define(() => {
       await page
         .locator(".chat-bubble p", { hasText: "The first progress cycle is complete." })
         .waitFor();
-      await expect.poll(() => card.getAttribute("open")).toBe("");
-      await captureLifecycleState("05-run-one-final-auto-expanded.png");
-
-      await card.locator("summary").click();
       await expect.poll(() => card.getAttribute("open")).toBeNull();
+      await captureLifecycleState("05-run-one-final-keeps-manual-collapse.png");
       await setProgressCard(3, "Run one final card revision", [
         { status: "completed", step: "Inspect first run" },
         { status: "completed", step: "Verify first run" },

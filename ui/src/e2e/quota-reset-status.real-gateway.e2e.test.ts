@@ -307,13 +307,19 @@ describe.each(["automatic", "saved-clear", "automatic-during-catalog"] as const)
           const inference = provider.requests
             .slice(beforeRecovery)
             .filter((request) => request.path.endsWith("/responses"));
+          const primaryInference = inference.filter(({ body }) => {
+            const request: unknown = JSON.parse(body ?? "{}");
+            return isRecord(request) && request.model === "gpt-5.5";
+          });
           observations.push({ action: "next-ordinary-turn", result: nextTurn, state: stats() });
           expect.soft(nextTurn, evidence()).toEqual({ status: "ok", output: [MARKER] });
-          expect(inference, evidence()).toHaveLength(1);
-          expect(inference[0], evidence()).toMatchObject({
-            authorization: `Bearer ${fixture.access}`,
-            accountId: ACCOUNT_ID,
-          });
+          expect(primaryInference, evidence()).toHaveLength(1);
+          for (const request of inference) {
+            expect(request, evidence()).toMatchObject({
+              authorization: `Bearer ${fixture.access}`,
+              accountId: ACCOUNT_ID,
+            });
+          }
           expect.soft(stats()?.blockedUntil, evidence()).toBeUndefined();
           expect(gateway.child).toBe(gatewayProcess);
           expect(gatewayProcess?.exitCode).toBeNull();

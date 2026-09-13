@@ -524,6 +524,7 @@ describe("memory forget", () => {
   it.each([
     { failure: "none", corpusExtension: "txt" },
     { failure: "index", corpusExtension: "txt" },
+    { failure: "sources", corpusExtension: "txt" },
     { failure: "backup", corpusExtension: "txt" },
     { failure: "memory", corpusExtension: "txt" },
     { failure: "corpus", corpusExtension: "txt" },
@@ -831,7 +832,9 @@ describe("memory forget", () => {
               ? "BEFORE UPDATE ON plugin_state_entries WHEN OLD.plugin_id = 'memory-core' AND OLD.namespace = 'dreaming-memory-backups'"
               : failure === "index"
                 ? "BEFORE DELETE ON memory_index_chunks WHEN OLD.id = 'chunk-0'"
-                : "BEFORE DELETE ON memory_entry_origins WHEN OLD.entry_key = 'mixed-entry'";
+                : failure === "sources"
+                  ? "BEFORE DELETE ON memory_index_sources WHEN OLD.source = 'sessions'"
+                  : "BEFORE DELETE ON memory_entry_origins WHEN OLD.entry_key = 'mixed-entry'";
           // Attach the fault to the actual purge connection after schema validation,
           // so an unexpected persistent trigger cannot fail database admission first.
           const faultDb = failure === "backup" ? openOpenClawStateDatabase().db : agentDatabase.db;

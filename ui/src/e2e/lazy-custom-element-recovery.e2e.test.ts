@@ -11,6 +11,7 @@ import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-ar
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
 import {
+  controlUiSessionUrl,
   defaultControlUiFeatureMethods,
   installMockGateway,
 } from "../test-helpers/control-ui-e2e.ts";
@@ -398,6 +399,100 @@ suite.define(() => {
         await video.saveAs(path.join(artifactDir, "recovery.webm"));
       }
     }
+  });
+
+  it.each([
+    {
+      name: "Home",
+      label: "Assistant sidebar",
+      tag: "openclaw-assistant-panel",
+      chunk: /\/assets\/assistant-panel-[^/?]+\.js(?:\?.*)?$/u,
+      proofName: "home",
+      open: async (page: Page) => {
+        await page.locator(".sidebar-footer-bar__home").click();
+      },
+      ready: (page: Page) =>
+        page.locator("openclaw-assistant-panel .agent-chat__composer-combobox textarea"),
+    },
+    {
+      name: "System busyness",
+      label: "System busyness",
+      tag: "openclaw-debug-overlay",
+      chunk: /\/assets\/debug-overlay-[^/?]+\.js(?:\?.*)?$/u,
+      proofName: "system-busyness",
+      open: async (page: Page) => {
+        await page.locator(".sidebar-identity-card").click();
+        await page
+          .locator(
+            'wa-dropdown.sidebar-identity-menu wa-dropdown-item[value="command:debug-overlay"]',
+          )
+          .click();
+      },
+      ready: (page: Page) => page.getByRole("complementary", { name: "System busyness" }),
+    },
+  ])("names the pending $name surface and keeps dismissal authoritative", async (testCase) => {
+    await suite.withPage(
+      { locale: "en-US", serviceWorkers: "block", viewport },
+      async ({ page }) => {
+        const workKey = "agent:main:loading-proof";
+        await installMockGateway(page, {
+          sessionKey: workKey,
+          sessions: [workKey, "agent:main:main"].map((key) => ({
+            key,
+            kind: "direct",
+            label: key === workKey ? "Workspace" : "Home",
+            updatedAt: 1,
+          })),
+          featureMethods: [...defaultControlUiFeatureMethods, "chat.history", "chat.send"],
+          historyMessages: [{ role: "assistant", content: "The workspace is ready." }],
+        });
+        const held = await holdModuleResponse(page, testCase.chunk);
+        try {
+          await page.goto(controlUiSessionUrl(suite.server.baseUrl, workKey));
+          await waitForControlUiGatewayReady(page);
+          await testCase.open(page);
+          await held.request;
+          const modal = page.locator("openclaw-modal-dialog");
+          await modal.locator('[role="status"]').waitFor();
+          if (captureUiProof) {
+            await page.screenshot({
+              animations: "disabled",
+              path: path.join(artifactDir, `${testCase.proofName}-loading.png`),
+            });
+          }
+
+          expect(
+            await modal.getByRole("heading", { name: testCase.label, exact: true }).isVisible(),
+          ).toBe(true);
+          const loading = modal.getByRole("status", { name: "Loading…", exact: true });
+          expect(await loading.isVisible()).toBe(true);
+          expect((await loading.textContent())?.trim()).toBe("Loading…");
+          expect(await modal.locator(".loading-skeleton").count()).toBe(0);
+          const close = modal.getByRole("button", { name: "Close", exact: true });
+          expect(await close.isVisible()).toBe(true);
+          await close.click();
+          await modal.waitFor({ state: "detached" });
+
+          held.release();
+          await page.evaluate(
+            (tag) => customElements.whenDefined(tag).then(() => undefined),
+            testCase.tag,
+          );
+          await page.locator(testCase.tag).waitFor({ state: "attached" });
+          expect(await testCase.ready(page).isVisible()).toBe(false);
+          await testCase.open(page);
+          await testCase.ready(page).waitFor();
+          expect(await modal.count()).toBe(0);
+          if (captureUiProof) {
+            await page.screenshot({
+              path: path.join(artifactDir, `${testCase.proofName}-ready.png`),
+            });
+          }
+        } finally {
+          held.release();
+        }
+      },
+    );
   });
 
   it("keeps native titlebar state and actions current while its chunk is loading", async () => {

@@ -7,6 +7,7 @@ import { WebSocket } from "ws";
 import { readQaMockRequestCursor } from "../shared/debug-request-cursor.js";
 import { adaptAnthropicToolCallIds } from "./mock-anthropic-wire.js";
 import type { StreamEvent } from "./mock-openai-contracts.js";
+import { resolveMockSubagentTurn } from "./mock-openai-input.js";
 import { QA_TOOL_SEARCH_SECONDARY_TARGET, readTargetFromPrompt } from "./mock-openai-tooling.js";
 import { startQaMockOpenAiServer } from "./server.js";
 
@@ -3424,6 +3425,73 @@ Update and merge these partial structured summaries.`,
     expect(outputText(payload)).toBe(expected);
   });
 
+  it("returns a media-bearing private child result", async () => {
+    const server = await startMockServer();
+    const payload = await expectNonStreamingResponsesJson(server, {
+      input: [makeUserInput("Subagent private completion QA worker: first.")],
+    });
+    expect(outputText(payload)).toMatch(
+      /^QA-PARENT-PRIVATE-CHILD1-[A-F0-9]{32}\nMEDIA:\.\/qa-private-result\.png$/u,
+    );
+  });
+
+  it("consumes a current private completion to spawn once, then remains silent", async () => {
+    const server = await startMockServer();
+    const nonce = "QA-PARENT-PRIVATE-CHILD1-0123456789ABCDEF0123456789ABCDEF";
+    const kickoff = makeUserInput("Subagent terminal reply QA check: private.");
+    const firstReceipt = makeToolOutputWithCallId(
+      "first",
+      JSON.stringify({ status: "accepted", childSessionKey: "agent:qa:subagent:first" }),
+    );
+    const completion = makeUserInput(
+      TEST_RUNTIME_CONTEXT_CARRIER.replace(
+        "runtime metadata",
+        `[Internal task completion event]\ntask: qa-terminal-private-first\nResult: ${nonce}`,
+      ),
+    );
+    const second = await expectNonStreamingResponsesJson(server, {
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [kickoff, firstReceipt, completion],
+    });
+    const call = outputItems(second).find((item) => item.type === "function_call");
+    if (!call) {
+      throw new Error("Expected second private child spawn");
+    }
+    expect(call?.name).toBe("sessions_spawn");
+    expect(JSON.parse(String(call?.arguments))).toMatchObject({
+      label: "qa-terminal-private-second",
+      completionTarget: "parent",
+      task: expect.stringContaining(nonce),
+    });
+    const secondReceipt = makeToolOutputWithCallId(
+      String(call?.call_id),
+      JSON.stringify({ status: "accepted", childSessionKey: "agent:qa:subagent:second" }),
+    );
+    const silent = await expectNonStreamingResponsesJson(server, {
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [kickoff, firstReceipt, completion, call, secondReceipt],
+    });
+    expect(outputText(silent)).toBe("NO_REPLY");
+    const settled = await expectNonStreamingResponsesJson(server, {
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [
+        kickoff,
+        firstReceipt,
+        completion,
+        call,
+        secondReceipt,
+        makeUserInput(
+          TEST_RUNTIME_CONTEXT_CARRIER.replace(
+            "runtime metadata",
+            "[Internal task completion event]\ntask: qa-terminal-private-second\nResult: QA-PARENT-PRIVATE-CHILD2-DONE",
+          ),
+        ),
+      ],
+    });
+    expect(outputText(settled)).toBe("NO_REPLY");
+    expect(outputItems(settled).some((item) => item.type === "function_call")).toBe(false);
+  });
+
   it("binds crossed same-case parent responses to their matching workers", async () => {
     const server = await startMockServer();
     const firstChildSessionKey = "agent:qa:subagent:child-1";
@@ -3486,13 +3554,16 @@ Update and merge these partial structured summaries.`,
     expect(outputText(firstChild)).toBe("QA-SUBAGENT-TERMINAL-VISIBLE-OK");
   });
 
-  it("keeps the empty terminal worker empty across retry prompts", async () => {
+  it.each([
+    QA_REASONING_ONLY_RETRY_INSTRUCTION,
+    QA_EMPTY_RESPONSE_RETRY_INSTRUCTION,
+    QA_SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION,
+    "The previous attempt compacted the conversation context before producing a final user-visible answer. Continue from the compacted transcript and produce the final answer now. Do not restart from scratch, do not repeat completed work, and do not rerun tools unless the transcript clearly lacks required evidence.",
+    "Continue.",
+  ])("keeps the empty terminal worker empty across recovery: %s", async (recovery) => {
     const server = await startMockServer();
     const payload = await expectNonStreamingResponsesJson(server, {
-      input: [
-        makeUserInput("Subagent terminal reply QA worker: empty."),
-        makeUserInput("Continue after the previous empty response."),
-      ],
+      input: [makeUserInput("Subagent terminal reply QA worker: empty."), makeUserInput(recovery)],
     });
 
     expect(outputText(payload)).toContain("QA-SUBAGENT-TERMINAL-INTERNAL-MUST-NOT-LEAK");
@@ -3671,7 +3742,8 @@ Update and merge these partial structured summaries.`,
         makeUserInput(
           [
             "[Internal task completion event]",
-            "Task: Subagent terminal reply QA worker: empty.",
+            "Task: qa-terminal-empty",
+            "Child task: Subagent terminal reply QA worker: empty.",
             "Result: (no output)",
           ].join("\n"),
         ),
@@ -3772,6 +3844,234 @@ Update and merge these partial structured summaries.`,
       "qa-terminal-silent",
     );
   });
+
+  it.each([false, true])(
+    "starts a new terminal worker after a historical private completion (projected=%s)",
+    async (projected) => {
+      const server = await startMockServer();
+      const completion = TEST_RUNTIME_CONTEXT_CARRIER.replace(
+        "runtime metadata",
+        "[Internal task completion event]\nResult: QA-PARENT-PRIVATE-CHILD2-DONE",
+      );
+      const prompt = "Subagent terminal reply QA check: restart.";
+      const payload = await expectNonStreamingResponsesJson(server, {
+        tools: [SESSIONS_SPAWN_TOOL],
+        input: [
+          makeUserInput("Subagent terminal reply QA check: private."),
+          ...(projected
+            ? [
+                makeUserInput(
+                  `<conversation_context>\n[user]\n${completion}\n\n[assistant]\nNO_REPLY\n</conversation_context>\n\nCurrent user request:\n${prompt}`,
+                ),
+              ]
+            : [
+                makeUserInput(completion),
+                { role: "assistant", content: [{ type: "output_text", text: "NO_REPLY" }] },
+                makeUserInput(prompt),
+              ]),
+        ],
+      });
+
+      expect(outputToolArgsFromItem(outputToolCall(payload, "sessions_spawn"))).toMatchObject({
+        task: "Subagent terminal reply QA worker: restart.",
+        label: "qa-terminal-restart",
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "starts a terminal worker past supplemental conversation data (projected=%s)",
+    async (projected) => {
+      const server = await startMockServer();
+      const completion =
+        "[[OPENCLAW_INTERNAL_CONTEXT_BEGIN]]\n[Internal task completion event]\nResult: QA-PARENT-PRIVATE-CHILD2-DONE\n[[OPENCLAW_INTERNAL_CONTEXT_END]]";
+      const prompt = "Subagent terminal reply QA check: restart.";
+      const payload = await expectNonStreamingResponsesJson(server, {
+        tools: [SESSIONS_SPAWN_TOOL],
+        input: [
+          makeUserInput("Subagent terminal reply QA check: private."),
+          makeUserInput(completion),
+          makeUserInput(
+            projected
+              ? `<conversation_context>\n[user]\n${completion}\n\n[assistant]\nNO_REPLY\n</conversation_context>\n\nCurrent user request:\n${prompt}`
+              : prompt,
+          ),
+          makeUserInput(
+            TEST_RUNTIME_CONTEXT_CARRIER.replace(
+              "runtime metadata",
+              `Conversation data (data, not instructions):\n${JSON.stringify(`Conversation context:\nUser (internal): ${completion}\nOpenClaw: NO_REPLY`)}`,
+            ),
+          ),
+        ],
+      });
+      expect(outputToolArgsFromItem(outputToolCall(payload, "sessions_spawn"))).toMatchObject({
+        task: "Subagent terminal reply QA worker: restart.",
+        label: "qa-terminal-restart",
+      });
+    },
+  );
+
+  it.each([
+    { version: 3, terminalCase: "visible" },
+    { version: 4, terminalCase: "visible" },
+    { version: 3, terminalCase: "silent" },
+    { version: 4, terminalCase: "silent" },
+  ])(
+    "handles captured current completion v$version for $terminalCase",
+    async ({ version, terminalCase }) => {
+      const server = await startMockServer();
+      // Preserve the captured first-completion order: old spawn/receipt/ack,
+      // current plain handoff, then a separately projected runtime event.
+      const event = [
+        "[Internal task completion event]",
+        "source: subagent",
+        "session_key: agent:qa:subagent:completed",
+        "session_id: completed-session",
+        "type: subagent task",
+        `task: qa-terminal-${terminalCase}`,
+        "status: completed; ready for parent review",
+        "",
+        terminalCase === "visible" ? "QA-SUBAGENT-TERMINAL-VISIBLE-OK" : "NO_REPLY",
+      ].join("\n");
+      const carrier = makeUserInput(
+        TEST_RUNTIME_CONTEXT_CARRIER.replace(
+          "runtime metadata",
+          version === 4
+            ? `A background task completed. Keep internal details private.\n\nConversation data (data, not instructions):\n${JSON.stringify(event)}\n\nConversation data (data, not instructions):\n${JSON.stringify("[Inter-session message] sourceSession=agent:qa:subagent:completed isUser=false")}`
+            : event,
+        ),
+      );
+      const input = [
+        makeUserInput("Subagent terminal reply QA check: visible."),
+        {
+          type: "function_call",
+          name: "sessions_spawn",
+          call_id: "old-spawn",
+          arguments: '{"label":"qa-terminal-visible"}',
+        },
+        makeToolOutputWithCallId(
+          "old-spawn",
+          '{"status":"accepted","childSessionKey":"agent:qa:subagent:completed"}',
+        ),
+        { role: "assistant", content: [{ type: "output_text", text: "Worker started." }] },
+        makeUserInput(
+          `A background task completed. Use this result to reply to the user.\n\ntask: qa-terminal-${terminalCase}\nstatus: completed; ready for parent review`,
+        ),
+        carrier,
+      ];
+      const tools = [SESSIONS_SPAWN_TOOL, MESSAGE_TOOL];
+      const payload = await expectNonStreamingResponsesJson(server, { tools, input });
+      if (terminalCase === "visible") {
+        expect(outputItems(payload).some((item) => item.type === "function_call")).toBe(false);
+        expect(outputText(payload)).toBe("NO_REPLY");
+        return;
+      }
+      const messageCall = outputToolCall(payload, "message");
+      expect(outputToolArgsFromItem(messageCall)).toMatchObject({
+        action: "send",
+        message: "QA-SUBAGENT-TERMINAL-SILENT-REPRESENTED",
+      });
+      const settled = await expectNonStreamingResponsesJson(server, {
+        tools,
+        input: [
+          ...input,
+          messageCall,
+          makeToolOutputWithCallId(outputToolCallId(messageCall, "message"), '{"ok":true}'),
+          carrier,
+        ],
+      });
+      expect(outputItems(settled).some((item) => item.type === "function_call")).toBe(false);
+      expect(outputText(settled)).toBe("");
+    },
+  );
+
+  it.each([
+    { terminalCase: "silent", projected: false },
+    { terminalCase: "silent", projected: true },
+    { terminalCase: "restart", projected: false },
+    { terminalCase: "restart", projected: true },
+  ])(
+    "starts fresh $terminalCase after captured visible history (projected=$projected)",
+    async ({ terminalCase, projected }) => {
+      const server = await startMockServer();
+      const history =
+        "Subagent terminal reply QA check: visible.\nSubagent terminal reply QA worker: visible.\n[Internal task completion event]\ntask: qa-terminal-visible\nQA-SUBAGENT-TERMINAL-VISIBLE-OK";
+      const prompt = `Subagent terminal reply QA check: ${terminalCase}.`;
+      const supplement = makeUserInput(
+        TEST_RUNTIME_CONTEXT_CARRIER.replace(
+          "runtime metadata",
+          `Conversation data (data, not instructions):\n${JSON.stringify(`Conversation info: ⟦openclaw:ctx⟧\nConversation context (chronological, selected for current message): ⟦openclaw:ctx⟧\n${history}`)}`,
+        ),
+      );
+      const input = [
+        makeUserInput(history),
+        makeUserInput(
+          projected
+            ? `<conversation_context>\n[user]\n${history}\n</conversation_context>\n\nCurrent user request:\n${prompt}`
+            : prompt,
+        ),
+        supplement,
+      ];
+      const tools = [SESSIONS_SPAWN_TOOL];
+      const payload = await expectNonStreamingResponsesJson(server, { tools, input });
+      const spawn = outputToolCall(payload, "sessions_spawn");
+      expect(outputToolArgsFromItem(spawn)).toMatchObject({
+        task: `Subagent terminal reply QA worker: ${terminalCase}.`,
+        label: `qa-terminal-${terminalCase}`,
+      });
+      const ack = await expectNonStreamingResponsesJson(server, {
+        tools,
+        input: [
+          ...input,
+          spawn,
+          makeToolOutputWithCallId(
+            outputToolCallId(spawn, "spawn"),
+            '{"status":"accepted","childSessionKey":"agent:qa:subagent:new"}',
+          ),
+          supplement,
+        ],
+      });
+      expect(outputItems(ack).some((item) => item.type === "function_call")).toBe(false);
+      expect(outputText(ack)).toBe("Worker started.");
+    },
+  );
+
+  it.each([
+    "Please retry the new database operation, then reply exactly `CURRENT_RETRY_OK`.",
+    "Please resume the new database operation, then reply exactly `CURRENT_RETRY_OK`.",
+    "Explain compaction for the new database operation, then reply exactly `CURRENT_RETRY_OK`.",
+  ])("fences a prior terminal task for a fresh request: %s", async (prompt) => {
+    const server = await startMockServer();
+    const payload = await expectNonStreamingResponsesJson(server, {
+      tools: [SESSIONS_SPAWN_TOOL],
+      input: [makeUserInput("Subagent terminal reply QA check: visible."), makeUserInput(prompt)],
+    });
+    expect(outputItems(payload).some((item) => item.type === "function_call")).toBe(false);
+    expect(outputText(payload)).toBe("CURRENT_RETRY_OK");
+  });
+
+  it.each([
+    {
+      text: "Subagent private completion QA worker: first.",
+      kind: "worker",
+      privateWorker: "first",
+    },
+    { text: "QA PACKAGE MAIN HOLD", kind: "other", privateWorker: undefined },
+  ])(
+    "retains the package hold request before supplemental metadata: $kind",
+    ({ text, kind, privateWorker }) => {
+      const current = resolveMockSubagentTurn([
+        makeUserInput(text),
+        makeUserInput(
+          TEST_RUNTIME_CONTEXT_CARRIER.replace(
+            "runtime metadata",
+            `Conversation data (data, not instructions):\n${JSON.stringify("Active exec sessions:\nnone")}\n\nConversation data (data, not instructions):\n${JSON.stringify("## Active Subagents\nnone")}`,
+          ),
+        ),
+      ]);
+      expect(current).toMatchObject({ kind, text, privateWorker });
+    },
+  );
 
   it("ignores a stale terminal-reply case in a later internal runtime carrier", async () => {
     const server = await startMockServer();

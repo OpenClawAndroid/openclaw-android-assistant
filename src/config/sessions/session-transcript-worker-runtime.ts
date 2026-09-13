@@ -5,12 +5,14 @@ import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
 import type { readSessionTranscriptModelContext } from "./session-accessor.sqlite-model-context.js";
 import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
+import { SessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
 import {
   resolveSessionTranscriptReadFence,
   SessionTranscriptReadFenceError,
 } from "./session-transcript-read-fence.js";
 import type {
   SessionEntryWorkerInput,
+  SessionTranscriptHistoryWorkerInput,
   SessionModelContextWorkerInput,
   SessionTranscriptWorkerReply,
 } from "./session-transcript.worker.js";
@@ -31,7 +33,12 @@ const sessionEntries = new WorkerTaskPool<
   SessionTranscriptWorkerReply<"session-entry">
 >({ workerUrl, maxWorkers: 1, sharedCompute: true });
 
-function unwrapReply<Kind extends "model-context" | "session-entry">(
+const historyPages = new WorkerTaskPool<
+  SessionTranscriptHistoryWorkerInput,
+  SessionTranscriptWorkerReply<"history-page">
+>({ workerUrl, maxWorkers: 1 });
+
+function unwrapReply<Kind extends "model-context" | "session-entry" | "history-page">(
   reply: SessionTranscriptWorkerReply<Kind>,
 ) {
   if (reply.ok) {
@@ -39,6 +46,9 @@ function unwrapReply<Kind extends "model-context" | "session-entry">(
   }
   if (reply.error.kind === "cold") {
     throw new SessionTranscriptColdError(reply.error.sessionId);
+  }
+  if (reply.error.kind === "projection") {
+    throw new SessionTranscriptProjectionUnavailableError(reply.error.sessionId);
   }
   throw new SessionTranscriptReadFenceError(reply.error.message);
 }
@@ -84,5 +94,14 @@ export async function prepareSessionEntryInWorker(
             redaction.registeredSecretValues.reduce((bytes, value) => bytes + value.length, 0)),
       },
     ),
+  );
+}
+
+export async function runSessionHistoryWorkerRequest(
+  prepare: () => SessionTranscriptHistoryWorkerInput,
+  inputBytes: number,
+) {
+  return unwrapReply<"history-page">(
+    await historyPages.run(prepare, { inputBytes, timeoutMs: 60_000 }),
   );
 }

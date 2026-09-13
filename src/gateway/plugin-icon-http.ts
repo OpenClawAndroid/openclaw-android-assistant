@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { fileTypeFromBuffer } from "file-type";
 import pLimit from "p-limit";
+import { startsWithSvgRootElement } from "../../packages/gateway-protocol/src/svg-image.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { openRootFile, readFileDescriptorBounded } from "../infra/boundary-file-read.js";
 import { pruneMapToMaxSize } from "../infra/map-size.js";
@@ -33,7 +34,6 @@ import { sendMethodNotAllowed } from "./http-common.js";
 import {
   createHttpImageRepresentation,
   resolveHttpImageMimeType,
-  startsWithSvgRootElement,
   sendHttpImageResponse,
   type HttpImageRepresentation,
 } from "./http-image-response.js";

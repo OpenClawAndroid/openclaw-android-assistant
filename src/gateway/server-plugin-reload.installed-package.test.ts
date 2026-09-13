@@ -279,7 +279,7 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
           nextConfig,
           sourceConfig: nextConfig,
           changedPaths: [],
-          prepareConfigEffects: () => {},
+          prepareConfigEffects: () => async () => {},
           assertInvokerOwned,
           pluginLifecycle: {
             reason,

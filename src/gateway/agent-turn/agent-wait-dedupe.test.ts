@@ -66,6 +66,55 @@ afterEach(() => {
 });
 
 describe("agent.wait gateway dedupe observations", () => {
+  it.each([undefined, true] as const)(
+    "retires a sticky terminal only for an admitted new attempt: %s",
+    async (startNewAttempt) => {
+      const runId = `private-retry-${startNewAttempt ?? "ordinary"}`;
+      const key = `agent:${runId}`;
+      const dedupe = new Map<string, DedupeEntry>();
+      setGatewayDedupeEntry({
+        dedupe,
+        key,
+        entry: {
+          ts: 100,
+          ok: true,
+          requestIdentity: "original-input-binding",
+          payload: { runId, status: "timeout", stopReason: "restart" },
+        },
+      });
+      setGatewayDedupeEntry({
+        dedupe,
+        key,
+        startNewAttempt: true,
+        entry: { ts: 150, ok: true, payload: { runId, status: "ok" } },
+      });
+      expect(dedupe.get(key)?.payload).toMatchObject({ status: "timeout", stopReason: "restart" });
+      setGatewayDedupeEntry({
+        dedupe,
+        key,
+        startNewAttempt,
+        entry: {
+          ts: 200,
+          ok: true,
+          requestIdentity: "replacement-must-not-change-binding",
+          payload: { runId, status: "accepted", reservationId: "new-admission" },
+        },
+      });
+      expect(dedupe.get(key)?.requestIdentity).toBe("original-input-binding");
+      expect(dedupe.get(key)?.payload).toMatchObject({
+        status: startNewAttempt ? "accepted" : "timeout",
+      });
+      const observed = await waitForAgentJob({ runId, timeoutMs: 0 });
+      if (startNewAttempt) {
+        expect(observed).toBeNull();
+        completeRun(dedupe, runId);
+        expect(await waitForAgentJob({ runId, timeoutMs: 0 })).toMatchObject({ status: "ok" });
+      } else {
+        expect(observed).toMatchObject({ status: "error", stopReason: "restart" });
+      }
+    },
+  );
+
   it("expires terminal observations from their latest write without extending unrelated runs", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);

@@ -23,13 +23,18 @@ It speaks **directly to the Gateway WebSocket** on the same port.
 
 If the Gateway's request queue is full, the Control UI shows "The server is busy. Please try again in a moment." Wait briefly, then retry the action.
 
-While the initial connection or a route loads, shimmer placeholders reserve the chat layout. They respect your theme and reduced-motion preference; Gateway startup progress remains visible when available.
+While the initial connection or a route loads, shimmer placeholders reserve the chat layout. Opening a lazy panel such as Home or System busyness shows a compact loading card naming the destination, with a Close button to cancel opening it. Loading indicators respect your theme and reduced-motion preference; Gateway startup progress remains visible when available.
 
 The selected chat loads before automatic sidebar task lists refresh. Live events remain subscribed during startup, and explicit sidebar actions remain available. Background lists resume after the transcript loads or reports an error.
 
 Closed Terminal, Browser, Desktop, and Home/Ask OpenClaw panels initialize when you open them rather than during initial navigation. Panels saved as open still restore after a reload.
 
 Hidden retained chats defer command and model metadata refreshes until you return to them. Repeated background changes share the current metadata read and refresh once more after it finishes, instead of issuing overlapping requests.
+
+Subagent activity rows lead with the child task's display title, using its configured
+`label` when present. Status and the latest activity appear separately, so parallel
+children remain easy to identify as they finish or fail. Tasks without a display
+title keep the generic **Subagent** label. Select a row to open its details.
 
 Choose **New agent** in the sidebar or Agents home to open the custodian chat.
 It recommends a chief of staff, researcher, writer, reviewer, or a small team

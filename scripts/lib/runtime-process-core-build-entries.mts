@@ -25,6 +25,10 @@ export const standaloneRuntimeProcessBuildEntries = createRuntimeProcessBuildEnt
   runtimeProcessEntrypoints.sqliteReadOnly,
 ]);
 
+export function shouldBundleStandaloneRuntimeDependency(id: string): boolean {
+  return id === "kysely" || id.startsWith("kysely/");
+}
+
 export function sharedRuntimeProcessBuildEntries(entries: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(entries).filter(

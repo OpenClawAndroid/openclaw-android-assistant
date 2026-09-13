@@ -646,6 +646,120 @@ describe("CronPage editor state sync", () => {
     }
   });
 
+  it.each([
+    { outcome: "queued", result: { ok: true, enqueued: true, runId: "run-alpha" } },
+    { outcome: "invalid specification", result: { ok: true, ran: false, reason: "invalid-spec" } },
+  ])("keeps the selected history when an earlier run returns $outcome", async ({ result }) => {
+    const alpha = createCronViewJob("alpha", { name: "Alpha task", state: {} });
+    const beta = createCronViewJob("beta", { name: "Beta task", state: {} });
+    const overview = {
+      entries: [
+        {
+          ts: 1,
+          jobId: alpha.id,
+          action: "finished",
+          status: "ok",
+          summary: "Overview history only",
+        },
+      ],
+      total: 1,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
+    };
+    const selected = {
+      entries: [
+        {
+          ts: 2,
+          jobId: beta.id,
+          action: "finished",
+          status: "ok",
+          summary: "Beta history is current",
+        },
+      ],
+      total: 1,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
+    };
+    const run = createDeferred<unknown>();
+    const firstBeta = createDeferred<typeof selected>();
+    const fallback = createRequest({ enabled: true, jobs: 2, triggersEnabled: true });
+    let betaReads = 0;
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "cron.list") {
+        return cronListResponse([alpha, beta]);
+      }
+      if (method === "cron.run") {
+        return run.promise;
+      }
+      if (method === "cron.runs") {
+        if ((params as { id?: string }).id === beta.id) {
+          return ++betaReads === 1 ? firstBeta.promise : selected;
+        }
+        return overview;
+      }
+      return fallback(method);
+    });
+    const gateway = createGateway({ request } as unknown as GatewayBrowserClient, true);
+    gateway.emitSnapshot({ hello: operatorHello(["operator.admin"]) });
+    const page = createPage(createContext(gateway), { render: true });
+    try {
+      await waitForCronPage(() =>
+        expect(page.querySelector('[data-test-id="cron-row-run-alpha"]')).not.toBeNull(),
+      );
+      (page.querySelector('[data-test-id="cron-row-run-alpha"]') as HTMLButtonElement).click();
+      await waitForCronPage(() =>
+        expect(request).toHaveBeenCalledWith("cron.run", { id: alpha.id, mode: "force" }),
+      );
+      // Run actions stop propagation; the overview still permits selecting another row.
+      (
+        page.querySelector('[data-test-id="cron-row-beta"] .cron-table__name') as HTMLButtonElement
+      ).click();
+      await waitForCronPage(() => {
+        expect(betaReads).toBe(1);
+        expect(page.querySelector('[data-test-id="cron-detail-tab-history"]')).not.toBeNull();
+      });
+      (page.querySelector('[data-test-id="cron-detail-tab-history"]') as HTMLElement).dispatchEvent(
+        new MouseEvent("click", { detail: 1, bubbles: true }),
+      );
+      await page.updateComplete;
+      // A notification queued before the acknowledgement must not rescue the stale target.
+      expect(page.querySelector(".cron-history")).not.toBeNull();
+      gateway.emitRetiredEvent({
+        type: "event",
+        event: "cron",
+        payload: { jobId: alpha.id, action: "finished" },
+      });
+      run.resolve(result);
+      await waitForCronPage(() =>
+        expect(
+          (page.querySelector('[data-test-id="cron-run-now"]') as HTMLButtonElement).disabled,
+        ).toBe(false),
+      );
+      firstBeta.resolve(selected);
+      await waitForCronPage(() => {
+        expect(page.querySelector(".cron-detail-title")?.textContent).toContain(beta.name);
+        expect(
+          page
+            .querySelector('[data-test-id="cron-detail-tab-history"]')
+            ?.getAttribute("aria-selected"),
+        ).toBe("true");
+        expect(page.querySelector(".cron-run-entry")?.textContent ?? "").toContain(
+          "Beta history is current",
+        );
+        expect(page.querySelector(".cron-run-entry")?.textContent ?? "").not.toContain(
+          "Overview history only",
+        );
+      });
+    } finally {
+      page.remove();
+      run.resolve(result);
+      firstBeta.resolve(selected);
+      await Promise.allSettled([run.promise, firstBeta.promise]);
+    }
+  });
+
   it("syncs form enabled after header pause and resets runs scope after remove", async () => {
     const job: CronJob = {
       id: "job-1",

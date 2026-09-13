@@ -138,14 +138,12 @@ export function prepareBackgroundSessionCompletion(params: {
   agentId: string;
   client: GatewayBrowserClient;
   context: ApplicationContext;
-  clearDraft: () => void;
 }): (key: string, runId?: string) => boolean {
   return (key, runId) => {
     const normalizedRunId = runId?.trim();
     if (!params.enabled || !normalizedRunId) {
       return false;
     }
-    params.clearDraft();
     void notifyWhenBackgroundSessionEnds({
       agentId: params.agentId,
       client: params.client,

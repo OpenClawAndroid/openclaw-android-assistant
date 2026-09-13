@@ -369,7 +369,7 @@ describe("qa scenario catalog channel contracts", () => {
     expect(flow).toContain("postRestartUnexpectedPayloads.length === 0");
     expect(flow).toContain("env.providerMode === config.requiredProviderMode");
     expect(flow).not.toContain("interrupted by a gateway restart");
-    expect(flow).toContain("verdicts.length === 4");
+    expect(flow).toContain("verdicts.length === 5");
     expect(flow).not.toContain('"call":"sleep"');
   });
 

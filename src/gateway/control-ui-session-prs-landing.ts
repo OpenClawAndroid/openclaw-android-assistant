@@ -4,6 +4,7 @@
 // (the Create PR gate). Pure local-git reasoning; GitHub facts come in as
 // MergedPullHead records.
 import { runGit } from "../agents/worktrees/git.js";
+import { requireGitCommandOutput } from "../infra/git-exec.js";
 import type { GitMergedPullHead as MergedPullHead } from "../infra/git-read-operations.js";
 
 type BranchLanding = {
@@ -24,6 +25,38 @@ export async function gitOutput(cwd: string, args: string[]): Promise<string | n
     return result.code === 0 ? result.stdout.trim() || null : null;
   } catch {
     return null;
+  }
+}
+
+async function readRemoteRevisions(root: string, refs: string[]): Promise<Map<string, string>> {
+  try {
+    // These fields read stored IDs without loading or lazily fetching partial-clone objects.
+    const result = await runGit(
+      root,
+      ["for-each-ref", "--format=%(refname)%00%(objectname)", "--", ...refs],
+      { maxOutputBytes: 16 * 1024, terminateOnOutputLimit: true },
+    );
+    const output = requireGitCommandOutput("git for-each-ref", result);
+    const revisions = new Map<string, string>();
+    for (const line of output.trim().split("\n")) {
+      const separator = line.indexOf("\0");
+      const ref = line.slice(0, separator);
+      // Ref patterns also match descendants; only exact requested refs identify these tips.
+      if (separator > 0 && refs.includes(ref)) {
+        revisions.set(ref, line.slice(separator + 1));
+      }
+    }
+    return revisions;
+  } catch {
+    // A failed or oversized ref inventory must not hide independently readable tips.
+    const revisions = new Map<string, string>();
+    for (const ref of refs) {
+      const revision = await gitOutput(root, ["rev-parse", "--verify", "--quiet", ref]);
+      if (revision) {
+        revisions.set(ref, revision);
+      }
+    }
+    return revisions;
   }
 }
 
@@ -88,27 +121,25 @@ export async function resolveBranchLanding(
     mergedHeads: readonly MergedPullHead[];
   },
 ): Promise<BranchLanding> {
-  const pushedSha = await gitOutput(root, [
-    "rev-parse",
-    "--verify",
-    "--quiet",
-    `refs/remotes/origin/${params.branch}`,
+  const pushedRef = `refs/remotes/origin/${params.branch}`;
+  const defaultRef = params.defaultBranch ? `refs/remotes/origin/${params.defaultBranch}` : null;
+  const revisions = await readRemoteRevisions(root, [
+    pushedRef,
+    ...(defaultRef ? [defaultRef] : []),
   ]);
+  const pushedSha = revisions.get(pushedRef) ?? null;
+  const headSha = await gitOutput(root, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  const defaultSha = defaultRef ? (revisions.get(defaultRef) ?? null) : null;
   const possibleLandings = params.mergedHeads.filter(
     (head) =>
       head.baseRef === params.defaultBranch || Boolean(params.defaultBranch && head.mergeCommitSha),
   );
-  const headSha = await gitOutput(root, ["rev-parse", "--verify", "--quiet", "HEAD"]);
   // Only merges whose content reached this checkout's default branch prove
   // the tip landed there: a direct default-base merge, or a landing through
   // another branch (feature -> release -> main) whose merge commit is now
   // contained in the default branch. A PR merged into an unpropagated
   // release/staging branch must not hide Create PR. Filtered here, not in
   // the snapshot cache, because the cache key has no default branch.
-  const defaultRef = params.defaultBranch ? `refs/remotes/origin/${params.defaultBranch}` : null;
-  const defaultSha = defaultRef
-    ? await gitOutput(root, ["rev-parse", "--verify", "--quiet", defaultRef])
-    : null;
   const landedHeads: MergedPullHead[] = [];
   for (const head of possibleLandings) {
     if (head.baseRef === params.defaultBranch) {

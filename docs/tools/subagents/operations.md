@@ -22,11 +22,15 @@ does not prune results to make room.
 ## Liveness and recovery
 
 OpenClaw does not treat `endedAt` absence as permanent proof that a
-sub-agent is still alive. Unended runs older than the stale-run window
+sub-agent is still alive. When the reading process can verify a current
+execution owner or an exact queued collector reservation, an unended run keeps
+counting regardless of age. Persisted metadata alone does not establish that
+ownership in another process. Other unended runs stop counting as active/pending
+after the stale-run window
 (2 hours, or the configured run timeout plus a short grace period,
-whichever is longer) stop counting as active/pending in `/subagents list`,
-status summaries, descendant completion gating, and per-session
-concurrency checks.
+whichever is longer). These retained counts govern `/subagents list`,
+status summaries, descendant completion gating, and per-session concurrency
+checks; they are not proof that an executor is live.
 
 After a Gateway restart, fresh interrupted sub-agents resume automatically
 from their existing child transcript. Recovery handles both sessions marked
@@ -37,6 +41,14 @@ work owning that session. Stale interrupted runs and other stale unended restore
 runs are finalized without a resume. Orphaned runs settle their background task
 before cleanup, so retained child sessions do not leave phantom running activity.
 If the task update fails, completion remains available for retry.
+
+When a detached cleanup attempt logs `subagent cleanup finalize failed`, its
+retries use bounded backoff in the current Gateway process. If those retries are
+exhausted, the run remains recorded with incomplete cleanup; inspect the warning
+to identify the failing operation. Unrelated
+sub-agent completions do not restart failed cleanup or reset its retry budget.
+Descendant completion still wakes the current requester ancestors waiting on that
+work. These cleanup retries are separate from [completion delivery](/tools/subagents/announce).
 
 An accepted recovery keeps the original task, Task Flow, requester, and child
 session identities. The task returns to `running` as the replacement execution

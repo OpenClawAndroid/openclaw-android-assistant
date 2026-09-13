@@ -256,6 +256,10 @@ export type SidebarSessionMutationScope = {
 
 export type SidebarSessionMutationResult = "completed" | "failed" | "stale";
 
+export type SidebarCatalogSessionMutationScope = SidebarSessionMutationScope & {
+  catalogGeneration: number;
+};
+
 export type SidebarSessionPatch = {
   archived?: boolean;
   pinned?: boolean;

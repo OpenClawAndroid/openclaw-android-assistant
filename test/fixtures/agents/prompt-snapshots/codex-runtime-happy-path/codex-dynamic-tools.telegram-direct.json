@@ -199,6 +199,11 @@
           "enum": ["delete", "keep"],
           "type": "string"
         },
+        "completionTarget": {
+          "description": "parent: return results in a private requester turn; no automatic channel delivery. Native hidden run only; unavailable with ACP, collect, visible, thread, session mode, or expectsCompletionMessage=false.",
+          "enum": ["parent"],
+          "type": "string"
+        },
         "context": {
           "description": "Native: explicit context=\"isolated\" starts clean; context=\"fork\" copies requester transcript and requires the same agent. Omitted context follows configured threadBindings.defaultSpawnContext policy (fork by default) with thread=true; without a thread it is isolated.",
           "enum": ["isolated", "fork"],

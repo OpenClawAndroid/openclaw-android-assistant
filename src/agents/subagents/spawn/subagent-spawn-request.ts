@@ -21,7 +21,12 @@ import { getSubagentSpawnDeps } from "./subagent-spawn-deps.js";
 import { resolveSubagentSpawnOwnership } from "./subagent-spawn-ownership.js";
 import { resolveConfiguredSubagentRunTimeoutSeconds } from "./subagent-spawn-plan.js";
 import { loadSubagentConfig } from "./subagent-spawn-session-patch.js";
-import { resolveInternalSessionKey, resolveMainSessionAlias } from "./subagent-spawn.runtime.js";
+import {
+  loadSessionEntry,
+  resolveGatewaySessionStoreTarget,
+  resolveInternalSessionKey,
+  resolveMainSessionAlias,
+} from "./subagent-spawn.runtime.js";
 import { normalizeSubagentTaskName } from "./subagent-task-name.js";
 
 type ResolvedSubagentSpawnRequest = {
@@ -30,6 +35,7 @@ type ResolvedSubagentSpawnRequest = {
     spawnMode: ReturnType<typeof resolveSpawnMode>;
     cleanup: "delete" | "keep";
     expectsCompletionMessage: boolean;
+    completionRequesterSessionId?: string;
   };
   runtime: {
     hookRunner: SubagentLifecycleHookRunner | null;
@@ -96,6 +102,18 @@ export function resolveSubagentSpawnRequest(
     requestedMode: params.mode,
     threadRequested: requestThreadBinding,
   });
+  if (
+    params.completionTarget === "parent" &&
+    (params.collect ||
+      requestThreadBinding ||
+      spawnMode !== "run" ||
+      params.expectsCompletionMessage === false)
+  ) {
+    return rejectSubagentSpawnRequest(
+      "error",
+      'sessions_spawn completionTarget="parent" requires mode="run", thread=false, collect=false, and completion notifications enabled.',
+    );
+  }
   if (params.collect && (requestThreadBinding || spawnMode === "session")) {
     return rejectSubagentSpawnRequest(
       "error",
@@ -151,6 +169,27 @@ export function resolveSubagentSpawnRequest(
     agentSessionKey: ctx.agentSessionKey,
     completionOwnerKey: ctx.completionOwnerKey,
   });
+
+  // Bind private results to the admitted parent incarnation; a reset must not
+  // transfer a retained child result to a replacement session at the same key.
+  let completionRequesterSessionId: string | undefined;
+  if (params.completionTarget === "parent") {
+    const target = resolveGatewaySessionStoreTarget({
+      cfg,
+      key: ownership.completionRequesterSessionKey,
+    });
+    completionRequesterSessionId = loadSessionEntry({
+      storePath: target.storePath,
+      sessionKey: target.canonicalKey,
+      clone: false,
+    })?.sessionId;
+    if (!completionRequesterSessionId) {
+      return rejectSubagentSpawnRequest(
+        "error",
+        "Private completion requires an existing requester session. Retry from an active session.",
+      );
+    }
+  }
 
   const requesterAgentId = resolveSessionAgentId({
     config: cfg,
@@ -305,6 +344,7 @@ export function resolveSubagentSpawnRequest(
         spawnMode,
         cleanup,
         expectsCompletionMessage,
+        completionRequesterSessionId,
       },
       runtime: {
         hookRunner,

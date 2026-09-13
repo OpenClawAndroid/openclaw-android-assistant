@@ -49,6 +49,14 @@ const LEGACY_LEADING_TIMESTAMP_PREFIX_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{
 //   "Chat history since last reply" (805).
 // CHAT WINDOW: `${label} (untrusted, <order>, <relation>):` (338-360).
 
+function mayContainLegacyInboundContextLabels(eventJson: string): boolean {
+  // Every frozen rewrite requires one of these decoded spellings. Unicode escapes
+  // can conceal either spelling, so those rows still use the canonical JSON decoder.
+  return (
+    eventJson.includes("untrusted") || eventJson.includes("Untrusted") || eventJson.includes("\\u")
+  );
+}
+
 function applyLegacyInboundLabelRewrites(text: string): string {
   // Every legacy rule contains one of these spellings. Check decoded content so
   // Unicode-escaped labels still reach their rewrite.
@@ -217,7 +225,11 @@ export async function noteSessionTranscriptLabelHealth(params: {
       // latter gained its columns post-ship and is not safe to assume on old databases.
       for (const sessionId of reader.sessionIds()) {
         // Read transcript in read-only mode (detection phase).
-        const readResult = reader.repairSnapshot(sessionId, normalizeLegacyInboundContextLabels);
+        const readResult = reader.repairSnapshot(
+          sessionId,
+          normalizeLegacyInboundContextLabels,
+          mayContainLegacyInboundContextLabels,
+        );
         if (!readResult.ok) {
           const detail = formatErrorMessage(readResult.error).replace(/\s+/g, " ").trim();
           note(

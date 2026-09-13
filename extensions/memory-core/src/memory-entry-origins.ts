@@ -55,6 +55,8 @@ type MemoryOriginDatabase = {
   memory_index_state: { id: number; revision: number };
   memory_index_chunks: { text: string; source: string };
 };
+// Four bindings per row stay below SQLite's historical 999-variable default.
+const TOMBSTONE_INSERT_BATCH_SIZE = 128;
 const ensuredDatabases = new WeakSet<DatabaseSync>();
 
 function openMemoryOriginDatabase(agentId: string): DatabaseSync {
@@ -162,17 +164,19 @@ export function recordMemorySessionTombstones(params: {
   return runSqliteImmediateTransactionSync(db, () => {
     const kysely = getNodeSqliteKysely<MemoryOriginDatabase>(db);
     let recorded = 0;
-    for (const sessionId of sessionIds) {
+    for (let start = 0; start < sessionIds.length; start += TOMBSTONE_INSERT_BATCH_SIZE) {
       const result = executeSqliteQuerySync(
         db,
         kysely
           .insertInto("memory_session_tombstones")
-          .values({
-            session_id: sessionId,
-            agent_id: params.agentId,
-            reason,
-            created_at: createdAt,
-          })
+          .values(
+            sessionIds.slice(start, start + TOMBSTONE_INSERT_BATCH_SIZE).map((sessionId) => ({
+              session_id: sessionId,
+              agent_id: params.agentId,
+              reason,
+              created_at: createdAt,
+            })),
+          )
           .onConflict((conflict) => conflict.column("session_id").doNothing()),
       );
       recorded += Number(result.numAffectedRows ?? 0n);

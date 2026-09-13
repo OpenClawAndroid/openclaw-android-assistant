@@ -10,6 +10,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
+import { roleClient, rolePolicyConfig } from "../session-sharing.test-utils.js";
 import * as sessionTranscriptReaders from "../session-transcript-readers.js";
 import {
   directSessionReq,
@@ -27,6 +28,53 @@ afterEach(() => {
   vi.restoreAllMocks();
   closeOpenClawAgentDatabasesForTest();
   closeOpenClawStateDatabaseForTest();
+});
+
+test("projects recap eligibility from current sharing authority, including capped shared viewers", async () => {
+  const client = roleClient("view", "recap-reader");
+  const ownerId = client.authenticatedUserProfile!.profileId;
+  const foreignId = ensureProfileForEmail("recap-owner@example.test").id;
+  const storePath = resolveStorePath(undefined, { agentId: "main" });
+  for (const [name, creator, visibility] of [
+    ["own", ownerId, "draft"],
+    ["member", foreignId, "read-only"],
+    ["viewer", foreignId, "shared"],
+  ] as const) {
+    await replaceSessionEntry(
+      { agentId: "main", sessionKey: `agent:main:recap-${name}`, storePath },
+      {
+        sessionId: `recap-${name}`,
+        updatedAt: 1,
+        visibility,
+        createdActor: { type: "human", source: "profile", id: creator },
+      },
+    );
+  }
+  addSessionMember(
+    { agentId: "main", sessionKey: "agent:main:recap-member", storePath },
+    { identityId: ownerId, addedBy: foreignId },
+  );
+  for (const capped of [true, false]) {
+    const result = await listSessions({
+      client,
+      context: requestContext(capped ? rolePolicyConfig() : {}),
+      request: { includeActivitySummary: true },
+    });
+    const sessions = new Map(result.sessions.map((session) => [session.key, session]));
+    expect(sessions.get("agent:main:recap-own")).toMatchObject({
+      sharingRole: "owner",
+      activitySummary: { canEnsure: true },
+    });
+    expect(sessions.get("agent:main:recap-member")).toMatchObject({
+      sharingRole: "member",
+      activitySummary: { canEnsure: true },
+    });
+    expect(sessions.get("agent:main:recap-viewer")).toMatchObject({
+      sharingRole: "viewer",
+      visibility: "shared",
+      activitySummary: { canEnsure: !capped },
+    });
+  }
 });
 
 test.each([

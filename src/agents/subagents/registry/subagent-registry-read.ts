@@ -3,13 +3,8 @@
  *
  * Combines persisted snapshots with in-memory live runs for UI, announce, control, and recovery paths.
  */
-import {
-  getAgentRunContext,
-  getAgentRunLifecycleGeneration,
-} from "../../../infra/agent-run-registry.js";
 import { normalizeDeliveryContext } from "../../../utils/delivery-context.shared.js";
 import type { DeliveryContext } from "../../../utils/delivery-context.types.js";
-import { ownsSwarmRunReservation } from "../swarm/swarm-scheduler.js";
 import { getSubagentRunsForChildSession, subagentRuns } from "./subagent-registry-memory.js";
 import {
   buildLatestSubagentRunReadIndexFromRuns,
@@ -19,7 +14,6 @@ import {
   getLatestSubagentRunByChildSessionKeyFromRuns,
   getSubagentRunByChildSessionKeyFromRuns,
   hasDescendantRunAwaitingSettleFromRuns,
-  isSubagentSessionRunActiveFromRuns,
   listDescendantRunsForRequesterFromRuns,
   listRunsForControllerFromRuns,
   listRunsForRequesterFromRuns,
@@ -36,6 +30,8 @@ import {
 } from "./subagent-registry-state.js";
 import { loadSubagentRunsForChildSessionFromSqlite } from "./subagent-registry.store.sqlite.js";
 import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
+import { isSubagentRunLive } from "./subagent-run-liveness.js";
+export { isSubagentRunLive, isSubagentRunQueued } from "./subagent-run-liveness.js";
 
 export type { SubagentRunReadIndex } from "./subagent-registry-queries.js";
 export type { SubagentRunRecord } from "./subagent-registry.types.js";
@@ -155,7 +151,9 @@ export function shouldIgnorePostCompletionAnnounceForSession(childSessionKey: st
 /** True when the process-local registry still owns an active run for the child session. */
 export function isSubagentSessionRunActive(childSessionKey: string): boolean {
   // Liveness is mutation ownership, so a persisted snapshot must not outvote the raw live map.
-  return isSubagentSessionRunActiveFromRuns(subagentRuns, childSessionKey);
+  return isSubagentRunLive(
+    getLatestSubagentRunByChildSessionKeyFromRuns(subagentRuns, childSessionKey),
+  );
 }
 
 /** Lists process-local runs requested by one session key. */
@@ -185,32 +183,6 @@ export function hasSubagentTaskOwner(params: {
   // Absence permits maintenance to settle stranded tasks. Unlike presentation
   // snapshots, this read must propagate failures rather than treating them as absence.
   return loadSubagentRunsForChildSessionFromSqlite(params.childSessionKey).some(ownsTask);
-}
-
-/** Returns whether a registry entry still has a live agent run context. */
-export function isSubagentRunLive(
-  entry:
-    | { runId: string; execution: Pick<SubagentRunRecord["execution"], "endedAt"> }
-    | null
-    | undefined,
-): boolean {
-  if (!entry || typeof entry.execution.endedAt === "number") {
-    return false;
-  }
-  const context = getAgentRunContext(entry.runId);
-  return context?.lifecycleGeneration === getAgentRunLifecycleGeneration();
-}
-
-/** Queued admission belongs to the exact current registration and scheduler reservation. */
-export function isSubagentRunQueued(entry: SubagentRunReadRecord | null | undefined): boolean {
-  const current = entry ? subagentRuns.get(entry.runId) : undefined;
-  return Boolean(
-    current &&
-    current === entry &&
-    current.collect &&
-    current.execution.status === "queued" &&
-    ownsSwarmRunReservation(current.schedulerSlotId ?? current.runId, current),
-  );
 }
 
 /** Returns the preferred child-session run from its scoped readable snapshot. */

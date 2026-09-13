@@ -20,7 +20,6 @@ import { resolveConversationCapabilityProfile } from "../agents/conversation-cap
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { applyFinalEffectiveToolPolicy } from "../agents/embedded-agent-runner/effective-tool-policy.js";
 import { shouldCreateBundleMcpRuntimeForAttempt } from "../agents/embedded-agent-runner/run/attempt-tool-construction-plan.js";
-import { resolveMcpAuthProfileId } from "../agents/mcp-auth-profile.js";
 import { partitionMcpServersByConnectionScope } from "../agents/mcp-connection-resolver.js";
 import { findModelInCatalog, type ModelCatalogEntry } from "../agents/model-catalog.js";
 import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
@@ -1254,6 +1253,35 @@ export async function collectRuntimeToolSchemaFindings(
           }
         }
         const excludeServerNames = new Set(requesterScopedServerNames);
+        for (const [serverName, server] of Object.entries(fullMcpConfig.loaded.mcpServers)) {
+          if (excludeServerNames.has(serverName) || server.auth !== "oauth") {
+            continue;
+          }
+          // A private database cannot isolate refresh-token rotation at the server.
+          // Discarding its replacement would strand the live owner on a spent token.
+          // This also covers refresh-capable auth profiles, not just MCP-native OAuth.
+          excludeServerNames.add(serverName);
+          const diagnostic: McpToolCatalogDiagnostic = {
+            serverName,
+            safeServerName: safeServerNamesByServer.get(serverName) ?? serverName,
+            launchSummary: "OAuth inspection deferred",
+            message: "OAuth refresh requires durable credential ownership",
+          };
+          if (
+            !reportedBundleRuntimeDiagnostics.has(serverName) &&
+            shouldReportBundleMcpRuntimeDiagnostic({ cfg, agentId, modelRef, diagnostic })
+          ) {
+            findings.push({
+              checkId: "core/doctor/runtime-tool-schemas",
+              severity: "info",
+              message: `Configured MCP server "${serverName}" was not probed during read-only inspection because OAuth may rotate external credentials.`,
+              path: `mcp.servers.${serverName}`,
+              fixHint:
+                "For configured servers, run `openclaw mcp probe <name>` against the serving configuration. Validate plugin-provided or agent-local MCP servers from an authenticated serving-agent turn so refreshed credentials persist with their owner.",
+            });
+            reportedBundleRuntimeDiagnostics.add(serverName);
+          }
+        }
         const staticMcpConfig = loadSessionMcpConfig({
           workspaceDir,
           cfg,
@@ -1261,14 +1289,8 @@ export async function collectRuntimeToolSchemaFindings(
           excludeServerNames,
           safeServerNamesByServer,
         });
-        const credentialContext = Object.values(staticMcpConfig.loaded.mcpServers).some(
-          resolveMcpAuthProfileId,
-        )
-          ? agentDir
-          : "shared";
-        // Equivalent static catalogs share one probe. Agent-local auth profiles retain
-        // their agent directory so one agent's credentials cannot validate another's.
-        const runtimeContext = `${staticMcpConfig.fingerprint}\0${credentialContext}`;
+        // Equivalent non-OAuth catalogs share one probe; refresh-capable profiles are deferred.
+        const runtimeContext = staticMcpConfig.fingerprint;
         if (
           !bundleRuntimeByContext.has(runtimeContext) &&
           !bundleRuntimeLoadErrorsByContext.has(runtimeContext)

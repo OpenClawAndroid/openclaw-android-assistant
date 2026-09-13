@@ -24,7 +24,9 @@ Recovery uses migration manifests, restores only the affected archived support
 artifacts, prepares a sanitized GitHub issue report when requested, and does not
 make active runtime read JSONL files again.
 
-Gateway history readers avoid materializing the whole transcript unless the surface needs arbitrary historical access. First-page history, embedded chat history, restart recovery, and token/usage checks use bounded tail reads from SQLite. Full transcript scans go through the async transcript index and are shared across concurrent readers.
+Gateway history readers avoid materializing the whole transcript unless the surface needs arbitrary historical access. First-page history, embedded chat history, restart recovery, and token/usage checks use bounded tail reads from SQLite.
+
+Disk-backed history pages run their SQLite reads and display preparation in a dedicated session-transcript worker. Equivalent requests can share a queued read until worker execution starts; completed pages are not cached. The Gateway applies current profile display and rechecks session identity and access before publishing. Cold restoration and projection rebuilds remain with the existing Gateway storage owner. Incognito history stays in the Gateway process, and bound external CLI imports retain their local import owner. The HTTP history endpoint still returns the complete history when no limit is supplied.
 
 ## On-disk locations
 
