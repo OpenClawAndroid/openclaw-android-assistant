@@ -317,7 +317,7 @@ suite.define(() => {
       },
     });
     await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionA));
-    await showPublicationBranch(gateway);
+    await showPublicationBranch(gateway, undefined, sessionA);
     const activePane = page.locator(".chat-pane-cache__pane--active");
     await activePane.getByRole("button", { name: "Publication account", exact: true }).click();
     await activePane.getByRole("combobox", { name: "Publication account" }).selectOption(source);
@@ -352,7 +352,7 @@ suite.define(() => {
       .toBe(navigation !== "LRU eviction");
     await sessionLink(sessionA).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe(controlUiSessionPath(sessionA));
-    await showPublicationBranch(gateway);
+    await showPublicationBranch(gateway, undefined, sessionA);
     const publication = activePane.locator('.chat-pr[data-state="branch"]');
     await publication.waitFor();
     await expect

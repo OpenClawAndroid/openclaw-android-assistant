@@ -371,6 +371,35 @@ describe("searchSessionTranscripts", () => {
     });
   });
 
+  it("hides dirty search rows after their transcript is gone while preserving other sessions", async () => {
+    await appendUserMessage("stale", "agent:main:stale", "hidden needle");
+    await appendUserMessage("current", "agent:main:current", "visible needle");
+    const { db, kysely } = agentKysely();
+    executeSqliteQuerySync(
+      db,
+      kysely
+        .updateTable("session_transcript_index_state")
+        .set({ needs_rebuild: 1 })
+        .where("session_id", "=", "stale"),
+    );
+    executeSqliteQuerySync(
+      db,
+      kysely.deleteFrom("transcript_events").where("session_id", "=", "stale"),
+    );
+
+    // A retained window can hold stale FTS rows even when no hot transcript needs reconciliation.
+    expect(listSessionsNeedingTranscriptIndexReconcile(db)).toEqual([]);
+    const params = { agentId: "main", env: env(), query: "needle" };
+    expect(searchSessionTranscripts({ ...params, sessionId: "stale" })).toMatchObject({
+      hits: [],
+      indexing: false,
+    });
+    expect(searchSessionTranscripts({ ...params, sessionId: "current" })).toMatchObject({
+      hits: [{ sessionId: "current", snippet: expect.stringContaining("visible needle") }],
+      indexing: false,
+    });
+  });
+
   it("rejects empty and oversized queries", () => {
     expect(() => search("   ")).toThrow(/query must not be empty/);
     expect(() => search("x".repeat(4097))).toThrow(/must not exceed/);

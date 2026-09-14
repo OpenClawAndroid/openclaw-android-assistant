@@ -8,6 +8,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isDiagnosticFlagEnabled } from "../infra/diagnostic-flags.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { planEffectiveModelCatalogRows } from "../model-catalog/index.js";
+import { normalizePluginsConfig, type NormalizedPluginsConfig } from "../plugins/config-state.js";
 import { getCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-snapshot.js";
 import { isManifestPluginAvailableForControlPlane } from "../plugins/manifest-contract-eligibility.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
@@ -162,6 +163,7 @@ function resolveEligibleManifestCatalogPlugins(
   snapshot: PluginMetadataSnapshot,
   config: OpenClawConfig,
 ): PluginMetadataSnapshot["plugins"] {
+  let normalizedConfig: NormalizedPluginsConfig | undefined;
   return snapshot.plugins.filter(
     (plugin) =>
       plugin.modelCatalog &&
@@ -169,6 +171,8 @@ function resolveEligibleManifestCatalogPlugins(
         snapshot,
         plugin,
         config,
+        normalizedConfig:
+          config.plugins && (normalizedConfig ??= normalizePluginsConfig(config.plugins)),
       }),
   );
 }

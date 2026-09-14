@@ -212,6 +212,7 @@ describe("projects vitest config", () => {
     expect(serverConfig.isolate).toBe(false);
     expect(serverConfig.fileParallelism).toBe(false);
     expect(serverIsolatedConfig.isolate).toBe(true);
+    expect(serverIsolatedConfig.pool).toBe("forks");
     expect(serverIsolatedConfig.runner).toBeUndefined();
     expect(serverIsolatedConfig.include).toEqual(gatewayServerIsolatedTestFiles);
     const overrideFixture = "src/gateway/server-plugin-subagent-runtime.overrides.test.ts";
@@ -673,6 +674,7 @@ describe("projects vitest config", () => {
         "team-reports/**/*.test.ts",
         "workboard/**/*.test.ts",
         "imessage/src/approval-reactions.persistence.test.ts",
+        "imessage/src/send.sqlite.test.ts",
       ]);
       expect(requireTestConfig(createExtensionsVitestConfig({})).exclude).toContain(
         `${pluginId}/**`,
@@ -680,36 +682,46 @@ describe("projects vitest config", () => {
     },
   );
 
-  it("routes iMessage persistence through its worker owner without moving sibling tests", () => {
-    const file = "extensions/imessage/src/approval-reactions.persistence.test.ts";
-    const project = "test/vitest/vitest.extension-database-workers.config.ts";
-    const siblingProject = "test/vitest/vitest.extension-imessage.config.ts";
-    for (const target of [
-      file,
-      "extensions/imessage",
-      "extensions/imessage/src/*.test.ts",
-      "extensions/imessage/src/approval-reactions.ts",
-    ]) {
-      const plans = buildVitestRunPlans([target]);
-      expect(plans.find((plan) => plan.config === project)?.includePatterns).toContain(file);
-    }
-    expect(buildVitestRunPlans([file]).map((plan) => plan.config)).toEqual([project]);
-    for (const sibling of ["approval-reactions.test.ts", "approval-reaction-poller.test.ts"]) {
-      expect(
-        buildVitestRunPlans([`extensions/imessage/src/${sibling}`]).map((plan) => plan.config),
-      ).toEqual([siblingProject]);
-    }
-    const workerConfig = requireTestConfig(createExtensionDatabaseWorkersVitestConfig({}));
-    expect(workerConfig.include).toContain("imessage/src/approval-reactions.persistence.test.ts");
-    expect(workerConfig.pool).toBe("forks");
-    expect(workerConfig.isolate).toBe(true);
-    expect(requireTestConfig(createExtensionImessageVitestConfig({})).exclude).toContain(
-      "imessage/src/approval-reactions.persistence.test.ts",
-    );
-    expect(requireTestConfig(createExtensionsVitestConfig({})).exclude).toContain(
-      "imessage/src/approval-reactions.persistence.test.ts",
-    );
-  });
+  it.each([
+    {
+      file: "approval-reactions.persistence.test.ts",
+      source: "approval-reactions.ts",
+      siblings: ["approval-reactions.test.ts", "approval-reaction-poller.test.ts"],
+    },
+    { file: "send.sqlite.test.ts", source: "send.ts", siblings: ["send.test.ts"] },
+  ])(
+    "routes iMessage $file through its worker owner without moving sibling tests",
+    ({ file: basename, source, siblings }) => {
+      const file = `extensions/imessage/src/${basename}`;
+      const project = "test/vitest/vitest.extension-database-workers.config.ts";
+      const siblingProject = "test/vitest/vitest.extension-imessage.config.ts";
+      for (const target of [
+        file,
+        "extensions/imessage",
+        "extensions/imessage/src/*.test.ts",
+        `extensions/imessage/src/${source}`,
+      ]) {
+        const plans = buildVitestRunPlans([target]);
+        expect(plans.find((plan) => plan.config === project)?.includePatterns).toContain(file);
+      }
+      expect(buildVitestRunPlans([file]).map((plan) => plan.config)).toEqual([project]);
+      for (const sibling of siblings) {
+        expect(
+          buildVitestRunPlans([`extensions/imessage/src/${sibling}`]).map((plan) => plan.config),
+        ).toEqual([siblingProject]);
+      }
+      const workerConfig = requireTestConfig(createExtensionDatabaseWorkersVitestConfig({}));
+      expect(workerConfig.include).toContain(`imessage/src/${basename}`);
+      expect(workerConfig.pool).toBe("forks");
+      expect(workerConfig.isolate).toBe(true);
+      expect(requireTestConfig(createExtensionImessageVitestConfig({})).exclude).toContain(
+        `imessage/src/${basename}`,
+      );
+      expect(requireTestConfig(createExtensionsVitestConfig({})).exclude).toContain(
+        `imessage/src/${basename}`,
+      );
+    },
+  );
 
   it("keeps the bundled lane on thread workers with the non-isolated runner", () => {
     const testConfig = requireTestConfig(bundledConfig);

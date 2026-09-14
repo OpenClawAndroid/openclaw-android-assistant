@@ -69,7 +69,11 @@ import {
 } from "../embedded-agent-runner/runs.js";
 import { resolveNestedAgentLaneForSession } from "../lanes.js";
 import { runOutsidePreparedModelRuntimePluginGenerationScope } from "../prepared-model-runtime-generation-scope.js";
-import { type AgentWaitResult, waitForAgentRunReply } from "../run-wait.js";
+import {
+  type AgentWaitResult,
+  isTerminalAgentWaitTimeout,
+  waitForAgentRunReply,
+} from "../run-wait.js";
 import { loadSessionEntryByKey } from "../subagents/announce/subagent-announce-delivery.js";
 import {
   describeSessionsSendTool,
@@ -320,10 +324,6 @@ function isRequesterParentOfNativeSubagentSession(params: {
     isSubagentSessionKey(params.targetSessionKey) &&
     requester === normalizeOptionalString(params.entry.parentSessionKey)
   );
-}
-
-function isTerminalAgentWaitTimeout(result: AgentWaitResult): boolean {
-  return result.endedAt !== undefined || Boolean(result.stopReason || result.livenessState);
 }
 
 function isPendingErrorAgentWaitTimeout(result: AgentWaitResult): boolean {

@@ -2403,7 +2403,7 @@ describe("grouped chat rendering", () => {
       label: "attributed sender without a viewer",
       sender: { id: "other-user" },
       userId: null,
-      peer: true,
+      peer: false,
     },
   ])("sets peer alignment for $label", ({ sender, userId, peer }) => {
     const container = document.createElement("div");
@@ -2692,6 +2692,7 @@ describe("grouped chat rendering", () => {
             showReasoning: true,
             showToolCalls: true,
             assistantName: "OpenClaw",
+            userId: "local-viewer",
             avatarPlacement,
           },
         ),

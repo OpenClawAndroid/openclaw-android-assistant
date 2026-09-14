@@ -641,6 +641,10 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
           deliverSubagentAnnouncement({
             requesterSessionKey,
             requesterAgentId,
+            requesterRunTimeoutSeconds:
+              requesterDepth >= 1 && requesterRun
+                ? (requesterRun.runTimeoutSeconds ?? 0)
+                : undefined,
             triggerMessage: wakeMessage,
             steerMessage: wakeMessage,
             summaryLine: "all spawned subagents settled",

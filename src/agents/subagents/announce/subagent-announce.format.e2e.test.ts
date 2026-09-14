@@ -2839,7 +2839,7 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain("current result from child a");
     expect(msg).toContain("result from child b");
     expect(msg).not.toContain("stale result from child a");
-    expect(msg.match(/1\. child-a/g)?.length ?? 0).toBe(1);
+    expect(msg.match(/current result from child a/g)).toHaveLength(1);
   });
 
   it("does not announce a direct child that moved to a newer parent", async () => {
@@ -2909,85 +2909,90 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain("old parent fallback reply");
   });
 
-  it("wakes an ended orchestrator run with settled child results before any upward announce", async () => {
-    sessionStore = {
-      "agent:main:subagent:parent": {
-        sessionId: "session-parent",
-      },
-    };
+  it.each([0, 600, undefined])(
+    "wakes an ended orchestrator with its %s-second budget before upward announce",
+    async (runTimeoutSeconds) => {
+      sessionStore = {
+        "agent:main:subagent:parent": {
+          sessionId: "session-parent",
+        },
+      };
 
-    subagentRegistryMock.countPendingDescendantRuns.mockReturnValue(0);
-    subagentRegistryMock.listSubagentRunsForRequester.mockImplementation(
-      (sessionKey: string, scope?: { requesterRunId?: string }) => {
-        if (sessionKey !== "agent:main:subagent:parent") {
-          return [];
-        }
-        if (scope?.requesterRunId !== "run-parent-phase-1") {
-          return [];
-        }
-        return [
-          {
-            runId: "run-child-a",
-            childSessionKey: "agent:main:subagent:parent:subagent:a",
-            requesterSessionKey: "agent:main:subagent:parent",
-            requesterDisplayKey: "parent",
-            task: "child task a",
-            label: "child-a",
-            cleanup: "keep",
-            createdAt: 10,
-            execution: { endedAt: 20, outcome: { status: "ok" } },
-            cleanupCompletedAt: 21,
-            completion: { required: true, resultText: "result from child a" },
-          },
-          {
-            runId: "run-child-b",
-            childSessionKey: "agent:main:subagent:parent:subagent:b",
-            requesterSessionKey: "agent:main:subagent:parent",
-            requesterDisplayKey: "parent",
-            task: "child task b",
-            label: "child-b",
-            cleanup: "keep",
-            createdAt: 11,
-            execution: { endedAt: 21, outcome: { status: "ok" } },
-            cleanupCompletedAt: 22,
-            completion: { required: true, resultText: "result from child b" },
-          },
-        ];
-      },
-    );
+      subagentRegistryMock.countPendingDescendantRuns.mockReturnValue(0);
+      subagentRegistryMock.listSubagentRunsForRequester.mockImplementation(
+        (sessionKey: string, scope?: { requesterRunId?: string }) => {
+          if (sessionKey !== "agent:main:subagent:parent") {
+            return [];
+          }
+          if (scope?.requesterRunId !== "run-parent-phase-1") {
+            return [];
+          }
+          return [
+            {
+              runId: "run-child-a",
+              childSessionKey: "agent:main:subagent:parent:subagent:a",
+              requesterSessionKey: "agent:main:subagent:parent",
+              requesterDisplayKey: "parent",
+              task: "child task a",
+              label: "child-a",
+              cleanup: "keep",
+              createdAt: 10,
+              execution: { endedAt: 20, outcome: { status: "ok" } },
+              cleanupCompletedAt: 21,
+              completion: { required: true, resultText: "result from child a" },
+            },
+            {
+              runId: "run-child-b",
+              childSessionKey: "agent:main:subagent:parent:subagent:b",
+              requesterSessionKey: "agent:main:subagent:parent",
+              requesterDisplayKey: "parent",
+              task: "child task b",
+              label: "child-b",
+              cleanup: "keep",
+              createdAt: 11,
+              execution: { endedAt: 21, outcome: { status: "ok" } },
+              cleanupCompletedAt: 22,
+              completion: { required: true, resultText: "result from child b" },
+            },
+          ];
+        },
+      );
 
-    agentSpy.mockResolvedValueOnce(visibleAgentResponse("run-parent-phase-2"));
-    const lifecycleGeneration = getAgentEventLifecycleGeneration();
+      agentSpy.mockResolvedValueOnce(visibleAgentResponse("run-parent-phase-2"));
+      const lifecycleGeneration = getAgentEventLifecycleGeneration();
 
-    const didAnnounce = await runSubagentAnnounceFlow({
-      childSessionKey: "agent:main:subagent:parent",
-      childRunId: "run-parent-phase-1",
-      requesterSessionKey: "agent:main:main",
-      requesterDisplayKey: "main",
-      ...defaultOutcomeAnnounce,
-      expectsCompletionMessage: true,
-      wakeOnDescendantSettle: true,
-      roundOneReply: "waiting for children",
-    });
+      const didAnnounce = await runSubagentAnnounceFlow({
+        childSessionKey: "agent:main:subagent:parent",
+        childRunId: "run-parent-phase-1",
+        runTimeoutSeconds,
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        ...defaultOutcomeAnnounce,
+        expectsCompletionMessage: true,
+        wakeOnDescendantSettle: true,
+        roundOneReply: "waiting for children",
+      });
 
-    expect(didAnnounce).toBe("delivered");
-    expect(agentSpy).toHaveBeenCalledTimes(1);
-    const call = getAgentCall() as {
-      params?: { sessionKey?: string; message?: string };
-    };
-    expect(call?.params?.sessionKey).toBe("agent:main:subagent:parent");
-    const message = call?.params?.message ?? "";
-    expect(message).toContain("All pending descendants for that run have now settled");
-    expect(message).toContain("result from child a");
-    expect(message).toContain("result from child b");
-    expect(subagentRegistryMock.replaceSubagentRunAfterSteer).toHaveBeenCalledWith({
-      previousRunId: "run-parent-phase-1",
-      nextRunId: "run-parent-phase-2",
-      lifecycleGeneration,
-      preserveFrozenResultFallback: true,
-      task: expect.stringContaining("All pending descendants for that run have now settled"),
-    });
-  });
+      expect(didAnnounce).toBe("delivered");
+      expect(agentSpy).toHaveBeenCalledTimes(1);
+      const call = getAgentCall() as {
+        params?: { sessionKey?: string; message?: string; timeout?: number };
+      };
+      expect(call?.params?.sessionKey).toBe("agent:main:subagent:parent");
+      expect(call?.params?.timeout).toBe(runTimeoutSeconds ?? 0);
+      const message = call?.params?.message ?? "";
+      expect(message).toContain("All pending descendants for that run have now settled");
+      expect(message).toContain("result from child a");
+      expect(message).toContain("result from child b");
+      expect(subagentRegistryMock.replaceSubagentRunAfterSteer).toHaveBeenCalledWith({
+        previousRunId: "run-parent-phase-1",
+        nextRunId: "run-parent-phase-2",
+        lifecycleGeneration,
+        preserveFrozenResultFallback: true,
+        task: expect.stringContaining("All pending descendants for that run have now settled"),
+      });
+    },
+  );
 
   it("terminates an accepted descendant wake after completion delivery closes", async () => {
     sessionStore = {

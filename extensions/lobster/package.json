@@ -19,6 +19,7 @@
       "./index.ts"
     ],
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/lobster",
       "npmSpec": "@openclaw/lobster",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.25"

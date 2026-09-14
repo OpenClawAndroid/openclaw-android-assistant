@@ -138,6 +138,7 @@ function createCompletionUserTurnTranscriptRecorderFactory(params: {
 export async function deliverSubagentAnnouncement(params: {
   requesterSessionKey: string;
   requesterAgentId?: string;
+  requesterRunTimeoutSeconds?: number;
   announceId?: string;
   triggerMessage: string;
   steerMessage: string;
@@ -318,6 +319,7 @@ export async function deliverSubagentAnnouncement(params: {
       return await sendSubagentAnnounceDirectly({
         requesterSessionKey: params.requesterSessionKey,
         requesterAgentId: params.requesterAgentId,
+        requesterRunTimeoutSeconds: params.requesterRunTimeoutSeconds,
         targetRequesterSessionKey: params.targetRequesterSessionKey,
         triggerMessage: params.triggerMessage,
         internalEvents: params.internalEvents,

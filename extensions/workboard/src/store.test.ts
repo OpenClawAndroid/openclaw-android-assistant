@@ -4395,52 +4395,65 @@ describe("WorkboardStore", () => {
     });
   });
 
-  it("marks triage cards as orchestration candidates during dispatch", async () => {
-    const store = createWorkboardSqliteTestStore();
-    await store.upsertBoard({
-      id: "planning",
-      orchestration: { autoDecompose: true, autoDecomposePerDispatch: 1 },
-    });
-    const first = await store.create({
-      title: "Break down import flow",
-      status: "triage",
-      boardId: "planning",
-    });
-    const archived = await store.create({
-      title: "Archived import flow",
-      status: "triage",
-      boardId: "planning",
-    });
-    await store.archive(archived.id, true);
-    const second = await store.create({
-      title: "Break down export flow",
-      status: "triage",
-      boardId: "planning",
-    });
+  it.each([undefined, 1])(
+    "marks triage cards as orchestration candidates during dispatch with cap %s",
+    async (configuredCap) => {
+      const store = createWorkboardSqliteTestStore();
+      const cap = configuredCap ?? 3;
+      await store.upsertBoard({
+        id: "planning",
+        orchestration: { autoDecompose: true, autoDecomposePerDispatch: configuredCap },
+      });
+      const cards: WorkboardCard[] = [];
+      for (let index = 0; index <= cap; index++) {
+        cards.push(
+          await store.create({
+            title: "Break down flow " + index,
+            status: "triage",
+            boardId: "planning",
+            position: index,
+          }),
+        );
+      }
+      const archived = await store.create({
+        title: "Archived import flow",
+        status: "triage",
+        boardId: "planning",
+      });
+      await store.archive(archived.id, true);
 
-    const dispatch = await store.dispatch(10);
+      const dispatch = await store.dispatch(10);
 
-    expect(dispatch.orchestrated).toEqual([
-      expect.objectContaining({ id: first.id, status: "triage" }),
-    ]);
-    expect(dispatch.count).toBe(1);
-    await expect(store.get(first.id)).resolves.toMatchObject({
-      metadata: {
-        workerProtocol: {
-          state: "idle",
-          detail: "Awaiting workboard_specify or workboard_decompose.",
-        },
-        workerLogs: [expect.objectContaining({ level: "info" })],
-      },
-      events: expect.arrayContaining([expect.objectContaining({ kind: "orchestration" })]),
-    });
-    await expect(store.get(second.id)).resolves.not.toMatchObject({
-      metadata: { workerProtocol: expect.any(Object) },
-    });
-    await expect(store.get(archived.id)).resolves.not.toMatchObject({
-      metadata: { workerProtocol: expect.any(Object) },
-    });
-  });
+      expect(dispatch.orchestrated.map((card) => card.id)).toEqual(
+        cards.slice(0, cap).map((card) => card.id),
+      );
+      expect(dispatch.count).toBe(cap);
+      for (const card of cards.slice(0, cap)) {
+        await expect(store.get(card.id)).resolves.toMatchObject({
+          status: "triage",
+          metadata: {
+            workerProtocol: {
+              state: "idle",
+              detail: "Awaiting workboard_specify or workboard_decompose.",
+            },
+            workerLogs: [expect.objectContaining({ level: "info" })],
+          },
+          events: expect.arrayContaining([expect.objectContaining({ kind: "orchestration" })]),
+        });
+      }
+      for (const card of [...cards.slice(cap), archived]) {
+        await expect(store.get(card.id)).resolves.not.toMatchObject({
+          metadata: { workerProtocol: expect.any(Object) },
+        });
+      }
+
+      const next = await store.dispatch(11);
+      expect(next.orchestrated.map((card) => card.id)).toEqual(
+        cards.slice(cap).map((card) => card.id),
+      );
+      expect((await store.dispatch(12)).orchestrated).toEqual([]);
+    },
+  );
 
   it("does not mutate archived ready cards during repeated dispatch", async () => {
     const store = createWorkboardSqliteTestStore();
@@ -4545,28 +4558,75 @@ describe("WorkboardStore", () => {
     }
   });
 
-  it("applies auto orchestration dispatch caps per board", async () => {
-    const store = createWorkboardSqliteTestStore();
-    await store.upsertBoard({
-      id: "ops",
-      orchestration: { autoDecompose: true, autoDecomposePerDispatch: 1 },
-    });
-    await store.upsertBoard({
-      id: "product",
-      orchestration: { autoDecompose: true, autoDecomposePerDispatch: 1 },
-    });
-    const ops = await store.create({ title: "Ops rough", status: "triage", boardId: "ops" });
-    const product = await store.create({
-      title: "Product rough",
-      status: "triage",
-      boardId: "product",
-    });
+  it.each([
+    { name: "unchanged cap", autoDecompose: true, cap: 1, includeSecond: false },
+    { name: "raised cap", autoDecompose: true, cap: 2, includeSecond: true },
+    { name: "disabled orchestration", autoDecompose: false, cap: 2, includeSecond: false },
+  ])("applies current per-board orchestration settings between cards: $name", async (scenario) => {
+    const harness = createConcurrentSqliteHarness("openclaw-workboard-orchestration-");
+    let resume = () => {};
+    let pending: ReturnType<WorkboardStore["dispatch"]> | undefined;
+    try {
+      const store = harness.operation;
+      await store.upsertBoard({
+        id: "ops",
+        orchestration: { autoDecompose: true, autoDecomposePerDispatch: 1 },
+      });
+      await store.upsertBoard({
+        id: "product",
+        orchestration: { autoDecompose: true, autoDecomposePerDispatch: 1 },
+      });
+      const ops = await store.create({
+        title: "Ops rough",
+        status: "triage",
+        boardId: "ops",
+        position: 0,
+      });
+      const second = await store.create({
+        title: "More ops work",
+        status: "triage",
+        boardId: "ops",
+        position: 1,
+      });
+      const product = await store.create({
+        title: "Product rough",
+        status: "triage",
+        boardId: "product",
+        position: 2,
+      });
+      const pause = harness.paused.pauseAfterMatchingWrite(
+        (key, value) => key === ops.id && value?.card.metadata?.workerProtocol?.state === "idle",
+      );
+      resume = pause.resume;
+      pending = store.dispatch(10);
+      await pause.reached;
+      await harness.host.upsertBoard({
+        id: "ops",
+        orchestration: {
+          autoDecompose: scenario.autoDecompose,
+          autoDecomposePerDispatch: scenario.cap,
+        },
+      });
+      await harness.host.update(second.id, { title: "Updated between card decisions" });
+      resume();
+      const dispatch = await pending;
 
-    const dispatch = await store.dispatch(10);
-
-    expect(dispatch.orchestrated.map((card) => card.id).toSorted()).toEqual(
-      [ops.id, product.id].toSorted(),
-    );
+      expect(dispatch.orchestrated.map((card) => card.id)).toEqual(
+        scenario.includeSecond ? [ops.id, second.id, product.id] : [ops.id, product.id],
+      );
+      await expect(store.get(second.id)).resolves.toMatchObject({
+        title: "Updated between card decisions",
+      });
+      if (!scenario.includeSecond) {
+        await expect(store.get(second.id)).resolves.not.toMatchObject({
+          metadata: { workerProtocol: expect.any(Object) },
+        });
+      }
+    } finally {
+      resume();
+      await pending?.catch(() => undefined);
+      await harness.close();
+    }
   });
 
   it("scopes dispatch mutations by board", async () => {

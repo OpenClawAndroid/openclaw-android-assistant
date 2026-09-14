@@ -25,7 +25,7 @@ function createExecDryRunBatch(params: { markerPath: string }) {
   const script = [
     `#!${process.execPath}`,
     'const fs = require("node:fs");',
-    `fs.writeFileSync(${JSON.stringify(params.markerPath)}, "dryrun\\n", "utf8");`,
+    `fs.writeFileSync(${JSON.stringify(params.markerPath)}, JSON.stringify(process.argv.slice(2)), "utf8");`,
     `process.stdout.write(${JSON.stringify(response)});`,
   ].join("\n");
   const scriptPath = path.join(path.dirname(params.markerPath), "exec-provider.cjs");
@@ -78,6 +78,87 @@ async function withExecDryRunConfigHarness(
 }
 
 describe("config cli secrets integration", () => {
+  it.skipIf(process.platform === "win32").each(["builder", "json", "batch"] as const)(
+    "preserves literal exec args from %s config input through provider invocation",
+    async (mode) => {
+      await withConfigFileHarness(
+        "openclaw-config-cli-literal-exec-args-",
+        "{}\n",
+        async ({ configPath, tempDir }) => {
+          const markerPath = path.join(tempDir, "argv.json");
+          const batch = createExecDryRunBatch({ markerPath });
+          const command = path.join(tempDir, "exec-provider.cjs");
+          const args = [
+            "",
+            "   ",
+            "  label  ",
+            "\t\r\n\v\f",
+            "\u00a0\ufefflabel\ufeff\u00a0",
+            "inside \t space",
+            "\x01control\x7f",
+            "--literal-option",
+            "x".repeat(1024),
+          ];
+          while (args.length < 128) {
+            args.push(`arg-${args.length}`);
+          }
+          const provider = {
+            source: "exec",
+            command,
+            args,
+            trustedDirs: [tempDir],
+            timeoutMs: 60_000,
+            noOutputTimeoutMs: 60_000,
+          };
+          await runRegisteredConfigCommand([
+            "config",
+            "set",
+            ...(mode === "builder"
+              ? [
+                  "secrets.providers.runner",
+                  "--provider-source",
+                  "exec",
+                  "--provider-command",
+                  command,
+                  "--provider-trusted-dir",
+                  tempDir,
+                  "--provider-timeout-ms",
+                  "60000",
+                  "--provider-no-output-timeout-ms",
+                  "60000",
+                  ...args.flatMap((arg) => ["--provider-arg", arg]),
+                ]
+              : mode === "json"
+                ? ["secrets.providers.runner", JSON.stringify(provider), "--strict-json"]
+                : [
+                    "--batch-json",
+                    JSON.stringify([{ path: "secrets.providers.runner", provider }]),
+                  ]),
+          ]);
+          const persisted = fs.readFileSync(configPath, "utf8");
+          expect(fs.existsSync(markerPath)).toBe(false);
+          const output = createTestRuntime();
+
+          await runConfigSet({
+            cliOptions: {
+              batchJson: JSON.stringify(batch.slice(1)),
+              dryRun: true,
+              allowExec: true,
+              json: true,
+            },
+            runtime: output.runtime,
+          });
+
+          expect(registeredRuntimeErrors).toEqual([]);
+          expect(output.errors).toEqual([]);
+          expect(JSON.parse(output.logs.join("\n"))).toMatchObject({ ok: true, refsChecked: 1 });
+          expect(fs.readFileSync(configPath, "utf8")).toBe(persisted);
+          expect(JSON.parse(fs.readFileSync(markerPath, "utf8"))).toEqual(args);
+          expect(JSON5.parse(persisted).secrets.providers.runner.args).toEqual(args);
+        },
+      );
+    },
+  );
   it.each(["agents.defaults", "agents.entries.ops"])(
     "validates SecretRefs after normalizing model keys in %s",
     async (agentPath) => {

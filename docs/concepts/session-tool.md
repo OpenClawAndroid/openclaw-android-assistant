@@ -153,6 +153,9 @@ During healthy worker provisioning or workspace preparation, accepted input stay
 
 `timeoutSeconds` limits the sending tool's wait, not the receiver's execution
 budget. For nonblocking coordination, use `sessions_send` with `timeoutSeconds: 0`.
+When that wait expires, pending announcements continue observing the accepted
+run until it finishes; a wait interval does not discard a late reply. Nested
+agent-to-agent replies use the same completion observation.
 The low-level Gateway `sessions.send` RPC has a different contract: its JSON
 `timeoutMs` limits **receiver execution**, just like `chat.send`. Omit that field
 to keep the receiver's configured budget; bound the CLI wait separately with

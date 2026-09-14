@@ -115,6 +115,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/tlon",
       "npmSpec": "@openclaw/tlon",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

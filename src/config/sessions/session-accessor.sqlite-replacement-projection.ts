@@ -12,6 +12,7 @@ import {
   runSqliteSessionDeletionTransaction as runOpenClawAgentWriteTransaction,
 } from "./session-accessor.sqlite-deletion.js";
 import { sqliteSessionEntriesEqual } from "./session-accessor.sqlite-entry-equality.js";
+import { prepareExactSessionEntryRowReads } from "./session-accessor.sqlite-entry-read.js";
 import {
   deleteLegacySessionEntryRows,
   readExactSessionEntryRow,
@@ -125,22 +126,35 @@ async function applySqliteSessionEntryReplacementProjection<T, TReplacement>(
         const labelOwnerKeys = readLabelOwnerKeys();
         const selected = selectReplacementKeys(database, params, labelOwnerKeys);
         const expectedRows = new Map<string, ResolvedSessionEntryRow>();
-        const entries = selected.flatMap((sessionKey) => {
-          const row = readExactSessionEntryRow(database, sessionKey);
-          if (!row) {
-            if (!selectedKeys || selectedStatuses) {
-              throw new Error(`SQLite session entry changed before replacement for ${sessionKey}`);
+        let entries: SessionEntryReplacementSnapshot[];
+        // Release the cohort reader before awaiting the update callback.
+        {
+          const readPrepared =
+            selected.length > 1 ? prepareExactSessionEntryRowReads(database, selected) : undefined;
+          entries = selected.flatMap((sessionKey) => {
+            const row = readPrepared
+              ? readPrepared(sessionKey)
+              : readExactSessionEntryRow(database, sessionKey);
+            if (!row) {
+              if (!selectedKeys || selectedStatuses) {
+                throw new Error(
+                  `SQLite session entry changed before replacement for ${sessionKey}`,
+                );
+              }
+              return [];
             }
-            return [];
-          }
-          if (selectedStatuses && (!row.entry.status || !selectedStatuses.has(row.entry.status))) {
-            return [];
-          }
-          // Pair the detached entry and CAS bytes from one row; separate reads can
-          // otherwise bless stale data with a newer writer's comparison token.
-          expectedRows.set(sessionKey, row);
-          return [{ entry: cloneSessionEntry(row.entry), sessionKey }];
-        });
+            if (
+              selectedStatuses &&
+              (!row.entry.status || !selectedStatuses.has(row.entry.status))
+            ) {
+              return [];
+            }
+            // Pair the detached entry and CAS bytes from one row; separate reads can
+            // otherwise bless stale data with a newer writer's comparison token.
+            expectedRows.set(sessionKey, row);
+            return [{ entry: cloneSessionEntry(row.entry), sessionKey }];
+          });
+        }
         const replacementAuthorityKeys = selectedStatuses
           ? new Set(entries.map(({ sessionKey }) => sessionKey))
           : selectedKeys;

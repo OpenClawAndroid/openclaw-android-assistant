@@ -917,7 +917,7 @@ describe("applyMediaUnderstanding", () => {
   it("auto-detects sherpa for audio when binary and model files are available", async () => {
     const binDir = await createTempMediaDir();
     const modelDir = await createTempMediaDir();
-    await createMockExecutable(binDir, "sherpa-onnx-offline");
+    const executablePath = await createMockExecutable(binDir, "sherpa-onnx-offline");
     await fs.writeFile(path.join(modelDir, "tokens.txt"), "a");
     await fs.writeFile(path.join(modelDir, "encoder.onnx"), "a");
     await fs.writeFile(path.join(modelDir, "decoder.onnx"), "a");
@@ -938,7 +938,7 @@ describe("applyMediaUnderstanding", () => {
 
     expect(ctx.Transcript).toBe("sherpa ok");
     const [command, args, options] = getRunExecCall();
-    expect(command).toBe("sherpa-onnx-offline");
+    expect(command).toBe(executablePath);
     expect(args).toEqual([
       `--tokens=${path.join(modelDir, "tokens.txt")}`,
       `--encoder=${path.join(modelDir, "encoder.onnx")}`,
@@ -952,7 +952,7 @@ describe("applyMediaUnderstanding", () => {
   it("skips auto-detected sherpa audio when structured output has empty text", async () => {
     const binDir = await createTempMediaDir();
     const modelDir = await createTempMediaDir();
-    await createMockExecutable(binDir, "sherpa-onnx-offline");
+    const executablePath = await createMockExecutable(binDir, "sherpa-onnx-offline");
     await fs.writeFile(path.join(modelDir, "tokens.txt"), "a");
     await fs.writeFile(path.join(modelDir, "encoder.onnx"), "a");
     await fs.writeFile(path.join(modelDir, "decoder.onnx"), "a");
@@ -976,13 +976,13 @@ describe("applyMediaUnderstanding", () => {
     expect(ctx.Transcript).toBeUndefined();
     expect(ctx.Body).toBe("[Audio attachment could not be analyzed]");
     const [command] = getRunExecCall();
-    expect(command).toBe("sherpa-onnx-offline");
+    expect(command).toBe(executablePath);
   });
 
   it("auto-detects whisper-cli when sherpa is unavailable", async () => {
     const binDir = await createTempMediaDir();
     const modelDir = await createTempMediaDir();
-    await createMockExecutable(binDir, "whisper-cli");
+    const executablePath = await createMockExecutable(binDir, "whisper-cli");
     const modelPath = path.join(modelDir, "tiny.bin");
     await fs.writeFile(modelPath, "model");
 
@@ -1001,8 +1001,8 @@ describe("applyMediaUnderstanding", () => {
     );
 
     expect(ctx.Transcript).toBe("whisper cpp ok");
-    const [command, args, options] = getRunExecCallForCommand("whisper-cli");
-    expect(command).toBe("whisper-cli");
+    const [command, args, options] = getRunExecCallForCommand(executablePath);
+    expect(command).toBe(executablePath);
     if (!Array.isArray(args)) {
       throw new Error("expected whisper-cli args");
     }
@@ -1026,7 +1026,7 @@ describe("applyMediaUnderstanding", () => {
   it("transcodes non-wav audio before auto-detected whisper-cli runs", async () => {
     const binDir = await createTempMediaDir();
     const modelDir = await createTempMediaDir();
-    await createMockExecutable(binDir, "whisper-cli");
+    const executablePath = await createMockExecutable(binDir, "whisper-cli");
     const modelPath = path.join(modelDir, "tiny.bin");
     await fs.writeFile(modelPath, "model");
 
@@ -1076,8 +1076,8 @@ describe("applyMediaUnderstanding", () => {
     expect(String(ffmpegArgs[11])).toContain("telegram-voice.wav");
     expect(String(ffmpegArgs[11]).endsWith(".part")).toBe(true);
 
-    const [command, args, options] = getRunExecCallForCommand("whisper-cli");
-    expect(command).toBe("whisper-cli");
+    const [command, args, options] = getRunExecCallForCommand(executablePath);
+    expect(command).toBe(executablePath);
     if (!Array.isArray(args)) {
       throw new Error("expected whisper-cli transcode args");
     }

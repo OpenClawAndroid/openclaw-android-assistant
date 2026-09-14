@@ -5062,10 +5062,41 @@ exec ${shellQuote(process.execPath)} "$@"
         if (blocked) {
           writeFileSync(join(artifacts, "diagnostics"), "not a directory");
         }
+        let observationSetup = "";
+        if (scriptPath === UPGRADE_SURVIVOR_RUN_SCRIPT && exitCode === 0 && completed) {
+          const initialRoot = join(artifacts, "update-observation.initial");
+          const recoveryRoot = join(artifacts, "update-observation.recovery");
+          for (const [index, observationRoot] of [initialRoot, recoveryRoot].entries()) {
+            mkdirSync(join(observationRoot, "diagnostics"), { recursive: true });
+            writeFileSync(
+              join(observationRoot, "diagnostics/post-core.json"),
+              JSON.stringify({
+                artifactRoot: realpathSync(observationRoot),
+                childExitCode: index === 0 ? 1 : 0,
+                result: {
+                  status: index === 0 ? "error" : "ok",
+                  changed: false,
+                  sync: {
+                    changed: false,
+                    switchedToBundled: [],
+                    switchedToNpm: [],
+                    warnings: [],
+                    errors: [],
+                  },
+                  npm: { changed: false, outcomes: [] },
+                  integrityDrifts: [],
+                },
+              }),
+            );
+          }
+          observationSetup = `initial_update_observation_root=${shellQuote(initialRoot)}
+last_update_observation_root=${shellQuote(recoveryRoot)}`;
+        }
         const result = spawnDockerSnippet(
           `${setup}
 CURRENT_PHASE=update-candidate
 run_completed=${completed ? 1 : 0}
+${observationSetup}
 printf "original startup error\\n" >"$npm_config_prefix/../update.err"
 cleanup() { printf "cleanup replacement\\n" >"$npm_config_prefix/../update.err"; }
 exit ${exitCode}
@@ -5099,6 +5130,16 @@ exit ${exitCode}
           expect(result.stdout + result.stderr).toContain("diagnostics missing");
         } else {
           expect(result.stdout + result.stderr).not.toContain("diagnostics missing");
+        }
+        if (observationSetup) {
+          expect(JSON.parse(readFileSync(join(artifacts, "summary.json"), "utf8"))).toMatchObject({
+            status: "passed",
+            firstHopPostCore: {
+              availability: "captured",
+              childExitCode: 1,
+              result: { status: "error" },
+            },
+          });
         }
       }
     },
@@ -5365,11 +5406,15 @@ exit 0
   it.each([false, true])(
     "publishes only on the host and preserves Docker outcomes (published baseline: %s)",
     (publishedBaseline) => {
-      for (const [exitCode, capturePresent] of [
-        [42, true],
-        [42, false],
-        [0, false],
+      for (const [exitCode, capturePresent, summaryStatus] of [
+        [42, true, null],
+        [42, false, null],
+        [0, false, "passed"],
+        [0, false, "failed"],
       ] as const) {
+        if (!publishedBaseline && summaryStatus === "failed") {
+          continue;
+        }
         const workDir = tempDirs.make("openclaw-survivor-host-publication-");
         const artifacts = join(workDir, "private");
         const registry = join(workDir, "registry");
@@ -5385,47 +5430,105 @@ exit 0
           join(artifacts, "diagnostics", "post-core.json"),
           '{"stale":"PRIVATE_POST_CORE_SENTINEL"}',
         );
+        writeFileSync(join(artifacts, "summary.json"), '{"stale":"PRIVATE_SUMMARY_SENTINEL"}');
         writeFileSync(join(workDir, "candidate.tgz"), "unused by fake Docker");
         writeFileSync(
           join(registry, "prepublish-plugin-registry.json"),
           JSON.stringify({ sourceSha: "a".repeat(40), candidateVersion: "2026.8.1", packages: [] }),
         );
+        const phases = [
+          { phase: "update-candidate", status: "started", at: "2026-09-01T00:00:00.000Z" },
+          { phase: "update-candidate", status: "passed", at: "2026-09-01T00:00:01.000Z" },
+        ];
+        const completedSummary = {
+          status: summaryStatus ?? "passed",
+          baseline: { spec: "openclaw@2026.7.1-2", version: "2026.7.1-2" },
+          candidate: { kind: "tarball", version: "2026.8.1", spec: "PRIVATE_PACKAGE_PATH" },
+          scenario: "base",
+          installedVersion: "2026.8.1",
+          candidateInstallMode: "updater",
+          updateRestartMode: "manual",
+          updateOutcome: "recoverable",
+          updateRecovery: "capability-consent",
+          updateRestartSource: null,
+          timings: { startupSeconds: 4, healthzSeconds: 1, readyzSeconds: 1, statusSeconds: 2 },
+          phases: phases.map((event) => ({ ...event, private: "PRIVATE_PHASE_FIELD" })),
+          firstHopPostCore: {
+            availability: "captured",
+            childExitCode: 1,
+            result: {
+              status: "error",
+              changed: true,
+              reason: "requires capability consent token=HOST_PUBLICATION_SECRET",
+              sync: {
+                changed: false,
+                switchedToBundled: [],
+                switchedToNpm: [],
+                warnings: [],
+                errors: [],
+              },
+              warnings: [],
+              npm: { changed: false, outcomes: [] },
+              integrityDrifts: [],
+              private: "PRIVATE_POST_CORE_FIELD",
+            },
+          },
+          config: { token: "PRIVATE_CONFIG_FIELD" },
+          watchosDirectNode: { credentials: "PRIVATE_WATCH_FIELD" },
+          restartFixture: { token: "PRIVATE_RESTART_FIELD" },
+        };
+        writeFileSync(join(workDir, "completed-summary.json"), JSON.stringify(completedSummary));
         writeExecutables(binDir, {
           docker: `#!/usr/bin/env bash
 set -euo pipefail
 if [ "$1" = run ]; then
   printf "%s\\n" "$@" >"$TMPDIR/docker-args"
-  test ! -e "$TMPDIR/public"
+  if [ ! -e "$TMPDIR/skip-optional-logs" ]; then
+    test ! -e "$TMPDIR/public"
+  fi
   test ! -e "$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/diagnostics/raw.json"
   test ! -e "$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/diagnostics/post-core.json"
+  test ! -e "$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/summary.json"
   if [ "${capturePresent}" = true ]; then
     printf "startup failure token=HOST_PUBLICATION_SECRET\\n" >"$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/update.err"
     ${shellQuote(process.execPath)} ${shellQuote(join(process.cwd(), UPGRADE_SURVIVOR_DIAGNOSTICS_PATH))} capture "$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR" update-candidate ${exitCode}
+  fi
+  if [ "${publishedBaseline}" = true ] && [ "${exitCode}" = 0 ]; then
+    cp "$TMPDIR/completed-summary.json" "$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/summary.json"
+    if [ -e "$TMPDIR/skip-optional-logs" ]; then
+      printf '{"status":"ok","marker":"CURRENT_HOP","token":"HOST_PUBLICATION_SECRET"}\\n' >"$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/update.json"
+    else
+      printf 'historical preamble\\n{"status":"ok","marker":"FIRST_HOP"}\\n{"status":"warning","token":"HOST_PUBLICATION_SECRET"}\\n' >"$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/update.json"
+      printf '{"status":"ok","marker":"REPAIR"}\\n' >"$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/repair.json"
+      printf '{"status":"ok","marker":"RECOVERY"}\\n' >"$OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR/recovery-update.json"
+    fi
   fi
   exit ${exitCode}
 fi
 exit 0
 `,
         });
-        const result = spawnSync("bash", [join(process.cwd(), UPGRADE_SURVIVOR_DOCKER_E2E_PATH)], {
-          encoding: "utf8",
-          cwd: workDir,
-          env: {
-            ...process.env,
-            HOME: workDir,
-            TMPDIR: workDir,
-            PATH: `${binDir}:${process.env.PATH ?? ""}`,
-            OPENCLAW_CONFIG_PATH: join(workDir, "absent"),
-            OPENCLAW_STATE_DIR: workDir,
-            OPENCLAW_SKIP_DOCKER_BUILD: "1",
-            OPENCLAW_CURRENT_PACKAGE_TGZ: join(workDir, "candidate.tgz"),
-            OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_DIR: registry,
-            OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR: artifacts,
-            OPENCLAW_UPGRADE_SURVIVOR_PUBLISHED_BASELINE: publishedBaseline ? "1" : "0",
-            OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC: "openclaw@2026.7.1-2",
-            OPENCLAW_DOCKER_ALL_LOG_DIR: "public",
-          },
-        });
+        const runWrapper = () =>
+          spawnSync("bash", [join(process.cwd(), UPGRADE_SURVIVOR_DOCKER_E2E_PATH)], {
+            encoding: "utf8",
+            cwd: workDir,
+            env: {
+              ...process.env,
+              HOME: workDir,
+              TMPDIR: workDir,
+              PATH: `${binDir}:${process.env.PATH ?? ""}`,
+              OPENCLAW_CONFIG_PATH: join(workDir, "absent"),
+              OPENCLAW_STATE_DIR: workDir,
+              OPENCLAW_SKIP_DOCKER_BUILD: "1",
+              OPENCLAW_CURRENT_PACKAGE_TGZ: join(workDir, "candidate.tgz"),
+              OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_DIR: registry,
+              OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_DIR: artifacts,
+              OPENCLAW_UPGRADE_SURVIVOR_PUBLISHED_BASELINE: publishedBaseline ? "1" : "0",
+              OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC: "openclaw@2026.7.1-2",
+              OPENCLAW_DOCKER_ALL_LOG_DIR: "public",
+            },
+          });
+        const result = runWrapper();
         expect(result.status, result.stdout + result.stderr).toBe(exitCode);
         const dockerArgs = readFileSync(join(workDir, "docker-args"), "utf8");
         expect(dockerArgs).toContain(`${artifacts}:/tmp/openclaw-upgrade-survivor-artifacts`);
@@ -5441,6 +5544,81 @@ exit 0
           expect(text).not.toContain("HOST_PUBLICATION_SECRET");
           expect(JSON.parse(text).exitStatus).toBe(exitCode);
         } else if (exitCode) {
+          expect(result.stderr).toContain("diagnostics missing");
+          expect(
+            readdirSync(publicRoot).flatMap((dir) => readdirSync(join(publicRoot, dir))),
+          ).toEqual([]);
+        } else if (publishedBaseline && summaryStatus === "passed") {
+          expect(existsSync(publicRoot), "passed published run must publish its receipt").toBe(
+            true,
+          );
+          const directories = readdirSync(publicRoot);
+          expect(directories).toHaveLength(1);
+          const uploaded = join(publicRoot, directories[0]!);
+          expect(readdirSync(uploaded)).toEqual(["summary.json"]);
+          const text = readFileSync(join(uploaded, "summary.json"), "utf8");
+          expect(text).not.toMatch(/PRIVATE_|HOST_PUBLICATION_SECRET/);
+          const receipt = JSON.parse(text);
+          expect(receipt).toMatchObject({
+            status: "passed",
+            baseline: completedSummary.baseline,
+            candidate: { kind: "tarball", version: "2026.8.1" },
+            scenario: "base",
+            installedVersion: "2026.8.1",
+            candidateInstallMode: "updater",
+            updateRestartMode: "manual",
+            updateOutcome: "recoverable",
+            updateRecovery: "capability-consent",
+            timings: completedSummary.timings,
+            phases,
+            firstHopPostCore: {
+              availability: "captured",
+              childExitCode: 1,
+              result: { status: "error" },
+            },
+          });
+          expect(receipt.logs["update.json"]).toContain("historical preamble");
+          expect(receipt.logs["update.json"]).toContain("FIRST_HOP");
+          expect(receipt.logs["update.json"]).toContain('"status":"warning"');
+          expect(receipt.logs["update.json"]).not.toMatch(/REPAIR|RECOVERY/);
+          expect(receipt.logs["repair.json"]).toContain("REPAIR");
+          expect(receipt.logs["recovery-update.json"]).toContain("RECOVERY");
+          expect(result.stderr).not.toContain("diagnostics missing");
+
+          writeFileSync(join(workDir, "skip-optional-logs"), "1");
+          writeFileSync(
+            join(workDir, "completed-summary.json"),
+            JSON.stringify({
+              ...completedSummary,
+              updateOutcome: "success",
+              updateRecovery: null,
+              firstHopPostCore: { availability: "unavailable" },
+            }),
+          );
+          const reusedResult = runWrapper();
+          expect(reusedResult.status, reusedResult.stdout + reusedResult.stderr).toBe(0);
+          expect(reusedResult.stderr).not.toContain("diagnostics missing");
+          const reusedDirectories = readdirSync(publicRoot).filter((dir) => dir !== directories[0]);
+          expect(reusedDirectories).toHaveLength(1);
+          const reusedText = readFileSync(
+            join(publicRoot, reusedDirectories[0]!, "summary.json"),
+            "utf8",
+          );
+          expect(reusedText).not.toMatch(/PRIVATE_|HOST_PUBLICATION_SECRET/);
+          const reusedReceipt = JSON.parse(reusedText);
+          expect(reusedReceipt).toMatchObject({
+            status: "passed",
+            updateOutcome: "success",
+            updateRecovery: null,
+          });
+          expect(reusedReceipt.logs["update.json"]).toContain("CURRENT_HOP");
+          expect(reusedReceipt.logs["update.json"]).not.toMatch(/FIRST_HOP|REPAIR|RECOVERY/);
+          expect(
+            reusedReceipt.logs,
+            "reused directory must not publish previous-run repair or recovery",
+          ).toMatchObject({ "repair.json": null, "recovery-update.json": null });
+          expect(readFileSync(join(uploaded, "summary.json"), "utf8")).toBe(text);
+        } else if (publishedBaseline) {
           expect(result.stderr).toContain("diagnostics missing");
           expect(
             readdirSync(publicRoot).flatMap((dir) => readdirSync(join(publicRoot, dir))),

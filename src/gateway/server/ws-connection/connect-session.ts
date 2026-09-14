@@ -642,6 +642,7 @@ export async function attachAuthenticatedGatewayConnect(
           // The node socket is registered before macOS app command handlers finish warming.
           // Delay only the connect-time probe; later skill refreshes use the live session.
           readinessDelayMs: 5_000,
+          readinessSignal: context.handler.connectionWork.signal,
         });
       },
       (err) =>

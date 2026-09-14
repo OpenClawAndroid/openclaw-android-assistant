@@ -912,19 +912,21 @@ const configs: UserConfig[] = [
       false,
     );
   }),
-  nodeBuildConfig(
-    {
-      name: TSDOWN_UNIFIED_CONFIG_GROUP,
-      entry: standaloneRuntimeProcessBuildEntries,
-      deps: {
-        ...unifiedDeps,
-        alwaysBundle: (id) =>
-          shouldAlwaysBundleDependency(id) || shouldBundleRuntimeSqliteDependency(id),
+  ...Object.entries(standaloneRuntimeProcessBuildEntries).map(([name, source]) =>
+    nodeBuildConfig(
+      {
+        name: TSDOWN_UNIFIED_CONFIG_GROUP,
+        entry: { [name]: source },
+        deps: {
+          ...unifiedDeps,
+          alwaysBundle: (id) =>
+            shouldAlwaysBundleDependency(id) || shouldBundleRuntimeSqliteDependency(id),
+        },
+        outputOptions: { codeSplitting: false },
+        plugins: [createStateSchemaInlinePlugin()],
       },
-      outputOptions: { codeSplitting: false },
-      plugins: [createStateSchemaInlinePlugin()],
-    },
-    false,
+      false,
+    ),
   ),
   workerDeployBuildConfig(),
   { ...createManagedHandoffBuildConfig(), name: TSDOWN_UNIFIED_CONFIG_GROUP, env },

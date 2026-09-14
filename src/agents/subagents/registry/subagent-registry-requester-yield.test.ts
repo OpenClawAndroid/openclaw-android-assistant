@@ -324,7 +324,7 @@ describe("settleRequesterTurnAfterSessionSpawns", () => {
     expect(persistOrThrow).toHaveBeenCalledTimes(expected ? 2 : 1);
     if (expected) {
       expect(entry.requesterSettleWake?.batchRunIds).toEqual([entry.runId]);
-      expect(schedule).toHaveBeenCalledExactlyOnceWith(entry.runId, entry);
+      expect(schedule).toHaveBeenCalledExactlyOnceWith(entry.runId, entry, "settle");
     } else {
       expect(entry.requesterSettleWake).toBeUndefined();
       expect(entry.requesterTurnRunId).toBe(REQUESTER_TURN);
@@ -378,7 +378,7 @@ describe("settleRequesterTurnAfterSessionSpawns", () => {
       afterRequesterYield: true,
     });
     expect(entry.delivery?.disposition).toBe("intentional_non_delivery");
-    expect(schedule).toHaveBeenCalledExactlyOnceWith(entry.runId, entry);
+    expect(schedule).toHaveBeenCalledExactlyOnceWith(entry.runId, entry, "settle");
   });
 
   it("persists a mixed delivered and in-progress yielded batch before scheduling", () => {
@@ -418,7 +418,7 @@ describe("settleRequesterTurnAfterSessionSpawns", () => {
     expect(beta.requesterTurnRunId).toBeUndefined();
     expect(beta.delivery?.disposition).toBe("intentional_non_delivery");
     expect(calls).toEqual(["persist", "schedule"]);
-    expect(schedule).toHaveBeenCalledExactlyOnceWith(alpha.runId, alpha);
+    expect(schedule).toHaveBeenCalledExactlyOnceWith(alpha.runId, alpha, "settle");
   });
 
   it.each([true, false])(
@@ -465,10 +465,10 @@ describe("settleRequesterTurnAfterSessionSpawns", () => {
           batchRunIds: [completion.runId],
           afterRequesterYield: true,
         });
-        expect(schedule).toHaveBeenCalledExactlyOnceWith(completion.runId, completion);
+        expect(schedule).toHaveBeenCalledExactlyOnceWith(completion.runId, completion, "settle");
       } else {
         expect(completion.requesterSettleWake).toBeUndefined();
-        expect(schedule).toHaveBeenCalledExactlyOnceWith(completion.runId, completion);
+        expect(schedule).toHaveBeenCalledExactlyOnceWith(completion.runId, completion, "settle");
       }
       expect(inline.requesterTurnRunId).toBe(REQUESTER_TURN);
       expect(inline.requesterTurnYielded).toBeUndefined();

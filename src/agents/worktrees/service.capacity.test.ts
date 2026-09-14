@@ -5,8 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
+import * as backoff from "../../infra/backoff.js";
 import * as commandExec from "../../process/exec.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import { withOpenClawStateLease } from "../../state/openclaw-state-lease.js";
 import { getRegistryWorktree } from "./registry.js";
 import { ManagedWorktreeService } from "./service.js";
 import {
@@ -196,6 +199,80 @@ describe("ManagedWorktreeService capacity", () => {
     const rejectedRepo = created.repoRoot === repo ? otherRepo : repo;
     expect(await git(rejectedRepo, "branch", "--list", "openclaw/*")).toBe("");
   });
+
+  it.each(["release", "abort", "timeout"] as const)(
+    "waits beyond five minutes for allocation until %s",
+    async (ending) => {
+      const held = createDeferred();
+      const release = createDeferred();
+      const holder = withOpenClawStateLease(
+        {
+          scope: "core:managed-worktrees:create",
+          key: "capacity",
+          database: { scope: "shared", options: { env } },
+          leaseMs: 60_000,
+          waitMs: 0,
+        },
+        async () => {
+          held.resolve();
+          await release.promise;
+        },
+      );
+      await held.promise;
+      const controller = new AbortController();
+      const realNow = performance.now.bind(performance);
+      let elapsedMs = 0;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => realNow() + elapsedMs);
+      const waits = vi.spyOn(backoff, "sleepWithAbort");
+      let settled = false;
+      const pending = service
+        .create({ repoRoot: repo, name: "waiting", baseRef: "HEAD", signal: controller.signal })
+        .finally(() => {
+          settled = true;
+        });
+      const result = pending.catch((error: unknown) => error);
+      try {
+        await vi.waitFor(() => expect(waits.mock.calls.length > 0 || settled).toBe(true));
+        expect(settled).toBe(false);
+        const previousWaits = waits.mock.calls.length;
+        // Advance only elapsed acquisition time; keep the real holder's expiry and timers live.
+        elapsedMs = 6 * 60_000;
+        await vi.waitFor(() =>
+          expect(waits.mock.calls.length > previousWaits || settled).toBe(true),
+        );
+        expect(settled, "allocation must remain pending while another owner holds the lease").toBe(
+          false,
+        );
+        expect(service.listRegistryRecords()).toEqual([]);
+        if (ending !== "release") {
+          if (ending === "abort") {
+            controller.abort(new Error("cancel queued worktree"));
+          } else {
+            elapsedMs = 11 * 60_000;
+          }
+          await vi.waitFor(() => expect(settled).toBe(true));
+          await expect(result).resolves.toMatchObject({
+            code:
+              ending === "abort" ? "OPENCLAW_STATE_LEASE_ABORTED" : "OPENCLAW_STATE_LEASE_TIMEOUT",
+          });
+          expect(service.listRegistryRecords()).toEqual([]);
+          expect(await git(repo, "branch", "--list", "openclaw/waiting")).toBe("");
+        } else {
+          release.resolve();
+          await holder;
+          const created = await pending;
+          expect(await fs.readFile(path.join(created.path, "README.md"), "utf8")).toBe("base\n");
+          expect(service.listRegistryRecords()).toEqual([created]);
+        }
+      } finally {
+        controller.abort();
+        release.resolve();
+        await Promise.allSettled([holder, pending]);
+        waits.mockRestore();
+        clock.mockRestore();
+      }
+    },
+  );
 
   it("reuses a valid owned checkout at the cleanup target and below the reserve", async () => {
     const params = {

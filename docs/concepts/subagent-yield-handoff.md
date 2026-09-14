@@ -34,6 +34,14 @@ The implementation owners are `subagent-registry-requester-yield.ts`,
 `agent-task-tracking.ts`. `adoptPausedSubagentRunForFollowUp` uses the existing
 registry replacement operation; it does not create a second delegated task.
 
+Private child results wait for their spawning turn to settle before individual
+announcement admission. Normal settlement resumes each finished private child,
+even while siblings are still running. Explicit yield assigns the frozen batch
+first, then resumes child cleanup under that owner. Late announcement failures
+cannot replace the batch's delivery state; already committed delivery evidence
+remains valid. Restart activation reconciles retained requester-turn bindings
+before resuming child completion.
+
 Settlement dispatch uses `subagent_settle` input provenance. Individual
 announcements and the older descendant-wake path retain `subagent_announce`:
 the latter already owns its run replacement after dispatch and must not trigger

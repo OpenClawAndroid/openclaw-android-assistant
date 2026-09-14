@@ -613,6 +613,7 @@ describe("cron service timer regressions", () => {
 
   it("aborts isolated runs when cron timeout fires", async () => {
     vi.useFakeTimers();
+    const warn = vi.spyOn(noopLogger, "warn");
     try {
       const store = timerRegressionFixtures.makeStorePath();
       const scheduledAt = Date.parse("2026-02-15T13:00:00.000Z");
@@ -632,9 +633,9 @@ describe("cron service timer regressions", () => {
         storePath: store.storePath,
         nowMs: () => now,
         runIsolatedAgentJob: vi.fn(async (params) => {
-          const result = await abortAwareRunner.runIsolatedAgentJob(params);
+          await abortAwareRunner.runIsolatedAgentJob(params);
           now += 5;
-          return result;
+          throw new Error("session work admission aborted");
         }),
       });
 
@@ -647,6 +648,10 @@ describe("cron service timer regressions", () => {
       const job = state.store?.jobs.find((entry) => entry.id === "abort-on-timeout");
       expect(job?.state.lastStatus).toBe("error");
       expect(job?.state.lastError).toContain("timed out");
+      expect(warn).toHaveBeenCalledWith(
+        { jobId: cronJob.id, err: "Error: session work admission aborted" },
+        "cron: job core rejected after abort: cron: job execution timed out",
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -654,6 +659,7 @@ describe("cron service timer regressions", () => {
 
   it("unwinds timed cron runs immediately after operator cancellation", async () => {
     vi.useFakeTimers();
+    const warn = vi.spyOn(noopLogger, "warn");
     const store = timerRegressionFixtures.makeStorePath();
     const scheduledAt = Date.parse("2026-02-15T13:00:00.000Z");
     const cronJob = createIsolatedRegressionJob({
@@ -705,6 +711,12 @@ describe("cron service timer regressions", () => {
       const job = state.store?.jobs.find((entry) => entry.id === "cancel-before-timeout");
       expect(job?.state.lastStatus).toBe("error");
       expect(job?.state.lastError).toBe("Cancelled by operator.");
+      runnerResult.reject(new Error("session work admission aborted"));
+      await vi.waitFor(() => expect(getSuspensionVisibleCronTaskRunCount()).toBe(0));
+      expect(warn).toHaveBeenCalledWith(
+        { jobId: cronJob.id, err: "Error: session work admission aborted" },
+        "cron: job core rejected after abort: Cancelled by operator.",
+      );
     } finally {
       stop(state);
       runnerResult.resolve({ status: "ok", summary: "done" });

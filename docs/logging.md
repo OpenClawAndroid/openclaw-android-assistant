@@ -296,6 +296,30 @@ OpenTelemetry log export is enabled, using the same bounded attributes as file
 logs. Configure `diagnostics.otel.logsExporter` to choose OTLP, stdout JSONL, or
 both sinks.
 
+### Embedded attempt preparation
+
+Embedded `prep stages` summaries separate two tool-preparation intervals:
+
+- `bundle-tools`: awaited MCP/LSP preparation, tool normalization and policy
+  projection, measured after preparation admission.
+- `tool-catalog`: synchronous catalog construction, including Code Mode or tool
+  search when enabled, schema projection and tool diagnostics.
+
+`tool-preparation` is an inclusive checkpoint from the preceding bootstrap
+checkpoint. It includes both intervals, preparation admission waits and the
+remaining bootstrap work. These entries overlap: do not sum them or interpret
+them as CPU time. Later permission refreshes do not append initial-preparation
+entries. The conditional Code Mode and tool-search catalog messages still report
+their original activation/compaction events.
+
+Older summaries charged bundle waiting to `code-mode` or `tool-search` and used
+`bundle-tools` for a later bookkeeping checkpoint. Those names do not provide
+the same timing boundaries as the corrected spans.
+
+The summary keeps its existing identity fields and warning thresholds: ten
+seconds total or five seconds in any recorded stage; faster summaries use trace
+logging. A missing summary does not prove preparation completed without delay.
+
 ### Session catalog provider waits
 
 With process diagnostics enabled, the `gateway/session-catalog` logger records

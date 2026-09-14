@@ -15,6 +15,7 @@
       "./index.ts"
     ],
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/brave-plugin",
       "npmSpec": "@openclaw/brave-plugin",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10",

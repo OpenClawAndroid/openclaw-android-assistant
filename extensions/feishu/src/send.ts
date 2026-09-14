@@ -328,7 +328,7 @@ export async function getMessageFeishu(params: {
     if (parsedItem.contentType === "merge_forward" && responseItems) {
       return {
         ...parsedItem,
-        content: parseMergeForwardContent({ content: JSON.stringify(responseItems) }),
+        content: parseMergeForwardContent(responseItems),
       };
     }
     return parsedItem;

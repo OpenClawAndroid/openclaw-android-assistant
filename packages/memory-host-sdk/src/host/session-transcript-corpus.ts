@@ -13,7 +13,8 @@ import {
   isCronRunSessionKey,
   isSessionArchiveArtifactName,
   isUsageCountedSessionTranscriptFileName,
-  listSessionEntries,
+  listSessionEntriesCore,
+  listSessionEntriesReadOnly,
   listSessionTranscriptArchivesReadOnly,
   listSessionTranscriptInstances,
   parseUsageCountedSessionIdFromFileName,
@@ -393,11 +394,13 @@ function projectSessionTranscriptCorpusEntries(
   const includeContentRevision = options.includeContentRevision !== false;
   const activeEntriesBySessionId = new Map<string, SessionTranscriptCorpusEntry>();
   const entryOwnersBySessionId = new Map<string, string>();
-  const sessionEntries = listSessionEntries({
+  const listEntries =
+    options.readOnly === true ? listSessionEntriesReadOnly : listSessionEntriesCore;
+  const sessionEntries = listEntries({
     agentId: normalizedAgentId,
     env,
     hydrateSkillPromptRefs: false,
-    readOnly: options.readOnly === true,
+    projection: "list",
     storePath,
   });
   const retainedInstances = options.includeRetainedSqlite
@@ -405,6 +408,7 @@ function projectSessionTranscriptCorpusEntries(
         agentId: normalizedAgentId,
         env,
         hydrateSkillPromptRefs: false,
+        projection: "list",
         readConsistency: "latest",
         storePath,
       })

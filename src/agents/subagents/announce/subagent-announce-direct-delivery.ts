@@ -80,6 +80,7 @@ const REQUESTER_FINAL_VISIBLE_TEXT_MAX_CHARS = 12_000;
 export async function sendSubagentAnnounceDirectly(params: {
   requesterSessionKey: string;
   requesterAgentId?: string;
+  requesterRunTimeoutSeconds?: number;
   targetRequesterSessionKey: string;
   triggerMessage: string;
   internalEvents?: AgentInternalEvent[];
@@ -361,6 +362,7 @@ export async function sendSubagentAnnounceDirectly(params: {
     const directAgentParams: Record<string, unknown> = {
       ...(parentOnly ? { expectedExistingSessionId: params.completionRequesterSessionId } : {}),
       sessionKey: canonicalRequesterSessionKey,
+      timeout: params.requesterRunTimeoutSeconds,
       message: params.triggerMessage,
       deliver: shouldDeliverAgentFinal,
       bestEffortDeliver: params.bestEffortDeliver,

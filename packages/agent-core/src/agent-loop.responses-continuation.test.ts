@@ -156,6 +156,7 @@ describe("Responses turn continuation", () => {
             timestamp: expect.any(Number),
             details: {
               eventType: scenario.incomplete ? "response.incomplete" : "response.completed",
+              ...(scenario.incomplete ? { incompleteReason: "max_output_tokens" } : {}),
               endTurn:
                 typeof providerEndTurn === "boolean"
                   ? providerEndTurn

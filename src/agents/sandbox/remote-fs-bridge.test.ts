@@ -4,9 +4,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
+import { GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE } from "../../infra/guest-filesystem.js";
 import { createSandboxedReadTool, createSandboxedWriteTool } from "../agent-tools.read.js";
 import { resolveSandboxFileMutationQueueKey } from "./file-mutation-identity.js";
-import { SANDBOX_CREATE_EXISTS_EXIT_CODE } from "./fs-bridge-mutation-python.js";
 import { createSandbox } from "./fs-bridge.test-helpers.js";
 import {
   createRemoteShellSandboxFsBridge,
@@ -169,7 +169,7 @@ describe("remote sandbox fs bridge", () => {
       remoteAgentWorkspaceDir: "/workspace",
       spawn: () => ({
         error: pipeError,
-        status: SANDBOX_CREATE_EXISTS_EXIT_CODE,
+        status: GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE,
         signal: null,
         stdout: Buffer.alloc(0),
         stderr: Buffer.alloc(0),
@@ -183,7 +183,7 @@ describe("remote sandbox fs bridge", () => {
         stdin: Buffer.alloc(1_048_576),
         allowFailure: true,
       }),
-    ).resolves.toMatchObject({ code: SANDBOX_CREATE_EXISTS_EXIT_CODE });
+    ).resolves.toMatchObject({ code: GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE });
   });
 
   it.each([
@@ -205,7 +205,7 @@ describe("remote sandbox fs bridge", () => {
     {
       name: "a different exit status",
       command: {},
-      result: { status: SANDBOX_CREATE_EXISTS_EXIT_CODE + 1 },
+      result: { status: GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE + 1 },
     },
     {
       name: "a signaled child",
@@ -223,7 +223,8 @@ describe("remote sandbox fs bridge", () => {
     });
     const spawnResult: LocalRemoteShellSpawnResult = {
       error: spawnError,
-      status: result.status === undefined ? SANDBOX_CREATE_EXISTS_EXIT_CODE : result.status,
+      status:
+        result.status === undefined ? GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE : result.status,
       signal: result.signal === undefined ? null : result.signal,
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),

@@ -221,6 +221,11 @@ describe("test-projects args", () => {
       config: "test/vitest/vitest.infra.config.ts",
     },
     {
+      title: "routes plugin setup lifecycle to the infra fork shard",
+      target: "src/plugins/setup-registry.lifecycle.test.ts",
+      config: "test/vitest/vitest.infra.config.ts",
+    },
+    {
       title: "routes logging targets to the logging config",
       target: "src/logging/console-settings.test.ts",
       config: "test/vitest/vitest.logging.config.ts",

@@ -43,6 +43,25 @@ describe("chat pane native history pagination", () => {
     expect(pane.chatProps?.userAvatar).toBe(user.avatarUrl);
   });
 
+  it("reuses the last resolved viewer identity while reconnecting drops selfUser", () => {
+    const { pane, context } = createRefreshChatPane();
+    const user = {
+      id: "profile-viewer",
+      name: "Viewer",
+      identity: { type: "profile" as const, id: "profile-viewer" },
+    };
+    context.gateway.snapshot.selfUser = user;
+    pane.render();
+    expect(pane.chatProps?.userId).toBe("profile-viewer");
+
+    // A reconnect briefly clears selfUser; peer alignment must not flash by
+    // falling back to null. The last resolved identity is presentation-only
+    // (alignment + sender label), never authorization.
+    context.gateway.snapshot.selfUser = null;
+    pane.render();
+    expect(pane.chatProps?.userId).toBe("profile-viewer");
+  });
+
   it.each(["pending", "resolved"] as const)(
     "keeps a %s people query selectable when selected-session metadata hydrates",
     async (replyState) => {

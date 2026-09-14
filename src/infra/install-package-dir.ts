@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assertDirectoryIdentitySync, readDirectoryIdentity } from "@openclaw/fs-safe/advanced";
 import type { MovePathPublicationReceipt } from "@openclaw/fs-safe/atomic";
 import { isRecord as isObjectRecord } from "@openclaw/normalization-core/record-coerce";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { hasErrnoCode } from "./errno.js";
-import { pathExists } from "./fs-safe.js";
+import { FsSafeError, pathExists } from "./fs-safe.js";
 import { assertCanonicalPathWithinBase } from "./install-safe-path.js";
 import { formatNpmCommandFailureOutput } from "./install-source-utils.js";
 import { tryReadJson, writeJson } from "./json-files.js";
@@ -287,20 +288,16 @@ export async function installPackageDir<
     return { ok: false, error: `${params.copyErrorPrefix}: ${String(err)}` };
   }
 
-  const baseIdentity = fsSync.lstatSync(installBaseRealPath, { bigint: true });
+  const baseIdentity = await readDirectoryIdentity(installBaseRealPath);
   const assertDirectoryIdentity = (directory: string, identity: { dev: bigint; ino: bigint }) => {
-    const current = fsSync.lstatSync(directory, { bigint: true });
-    // Unknown Windows identities cannot authorize a directory mutation.
-    const identityKnown =
-      process.platform !== "win32" ||
-      (current.dev !== 0n && current.ino !== 0n && identity.dev !== 0n && identity.ino !== 0n);
-    if (
-      !current.isDirectory() ||
-      !identityKnown ||
-      current.dev !== identity.dev ||
-      current.ino !== identity.ino
-    ) {
-      throw new Error(`install directory changed: ${directory}`);
+    try {
+      // Publication receipts survive relocation into rollback quarantine.
+      assertDirectoryIdentitySync(directory, { dev: identity.dev, ino: identity.ino });
+    } catch (error) {
+      if (error instanceof FsSafeError && error.category === "policy") {
+        throw new Error(`install directory changed: ${directory}`, { cause: error });
+      }
+      throw error;
     }
   };
   const assertRollbackOwned = () => {
@@ -320,7 +317,9 @@ export async function installPackageDir<
   const sourceHardlinks = resolveMoveSourceHardlinks(
     params.sourceHardlinks ?? DEFAULT_INSTALL_SOURCE_HARDLINKS,
   );
-  let quarantine: { directory: string; identity: fsSync.BigIntStats } | undefined;
+  let quarantine:
+    | { directory: string; identity: Awaited<ReturnType<typeof readDirectoryIdentity>> }
+    | undefined;
   const rollback = async () => {
     const installedIdentity = published.install;
     if (installedIdentity) {
@@ -332,7 +331,7 @@ export async function installPackageDir<
         const directory = await fs.mkdtemp(
           path.join(installBaseRealPath, ".openclaw-install-rollback-"),
         );
-        const identity = fsSync.lstatSync(directory, { bigint: true });
+        const identity = await readDirectoryIdentity(directory);
         try {
           assertDirectoryIdentity(directory, identity);
           assertDirectoryIdentity(canonicalTargetDir, installedIdentity);

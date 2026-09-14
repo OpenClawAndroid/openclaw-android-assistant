@@ -279,6 +279,7 @@ write_summary() {
     SUMMARY_UPDATE_OUTCOME="${update_outcome:-success}" \
     SUMMARY_UPDATE_REPAIR_REQUIRED="$update_repair_required" \
     SUMMARY_UPDATE_RESTART_SOURCE="$update_restart_source" \
+    SUMMARY_INITIAL_UPDATE_OBSERVATION_ROOT="$initial_update_observation_root" \
     SUMMARY_START_SECONDS="$start_seconds" \
     SUMMARY_UPDATE_RESTART_SECONDS="$update_restart_seconds" \
     SUMMARY_IDEMPOTENCE_SECONDS="$idempotence_seconds" \
@@ -297,8 +298,10 @@ write_summary() {
     SUMMARY_RESTART_FIXTURE="$restart_fixture_evidence" \
     SUMMARY_RESTART_RUNTIME_FIXTURE="$restart_runtime_evidence" \
     SUMMARY_RESTART_INFERENCE="$restart_inference" \
-    node <<'NODE'
-const fs = require("node:fs");
+    node --input-type=module <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+import { readPostCoreSnapshot } from "./scripts/e2e/lib/upgrade-survivor/diagnostics.mjs";
 const phaseLog = process.env.SUMMARY_PHASE_LOG;
 const phases = fs.existsSync(phaseLog)
   ? fs.readFileSync(phaseLog, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
@@ -312,6 +315,15 @@ const readJsonOrNull = (file) => {
   if (!file || !fs.existsSync(file)) return null;
   return JSON.parse(fs.readFileSync(file, "utf8"));
 };
+let firstHopPostCore = { availability: "unavailable" };
+if (process.env.SUMMARY_INITIAL_UPDATE_OBSERVATION_ROOT) {
+  try {
+    const snapshot = readPostCoreSnapshot(process.env.SUMMARY_INITIAL_UPDATE_OBSERVATION_ROOT);
+    if (snapshot !== null) firstHopPostCore = { availability: "captured", ...snapshot };
+  } catch {
+    // Missing initial evidence must not be replaced by a later recovery invocation.
+  }
+}
 const summary = {
   status: process.env.SUMMARY_STATUS,
   baseline: {
@@ -330,6 +342,7 @@ const summary = {
   updateOutcome: process.env.SUMMARY_UPDATE_OUTCOME || "success",
   updateRecovery: process.env.SUMMARY_UPDATE_REPAIR_REQUIRED === "1" ? "capability-consent" : null,
   updateRestartSource: process.env.SUMMARY_UPDATE_RESTART_SOURCE || null,
+  firstHopPostCore,
   restartFixture: readJsonOrNull(process.env.SUMMARY_RESTART_FIXTURE),
   restartRuntimeFixture: readJsonOrNull(process.env.SUMMARY_RESTART_RUNTIME_FIXTURE),
   restartInference: process.env.SUMMARY_RESTART_INFERENCE || null,
@@ -343,7 +356,7 @@ const summary = {
   },
   config: readJsonOrNull(process.env.SUMMARY_CONFIG_COVERAGE),
   recovery: process.env.SUMMARY_SCENARIO === "recovery-cleanup"
-    ? readJsonOrNull(require("node:path").join(require("node:path").dirname(process.env.SUMMARY_JSON), "recovery-evidence.json"))
+    ? readJsonOrNull(path.join(path.dirname(process.env.SUMMARY_JSON), "recovery-evidence.json"))
     : undefined,
   watchosDirectNode: process.env.SUMMARY_SCENARIO === "watchos-direct-node"
     ? {

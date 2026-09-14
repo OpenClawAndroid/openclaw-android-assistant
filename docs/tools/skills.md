@@ -761,6 +761,10 @@ restoring watch capacity to enable native watching again.
     Offline nodes do **not** make remote-only skills visible. If a node stops
     answering bin probes, OpenClaw clears its cached bin matches.
 
+    Connect-time bin probes wait briefly for the node's command handlers.
+    Gateway shutdown cancels this readiness wait and still joins probes that
+    have already started.
+
   </Accordion>
 </AccordionGroup>
 

@@ -185,18 +185,31 @@ describe("official plugin read-only authority", () => {
     return { owner, record, plugin, handleAction, register, context };
   }
 
-  it.each(["read", "search", "reactions", "list-pins", "thread-list", "channel-info"] as const)(
-    "dispatches configured cross-conversation %s",
-    async (action) => {
-      const fixture = registerReader();
-      const ctx = { ...fixture.context, action };
-      // A client must still defer to the Gateway's attested live registration.
-      expect(shouldDeferExternalMessageActionTargetResolution(ctx)).toBe(true);
-      expect(prepareExternalMessageActionTargetForResolution(ctx).params).toBe(ctx.params);
-      expect(await dispatchChannelMessageAction(ctx)).toBe(receipt);
-      expect(fixture.handleAction).toHaveBeenCalledOnce();
-    },
-  );
+  it.each([
+    "read",
+    "search",
+    "reactions",
+    "list-pins",
+    "thread-list",
+    "channel-info",
+    "download-file",
+  ] as const)("dispatches configured cross-conversation %s", async (action) => {
+    const fixture = registerReader({ readActions: [action] });
+    const ctx = { ...fixture.context, action };
+    // A client must still defer to the Gateway's attested live registration.
+    expect(shouldDeferExternalMessageActionTargetResolution(ctx)).toBe(true);
+    expect(prepareExternalMessageActionTargetForResolution(ctx).params).toBe(ctx.params);
+    expect(await dispatchChannelMessageAction(ctx)).toBe(receipt);
+    expect(fixture.handleAction).toHaveBeenCalledOnce();
+  });
+
+  it("does not enroll an existing reader into download authority", async () => {
+    const fixture = registerReader();
+    await expect(
+      dispatchChannelMessageAction({ ...fixture.context, action: "download-file" }),
+    ).rejects.toThrow("exact current conversation");
+    expect(fixture.handleAction).not.toHaveBeenCalled();
+  });
 
   it.each([
     { trusted: false },
@@ -229,22 +242,16 @@ describe("official plugin read-only authority", () => {
     ).toBe(receipt);
   });
 
-  it.each([
-    "react",
-    "poll-vote",
-    "edit",
-    "delete",
-    "pin",
-    "unpin",
-    "unsend",
-    "download-file",
-  ] as const)("does not broaden %s authority", async (action) => {
-    const fixture = registerReader({ readActions: [action] });
-    await expect(dispatchChannelMessageAction({ ...fixture.context, action })).rejects.toThrow(
-      "exact current conversation",
-    );
-    expect(fixture.handleAction).not.toHaveBeenCalled();
-  });
+  it.each(["react", "poll-vote", "edit", "delete", "pin", "unpin", "unsend"] as const)(
+    "does not broaden %s authority",
+    async (action) => {
+      const fixture = registerReader({ readActions: [action] });
+      await expect(dispatchChannelMessageAction({ ...fixture.context, action })).rejects.toThrow(
+        "exact current conversation",
+      );
+      expect(fixture.handleAction).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { requesterAccountId: "other-account" },

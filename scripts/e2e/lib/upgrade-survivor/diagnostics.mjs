@@ -697,7 +697,127 @@ async function capture(artifactRoot, phase, exitStatus, signal = "", observation
   );
 }
 
-export function publishDiagnostics(artifactRoot, destination, redactSensitiveText) {
+function publishedPostCore(snapshot, sanitize) {
+  if (snapshot?.availability === "captured") {
+    try {
+      const code = snapshot.childExitCode;
+      if (!Number.isInteger(code) || code < 0 || code > 255) {
+        throw new Error();
+      }
+      return {
+        availability: "captured",
+        childExitCode: code,
+        result: postCoreResult(snapshot.result, sanitize),
+      };
+    } catch {
+      omissions["post-core"] = reasons[3];
+    }
+  }
+  return {
+    availability: "unavailable",
+    reason: "No complete exit snapshot; original outcome unknown",
+  };
+}
+
+function publishedSuccessSummary(artifactRoot, sanitize) {
+  const raw = readOwned(artifactRoot, "summary.json", "summary");
+  if (raw === null) {
+    throw new Error();
+  }
+  const snapshot = JSON.parse(raw);
+  if (snapshot.status !== "passed") {
+    throw new Error();
+  }
+  for (const value of [
+    snapshot.baseline?.spec,
+    snapshot.baseline?.version,
+    snapshot.candidate?.kind,
+    snapshot.candidate?.version,
+    snapshot.scenario,
+    snapshot.installedVersion,
+    snapshot.candidateInstallMode,
+    snapshot.updateRestartMode,
+    snapshot.updateOutcome,
+  ]) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error();
+    }
+  }
+  const timings = {};
+  for (const key of [
+    "startupSeconds",
+    "updateRestartSeconds",
+    "idempotenceSeconds",
+    "healthzSeconds",
+    "readyzSeconds",
+    "statusSeconds",
+  ]) {
+    const value = snapshot.timings?.[key] ?? null;
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) {
+      throw new Error();
+    }
+    timings[key] = value;
+  }
+  return {
+    status: "passed",
+    baseline: textFields(snapshot.baseline, ["spec", "version"], sanitize),
+    candidate: textFields(snapshot.candidate, ["kind", "version"], sanitize),
+    ...textFields(
+      snapshot,
+      [
+        "scenario",
+        "installedVersion",
+        "candidateInstallMode",
+        "updateRestartMode",
+        "updateOutcome",
+      ],
+      sanitize,
+    ),
+    updateRecovery: sanitize(snapshot.updateRecovery, "summary"),
+    updateRestartSource: sanitize(snapshot.updateRestartSource, "summary"),
+    firstHopPostCore: publishedPostCore(snapshot.firstHopPostCore, sanitize),
+    timings,
+    phases: boundedList(snapshot.phases).map((event) => {
+      if (
+        !["started", "passed", "failed"].includes(event?.status) ||
+        typeof event.phase !== "string" ||
+        !/^[a-z0-9-]{1,80}$/.test(event.phase) ||
+        typeof event.at !== "string" ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(event.at)
+      ) {
+        throw new Error();
+      }
+      return { phase: sanitize(event.phase, "phase"), status: event.status, at: event.at };
+    }),
+    logs: Object.fromEntries(
+      ["update.json", "repair.json", "recovery-update.json"].map((name) => [
+        name,
+        sanitize(readOwned(artifactRoot, name, name), name),
+      ]),
+    ),
+    omissions,
+  };
+}
+
+export function publishDiagnostics(
+  artifactRoot,
+  destination,
+  redactSensitiveText,
+  outcome = "failed",
+) {
+  if (outcome === "passed") {
+    writeReport(
+      artifactRoot,
+      destination,
+      "summary.json",
+      publishedSuccessSummary(artifactRoot, sanitize),
+      publicLimit,
+    );
+    return;
+  }
+  if (outcome !== "failed") {
+    throw new Error();
+  }
   const raw = readOwned(artifactRoot, "diagnostics/raw.json", "private snapshot", privateLimit);
   if (raw === null) {
     throw new Error();
@@ -789,25 +909,7 @@ export function publishDiagnostics(artifactRoot, destination, redactSensitiveTex
     }
     report.config.sha256 = snapshot.config.sha256;
   }
-  report.postCore = {
-    availability: "unavailable",
-    reason: "No complete exit snapshot; original outcome unknown",
-  };
-  if (snapshot.postCore?.availability === "captured") {
-    try {
-      const code = snapshot.postCore.childExitCode;
-      if (!Number.isInteger(code) || code < 0 || code > 255) {
-        throw new Error();
-      }
-      report.postCore = {
-        availability: "captured",
-        childExitCode: code,
-        result: postCoreResult(snapshot.postCore.result, sanitize),
-      };
-    } catch {
-      omissions["post-core"] = reasons[3];
-    }
-  }
+  report.postCore = publishedPostCore(snapshot.postCore, sanitize);
   report.pluginIdentity = {
     availability: "unknown",
     evidence: "persisted index + current bytes; not observed loaded modules",

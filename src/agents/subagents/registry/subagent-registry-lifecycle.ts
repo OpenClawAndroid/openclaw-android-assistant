@@ -321,7 +321,14 @@ export class SubagentLifecycleController {
       ...args,
       runs: this.options.runs,
       persistOrThrow: (...runIds) => this.options.persistOrThrow(...runIds),
-      schedule: (runId, entry) => {
+      schedule: (runId, entry, kind) => {
+        if (kind === "completion") {
+          if (!this.hasCleanupFailure(entry)) {
+            this.options.resumedRuns.delete(runId);
+            this.options.resumeSubagentRun(runId);
+          }
+          return;
+        }
         if (this.hasScheduledRequesterSettleWakeRun(entry)) {
           this.markRequesterSettleWakeRearm(entry);
           return;

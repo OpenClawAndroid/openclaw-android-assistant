@@ -230,11 +230,15 @@ from custom HTML widgets and does not loosen their sandbox or network grants.
 
 ## Share a browser dashboard with your agent
 
-Use a **Browser dashboard** when you want your agent to read and interact with
-the same page you see:
+Ask for a **Browser dashboard** when you want a saved dashboard where your agent
+can read and interact with the same page you see:
 
 > Open this HTTP status app as a fullscreen dashboard. Pin this session as
 > Service Status, and use that same page when I ask you to change its filters.
+
+To show the browser beside chat, ask to open the
+[Browser side panel](/web/control-ui/panels#browser-panel). That opens the
+existing panel without creating a dashboard widget or expanding the board.
 
 The Browser plugin's `browser:dashboard` widget presents a tab in a local
 OpenClaw-managed browser. The Control UI streams that tab, so HTTP apps also

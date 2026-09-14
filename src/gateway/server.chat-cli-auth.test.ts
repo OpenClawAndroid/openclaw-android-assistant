@@ -3,8 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
 import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
+import { captureConfigHealthStateStore } from "../config/io.health-state.js";
+import { createConfigIO } from "../config/io.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveExecutablePath } from "../infra/executable-path.js";
+import { closeOpenClawStateDatabaseByPathAsync } from "../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { createWindowsCmdShimFixture } from "../test-helpers/windows-cmd-shim.js";
 import { setTestEnvValue } from "../test-utils/env.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
@@ -433,6 +437,34 @@ async function runCliAuthCase(
     }
   }
 }
+
+it("persists config health in the isolated Gateway process", async () => {
+  const state = await createOpenClawTestState({
+    label: "gateway-config-health",
+    env: { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" },
+  });
+  const warn = vi.fn();
+  const deps = { env: state.env, homedir: () => state.home, logger: { warn, error: vi.fn() } };
+  const readHealth = async () => {
+    using health = captureConfigHealthStateStore(deps, state.configPath);
+    return (await health.read())?.state;
+  };
+  try {
+    await state.writeConfig({ gateway: { mode: "local" } });
+    const snapshot = await createConfigIO({
+      ...deps,
+      configPath: state.configPath,
+    }).readConfigFileSnapshot();
+    expect(snapshot.valid).toBe(true);
+    const observed = await readHealth();
+    expect(observed?.entries?.[state.configPath]?.lastKnownGood?.hash).toBe(snapshot.hash);
+    await closeOpenClawStateDatabaseByPathAsync(resolveOpenClawStateSqlitePath(state.env));
+    expect(await readHealth()).toEqual(observed);
+    expect(warn).not.toHaveBeenCalled();
+  } finally {
+    await state.cleanup();
+  }
+});
 
 it("does not start a Gateway after CLI auth fixture acquisition is cancelled", async () => {
   const controller = new AbortController();

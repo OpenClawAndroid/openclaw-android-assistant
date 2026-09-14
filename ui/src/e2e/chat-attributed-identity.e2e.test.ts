@@ -253,11 +253,19 @@ suite.define(() => {
               },
             },
           });
-          const peer = page.locator(".chat-group--peer", {
-            hasText: "Riley joined this conversation.",
-          });
-          await expect(peer.locator(".chat-sender-name")).toHaveText("Riley");
-          await expect(peer.locator(".chat-group-footer")).toHaveCSS("opacity", "1");
+          if (profiled) {
+            const peer = page.locator(".chat-group--peer", {
+              hasText: "Riley joined this conversation.",
+            });
+            await expect(peer.locator(".chat-sender-name")).toHaveText("Riley");
+            await expect(peer.locator(".chat-group-footer")).toHaveCSS("opacity", "1");
+          } else {
+            const own = page.locator(".chat-group.user", {
+              hasText: "Keep the phone transcript readable.",
+            });
+            await expect(own).not.toHaveClass(/chat-group--peer/u);
+            await expect(own).toHaveCSS("justify-content", "end");
+          }
           if (height === 430) {
             const thread = page.locator(".chat-thread");
             await thread.focus();

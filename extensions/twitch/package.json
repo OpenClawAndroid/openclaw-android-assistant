@@ -25,6 +25,7 @@
       "configPromotion": true
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/twitch",
       "npmSpec": "@openclaw/twitch",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

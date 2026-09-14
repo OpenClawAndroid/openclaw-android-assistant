@@ -682,6 +682,12 @@ describe("browser tool description", () => {
     expect(tool.description).toContain("act:evaluate supports timeoutMs");
     expect(tool.description).toContain("existing-session profiles");
     expect(tool.description).toContain("browser-automation skill");
+    expect(tool.description).toContain(
+      "Only create a Browser dashboard when the user asks for a dashboard",
+    );
+    expect(tool.description).toContain(
+      "Opening the browser sidebar or side panel does not require a widget",
+    );
     expect(tool.description).toContain("trigger ref with paths in the same upload call");
     expect(tool.description).toContain("paths-only arming");
   });

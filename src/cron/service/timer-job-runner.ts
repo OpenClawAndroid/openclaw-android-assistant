@@ -323,7 +323,7 @@ async function executeJobCoreWithTimeoutUnfinalized(
       if (runAbortController.signal.aborted) {
         state.deps.log.warn(
           { jobId: job.id, err: String(err) },
-          `cron: job core rejected after ${watchdog ? "timeout" : "cancellation"} abort`,
+          `cron: job core rejected after abort: ${abortErrorMessage(runAbortController.signal)}`,
         );
       }
     });

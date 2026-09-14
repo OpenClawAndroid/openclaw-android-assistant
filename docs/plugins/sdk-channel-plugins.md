@@ -533,14 +533,15 @@ Write colocated tests in `src/channel.test.ts`:
 
 ## Delegated context reads
 
-Verified official installed plugins can delegate supported conversation and metadata
+Verified official installed plugins can delegate supported conversation, metadata, and attachment
 reads to provider-owned access checks. The request still needs server-owned current
 provider, account, and conversation context. Provider destination policies remain
 in force; this does not grant unrestricted account access.
 
-An adapter lists each supported action in `actions.readAuthorityActions` and
-includes it in `actions.providerOwnedReadGates`. The host also classifies the action
-as eligible; a later host addition does not opt existing adapters into it.
+An adapter lists actions that support the lifetime fence in `actions.readAuthorityActions`.
+Its `actions.providerOwnedReadGates` declaration separately identifies the actions
+whose admission the provider owns. The host also classifies the action as eligible;
+a later host addition does not opt existing adapters into it.
 Only host-verified official registrations qualify. Discord supports `read`, `search`,
 `reactions`, `list-pins`, `thread-list`, `channel-info`, `permissions`, `member-info`,
 `role-info`, `emoji-list`, `channel-list`, `voice-status`, and `event-list`.
@@ -549,7 +550,8 @@ Feishu supports `read`, `reactions`, `list-pins`, `member-info`, `channel-info`,
 Matrix supports `read`, `reactions`, `list-pins`, `emoji-list`, `member-info`, and
 `channel-info`.
 Mattermost supports `read`.
-Slack supports `read`, `reactions`, `list-pins`, `member-info`, and `emoji-list`.
+Slack supports `read`, `reactions`, `list-pins`, `member-info`, `emoji-list`, and
+`download-file`.
 Older external adapters and unverified plugins retain the exact-current-conversation
 restriction. Write actions and
 other read-capable actions are unchanged.
@@ -557,6 +559,9 @@ other read-capable actions are unchanged.
 Delegated Slack member info is limited to the current requester on the same account,
 and emoji discovery uses the trusted workspace. Neither metadata action requires
 a channel target.
+
+Microsoft Teams supports `read`, `search`, `reactions`, `list-pins`, `member-info`,
+`channel-info`, and `channel-list` under the [Teams access rules](/channels/msteams/access-control).
 
 Discord's `permissions` action inspects the bot's permissions for an allowed channel.
 Guild metadata reads require the requested guild to be allowed by the selected
@@ -584,6 +589,13 @@ action results and errors after either caller or plugin authority is revoked.
 A completed action also closes its captured callbacks. The fence prevents
 subsequent requests; it cannot undo a request already sent to the provider. No
 configuration switch or plugin-supplied trust field can mint this authority.
+
+Slack attachment downloads retain the originating read authority through URL
+refresh, binary transfer, media-store publication, image processing, and final
+host completion. The existing media artifact is kept only when the read succeeds.
+If completion is rejected, cleanup removes only files created by that operation;
+preexisting files, replacements, and shared files are preserved. The source abort
+signal also reaches the binary transfer where the caller supplies one.
 
 ## Advanced topics
 

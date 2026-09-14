@@ -61,6 +61,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/feishu",
       "npmSpec": "@openclaw/feishu",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.5.29"

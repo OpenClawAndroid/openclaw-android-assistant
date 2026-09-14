@@ -1481,6 +1481,7 @@ export function buildAgentSystemPrompt(params: {
     ...(!isMinimal
       ? [
           buildUiPresentationPrompt({
+            screenToolName: availableTools.has("screen") ? resolveToolName("screen") : undefined,
             messageTool: messageToolAvailable ? params.messageTool : undefined,
             showWidgetToolName: availableTools.has("show_widget")
               ? resolveToolName("show_widget")

@@ -189,14 +189,12 @@ function renderPreparedGroupMessage(
   );
 }
 
-function isPeerSenderGroup(
+function isOwnSenderGroup(
   group: Pick<MessageGroup, "sender">,
   userId: string | null | undefined,
 ): boolean {
   const identity = group.sender?.identity;
-  return Boolean(
-    group.sender && !(userId && identity?.type === "profile" && identity.id === userId),
-  );
+  return identity?.type === "profile" && identity.id === userId;
 }
 
 export function renderActivityGroup(
@@ -382,7 +380,7 @@ export function resolveMessageGroupSenderLabel(
   group: Pick<MessageGroup, "role" | "sender" | "senderLabel" | "sourceClients"> & {
     messages: ReadonlyArray<{ message: unknown }>;
   },
-  opts: Pick<RenderMessageGroupOptions, "assistantName" | "userId" | "userName" | "userAvatar">,
+  opts: Pick<RenderMessageGroupOptions, "assistantName" | "userId" | "userName">,
 ): string {
   const normalizedRole = normalizeRoleForGrouping(group.role);
   if (isSourceOnlyUserGroup(group)) {
@@ -402,20 +400,14 @@ export function resolveMessageGroupSenderLabel(
       ? t("chat.workspaceConflict.eventSender")
       : t("common.system");
   }
-  const assistantName = opts.assistantName ?? "Assistant";
-  const resolvedUserName = resolveLocalUserName({
-    name: opts.userName ?? null,
-    avatar: opts.userAvatar ?? null,
-  });
+  const resolvedUserName = resolveLocalUserName({ name: opts.userName });
   const userLabel = group.senderLabel?.trim();
-  const isPeerGroup = normalizedRole === "user" && isPeerSenderGroup(group, opts.userId);
-  const isCurrentUser = normalizedRole === "user" && Boolean(group.sender) && !isPeerGroup;
   return normalizedRole === "user"
-    ? isCurrentUser
+    ? isOwnSenderGroup(group, opts.userId)
       ? resolvedUserName
       : (userLabel ?? resolvedUserName)
     : normalizedRole === "assistant"
-      ? (userLabel ?? assistantName)
+      ? (userLabel ?? opts.assistantName ?? "Assistant")
       : normalizedRole === "tool"
         ? t("chat.messages.toolSender")
         : normalizedRole;
@@ -449,7 +441,10 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
   const normalizedRole = normalizeRoleForGrouping(group.role);
   const sourceOnly = isSourceOnlyUserGroup(group);
   const assistantName = opts.assistantName ?? "Assistant";
-  const isPeerGroup = normalizedRole === "user" && isPeerSenderGroup(group, opts.userId);
+  const isPeerGroup =
+    normalizedRole === "user" &&
+    Boolean(opts.userId && group.sender) &&
+    !isOwnSenderGroup(group, opts.userId);
   const isForwarded = normalizedRole === "assistant" && hasForwardedSource(group);
   const sourceSessionKey = group.senderSession?.sessionKey;
   const who = resolveMessageGroupSenderLabel(group, opts);

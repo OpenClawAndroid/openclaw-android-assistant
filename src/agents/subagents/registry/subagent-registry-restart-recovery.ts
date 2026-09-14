@@ -405,6 +405,7 @@ export async function recoverInterruptedSubagentRow(
               idempotencyKey,
               deliver: false,
               lane: "subagent",
+              timeout: params.entry.runTimeoutSeconds ?? 0,
               ...(params.entry.collect
                 ? { swarmCollector: true, swarmOutputSchema: params.entry.outputSchema }
                 : {}),

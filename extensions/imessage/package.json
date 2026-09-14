@@ -100,7 +100,10 @@
     },
     "build": {
       "openclawVersion": "2026.9.4",
-      "bundledDist": false
+      "bundledDist": false,
+      "workerEntries": [
+        "./src/send-receipt-db.worker.ts"
+      ]
     },
     "release": {
       "publishToClawHub": true,

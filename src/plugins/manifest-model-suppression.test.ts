@@ -91,26 +91,60 @@ describe("manifest model suppression", () => {
   });
 
   describe("buildManifestBuiltInModelSuppressionResolver", () => {
-    it("reads planned manifest suppressions once per resolver creation", () => {
-      const config = { plugins: { entries: { openai: { enabled: true } } } };
+    it("traverses plugin policy once per compilation while preserving owner restrictions", () => {
+      const ids = Array.from({ length: 8 }, (_, index) => `fixture-${index}`);
+      let enumerations = 0;
+      const entries = new Proxy(
+        Object.fromEntries(ids.map((id) => [id, { enabled: id !== "fixture-1" }])),
+        {
+          ownKeys(target) {
+            enumerations += 1;
+            return Reflect.ownKeys(target);
+          },
+        },
+      );
+      const config = {
+        plugins: {
+          entries,
+          allow: ids.filter((id) => id !== "fixture-7"),
+          deny: ["fixture-2"],
+        },
+      };
+      mocks.loadPluginMetadataSnapshot.mockReturnValue(
+        createMetadataSnapshot(
+          ids.map((id) => ({
+            id,
+            providers: [id],
+            modelCatalog: { suppressions: [{ provider: id, model: "retired" }] },
+          })),
+        ),
+      );
+      const resolver = buildManifestBuiltInModelSuppressionResolver({ config });
 
-      const resolver = buildManifestBuiltInModelSuppressionResolver({
-        config,
-        env: process.env,
-      });
-
+      expect(ids.map((provider) => Boolean(resolver({ provider, id: "retired" })))).toEqual([
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+      ]);
       expect(mocks.loadPluginMetadataSnapshot).toHaveBeenCalledTimes(1);
+      expect(enumerations).toBe(1);
+      expect(buildManifestBuiltInModelSuppressionResolver({ config })).toBe(resolver);
+      expect(enumerations).toBe(1);
 
-      resolver({
-        provider: "azure-openai-responses",
-        id: "gpt-5.3-codex-spark",
+      const changedConfig = {
+        plugins: { ...config.plugins, deny: ["fixture-2", "fixture-4"] },
+      };
+      const changedResolver = buildManifestBuiltInModelSuppressionResolver({
+        config: changedConfig,
       });
-      resolver({
-        provider: "azure-openai-responses",
-        id: "gpt-5.3-codex-spark",
-      });
-
-      expect(mocks.loadPluginMetadataSnapshot).toHaveBeenCalledTimes(1);
+      expect(changedResolver({ provider: "fixture-4", id: "retired" })).toBeUndefined();
+      expect(resolver({ provider: "fixture-4", id: "retired" })?.suppress).toBe(true);
+      expect(enumerations).toBe(2);
     });
   });
 

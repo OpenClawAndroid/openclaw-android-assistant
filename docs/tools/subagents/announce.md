@@ -48,7 +48,9 @@ This option supports hidden, native, one-shot runs only. It cannot be combined
 with ACP, `collect: true`, `visible: true`, `thread: true`, `mode: "session"`, or
 `expectsCompletionMessage: false`. It does not change the default completion mode.
 
-Busy parents receive a separate private turn after their current work. A reset or
+Finished private results remain in the registry until the spawning parent turn
+settles. A normal parent finish releases each ready result for private review;
+`sessions_yield` hands the results to its existing child batch instead. A reset or
 removed parent does not transfer the result to another session. When a settled
 batch contains a private result, its combined review stays private; ordinary
 siblings retain their individual completion delivery.

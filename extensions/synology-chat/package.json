@@ -83,6 +83,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/synology-chat",
       "npmSpec": "@openclaw/synology-chat",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

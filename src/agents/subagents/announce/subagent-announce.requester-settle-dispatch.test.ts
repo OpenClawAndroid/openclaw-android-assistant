@@ -37,7 +37,9 @@ import { sendSubagentAnnounceDirectly } from "./subagent-announce-direct-deliver
 const startTurn = vi.hoisted(() => vi.fn());
 const deliver = vi.hoisted(() => vi.fn());
 const registryRead = vi.hoisted(() => ({
-  getLatestLiveSubagentRunByChildSessionKey: vi.fn(() => undefined),
+  getLatestLiveSubagentRunByChildSessionKey: vi.fn<() => SubagentRunRecord | undefined>(
+    () => undefined,
+  ),
   hasDescendantRunAwaitingSettle: vi.fn(() => false),
   listSubagentRunsForRequester: vi.fn<() => SubagentRunRecord[]>(() => []),
   getLatestSubagentRunByChildSessionKey: vi.fn(() => undefined),
@@ -140,6 +142,7 @@ describe("requester settle dispatch deadline", () => {
     startTurn.mockReset();
     deliver.mockReset();
     registryRead.hasDescendantRunAwaitingSettle.mockReset().mockReturnValue(false);
+    registryRead.getLatestLiveSubagentRunByChildSessionKey.mockReset().mockReturnValue(undefined);
     registryRead.getLatestSubagentRunByChildSessionKey.mockReset().mockReturnValue(undefined);
   });
 
@@ -149,10 +152,21 @@ describe("requester settle dispatch deadline", () => {
     vi.useRealTimers();
   });
 
-  it.each([false, true])(
-    "wakes a nested yielded requester once (child completed before yield=%s)",
-    async (afterRequesterYield) => {
+  it.each([
+    { afterRequesterYield: false, runTimeoutSeconds: 0 },
+    { afterRequesterYield: true, runTimeoutSeconds: 600 },
+    { afterRequesterYield: true, runTimeoutSeconds: undefined },
+  ])(
+    "wakes a nested yielded requester once with its $runTimeoutSeconds-second budget (child completed before yield=$afterRequesterYield)",
+    async ({ afterRequesterYield, runTimeoutSeconds }) => {
       const requesterSessionKey = "agent:main:subagent:middle";
+      registryRead.getLatestLiveSubagentRunByChildSessionKey.mockReturnValue({
+        ...settledChild(),
+        runId: "yielded-requester",
+        childSessionKey: requesterSessionKey,
+        pauseReason: "sessions_yield",
+        runTimeoutSeconds,
+      });
       const child = settledChild();
       child.requesterSessionKey = requesterSessionKey;
       child.requesterSettleWake = {
@@ -189,6 +203,7 @@ describe("requester settle dispatch deadline", () => {
         expect.objectContaining({
           targetRequesterSessionKey: requesterSessionKey,
           requesterIsSubagent: true,
+          requesterRunTimeoutSeconds: runTimeoutSeconds ?? 0,
           requireVisibleReply: true,
           sourceTool: "subagent_settle",
           triggerMessage: expect.stringContaining("child result"),

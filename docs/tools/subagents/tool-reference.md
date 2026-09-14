@@ -47,6 +47,9 @@ session to confirm the effective tool list.
 - **Process lifetime:** a detached OpenClaw sub-agent has its own run lifecycle. A background task created inside an external CLI backend is different: it shares the parent CLI subprocess and stops if that parent reaches `agents.defaults.timeoutSeconds`.
 - **Task delivery:** hidden and visible native sub-agents receive their delegated task in a `[Subagent Task]` message appended after any forked history. The message identifies the current child assignment and treats inherited conversation as background context. The hidden sub-agent system prompt carries runtime rules and routing context, not a duplicate of the task.
 
+Native sub-agent continuations after a Gateway restart or descendant completion
+preserve the recorded run timeout, including `0` for no timeout.
+
 Accepted native sub-agent spawns report their actual initialized `context`
 (`fork` or `isolated`), including `isolated` when a requested fork exceeds the
 parent-context size cap. They also include resolved child model metadata:

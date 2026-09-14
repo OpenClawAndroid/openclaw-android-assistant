@@ -981,6 +981,82 @@ describe("CI changed Node test plan", () => {
     ).toBe(true);
   });
 
+  describe("documentation targeting", () => {
+    it("keeps the complete two-job corpus plan beside a documentation page", () => {
+      const targets = [
+        "src/config/config-startup-corpus.test.ts",
+        "src/config/state-startup-corpus.test.ts",
+      ];
+      const before = createChangedNodeTestShards(targets);
+      expect(before).toHaveLength(2);
+      expect(before?.flatMap((shard) => shard.targets ?? [])).toEqual(targets);
+      expect(before?.some((shard) => shard.pretestBuildMode === "runtime")).toBe(true);
+      expect(createChangedNodeTestShards([...targets, "docs/ci/pipeline.md"])).toEqual(before);
+    });
+
+    it.each([
+      [["docs/guide.md"], "file", true],
+      [["docs/guide.mdx"], "file", true],
+      [["README.md"], "file", true],
+      [["docs/deleted.md"], "missing", true],
+      [["docs/old.md", "docs/new.md"], "rename", true],
+      [["docs/reference/templates/AGENTS.md"], "file", false],
+      [["docs/reference/templates/AGENTS.md"], "missing", false],
+      [["src/runtime.md"], "file", false],
+      [["test/fixtures/payload.md"], "file", false],
+      [["docs/script.ts"], "file", false],
+      [["src/deleted.ts", "docs/new.md"], "rename", false],
+      [["docs/reference/templates/old.md", "docs/new.md"], "rename", false],
+      [["docs/old.md", "docs/reference/templates/new.md"], "rename", false],
+      [["docs/guide.md"], "directory", false],
+      [["docs/guide.md"], "symlink", false],
+      [["docs/guide.md"], "dangling", false],
+      [["docs/../guide.md"], "file", false],
+    ] as const)("preserves Node ownership for %j (%s): %s", (paths, kind, precise) => {
+      const cwd = mkdtempSync(path.join(tmpdir(), "openclaw-docs-targeting-"));
+      const target = "src/channels/plugins/unowned.test.ts";
+      try {
+        mkdirSync(path.dirname(path.join(cwd, target)), { recursive: true });
+        writeFileSync(path.join(cwd, target), "export {};\n");
+        for (const file of kind === "missing" ? [] : kind === "rename" ? paths.slice(1) : paths) {
+          const absolute = path.join(cwd, file);
+          mkdirSync(path.dirname(absolute), { recursive: true });
+          if (kind === "directory") {
+            mkdirSync(absolute);
+          } else if (kind === "symlink" || kind === "dangling") {
+            if (kind === "symlink") {
+              writeFileSync(path.join(path.dirname(absolute), "target.md"), "# Guide\n");
+            }
+            symlinkSync("target.md", absolute);
+          } else {
+            writeFileSync(absolute, "# Guide\n");
+          }
+        }
+        const before = createChangedNodeTestShards([target], { cwd });
+        expect(before?.flatMap((shard) => shard.targets ?? [])).toEqual([target]);
+        expect(createChangedNodeTestShards([target, ...paths], { cwd })).toEqual(
+          precise ? before : null,
+        );
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+
+    it("retains the mapped prompt Markdown owner beside documentation", () => {
+      const fixture =
+        "test/fixtures/agents/prompt-snapshots/codex-runtime-happy-path/telegram-direct-codex-message-tool.md";
+      const before = createChangedNodeTestShards([fixture]);
+      expect(before).not.toBeNull();
+      const ownedTargets = before?.flatMap((shard) => [
+        ...(shard.targets ?? []),
+        ...(shard.includePatterns ?? []),
+        ...(shard.groups?.flatMap((group) => group.includePatterns ?? []) ?? []),
+      ]);
+      expect(ownedTargets).toContain("test/scripts/prompt-snapshots.test.ts");
+      expect(createChangedNodeTestShards([fixture, "docs/ci/pipeline.md"])).toEqual(before);
+    });
+  });
+
   it("fails safe whenever a diff deletes source files", () => {
     expect(createChangedNodeTestShards(["src/infra/format-time/deleted-helper.ts"])).toBeNull();
     expect(

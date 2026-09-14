@@ -1,5 +1,6 @@
 /** Shared provider diagnostics. */
 export * from "@openclaw/llm-core/diagnostics";
+export { isResponsesOutputLimitToolCallError } from "../providers/openai-responses-terminal-usage.js";
 export { projectDiagnosticValue, type DiagnosticProjectionPolicy } from "./credential-redaction.js";
 export { configureProviderErrorRedactor, type ProviderErrorRedactor } from "./provider-error.js";
 export {

@@ -9,6 +9,10 @@ import {
 
 export { readTranscriptStatsBatchReadOnlySync };
 export { readTranscriptExportSnapshotReadOnlySync };
+export {
+  listSessionEntriesCore,
+  listSessionEntriesReadOnly,
+} from "../../../../src/config/sessions/session-accessor.js";
 export { isIncognitoSessionKey } from "../../../../src/routing/session-key.js";
 export { isIncognitoOpenClawAgentSqlitePath } from "../../../../src/state/openclaw-agent-db.paths.js";
 export { cloneEnvWithPlatformSemantics } from "../../../../src/config/config-env-vars.js";
@@ -56,7 +60,6 @@ export { resolveSessionTranscriptsDirForAgent } from "../../../../src/config/ses
 export type { SessionEntry } from "../../../../src/config/sessions/types.js";
 export { isExecCompletionEvent } from "../../../../src/infra/heartbeat-events-filter.js";
 export {
-  listSessionEntries,
   parseSqliteSessionFileMarker,
   readTranscriptStatsSync,
   resolveStorePath,

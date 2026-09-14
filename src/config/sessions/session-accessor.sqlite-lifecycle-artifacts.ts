@@ -62,6 +62,12 @@ function sqliteTranscriptStateIsReclaimable(params: {
   nowMs: number;
   orphanTranscriptMinAgeMs: number;
 }): boolean {
+  if (
+    params.sessionUpdatedAt !== undefined &&
+    params.nowMs - params.sessionUpdatedAt < params.orphanTranscriptMinAgeMs
+  ) {
+    return false;
+  }
   const transcriptUpdatedAt = readSessionTranscriptUpdatedAt(params.database, params.sessionId);
   const updatedAt =
     params.sessionUpdatedAt === undefined

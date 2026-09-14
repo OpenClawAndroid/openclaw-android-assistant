@@ -744,15 +744,17 @@ describe("subagent registry lifecycle hardening", () => {
     { label: "bound", hasOwner: true },
     { label: "unbound", hasOwner: false },
   ])("uses only the $label run owner for announce dispatch", async ({ hasOwner }) => {
-    const entry = createRunEntry({ expectsCompletionMessage: true });
+    const entry = createRunEntry({ expectsCompletionMessage: true, runTimeoutSeconds: 600 });
     const liveContext = { marker: "live-context" };
     const resolveGatewayContext = () => liveContext;
     if (hasOwner) {
       bindGatewayContextResolver(entry, resolveGatewayContext as never);
     }
     const runSubagentAnnounceFlow = vi.fn(
-      async (_announceParams: { resolveGatewayContext?: () => unknown }) =>
-        "delivered" as AnnounceFlowOutcome,
+      async (_announceParams: {
+        resolveGatewayContext?: () => unknown;
+        runTimeoutSeconds?: number;
+      }) => "delivered" as AnnounceFlowOutcome,
     );
     const controller = createLifecycleController({
       entry,
@@ -765,6 +767,7 @@ describe("subagent registry lifecycle hardening", () => {
     expect(announceParams?.resolveGatewayContext).toBe(
       hasOwner ? resolveGatewayContext : undefined,
     );
+    expect(announceParams?.runTimeoutSeconds).toBe(600);
   });
 
   it("hands announce dispatch the durable requester agent id on a multi-agent roster", async () => {
@@ -4670,6 +4673,136 @@ describe("subagent registry lifecycle hardening", () => {
     expect(entry.delivery?.suspendedReason).toBe("expiry");
     expect(entry.cleanupCompletedAt).toBeUndefined();
     expect(persist).toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "holds private completion until requester settlement (yielded: %s)",
+    async (requesterYielded) => {
+      const entry = createRunEntry({
+        endedAt: Date.now(),
+        outcome: { status: "ok" },
+        requesterTurnRunId: "run-requester",
+        completionTarget: "parent",
+        expectsCompletionMessage: true,
+        retainAttachmentsOnKeep: true,
+        completion: { required: true, resultText: "private child result" },
+        delivery: { status: "pending" },
+      });
+      const sibling = createRunEntry({
+        runId: "slow-sibling",
+        childSessionKey: "agent:main:subagent:slow-sibling",
+        requesterSessionKey: entry.requesterSessionKey,
+        requesterTurnRunId: "run-requester",
+        expectsCompletionMessage: true,
+      });
+      const runSubagentAnnounceFlow = vi.fn<LifecycleControllerParams["runSubagentAnnounceFlow"]>(
+        async (params) =>
+          params.isCompletionOwnedByRequesterYield?.() ? "intentional_non_delivery" : "delivered",
+      );
+      const runs = new Map([
+        [entry.runId, entry],
+        [sibling.runId, sibling],
+      ]);
+      const controller = createLifecycleController({
+        entry,
+        runs,
+        runSubagentAnnounceFlow,
+        resumeSubagentRun: (runId) => {
+          controller.startSubagentAnnounceCleanupFlow(runId, runs.get(runId)!);
+        },
+        maybeWakeRequesterAfterAllChildrenSettled: async () => false,
+      });
+      try {
+        expect(controller.startSubagentAnnounceCleanupFlow(entry.runId, entry)).toBe(false);
+        expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
+        expect(entry.cleanupHandled).not.toBe(true);
+        expect(entry.completion?.resultText).toBe("private child result");
+        if (requesterYielded) {
+          markRequesterTurnYieldedInRuns({
+            requesterSessionKey: entry.requesterSessionKey,
+            requesterTurnRunId: "run-requester",
+            runs,
+            persistOrThrow: () => undefined,
+          });
+        }
+        expect(
+          controller.settleRequesterTurnAfterSessionSpawns({
+            requesterSessionKey: entry.requesterSessionKey,
+            requesterTurnRunId: "run-requester",
+            requesterYielded,
+            acceptedSessionSpawns: [entry, sibling].map((child) => ({
+              runId: child.runId,
+              childSessionKey: child.childSessionKey,
+              expectsCompletionMessage: true,
+            })),
+          }),
+        ).toBe(true);
+        await waitForLifecycleState(() => expect(entry.cleanupCompletedAt).toBeTypeOf("number"));
+        expect(entry.requesterTurnRunId).toBeUndefined();
+        expect(entry.delivery?.status).toBe(requesterYielded ? "pending" : "delivered");
+        expect(entry.requesterSettleWake?.requesterYieldBatch).toBe(
+          requesterYielded ? true : undefined,
+        );
+        expect(sibling.execution.endedAt).toBeUndefined();
+        expect(runSubagentAnnounceFlow).toHaveBeenCalledOnce();
+      } finally {
+        controller.clearScheduledResumeTimers();
+      }
+    },
+  );
+
+  it("does not let a late announce failure reclaim a pending yielded batch", async () => {
+    const entry = createRunEntry({
+      endedAt: Date.now(),
+      outcome: { status: "ok" },
+      requesterTurnRunId: "run-requester",
+      expectsCompletionMessage: true,
+      retainAttachmentsOnKeep: true,
+      completion: { required: true, resultText: "child result" },
+      delivery: { status: "pending" },
+    });
+    const announce = createDeferredCore();
+    const runSubagentAnnounceFlow = vi.fn<LifecycleControllerParams["runSubagentAnnounceFlow"]>(
+      async (params) => {
+        await announce.promise;
+        params.onDeliveryResult?.({
+          delivered: false,
+          path: "direct",
+          error: "obsolete announce failure",
+          disposition: "retryable",
+        });
+        return "retryable";
+      },
+    );
+    const controller = createLifecycleController({
+      entry,
+      runSubagentAnnounceFlow,
+      maybeWakeRequesterAfterAllChildrenSettled: async () => false,
+    });
+    try {
+      controller.startSubagentAnnounceCleanupFlow(entry.runId, entry);
+      await waitForLifecycleState(() => expect(runSubagentAnnounceFlow).toHaveBeenCalledOnce());
+      entry.requesterTurnYielded = true;
+      controller.settleRequesterTurnAfterSessionSpawns({
+        requesterSessionKey: entry.requesterSessionKey,
+        requesterTurnRunId: "run-requester",
+        requesterYielded: true,
+        acceptedSessionSpawns: [{ runId: entry.runId, childSessionKey: entry.childSessionKey }],
+      });
+      const batch = structuredClone(entry.requesterSettleWake);
+      announce.resolve();
+      await waitForLifecycleState(() => expect(entry.cleanupCompletedAt).toBeTypeOf("number"));
+      expect(entry.requesterSettleWake).toEqual(batch);
+      expect(entry.delivery).toMatchObject({
+        status: "pending",
+        disposition: "intentional_non_delivery",
+      });
+      expect(entry.delivery?.lastError).toBeUndefined();
+      expect(entry.delivery?.nextAttemptAt).toBeUndefined();
+    } finally {
+      announce.resolve();
+      controller.clearScheduledResumeTimers();
+    }
   });
 
   it.each([

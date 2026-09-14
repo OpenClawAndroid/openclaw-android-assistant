@@ -192,6 +192,7 @@ export async function resolveHeartbeatPreflight(params: {
 
 type HeartbeatPromptResolution = {
   prompt: string;
+  hasTaskContinuation: boolean;
   hasExecCompletion: boolean;
   hasRelayableExecCompletion: boolean;
   hasCronEvents: boolean;
@@ -244,6 +245,9 @@ export function resolveHeartbeatRunPrompt(params: {
   const hasRelayableExecCompletion =
     params.canRelayToUser && execEvents.some((event) => isRelayableExecCompletionEvent(event.text));
   const hasCronEvents = cronEvents.length > 0;
+  const hasBackgroundTaskEvent =
+    params.preflight.session.inspectsRunQueue &&
+    genericEvents.some((event) => event.contextKey?.startsWith("task:"));
   if (params.scheduledTasks.length > 0) {
     const taskList = params.scheduledTasks
       .map((task) => `- ${task.name}: ${task.prompt}`)
@@ -259,6 +263,7 @@ ${completionInstruction}`;
     const prompt = appendHeartbeatScratch(taskPrompt, params.heartbeatScratchContent);
     return {
       prompt,
+      hasTaskContinuation: hasBackgroundTaskEvent,
       hasExecCompletion: false,
       hasRelayableExecCompletion: false,
       hasCronEvents: false,
@@ -294,6 +299,10 @@ ${completionInstruction}`;
   );
   return {
     prompt: basePromptWithDirectives,
+    hasTaskContinuation:
+      hasExecCompletion ||
+      hasBackgroundTaskEvent ||
+      cronEvents.some((event) => event.contextKey?.startsWith("task:")),
     hasExecCompletion,
     hasRelayableExecCompletion,
     hasCronEvents,

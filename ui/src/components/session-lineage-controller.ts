@@ -416,14 +416,20 @@ export class SessionLineageController {
       return Promise.resolve();
     }
     const agentId = identity.agentId ?? scope.selectedAgentId;
+    const retainedBinding = this.binding;
     const binding = agentId
-      ? (this.binding ?? this.observe(scope, { key: identity.sessionKey, agentId }))
+      ? (retainedBinding ?? this.observe(scope, { key: identity.sessionKey, agentId }))
       : null;
     if (binding && !this.bindingIsCurrent(binding)) {
       return Promise.resolve();
     }
     const globalBinding = identity.sessionKey === "global" ? binding : null;
-    const descriptorBinding = globalBinding ?? (binding?.refreshRequested ? binding : null);
+    // Reuse a held descriptor; an empty retained observation still needs the initial lookup.
+    const descriptorBinding =
+      globalBinding ??
+      ((binding === retainedBinding && binding?.observation?.row) || binding?.refreshRequested
+        ? binding
+        : null);
     const childScope = this.childScope();
     const request: LineageRequest = {
       identity,

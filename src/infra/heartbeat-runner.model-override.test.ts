@@ -217,7 +217,10 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
 
   it.each<{
     name: string;
-    source?: "exec-event" | "hook";
+    source?: "exec-event" | "hook" | "cron" | "background-task" | "background-task-blocked";
+    eventText?: string;
+    contextKey?: string;
+    isolatedEvent?: boolean;
     heartbeat?: Partial<HeartbeatConfig>;
     defaultTimeoutSeconds?: number;
     scheduledTasks?: boolean;
@@ -258,7 +261,84 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
       heartbeat: { timeoutSeconds: 45 },
       expectedTimeoutMs: 45_000,
     },
-  ])("uses the $name with a pending exec completion", async (testCase) => {
+    {
+      name: "ordinary agent budget for background task review",
+      source: "background-task",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "configured agent budget for a blocked task continuation",
+      source: "background-task-blocked",
+      contextKey: "task:review:blocked-followup",
+      eventText: "Delegated task is blocked. Continue the remaining work.",
+      defaultTimeoutSeconds: 900,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 900_000,
+    },
+    {
+      name: "unlimited agent budget for a coalesced task review",
+      source: "hook",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      defaultTimeoutSeconds: 0,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+    },
+    {
+      name: "agent budget when a scheduled turn admits a task review",
+      source: "background-task",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      scheduledTasks: true,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "heartbeat budget for an unconsumed base-session task",
+      source: "background-task",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      heartbeat: { timeoutSeconds: 45, isolatedSession: true },
+      expectedTimeoutMs: 45_000,
+    },
+    {
+      name: "ordinary agent budget for a task on the isolated execution queue",
+      source: "background-task",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      isolatedEvent: true,
+      heartbeat: { timeoutSeconds: 45, isolatedSession: true },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "ordinary agent budget for a cron-carried task review",
+      source: "cron",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "heartbeat budget when a cron-carried review is deferred behind scheduled tasks",
+      source: "cron",
+      contextKey: "task:review",
+      eventText: "Delegated task completed. Review and verify the result.",
+      scheduledTasks: true,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 45_000,
+    },
+    {
+      name: "heartbeat budget for an unrelated notification",
+      source: "background-task",
+      contextKey: "notification:status",
+      eventText: "Service status changed.",
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 45_000,
+    },
+  ])("uses the $name with a pending event", async (testCase) => {
     await withHeartbeatFixture(async ({ tmpDir, storePath, replySpy, seedSession }) => {
       const cfg: OpenClawConfig = {
         agents: {
@@ -275,9 +355,12 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
         channels: { whatsapp: { allowFrom: ["*"] } },
         session: { store: storePath },
       };
-      const sessionKey = resolveMainSessionKey(cfg);
+      const sessionKey = `${resolveMainSessionKey(cfg)}${testCase.isolatedEvent ? ":heartbeat" : ""}`;
       await seedSession(sessionKey, { lastChannel: "whatsapp", lastTo: "+1555" });
-      enqueueSystemEvent("Exec finished (gateway id=build, code 0)\nBuild passed", { sessionKey });
+      enqueueSystemEvent(
+        testCase.eventText ?? "Exec finished (gateway id=build, code 0)\nBuild passed",
+        { sessionKey, contextKey: testCase.contextKey },
+      );
       replySpy.mockResolvedValue({ text: "Build passed; continuing verification." });
       const source = testCase.source ?? "exec-event";
 
@@ -286,7 +369,7 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
         sessionKey,
         source,
         intent: source === "exec-event" ? "event" : "immediate",
-        reason: source === "exec-event" ? "exec-event" : "hook:wake",
+        reason: source === "hook" ? "hook:wake" : source,
         tasks: testCase.scheduledTasks
           ? [{ jobId: "monitor", name: "status", prompt: "Check service status" }]
           : undefined,
@@ -295,7 +378,15 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
 
       expect(replySpy).toHaveBeenCalledTimes(1);
       const [ctx, opts, passedConfig] = firstReplyCall(replySpy);
-      expect(ctx?.InternalTurnSource).toBe(testCase.scheduledTasks ? "heartbeat" : "exec");
+      expect(ctx?.InternalTurnSource).toBe(
+        testCase.scheduledTasks
+          ? "heartbeat"
+          : source === "cron"
+            ? "cron"
+            : testCase.eventText
+              ? "heartbeat"
+              : "exec",
+      );
       expect(
         resolveAgentTimeoutMs({ cfg: passedConfig, overrideSeconds: opts?.timeoutOverrideSeconds }),
       ).toBe(testCase.expectedTimeoutMs);

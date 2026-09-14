@@ -539,7 +539,6 @@ export function projectChatTranscript(
       assistantName: props.assistantName,
       userId: props.userId,
       userName: props.userName,
-      userAvatar: props.userAvatar,
     });
     for (const group of groups) {
       for (const source of group.messages) {

@@ -2,7 +2,7 @@ import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import {
   USER_PREFS_ENTRY_LIMIT,
   USER_PREFS_VALUE_BYTES,
-} from "../../packages/gateway-protocol/src/schema/users.js";
+} from "../../packages/gateway-protocol/src/schema/user-profile-constants.js";
 import type {
   PreparedUserPreferenceUpdate,
   UserPreferenceError,

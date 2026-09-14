@@ -67,7 +67,9 @@ export async function prepareProviderCatalogRun(
 > {
   const { authStore, isActive, ...catalogParams } = params;
   if (
-    !params.provider.auth.some((method) => method.kind === "oauth") ||
+    !params.provider.auth.some(
+      (method) => method.kind === "oauth" || method.kind === "device_code",
+    ) ||
     (params.providerIds !== undefined &&
       !params.providerIds.some((providerId) =>
         matchesProviderPluginRef(params.provider, providerId),

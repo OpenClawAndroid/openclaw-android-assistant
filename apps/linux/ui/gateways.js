@@ -1,8 +1,9 @@
 const { invoke } = window.__TAURI__.core;
 const elements = Object.fromEntries([
-  "add-gateway", "gateway-status", "gateway-error", "retry-load", "profiles", "gateway-editor",
+  "add-gateway", "gateway-status", "gateway-error", "retry-load", "profiles", "gateway-list", "gateway-empty", "gateway-editor", "title",
   "editor-title", "gateway-name", "gateway-transport", "direct-fields", "gateway-url", "ssh-fields",
-  "gateway-ssh", "gateway-port", "gateway-fingerprint", "gateway-auth", "credential-hint",
+  "gateway-ssh", "gateway-port", "gateway-fingerprint", "gateway-advanced", "gateway-auth-method", "credential-hint",
+  "token-field", "password-field", "toggle-credential",
   "gateway-token", "gateway-password", "cancel-edit", "save-gateway", "remove-dialog",
   "remove-description", "cancel-remove", "confirm-remove",
 ].map((id) => [id, document.getElementById(id)]));
@@ -24,8 +25,10 @@ const setBusy = (value) => {
   busy = value;
   for (const control of document.querySelectorAll(".gateways-panel :is(button, input, select), #remove-dialog button")) control.disabled = value;
   elements.profiles.setAttribute("aria-busy", String(value));
+  elements["gateway-editor"].setAttribute("aria-busy", String(value));
   if (!value) {
     syncTransport();
+    syncAuthentication();
     if (refreshPending) void perform(load);
     else applyRecovery();
   }
@@ -48,14 +51,30 @@ const syncTransport = () => {
   elements["gateway-url"].disabled = ssh;
   for (const id of ["gateway-ssh", "gateway-port", "gateway-fingerprint"]) elements[id].disabled = !ssh;
 };
+const revealCredential = (revealed) => {
+  for (const id of ["gateway-token", "gateway-password"]) elements[id].type = revealed ? "text" : "password";
+  elements["toggle-credential"].setAttribute("aria-pressed", String(revealed));
+  elements["toggle-credential"].setAttribute("aria-label", revealed ? "Hide credential" : "Show credential");
+};
+const syncAuthentication = () => {
+  const password = elements["gateway-auth-method"].value === "password";
+  elements["token-field"].hidden = password;
+  elements["password-field"].hidden = !password;
+  elements["gateway-token"].disabled = busy || password;
+  elements["gateway-password"].disabled = busy || !password;
+};
 const resetEditor = () => {
   elements["gateway-editor"].reset();
   elements["gateway-name"].setCustomValidity("");
-  elements["gateway-password"].setCustomValidity("");
+  revealCredential(false);
 };
 const closeEditor = () => {
   resetEditor();
   elements["gateway-editor"].hidden = true;
+  elements["cancel-edit"].hidden = true;
+  elements["gateway-list"].hidden = false;
+  elements.title.tabIndex = -1;
+  elements.title.focus();
   editingId = undefined;
 };
 const editProfile = (profile) => {
@@ -69,11 +88,16 @@ const editProfile = (profile) => {
   elements["gateway-ssh"].value = profile?.sshTarget ?? "";
   elements["gateway-port"].value = profile?.remotePort ?? 18789;
   elements["gateway-fingerprint"].value = profile?.tlsFingerprint ?? "";
-  elements["gateway-auth"].open = false;
+  elements["gateway-advanced"].open = Boolean(profile?.tlsFingerprint);
+  elements["gateway-auth-method"].value = profile?.hasPassword ? "password" : "token";
   elements["credential-hint"].textContent = profile?.hasToken || profile?.hasPassword
-    ? "Saved credentials stay hidden. Leave both fields blank to keep them for the same connection. Enter a token or password to replace them."
-    : "Enter a token or password if the Gateway requires one.";
+    ? "Saved credentials stay hidden. Leave blank to keep them for the same connection."
+    : "Only needed if your Gateway requires a token or password.";
   syncTransport();
+  syncAuthentication();
+  elements["gateway-status"].textContent = "";
+  elements["gateway-list"].hidden = true;
+  elements["cancel-edit"].hidden = false;
   elements["gateway-editor"].hidden = false;
   elements["gateway-name"].focus();
 };
@@ -129,7 +153,7 @@ const renderProfiles = (selectedId) => {
     copy.append(name, endpoint);
     if (profile.id === selectedId) {
       const current = document.createElement("span");
-      current.className = "hint";
+      current.className = "gateway-selected";
       current.textContent = "Selected Gateway";
       copy.append(current);
     }
@@ -152,6 +176,11 @@ const renderProfiles = (selectedId) => {
       button.type = "button";
       button.textContent = label;
       button.setAttribute("aria-label", `${label} ${profile.name}`);
+      if (label === "Remove") {
+        button.className = "gateway-remove";
+        button.title = `Remove ${profile.name}`;
+        button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg>';
+      }
       button.addEventListener("click", action);
       actions.append(button);
     }
@@ -169,15 +198,16 @@ const load = async () => {
     if (refreshPending) return;
     profiles = result.profiles;
     renderProfiles(result.selectedId);
-    elements["gateway-status"].textContent = profiles.length
+    elements["gateway-empty"].hidden = profiles.length > 0;
+    elements["gateway-status"].textContent = profiles.length && elements["gateway-editor"].hidden
       ? `${profiles.length} saved ${profiles.length === 1 ? "Gateway" : "Gateways"}`
-      : "No saved Gateways yet. Add a connection to get started.";
+      : "";
     const recovery = window.__OPENCLAW_GATEWAY_RECOVERY__;
     if (recovery && recoveryId && editingId === recoveryId) editingId = recovery.id;
     if (editingId && !profiles.some((profile) => profile.id === editingId)) {
       editingId = undefined;
       elements["editor-title"].textContent = "Add Gateway";
-      elements["credential-hint"].textContent = "Enter a token or password if the Gateway requires one.";
+      elements["credential-hint"].textContent = "Only needed if your Gateway requires a token or password.";
       elements["gateway-status"].textContent = "This saved Gateway was removed elsewhere. Your draft is preserved; Save adds it again.";
     }
     profilesReady = true;
@@ -191,20 +221,28 @@ elements["add-gateway"].addEventListener("click", () => editProfile());
 elements["retry-load"].addEventListener("click", () => void perform(load));
 elements["cancel-edit"].addEventListener("click", () => {
   closeEditor();
+  clearError();
+  elements["gateway-status"].textContent = "";
   elements["add-gateway"].focus();
 });
 elements["gateway-transport"].addEventListener("change", syncTransport);
+elements["gateway-auth-method"].addEventListener("change", () => {
+  elements["gateway-token"].value = "";
+  elements["gateway-password"].value = "";
+  revealCredential(false);
+  syncAuthentication();
+});
+elements["toggle-credential"].addEventListener("click", () => {
+  revealCredential(elements["toggle-credential"].getAttribute("aria-pressed") !== "true");
+});
 elements["gateway-name"].addEventListener("input", () => elements["gateway-name"].setCustomValidity(""));
-for (const id of ["gateway-token", "gateway-password"]) {
-  elements[id].addEventListener("input", () => elements["gateway-password"].setCustomValidity(""));
-}
 elements["gateway-editor"].addEventListener("submit", (event) => {
   event.preventDefault();
   const name = elements["gateway-name"].value.trim();
   elements["gateway-name"].setCustomValidity(name ? "" : "Enter a Gateway name.");
-  const token = elements["gateway-token"].value.trim();
-  const password = elements["gateway-password"].value;
-  elements["gateway-password"].setCustomValidity(token && password ? "Use either a token or a password." : "");
+  const passwordAuth = elements["gateway-auth-method"].value === "password";
+  const token = passwordAuth ? "" : elements["gateway-token"].value.trim();
+  const password = passwordAuth ? elements["gateway-password"].value : "";
   if (!elements["gateway-editor"].reportValidity()) return;
   const ssh = elements["gateway-transport"].value === "ssh";
   const connection = {

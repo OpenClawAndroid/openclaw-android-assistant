@@ -1,5 +1,8 @@
 // Codex supervision tests cover passive listing and safe local session takeover.
+import { setImmediate as nextTurn } from "node:timers/promises";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { describe, expect, it, vi } from "vitest";
+import type { CodexSessionCatalogControl } from "./session-catalog-types.js";
 import {
   commandRpcMocks,
   createCodexSessionCatalogControl,
@@ -8,6 +11,12 @@ import {
   resolveDefaultAgentDir,
   type OpenClawConfig,
 } from "./session-catalog.test-helpers.js";
+
+async function fillPageCache(control: CodexSessionCatalogControl) {
+  for (let index = 0; index < 32; index += 1) {
+    await control.listPage({ cursor: `pressure-${index}`, limit: 1 });
+  }
+}
 
 describe("Codex supervision catalog", () => {
   it("memoizes cloned request options until runtime config identity changes", async () => {
@@ -113,6 +122,7 @@ describe("Codex supervision catalog", () => {
     });
     commandRpcMocks.codexControlRequest.mockImplementationOnce(async () => {
       markRefreshStarted();
+      now = 500; // A clock correction must not make the failed stale page fresh again.
       throw new Error("app-server unavailable");
     });
     await expect(control.listPage({ limit: 25 })).resolves.toEqual(first);
@@ -146,6 +156,188 @@ describe("Codex supervision catalog", () => {
       sessions: [expect.objectContaining({ threadId: "thread-recovered" })],
     });
     expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "shares a pending cold page through distinct-query pressure until %s",
+    async (outcome) => {
+      const held = createDeferred<unknown>();
+      const started = createDeferred<void>();
+      let heldRequests = 0;
+      commandRpcMocks.codexControlRequest.mockImplementation(
+        (_pluginConfig: unknown, _method: string, request: { cursor?: string }) => {
+          if (request.cursor === "held") {
+            heldRequests += 1;
+            started.resolve();
+            return held.promise;
+          }
+          return { data: [idleThread({ id: request.cursor, source: "cli" })] };
+        },
+      );
+      const control = createCodexSessionCatalogControl({
+        getPluginConfig: () => ({ supervision: { enabled: true } }),
+        getRuntimeConfig: () => config,
+        now: () => 1_000,
+      });
+      const query = { cursor: "held", limit: 1 };
+      const first = control.listPage(query);
+      const pending = [first];
+      const failure = new Error("native page failed");
+      try {
+        await started.promise;
+        await fillPageCache(control);
+        pending.push(control.listPage(query));
+        const results = Promise.allSettled(pending);
+        if (outcome === "resolve") {
+          held.resolve({ data: [idleThread({ id: "held-result", source: "cli" })] });
+        } else {
+          held.reject(failure);
+        }
+        const settled = await results;
+        expect.soft(heldRequests).toBe(1);
+        if (outcome === "resolve") {
+          expect(settled[0]).toMatchObject({ status: "fulfilled" });
+          expect(settled[1]).toEqual(settled[0]);
+        } else {
+          expect(settled).toEqual([
+            { status: "rejected", reason: failure },
+            { status: "rejected", reason: failure },
+          ]);
+          commandRpcMocks.codexControlRequest.mockResolvedValue({
+            data: [idleThread({ id: "recovered", source: "cli" })],
+          });
+          await expect(control.listPage(query)).resolves.toMatchObject({
+            sessions: [expect.objectContaining({ threadId: "recovered" })],
+          });
+        }
+      } finally {
+        held.resolve({ data: [] });
+        await Promise.allSettled(pending);
+      }
+    },
+  );
+
+  it.each(["resolve", "reject"] as const)(
+    "keeps stale delivery during an evicted page's refresh until %s",
+    async (outcome) => {
+      let now = 1_000;
+      commandRpcMocks.codexControlRequest.mockResolvedValue({
+        data: [idleThread({ id: "stale-result", source: "cli" })],
+      });
+      const control = createCodexSessionCatalogControl({
+        getPluginConfig: () => ({ supervision: { enabled: true } }),
+        getRuntimeConfig: () => config,
+        now: () => now,
+      });
+      const query = { cursor: "held", limit: 1 };
+      const stale = await control.listPage(query);
+      const refresh = createDeferred<unknown>();
+      const started = createDeferred<void>();
+      let refreshRequests = 0;
+      commandRpcMocks.codexControlRequest.mockImplementation(
+        (_pluginConfig: unknown, _method: string, request: { cursor?: string }) => {
+          if (request.cursor === "held") {
+            refreshRequests += 1;
+            started.resolve();
+            return refresh.promise;
+          }
+          return { data: [idleThread({ id: request.cursor, source: "cli" })] };
+        },
+      );
+      now += 32_001;
+      let follower: ReturnType<typeof control.listPage> | undefined;
+      try {
+        await expect(control.listPage(query)).resolves.toEqual(stale);
+        await started.promise;
+        await fillPageCache(control);
+        let delivered = false;
+        follower = control.listPage(query).then((page) => {
+          delivered = true;
+          return page;
+        });
+        await nextTurn();
+        expect.soft(delivered).toBe(true);
+        expect.soft(refreshRequests).toBe(1);
+        if (outcome === "resolve") {
+          refresh.resolve({ data: [idleThread({ id: "refreshed", source: "cli" })] });
+        } else {
+          refresh.reject(new Error("native refresh failed"));
+        }
+        await expect(follower).resolves.toEqual(stale);
+        await nextTurn();
+        commandRpcMocks.codexControlRequest.mockResolvedValue({
+          data: [idleThread({ id: "retried", source: "cli" })],
+        });
+        await expect(control.listPage(query)).resolves.toMatchObject({
+          sessions: [
+            expect.objectContaining({
+              threadId: outcome === "resolve" ? "refreshed" : "retried",
+            }),
+          ],
+        });
+      } finally {
+        refresh.resolve({ data: [] });
+        await Promise.allSettled(follower ? [follower] : []);
+        await nextTurn();
+      }
+    },
+  );
+
+  it("keeps only 32 settled pages and refreshes their recency on hits", async () => {
+    commandRpcMocks.codexControlRequest.mockResolvedValue({ data: [] });
+    const control = createCodexSessionCatalogControl({
+      getPluginConfig: () => ({ supervision: { enabled: true } }),
+      getRuntimeConfig: () => config,
+      now: () => 1_000,
+    });
+    await fillPageCache(control);
+    await control.listPage({ cursor: "pressure-0", limit: 1 });
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(32);
+    await control.listPage({ cursor: "newest", limit: 1 });
+    await control.listPage({ cursor: "pressure-0", limit: 1 });
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(33);
+    await control.listPage({ cursor: "pressure-1", limit: 1 });
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(34);
+  });
+
+  it("keeps pending page settlement within its captured config", async () => {
+    let runtimeConfig = {} as OpenClawConfig;
+    const oldPage = createDeferred<unknown>();
+    const newPage = createDeferred<unknown>();
+    const oldStarted = createDeferred<void>();
+    const newStarted = createDeferred<void>();
+    commandRpcMocks.codexControlRequest
+      .mockImplementationOnce(() => {
+        oldStarted.resolve();
+        return oldPage.promise;
+      })
+      .mockImplementationOnce(() => {
+        newStarted.resolve();
+        return newPage.promise;
+      });
+    const control = createCodexSessionCatalogControl({
+      getPluginConfig: () => ({ supervision: { enabled: true } }),
+      getRuntimeConfig: () => runtimeConfig,
+    });
+    const first = control.listPage({ limit: 1 });
+    const pending = [first];
+    try {
+      await oldStarted.promise;
+      runtimeConfig = {};
+      const replacement = control.listPage({ limit: 1 });
+      pending.push(replacement);
+      await newStarted.promise;
+      newPage.resolve({ data: [idleThread({ id: "replacement", source: "cli" })] });
+      const current = await replacement;
+      oldPage.resolve({ data: [idleThread({ id: "retired", source: "cli" })] });
+      await first;
+      await expect(control.listPage({ limit: 1 })).resolves.toEqual(current);
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
+    } finally {
+      oldPage.resolve({ data: [] });
+      newPage.resolve({ data: [] });
+      await Promise.allSettled(pending);
+    }
   });
 
   it("scans bounded native pages for complete title-only search results", async () => {

@@ -81,6 +81,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/zalo",
       "npmSpec": "@openclaw/zalo",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

@@ -201,7 +201,7 @@ export function searchSessionTranscripts(params: {
     JOIN session_windows ON session_windows.session_id = session_transcript_fts.session_id
     WHERE session_transcript_fts MATCH ?${whereSession}${whereGeneration}${whereRole}
       AND session_transcript_fts.session_id NOT IN (
-        SELECT session_id FROM session_transcript_index_state WHERE needs_rebuild != 0
+        SELECT session_id FROM session_transcript_index_state WHERE needs_rebuild != 0${params.sessionId ? " AND session_id = ?" : ""}
       )
     ORDER BY ${order}
     LIMIT ?
@@ -211,6 +211,7 @@ export function searchSessionTranscripts(params: {
             ...sessionFilterValues,
             ...(params.sessionId ? [params.sessionId] : []),
             ...(params.role ? [params.role] : []),
+            ...(params.sessionId ? [params.sessionId] : []),
             limit + 1,
           ];
           const rows = statement.all(...values) as Array<{

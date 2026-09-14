@@ -174,6 +174,7 @@ const enPluginManagement = {
     workspace: "Workspace",
     config: "Config",
     official: "Official",
+    community: "Community",
     verifiedSource: "Verified source",
     codePlugin: "Code plugin",
     bundlePlugin: "Bundle plugin",

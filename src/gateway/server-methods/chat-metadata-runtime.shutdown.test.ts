@@ -34,31 +34,90 @@ describe("gateway chat metadata shutdown", () => {
     expect(harness.buildProjection).toHaveBeenCalledOnce();
   });
 
-  test("joins an abandoned projection after a sibling fails the generation", async () => {
-    const onChanged = vi.fn();
-    const harness = createChatMetadataHarness(
-      { agents: { list: [{ id: "main", default: true }, { id: "other" }] } },
-      { onChanged },
-    );
-    const release = createDeferred();
-    const events: string[] = [];
-    harness.buildProjection.mockImplementationOnce(async ({ facts }) => {
-      await release.promise;
-      events.push("projection settled");
-      return { modelCatalog: facts.modelCatalog.entries, models: facts.modelCatalog.entries };
-    });
-    harness.buildProjection.mockRejectedValueOnce(new Error("sibling projection failed"));
-    try {
-      await expect(harness.runtime.refresh()).rejects.toThrow("sibling projection failed");
-      const stopping = harness.runtime.stop().then(() => events.push("shutdown completed"));
-      release.resolve();
-      await stopping;
-      expect(events).toEqual(["projection settled", "shutdown completed"]);
-      expect(onChanged).toHaveBeenCalledOnce();
-      await expect(harness.runtime.read({ agentId: "main" })).rejects.toThrow("stopped");
-    } finally {
-      release.resolve();
-      await harness.runtime.stop();
-    }
-  });
+  test.each([
+    { replacement: false, phase: "agent" },
+    { replacement: true, phase: "agent" },
+    { replacement: false, phase: "session" },
+    { replacement: true, phase: "session" },
+  ])(
+    "rejects readers during $phase preparation and joins abandoned work after sibling failure (replacement: $replacement)",
+    async ({ replacement, phase }) => {
+      const onChanged = vi.fn();
+      const harness = createChatMetadataHarness(
+        { agents: { list: [{ id: "main", default: true }, { id: "other" }] } },
+        { onChanged },
+      );
+      const release = createDeferred();
+      const entered = createDeferred();
+      const failSibling = createDeferred();
+      const events: string[] = [];
+      if (replacement) {
+        await harness.runtime.refresh();
+        harness.runtime.invalidate();
+      }
+      const project = ({ facts }: Parameters<typeof harness.buildProjection>[0]) => ({
+        modelCatalog: facts.modelCatalog.entries,
+        models: facts.modelCatalog.entries,
+      });
+      const heldProjection = async (params: Parameters<typeof harness.buildProjection>[0]) => {
+        entered.resolve();
+        await release.promise;
+        events.push("projection settled");
+        return project(params);
+      };
+      if (phase === "session") {
+        harness.buildProjection.mockImplementationOnce(async (params) => project(params));
+      } else {
+        harness.buildProjection.mockImplementationOnce(heldProjection);
+      }
+      harness.buildProjection.mockImplementationOnce(async () => {
+        await failSibling.promise;
+        throw new Error("sibling projection failed");
+      });
+      if (phase === "session") {
+        harness.buildProjection.mockImplementationOnce(heldProjection);
+      }
+      const refresh = harness.runtime.refresh();
+      let settledReads = 0;
+      const readings = [
+        harness.runtime.read({
+          agentId: "main",
+          sessionEntry: { authProfileOverride: "test:session", authProfileOverrideSource: "user" },
+        }),
+        harness.runtime.readStartup({
+          agentId: "main",
+          sessionEntry: { authProfileOverride: "test:session", authProfileOverrideSource: "user" },
+        }),
+      ].map((reading) =>
+        reading
+          .then(
+            () => "published",
+            () => "rejected",
+          )
+          .finally(() => {
+            settledReads += 1;
+          }),
+      );
+      try {
+        await entered.promise;
+        failSibling.resolve();
+        await expect(refresh).rejects.toThrow("sibling projection failed");
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+        expect(settledReads).toBe(2);
+        await expect(Promise.all(readings)).resolves.toEqual(["rejected", "rejected"]);
+        const stopping = harness.runtime.stop().then(() => events.push("shutdown completed"));
+        release.resolve();
+        await stopping;
+        expect(events).toEqual(["projection settled", "shutdown completed"]);
+        expect(onChanged).toHaveBeenCalledTimes(replacement ? 2 : 1);
+        await expect(harness.runtime.read({ agentId: "main" })).rejects.toThrow("stopped");
+      } finally {
+        release.resolve();
+        failSibling.resolve();
+        await Promise.allSettled([refresh, ...readings, harness.runtime.stop()]);
+      }
+    },
+  );
 });

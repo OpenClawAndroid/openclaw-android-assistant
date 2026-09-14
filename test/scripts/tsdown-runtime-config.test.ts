@@ -73,14 +73,14 @@ function entrySources(config: TsdownConfigEntry): Record<string, string> {
   return config.entry;
 }
 
-function requireSqliteReadOnlyChildGraph(): TsdownConfigEntry {
+function requireStandaloneRuntimeGraph(entry: string): TsdownConfigEntry {
   const graphs = asConfigArray(tsdownConfig).filter(
     (config) =>
       !(typeof config.dts === "object" && config.dts.emitDtsOnly) &&
-      entryKeys(config).includes("infra/sqlite-readonly-location.worker"),
+      entryKeys(config).includes(entry),
   );
   expect(graphs).toHaveLength(1);
-  return expectDefined(graphs[0], "read-only snapshot child graph");
+  return expectDefined(graphs[0], `${entry} standalone graph`);
 }
 
 function requireNativeHookRelayGraph(): TsdownConfigEntry {
@@ -185,39 +185,26 @@ describe("tsdown config", () => {
   it("installs schema inlining only on executable runtime graphs", () => {
     const configs = asConfigArray(tsdownConfig);
     const unifiedGraph = requireUnifiedDistGraph();
-    const workerGraph = configs.find((config) => {
-      const entry = config.entry;
-      return (
-        typeof entry === "object" &&
-        entry !== null &&
-        !Array.isArray(entry) &&
-        (entry as Record<string, unknown>)["worker/worker"] === "src/worker/worker-deploy-entry.ts"
-      );
-    });
+    const workerGraph = configs.find(
+      (config) => entrySources(config)["worker/worker"] === "src/worker/worker-deploy-entry.ts",
+    );
     const handoffGraph = configs.find((config) =>
       entryKeys(config).includes("managed-handoff-runtime"),
     );
-    const inlinePlugins = configs.flatMap(
-      (config) =>
-        config.plugins?.filter((plugin) => plugin.name === STATE_SCHEMA_INLINE_PLUGIN_NAME) ?? [],
-    );
+    const executableGraphs = new Set([
+      unifiedGraph,
+      expectDefined(workerGraph, "deploy worker graph"),
+      expectDefined(handoffGraph, "managed handoff graph"),
+      requireNativeHookRelayGraph(),
+      requireStandaloneRuntimeGraph("infra/sqlite-readonly-location.worker"),
+      requireStandaloneRuntimeGraph("agents/harness/native-hook-relay-client.worker"),
+    ]);
 
-    expect(unifiedGraph.plugins).toContainEqual(
-      expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
-    );
-    expect(workerGraph?.plugins).toContainEqual(
-      expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
-    );
-    expect(handoffGraph?.plugins).toContainEqual(
-      expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
-    );
-    expect(requireNativeHookRelayGraph().plugins).toContainEqual(
-      expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
-    );
-    expect(requireSqliteReadOnlyChildGraph().plugins).toContainEqual(
-      expect.objectContaining({ name: STATE_SCHEMA_INLINE_PLUGIN_NAME }),
-    );
-    expect(inlinePlugins).toHaveLength(5);
+    for (const config of configs) {
+      const inlinePlugins =
+        config.plugins?.filter((plugin) => plugin.name === STATE_SCHEMA_INLINE_PLUGIN_NAME) ?? [];
+      expect(inlinePlugins).toHaveLength(executableGraphs.has(config) ? 1 : 0);
+    }
   });
 
   it("isolates relay startup from shared runtime chunks while retaining lazy fallback", () => {
@@ -273,13 +260,20 @@ describe("tsdown config", () => {
     }
   });
 
-  it("emits the read-only snapshot child once without sealing its package loaders", () => {
-    const child = requireSqliteReadOnlyChildGraph();
-    expect(entrySources(child)).toEqual({
-      "infra/sqlite-readonly-location.worker": path.resolve(
-        "src/infra/sqlite-readonly-location.worker.ts",
-      ),
-    });
+  it.each([
+    {
+      label: "read-only snapshot child",
+      entry: "infra/sqlite-readonly-location.worker",
+      source: "src/infra/sqlite-readonly-location.worker.ts",
+    },
+    {
+      label: "native hook locator worker",
+      entry: "agents/harness/native-hook-relay-client.worker",
+      source: "src/agents/harness/native-hook-relay-client.worker.ts",
+    },
+  ])("emits the $label once without sealing its package loaders", ({ entry, source }) => {
+    const child = requireStandaloneRuntimeGraph(entry);
+    expect(entrySources(child)).toEqual({ [entry]: path.resolve(source) });
     expect(child.outputOptions).toEqual({ codeSplitting: false });
     expect(child.outExtensions?.().js).toBe(".js");
     expect(child.define?.SEALED_RUNTIME_BUILD).toBeUndefined();
@@ -392,7 +386,10 @@ describe("tsdown config", () => {
   });
 
   it("bundles SDK-owned helpers while retaining fs-safe package ownership", () => {
-    for (const graph of [requireUnifiedDistGraph(), requireSqliteReadOnlyChildGraph()]) {
+    for (const graph of [
+      requireUnifiedDistGraph(),
+      requireStandaloneRuntimeGraph("infra/sqlite-readonly-location.worker"),
+    ]) {
       const alwaysBundle = graph.deps?.alwaysBundle;
       const external = graph.inputOptions?.({})?.external;
       if (typeof alwaysBundle !== "function" || typeof external !== "function") {

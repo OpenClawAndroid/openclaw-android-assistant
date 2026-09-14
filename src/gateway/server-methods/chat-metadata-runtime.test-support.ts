@@ -171,7 +171,7 @@ export function createChatMetadataHarness(
   const getAuthStoreRevision = vi.fn(() => authStoreRevision);
   const getSkillsVersion = vi.fn(() => skillsVersion);
   const getPluginRegistryVersion = vi.fn(() => pluginRegistryVersion);
-  const buildCommands = vi.fn(async () => ({
+  const buildCommands = vi.fn(async (_params: { cfg: OpenClawConfig; agentId: string }) => ({
     commands: [{ name: `command-${skillsVersion}-${pluginRegistryVersion}` }],
   }));
   const buildProjection = vi.fn(

@@ -302,25 +302,32 @@ function readSubagentSessionListRows(
   return executeSqliteQuerySync(
     db,
     stateDb
-      .with("canonical_runs", (query) => {
-        const selected = query.selectFrom("subagent_runs").select([
-          "run_id",
-          "child_session_key",
-          "controller_session_key",
-          "requester_session_key",
-          "created_at",
-          /* kysely-allow-raw: Normalize the private storage variant once before the shared canonical projection/filter. */
-          sql<string>`CASE WHEN json_valid(payload_json)
-          AND json_type(payload_json, '$.parentCompletion') = 'object'
-          AND json_extract(payload_json, '$.parentCompletion.completionTarget') = 'parent'
-          THEN json_extract(payload_json, '$.parentCompletion') ELSE payload_json END`.as(
-            "payload_json",
-          ),
-        ]);
-        return controllerSessionKeys
-          ? selected.where(subagentControllerFilter(controllerSessionKeys))
-          : selected;
-      })
+      .with(
+        (cte) => cte("canonical_runs").materialized(),
+        (query) => {
+          const selected = query.selectFrom("subagent_runs").select([
+            "run_id",
+            "child_session_key",
+            "controller_session_key",
+            "requester_session_key",
+            "created_at",
+            // Materialize compact metadata once; an inline CTE repeats retained JSON work per field.
+            /* kysely-allow-raw: Drop unused retained content without changing canonical eligibility or persisted bytes. */
+            sql<string>`CASE WHEN json_valid(payload_json) THEN json_remove(
+            CASE WHEN json_type(payload_json, '$.parentCompletion') = 'object'
+              AND json_extract(payload_json, '$.parentCompletion.completionTarget') = 'parent'
+              THEN json_extract(payload_json, '$.parentCompletion') ELSE payload_json END,
+            '$.task', '$.completion.resultText', '$.completion.fallbackResultText',
+            '$.completion.terminalReply', '$.delivery.payload', '$.delivery.lastError',
+            '$.execution.outcome.error', '$.collectorCompletion.structured',
+            '$.collectorCompletion.schemaError', '$.outputSchema', '$.structuredOutput', '$.queuedLaunch'
+          ) ELSE payload_json END`.as("payload_json"),
+          ]);
+          return controllerSessionKeys
+            ? selected.where(subagentControllerFilter(controllerSessionKeys))
+            : selected;
+        },
+      )
       .selectFrom("canonical_runs")
       .select([
         "run_id",

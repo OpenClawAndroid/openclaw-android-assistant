@@ -63,10 +63,12 @@ function resolveBundledCatalogIdentity(entry: BundledCatalogIdentity): string | 
   );
 }
 
-function listPublishedExternalPluginOwners(): Array<{
+function listPublishedPluginOwners(): Array<{
   id: string;
   packageName: string;
   install: PluginPackageInstall;
+  publishToClawHub: boolean;
+  external: boolean;
 }> {
   const extensionsDir = new URL("../../extensions/", import.meta.url);
   return readdirSync(extensionsDir, { withFileTypes: true }).flatMap((entry) => {
@@ -84,7 +86,7 @@ function listPublishedExternalPluginOwners(): Array<{
     }
     const release = packageJson.openclaw?.release;
     if (
-      packageJson.openclaw?.build?.bundledDist !== false ||
+      packageJson.openclaw?.build?.bundledDist === true ||
       (release?.publishToClawHub !== true && release?.publishToNpm !== true)
     ) {
       return [];
@@ -108,7 +110,15 @@ function listPublishedExternalPluginOwners(): Array<{
     if (typeof manifest.id !== "string" || !manifest.id.trim()) {
       throw new Error(`${entry.name} publishes without a manifest id`);
     }
-    return [{ id: manifest.id, packageName, install }];
+    return [
+      {
+        id: manifest.id,
+        packageName,
+        install,
+        publishToClawHub: release?.publishToClawHub === true,
+        external: packageJson.openclaw?.build?.bundledDist === false,
+      },
+    ];
   });
 }
 
@@ -377,38 +387,58 @@ describe("official external plugin catalog", () => {
     expectBundledFallback(fallback);
     const fallbackIds = fallback.entries.map(resolveOfficialExternalPluginId);
 
-    const gaps = listPublishedExternalPluginOwners().flatMap(({ id, packageName, install }) => {
-      const catalogMatches = catalogs.flatMap(([catalog, entries]) =>
-        entries
-          .filter((entry) => resolveBundledCatalogIdentity(entry) === id)
-          .map((entry) => ({ catalog, entry })),
-      );
-      const catalogEntry = catalogMatches.length === 1 ? catalogMatches[0]?.entry : undefined;
-      const catalogInstall = catalogEntry
-        ? resolveOfficialExternalPluginInstall(catalogEntry)
-        : undefined;
-      const official = isOfficialExternalPluginId(id);
-      const bundledFallbackMatches = fallbackIds.filter((candidate) => candidate === id).length;
-      return catalogMatches.length === 1 &&
-        catalogEntry?.name === packageName &&
-        isDeepStrictEqual(catalogInstall, install) &&
-        official &&
-        bundledFallbackMatches === 1
-        ? []
-        : [
-            {
-              id,
-              packageName,
-              install,
-              catalogMatches: catalogMatches.map(({ catalog }) => catalog),
-              catalogPackageName: catalogEntry?.name,
-              catalogInstall,
-              official,
-              bundledFallbackMatches,
-            },
-          ];
-    });
+    const gaps = listPublishedPluginOwners()
+      .filter(({ external }) => external)
+      .flatMap(({ id, packageName, install }) => {
+        const catalogMatches = catalogs.flatMap(([catalog, entries]) =>
+          entries
+            .filter((entry) => resolveBundledCatalogIdentity(entry) === id)
+            .map((entry) => ({ catalog, entry })),
+        );
+        const catalogEntry = catalogMatches.length === 1 ? catalogMatches[0]?.entry : undefined;
+        const catalogInstall = catalogEntry
+          ? resolveOfficialExternalPluginInstall(catalogEntry)
+          : undefined;
+        const official = isOfficialExternalPluginId(id);
+        const bundledFallbackMatches = fallbackIds.filter((candidate) => candidate === id).length;
+        return catalogMatches.length === 1 &&
+          catalogEntry?.name === packageName &&
+          isDeepStrictEqual(catalogInstall, install) &&
+          official &&
+          bundledFallbackMatches === 1
+          ? []
+          : [
+              {
+                id,
+                packageName,
+                install,
+                catalogMatches: catalogMatches.map(({ catalog }) => catalog),
+                catalogPackageName: catalogEntry?.name,
+                catalogInstall,
+                official,
+                bundledFallbackMatches,
+              },
+            ];
+      });
 
+    expect(gaps).toEqual([]);
+  });
+
+  it("declares each published ClawHub counterpart in its package and discovery catalog", () => {
+    const gaps = listPublishedPluginOwners().flatMap(
+      ({ id, packageName, install, publishToClawHub }) => {
+        if (!publishToClawHub) {
+          return [];
+        }
+        const expected = `clawhub:${packageName}`;
+        const catalogSpec = resolveOfficialExternalPluginInstall(
+          expectCatalogEntry(id),
+        )?.clawhubSpec;
+        return install.clawhubSpec === expected && catalogSpec === expected
+          ? []
+          : [{ id, packageName, expected, packageSpec: install.clawhubSpec, catalogSpec }];
+      },
+    );
     expect(gaps).toEqual([]);
   });
 

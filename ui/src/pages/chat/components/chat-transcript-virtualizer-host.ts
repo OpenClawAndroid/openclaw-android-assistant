@@ -1,7 +1,7 @@
 // Per-session virtualizer host: scroll anchoring, measurement, and row sync
 // for one transcript. Owned and swapped by ChatTranscriptController.
 import { VirtualizerController } from "@tanstack/lit-virtual";
-import { type Range, observeElementRect } from "@tanstack/virtual-core";
+import { type Range, elementScroll, observeElementRect } from "@tanstack/virtual-core";
 import {
   nothing,
   type ReactiveController,
@@ -243,6 +243,13 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
       initialOffset: initialOffset ?? Number.MAX_SAFE_INTEGER,
       anchorTo: "end",
       followOnAppend: false,
+      scrollToFn: (offset, options, instance) => {
+        elementScroll(offset, options, instance);
+        // Measurement compensation can clamp to the end before the sizer commits.
+        // Its native read-back must not grant permission to follow the next delta.
+        this.offsetState.measurementScrollOffset =
+          options.adjustments !== undefined ? (this.scrollElement?.scrollTop ?? null) : null;
+      },
       observeElementRect: (instance, callback) =>
         observeElementRect(instance, (rect) => {
           // Hidden tabs and detached faces are not viewport resizes. Keep the
@@ -402,6 +409,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     this.expandedAssistantMessages.clear();
     this.expandedAssistantMessages = new Map();
     this.offsetState.scrollCommand = null;
+    this.offsetState.measurementScrollOffset = null;
     this.prependAnchor.clear();
     this.offsetState.touching = false;
     this.offsetState.touchScrolling = false;
@@ -559,6 +567,8 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     // committed viewport so the final event publishes the settled end policy.
     const distanceFromEnd = (maxTranscriptScrollOffset(element) ?? 0) - (element?.scrollTop ?? 0);
     return (
+      (this.offsetState.measurementScrollOffset !== null &&
+        this.offsetState.measurementScrollOffset === element?.scrollTop) ||
       this.offsetState.pendingScrollOffset !== null ||
       (this.offsetState.scrollCommand !== null &&
         distanceFromEnd > CHAT_TRANSCRIPT_END_THRESHOLD_PX)

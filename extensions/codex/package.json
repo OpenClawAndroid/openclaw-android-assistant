@@ -23,6 +23,7 @@
       "./index.ts"
     ],
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/codex",
       "npmSpec": "@openclaw/codex",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.5.1-beta.1",

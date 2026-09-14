@@ -90,7 +90,7 @@ export const WORKTREE_GC_INTERVAL_MS = 60 * 60 * 1000;
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const WORKTREE_CREATE_LEASE_SCOPE = "core:managed-worktrees:create";
 const WORKTREE_CREATE_LEASE_MS = 60_000;
-const WORKTREE_CREATE_LEASE_WAIT_MS = 5 * 60_000;
+const WORKTREE_CREATE_LEASE_WAIT_MS = 10 * 60_000;
 
 /** Removal aborted because snapshot loss was not permitted. */
 export class WorktreeSnapshotError extends Error {

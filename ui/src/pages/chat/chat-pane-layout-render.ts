@@ -213,6 +213,8 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       lastReadAt: selectedSession?.lastReadAt,
       pullRequests: this.sessionPullRequests,
       companion: companionThread,
+      companionFocusRequest: this.sessionCompanionFocusRequest,
+      canFocusCompanion: () => this.active && this.presented,
       companionPresented:
         this.presented &&
         this.visuallyPresented &&

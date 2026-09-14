@@ -26,6 +26,7 @@ export abstract class ChatPaneTaskSuggestions extends ChatPaneSharing {
   protected activeTaskSuggestionId: string | undefined;
   protected taskSuggestionSwapDirection: "next" | "previous" | undefined;
   protected taskSuggestionSwapGeneration = 0;
+  private explicitReadScope: string | undefined;
 
   protected setTaskSuggestions(suggestions: TaskSuggestion[]): void {
     // Pending dismissals stay hidden when events or list snapshots arrive.
@@ -69,7 +70,7 @@ export abstract class ChatPaneTaskSuggestions extends ChatPaneSharing {
     });
   };
 
-  protected async refreshTaskSuggestions(): Promise<void> {
+  protected async refreshTaskSuggestions(options?: { automatic?: boolean }): Promise<void> {
     const requestVersion = ++this.taskSuggestionsRequestVersion;
     const scope = this.captureConnectionScope();
     if (
@@ -87,6 +88,14 @@ export abstract class ChatPaneTaskSuggestions extends ChatPaneSharing {
       return;
     }
     const agentId = resolveChatAgentId(scope.state);
+    const readScope = JSON.stringify([this.connectionGeneration, sessionKey, agentId]);
+    if (options?.automatic) {
+      if (!this.secondarySessionReadsReady(this.explicitReadScope === readScope)) {
+        return;
+      }
+    } else {
+      this.explicitReadScope = readScope;
+    }
     try {
       const result = await scope.client.request<TaskSuggestionsListResult>("taskSuggestions.list", {
         agentId,
@@ -129,7 +138,7 @@ export abstract class ChatPaneTaskSuggestions extends ChatPaneSharing {
     this.requestUpdate();
     // The replacement snapshot includes the event plus unrelated suggestions;
     // its request version prevents any older snapshot from overwriting either.
-    void this.refreshTaskSuggestions();
+    void this.refreshTaskSuggestions({ automatic: true });
   }
 
   protected readonly acceptTaskSuggestion = (

@@ -37,6 +37,8 @@ const WS_DIRECT_RUNTIME_FRAGMENTS = [
 ] as const;
 const WS_DYNAMIC_IMPORT =
   'pathToFileURL(path.join(path.dirname(require.resolve("ws/package.json")), "wrapper.mjs")).href';
+const TREE_SITTER_INIT = "TreeSitter.Parser.init()";
+const TREE_SITTER_BASH_WASM = 'require.resolve("tree-sitter-bash/tree-sitter-bash.wasm")';
 
 function resolveOptionalBuildSource(source: string): string {
   const resolved = path.resolve(source);
@@ -48,6 +50,8 @@ export function resolveWorkerDeployGeneratorInputs(rootDir = process.cwd()) {
   return [
     path.join(playwrightRoot, "package.json"),
     path.join(playwrightRoot, "browsers.json"),
+    fs.realpathSync(path.resolve(rootDir, "node_modules/web-tree-sitter/web-tree-sitter.wasm")),
+    fs.realpathSync(path.resolve(rootDir, "node_modules/tree-sitter-bash/tree-sitter-bash.wasm")),
   ] as const;
 }
 
@@ -77,6 +81,9 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
   const undiciDispatcherOptionsPath = fs.realpathSync(
     path.resolve("src/infra/net/undici-dispatcher-options.ts"),
   );
+  const treeSitterRuntimePath = fs.realpathSync(
+    path.resolve("src/infra/command-explainer/tree-sitter-runtime.ts"),
+  );
   const websocketRuntimePath = fs.realpathSync(
     path.resolve("packages/gateway-client/src/websocket.ts"),
   );
@@ -86,7 +93,8 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
       "src/realtime-transcription/websocket-session.ts",
     ].map(resolveOptionalBuildSource),
   );
-  const [packageJsonPath, browsersJsonPath] = resolveWorkerDeployGeneratorInputs(rootDir);
+  const [packageJsonPath, browsersJsonPath, treeSitterWasmPath, bashWasmPath] =
+    resolveWorkerDeployGeneratorInputs(rootDir);
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
     name: string;
     version: string;
@@ -131,6 +139,21 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
       }
       if (resolvedId === playwrightRuntimePath) {
         return WORKER_PLAYWRIGHT_RUNTIME;
+      }
+      if (resolvedId === treeSitterRuntimePath) {
+        if (!code.includes(TREE_SITTER_INIT) || !code.includes(TREE_SITTER_BASH_WASM)) {
+          this.error("tree-sitter bootstrap changed; update the worker deploy transform");
+        }
+        // Sealed workers cannot read dependency assets. Keep byte decoding in the lazy parser.
+        return code
+          .replace(
+            TREE_SITTER_INIT,
+            `TreeSitter.Parser.init({ wasmBinary: Buffer.from(${JSON.stringify(fs.readFileSync(treeSitterWasmPath).toString("base64"))}, "base64") })`,
+          )
+          .replace(
+            TREE_SITTER_BASH_WASM,
+            `Buffer.from(${JSON.stringify(fs.readFileSync(bashWasmPath).toString("base64"))}, "base64")`,
+          );
       }
       // Installed ws paths avoid Bun's adapter; portable Node workers must bundle
       // that same transport instead of resolving a missing package at runtime.

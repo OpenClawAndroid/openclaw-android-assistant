@@ -175,6 +175,7 @@ function stripAndClassifyReply(text: string): string | null {
 type SubagentAnnounceFlowParams = {
   childSessionKey: string;
   childRunId: string;
+  runTimeoutSeconds?: number;
   requesterSessionKey: string;
   requesterAgentId?: string;
   requesterOrigin?: DeliveryContext;
@@ -354,6 +355,7 @@ async function runSubagentAnnounceFlowBound(
       const woke = await runDescendantWake({
         runId: params.childRunId,
         childSessionKey: params.childSessionKey,
+        runTimeoutSeconds: params.runTimeoutSeconds,
         taskLabel: params.label || params.task || "task",
         findings: childCompletionFindings,
         announceId,

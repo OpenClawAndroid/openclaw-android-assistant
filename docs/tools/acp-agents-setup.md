@@ -291,6 +291,8 @@ openclaw config set plugins.entries.acpx.config.timeoutSeconds 180
 ```
 
 Runtime turns use OpenClaw agent/run timeouts, including `/acp timeout`.
+An interactive turn can continue beyond the plugin operation limit until its
+turn budget expires, the harness finishes, or you cancel it.
 `sessions_spawn` does not accept per-call timeout overrides; the operator path
 is `agents.defaults.subagents.runTimeoutSeconds`. With the default hybrid reload
 mode, changing `timeoutSeconds` automatically reloads the plugin. See

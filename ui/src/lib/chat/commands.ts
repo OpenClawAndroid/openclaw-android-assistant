@@ -111,6 +111,7 @@ const COMMAND_ICON_OVERRIDES: Partial<Record<string, IconName>> = {
 const INLINE_MULTI_WORD_COMMANDS = new Set(["dashboard"]);
 
 const LOCAL_COMMANDS = new Set([
+  "btw",
   "help",
   "new",
   "reset",

@@ -396,6 +396,16 @@ export const startSubagentAnnounceCleanupFlow = (
   }
   const cleanup = entry.cleanup;
   const skipRequesterDelivery = entry.suppressCompletionDelivery === true;
+  // The spawning turn decides between individual review and a yielded batch.
+  // Keep private results durable without admitting a competing requester turn.
+  if (
+    entry.completionTarget === "parent" &&
+    entry.requesterTurnRunId &&
+    !skipRequesterDelivery &&
+    entry.delivery?.status !== "delivered"
+  ) {
+    return false;
+  }
   // A terminal delivery failure closes upward delivery, not live descendants.
   // Their completion callback re-enters this same cleanup path without a timer.
   if (
@@ -523,6 +533,10 @@ export const startSubagentAnnounceCleanupFlow = (
   }
   const pendingPayload = loadPendingFinalDeliveryPayload(entry);
   const requesterOrigin = normalizeDeliveryContext(pendingPayload.requesterOrigin);
+  const requesterSettleGeneration = entry.requesterSettleWake?.rearmGeneration;
+  const requesterTookCompletion = () =>
+    entry.requesterTurnYielded === true ||
+    entry.requesterSettleWake?.rearmGeneration !== requesterSettleGeneration;
   let latestDeliveryError = getDeliveryLastError(entry);
   let committedDelivery: SubagentRunRecord["delivery"];
   const finalizeAnnounceCleanup = async (announceOutcome: SubagentAnnounceFlowOutcome) => {
@@ -540,7 +554,8 @@ export const startSubagentAnnounceCleanupFlow = (
     }
     // Requester-settle can commit delivery while the mirror lookup is pending.
     const shouldCreditPriorDelivery = entry.delivery?.status === "delivered" || hasDeliveryMirror;
-    if (shouldCreditPriorDelivery) {
+    const handedOff = requesterTookCompletion();
+    if (shouldCreditPriorDelivery || handedOff) {
       latestDeliveryError = undefined;
     }
     if (announceOutcome !== "delivered" && latestDeliveryError) {
@@ -550,7 +565,11 @@ export const startSubagentAnnounceCleanupFlow = (
       context,
       runId,
       cleanup,
-      shouldCreditPriorDelivery ? "delivered" : announceOutcome,
+      shouldCreditPriorDelivery
+        ? "delivered"
+        : handedOff
+          ? "intentional_non_delivery"
+          : announceOutcome,
       cleanupGeneration,
     );
   };
@@ -558,6 +577,7 @@ export const startSubagentAnnounceCleanupFlow = (
   const announceParams: Parameters<RunSubagentAnnounceFlow>[0] = {
     childSessionKey: pendingPayload.childSessionKey,
     childRunId: pendingPayload.childRunId,
+    runTimeoutSeconds: entry.runTimeoutSeconds,
     requesterSessionKey: pendingPayload.requesterSessionKey,
     requesterAgentId: resolveSubagentRequesterAgentId(params.getRuntimeConfig(), entry),
     requesterOrigin,
@@ -629,6 +649,11 @@ export const startSubagentAnnounceCleanupFlow = (
       }
       // A stale announce cannot replace a delivery already committed by requester-settle.
       if (entry.delivery?.status === "delivered") {
+        return;
+      }
+      // A late failure cannot rearm an announcement transferred to the batch.
+      // Committed sends still retain their delivery evidence.
+      if (!delivery.delivered && requesterTookCompletion()) {
         return;
       }
       recordAnnounceDeliveryResult(entry, delivery, params.runs);

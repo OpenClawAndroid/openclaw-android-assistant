@@ -151,8 +151,11 @@ function createFilteredSessionController(
     },
     agentSelection,
   } as unknown as ApplicationContext;
+  let hostConnected = true;
   const host = {
-    isConnected: true,
+    get isConnected() {
+      return hostConnected;
+    },
     connected: true,
     activeRouteId: "sessions",
     getRouteSessionKey: () => context.gateway.snapshot.sessionKey.trim(),
@@ -173,6 +176,12 @@ function createFilteredSessionController(
   const controller = new SessionDataController(host);
 
   return {
+    context,
+    host,
+    disconnectHost: () => {
+      hostConnected = false;
+      controller.hostDisconnected();
+    },
     controller,
     list,
     resultForKeys,
@@ -226,6 +235,27 @@ function createFilteredSessionController(
 }
 
 describe("filtered sidebar session event refresh", () => {
+  it("keeps shared group hydration when its first sidebar presenter disconnects", async () => {
+    const { controller, context, host, disconnectHost } = createFilteredSessionController("active");
+    const bootstrap = context.connectionBootstrap;
+    const client = context.gateway.snapshot.client;
+    bootstrap.setForegroundRoute("agent:main:pending");
+    const load = vi.spyOn(context.sessions, "groupsLoad");
+    const replacement = new SessionDataController({ ...host, isConnected: true });
+    try {
+      controller.hostConnected();
+      replacement.hostConnected();
+      expect(load).not.toHaveBeenCalled();
+      disconnectHost();
+      bootstrap.setForegroundPane({}, { sessionKey: "agent:main:pending", client, ready: true });
+      await bootstrap.run(context.sessions.groupsLoad, async () => {});
+      expect(load).toHaveBeenCalledOnce();
+    } finally {
+      replacement.hostDisconnected();
+      vi.restoreAllMocks();
+    }
+  });
+
   it.each(["archived", "all"] as const)(
     "automatically rebinds the restored %s filter across controller reconnect",
     async (statusFilter) => {

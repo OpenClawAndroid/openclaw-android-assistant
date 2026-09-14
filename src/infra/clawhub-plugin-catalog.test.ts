@@ -19,7 +19,7 @@ const remotePlugin = {
   categories: ["memory"],
   latestVersion: "1.2.3",
   runtimeId: "memory-plus",
-  icon: "https://cdn.example.com/memory-plus.svg",
+  icon: `/api/v1/skill-icons/${"a".repeat(64)}`,
   stats: { downloads: 42, installs: 7 },
 };
 
@@ -60,6 +60,7 @@ describe("ClawHub plugin catalog client", () => {
     expect(result.items).toEqual([
       expect.objectContaining({
         packageName: "memory-plus",
+        iconUrl: `https://example.com${remotePlugin.icon}`,
         featured: true,
         trending: true,
         featuredRank: 1,
@@ -105,7 +106,7 @@ describe("ClawHub plugin catalog client", () => {
           categories: ["memory"],
           latestVersion: "1.2.3",
           runtimeId: "memory-plus",
-          iconUrl: "https://cdn.example.com/memory-plus.svg",
+          iconUrl: `https://example.com${remotePlugin.icon}`,
           downloads: 42,
           installs: 7,
         },
@@ -114,31 +115,38 @@ describe("ClawHub plugin catalog client", () => {
     });
   });
 
-  it("uses plugin search without inventing pagination", async () => {
-    let requestedUrl = "";
-    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
-      requestedUrl = requestUrl(input);
-      return jsonResponse({ results: [{ score: 9, package: remotePlugin }] });
-    });
+  it.each([
+    [remotePlugin.icon, `https://example.com${remotePlugin.icon}`],
+    ["https://cdn.example.com/memory-plus.svg", "https://cdn.example.com/memory-plus.svg"],
+  ])(
+    "uses plugin search with a resolved icon and no invented pagination: %s",
+    async (icon, iconUrl) => {
+      let requestedUrl = "";
+      const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+        requestedUrl = requestUrl(input);
+        return jsonResponse({ results: [{ score: 9, package: { ...remotePlugin, icon } }] });
+      });
 
-    const result = await fetchClawHubPluginCatalog({
-      baseUrl: "https://example.com",
-      query: "memory",
-      intent: "official",
-      limit: 5,
-      fetchImpl,
-    });
+      const result = await fetchClawHubPluginCatalog({
+        baseUrl: "https://example.com",
+        query: "memory",
+        intent: "official",
+        limit: 5,
+        fetchImpl,
+      });
 
-    const url = new URL(requestedUrl);
-    expect(url.pathname).toBe("/api/v1/plugins/search");
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      q: "memory",
-      isOfficial: "true",
-      limit: "5",
-    });
-    expect(result.nextCursor).toBeUndefined();
-    expect(result.items).toHaveLength(1);
-  });
+      const url = new URL(requestedUrl);
+      expect(url.pathname).toBe("/api/v1/plugins/search");
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        q: "memory",
+        isOfficial: "true",
+        limit: "5",
+      });
+      expect(result.nextCursor).toBeUndefined();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.iconUrl).toBe(iconUrl);
+    },
+  );
 
   it("uses ClawHub's featured filter without overriding its canonical order", async () => {
     let requestedUrl = "";
@@ -448,6 +456,7 @@ describe("ClawHub plugin catalog client", () => {
     );
     expect(detail).toMatchObject({
       packageName: "memory-plus",
+      iconUrl: `https://example.com${remotePlugin.icon}`,
       owner: {
         handle: "alice",
         displayName: "Alice",

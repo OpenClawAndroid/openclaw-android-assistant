@@ -227,9 +227,17 @@ the dashboard for HTTP errors, authentication prompts, and Gateway readiness.
 ### Switching Gateways
 
 Use **Gateways → Manage Gateways…** in the app or tray menu to save a direct URL
-or SSH connection. Saved credentials stay in this app's system credential store;
-editing a connection keeps its token and password fields empty. Leave both blank
-to retain the credentials for the same endpoint.
+or SSH connection. **Add Gateway** and **Edit** open a focused connection form;
+**Back to Gateways** returns to the saved list and discards unsaved changes.
+Choose token or password under **Authentication** and enter a credential only
+when needed. The credential starts masked; use **Show credential** to inspect
+what you entered. Switching authentication types clears the entered credential.
+For SSH connections, the optional TLS fingerprint is under **Advanced connection
+settings**.
+
+Saved credentials stay in this app's system credential store and are never
+filled into the editor. Leave the credential field blank to retain the saved
+credentials for the same endpoint.
 
 If the credential store is unavailable, the app keeps the dashboard open and
 shows one dismissible notice. Saved connections remain intact. Resolve the

@@ -39,6 +39,7 @@ export function buildDeveloperInstructions(
   options: { dynamicTools?: readonly CodexDynamicToolSpec[] } = {},
 ): string {
   const deferredToolNames = new Set<string>();
+  let screenToolName: string | undefined;
   let showWidgetToolName: string | undefined;
   let dashboardToolName: string | undefined;
   let portalToolName: string | undefined;
@@ -63,6 +64,9 @@ export function buildDeveloperInstructions(
       const qualifiedName = spec.type === "namespace" ? `${spec.name}.${name}` : name;
       if (tool.deferLoading === true && name) {
         deferredToolNames.add(name);
+      }
+      if (name === "screen") {
+        screenToolName ??= qualifiedName;
       }
       if (name === "show_widget") {
         showWidgetToolName ??= qualifiedName;
@@ -140,6 +144,7 @@ export function buildDeveloperInstructions(
       : undefined,
     params.disableTools !== true && params.promptMode !== "minimal" && params.promptMode !== "none"
       ? buildUiPresentationPrompt({
+          screenToolName,
           showWidgetToolName,
           dashboardToolName,
           portalToolName,

@@ -160,6 +160,10 @@ The Gateway advertises `session-scoped-model-catalog` for this contract.
 `chat.metadata` remains available to legacy clients; the Control UI reads models
 directly and keeps commands in its metadata cache. Opening a conversation picker
 performs a passive read, without a model-cache timer or implicit provider refresh.
+During metadata preparation, a request can use its agent's ready command list and
+model projection while other agents are still preparing. Shared model or account
+replacement still gates these reads; metadata refresh completion waits for all
+agents.
 The Models settings page uses `preparedOnly: true` for its initial load, then
 requests `refresh: true` the first time a primary, utility, or fallback model
 picker opens for the current core-data snapshot. Pending opens share that page's request; completed reopens read the

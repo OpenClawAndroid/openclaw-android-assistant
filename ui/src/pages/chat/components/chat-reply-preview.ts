@@ -17,7 +17,7 @@ type ResolvedReplyPreview = (MessageReplyTarget & { sourceMessageId: string }) |
 
 type ReplyPreviewProps = Pick<
   ChatThreadProps,
-  "assistantName" | "replyMessageAccess" | "userAvatar" | "userId" | "userName"
+  "assistantName" | "replyMessageAccess" | "userId" | "userName"
 >;
 
 function projectResolvedReplyPreview(

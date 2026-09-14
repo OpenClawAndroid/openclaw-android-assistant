@@ -430,9 +430,13 @@ async function stopManagedServiceBeforeMutableUpdate(
     },
     blockMessage: message,
   });
-  const serviceMutationSkipMessage = resolveGatewayServiceManagementBlockMessageForUpdate(
-    process.env,
-  );
+  // Preparation must keep using the manager route admitted during inspection.
+  // Re-reading through process.env can select a different raw systemd route
+  // (for example after the service snapshot fills in an explicit unit/profile),
+  // which invalidates the retained native binding before activation.
+  const serviceEnv = params.expectedService?.serviceEnv ?? process.env;
+  const serviceMutationSkipMessage =
+    resolveGatewayServiceManagementBlockMessageForUpdate(serviceEnv);
   if (serviceMutationSkipMessage) {
     return { ...uninspected, serviceMutationAllowed: false, serviceMutationSkipMessage };
   }
@@ -441,7 +445,7 @@ async function stopManagedServiceBeforeMutableUpdate(
   try {
     service = resolveGatewayService();
     serviceState = await readGatewayServiceState(service, {
-      env: process.env,
+      env: serviceEnv,
       requireEffective: true,
       requireLoadedCommand: true,
       validateEnvBeforeStatusRead: assertGatewayServiceManagementAllowedForUpdate,
@@ -453,7 +457,7 @@ async function stopManagedServiceBeforeMutableUpdate(
     ) {
       // Re-read the definition too: a timed-out snapshot cannot grant service ownership.
       serviceState = await readGatewayServiceState(service, {
-        env: process.env,
+        env: serviceEnv,
         requireEffective: true,
         validateEnvBeforeStatusRead: assertGatewayServiceManagementAllowedForUpdate,
         timeoutMs: params.timeoutMs,

@@ -396,16 +396,35 @@ describe("splitMediaFromOutput", () => {
     );
   });
 
-  it("extracts only exact allowlisted Markdown image targets", () => {
-    expectParsedMediaOutputCase(
-      "Before ![selected](/tmp/selected.png) after ![remote](https://example.com/remote.png)",
-      {
-        text: "Before after ![remote](https://example.com/remote.png)",
-        mediaUrls: ["file:///tmp/selected.png"],
-      },
-      { markdownImageAllowlist: ["file:///tmp/selected.png"] },
-    );
-  });
+  it.each([undefined, false, true])(
+    "extracts only exact allowlisted Markdown image targets (extractMarkdownImages=%s)",
+    (extractImages) => {
+      expectParsedMediaOutputCase(
+        "Before ![selected](/tmp/selected.png) after ![remote](https://example.com/remote.png)",
+        {
+          text: "Before after ![remote](https://example.com/remote.png)",
+          mediaUrls: ["file:///tmp/selected.png"],
+        },
+        {
+          extractMarkdownImages: extractImages,
+          markdownImageAllowlist: ["file:///tmp/selected.png"],
+        },
+      );
+    },
+  );
+
+  it.each([undefined, false, true])(
+    "keeps images literal for an empty allowlist (extractMarkdownImages=%s)",
+    (extractImages) => {
+      const input = "Before ![chart](https://example.com/chart.png) after";
+      expect(
+        splitMediaFromOutput(input, {
+          extractMarkdownImages: extractImages,
+          markdownImageAllowlist: [],
+        }),
+      ).toEqual({ text: input, segments: [{ type: "text", text: input }] });
+    },
+  );
 
   it("keeps inline caption text around markdown images when enabled", () => {
     expectParsedMediaOutputCase(

@@ -7,8 +7,11 @@ import {
   saveSubagentRegistryToSqlite,
 } from "../src/agents/subagents/registry/subagent-registry.store.sqlite.js";
 import type { SubagentRunRecord } from "../src/agents/subagents/registry/subagent-registry.types.js";
+import { getSessionKysely } from "../src/config/sessions/session-accessor.sqlite-scope.js";
 import type { OpenClawConfig } from "../src/config/types.openclaw.js";
 import { connectGatewayClient, disconnectGatewayClient } from "../src/gateway/test-helpers.e2e.js";
+import { executeSqliteQuerySync } from "../src/infra/kysely-sync.js";
+import { withOpenClawAgentDatabaseReadOnly } from "../src/state/openclaw-agent-db-readonly.js";
 import { closeOpenClawStateDatabaseForTest } from "../src/state/openclaw-state-db.js";
 import {
   writeOpenAiResponsesSse,
@@ -18,6 +21,7 @@ import {
   createOpenClawTestInstance,
   type OpenClawTestInstance,
 } from "./helpers/openclaw-test-instance.js";
+import { createDeferred } from "./helpers/promise.js";
 
 const TEST_TIMEOUT_MS = 180_000;
 const MODEL_REF = "requester-owner/synthetic";
@@ -38,6 +42,7 @@ type ProofModelServer = {
   bodies: () => readonly string[];
   close: () => Promise<void>;
   countRequestsContaining: (marker: string) => number;
+  completionResponseCount: () => number;
   requestCount: () => number;
   url: string;
 };
@@ -57,6 +62,132 @@ afterEach(async () => {
 });
 
 describe("REQUESTER-OWNER requester agent id survives completion dispatch", () => {
+  it(
+    "delivers a private result once when the child finishes before the parent yields",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const yieldGate = createDeferred();
+      const modelServer = await startProofModelServer({ yieldAfterSpawn: yieldGate.promise });
+      modelServers.push(modelServer);
+      const instance = await createOpenClawTestInstance({
+        name: "private-completion-before-yield",
+        config: createTestConfig(modelServer.url),
+        env: { OPENCLAW_SKIP_PROVIDERS: undefined, OPENCLAW_TEST_MINIMAL_GATEWAY: undefined },
+      });
+      instances.push(instance);
+      instance.state.applyEnv();
+      const sessionId = "private-yield-requester-session";
+      const sessionKey = `agent:${REQUESTER_AGENT_ID}:${REQUESTER_KEY}`;
+      await writeSubagentSessionEntry({
+        stateDir: instance.stateDir,
+        agentId: REQUESTER_AGENT_ID,
+        sessionKey,
+        sessionId,
+        defaultSessionId: sessionId,
+      });
+      closeOpenClawStateDatabaseForTest();
+      await instance.startGateway();
+      const chatErrors: unknown[] = [];
+      const client = await connectGatewayClient({
+        url: instance.url,
+        token: instance.gatewayToken,
+        onEvent: (event) => {
+          if (event.event === "chat" && (event.payload as { state?: string })?.state === "error") {
+            chatErrors.push(event.payload);
+          }
+        },
+      });
+      const readInputs = () =>
+        withOpenClawAgentDatabaseReadOnly(
+          ({ db }) =>
+            executeSqliteQuerySync(
+              db,
+              getSessionKysely(db)
+                .selectFrom("session_pending_inputs")
+                .selectAll()
+                .where("session_id", "=", sessionId),
+            ).rows,
+          { agentId: REQUESTER_AGENT_ID },
+        );
+      try {
+        const parent = client.request(
+          "agent",
+          {
+            sessionKey,
+            agentId: REQUESTER_AGENT_ID,
+            idempotencyKey: "private-yield-parent-turn",
+            message: PARENT_PROMPT,
+            deliver: false,
+          },
+          { expectFinal: true },
+        );
+        void parent.catch(() => {});
+        instance.state.applyEnv();
+        await vi.waitFor(
+          () => {
+            const runs = [...loadSubagentRegistryFromSqlite().values()];
+            expect(runs, instance.logs()).toHaveLength(1);
+            expect(runs[0]).toMatchObject({
+              completionTarget: "parent",
+              requesterTurnRunId: "private-yield-parent-turn",
+              execution: { status: "terminal", outcome: { status: "ok" } },
+              completion: { resultText: CHILD_MARKER },
+            });
+            expect(modelServer.countRequestsContaining(CHILD_MARKER)).toBe(0);
+          },
+          { interval: 50, timeout: 60_000 },
+        );
+        // The parent checks the finished child through its real tool before yielding.
+        yieldGate.resolve();
+        expect(await parent, instance.logs()).toMatchObject({ status: "ok" });
+        await vi.waitFor(
+          () => {
+            const runs = [...loadSubagentRegistryFromSqlite().values()];
+            expect(runs, instance.logs()).toHaveLength(1);
+            expect(runs[0]?.delivery?.status, instance.logs()).toBe("delivered");
+            expect(runs[0]?.requesterSettleWake).toBeUndefined();
+          },
+          { interval: 50, timeout: 30_000 },
+        );
+        const receipts = withOpenClawAgentDatabaseReadOnly(
+          ({ db }) =>
+            executeSqliteQuerySync(
+              db,
+              getSessionKysely(db)
+                .selectFrom("session_input_completions")
+                .selectAll()
+                .where("session_id", "=", sessionId),
+            ).rows,
+          { agentId: REQUESTER_AGENT_ID },
+        );
+        expect(receipts.found).toBe(true);
+        if (!receipts.found) {
+          throw new Error("Expected durable private completion receipts");
+        }
+        expect(receipts.value.filter((receipt) => receipt.succeeded === 1)).toHaveLength(1);
+        expect(modelServer.completionResponseCount()).toBe(1);
+        expect(chatErrors).toEqual([]);
+        const history = await client.request<{ messages: unknown[] }>("chat.history", {
+          sessionKey,
+          agentId: REQUESTER_AGENT_ID,
+          limit: 30,
+        });
+        expect(JSON.stringify(history.messages)).not.toContain("This turn ended before a reply");
+        const inputs = readInputs();
+        expect(inputs.found && inputs.value.filter((input) => input.state !== "cancelled")).toEqual(
+          [],
+        );
+      } finally {
+        yieldGate.resolve();
+        await disconnectGatewayClient(client);
+        await instance.stopGateway();
+      }
+      expect(instance.logs()).not.toContain(
+        "subagent source lifecycle changed before completion delivery",
+      );
+    },
+  );
+
   it(
     "preserves the requester owner through a fresh normalized spawn",
     { timeout: TEST_TIMEOUT_MS },
@@ -361,8 +492,13 @@ function buildToolCallEvents(name: string, args: Record<string, unknown>): SseEv
   ];
 }
 
-async function startProofModelServer(): Promise<ProofModelServer> {
+async function startProofModelServer(options?: {
+  yieldAfterSpawn: Promise<void>;
+}): Promise<ProofModelServer> {
   const requestBodies: string[] = [];
+  let parentCheckedChildren = false;
+  let parentYielded = false;
+  let completionResponses = 0;
   const server = createServer((request, response) => {
     void handleModelRequest(request, response).catch((error: unknown) => {
       if (!response.headersSent) {
@@ -391,10 +527,16 @@ async function startProofModelServer(): Promise<ProofModelServer> {
       body += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
     }
     requestBodies.push(body);
+    if (options?.yieldAfterSpawn && parentCheckedChildren && !parentYielded) {
+      parentYielded = true;
+      writeOpenAiResponsesSse(response, buildToolCallEvents("sessions_yield", {}));
+      return;
+    }
     const completion = [RESTORED_CHILD_RESULT, CHILD_MARKER].find((marker) =>
       body.includes(marker),
     );
     if (completion) {
+      completionResponses += 1;
       writeOpenAiResponsesText(response, {
         text: completion,
         responseId: `response-${++responseSequence}`,
@@ -419,8 +561,15 @@ async function startProofModelServer(): Promise<ProofModelServer> {
           label: "requester-owner-child",
           thread: false,
           mode: "run",
+          ...(options?.yieldAfterSpawn ? { completionTarget: "parent" } : {}),
         }),
       );
+      return;
+    }
+    if (options?.yieldAfterSpawn) {
+      await options.yieldAfterSpawn;
+      parentCheckedChildren = true;
+      writeOpenAiResponsesSse(response, buildToolCallEvents("subagents", { action: "list" }));
       return;
     }
     writeOpenAiResponsesText(response, {
@@ -439,6 +588,7 @@ async function startProofModelServer(): Promise<ProofModelServer> {
     bodies: () => requestBodies,
     countRequestsContaining: (marker) =>
       requestBodies.filter((entry) => entry.includes(marker)).length,
+    completionResponseCount: () => completionResponses,
     requestCount: () => requestBodies.length,
     url: `http://127.0.0.1:${address.port}`,
     close: async () => {

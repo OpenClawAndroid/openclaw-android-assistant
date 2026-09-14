@@ -239,7 +239,7 @@ function buildProviderFromBuilder(opts: ConfigSetOptions): SecretProviderConfig 
     provider = {
       source: "exec",
       command,
-      ...(opts.providerArg?.length ? { args: opts.providerArg.map((entry) => entry.trim()) } : {}),
+      ...(opts.providerArg?.length ? { args: opts.providerArg } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(noOutputTimeoutMs !== undefined ? { noOutputTimeoutMs } : {}),
       ...(maxOutputBytes !== undefined ? { maxOutputBytes } : {}),

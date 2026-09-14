@@ -425,8 +425,9 @@ export class SessionDataController implements ReactiveController, SessionCatalog
     }
     this.updateSessions(sessions);
     if (this.context?.gateway.snapshot.phase === "connected") {
-      // Group catalog hydration is idempotent per connection.
-      void sessions.groupsLoad();
+      void this.context.connectionBootstrap.run(sessions.groupsLoad, () => sessions.groupsLoad(), {
+        background: true,
+      });
       if (sourceChanged && hasSidebarListFilter(this.host)) {
         void this.scheduleSidebarSessions();
       }

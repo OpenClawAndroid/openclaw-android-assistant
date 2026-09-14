@@ -63,6 +63,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/zalouser",
       "npmSpec": "@openclaw/zalouser",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

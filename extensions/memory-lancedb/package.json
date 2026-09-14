@@ -30,6 +30,7 @@
       "./index.ts"
     ],
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/memory-lancedb",
       "npmSpec": "@openclaw/memory-lancedb",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.5.31"

@@ -175,6 +175,7 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
       if (state) {
         this.unreadPatchGuard.beginActivation(state.sessionKey);
         void refreshChatMetadata(state, { automatic: true });
+        void this.refreshTaskSuggestions({ automatic: true });
       }
       const deferredHydrationActive = this.resumeDeferredSessionHydration();
       if (state && !deferredHydrationActive) {

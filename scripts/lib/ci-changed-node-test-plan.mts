@@ -318,9 +318,26 @@ function createBoundaryShard() {
   };
 }
 
+function isIndependentlyCheckedDocumentation(changedPath: string, cwd: string) {
+  if (
+    changedPath !== changedPath.trim() ||
+    path.posix.normalize(changedPath) !== changedPath ||
+    (changedPath !== "README.md" &&
+      (!/^docs\/.+\.mdx?$/u.test(changedPath) ||
+        changedPath.startsWith("docs/reference/templates/")))
+  ) {
+    return false;
+  }
+  // check:docs owns these pages; packaged workspace templates still need runtime proof.
+  // Missing pages are deletions, but symlinks (including dangling ones) are not pages.
+  const entry = lstatSync(path.join(cwd, changedPath), { throwIfNoEntry: false });
+  return entry === undefined || entry.isFile();
+}
+
 function resolvePreciseChangedTargets(
   changedPaths: string[],
   cwd: string,
+  documentationPaths: ReadonlySet<string>,
   additionalTargets: string[] = [],
 ) {
   const resolveTargetPlan = (paths: string[]) =>
@@ -335,12 +352,15 @@ function resolvePreciseChangedTargets(
     changedPaths.length > 0
       ? resolveTargetPlan(changedPaths)
       : { mode: "targets" as const, targets: [] };
-  // Aggregate resolution must not let one precise path hide another path that
-  // contributes no tests. Partial plans silently drop coverage.
+  // A precise aggregate must not hide an unowned path. Only independently
+  // checked documentation may contribute no Node tests after owner resolution.
   if (
     changedPaths.some((changedPath) => {
       const changedPathPlan = resolveTargetPlan([changedPath]);
-      return changedPathPlan.mode !== "targets" || changedPathPlan.targets.length === 0;
+      return (
+        changedPathPlan.mode !== "targets" ||
+        (changedPathPlan.targets.length === 0 && !documentationPaths.has(changedPath))
+      );
     }) ||
     plan.mode !== "targets"
   ) {
@@ -611,23 +631,31 @@ export function createChangedNodeTestShards(
   }
 
   const livePaths: string[] = [];
-  const deletedPaths: string[] = [];
+  const resolutionPaths: string[] = [];
+  const documentationPaths = new Set<string>();
   for (const changedPath of changedPaths) {
-    (existsSync(path.join(cwd, changedPath)) ? livePaths : deletedPaths).push(changedPath);
-  }
-  // Deleted test files cannot regress runtime behavior, so they never block
-  // targeting. Deleted source files cannot be import-graphed from the merged
-  // tree and no live-path heuristic proves their consumers are covered, so
-  // any source deletion keeps the full-suite plan.
-  if (deletedPaths.some((deletedPath) => !isTestFileTarget(deletedPath))) {
-    return null;
+    const live = existsSync(path.join(cwd, changedPath));
+    const documentation = isIndependentlyCheckedDocumentation(changedPath, cwd);
+    if (documentation) {
+      documentationPaths.add(changedPath);
+    }
+    if (live) {
+      livePaths.push(changedPath);
+    } else if (!isTestFileTarget(changedPath) && !documentation) {
+      // Deleted source cannot be import-graphed; deleted tests retain boundary coverage.
+      return null;
+    }
+    if (live || documentation) {
+      // Preserve input order and resolve even deleted docs before crediting an empty plan.
+      resolutionPaths.push(changedPath);
+    }
   }
 
   // Policy watches can name extension-owned files (such as a bundled manifest)
   // that host suites scan without importing, so an extension path a watch names
   // stays eligible alongside the plugin control-UI paths.
   const policyTargetsByPath = new Map(
-    livePaths
+    resolutionPaths
       .map((changedPath) => [changedPath, resolvePolicyTestTargets([changedPath])] as const)
       .filter(
         ([changedPath, policyTargets]) =>
@@ -636,7 +664,7 @@ export function createChangedNodeTestShards(
           policyTargets.length > 0,
       ),
   );
-  const regularLivePaths = livePaths.filter(
+  const regularPaths = resolutionPaths.filter(
     (changedPath) =>
       (!changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath)) &&
       // The emitted ratchet checks this data against the exact tested merge tree.
@@ -658,7 +686,7 @@ export function createChangedNodeTestShards(
     return null;
   }
 
-  const targetPlans = resolvePreciseChangedTargets(regularLivePaths, cwd, [
+  const targetPlans = resolvePreciseChangedTargets(regularPaths, cwd, documentationPaths, [
     ...[...policyTargetsByPath.values()].flat(),
     // Plugin changes normally select only extension suites. This host-owned
     // proof also exercises the real Copilot entrypoint and manifest discovery.

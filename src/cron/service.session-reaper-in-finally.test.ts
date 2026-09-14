@@ -188,6 +188,10 @@ describe("CronService - session reaper runs in finally block (#31946)", () => {
       await onTimer(state);
 
       expect(runIsolatedAgentJob).toHaveBeenCalledOnce();
+      expect(noopLogger.warn).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining("cron: job core rejected after"),
+      );
       expect((await loadCronStore(store.storePath)).jobs[0]?.state).toMatchObject({
         lastRunStatus: "error",
         lastError: "gateway down",

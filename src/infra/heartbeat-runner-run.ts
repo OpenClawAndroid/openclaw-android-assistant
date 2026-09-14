@@ -124,8 +124,8 @@ export async function runHeartbeatOnce(opts: HeartbeatRunOptions): Promise<Heart
               }
             : {}),
           abortSignal: signal,
-          // Completed commands resume agent work under the ordinary agent timeout.
-          timeoutOverrideSeconds: prepared.hasExecCompletion
+          // Admitted task continuations retain their ordinary agent budget even after wake coalescing.
+          timeoutOverrideSeconds: prepared.hasTaskContinuation
             ? undefined
             : resolveHeartbeatTimeoutOverrideSeconds(cfg, heartbeat),
           bootstrapContextMode: heartbeat?.lightContext === true ? "lightweight" : undefined,

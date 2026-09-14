@@ -131,6 +131,12 @@ Prompt-segment diagnostics attribute attachment/context blocks and generated inb
 
 ## Compaction and retries
 
+When an OpenAI Responses request hits its output limit while generating a tool
+call, the built-in harness finishes already admitted tools and retries from their
+recorded results. The unfinished call never executes. Recovery uses the existing
+bounded session retry budget and remains cancellable; refusals and inconsistent
+terminal responses do not qualify for this continuation.
+
 Auto-compaction emits `compaction` stream events and can trigger a retry. On retry, in-memory buffers and tool summaries reset to avoid duplicate output. See [Compaction](/concepts/compaction).
 
 ## Event streams

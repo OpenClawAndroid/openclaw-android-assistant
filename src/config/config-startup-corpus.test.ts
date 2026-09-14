@@ -8,9 +8,17 @@ import { acquireReadOnlyPreparedModelRuntime } from "../agents/prepared-model-ru
 import { applyLegacyCompatibilityStep } from "../commands/doctor/shared/config-flow-steps.js";
 import { normalizeCompatibilityConfigValues } from "../commands/doctor/shared/legacy-config-core-migrate.js";
 import { loadGatewayStartupConfigSnapshot } from "../gateway/server-startup-config-helpers.js";
+import { resolveBundledDirFromPackageRoot } from "../plugins/bundled-dir.js";
 import { resolveProviderChannelLoginChoice } from "../plugins/provider-login-options.js";
 import { createConfigIO } from "./io.js";
 import type { OpenClawConfig } from "./types.js";
+
+const bundledPluginsDir = resolveBundledDirFromPackageRoot(
+  fileURLToPath(new URL("../../", import.meta.url)),
+);
+if (!bundledPluginsDir) {
+  throw new Error("Missing bundled plugin fixtures for startup corpus");
+}
 
 const corpusDir = fileURLToPath(new URL("../../test/fixtures/config-corpus/", import.meta.url));
 const fixtureNames = fs
@@ -107,7 +115,7 @@ describe("operator config startup corpus", () => {
       OPENCLAW_STATE_DIR: home,
       DISCORD_BOT_TOKEN: "synthetic-token",
       OPENCLAW_DISABLE_BUNDLED_PLUGINS: "0",
-      OPENCLAW_BUNDLED_PLUGINS_DIR: fileURLToPath(new URL("../../extensions/", import.meta.url)),
+      OPENCLAW_BUNDLED_PLUGINS_DIR: bundledPluginsDir,
     };
     const snapshot = await createConfigIO({
       configPath,
@@ -173,7 +181,7 @@ describe("operator config startup corpus", () => {
         OPENCLAW_TEST_HOME: home,
         OPENCLAW_STATE_DIR: stateDir,
         OPENCLAW_CONFIG_PATH: configPath,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: fileURLToPath(new URL("../../extensions/", import.meta.url)),
+        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledPluginsDir,
         OPENCLAW_DISABLE_BUNDLED_PLUGINS: "0",
       })) {
         vi.stubEnv(key, value);

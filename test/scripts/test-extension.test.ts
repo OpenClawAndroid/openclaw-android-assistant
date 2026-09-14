@@ -181,6 +181,10 @@ describe("scripts/test-extension.mts", () => {
   });
 
   it("splits the iMessage batch between persistence and channel owners without double counting", () => {
+    const workerFiles = [
+      "extensions/imessage/src/approval-reactions.persistence.test.ts",
+      "extensions/imessage/src/send.sqlite.test.ts",
+    ];
     const batch = resolveExtensionBatchPlan({ extensionIds: ["imessage"] });
     const files = listExtensionTestFilesForRoots(["extensions/imessage"]);
     expect(batch.extensionIds).toEqual(["imessage"]);
@@ -188,20 +192,18 @@ describe("scripts/test-extension.mts", () => {
     expect(batch.planGroups).toEqual([
       expect.objectContaining({
         config: "test/vitest/vitest.extension-database-workers.config.ts",
-        roots: ["extensions/imessage/src/approval-reactions.persistence.test.ts"],
+        roots: workerFiles,
         extensionIds: ["imessage"],
-        testFileCount: 1,
+        testFileCount: workerFiles.length,
       }),
       expect.objectContaining({
         config: "test/vitest/vitest.extension-imessage.config.ts",
         roots: ["extensions/imessage"],
         extensionIds: ["imessage"],
-        testFileCount: files.length - 1,
+        testFileCount: files.length - workerFiles.length,
       }),
     ]);
-    expect(listExtensionTestFilesForRoots(batch.planGroups[0]!.roots)).toEqual([
-      "extensions/imessage/src/approval-reactions.persistence.test.ts",
-    ]);
+    expect(listExtensionTestFilesForRoots(batch.planGroups[0]!.roots)).toEqual(workerFiles);
     const shards = createExtensionTestShards({ extensionIds: ["imessage"], shardCount: 2 });
     expect(shards).toHaveLength(1);
     expect(shards[0]?.planGroups).toEqual(batch.planGroups);

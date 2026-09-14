@@ -289,7 +289,9 @@ describe("custodian page session lifecycle", () => {
     const { page } = await mountPage(context);
     const twitch = await waitForFast(() => {
       const button = [
-        ...page.querySelectorAll<HTMLButtonElement>(".custodian__wizard-step button"),
+        ...page.querySelectorAll<HTMLButtonElement>(
+          ".custodian__wizard-step button:not([disabled])",
+        ),
       ].find((option) => option.textContent?.trim() === "Twitch");
       expect(button).toBeDefined();
       return button!;

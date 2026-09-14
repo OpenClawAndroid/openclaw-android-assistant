@@ -5,6 +5,10 @@
  */
 import path from "node:path";
 import { parseDirectoryEntries, type DirectoryEntry } from "../../infra/directory-entries.js";
+import {
+  GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE,
+  GUEST_FILESYSTEM_READ_NOT_FOUND_EXIT_CODE,
+} from "../../infra/guest-filesystem.js";
 import type {
   SandboxBackendCommandResult,
   SandboxFsBridgeContext,
@@ -14,10 +18,6 @@ import {
   buildPinnedMutationArgs,
   SANDBOX_PINNED_MUTATION_PYTHON_SHELL_LITERAL,
 } from "./fs-bridge-mutation-helper.js";
-import {
-  SANDBOX_CREATE_EXISTS_EXIT_CODE,
-  SANDBOX_READ_NOT_FOUND_EXIT_CODE,
-} from "./fs-bridge-mutation-python.js";
 import { createWritableRenameTargetResolver } from "./fs-bridge-rename-targets.js";
 import {
   hasMultipleHardlinks,
@@ -123,7 +123,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       signal: params.signal,
       allowFailure: true,
     });
-    if (result.code === SANDBOX_READ_NOT_FOUND_EXIT_CODE) {
+    if (result.code === GUEST_FILESYSTEM_READ_NOT_FOUND_EXIT_CODE) {
       throw Object.assign(new Error(`Sandbox file not found: ${target.containerPath}`), {
         code: "ENOENT",
       });
@@ -262,7 +262,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       allowFailure: true,
       signal: params.signal,
     });
-    if (result.code === SANDBOX_CREATE_EXISTS_EXIT_CODE) {
+    if (result.code === GUEST_FILESYSTEM_CREATE_EXISTS_EXIT_CODE) {
       return "exists";
     }
     if (result.code !== 0) {

@@ -105,7 +105,7 @@ export function getToolResultText(msg: AgentMessage): string {
   return chunks.join("\n");
 }
 
-function estimateMessageChars(msg: AgentMessage): number {
+export function estimateMessageChars(msg: AgentMessage, contentOverride?: unknown[]): number {
   if (
     !msg ||
     typeof msg !== "object" ||
@@ -115,7 +115,7 @@ function estimateMessageChars(msg: AgentMessage): number {
   }
 
   if (msg.role === "user") {
-    const content = msg.content;
+    const content = contentOverride ?? msg.content;
     if (typeof content === "string") {
       return content.length;
     }
@@ -127,7 +127,7 @@ function estimateMessageChars(msg: AgentMessage): number {
 
   if (msg.role === "assistant") {
     let chars = 0;
-    const content = (msg as { content?: unknown }).content;
+    const content = contentOverride ?? (msg as { content?: unknown }).content;
     if (Array.isArray(content)) {
       for (const block of content) {
         if (!block || typeof block !== "object") {
@@ -159,7 +159,7 @@ function estimateMessageChars(msg: AgentMessage): number {
 
   if (isToolResultMessage(msg)) {
     // `details` is stripped before provider conversion; estimate only visible content.
-    const content = getToolResultContent(msg);
+    const content = contentOverride ?? getToolResultContent(msg);
     return estimateToolResultContentChars(content);
   }
 
@@ -182,7 +182,7 @@ function estimateMessageChars(msg: AgentMessage): number {
   }
 
   if (role === "custom") {
-    const content = Reflect.get(msg, "content");
+    const content = contentOverride ?? Reflect.get(msg, "content");
     if (typeof content === "string") {
       return content.length;
     }

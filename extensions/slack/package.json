@@ -147,6 +147,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/slack",
       "npmSpec": "@openclaw/slack",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.5.28",

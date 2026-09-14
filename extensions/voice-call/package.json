@@ -30,6 +30,7 @@
     ],
     "setupEntry": "./setup-api.ts",
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/voice-call",
       "npmSpec": "@openclaw/voice-call",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

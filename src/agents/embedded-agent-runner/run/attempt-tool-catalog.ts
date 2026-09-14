@@ -165,7 +165,6 @@ export function prepareEmbeddedAttemptToolCatalog(input: {
       });
     }
     if (toolSearch.compacted && !toolSearch.catalogReused) {
-      input.setup.prepStages.mark(codeModeControlsEnabledForRun ? "code-mode" : "tool-search");
       log.info(
         codeModeControlsEnabledForRun
           ? `code-mode: cataloged ${toolSearch.catalogToolCount} tools behind exec/wait`
@@ -178,7 +177,6 @@ export function prepareEmbeddedAttemptToolCatalog(input: {
       toolSearchControlsEnabledForRun &&
       toolSearchConfig.mode === "directory" &&
       toolSearch.catalogRegistered;
-    input.setup.prepStages.mark("bundle-tools");
     const explicitToolAllowlistSources = collectAttemptExplicitToolAllowlistSources({
       capabilityProfile: runtimeCapabilityProfile,
       toolsAllow: attempt.toolsAllow,

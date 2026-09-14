@@ -402,6 +402,21 @@ describe("subagent registry restart recovery", () => {
     expect(abandonLaunch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { name: "explicitly unlimited", runTimeoutSeconds: 0, expectedTimeout: 0 },
+    { name: "bounded", runTimeoutSeconds: 600, expectedTimeout: 600 },
+    { name: "legacy unlimited", runTimeoutSeconds: undefined, expectedTimeout: 0 },
+  ])(
+    "preserves the $name child execution budget after restart",
+    async ({ runTimeoutSeconds, expectedTimeout }) => {
+      await expect(recover(run({ runTimeoutSeconds }))).resolves.toEqual({ status: "accepted" });
+
+      expect(dispatchAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionKey: childSessionKey, timeout: expectedTimeout }),
+      );
+    },
+  );
+
   it("rolls back a dispatch attempt that never reaches the Gateway handler", async () => {
     const entry = run();
     reserveLaunch.mockImplementation((params) => {

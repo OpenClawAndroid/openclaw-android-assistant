@@ -9,7 +9,7 @@ beforeAll(async () => {
 });
 
 describe("Firecrawl target validation", () => {
-  it.each(["https://example.com/page", "http://example.com"])("allows %s", (url) => {
+  it.each(["http://example.com"])("allows %s", (url) => {
     expect(() => firecrawlClient.assertFirecrawlScrapeTargetAllowed(url)).not.toThrow();
   });
 

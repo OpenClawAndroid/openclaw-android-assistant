@@ -23,6 +23,10 @@ type TaskEventPayload =
   | { action: "deleted"; taskId: string }
   | { action: "restored" };
 
+export type CoalescedTaskEvent =
+  | { action: "deleted" }
+  | { action: "upserted"; task: TaskSummary; afterDelete: boolean };
+
 const STATUS_LABEL_KEYS = {
   queued: "tasksPage.status.queued",
   running: "tasksPage.status.running",
@@ -299,4 +303,42 @@ export function applyTaskEvent(
     tasks: sortTasks([next, ...tasks.filter((task) => task.id !== event.task.id)]),
     refetch: false,
   };
+}
+
+/** Task events omit detail-only prompts; repeated snapshots share the event freshness rules. */
+export function coalesceTaskEvent(
+  pending: Map<string, CoalescedTaskEvent>,
+  event: Exclude<TaskEventPayload, { action: "restored" }>,
+): void {
+  if (event.action === "deleted") {
+    pending.set(event.taskId, { action: "deleted" });
+    return;
+  }
+  const previous = pending.get(event.task.id);
+  pending.set(event.task.id, {
+    action: "upserted",
+    task:
+      previous?.action === "upserted"
+        ? newestTaskSnapshot(previous.task, event.task, "event")
+        : event.task,
+    afterDelete:
+      previous?.action === "deleted" || (previous?.action === "upserted" && previous.afterDelete),
+  });
+}
+
+export function replayTaskEvents(
+  tasks: readonly TaskSummary[],
+  pending: ReadonlyMap<string, CoalescedTaskEvent>,
+): TaskSummary[] {
+  let result = [...tasks];
+  for (const [taskId, event] of pending) {
+    // A recreated task must replace even a newer row from the pre-delete snapshot.
+    if (event.action === "deleted" || event.afterDelete) {
+      result = applyTaskEvent(result, { action: "deleted", taskId }).tasks;
+    }
+    if (event.action === "upserted") {
+      result = applyTaskEvent(result, { action: "upserted", task: event.task }).tasks;
+    }
+  }
+  return result;
 }

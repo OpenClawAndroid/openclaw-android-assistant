@@ -31,6 +31,10 @@ cleanup_outer() {
       echo "Upgrade survivor diagnostics missing: no private capture prepared." >&2
     fi
   fi
+  if [ "$exit_status" -eq 0 ] && [ "${OPENCLAW_UPGRADE_SURVIVOR_PUBLISHED_BASELINE:-0}" = "1" ] && [ "$diagnostics_ready" = "1" ]; then
+    publish_diagnostics passed ||
+      echo "Upgrade survivor diagnostics missing: successful receipt was not published." >&2
+  fi
   if [ -n "$PACKAGE_TGZ" ]; then
     docker_e2e_cleanup_package_tgz "$PACKAGE_TGZ"
   fi

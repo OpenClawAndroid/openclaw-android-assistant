@@ -44,10 +44,7 @@ type ChannelMessageActionReadPolicy =
     };
 
 const NO_CONVERSATION_READ = { kind: "none" } as const;
-const CONVERSATION_READ = {
-  kind: "conversation-read",
-  targetlessCache: "deny",
-} as const;
+const CONVERSATION_READ = { kind: "conversation-read", targetlessCache: "deny" } as const;
 const BUNDLED_CURRENT_CONTEXT_CACHE_READ = {
   kind: "conversation-read",
   targetlessCache: "bundled-current-context",
@@ -147,6 +144,7 @@ const FENCED_PROVIDER_READ_ACTIONS = new Set<ChannelMessageActionName>([
   "voice-status",
   "event-list",
   "sticker-search",
+  "download-file",
 ]);
 
 function resolveMessageActionReadEnforcement(params: {

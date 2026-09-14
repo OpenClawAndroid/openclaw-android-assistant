@@ -74,6 +74,7 @@ import {
   parseAgentSessionKey,
   parseThreadSessionSuffix,
 } from "../../sessions/session-key-utils.js";
+import { withChannelReadAuthority } from "../../shared/channel-read-authority.js";
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/message-channel.js";
 import { resolveGatewayConversationReadOrigin } from "../conversation-read-origin.js";
 import { selectMessageActionRequesterIdentity } from "../message-action-turn-capability.js";
@@ -998,233 +999,258 @@ export const sendHandlers: GatewayRequestHandlers = {
       },
       work: async ({ cfg, channel, plugin, canonicalAction, accountId, dedupeKey, authorize }) => {
         try {
-          const sessionKey = normalizeOptionalString(request.sessionKey) ?? undefined;
-          const requestedAgentId =
-            normalizeOptionalString(request.agentId) ?? trustedContext.runtimeAgentId;
-          const sessionOwner = sessionKey
-            ? resolveRequestedSessionAgentId(cfg, sessionKey, requestedAgentId)
-            : undefined;
-          if (sessionOwner && !sessionOwner.ok) {
-            return { ok: false, error: sessionOwner.error, meta: { channel } };
-          }
-          const agentId = sessionOwner?.agentId ?? requestedAgentId;
-          const sourceReplySessionKey = trustedContext.sourceReplySessionKey;
-          const sourceReplyOwner = sourceReplySessionKey
-            ? resolveRequestedSessionAgentId(cfg, sourceReplySessionKey, agentId)
-            : undefined;
-          if (sourceReplyOwner && !sourceReplyOwner.ok) {
-            return { ok: false, error: sourceReplyOwner.error, meta: { channel } };
-          }
-          // Default-agent resolution may fail, so role-free sends must not enter this policy path.
-          if (request.action === "send" && cfg.gateway?.roles) {
-            const actionAgent =
-              agentId ?? sourceReplyOwner?.agentId ?? resolveRequestedSessionAgentId(cfg, "main");
-            if (typeof actionAgent !== "string" && !actionAgent.ok) {
-              return { ok: false, error: actionAgent.error, meta: { channel } };
-            }
-            const actionAgentId =
-              typeof actionAgent === "string" ? actionAgent : actionAgent.agentId;
-            const agentAccessError = authorizeGatewaySessionCreation({
-              cfg,
-              client,
-              agentId: actionAgentId,
-            });
-            if (agentAccessError) {
-              return { ok: false, error: agentAccessError, meta: { channel } };
-            }
-          }
-          if (accountId) {
-            request.params.accountId = accountId;
-          }
-          if (
-            canonicalAction &&
-            request.action === "send" &&
-            !normalizeOptionalString(request.params.target) &&
-            !actionHasTarget("send", request.params, {
-              channel,
-              aliasSpec: plugin.actions?.messageActionTargetAliases?.send ?? null,
-            }) &&
-            !resolveImplicitMessageActionTarget(trustedContext.toolContext)
-          ) {
-            // Native sends could use account defaults without a target. Resolve that
-            // owner fact before core routing and source-reply receipts require it.
-            const target = resolveOutboundTarget({ channel, plugin, cfg, accountId });
-            if (!target.ok) {
-              throw target.error;
-            }
-            request.params.to = target.to;
-          }
-          const resolvedMediaAccess = resolveAgentScopedOutboundMediaAccess({
-            cfg,
-            agentId,
-            sessionKey,
-            messageProvider: sessionKey ? undefined : channel,
-            accountId: sessionKey ? (trustedContext.requesterAccountId ?? accountId) : accountId,
-            requesterSenderId: trustedContext.requesterSenderId,
-            requesterSenderName: trustedContext.requesterSenderName,
-            requesterSenderUsername: trustedContext.requesterSenderUsername,
-            requesterSenderE164: trustedContext.requesterSenderE164,
-          });
-          // Gateway actions receive policy-scoped roots/workspace only; the
-          // originating agent turn never delegates its host reader over RPC.
-          const mediaAccess = {
-            localRoots: resolvedMediaAccess.localRoots,
-            ...(resolvedMediaAccess.workspaceDir
-              ? { workspaceDir: resolvedMediaAccess.workspaceDir }
-              : {}),
-          };
-          if (request.action === "send") {
-            await hydrateAttachmentParamsForAction({
-              cfg,
-              channel,
-              accountId,
-              args: request.params,
-              action: "send",
-              mediaPolicy: resolveAttachmentMediaPolicy({
-                mediaAccess: resolvedMediaAccess,
-              }),
-            });
-          }
-          const sourceReplyMirror = {
-            action: request.action,
-            channel,
-            actionParams: request.params,
-            cfg,
-            accountId,
-            currentAccountId: trustedContext.requesterAccountId,
-            sessionKey: sourceReplySessionKey ?? sessionKey,
-            sessionId: trustedContext.sessionId,
-            agentId,
-            toolContext: trustedContext.toolContext,
-            replyToIsExplicit: request.reply?.source === "explicit",
-            idempotencyKey: request.idempotencyKey,
-            toolCallId: trustedContext.sourceReplyToolCallId,
-            ...(trustedContext.sourceReplyFinal !== undefined
-              ? { sourceReplyFinal: trustedContext.sourceReplyFinal }
-              : {}),
-          };
-          const terminalDeliveryStart =
-            trustedContext.sourceReplyFinal === true
-              ? await beginTerminalSourceReplyDelivery(sourceReplyMirror)
-              : undefined;
-          if (terminalDeliveryStart && "outcome" in terminalDeliveryStart) {
-            return createGatewayInflightSuccess({
-              context,
-              dedupeKey,
-              payload: terminalDeliveryStart.result,
-              channel,
-            });
-          }
-          const terminalDeliveryReceipt = terminalDeliveryStart;
-          // Attachment and receipt preparation can outlive the admitted run.
-          // Close the receipt and stop before the provider-owned action boundary.
-          if (!authorize()) {
-            await cancelTerminalSourceReplyDelivery(terminalDeliveryReceipt);
-            return createGatewayInflightAuthorityFailure({ context, dedupeKey, channel });
-          }
-          const gatewayClientScopes = client?.connect?.scopes ?? [];
-          const inboundEventKind: "room_event" | "user_request" =
-            request.inboundTurnKind === "room_event" ? "room_event" : "user_request";
-          const actionContext = {
-            channel,
-            action: request.action as never,
-            cfg,
-            params: request.params,
-            reply: request.reply,
-            accountId,
-            // Only the model's message tool mints an agent-runtime turn context, and
-            // it resends proven-not-sent failures itself, so its gateway-owned plugin
-            // delivery must not also stay replayable (#124279). Operator, CLI, and
-            // external RPC clients carry none and keep recovery's replay (#100979).
-            deliveryRetryOwner: trustedContext.runtimeAgentId ? ("caller" as const) : undefined,
-            ...selectMessageActionRequesterIdentity(trustedContext),
-            senderIsOwner: gatewayClientScopes.includes(ADMIN_SCOPE)
-              ? request.senderIsOwner === true
-              : false,
-            conversationReadOrigin,
-            sessionKey,
-            sessionId: normalizeOptionalString(request.sessionId) ?? undefined,
-            inboundEventKind,
-            agentId,
-            mediaAccess,
-            mediaLocalRoots: mediaAccess.localRoots,
-            toolContext: trustedContext.toolContext,
-            dryRun: false,
-            gatewayClientScopes,
-            assertDirectAdapterHandoff,
-            ...(request.action === "send"
-              ? {
-                  onPlatformSendDispatch,
-                  // Recovery cannot retain a live run's closure-bound send authority.
-                  skipQueue: client?.internal?.agentRuntimeIdentity !== undefined,
+          const completed = await withChannelReadAuthority(
+            request.action === "download-file" ? assertDirectAdapterHandoff : undefined,
+            async () => {
+              const sessionKey = normalizeOptionalString(request.sessionKey) ?? undefined;
+              const requestedAgentId =
+                normalizeOptionalString(request.agentId) ?? trustedContext.runtimeAgentId;
+              const sessionOwner = sessionKey
+                ? resolveRequestedSessionAgentId(cfg, sessionKey, requestedAgentId)
+                : undefined;
+              if (sessionOwner && !sessionOwner.ok) {
+                return { ok: false, error: sessionOwner.error, meta: { channel } };
+              }
+              const agentId = sessionOwner?.agentId ?? requestedAgentId;
+              const sourceReplySessionKey = trustedContext.sourceReplySessionKey;
+              const sourceReplyOwner = sourceReplySessionKey
+                ? resolveRequestedSessionAgentId(cfg, sourceReplySessionKey, agentId)
+                : undefined;
+              if (sourceReplyOwner && !sourceReplyOwner.ok) {
+                return { ok: false, error: sourceReplyOwner.error, meta: { channel } };
+              }
+              // Default-agent resolution may fail, so role-free sends must not enter this policy path.
+              if (request.action === "send" && cfg.gateway?.roles) {
+                const actionAgent =
+                  agentId ??
+                  sourceReplyOwner?.agentId ??
+                  resolveRequestedSessionAgentId(cfg, "main");
+                if (typeof actionAgent !== "string" && !actionAgent.ok) {
+                  return { ok: false, error: actionAgent.error, meta: { channel } };
                 }
-              : {}),
-          };
-          let payload: unknown;
-          if (canonicalAction) {
-            const { runMessageAction } =
-              await import("../../infra/outbound/message-action-runner.js");
-            const result = await runMessageAction({
-              ...actionContext,
-              gatewayOwnedDelivery: true,
-              ...(request.action === "send"
-                ? {
-                    // This RPC owns source-reply receipts and their transcript mirror.
-                    suppressTranscriptMirror: true,
-                    actionOrigin: trustedContext.runtimeAgentId
-                      ? ("message-tool" as const)
-                      : undefined,
-                  }
-                : {}),
-              params: {
-                ...request.params,
-                channel,
-                ...(accountId ? { accountId } : {}),
-                idempotencyKey: request.idempotencyKey,
-              },
-            });
-            payload = result.payload;
-          } else {
-            const handled = await dispatchChannelMessageAction(actionContext);
-            if (handled) {
-              payload = extractToolPayload(handled);
-            } else {
-              await cancelTerminalSourceReplyDelivery(terminalDeliveryReceipt);
-              const error = errorShape(
-                ErrorCodes.INVALID_REQUEST,
-                `Message action ${request.action} not supported for channel ${channel}.`,
-              );
-              return createGatewayInflightResult({
-                context,
-                dedupeKey,
-                channel,
-                result: { ok: false, error },
+                const actionAgentId =
+                  typeof actionAgent === "string" ? actionAgent : actionAgent.agentId;
+                const agentAccessError = authorizeGatewaySessionCreation({
+                  cfg,
+                  client,
+                  agentId: actionAgentId,
+                });
+                if (agentAccessError) {
+                  return { ok: false, error: agentAccessError, meta: { channel } };
+                }
+              }
+              if (accountId) {
+                request.params.accountId = accountId;
+              }
+              if (
+                canonicalAction &&
+                request.action === "send" &&
+                !normalizeOptionalString(request.params.target) &&
+                !actionHasTarget("send", request.params, {
+                  channel,
+                  aliasSpec: plugin.actions?.messageActionTargetAliases?.send ?? null,
+                }) &&
+                !resolveImplicitMessageActionTarget(trustedContext.toolContext)
+              ) {
+                // Native sends could use account defaults without a target. Resolve that
+                // owner fact before core routing and source-reply receipts require it.
+                const target = resolveOutboundTarget({ channel, plugin, cfg, accountId });
+                if (!target.ok) {
+                  throw target.error;
+                }
+                request.params.to = target.to;
+              }
+              const resolvedMediaAccess = resolveAgentScopedOutboundMediaAccess({
+                cfg,
+                agentId,
+                sessionKey,
+                messageProvider: sessionKey ? undefined : channel,
+                accountId: sessionKey
+                  ? (trustedContext.requesterAccountId ?? accountId)
+                  : accountId,
+                requesterSenderId: trustedContext.requesterSenderId,
+                requesterSenderName: trustedContext.requesterSenderName,
+                requesterSenderUsername: trustedContext.requesterSenderUsername,
+                requesterSenderE164: trustedContext.requesterSenderE164,
               });
-            }
-          }
-          try {
-            await reconcileTerminalSourceReplyDelivery({
-              deliveredPayload: payload,
-              mirror: sourceReplyMirror,
-              receipt: terminalDeliveryReceipt,
-            });
-          } catch (err) {
-            // The pre-send intent remains durable. Return the provider result so
-            // the model does not retry an external effect with an unknown outcome.
-            context.logGateway?.warn?.("Terminal source reply receipt reconciliation failed.", {
-              error: formatForLog(err),
-              channel,
-              sessionKey,
-            });
-          }
-          await scheduleDeliveredSourceReplyTranscriptMirror({
-            context,
-            mirror: {
-              ...sourceReplyMirror,
-              deliveredPayload: payload,
+              // Gateway actions receive policy-scoped roots/workspace only; the
+              // originating agent turn never delegates its host reader over RPC.
+              const mediaAccess = {
+                localRoots: resolvedMediaAccess.localRoots,
+                ...(resolvedMediaAccess.workspaceDir
+                  ? { workspaceDir: resolvedMediaAccess.workspaceDir }
+                  : {}),
+              };
+              if (request.action === "send") {
+                await hydrateAttachmentParamsForAction({
+                  cfg,
+                  channel,
+                  accountId,
+                  args: request.params,
+                  action: "send",
+                  mediaPolicy: resolveAttachmentMediaPolicy({
+                    mediaAccess: resolvedMediaAccess,
+                  }),
+                });
+              }
+              const sourceReplyMirror = {
+                action: request.action,
+                channel,
+                actionParams: request.params,
+                cfg,
+                accountId,
+                currentAccountId: trustedContext.requesterAccountId,
+                sessionKey: sourceReplySessionKey ?? sessionKey,
+                sessionId: trustedContext.sessionId,
+                agentId,
+                toolContext: trustedContext.toolContext,
+                replyToIsExplicit: request.reply?.source === "explicit",
+                idempotencyKey: request.idempotencyKey,
+                toolCallId: trustedContext.sourceReplyToolCallId,
+                ...(trustedContext.sourceReplyFinal !== undefined
+                  ? { sourceReplyFinal: trustedContext.sourceReplyFinal }
+                  : {}),
+              };
+              const terminalDeliveryStart =
+                trustedContext.sourceReplyFinal === true
+                  ? await beginTerminalSourceReplyDelivery(sourceReplyMirror)
+                  : undefined;
+              if (terminalDeliveryStart && "outcome" in terminalDeliveryStart) {
+                return createGatewayInflightSuccess({
+                  context,
+                  dedupeKey,
+                  payload: terminalDeliveryStart.result,
+                  channel,
+                });
+              }
+              const terminalDeliveryReceipt = terminalDeliveryStart;
+              // Attachment and receipt preparation can outlive the admitted run.
+              // Close the receipt and stop before the provider-owned action boundary.
+              if (!authorize()) {
+                await cancelTerminalSourceReplyDelivery(terminalDeliveryReceipt);
+                return createGatewayInflightAuthorityFailure({ context, dedupeKey, channel });
+              }
+              const gatewayClientScopes = client?.connect?.scopes ?? [];
+              const inboundEventKind: "room_event" | "user_request" =
+                request.inboundTurnKind === "room_event" ? "room_event" : "user_request";
+              const actionContext = {
+                channel,
+                action: request.action as never,
+                cfg,
+                params: request.params,
+                reply: request.reply,
+                accountId,
+                // Only the model's message tool mints an agent-runtime turn context, and
+                // it resends proven-not-sent failures itself, so its gateway-owned plugin
+                // delivery must not also stay replayable (#124279). Operator, CLI, and
+                // external RPC clients carry none and keep recovery's replay (#100979).
+                deliveryRetryOwner: trustedContext.runtimeAgentId ? ("caller" as const) : undefined,
+                ...selectMessageActionRequesterIdentity(trustedContext),
+                senderIsOwner: gatewayClientScopes.includes(ADMIN_SCOPE)
+                  ? request.senderIsOwner === true
+                  : false,
+                conversationReadOrigin,
+                sessionKey,
+                sessionId: normalizeOptionalString(request.sessionId) ?? undefined,
+                inboundEventKind,
+                agentId,
+                mediaAccess,
+                mediaLocalRoots: mediaAccess.localRoots,
+                toolContext: trustedContext.toolContext,
+                dryRun: false,
+                gatewayClientScopes,
+                assertDirectAdapterHandoff,
+                ...(request.action === "send"
+                  ? {
+                      onPlatformSendDispatch,
+                      // Recovery cannot retain a live run's closure-bound send authority.
+                      skipQueue: client?.internal?.agentRuntimeIdentity !== undefined,
+                    }
+                  : {}),
+              };
+              let payload: unknown;
+              if (canonicalAction) {
+                const { runMessageAction } =
+                  await import("../../infra/outbound/message-action-runner.js");
+                const result = await runMessageAction({
+                  ...actionContext,
+                  gatewayOwnedDelivery: true,
+                  ...(request.action === "send"
+                    ? {
+                        // This RPC owns source-reply receipts and their transcript mirror.
+                        suppressTranscriptMirror: true,
+                        actionOrigin: trustedContext.runtimeAgentId
+                          ? ("message-tool" as const)
+                          : undefined,
+                      }
+                    : {}),
+                  params: {
+                    ...request.params,
+                    channel,
+                    ...(accountId ? { accountId } : {}),
+                    idempotencyKey: request.idempotencyKey,
+                  },
+                });
+                payload = result.payload;
+              } else {
+                const handled = await dispatchChannelMessageAction(actionContext);
+                if (handled) {
+                  payload = extractToolPayload(handled);
+                } else {
+                  await cancelTerminalSourceReplyDelivery(terminalDeliveryReceipt);
+                  const error = errorShape(
+                    ErrorCodes.INVALID_REQUEST,
+                    `Message action ${request.action} not supported for channel ${channel}.`,
+                  );
+                  return createGatewayInflightResult({
+                    context,
+                    dedupeKey,
+                    channel,
+                    result: { ok: false, error },
+                  });
+                }
+              }
+              try {
+                await reconcileTerminalSourceReplyDelivery({
+                  deliveredPayload: payload,
+                  mirror: sourceReplyMirror,
+                  receipt: terminalDeliveryReceipt,
+                });
+              } catch (err) {
+                // The pre-send intent remains durable. Return the provider result so
+                // the model does not retry an external effect with an unknown outcome.
+                context.logGateway?.warn?.("Terminal source reply receipt reconciliation failed.", {
+                  error: formatForLog(err),
+                  channel,
+                  sessionKey,
+                });
+              }
+              await scheduleDeliveredSourceReplyTranscriptMirror({
+                context,
+                mirror: {
+                  ...sourceReplyMirror,
+                  deliveredPayload: payload,
+                },
+              });
+              // A downloaded artifact is not cacheable until the enclosing read
+              // has accepted its provider/caller lifetime and resource identity.
+              return request.action === "download-file"
+                ? { ok: true, payload, meta: { channel } }
+                : createGatewayInflightSuccess({ context, dedupeKey, payload, channel });
             },
-          });
-          return createGatewayInflightSuccess({ context, dedupeKey, payload, channel });
+            undefined,
+            (result) => {
+              if (request.action === "download-file" && result.ok) {
+                createGatewayInflightSuccess({
+                  context,
+                  dedupeKey,
+                  payload: result.payload,
+                  channel,
+                });
+              }
+            },
+          );
+          return completed;
         } catch (err) {
           if (!authorize()) {
             return createGatewayInflightAuthorityFailure({ context, dedupeKey, channel });

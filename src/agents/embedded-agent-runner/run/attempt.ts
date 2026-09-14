@@ -259,13 +259,15 @@ export async function runEmbeddedAttempt(
     let queueYieldInterruptForSession: (() => void) | null = null;
     let yieldAbortSettled: Promise<void> | null = null;
     const preparedBundleTools = await prepare("attempt.bundle-tools", () =>
-      prepareEmbeddedAttemptBundleTools({
-        agentDir,
-        attempt: params,
-        setup,
-        isRawModelRun,
-        preparedToolBase,
-      }),
+      prepStages.measure("bundle-tools", () =>
+        prepareEmbeddedAttemptBundleTools({
+          agentDir,
+          attempt: params,
+          setup,
+          isRawModelRun,
+          preparedToolBase,
+        }),
+      ),
     );
     bundleMcpRuntime = preparedBundleTools.bundleMcpRuntime;
     bundleLspRuntime = preparedBundleTools.bundleLspRuntime;
@@ -274,21 +276,25 @@ export async function runEmbeddedAttempt(
     // diagnostics, so arm cleanup before either can fail and leak the catalog.
     toolSearchCatalogApplied = toolSearchCatalogRef !== undefined;
     const preparedToolCatalog = await prepare("attempt.tool-catalog", () =>
-      prepareEmbeddedAttemptToolCatalog({
-        attempt: params,
-        setup,
-        preparedToolBase,
-        bundleTools: { clientTools, uncompactedEffectiveTools },
-        runTrace,
-        abortSignal: runAbortController.signal,
-        executeCodeModeTool: (toolParams) => {
-          if (!toolSearchCatalogExecutor) {
-            throw new Error("Code Mode catalog executor is unavailable for this run.");
-          }
-          return toolSearchCatalogExecutor(toolParams);
-        },
-      }),
+      prepStages.measureSync("tool-catalog", () =>
+        prepareEmbeddedAttemptToolCatalog({
+          attempt: params,
+          setup,
+          preparedToolBase,
+          bundleTools: { clientTools, uncompactedEffectiveTools },
+          runTrace,
+          abortSignal: runAbortController.signal,
+          executeCodeModeTool: (toolParams) => {
+            if (!toolSearchCatalogExecutor) {
+              throw new Error("Code Mode catalog executor is unavailable for this run.");
+            }
+            return toolSearchCatalogExecutor(toolParams);
+          },
+        }),
+      ),
     );
+    // Close the inclusive checkpoint; the owner spans exclude preparation admission.
+    prepStages.mark("tool-preparation");
     const { effectiveTools, toolSearch, toolSearchRunPlan } = preparedToolCatalog;
     toolSearchCatalogApplied = toolSearch.catalogRegistered;
     const preparedSystemPrompt = await prepare("attempt.system-prompt", () =>

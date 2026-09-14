@@ -78,6 +78,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/nostr",
       "npmSpec": "@openclaw/nostr",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

@@ -124,6 +124,20 @@ describe("sidebar routed-lineage freshness", () => {
         expect(sidebar.sessionData.activeSessionLineageSelectedRow?.key).toBe(selected.key);
         expect(sidebar.sessionData.sessionsResult?.sessions).toEqual([]);
         expect(row()).toBeNull();
+
+        const describes = () =>
+          request.mock.calls.filter(
+            ([method, params]) => method === "sessions.describe" && params?.key === selected.key,
+          );
+        const settledDescribes = describes().length;
+        await sessions.refresh({ agentId: "main", force: true });
+        await sidebar.updateComplete;
+        await sidebar.sessionData.loadActiveSessionLineage(selected.key);
+        await sidebar.updateComplete;
+        expect(describes()).toHaveLength(settledDescribes);
+        expect(sidebar.sessionData.activeSessionLineageSelectedRow?.key).toBe(selected.key);
+        expect(sidebar.sessionData.sessionsResult?.sessions).toEqual([]);
+        expect(row()).toBeNull();
       } finally {
         provider.remove();
         sessions.dispose();

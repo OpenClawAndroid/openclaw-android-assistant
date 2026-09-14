@@ -28,6 +28,7 @@
     ],
     "setupEntry": "./setup-entry.ts",
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/raft",
       "npmSpec": "@openclaw/raft",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.6.8"

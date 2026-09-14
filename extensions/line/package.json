@@ -120,6 +120,7 @@
       }
     },
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/line",
       "npmSpec": "@openclaw/line",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"

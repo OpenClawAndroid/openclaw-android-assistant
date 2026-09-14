@@ -1,15 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-  executeSqliteQuerySync,
-  executeSqliteQueryTakeFirstSync,
-  getNodeSqliteKysely,
-} from "../../infra/kysely-sync.js";
+import { executeSqliteQuerySync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { withOpenClawStateDatabaseReadOnly } from "../../state/openclaw-state-db-readonly.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../../state/openclaw-state-db.js";
+import { readNativeHookRelayBridgeRow } from "./native-hook-relay-bridge-query.js";
 import {
   readNativeHookRelayBridgeRecordRow,
   type NativeHookRelayBridgeRecord,
@@ -58,12 +55,8 @@ function readNativeHookRelayBridgeSnapshotFromDatabase(params: {
   database: { db: DatabaseSync };
   relayId: string;
 }): NativeHookRelayBridgeSnapshot | undefined {
-  const db = getNodeSqliteKysely<NativeHookRelayBridgeDatabase>(params.database.db);
   return readNativeHookRelayBridgeSnapshot(
-    executeSqliteQueryTakeFirstSync(
-      params.database.db,
-      db.selectFrom("native_hook_relay_bridges").selectAll().where("relay_id", "=", params.relayId),
-    ),
+    readNativeHookRelayBridgeRow(params.database.db, params.relayId),
   );
 }
 

@@ -52,22 +52,16 @@ function formatSubMessageContent(content: string, contentType: string): string {
   }
 }
 
-export function parseMergeForwardContent(params: { content: string }): string {
-  const { content } = params;
-  const maxMessages = 50;
-
-  let items: Array<{
+export function parseMergeForwardContent(
+  items: ReadonlyArray<{
     msg_type?: string;
     body?: { content?: string };
     upper_message_id?: string;
     create_time?: string;
-  }>;
-  try {
-    items = JSON.parse(content);
-  } catch {
-    return "[Merged and Forwarded Message - parse error]";
-  }
-  if (!Array.isArray(items) || items.length === 0) {
+  }>,
+): string {
+  const maxMessages = 50;
+  if (items.length === 0) {
     return "[Merged and Forwarded Message - no sub-messages]";
   }
   const container = items.find(

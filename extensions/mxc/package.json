@@ -19,6 +19,7 @@
       "./index.ts"
     ],
     "install": {
+      "clawhubSpec": "clawhub:@openclaw/mxc-sandbox",
       "npmSpec": "@openclaw/mxc-sandbox",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.6.11"

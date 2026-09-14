@@ -11,7 +11,6 @@ import {
   type Root as FsSafeRoot,
   type RootDefaults,
 } from "@openclaw/fs-safe/root";
-import { writeOwnedTempFile } from "./owned-temp-file.js";
 
 export { FsSafeError };
 export type { FsSafeErrorCode } from "@openclaw/fs-safe/errors";
@@ -178,8 +177,9 @@ export async function writeExternalFileWithinRoot(
   const result = await writeExternalFileWithinRootBase({
     rootDir: options.rootDir,
     path: options.path,
-    write: (tempPath) => writeOwnedTempFile(tempPath, options.write),
+    write: options.write,
     staging: "sibling",
+    producerIsolation: "private-directory",
     fallbackFileName: options.fallbackFileName ?? options.tempPrefix,
   });
   // Preserve the caller-facing path spelling while carrying forward any

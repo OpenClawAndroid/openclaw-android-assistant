@@ -112,7 +112,6 @@ async function copyFileExclusive(
     targetIdentity = await target.stat();
     const hash = createHash("sha256");
     const offset = await copyFileHandle(source, target, {
-      noProgressMessage: `SQLite snapshot copy made no progress: ${targetPath}`,
       onChunk: (chunk) => {
         hash.update(chunk);
       },

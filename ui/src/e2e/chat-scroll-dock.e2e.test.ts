@@ -344,17 +344,23 @@ suite.define(() => {
       await waitForChatScrollIdle(page);
       expect(await card.getAttribute("open")).toBe("");
 
+      // Pin the card open while reading, then interrupt an active Latest return.
+      const thread = page.locator(".chat-thread");
+      await thread.press("Home");
+      await waitForChatScrollIdle(page);
+      await card.locator("summary").click();
+      await button.click();
       // Keyboard activation, like pointer input, pins the explicit choice.
       await card.locator("summary").press("Enter");
-      await scrollChatThreadToTop(page);
+      await thread.press("Home");
       await button.click();
       await waitForChatScrollIdle(page);
       expect(await card.getAttribute("open")).toBeNull();
-      await scrollChatThreadToTop(page);
+      await thread.press("Home");
       await card.locator("summary").click();
       await button.click();
       await waitForChatScrollIdle(page);
-      await scrollChatThreadToTop(page);
+      await thread.press("Home");
       expect(await card.getAttribute("open")).toBe("");
     } finally {
       if (proofDir) {

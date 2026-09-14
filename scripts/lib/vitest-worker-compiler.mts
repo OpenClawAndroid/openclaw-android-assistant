@@ -156,11 +156,13 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
     ],
   };
   await build(config);
-  await build({
-    ...config,
-    entry: standaloneRuntimeProcessBuildEntries,
-    outputOptions: { codeSplitting: false },
-  });
+  for (const [name, source] of Object.entries(standaloneRuntimeProcessBuildEntries)) {
+    await build({
+      ...config,
+      entry: { [name]: source },
+      outputOptions: { codeSplitting: false },
+    });
+  }
   await build({
     ...createManagedHandoffBuildConfig(),
     config: false,

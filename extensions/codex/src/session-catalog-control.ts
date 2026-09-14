@@ -60,8 +60,17 @@ type CodexCatalogControlSource = Pick<
 
 type CodexCatalogPageCacheEntry = {
   expiresAt: number;
+  value: CodexSessionCatalogPage;
+};
+
+type CodexCatalogPendingPage = {
   page: Promise<CodexSessionCatalogPage>;
-  value?: CodexSessionCatalogPage;
+  staleValue?: CodexSessionCatalogPage;
+};
+
+type CodexCatalogPageCache = {
+  settled: Map<string, CodexCatalogPageCacheEntry>;
+  pending: Map<string, CodexCatalogPendingPage>;
 };
 
 function codexCatalogPageCacheKey(
@@ -368,10 +377,7 @@ export function createCodexSessionCatalogControl(params: {
     OpenClawConfig,
     Map<string, CodexCatalogRequestOptions>
   >();
-  const catalogPagesByConfig = new WeakMap<
-    OpenClawConfig,
-    Map<string, CodexCatalogPageCacheEntry>
-  >();
+  const catalogPagesByConfig = new WeakMap<OpenClawConfig, CodexCatalogPageCache>();
   const resolveRequestOptions = (
     startOptions: CodexAppServerStartOptions,
     agentId: string | undefined,
@@ -522,63 +528,54 @@ export function createCodexSessionCatalogControl(params: {
         }
         let cache = catalogPagesByConfig.get(runtimeConfig);
         if (!cache) {
-          cache = new Map();
+          cache = { settled: new Map(), pending: new Map() };
           catalogPagesByConfig.set(runtimeConfig, cache);
         }
         const key = codexCatalogPageCacheKey(pageParams, agentId, source);
-        const cached = cache.get(key);
+        const cached = cache.settled.get(key);
         if (cached) {
-          cache.delete(key);
-          cache.set(key, cached);
+          cache.settled.delete(key);
+          cache.settled.set(key, cached);
           if (cached.expiresAt > now()) {
-            return cached.value ?? (await cached.page);
+            return cached.value;
           }
         }
-        if (cached) {
-          cache.delete(key);
+        const pending = cache.pending.get(key);
+        if (pending) {
+          return pending.staleValue ?? (await pending.page);
         }
-        const page = control.listPage(pageParams);
-        const staleValue = cached?.value;
-        const entry: CodexCatalogPageCacheEntry = {
-          expiresAt: Number.POSITIVE_INFINITY,
-          page,
-          ...(staleValue ? { value: staleValue } : {}),
-        };
-        cache.set(key, entry);
-        pruneMapToMaxSize(cache, CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES);
-        const settle = (value: CodexSessionCatalogPage) => {
-          if (cache.get(key) === entry) {
-            entry.value = value;
-            entry.expiresAt = now() + CODEX_SESSION_CATALOG_LIST_TTL_MS;
-          }
-          return value;
-        };
-        const restore = () => {
-          if (cache.get(key) !== entry) {
-            return;
-          }
-          if (staleValue) {
-            cache.set(key, {
-              expiresAt: now(),
-              page: Promise.resolve(staleValue),
-              value: staleValue,
-            });
-          } else {
-            cache.delete(key);
-          }
-        };
+        // Result eviction must not retire a live producer or its stale refresh value.
+        // Pending entries belong only to started work and leave on every settlement.
+        const page = control
+          .listPage(pageParams)
+          .then(
+            (value) => {
+              cache.settled.delete(key);
+              cache.settled.set(key, {
+                value,
+                expiresAt: now() + CODEX_SESSION_CATALOG_LIST_TTL_MS,
+              });
+              pruneMapToMaxSize(cache.settled, CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES);
+              return value;
+            },
+            (error: unknown) => {
+              if (cached && cache.settled.get(key) === cached) {
+                cached.expiresAt = now();
+              }
+              throw error;
+            },
+          )
+          .finally(() => {
+            cache.pending.delete(key);
+          });
+        cache.pending.set(key, { page, ...(cached ? { staleValue: cached.value } : {}) });
         // Expiry starts one background refresh. Passive callers keep the last settled page while
         // the next poll publishes success or retries failure.
-        if (staleValue) {
-          void page.then(settle, restore);
-          return staleValue;
+        if (cached) {
+          void page.catch(() => undefined);
+          return cached.value;
         }
-        try {
-          return settle(await page);
-        } catch (error) {
-          restore();
-          throw error;
-        }
+        return await page;
       },
     };
   };

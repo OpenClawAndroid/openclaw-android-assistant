@@ -10,7 +10,11 @@ import { splitMediaFromOutput } from "../../media/parse.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { resolveNestedAgentLaneForSession } from "../lanes.js";
-import { type AgentWaitResult, waitForAgentRunReply } from "../run-wait.js";
+import {
+  type AgentWaitResult,
+  isTerminalAgentWaitTimeout,
+  waitForAgentRunReply,
+} from "../run-wait.js";
 import { runAgentStep } from "./agent-step.js";
 import {
   callAgentToolGatewayRequest,
@@ -45,8 +49,7 @@ function sameOwnedSession(params: {
 }
 function isDeliveryFailureWait(wait: AgentWaitResult): boolean {
   return (
-    (wait.status === "error" && !wait.retryableTransportError) ||
-    (wait.status === "timeout" && wait.pendingError === true)
+    (wait.status === "error" && !wait.retryableTransportError) || isTerminalAgentWaitTimeout(wait)
   );
 }
 
@@ -115,6 +118,7 @@ export async function runSessionsSendA2AFlow(params: {
         runId: params.waitRunId,
         timeoutMs: Math.min(params.announceTimeoutMs, 60_000),
         callGateway: gatewayCall,
+        untilTerminal: true,
       });
       if (wait.status === "ok") {
         primaryReply = wait.replyText;

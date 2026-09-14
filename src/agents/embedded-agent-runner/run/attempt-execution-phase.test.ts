@@ -306,9 +306,12 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
     ["stop", 10_000, "result"],
     ["stop", 0, "result"],
     ["error", 10_000, "result"],
+    ["output-limit", 10_000, "event"],
+    ["output-limit", 10_000, "result"],
   ] as const)(
     "observes terminal %s usage once across async-tool fragments (cacheRead=%s, completion=%s)",
     async (stopReason, cacheRead, completion) => {
+      const terminalStopReason = stopReason === "output-limit" ? "error" : stopReason;
       const fixture = await createFixture();
       const recordStage = vi.fn();
       const runtime = fixture.input.prepared.sessionRuntime;
@@ -333,8 +336,18 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
       const message = createAssistant(
         testModel,
         [toolCall, { type: "text", text: "Done." }],
-        stopReason,
+        terminalStopReason,
       );
+      if (stopReason === "output-limit") {
+        message.errorCode = "incomplete_tool_call";
+        message.diagnostics = [
+          {
+            type: "openai_responses_terminal",
+            timestamp: 1,
+            details: { eventType: "response.incomplete", incompleteReason: "max_output_tokens" },
+          },
+        ];
+      }
       message.usage = {
         ...makeZeroUsageSnapshot(),
         input: 100,
@@ -355,10 +368,10 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
       });
       if (completion === "result") {
         response.end(message);
-      } else if (stopReason === "error" || stopReason === "aborted") {
-        response.push({ type: "error", reason: stopReason, error: message });
+      } else if (terminalStopReason === "error" || terminalStopReason === "aborted") {
+        response.push({ type: "error", reason: terminalStopReason, error: message });
       } else {
-        response.push({ type: "done", reason: stopReason, message });
+        response.push({ type: "done", reason: terminalStopReason, message });
       }
       response.end();
       const providerStream = vi.fn(() => response);
@@ -438,7 +451,7 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
         ],
       ]);
       expect(runtime.contextGuards.recordCacheTouch).toHaveBeenCalledTimes(
-        stopReason === "error" || stopReason === "aborted" ? 0 : 1,
+        terminalStopReason === "error" || terminalStopReason === "aborted" ? 0 : 1,
       );
     },
   );

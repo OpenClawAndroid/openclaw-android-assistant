@@ -560,7 +560,7 @@ export function createSessionCapability(
     const payloadAgentId = payload?.agentId;
     if (eventReason === "groups") {
       groups.invalidate();
-      void groups.load();
+      void background(groups.load, () => groups.load());
     }
     if (event.event === "session.message" && !runEnded) {
       return;

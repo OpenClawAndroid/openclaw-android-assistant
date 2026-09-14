@@ -53,25 +53,8 @@ import {
   formatSessionFlagsCell,
   formatSessionKeyCell,
   formatSessionModelCell,
-  type SessionDisplayRow,
   toSessionDisplayRow,
 } from "./sessions-table.js";
-
-type SessionRow = SessionDisplayRow & {
-  agentId: string;
-  kind: SessionKind;
-  agentRuntime: ReturnType<typeof resolveModelAgentRuntimeMetadata>;
-  runtimeLabel: string;
-  /** Carry the prepared identity into JSON/table emission without re-resolving plugin metadata. */
-  displayModelRef: { provider: string; model: string };
-  /**
-   * True only when the session has persisted ACP runtime metadata. Key-shape
-   * alone is not sufficient because ACP bridge sessions (translator.ts) may
-   * use ACP-shaped keys without ever writing `SessionAcpMeta` — those use the
-   * normal configured model and must not be overlaid with the acpx sentinel.
-   */
-  acpRuntime: boolean;
-};
 
 type SessionCandidate = { agentId: string; entry: SessionEntry; sessionKey: string };
 
@@ -151,7 +134,7 @@ const formatTokensCell = (
   return colorByPct(label, pct, rich);
 };
 
-const formatKindCell = (kind: SessionRow["kind"], rich: boolean) => {
+const formatKindCell = (kind: SessionKind, rich: boolean) => {
   if (!rich) {
     return kind;
   }
@@ -191,7 +174,9 @@ function resolveSessionStoreDisplayPath(target: { agentId: string; storePath: st
   }).path;
 }
 
-function toJsonSessionRow(row: SessionRow): Omit<SessionRow, "displayModelRef" | "runtimeLabel"> {
+function toJsonSessionRow<T extends { displayModelRef: unknown; runtimeLabel: string }>(
+  row: T,
+): Omit<T, "displayModelRef" | "runtimeLabel"> {
   const { displayModelRef, runtimeLabel, ...jsonRow } = row;
   void displayModelRef;
   void runtimeLabel;

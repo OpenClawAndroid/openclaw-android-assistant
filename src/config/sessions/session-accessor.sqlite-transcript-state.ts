@@ -81,7 +81,7 @@ export function readTranscriptGenerationInTransaction(
 export function ensureTranscriptGenerationInTransaction(
   database: OpenClawAgentDatabase,
   sessionId: string,
-): string {
+): void {
   const db = getSessionKysely(database.db);
   const generation = createTranscriptGeneration();
   executeSqliteQuerySync(
@@ -91,7 +91,6 @@ export function ensureTranscriptGenerationInTransaction(
       .values({ session_id: sessionId, generation, updated_at: Date.now() })
       .onConflict((conflict) => conflict.column("session_id").doNothing()),
   );
-  return readTranscriptGenerationInTransaction(database, sessionId) ?? generation;
 }
 
 /** Rotate the watermark in the same transaction as destructive transcript replacement. */

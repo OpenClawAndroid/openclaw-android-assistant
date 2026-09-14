@@ -13,6 +13,7 @@ type TranscriptOffsetState = {
     | null;
   touching: boolean;
   touchScrolling: boolean;
+  measurementScrollOffset: number | null;
   pendingInteractionAnchor: ChatTranscriptInteractionAnchor | null;
   syncNativeOffset: (() => void) | null;
 };
@@ -24,6 +25,7 @@ export function createTranscriptOffsetState(): TranscriptOffsetState {
     scrollCommand: null,
     touching: false,
     touchScrolling: false,
+    measurementScrollOffset: null,
     pendingInteractionAnchor: null,
     syncNativeOffset: null,
   };
@@ -107,6 +109,7 @@ export function observeTranscriptOffset(
       touchY = event instanceof TouchEvent ? event.touches[0]?.clientY : undefined;
     }
     owner.state.pendingInteractionAnchor = null;
+    owner.state.measurementScrollOffset = null;
     // Contact alone does not supersede a captured message. Actual native
     // movement carries its viewport target through the gesture below.
     if (

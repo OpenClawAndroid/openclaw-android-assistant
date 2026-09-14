@@ -69,7 +69,7 @@ describe("session list subagent metadata", () => {
     agents: { list: [{ id: "main", default: true }] },
   } as OpenClawConfig;
 
-  test("loads direct children without inspecting unrelated retained registry payloads", async () => {
+  test("loads direct children without repeated or unrelated retained-payload validation", async () => {
     await withStateDirEnv("openclaw-controller-registry-projection-", async () => {
       await withEnvAsync({ OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" }, async () => {
         const parentKey = "agent:main:main";
@@ -94,7 +94,10 @@ describe("session list subagent metadata", () => {
                     ? parentKey
                     : "agent:main:other",
               requesterDisplayKey: "parent",
-              task: runId === "unrelated" ? "unrelated-retained-payload".repeat(1_024) : runId,
+              task:
+                runId === "unrelated"
+                  ? "unrelated-retained-payload".repeat(1_024)
+                  : `selected-retained-payload:${runId}:${"x".repeat(16_384)}`,
               cleanup: "keep",
               createdAt: runId === "alias" ? 0 : 1,
               startedAt: 2,
@@ -104,12 +107,16 @@ describe("session list subagent metadata", () => {
           subagentRegistryState.clearSubagentRunsReadCacheForTest();
           const validateJson = nativeJson.prepare("SELECT json_valid(?) AS value");
           let unrelatedInspections = 0;
+          let retainedValidationBytes = 0;
           openOpenClawStateDatabase().db.function(
             "json_valid",
             { deterministic: true },
             (value) => {
               if (typeof value === "string" && value.includes("unrelated-retained-payload")) {
                 unrelatedInspections += 1;
+              }
+              if (typeof value === "string" && value.includes("selected-retained-payload:")) {
+                retainedValidationBytes += Buffer.byteLength(value);
               }
               return validateJson.get(value)?.value ?? 0;
             },
@@ -125,6 +132,14 @@ describe("session list subagent metadata", () => {
             "agent:main:subagent:alias",
           ]);
           expect(unrelatedInspections).toBe(0);
+          // Work stays proportional to selected payload bytes, not metadata fields per payload.
+          const selectedPayloadBytes = openOpenClawStateDatabase()
+            .db.prepare(
+              "SELECT sum(length(CAST(payload_json AS BLOB))) AS bytes FROM subagent_runs WHERE run_id IN ('explicit', 'fallback', 'alias')",
+            )
+            .get()?.bytes;
+          expect(typeof selectedPayloadBytes).toBe("number");
+          expect(retainedValidationBytes).toBeLessThanOrEqual(Number(selectedPayloadBytes) * 2);
         } finally {
           closeOpenClawStateDatabaseForTest();
           nativeJson.close();

@@ -36,7 +36,7 @@ describe("worker deploy build plugin", () => {
     },
   );
 
-  it("keeps worker bootstrap portable and defers syntax highlighting until rendering", async () => {
+  it("keeps worker bootstrap portable with lazy highlighting and complete shell analysis", async () => {
     const { build } = await import("tsdown");
     const { default: configs } = await import("../../tsdown.config.ts");
     const config = configs.find(
@@ -63,7 +63,11 @@ describe("worker deploy build plugin", () => {
           name: "test:worker-highlight-initialization",
           transform(code, id) {
             if (id === entrySource) {
-              return `${code}\nexport { highlight, supportsLanguage } from "../agents/utils/syntax-highlight.js";`;
+              return `${code}
+export { highlight, supportsLanguage } from "../agents/utils/syntax-highlight.js";
+export { explainShellCommand } from "../infra/command-explainer/extract.js";
+export { planShellAuthorization } from "../infra/exec-authorization-plan.js";
+export { rejectUnsafeExecControlShellCommand } from "../infra/exec-control-command-guard.js";`;
             }
             if (id === highlightSource) {
               return `globalThis[Symbol.for("worker-highlight-initializations")] = (globalThis[Symbol.for("worker-highlight-initializations")] ?? 0) + 1;\n${code}`;
@@ -97,9 +101,11 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 const entry = process.argv[1];
-assert.throws(() => createRequire(pathToFileURL(entry)).resolve("highlight.js"), { code: "MODULE_NOT_FOUND" });
+for (const dependency of ["highlight.js", "web-tree-sitter", "tree-sitter-bash"]) {
+  assert.throws(() => createRequire(pathToFileURL(entry)).resolve(dependency), { code: "MODULE_NOT_FOUND" });
+}
 process.argv = [process.execPath, entry, "--internal-worker-prewarm"];
-const { highlight, supportsLanguage } = await import(pathToFileURL(entry).href);
+const { highlight, supportsLanguage, explainShellCommand, planShellAuthorization, rejectUnsafeExecControlShellCommand } = await import(pathToFileURL(entry).href);
 const initializations = () => globalThis[Symbol.for("worker-highlight-initializations")] ?? 0;
 assert.equal(initializations(), 0, "headless worker bootstrap must not initialize syntax highlighting");
 assert.equal(supportsLanguage("abnf"), true);
@@ -108,7 +114,17 @@ assert.match(highlight("const answer = 42;", {
   language: "javascript", theme: { keyword: text => "[" + text + "]" },
 }), /\\[const\\]/);
 assert.equal(initializations(), 1, "rendering must initialize the bundled highlighter only once");
-console.log("portable worker syntax highlighting passed");
+const explanation = await explainShellCommand('printf "%s" "$(whoami)" | cat');
+assert.equal(explanation.ok, true);
+assert.deepEqual(explanation.topLevelCommands.map(step => step.executable), ["printf", "cat"]);
+assert.deepEqual(explanation.nestedCommands.map(step => step.executable), ["whoami"]);
+assert.equal((await planShellAuthorization({ command: 'printf "%s" safe | cat', cwd: process.cwd() })).ok, true);
+await rejectUnsafeExecControlShellCommand('printf "%s" safe');
+await assert.rejects(
+  () => rejectUnsafeExecControlShellCommand('echo $(/approve synthetic allow-once)'),
+  /exec cannot run \\/approve commands/,
+);
+console.log("portable worker highlighting and shell analysis passed");
 `,
           path.join(root, "dist/worker/worker.mjs"),
         ],
@@ -127,7 +143,8 @@ console.log("portable worker syntax highlighting passed");
           },
         },
       );
-      expect(result.stdout.trim()).toBe("portable worker syntax highlighting passed");
+      expect(result.stdout.trim()).toBe("portable worker highlighting and shell analysis passed");
+      expect(result.stderr).toBe("");
     } finally {
       for (const bundle of bundles) {
         await bundle[Symbol.asyncDispose]();
@@ -407,11 +424,18 @@ export async function createAttachedBrowserToolRuntime(params) {
     const sourceRoot = path.resolve("node_modules/playwright-core");
     const source = fs.readFileSync(path.join(sourceRoot, "lib/coreBundle.js"), "utf8");
     const tempRoot = tempDirs.make("openclaw-worker-build-plugin-");
-    const linkedRoot = path.join(tempRoot, "node_modules", "playwright-core");
-    fs.mkdirSync(path.dirname(linkedRoot), { recursive: true });
-    fs.symlinkSync(sourceRoot, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+    fs.mkdirSync(path.join(tempRoot, "node_modules"));
+    for (const name of ["playwright-core", "web-tree-sitter", "tree-sitter-bash"]) {
+      fs.symlinkSync(
+        path.resolve("node_modules", name),
+        path.join(tempRoot, "node_modules", name),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+    }
     const plugin = createWorkerDeployBuildPlugin(tempRoot);
-    const resolvedId = fs.realpathSync(path.join(linkedRoot, "lib/coreBundle.js"));
+    const resolvedId = fs.realpathSync(
+      path.join(tempRoot, "node_modules/playwright-core/lib/coreBundle.js"),
+    );
 
     const transformed = plugin.transform.call({ error: fail }, source, resolvedId);
 

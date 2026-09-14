@@ -212,41 +212,81 @@ describe("background tasks rail state", () => {
     }
   });
 
-  it("shows exhausted retry guidance and recovers on manual refresh", async () => {
-    vi.useFakeTimers();
-    try {
-      const running = makeTask({ id: "task-recovered" });
-      let unavailable = true;
-      const error = new GatewayRequestError({
-        code: "UNAVAILABLE",
-        message: "Task activity did not stabilize. Wait a moment, then refresh Tasks.",
-        retryable: true,
-        retryAfterMs: 10,
-      });
-      const { host, request } = createHost({
-        request: () =>
-          unavailable ? Promise.reject(error) : Promise.resolve({ tasks: [running] }),
-      });
+  it.each([
+    { paused: false, replacement: null },
+    { paused: true, replacement: null },
+    { paused: true, replacement: "refresh" },
+    { paused: true, replacement: "restore" },
+  ] as const)(
+    "shows exhausted retry guidance and recovers on manual refresh (paused: $paused, replacement: $replacement)",
+    async ({ paused, replacement }) => {
+      vi.useFakeTimers();
+      try {
+        const running = makeTask({ id: "task-recovered" });
+        let unavailable = true;
+        const error = new GatewayRequestError({
+          code: "UNAVAILABLE",
+          message: "Task activity did not stabilize. Wait a moment, then refresh Tasks.",
+          retryable: true,
+          retryAfterMs: 10,
+        });
+        const { host, request } = createHost({
+          request: () =>
+            unavailable ? Promise.reject(error) : Promise.resolve({ tasks: [running] }),
+        });
+        let admitted = true;
+        host.chatSecondaryReadsReady = () => admitted;
 
-      createBackgroundTasksProps(host);
-      await vi.advanceTimersByTimeAsync(10);
+        createBackgroundTasksProps(host);
+        await vi.advanceTimersByTimeAsync(0);
+        const preRestore = makeTask({ id: "before-restore", status: "completed" });
+        handleBackgroundTasksEvent(host, { action: "upserted", task: preRestore });
+        if (replacement === "refresh") {
+          createBackgroundTasksProps(host).onRefresh();
+        } else if (replacement === "restore") {
+          handleBackgroundTasksEvent(host, { action: "restored" });
+        }
+        const observed = makeTask({ id: "observed-completion", status: "completed" });
+        handleBackgroundTasksEvent(host, { action: "upserted", task: observed });
+        if (paused) {
+          admitted = false;
+          await vi.advanceTimersByTimeAsync(10);
+          expect(request).toHaveBeenCalledTimes(2);
+          expect(createBackgroundTasksProps(host)).toMatchObject({ loading: false, error: null });
+          admitted = true;
+          createBackgroundTasksProps(host);
+        }
+        await vi.advanceTimersByTimeAsync(10);
 
-      let props = createBackgroundTasksProps(host);
-      expect(request).toHaveBeenCalledTimes(4);
-      expect(props.error).toBe(error.message);
-      const rail = renderTaskRail({ ...props, collapsed: false });
-      expect(rail.querySelector('[role="alert"]')?.textContent).toContain(error.message);
+        let props = createBackgroundTasksProps(host);
+        expect(request).toHaveBeenCalledTimes(replacement ? 6 : 4);
+        expect(props.error).toBe(error.message);
+        expect(
+          props.tasks
+            ?.toSorted((left, right) => left.id.localeCompare(right.id))
+            .map((task) => [task.id, task.status]),
+        ).toEqual(
+          replacement === "restore"
+            ? [[observed.id, "completed"]]
+            : [
+                [preRestore.id, "completed"],
+                [observed.id, "completed"],
+              ],
+        );
+        const rail = renderTaskRail({ ...props, collapsed: false });
+        expect(rail.querySelector('[role="alert"]')?.textContent).toContain(error.message);
 
-      unavailable = false;
-      props.onRefresh();
-      await vi.runAllTimersAsync();
-      props = createBackgroundTasksProps(host);
-      expect(props.error).toBeNull();
-      expect(props.tasks?.map((task) => task.id)).toEqual([running.id]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+        unavailable = false;
+        props.onRefresh();
+        await vi.runAllTimersAsync();
+        props = createBackgroundTasksProps(host);
+        expect(props.error).toBeNull();
+        expect(props.tasks?.map((task) => task.id)).toEqual([running.id]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("loads session-scoped tasks eagerly while the rail is collapsed", async () => {
     const { host, request } = createHost({

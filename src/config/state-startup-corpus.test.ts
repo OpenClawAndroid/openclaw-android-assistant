@@ -13,6 +13,7 @@ import { loadCronJobsStore, resolveCronJobsStorePathFromConfig } from "../cron/s
 import { loadGatewayStartupConfigSnapshot } from "../gateway/server-startup-config-helpers.js";
 import { runStartupSessionMigration } from "../gateway/server-startup-session-migration.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import { resolveBundledDirFromPackageRoot } from "../plugins/bundled-dir.js";
 import {
   closeOpenClawAgentDatabasesAsync,
   OPENCLAW_AGENT_SCHEMA_VERSION,
@@ -28,6 +29,13 @@ import {
   resolveDefaultSessionStorePath,
 } from "./sessions.js";
 import { loadSessionEntryReadOnly } from "./sessions/session-accessor.js";
+
+const bundledPluginsDir = resolveBundledDirFromPackageRoot(
+  fileURLToPath(new URL("../../", import.meta.url)),
+);
+if (!bundledPluginsDir) {
+  throw new Error("Missing bundled plugin fixtures for startup corpus");
+}
 
 type StateFixture = {
   release: string;
@@ -83,7 +91,7 @@ function prepareState(release: string, configName: string) {
     OPENCLAW_TEST_HOME: home,
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,
-    OPENCLAW_BUNDLED_PLUGINS_DIR: fileURLToPath(new URL("../../extensions/", import.meta.url)),
+    OPENCLAW_BUNDLED_PLUGINS_DIR: bundledPluginsDir,
     OPENCLAW_DISABLE_BUNDLED_PLUGINS: "0",
   })) {
     vi.stubEnv(key, value);

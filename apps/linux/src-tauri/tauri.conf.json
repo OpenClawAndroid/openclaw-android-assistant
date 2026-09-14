@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "identifier": "ai.openclaw.linux",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": [
+      "../ui",
+      "../../../ui/public/fonts/instrument-sans-latin.woff2",
+      "../../../ui/public/fonts/instrument-sans-latin-ext.woff2",
+      "../../../ui/public/fonts/instrument-sans-OFL.txt"
+    ]
   },
   "plugins": {
     "deep-link": {

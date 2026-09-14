@@ -27,6 +27,8 @@ export function createGatewayServerIsolatedVitestConfig(
       name: "gateway-server-isolated",
       // Keep each file's real or mocked Gateway modules out of neighboring graphs.
       isolate: true,
+      // Real Gateway fixtures own the shared-state broker on the process main thread.
+      pool: "forks",
       runner: undefined,
       setupFiles: [resolveRepoRootPath("test/setup.env.ts")],
       include: includeFromEnv ?? cliInclude ?? gatewayServerIsolatedTestFiles,

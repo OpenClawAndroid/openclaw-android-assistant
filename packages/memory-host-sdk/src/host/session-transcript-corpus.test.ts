@@ -68,6 +68,66 @@ describe("listSessionTranscriptCorpusEntriesForAgent", () => {
     },
   );
 
+  it.each([false, true])(
+    "classifies prompt-rich entries without decoding saved prompts (readOnly: %s)",
+    async (readOnly) => {
+      await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+        const sessionKey = "agent:main:corpus-metadata";
+        const storePath = path.join(state.sessionsDir(), "sessions.json");
+        const persisted = await upsertSessionEntryCore(
+          { sessionKey, storePath },
+          {
+            sessionId: "corpus-metadata",
+            updatedAt: 10,
+            heartbeatIsolatedBaseSessionKey: "agent:main:main",
+            skillsSnapshot: { prompt: "unused corpus prompt ".repeat(256), skills: [] },
+            systemPromptReport: {
+              source: "run",
+              generatedAt: 1,
+              systemPrompt: { chars: 1, projectContextChars: 0, nonProjectContextChars: 1 },
+              injectedWorkspaceFiles: [],
+              skills: { promptChars: 0, entries: [] },
+              tools: { listChars: 0, schemaChars: 0, entries: [] },
+            },
+          },
+        );
+
+        const parse = vi.spyOn(JSON, "parse");
+        try {
+          const entries = await listSessionTranscriptCorpusEntriesForAgent("main", {
+            includeContentRevision: false,
+            includeRetainedSqlite: true,
+            readOnly,
+          });
+          expect(entries).toEqual([
+            {
+              agentId: "main",
+              artifactKind: "active-session",
+              sessionFile: sessionKey,
+              sessionId: "corpus-metadata",
+              sessionKey,
+              sessionKind: "heartbeat",
+              storePath,
+              transcriptSource: "sqlite",
+              updatedAtMs: persisted?.updatedAt,
+            },
+          ]);
+          const decodedEntries = parse.mock.calls.filter(([json]) =>
+            json.includes('"sessionId":"corpus-metadata"'),
+          );
+          expect(
+            decodedEntries.every(
+              ([json]) =>
+                !json.includes('"skillsSnapshot"') && !json.includes('"systemPromptReport"'),
+            ),
+          ).toBe(true);
+        } finally {
+          parse.mockRestore();
+        }
+      });
+    },
+  );
+
   it("yields during filesystem discovery while retaining its store and reading fresh entries", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
       const sessionsDir = state.statePath("custom-sessions");
