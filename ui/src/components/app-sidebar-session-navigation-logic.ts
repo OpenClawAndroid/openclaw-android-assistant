@@ -1,4 +1,6 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { ControlUiNavigationItem } from "../../../src/plugin-sdk/control-ui.js";
+import type { GatewayControlUiPluginTab } from "../api/gateway.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../api/types.ts";
 import { SIDEBAR_NAV_ROUTES } from "../app-navigation.ts";
 import type { RouteId } from "../app-route-paths.ts";
@@ -36,6 +38,9 @@ import {
   resolveUiSessionNavigationParentKey,
 } from "../lib/sessions/session-key.ts";
 import { reconcileSidebarZone } from "../lib/sidebar-zone.ts";
+import { pluginTabKey } from "../pages/plugin/route.ts";
+import type { ControlUiRegistration } from "../plugins/control-ui-capability.ts";
+import { sidebarPluginTabs } from "./app-sidebar-nav-menus.ts";
 import {
   SIDEBAR_SESSION_NO_ATTENTION,
   type SidebarRecentSession,
@@ -303,8 +308,29 @@ export function buildSidebarSessionNavigationState(input: {
 export function buildReconciledSidebarZone(input: {
   sidebarEntries: readonly string[];
   rows: SidebarRecentSession[];
-  pluginNavigationKeys: ReadonlySet<string>;
+  pluginNavigation: readonly ControlUiRegistration<ControlUiNavigationItem>[];
+  pluginTabs: readonly GatewayControlUiPluginTab[] | undefined;
 }) {
+  const navigation = input.pluginNavigation;
+  const occupiedPlacements = new Set(input.sidebarEntries);
+  const pluginTabs = new Map(
+    sidebarPluginTabs(input.pluginTabs)
+      .filter(
+        (tab) =>
+          (!tab.placement || !occupiedPlacements.has(tab.placement)) &&
+          !navigation.some(
+            (entry) => entry.pluginId === tab.pluginId && entry.value.page.id === tab.id,
+          ),
+      )
+      .map((tab) => [pluginTabKey(tab), tab]),
+  );
+  const defaultPluginNavigationKeys = new Set([
+    ...pluginTabs.keys(),
+    ...navigation
+      .filter((entry) => entry.value.defaultVisible !== false)
+      .toSorted((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0) || a.key.localeCompare(b.key))
+      .map((entry) => entry.key),
+  ]);
   const pinnedRows = input.rows.filter((row) => row.pinned);
   // Only loaded rows count as authoritative unpinned state; entries for
   // other agents' sessions must survive canonical writes untouched.
@@ -314,11 +340,14 @@ export function buildReconciledSidebarZone(input: {
     pinnedRows,
     SIDEBAR_NAV_ROUTES,
     knownUnpinnedKeys,
-    input.pluginNavigationKeys,
+    new Set([...pluginTabs.keys(), ...navigation.map((entry) => entry.key)]),
+    defaultPluginNavigationKeys,
   );
   return {
     ...reconciled,
     sessionRows: new Map(pinnedRows.map((row) => [row.key, row])),
+    pluginTabs,
+    defaultPluginNavigationKeys,
   };
 }
 

@@ -2279,7 +2279,7 @@ src/cli/program/register.agent.ts	16
 src/cli/program/register.audit.ts	12
 src/cli/program/register.backup.ts	14
 src/cli/program/register.configure.ts	1
-src/cli/program/register.migrate.ts	12
+src/cli/program/register.migrate.ts	10
 src/cli/program/register.onboard.ts	27
 src/cli/program/register.setup.ts	2
 src/cli/program/register.status-health-sessions.ts	29
@@ -2466,7 +2466,6 @@ src/config/includes-scan.ts	1
 src/config/io.audit.ts	3
 src/config/io.clobber-snapshot.ts	2
 src/config/io.context.ts	1
-src/config/io.health-state.ts	1
 src/config/io.load.ts	2
 src/config/io.observe-recovery.ts	7
 src/config/io.observe.ts	1
@@ -2999,7 +2998,6 @@ src/infra/session-cost-usage-pricing.ts	6
 src/infra/session-cost-usage-reporting.ts	5
 src/infra/session-delivery-queue-storage.ts	6
 src/infra/shell-env.ts	1
-src/infra/sqlite-audit-record-store.ts	1
 src/infra/sqlite-coordinator.ts	2
 src/infra/sqlite-file-generation.ts	9
 src/infra/sqlite-files.ts	1

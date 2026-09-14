@@ -21,7 +21,7 @@ export async function readSessionMessagesAroundIdWithStatsAsync(
   scope: SessionTranscriptReadScope,
   opts: TranscriptAnchorPageOptions & { allowResetArchiveFallback?: boolean; readOnly?: boolean },
 ): Promise<ReadSessionMessagesAroundIdResult> {
-  const target = resolveTranscriptReadTarget(scope);
+  const target = await resolveTranscriptReadTarget(scope);
   const sessionFile =
     !scope.sessionFile &&
     scope.sessionEntry?.sessionId &&

@@ -379,7 +379,10 @@ function classifyArtifact(kind: string, filePath: string): QaEvidenceArtifactVie
   }
 
   // Kinds are free-form labels; use their hints only without a known file format.
-  const normalizedKind = kind.toLowerCase();
+  // Callers sometimes pass a path-like kind, so match only its final segment:
+  // otherwise an unrelated directory name (".../qa-evidence-gallery-gif-XX/log")
+  // decides the media type and a text artifact loses its preview.
+  const normalizedKind = (kind.toLowerCase().split(/[\\/]/).pop() ?? "").trim();
   if (normalizedKind.includes("screenshot") || normalizedKind.includes("gif")) {
     return "image";
   }

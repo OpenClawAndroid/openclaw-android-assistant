@@ -20,7 +20,10 @@ import { withTimeout } from "../../infra/fs-safe.js";
 import { boundedJsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { runWithGatewayIndependentRootWorkContinuation } from "../../process/gateway-work-admission.js";
 import type { WorkerConnectionIdentity } from "./connection-identity.js";
-import type { WorkerInferenceSessionDrain } from "./inference-control-internal.js";
+import {
+  WorkerInferenceSessionDrainBusyError,
+  type WorkerInferenceSessionDrain,
+} from "./inference-control-internal.js";
 import {
   createWorkerInferenceStore,
   type WorkerInferenceStore,
@@ -643,7 +646,7 @@ export function createWorkerInferenceManager(options: {
 
   const beginSessionDrain = (sessionId: string): WorkerInferenceSessionDrain => {
     if (drainingSessionIds.has(sessionId)) {
-      throw new Error(`Worker inference drain already owns session ${sessionId}`);
+      throw new WorkerInferenceSessionDrainBusyError(sessionId);
     }
     // Block first so cancellation cannot race a replacement provider operation.
     drainingSessionIds.add(sessionId);

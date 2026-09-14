@@ -484,6 +484,10 @@ distinguish readers without retaining session IDs or transcript content. Nested
 reads remain part of the outer transaction's timing; older warnings use the
 generic `session transcript hot read` label.
 
+`session branch summaries read` covers the snapshot read and branch-summary
+computation. Stored sessions perform this work in a background Worker; incognito
+sessions use their process-held database. Cache hits do not perform this scan.
+
 Immediate `BEGIN` warnings also include `beginAdmission`: `nativeAttempts` counts
 actual native `BEGIN IMMEDIATE` calls and `nativeMs` measures those calls;
 `serviceCalls` counts synchronous admission-service callbacks and `serviceMs`

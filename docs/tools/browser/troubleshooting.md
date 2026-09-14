@@ -12,6 +12,14 @@ For Linux-specific issues (especially snap Chromium), see
 For WSL2 Gateway + Windows Chrome split-host setups, see
 [WSL2 + Windows + remote Chrome CDP troubleshooting](/tools/browser-wsl2-windows-remote-cdp-troubleshooting).
 
+## Output directory errors
+
+If an output fails with `Invalid path: must stay within output directory`, set
+the output directory to its real, canonical path. Browser outputs reject
+user-created symlinks anywhere in the directory path, including when the final
+directory already exists. The macOS `/tmp` and `/var` system aliases remain
+supported.
+
 ## CDP startup failure vs navigation SSRF block
 
 These are different failure classes and they point to different code paths.

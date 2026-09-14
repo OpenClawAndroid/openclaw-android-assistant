@@ -4,6 +4,12 @@ export type WorkerInferenceSessionDrain = {
   release(): void;
 };
 
+export class WorkerInferenceSessionDrainBusyError extends Error {
+  constructor(sessionId: string) {
+    super(`Worker inference drain already owns session ${sessionId}`);
+  }
+}
+
 type BeginWorkerInferenceSessionDrain = (sessionId: string) => WorkerInferenceSessionDrain;
 
 // Session lifecycle needs a stronger control without widening the inferred public service shape.

@@ -612,8 +612,11 @@ describe("buildAgentSystemPrompt", () => {
     expect(presentation).toContain("`show_widget`");
     expect(presentation).toContain("pin=true");
     expect(presentation).toContain("result.presentation");
-    expect(presentation).toContain("inline support varies by surface");
+    expect(presentation).toContain("this turn's schema");
+    expect(presentation).toContain("status=pinned means the widget is on the session dashboard");
     expect(presentation).toContain("`dashboard`");
+    expect(presentation).toContain('action="focus_tab" with its tabId');
+    expect(presentation).toContain("do not open hosting URLs as browser pages");
     expect(presentation).toContain("`portal`");
     expect(presentation).toContain("publicUrl");
     expect(presentation).toContain("token URLs stay private");

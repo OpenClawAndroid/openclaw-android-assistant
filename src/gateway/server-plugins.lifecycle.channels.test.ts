@@ -17,7 +17,11 @@ import {
   installInstanceBindingProbeCoordinator,
   writeInstanceBindingProbePlugin,
 } from "./server-plugins.lifecycle.test-fixtures.js";
-import { installInstanceBindingConfigIo } from "./server-plugins.lifecycle.test-support.js";
+import {
+  installInstanceBindingConfigIo,
+  requireBoundRuntime,
+  requestSettledInstanceBindingProbe,
+} from "./server-plugins.lifecycle.test-support.js";
 import { loadGatewayTestConfig } from "./test-helpers.config-runtime.js";
 import {
   connectWebchatClient,
@@ -381,6 +385,8 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
     expect(stopped.ok, stopped.error?.message).toBe(true);
     expect((await probe("parked")).status).toBe(404);
 
+    const { runtime } = await requireBoundRuntime(coordinator.runtimes, "webhook channel reload");
+    await requestSettledInstanceBindingProbe(runtime);
     const initialRegistry = getActivePluginRegistry();
     const reload = await rpcReq(socket, "plugins.reload", {
       plugins: [{ pluginId: "instance-binding-probe" }],

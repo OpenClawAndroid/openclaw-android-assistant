@@ -45,6 +45,8 @@ An agent-turn automation bound to a persistent session and carrying a server-aut
 
 When the Gateway automatically resumes an interrupted Control UI turn after a restart, the recovered turn can also create or update pinned dashboard widgets without a connected browser. Recovery uses the same pinned-only surface: set `pin: true` and omit `presentation.target`. Inline previews still require a new turn from a client that declares `inline-widgets`. The resumed turn does not inherit a browser connection or device presentation rights.
 
+A `status: "pinned"` tool result means the widget is on the session dashboard. Open that dashboard tab in the Control UI, or use `dashboard` with `action: "focus_tab"` and the saved widget's `tabId` when the tool is available. Widget hosting URLs are internal rendering resources and should not be opened in the Browser panel to substitute for widget presentation.
+
 Capability transport covers embedded, Codex app-server, and CLI-backed model backends. Grant-authenticated MCP callers without `inline-widgets` remain fail closed unless their trusted run context matches a presenter. Authenticated direct HTTP `tools/invoke` requests cannot request inline rendering, but a request carrying eligible current-channel context can use the matching presenter. Authentication never bypasses presenter or route eligibility.
 
 ## Design system

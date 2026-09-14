@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createManagedHandoffBuildConfig } from "./managed-handoff-build-config.mts";
 import {
   sharedRuntimeProcessBuildEntries,
-  shouldBundleStandaloneRuntimeDependency,
+  shouldBundleRuntimeSqliteDependency,
   standaloneRuntimeProcessBuildEntries,
 } from "./runtime-process-core-build-entries.mts";
 import { createStateSchemaInlinePlugin } from "./state-schema-inline-plugin.mts";
@@ -84,8 +84,9 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
     clean: false,
     outExtensions: () => ({ js: ".js" }),
     deps: {
-      // Root runtime dependencies stay external; bundled workspace code owns its private deps.
-      alwaysBundle: shouldBundleWorkspaceDependency,
+      // Runtime entries share bundled query builders; other root dependencies stay external.
+      alwaysBundle: (id) =>
+        shouldBundleWorkspaceDependency(id) || shouldBundleRuntimeSqliteDependency(id),
     },
     logLevel: "warn",
     plugins: [
@@ -151,11 +152,6 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
   await build({
     ...config,
     entry: standaloneRuntimeProcessBuildEntries,
-    deps: {
-      ...config.deps,
-      alwaysBundle: (id) =>
-        shouldBundleWorkspaceDependency(id) || shouldBundleStandaloneRuntimeDependency(id),
-    },
     outputOptions: { codeSplitting: false },
   });
   await build({

@@ -90,6 +90,7 @@ import {
 import { resolveConversationCapabilityProfile } from "../conversation-capability-profile.js";
 import { resolveConversationToolPolicies } from "../conversation-tool-policy-pipeline.js";
 import { resolveDelegationCapability } from "../delegation-capability.js";
+import { mergeForcedEmbeddedAttemptToolsAllow } from "../embedded-agent-runner/run/attempt-tool-construction-plan.js";
 import type { DeferredEmbeddedRunLifecycleManager } from "../embedded-agent-runner/run/deferred-lifecycle-owner.js";
 import type { RunEmbeddedAgentInternalParams } from "../embedded-agent-runner/run/internal-params.js";
 import { runEmbeddedAgent, type EmbeddedAgentRunResult } from "../embedded-agent.js";
@@ -806,6 +807,16 @@ export function runAgentAttempt(params: {
         ? ["message"]
         : undefined
     : params.opts.toolsAllow;
+  // Collector output is mandatory result transport, even on a narrowed tool
+  // surface. The CLI grant is minted from this list and enforced exactly on the
+  // loopback server, so a plugin-launched or cron-continued collector needs the
+  // same forced merge the embedded runner applies before its own construction.
+  const cliRuntimeToolsAllow = mergeForcedEmbeddedAttemptToolsAllow(runtimeToolsAllow, {
+    forceToolNames:
+      params.opts.swarmCollector && params.opts.swarmOutputSchema
+        ? ["structured_output"]
+        : undefined,
+  });
   const disableTools =
     params.opts.modelRun === true ||
     (isSubagentAnnounceHandoff &&
@@ -1164,7 +1175,7 @@ export function runAgentAttempt(params: {
             approvalReviewerDeviceId: params.opts.approvalReviewerDeviceId,
             bashElevated: params.opts.bashElevated,
             toolsAllow: resolveCliRuntimeToolsAllow(
-              runtimeToolsAllow,
+              cliRuntimeToolsAllow,
               params.opts.toolsAllowIsDefault,
             ),
             // This loop is the command-origin sibling of the auto-reply fallback

@@ -1,3 +1,8 @@
+import type { CronCreatorAuthorityCapability } from "../../agents/cron-creator-authority-context.js";
+import {
+  consumeRequesterCronAuthorityAdmission,
+  revokeRequesterCronAuthority,
+} from "../../agents/subagents/requester-cron-authority.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
 import { clientHasAdminScope } from "../agent-turn/agent-handler-helpers.js";
 import type { AgentRunRequest } from "./agent-request-types.js";
@@ -7,6 +12,8 @@ export type GatewayCronCreatorAuthorityAdmission = Readonly<{
   runId: string;
   callerOrigin: { kind: "local" } | { kind: "unknown" };
   controlUiAdmin?: true;
+  isCurrent?: () => boolean;
+  bindRunScope?: (scope: CronCreatorAuthorityCapability) => void;
 }>;
 
 type DirectOperatorAuthorityParams = {
@@ -23,24 +30,31 @@ function resolveDirectOperatorAuthority(
 ): GatewayCronCreatorAuthorityAdmission | undefined {
   const internal = params.client?.internal;
   const runId = params.runId.trim();
-  const isDirectOperator =
+  const isDirectTurn =
     runId.length > 0 &&
-    clientHasAdminScope(params.client ?? null) &&
-    (internal?.isLocalClient === true || internal?.controlUiAdmin === true) &&
+    params.client != null &&
     Boolean(params.resolvedSessionKey?.trim()) &&
     !params.spawnedBy?.trim() &&
     params.inputProvenance === undefined &&
     !params.disallowed &&
-    internal.syntheticClient !== true &&
-    internal.senderAttribution === undefined &&
-    internal.approvalRuntime !== true &&
-    internal.cronRunContinuation !== true &&
-    internal.agentRuntimeIdentity === undefined &&
-    internal.pluginRuntimeOwnerId === undefined &&
-    internal.agentRunTracking === undefined &&
-    internal.pluginSubagentRequester === undefined &&
-    internal.runtimePluginToolGrant === undefined &&
-    internal.delegatedToolPolicyHandoffId === undefined;
+    internal?.syntheticClient !== true &&
+    internal?.senderAttribution === undefined &&
+    internal?.approvalRuntime !== true &&
+    internal?.cronRunContinuation !== true &&
+    internal?.agentRuntimeIdentity === undefined &&
+    internal?.pluginRuntimeOwnerId === undefined &&
+    internal?.agentRunTracking === undefined &&
+    internal?.pluginSubagentRequester === undefined &&
+    internal?.runtimePluginToolGrant === undefined &&
+    internal?.delegatedToolPolicyHandoffId === undefined;
+  if (isDirectTurn && params.resolvedSessionKey) {
+    // A new user admission replaces pending task authority, including for a non-admin caller.
+    revokeRequesterCronAuthority(params.resolvedSessionKey);
+  }
+  const isDirectOperator =
+    isDirectTurn &&
+    clientHasAdminScope(params.client ?? null) &&
+    (internal?.isLocalClient === true || internal?.controlUiAdmin === true);
   return isDirectOperator
     ? Object.freeze({
         runId,
@@ -58,6 +72,7 @@ function resolveDirectOperatorAuthority(
 export function resolveGatewayCronCreatorAuthorityAdmission(params: {
   runId: string;
   resolvedSessionKey?: string;
+  sessionId?: string;
   spawnedBy?: string;
   client?: GatewayClient | null;
   request: AgentRunRequest;
@@ -67,6 +82,22 @@ export function resolveGatewayCronCreatorAuthorityAdmission(params: {
   isRestartRecoveryResumeRun: boolean;
 }): GatewayCronCreatorAuthorityAdmission | undefined {
   const request = params.request;
+  if (
+    params.client?.internal?.syntheticClient === true &&
+    !params.hasRestoredCronContinuation &&
+    !params.isOneShotModelRun &&
+    !params.isRestartRecoveryResumeRun
+  ) {
+    const continuation = consumeRequesterCronAuthorityAdmission({
+      runId: params.runId,
+      sessionKey: params.resolvedSessionKey,
+      sessionId: params.sessionId,
+      inputProvenance: params.inputProvenance,
+    });
+    if (continuation) {
+      return continuation;
+    }
+  }
   return resolveDirectOperatorAuthority({
     runId: params.runId,
     resolvedSessionKey: params.resolvedSessionKey,

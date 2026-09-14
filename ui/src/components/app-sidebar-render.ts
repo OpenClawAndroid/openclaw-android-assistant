@@ -556,6 +556,7 @@ export function renderAppSidebarZoneEntry(
   host: AppSidebarRenderHost,
   entry: SidebarZoneEntry,
   sessionRows: ReadonlyMap<string, SidebarRecentSession>,
+  pluginTabs: ReadonlyMap<string, GatewayControlUiPluginTab>,
 ) {
   if (entry.type === "route" && !host.sidebarMenus.isRouteEnabled(entry.route)) {
     return nothing;
@@ -565,17 +566,20 @@ export function renderAppSidebarZoneEntry(
     host.sessionOrganizer.sidebarZoneDropTarget?.entry === serialized
       ? host.sessionOrganizer.sidebarZoneDropTarget.position
       : null;
+  const pluginTab = entry.type === "plugin" ? pluginTabs.get(entry.key) : undefined;
   const content =
     entry.type === "route"
       ? host.sidebarMenus.renderRoute(entry.route)
-      : entry.type === "plugin"
-        ? html`<openclaw-plugin-contributions
-            .kind=${"navigation"}
-            .navigationKey=${entry.key}
-          ></openclaw-plugin-contributions>`
-        : sessionRows.has(entry.key)
-          ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)
-          : nothing;
+      : pluginTab
+        ? renderAppSidebarPluginTab(host, pluginTab)
+        : entry.type === "plugin"
+          ? html`<openclaw-plugin-contributions
+              .kind=${"navigation"}
+              .navigationKey=${entry.key}
+            ></openclaw-plugin-contributions>`
+          : sessionRows.has(entry.key)
+            ? host.renderPinnedSidebarSession(sessionRows.get(entry.key)!)
+            : nothing;
   const draggable = entry.type === "route" || entry.type === "plugin";
   return html`
     <div
@@ -603,30 +607,21 @@ export function renderAppSidebarZoneEntry(
   `;
 }
 
-export function renderAppSidebarPluginTabEntry(
-  host: AppSidebarRenderHost,
-  tab: GatewayControlUiPluginTab,
-) {
+function renderAppSidebarPluginTab(host: AppSidebarRenderHost, tab: GatewayControlUiPluginTab) {
   const ref = { pluginId: tab.pluginId, id: tab.id };
   const key = pluginTabKey(ref);
   const routePlacement = tab.placement?.startsWith("route:")
     ? tab.placement.slice("route:".length)
     : "";
   const routeId = isRouteId(routePlacement) ? routePlacement : null;
-  return html`
-    <div class="sidebar-zone-entry" data-sidebar-entry=${`plugin:${key}`}>
-      ${
-        routeId
-          ? host.sidebarMenus.renderRoute(routeId)
-          : renderSidebarPluginTab({
-              tab,
-              basePath: host.basePath,
-              active: host.activeRouteId === "plugin" && host.activePluginTabId === key,
-              onNavigate: (location) => host.onNavigate?.("plugin", location),
-            })
-      }
-    </div>
-  `;
+  return routeId
+    ? host.sidebarMenus.renderRoute(routeId)
+    : renderSidebarPluginTab({
+        tab,
+        basePath: host.basePath,
+        active: host.activeRouteId === "plugin" && host.activePluginTabId === key,
+        onNavigate: (location) => host.onNavigate?.("plugin", location),
+      });
 }
 
 function renderAppSidebarAttention(host: AppSidebarRenderHost) {

@@ -31,6 +31,7 @@ import {
   bindPluginStateEntry,
   upsertPluginStateEntry,
   insertPluginStateEntryIfAbsent,
+  hasPluginStateEntry,
   selectPluginStateEntry,
   iteratePluginStateEntries,
   selectPluginStateEntriesInKeyRange,
@@ -362,7 +363,7 @@ export function pluginStateRegisterSequencedJournalEntry(params: {
             message: "Plugin state journal key must be inside its retained key range.",
           });
         }
-        const existingJournalEntry = selectPluginStateEntry(store.db, {
+        const existingJournalEntry = hasPluginStateEntry(store.db, {
           pluginId: params.pluginId,
           namespace: params.journalNamespace,
           key: prepared.journalKey,
@@ -481,7 +482,7 @@ export function pluginStateRegisterIfAbsent(params: {
           pluginId: params.pluginId,
           namespace: params.namespace,
         });
-        const existing = selectPluginStateEntry(store.db, {
+        const existing = hasPluginStateEntry(store.db, {
           pluginId: params.pluginId,
           namespace: params.namespace,
           key: params.key,

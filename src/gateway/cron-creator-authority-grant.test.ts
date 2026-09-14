@@ -23,6 +23,7 @@ afterEach(() => {
 });
 
 function createManagementFixture(controlUiAdmin = true) {
+  let continuationCurrent = true;
   const runId = "run-admin-management";
   const { operationalRunInstance } = createTestAdmittedRunContext(runId);
   const authority = claimAgentRunDelegatedAuthority(operationalRunInstance);
@@ -30,6 +31,7 @@ function createManagementFixture(controlUiAdmin = true) {
     runId,
     { kind: "local" },
     controlUiAdmin ? true : undefined,
+    () => continuationCurrent,
   );
   const operation = new AbortController();
   const identity: AgentRuntimeIdentity = {
@@ -45,6 +47,9 @@ function createManagementFixture(controlUiAdmin = true) {
     identity,
     scope,
     operation,
+    revokeContinuation: () => {
+      continuationCurrent = false;
+    },
     mint: (method = "cron.get") =>
       mintCronCreatorAuthorityGrant(scope, operation.signal, undefined, { method, authority }),
   };
@@ -241,6 +246,10 @@ describe("cron management authority grants", () => {
   });
 
   it.each([
+    [
+      "continuation ownership loss",
+      (fixture: ReturnType<typeof createManagementFixture>) => fixture.revokeContinuation(),
+    ],
     [
       "release",
       (fixture: ReturnType<typeof createManagementFixture>) =>

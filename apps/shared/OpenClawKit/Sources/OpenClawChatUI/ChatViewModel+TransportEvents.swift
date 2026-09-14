@@ -653,7 +653,11 @@ extension OpenClawChatViewModel {
             details: message.details,
             isError: message.isError,
             provenance: message.provenance,
-            historyMarker: message.historyMarker)
+            historyMarker: message.historyMarker,
+            phase: message.phase,
+            turnBoundary: message.turnBoundary,
+            steerTargetRunID: message.steerTargetRunID,
+            streamFallback: message.streamFallback)
     }
 
     private func handleAgentEvent(_ evt: OpenClawAgentEventPayload) {
@@ -1088,7 +1092,7 @@ extension OpenClawChatViewModel {
         let nextIndex = messages.index(after: userIndex)
         guard nextIndex < messages.endIndex else { return false }
         return messages[nextIndex...].contains { message in
-            guard message.role.lowercased() == "assistant" else { return false }
+            guard message.role.lowercased() == "assistant", message.streamSegmentID == nil else { return false }
             let text = message.content.compactMap(\.text).joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return !text.isEmpty || message.errorMessage != nil
@@ -1103,7 +1107,7 @@ extension OpenClawChatViewModel {
             return false
         }
         return messages[messages.index(after: lastUserIndex)...].contains { message in
-            guard message.role.lowercased() == "assistant" else { return false }
+            guard message.role.lowercased() == "assistant", message.streamSegmentID == nil else { return false }
             let text = message.content.compactMap(\.text).joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return !text.isEmpty || message.errorMessage != nil
@@ -1113,7 +1117,9 @@ extension OpenClawChatViewModel {
     private static func assistantHapticEvent(
         for message: OpenClawChatMessage) -> OpenClawChatHaptics.Event?
     {
-        guard message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "assistant" else {
+        guard message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "assistant",
+              message.streamSegmentID == nil
+        else {
             return nil
         }
         let text = message.content.compactMap(\.text).joined(separator: "\n")

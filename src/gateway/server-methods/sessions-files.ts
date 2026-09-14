@@ -315,7 +315,7 @@ async function loadSessionFiles(params: {
     sessionKey: canonicalKey,
     storePath,
   } satisfies SessionTranscriptReadScope;
-  const target = resolveTranscriptReadTarget(scope);
+  const target = await resolveTranscriptReadTarget(scope);
   // Entry-scoped reads without an explicit sessionFile always resolve to a canonical SQLite marker.
   // Legacy transcript files are doctor-owned migration debt, not a runtime read path.
   const files = await loadSqliteTouchedFiles(

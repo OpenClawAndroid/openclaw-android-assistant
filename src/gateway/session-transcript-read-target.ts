@@ -1,5 +1,6 @@
+import { resolveConcreteSessionStorePath } from "../config/sessions/paths.js";
 import type { SessionTranscriptReadScope } from "../config/sessions/session-accessor.js";
-import { resolveSessionTranscriptReadTarget } from "../config/sessions/session-accessor.transcript-target.js";
+import { resolveSessionTranscriptReadTargetCore } from "../config/sessions/session-accessor.transcript-read-target.js";
 
 export type ResolvedTranscriptReadTarget = {
   agentId?: string;
@@ -9,10 +10,15 @@ export type ResolvedTranscriptReadTarget = {
   storePath?: string;
 };
 
-export function resolveTranscriptReadTarget(
+export async function resolveTranscriptReadTarget(
   scope: SessionTranscriptReadScope,
-): ResolvedTranscriptReadTarget {
-  const target = resolveSessionTranscriptReadTarget(scope);
+): Promise<ResolvedTranscriptReadTarget> {
+  const storePath = resolveConcreteSessionStorePath(scope.storePath);
+  const target = storePath
+    ? resolveSessionTranscriptReadTargetCore({ ...scope, storePath })
+    : (
+        await import("../config/sessions/session-accessor.transcript-target.js")
+      ).resolveSessionTranscriptReadTarget(scope);
   return {
     agentId: target.agentId,
     sessionFile: target.sessionKey ?? target.sessionId,
@@ -23,7 +29,7 @@ export function resolveTranscriptReadTarget(
 }
 
 export function toTranscriptReadScope(
-  target: ResolvedTranscriptReadTarget,
+  target: Pick<ResolvedTranscriptReadTarget, "agentId" | "sessionId" | "sessionKey" | "storePath">,
 ): SessionTranscriptReadScope {
   return {
     ...(target.agentId ? { agentId: target.agentId } : {}),

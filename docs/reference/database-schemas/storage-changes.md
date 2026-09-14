@@ -78,6 +78,16 @@ retry state. The existing chunking revision triggers a one-time rebuild to repai
 previously indexed reset boundaries. Rebuilds reuse cached embeddings when
 available and retain the existing atomic publication path.
 
+Branch listing uses the same worker entrypoint with its own bounded background
+queue, separate from history and model-context reads. The worker reads one
+read-only SQLite snapshot and computes branch summaries; only compact results
+return to the Gateway. Both isolates reuse bounded compact caches only while the
+physical database identity and transcript watermark match. Queued worker reads
+validate a fresh snapshot before reuse, so concurrent requests do not repeat an
+unchanged scan. The host restores cold transcripts and rejects results after
+database or session ownership changes. Incognito branches use their process-held
+database locally.
+
 The optional `tasks.async.managedFlows` creation and revision mutations use the
 same row kernels in the shared worker, with fresh owner, managed-mode, and
 revision checks inside write admission. The admitted operation retains its actor
@@ -89,6 +99,30 @@ preserve the durable mutation result without replaying the write.
 Synchronous callers keep their existing transaction behavior. Native cancellation,
 child-task linkage, and compound task/subagent completion retain their existing
 owners until their complete persistence and lifecycle boundaries move together.
+
+Existing asynchronous config observation, recovery health records, and config
+audit appends run their SQLite work on this same actor. Observations capture a
+short-lived scope before awaited work; newer observations of the same database
+and config path supersede older scopes. Scopes end on return, and synchronous
+write invalidation waits for the outer transaction to commit. The worker checks
+each operation's scope at dispatch; a superseded read stops before logging or
+file work. Health writes carry the exact persisted facts from their original read
+and compare them again inside the
+write transaction. They merge only the selected path's changed fields when those
+facts still match; a failed read or stale observation cannot overwrite newer
+health state. Other paths and untouched JSON fields remain unchanged. Audit
+appends retain the same redaction, insertion ordering, scope limits, and atomic
+insertion-and-pruning transaction. Promotion and recovery return true when their
+file operation commits, even if newer health metadata supersedes their conditional
+update. Ordinary post-file metadata retirement uses the existing best-effort
+failure policy; ownership and maintenance refusals still propagate. Doctor uses
+the committed result to reread the changed file. Explicit prepared
+recovery re-runs the same planner at apply and rejects changed or no-longer-eligible
+candidates before file work. Unavailable health metadata retains the existing
+backup-based planning fallback. Health metadata remains best-effort; the file and
+health row are not one atomic transaction. Synchronous config readers and writers
+keep their existing APIs; config parsing, validation, and plugin preparation retain
+their own execution paths.
 
 SQLite worker transport preserves complete result values. Results within the
 64 MiB inline reply budget keep their existing reply path; larger results are

@@ -302,6 +302,32 @@ describe("evidence gallery", () => {
     expect(JSON.stringify(model)).not.toContain(repoRoot);
   });
 
+  it("classifies a path-like artifact kind by its final segment", async () => {
+    // The repo root deliberately contains "gif". A path-valued kind must not let
+    // an unrelated directory name decide the media type and drop the preview.
+    const repoRoot = await createTempRepo("qa-evidence-gallery-gif-");
+    const outputDir = path.join(repoRoot, ".artifacts", "qa-e2e", "vitest");
+    // No file extension, so classification has to fall back to the kind label.
+    const artifactPath = path.join(outputDir, "absolute");
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(artifactPath, "absolute artifact\n", "utf8");
+    const evidence: QaEvidenceSummaryJson = vitestArtifactEvidence({
+      id: "qa-lab.path-like-kind",
+      title: "Path-like artifact kind",
+      artifact: { kind: `${repoRoot}/log`, path: artifactPath },
+    });
+    await writeJson(path.join(outputDir, QA_EVIDENCE_FILENAME), evidence);
+
+    const model = await buildQaEvidenceGalleryModel({ evidencePath: outputDir, repoRoot });
+
+    const artifact = model.entries[0]?.artifacts[0];
+    expect(artifact).toMatchObject({
+      exists: true,
+      mediaKind: "text",
+      preview: "absolute artifact\n",
+    });
+  });
+
   it("normalizes absolute source and declared artifact paths for gallery links", async () => {
     const repoRoot = await createTempRepo("qa-evidence-gallery-gif-");
     const outputDir = path.join(repoRoot, ".artifacts", "qa-e2e", "vitest");

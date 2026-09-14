@@ -28,6 +28,7 @@ import {
   type SessionListOptions,
 } from "../lib/sessions/index.ts";
 import { reconcileSessionHistory } from "../lib/sessions/reconcile.ts";
+import { createSessionArchiveState } from "../lib/sessions/session-archive-state.ts";
 import {
   createSidebarContextLifecycle,
   disposeSidebarContextLifecycles,
@@ -245,7 +246,14 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
   let canonicalListRevision = 1;
   const listeners = new Set<(next: SessionState) => void>();
   const pullRequestSummaries = new Map<string, SessionCatalogPullRequestSummary>();
-  const archiveVisibilityByKey = new Map<string, "pending" | "archived">();
+  const archiveState = createSessionArchiveState(
+    (key) => state.result?.sessions.find((row) => row.key === key),
+    () => {
+      for (const listener of listeners) {
+        listener(state);
+      }
+    },
+  );
   const groupsPut = vi.fn(() => Promise.resolve<SessionGroupMutationResult>("completed"));
   const groupsRename = vi.fn(() => Promise.resolve<SessionGroupMutationResult>("completed"));
   const groupsDelete = vi.fn(() => Promise.resolve<SessionGroupMutationResult>("completed"));
@@ -356,19 +364,8 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
     groupsDelete,
     create,
     patch,
-    archiveVisibility: (key: string) => archiveVisibilityByKey.get(key),
-    setArchivePending(key: string, pending: boolean) {
-      if (pending) {
-        archiveVisibilityByKey.set(key, "pending");
-      } else if (state.result?.sessions.find((row) => row.key === key)?.archived) {
-        archiveVisibilityByKey.set(key, "archived");
-      } else {
-        archiveVisibilityByKey.delete(key);
-      }
-      for (const listener of listeners) {
-        listener(state);
-      }
-    },
+    archiveVisibility: archiveState.visibility,
+    beginArchive: archiveState.beginPending,
     assignOwner,
     patchMany,
     deletionState: () => undefined,
@@ -507,8 +504,8 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
     publish,
     publishList(statePatch: Partial<SessionState>) {
       for (const row of statePatch.result?.sessions ?? []) {
-        if (row.archived !== true && archiveVisibilityByKey.get(row.key) === "archived") {
-          archiveVisibilityByKey.delete(row.key);
+        if (row.archived === true || archiveState.visibility(row.key) === "archived") {
+          archiveState.observe(row.key, row.archived === true, row);
         }
       }
       canonicalListRevision += 1;

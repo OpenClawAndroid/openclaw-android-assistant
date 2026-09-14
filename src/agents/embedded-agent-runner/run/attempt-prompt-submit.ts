@@ -15,7 +15,6 @@ import type { AgentSession } from "../../sessions/index.js";
 import { withSessionManagerWrite } from "../../sessions/session-manager-write-admission.js";
 import { ackPendingAgentSteeringItems } from "../../subagents/registry/subagent-registry.js";
 import { recordAggregateTruncation } from "../prompt-cache-observability.js";
-import { normalizeAssistantReplayContent } from "../replay-history.js";
 import { updateActiveEmbeddedRunSnapshot } from "../runs.js";
 import {
   type getEmbeddedSessionPromptState,
@@ -105,10 +104,6 @@ export async function submitEmbeddedAttemptPrompt(input: {
     attempt.skipPreparedUserTurnMessage !== true && userTurnRecorder?.hasPersisted() === true
       ? (userTurnRecorder.getPersistedMessage?.() ?? userTurnRecorder.message)?.idempotencyKey
       : undefined;
-  const normalizedReplayMessages = normalizeAssistantReplayContent(activeSession.messages);
-  if (normalizedReplayMessages !== activeSession.messages) {
-    activeSession.agent.state.messages = normalizedReplayMessages;
-  }
 
   const installProviderPromptHistoryTransform = (): (() => void) => {
     const baseStreamFn = activeSession.agent.streamFn;
@@ -161,7 +156,7 @@ export async function submitEmbeddedAttemptPrompt(input: {
   });
   updateActiveEmbeddedRunSnapshot(attempt.sessionId, {
     transcriptLeafId: input.transcriptLeafId,
-    messages: snapshotRecentMessages(normalizedReplayMessages),
+    messages: snapshotRecentMessages(activeSession.messages),
     inFlightPrompt: input.transcriptPrompt,
   });
 

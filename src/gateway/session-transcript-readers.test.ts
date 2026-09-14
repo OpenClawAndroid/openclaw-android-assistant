@@ -21,10 +21,10 @@ import {
   readSessionMessageCountAsync,
   readSessionMessagesAsync,
   readSessionMessagesPageWithStatsAsync,
-  readLatestSessionUsageFromTranscriptAsync,
   visitSessionMessagesAsync,
   type SessionTranscriptReadScope,
 } from "./session-transcript-readers.js";
+import { readLatestSessionUsageFromTranscriptAsync } from "./session-transcript-usage.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 

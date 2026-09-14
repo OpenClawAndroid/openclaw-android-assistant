@@ -158,9 +158,19 @@ export async function archiveSessionWithUndo(
   session: SessionActionRow,
   scope: SidebarSessionMutationScope,
 ) {
-  scope.sessions.setArchivePending(session.key, true);
-  const result = await patchSession(host, session, { archived: true }, scope);
-  scope.sessions.setArchivePending(session.key, false);
+  if (!host.sessionData.isSessionMutationScopeCurrent(scope)) {
+    return;
+  }
+  const finishArchive = scope.sessions.beginArchive(session.key, session.sessionId);
+  if (!finishArchive) {
+    return;
+  }
+  let result: SidebarSessionMutationResult;
+  try {
+    result = await patchSession(host, session, { archived: true }, scope);
+  } finally {
+    finishArchive();
+  }
   if (result !== "completed" || !host.sessionData.isSessionMutationScopeCurrent(scope)) {
     return;
   }
@@ -177,12 +187,27 @@ async function archiveSessionsWithUndo(
   rows: readonly SidebarRecentSession[],
   scope: SidebarSessionMutationScope,
 ) {
-  if (rows.length === 0) {
+  if (rows.length === 0 || !host.sessionData.isSessionMutationScopeCurrent(scope)) {
     return;
   }
-  const archivedRows = await patchSessionRows(host, rows, { archived: true }, scope, {
-    fallback: () => patchSessionRowsSerial(host, rows, { archived: true }, scope),
+  const pending = rows.flatMap((row) => {
+    const finish = scope.sessions.beginArchive(row.key, row.sessionId);
+    return finish ? [{ row, finish }] : [];
   });
+  if (pending.length === 0) {
+    return;
+  }
+  const pendingRows = pending.map(({ row }) => row);
+  let archivedRows: SessionActionRow[] | null;
+  try {
+    archivedRows = await patchSessionRows(host, pendingRows, { archived: true }, scope, {
+      fallback: () => patchSessionRowsSerial(host, pendingRows, { archived: true }, scope),
+    });
+  } finally {
+    for (const { finish } of pending) {
+      finish();
+    }
+  }
   if (!archivedRows || archivedRows.length === 0) {
     return;
   }

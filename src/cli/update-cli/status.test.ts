@@ -13,6 +13,7 @@ import {
   getUpdateRun,
   listUpdateRuns,
   recordUpdateRunPhase,
+  recordUpdateRunVerification,
 } from "../../infra/update-run-ledger.js";
 import { ABANDONED_UPDATE_RUN_MS } from "../../infra/update-run-timeouts.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
@@ -31,6 +32,10 @@ const service = vi.hoisted(() => ({
   readCommand: vi.fn(),
   resolveNodeRuntimeInfo: vi.fn(),
 }));
+const confirmGatewayReachable = vi.hoisted(() =>
+  vi.fn<typeof import("../daemon-cli/restart-health-probe.js").confirmGatewayReachable>(),
+);
+vi.mock("../daemon-cli/restart-health-probe.js", () => ({ confirmGatewayReachable }));
 
 vi.mock("../../daemon/service.js", () => ({
   resolveGatewayService: () => ({ readCommand: service.readCommand }),
@@ -264,6 +269,51 @@ afterEach(() => {
 });
 
 describe("update status abandoned-run reporting", () => {
+  it.each([true, false])(
+    "qualifies historical recovery advice using the recorded port (responding=%s)",
+    async (responding) => {
+      const advice =
+        "Managed gateway remains stopped. Keep the gateway stopped until the update succeeds.";
+      const created = createUpdateRun({ trigger: "cli", origin: { nextAction: advice } });
+      recordUpdateRunVerification(created.runId, {
+        port: 19123,
+        serviceRunning: false,
+        versionMatch: false,
+      });
+      const finished = finishUpdateRun(created.runId, {
+        status: "failed",
+        reason: "restart-unhealthy",
+        after: { version: "2026.9.4" },
+      });
+      confirmGatewayReachable.mockResolvedValue({
+        reachable: responding,
+        gatewayVersion: responding ? "2026.9.4" : null,
+        gatewayBuildId: undefined,
+        activatedPluginErrors: [],
+        unavailablePlugins: [],
+        channelProbeErrors: [],
+      });
+
+      await updateStatusCommand({});
+
+      const output = runtime.log.mock.calls.flat().join("\n");
+      expect(output).toContain("service identity unavailable");
+      expect(output).not.toContain("version mismatch");
+      expect(runtime.log).not.toHaveBeenCalledWith(advice);
+      expect(output).toContain("Historical recovery advice:");
+      expect(output).toContain(
+        responding ? "supersedes saved claims" : "Current health unavailable",
+      );
+      expect(confirmGatewayReachable).toHaveBeenCalledWith(
+        expect.objectContaining({ port: 19123 }),
+      );
+      expect(getUpdateRun(created.runId)).toEqual(finished);
+
+      await updateStatusCommand({ json: true });
+      expect(runtime.writeJson.mock.lastCall?.[0].lastRun).toEqual(finished);
+    },
+  );
+
   it.each([true, false])(
     "reports an activation timeout without abandonment (JSON: %s)",
     async (json) => {

@@ -957,6 +957,7 @@ describe("gateway server chat", () => {
       const handler = createAgentEventHandler({
         broadcast: context.broadcast,
         broadcastToConnIds: context.broadcastToConnIds,
+        nodeHasSessionSubscribers: () => false,
         nodeSendToSession: context.nodeSendToSession,
         agentRunSeq: context.agentRunSeq,
         chatRunState: context.chatRunState,
@@ -1199,6 +1200,7 @@ describe("gateway server chat", () => {
       const handler = createAgentEventHandler({
         broadcast: context.broadcast,
         broadcastToConnIds: context.broadcastToConnIds,
+        nodeHasSessionSubscribers: () => false,
         nodeSendToSession: context.nodeSendToSession,
         agentRunSeq: context.agentRunSeq,
         chatRunState: context.chatRunState,

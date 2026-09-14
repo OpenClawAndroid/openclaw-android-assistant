@@ -78,3 +78,16 @@ export function requestInstanceBindingProbe(runtime: PluginRuntime) {
     { scopes: ["operator.read"] },
   );
 }
+
+/** Capture the same reply that confirms config settlement, separate from sidecar startup. */
+export async function requestSettledInstanceBindingProbe(
+  runtime: PluginRuntime,
+): Promise<InstanceBindingProbeResult> {
+  return await vi.waitUntil(
+    async () => {
+      const probe = await requestInstanceBindingProbe(runtime);
+      return probe.reloadSettled === true ? probe : false;
+    },
+    { timeout: 30_000 },
+  );
+}

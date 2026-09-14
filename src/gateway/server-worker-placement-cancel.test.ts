@@ -132,6 +132,7 @@ it.each(["success", "failed-write", "setup-failed-write"] as const)(
         log,
         broadcast: context.broadcast,
         broadcastToConnIds: vi.fn(),
+        nodeHasSessionSubscribers: () => false,
         nodeSendToSession: context.nodeSendToSession,
         agentRunSeq: context.agentRunSeq,
         chatRunState,

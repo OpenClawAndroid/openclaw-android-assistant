@@ -6,6 +6,7 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sqlite from "../infra/node-sqlite.js";
+import { readSqliteIntegrityFileIdentity } from "../infra/sqlite-file-generation.js";
 import * as integrityWorker from "../infra/sqlite-integrity-worker.js";
 import * as pidAlive from "../shared/pid-alive.js";
 import * as agentLeases from "./openclaw-agent-db-lease.js";
@@ -280,7 +281,7 @@ describe("asynchronous canonical admission", () => {
           {
             pathname,
             databaseLabel: pathname,
-            identity: integrityWorker.readSqliteIntegrityFileIdentity(pathname),
+            identity: readSqliteIntegrityFileIdentity(pathname),
             busyTimeoutMs: 5000,
           } satisfies integrityWorker.SqliteIntegrityWorkerInput,
           (error) => {

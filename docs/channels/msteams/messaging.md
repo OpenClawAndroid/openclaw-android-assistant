@@ -18,6 +18,13 @@ How replies are routed and threaded, and how attachments and files move in and o
     - `agent:<agentId>:msteams:channel:<conversationId>`
     - `agent:<agentId>:msteams:group:<conversationId>`
 
+## Channel metadata
+
+The message tool's `channel-list` action requires `teamId`. The `channel-info`
+action requires both `teamId` and `channelId`. Use the Microsoft Teams team ID,
+including when Slack is also configured; the shared `teamId` field accepts each
+provider's ID format. These actions retain the configured Teams access rules.
+
 ## Reply style: threads vs posts
 
 Teams has two channel UI styles over the same underlying data model:

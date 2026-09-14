@@ -9,7 +9,7 @@ import { isRecord } from "../utils.js";
 import { hashConfigIncludeRaw } from "./includes.js";
 import { stampConfigWriteMetadata } from "./io.meta.js";
 import { hashConfigRaw, parseConfigJson5 } from "./io.read-helpers.js";
-import type { ConfigWriteOptions } from "./io.types.js";
+import type { ConfigWriteOptions, NormalizedConfigIoDeps } from "./io.types.js";
 import { ConfigMutationConflictError } from "./mutation-conflict.js";
 import { resolveStateDir } from "./paths.js";
 import type { ConfigFileSnapshot, OpenClawConfig } from "./types.js";
@@ -103,6 +103,39 @@ export function captureConfigFileWritePathProof(
   };
   assertCurrent();
   return { path: filePath, assertCurrent };
+}
+
+type ConfigPermissionHardeningParams = {
+  deps: Pick<NormalizedConfigIoDeps, "fs"> & { logger: Pick<typeof console, "warn"> };
+  configPath: string;
+  context: string;
+};
+
+function formatConfigPermissionHardeningWarning(params: {
+  configPath: string;
+  context: string;
+  error: unknown;
+}): string {
+  const detail = params.error instanceof Error ? params.error.message : String(params.error);
+  return `Config permission hardening failed (${params.context}): ${params.configPath}: ${detail}`;
+}
+
+export async function chmodConfigBestEffort(
+  params: ConfigPermissionHardeningParams,
+): Promise<void> {
+  try {
+    await params.deps.fs.promises.chmod?.(params.configPath, 0o600);
+  } catch (error) {
+    params.deps.logger.warn(formatConfigPermissionHardeningWarning({ ...params, error }));
+  }
+}
+
+export function chmodConfigBestEffortSync(params: ConfigPermissionHardeningParams): void {
+  try {
+    params.deps.fs.chmodSync?.(params.configPath, 0o600);
+  } catch (error) {
+    params.deps.logger.warn(formatConfigPermissionHardeningWarning({ ...params, error }));
+  }
 }
 
 /** Fence shared atomic-write effects without blocking cleanup of owned temporary files. */

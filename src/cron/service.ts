@@ -100,8 +100,8 @@ export class CronService implements CronServiceContract {
     return await readOps.list(this.state, opts);
   }
 
-  async listPage(opts?: CronListPageOptions) {
-    return await readOps.listPage(this.state, opts);
+  async listPage(opts?: CronListPageOptions, matchesJob?: (job: CronJob) => boolean) {
+    return await readOps.listPage(this.state, opts, matchesJob);
   }
 
   async add(input: CronJobCreate, opts?: CronAddOptions) {

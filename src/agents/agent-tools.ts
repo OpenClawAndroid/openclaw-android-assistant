@@ -92,6 +92,7 @@ import type { ModelAuthMode } from "./model-auth.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
 import { createOpenClawTools, filterToolsByClientCaps } from "./openclaw-tools.js";
 import { filterRequesterYieldTools } from "./openclaw-tools.requester-yield.js";
+import { applySwarmCollectorToolContract } from "./openclaw-tools.swarm.js";
 import type { PreparedModelRuntimeSnapshot } from "./prepared-model-runtime.js";
 import type { SandboxContext } from "./sandbox.js";
 import { resolveSandboxFileIdentity } from "./sandbox/file-mutation-identity.js";
@@ -1067,21 +1068,16 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
   });
   // Host-bound ring-zero tools carry their own authority checks. Agent policy
   // must not deadlock setup, but the tools still receive schema/hook wrappers.
-  const authorizedTools = applyDelegationCapability(
-    mergeAgentRingZeroTools(ringZeroTools, subagentFiltered),
-    options?.delegationCapability,
-  ).filter(
-    (tool) =>
-      !options?.swarmCollector ||
-      (tool.name !== "ask_user" && tool.name !== "sessions_send" && tool.name !== "sessions_yield"),
+  const authorizedTools = applySwarmCollectorToolContract(
+    applyDelegationCapability(
+      mergeAgentRingZeroTools(ringZeroTools, subagentFiltered),
+      options?.delegationCapability,
+    ),
+    {
+      swarmCollector: options?.swarmCollector,
+      structuredOutputTool: swarmStructuredOutputTool,
+    },
   );
-  if (
-    swarmStructuredOutputTool &&
-    !authorizedTools.some((tool) => tool.name === swarmStructuredOutputTool.name)
-  ) {
-    // Collector output is a run contract, not an operator-configurable capability.
-    authorizedTools.push(swarmStructuredOutputTool);
-  }
   authorizedTools.forEach(bindAssembledAgentToolActionDescriptor);
   processToolAvailabilityRef.value = authorizedTools.some((tool) => tool.name === "process");
   if (shouldInheritEffectiveToolAllowlist) {

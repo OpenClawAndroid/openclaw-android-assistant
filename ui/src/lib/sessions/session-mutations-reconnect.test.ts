@@ -42,6 +42,42 @@ function reconnectSameClient(publish: (connected: boolean) => void) {
 }
 
 describe("session mutation reconnect truth", () => {
+  it("retires archive progress on disconnect without letting an old completion clear a retry", async () => {
+    const key = "agent:main:archive-retry";
+    const sessionId = "archive-retry";
+    const { publish, sessions } = createMutationHarness({
+      "sessions.list": () => sessionsResult([{ key, sessionId, kind: "direct" }], 1),
+    });
+    await sessions.refresh();
+    const finishPrevious = sessions.beginArchive(key, sessionId);
+    expect(finishPrevious).not.toBeNull();
+    expect(sessions.archiveVisibility(key)).toBe("pending");
+    expect(sessions.beginArchive(key, sessionId)).toBeNull();
+
+    sessions.reconcileChanged({ key, sessionKey: key, archived: false, reason: "update" });
+    expect(sessions.archiveVisibility(key)).toBe("pending");
+    publish(false);
+    expect(sessions.archiveVisibility(key)).toBeUndefined();
+    publish(true);
+    await waitForFast(() => expect(sessions.state.result).not.toBeNull());
+    const finishRetry = sessions.beginArchive(key, sessionId);
+    expect(finishRetry).not.toBeNull();
+    finishPrevious?.();
+    expect(sessions.archiveVisibility(key)).toBe("pending");
+    sessions.reconcileChanged({
+      key,
+      sessionKey: key,
+      sessionId,
+      archived: true,
+      archivedAt: 2,
+      reason: "patch",
+    });
+    expect(sessions.archiveVisibility(key)).toBe("archived");
+    finishRetry?.();
+    expect(sessions.archiveVisibility(key)).toBe("archived");
+    sessions.dispose();
+  });
+
   it.each(["before-response", "after-response"] as const)(
     "retains a confirmed create across a same-client reconnect %s without stale publication",
     async (reconnectOrder) => {

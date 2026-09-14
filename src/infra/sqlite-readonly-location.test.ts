@@ -16,6 +16,7 @@ import {
   prepareSqliteReadOnlyLocationSyncInProcess,
   SqliteSourceChangedError,
 } from "./sqlite-readonly-location.js";
+import { withSqliteReadOnlyWorkerScope } from "./sqlite-readonly-worker.js";
 import {
   prepareSqliteReadOnlyLocation,
   prepareSqliteReadOnlyLocationSync,
@@ -99,6 +100,41 @@ describe("prepareSqliteReadOnlyLocation", () => {
 
   it("prepares a readable WAL snapshot through the sync public entry point", async () => {
     await expectPublicSnapshot(prepareSqliteReadOnlyLocationSync);
+  });
+
+  it("keeps each scoped artifact-preserving inspection byte-neutral across writer commits", async () => {
+    const sqlite = requireNodeSqlite();
+    const databasePath = createTempDatabasePath();
+    const writer = new sqlite.DatabaseSync(databasePath);
+    try {
+      writer.exec(
+        "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE probe(value TEXT)",
+      );
+      await withSqliteReadOnlyWorkerScope(async () => {
+        for (const value of ["first", "second"]) {
+          writer.prepare("INSERT INTO probe VALUES (?)").run(value);
+          const familyBefore = readFamily(databasePath);
+          const prepared = await prepareSqliteReadOnlyLocation(databasePath, {
+            preserveSourceArtifacts: true,
+          });
+          try {
+            expect(readFamily(databasePath)).toEqual(familyBefore);
+            const snapshot = new sqlite.DatabaseSync(prepared.location, { readOnly: true });
+            try {
+              expect(
+                snapshot.prepare("SELECT value FROM probe ORDER BY rowid DESC LIMIT 1").get(),
+              ).toEqual({ value });
+            } finally {
+              snapshot.close();
+            }
+          } finally {
+            expect(prepared.cleanup()).toBe(true);
+          }
+        }
+      });
+    } finally {
+      writer.close();
+    }
   });
 
   it.each([
@@ -647,6 +683,17 @@ describe("prepareSqliteReadOnlyLocation", () => {
         cleanups.push(preparedSync.cleanup);
         expect(readMainDatabasePosixLocks(databasePath)).toEqual(locksBefore);
         expect(preparedSync.cleanup()).toBe(true);
+
+        await withSqliteReadOnlyWorkerScope(async () => {
+          for (const preserveSourceArtifacts of [true, false, true]) {
+            const prepared = await prepareSqliteReadOnlyLocation(databasePath, {
+              preserveSourceArtifacts,
+            });
+            cleanups.push(prepared.cleanup);
+            expect(readMainDatabasePosixLocks(databasePath)).toEqual(locksBefore);
+            expect(prepared.cleanup()).toBe(true);
+          }
+        });
 
         const characterized = prepareSqliteReadOnlyLocationSyncInProcess(databasePath);
         cleanups.push(characterized.cleanup);

@@ -12,6 +12,7 @@ import { retireSessionMcpRuntimeForSessionKey } from "../../agent-bundle-mcp-too
 import { removeInternalSessionEffectsSession } from "../../internal-session-effects.js";
 import type { SubagentAnnounceDeliveryResult } from "../announce/subagent-announce-dispatch.js";
 import { blockSubagentCompletionDelivery } from "../completion/subagent-completion-admission.store.js";
+import { revokeRequesterCronAuthorityBatch } from "../requester-cron-authority.js";
 import { ensureDeliveryState } from "./subagent-delivery-state.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "./subagent-lifecycle-events.js";
 import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
@@ -185,6 +186,7 @@ const completeRequesterSettleWakeBatch = (
     });
     throw error;
   }
+  revokeRequesterCronAuthorityBatch(entries, rearmGeneration);
   const retiredEntries: SubagentRunRecord[] = [];
   for (const entry of entries) {
     const { runId } = entry;

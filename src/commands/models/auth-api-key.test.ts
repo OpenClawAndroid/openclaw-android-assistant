@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import {
   clearRuntimeAuthProfileStoreSnapshots,
   ensureAuthProfileStoreWithoutExternalProfiles,
@@ -14,13 +14,19 @@ import { upsertAuthProfileWithLockOrThrow } from "../../agents/auth-profiles/pro
 import type { AuthProfileCredential } from "../../agents/auth-profiles/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { redactSensitiveText } from "../../logging/redact.js";
-import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
-import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import {
+  closeOpenClawAgentDatabasesAsync,
+  closeOpenClawAgentDatabasesForTest,
+} from "../../state/openclaw-agent-db.js";
+import {
+  closeOpenClawStateDatabaseAsync,
+  closeOpenClawStateDatabaseForTest,
+} from "../../state/openclaw-state-db.js";
 import { saveModelProviderApiKey } from "./auth-api-key.js";
 import { removeModelAuthCredentials } from "./auth-logout.js";
 import * as configWriter from "./shared.js";
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = createTempDirTracker();
 const connection = { baseUrl: "http://127.0.0.1:9/v1", models: [] };
 let stateDir: string;
 const agentDir = (id: string) => path.join(stateDir, "agents", id, "agent");
@@ -42,12 +48,18 @@ beforeEach(() => {
   vi.stubEnv("OPENCLAW_OAUTH_DIR", undefined);
   writeConfig({ plugins: { allow: [] } });
 });
-afterEach(() => {
-  vi.restoreAllMocks();
-  clearRuntimeAuthProfileStoreSnapshots();
-  closeOpenClawAgentDatabasesForTest();
-  closeOpenClawStateDatabaseForTest();
-  vi.unstubAllEnvs();
+afterEach(async () => {
+  try {
+    clearRuntimeAuthProfileStoreSnapshots();
+    await closeOpenClawAgentDatabasesAsync();
+    closeOpenClawAgentDatabasesForTest();
+    await closeOpenClawStateDatabaseAsync();
+    closeOpenClawStateDatabaseForTest();
+    tempDirs.cleanup();
+  } finally {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  }
 });
 
 describe("shared API-key editing and removal", () => {

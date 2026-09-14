@@ -59,9 +59,21 @@ export function coordinateWorkerPlacementDispatch(
     signal?: AbortSignal,
   ): Promise<WorkerDispatchPlacement>;
 } {
-  type PlacementFence = { promise: Promise<void>; dispatchCohort: readonly symbol[] };
-  type ReconciliationSweep = PlacementFence & {
-    predecessor: PlacementFence | undefined;
+  type MaintenanceAdmission = { admitted: boolean; reclaims: Set<Promise<void>> };
+  type PlacementFence = { promise: Promise<void>; dispatchCohort: readonly symbol[] } & (
+    | { kind: "exclusive" }
+    | {
+        kind: "reclaim";
+        predecessor: PlacementFence | undefined;
+        operation: Promise<unknown>;
+      }
+    | {
+        kind: "maintenance";
+        predecessor: PlacementFence | undefined;
+        admission: MaintenanceAdmission;
+      }
+  );
+  type ReconciliationSweep = Extract<PlacementFence, { kind: "maintenance" }> & {
     full: boolean;
     acceptingJoins: boolean;
     joinedRecoveries: Set<Promise<void>>;
@@ -73,6 +85,35 @@ export function coordinateWorkerPlacementDispatch(
   // it completes or exclusive work queued behind that sweep.
   const reconciliationSweeps = new Set<ReconciliationSweep>();
   const dispatchIdleWaiters = new Set<() => void>();
+  const enterMaintenance = async (admission: MaintenanceAdmission) => {
+    // Once its dispatch cohort settles, later Stops cannot postpone maintenance.
+    admission.admitted = true;
+    await Promise.allSettled(admission.reclaims);
+    admission.reclaims.clear();
+  };
+  const prepareReclaim = async (
+    predecessor: PlacementFence | undefined,
+    settled: Promise<void>,
+  ): Promise<void> => {
+    const precedingEffects: Promise<unknown>[] = [];
+    for (let fence = predecessor; fence; fence = fence.predecessor) {
+      if (
+        fence.kind === "exclusive" ||
+        (fence.kind === "maintenance" && fence.admission.admitted)
+      ) {
+        precedingEffects.push(fence.promise);
+        break;
+      }
+      if (fence.kind === "reclaim") {
+        precedingEffects.push(fence.operation);
+      } else {
+        // This sweep has not selected a writer yet. Let prepared Stop settle first,
+        // then let maintenance read fresh ownership; never overtake admitted effects.
+        fence.admission.reclaims.add(settled);
+      }
+    }
+    await Promise.allSettled(precedingEffects);
+  };
   const waitForDispatchIdle = (): Promise<void> => {
     if (activeDispatches.size === 0) {
       return Promise.resolve();
@@ -88,7 +129,9 @@ export function coordinateWorkerPlacementDispatch(
     }
     const predecessor = placementFence;
     const sweep: ReconciliationSweep = {
+      kind: "maintenance",
       predecessor,
+      admission: { admitted: false, reclaims: new Set() },
       dispatchCohort: predecessor?.dispatchCohort ?? [...activeDispatches],
       full,
       promise: Promise.resolve(),
@@ -101,6 +144,7 @@ export function coordinateWorkerPlacementDispatch(
           await predecessor.promise.catch(() => undefined);
         }
         await waitForDispatchIdle();
+        await enterMaintenance(sweep.admission);
         await operation();
       } finally {
         // Close admission before draining so late recoveries queue behind the existing fence.
@@ -121,13 +165,16 @@ export function coordinateWorkerPlacementDispatch(
     operation: () => Promise<T>,
     options: {
       signal?: AbortSignal;
-      joinsActiveDispatch?: boolean;
-      waitForActiveDispatches?: boolean;
+      kind?: "reclaim" | "recovery";
     } = {},
   ): Promise<T> => {
     const { signal } = options;
     const predecessor = placementFence;
     const predecessorSettled = predecessor?.promise.catch(() => undefined);
+    const maintenanceAdmission: MaintenanceAdmission | undefined =
+      options.kind === "recovery" ? { admitted: false, reclaims: new Set() } : undefined;
+    const reclaimSettled = options.kind === "reclaim" ? createDeferredCore() : undefined;
+    const reclaimReady = reclaimSettled && prepareReclaim(predecessor, reclaimSettled.promise);
     const ready = (async () => {
       if (predecessorSettled) {
         await predecessorSettled;
@@ -135,23 +182,32 @@ export function coordinateWorkerPlacementDispatch(
       await waitForDispatchIdle();
     })();
     const current = (async () => {
-      await racePromiseWithAbortSignal(
-        options.waitForActiveDispatches === false
-          ? (predecessorSettled ?? Promise.resolve())
-          : ready,
-        signal,
-      );
+      await racePromiseWithAbortSignal(reclaimReady ?? ready, signal);
       signal?.throwIfAborted();
+      if (maintenanceAdmission) {
+        await enterMaintenance(maintenanceAdmission);
+        signal?.throwIfAborted();
+      }
       return await operation();
     })();
+    if (reclaimSettled) {
+      void current.then(
+        () => reclaimSettled.resolve(),
+        () => reclaimSettled.resolve(),
+      );
+    }
     // Reclaim or cancellation can finish before older dispatches. Keep their idle
     // wait in the fence so later requests still cannot overtake unfinished work.
     const barrier = Promise.allSettled([ready, current]).then(() => undefined);
     const exclusive: PlacementFence = {
+      ...(maintenanceAdmission
+        ? { kind: "maintenance" as const, predecessor, admission: maintenanceAdmission }
+        : reclaimSettled
+          ? { kind: "reclaim" as const, predecessor, operation: current }
+          : { kind: "exclusive" as const }),
       promise: barrier,
-      dispatchCohort: options.joinsActiveDispatch
-        ? (predecessor?.dispatchCohort ?? [...activeDispatches])
-        : [],
+      dispatchCohort:
+        options.kind === "recovery" ? (predecessor?.dispatchCohort ?? [...activeDispatches]) : [],
     };
     placementFence = exclusive;
     void barrier.then(() => {
@@ -420,7 +476,7 @@ export function coordinateWorkerPlacementDispatch(
           authorize,
           beforeDrain,
           // Preparation has settled this session's work; unrelated dispatches need not delay Stop.
-          (run) => runExclusivePlacementOperation(run, { waitForActiveDispatches: false }),
+          (run) => runExclusivePlacementOperation(run, { kind: "reclaim" }),
           operations.length
             ? {
                 isCurrent: isPending,
@@ -476,11 +532,12 @@ export function coordinateWorkerPlacementDispatch(
           // Recovery waits for every admitted dispatch and older exclusive operation,
           // including later dispatches admitted while the original cohort was active.
           await waitForDispatchIdle();
+          await enterMaintenance(sweep.admission);
           await recover();
         })();
         sweep.joinedRecoveries.add(queued);
       } else {
-        queued = runExclusivePlacementOperation(recover, { joinsActiveDispatch: true });
+        queued = runExclusivePlacementOperation(recover, { kind: "recovery" });
       }
       void queued.catch(ready.reject);
       const tracked = trackPlacementOperation(async (report) => {

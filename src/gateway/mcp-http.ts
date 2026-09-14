@@ -271,6 +271,10 @@ async function startMcpLoopbackServer(port = 0): Promise<() => Promise<void>> {
                   }
                 : {}),
               ...(boundGrantToken ? { grantToken: boundGrantToken } : {}),
+              // Same liveness check `authorizeToolCall` applies after the hook,
+              // handed to run-contract tools so a revocation that lands while a
+              // call is in flight also fails the durable write.
+              isGrantCurrent: authorizeToolCall,
               yieldContextCacheKey: yieldContext?.cacheKey,
               onYield: yieldContext?.onYield,
               ...(boundClientGrant?.skillLibraryAuthoring

@@ -12,6 +12,7 @@ import {
   resetSubagentRegistryForTests,
 } from "../../subagents/registry/subagent-registry.test-helpers.js";
 import type { SubagentRunRecord } from "../../subagents/registry/subagent-registry.types.js";
+import { makeAgentAssistantMessage } from "../../test-helpers/agent-message-fixtures.js";
 import type { ToolResultPromptProjectionState } from "../session-prompt-state.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
@@ -91,6 +92,7 @@ function createPrompt(overrides?: Partial<PromptInput>): PromptInput {
 
 function createInput(options?: {
   attempt?: EmbeddedRunAttemptParams;
+  messages?: AgentMessage[];
   preparedUserTurnMessage?: AgentMessage;
   prompt?: ReturnType<typeof createPrompt>;
   report?: SessionSystemPromptReport;
@@ -103,7 +105,7 @@ function createInput(options?: {
       capabilityToolNames: new Set<string>(),
       includeBoundaryTimestamp: false,
       isRawModelRun: false,
-      messages,
+      messages: options?.messages ?? messages,
       preparedUserTurnMessage:
         options?.preparedUserTurnMessage ??
         ({ role: "user", content: "Visible request", timestamp: 123 } as AgentMessage),
@@ -568,5 +570,64 @@ describe("prepareEmbeddedAttemptPromptContext", () => {
     expect(result.promptForSession).toBe(visiblePrompt);
     expect(result.promptForModel).toBe(visiblePrompt);
     expect(result.runtimeContextMessageForCurrentTurn?.content).toContain(sourceContext);
+  });
+
+  it("rebases prePromptMessageCount and updates session messages when replay normalization shrinks history", async () => {
+    const rawHistory: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "Historic question" }], timestamp: 10 },
+      makeAgentAssistantMessage({
+        content: [{ type: "text", text: "NO_REPLY" }],
+        timestamp: 11,
+      }),
+      { role: "user", content: [{ type: "text", text: "Follow-up" }], timestamp: 12 },
+    ];
+    const fixture = createInput({ messages: rawHistory });
+
+    const result = await prepareEmbeddedAttemptPromptContext(fixture.input);
+
+    expect(rawHistory.length).toBe(3);
+    expect(result.prePromptMessageCount).toBe(2);
+    expect(fixture.replaceSessionMessages).toHaveBeenCalledWith([rawHistory[0], rawHistory[2]]);
+  });
+
+  it("preserves prePromptMessageCount and leaves session messages untouched when replay normalization does not modify history", async () => {
+    const cleanHistory: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "Historic question" }], timestamp: 10 },
+      makeAgentAssistantMessage({
+        content: [{ type: "text", text: "Historic answer" }],
+        timestamp: 11,
+      }),
+    ];
+    const fixture = createInput({ messages: cleanHistory });
+
+    const result = await prepareEmbeddedAttemptPromptContext(fixture.input);
+
+    expect(result.prePromptMessageCount).toBe(2);
+    expect(fixture.replaceSessionMessages).not.toHaveBeenCalled();
+  });
+
+  it("updates session messages when replay normalization modifies content without changing count", async () => {
+    const contentModifiedHistory: AgentMessage[] = [
+      { role: "user", content: [{ type: "text", text: "Historic question" }], timestamp: 10 },
+      makeAgentAssistantMessage({
+        content: [
+          { type: "text", text: "Slides ready" },
+          { type: "text", text: "NO_REPLY" },
+        ],
+        timestamp: 11,
+      }),
+    ];
+    const fixture = createInput({ messages: contentModifiedHistory });
+
+    const result = await prepareEmbeddedAttemptPromptContext(fixture.input);
+
+    expect(result.prePromptMessageCount).toBe(2);
+    expect(fixture.replaceSessionMessages).toHaveBeenCalledWith([
+      contentModifiedHistory[0],
+      expect.objectContaining({
+        role: "assistant",
+        content: [{ type: "text", text: "Slides ready" }],
+      }),
+    ]);
   });
 });

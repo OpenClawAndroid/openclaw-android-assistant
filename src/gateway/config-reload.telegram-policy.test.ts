@@ -1,9 +1,8 @@
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { loadPluginPublicArtifactModuleSync } from "../plugins/public-surface-loader.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
+import { loadBundledPluginFacade } from "../test-utils/bundled-plugin-public-surface.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import { diffGatewayReloadPaths } from "./config-diff.js";
 import {
@@ -12,12 +11,10 @@ import {
   listConfigReloadRefinementPrefixes,
 } from "./config-reload-plan.js";
 
-const { telegramSetupPlugin } = loadPluginPublicArtifactModuleSync<{
+const { telegramSetupPlugin } = await loadBundledPluginFacade<{
   telegramSetupPlugin: ChannelPlugin;
 }>({
-  pluginRoot: fileURLToPath(new URL("../../extensions/telegram", import.meta.url)),
   artifactBasename: "setup-plugin-api",
-  origin: "bundled",
   pluginId: "telegram",
 });
 

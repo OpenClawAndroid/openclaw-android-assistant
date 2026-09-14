@@ -5,7 +5,7 @@ import type {
   ConfigHealthEntry,
   ConfigHealthFingerprint,
   ConfigHealthState,
-} from "./io.health-state.js";
+} from "./io.health-state.types.js";
 import {
   hashConfigRaw,
   hasConfigMeta,
@@ -23,17 +23,6 @@ export function readConfigHealthEntry(
 ): ConfigHealthEntry {
   const entry = state.entries?.[configPath];
   return isRecord(entry) ? entry : {};
-}
-
-export function updateConfigHealthEntry(
-  state: ConfigHealthState,
-  configPath: string,
-  entry: ConfigHealthEntry,
-): ConfigHealthState {
-  return {
-    ...state,
-    entries: { ...state.entries, [configPath]: entry },
-  };
 }
 
 export function createConfigHealthFingerprint(params: {
@@ -163,5 +152,31 @@ export function createConfigObserveAuditRecord(params: {
     restoredBackupPath: params.restoredBackupPath ?? null,
     restoreErrorCode: params.restoreErrorCode ?? null,
     restoreErrorMessage: params.restoreErrorMessage ?? null,
+  };
+}
+
+type ConfigObserveAuditRecordParams = Parameters<typeof createConfigObserveAuditRecord>[0];
+
+export function createConfigObserveAuditAppendParams(
+  deps: Pick<NormalizedConfigIoDeps, "env" | "homedir">,
+  params: ConfigObserveAuditRecordParams,
+) {
+  return {
+    env: deps.env,
+    homedir: deps.homedir,
+    record: createConfigObserveAuditRecord(params),
+  };
+}
+
+export function extractRestoreErrorDetails(error: unknown): {
+  code: string | null;
+  message: string | null;
+} {
+  if (!error || typeof error !== "object") {
+    return { code: null, message: typeof error === "string" ? error : null };
+  }
+  return {
+    code: "code" in error && typeof error.code === "string" ? error.code : null,
+    message: "message" in error && typeof error.message === "string" ? error.message : null,
   };
 }

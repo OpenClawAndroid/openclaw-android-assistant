@@ -55,6 +55,7 @@ import {
   readUnchangedLifecycleTargetSnapshot,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
+import { resolveSessionEntry } from "./session-accessor.sqlite-exact-read.js";
 import { listTranscriptInstancesFromDatabase } from "./session-accessor.sqlite-history.js";
 import { prepareSessionIdentityPublication } from "./session-accessor.sqlite-identity.js";
 import { kickSessionEntryMaintenanceAfterWrite } from "./session-accessor.sqlite-maintenance-kick.js";
@@ -106,44 +107,10 @@ type SqliteSessionEntryPatchOptions = SessionEntryPatchOptions & {
   onCommitted?: (entry: SessionEntry) => void;
 };
 
-type ResolvedSqliteSessionEntry = {
-  existing: SessionEntry | undefined;
-  legacyKeys: string[];
-  normalizedKey: string;
-};
-
 function assertCanonicalSessionWriteScope(
   scope: Pick<ResolvedSqliteScope, "agentId" | "sessionKey">,
 ): void {
   assertCanonicalSessionKeyWrite(scope.sessionKey, scope.agentId);
-}
-
-/** Resolves one exact canonical entry without materializing the store. */
-export function resolveSessionEntry(
-  scope: SessionAccessScope,
-  options: { readOnly?: boolean; databaseAgentId?: string } = {},
-): ResolvedSqliteSessionEntry {
-  const resolved = resolveSqliteScope(scope);
-  if (options.databaseAgentId) {
-    resolved.databaseAgentId = options.databaseAgentId;
-  }
-  const read = (
-    database: Pick<OpenClawAgentDatabase, "agentId" | "db" | "path">,
-  ): ResolvedSqliteSessionEntry => {
-    const selected = readSessionEntryRow(database, resolved.sessionKey);
-    return {
-      existing: selected?.entry,
-      legacyKeys: [],
-      normalizedKey: resolved.sessionKey,
-    };
-  };
-  if (options.readOnly) {
-    const result = withOpenClawAgentDatabaseReadOnly(read, toDatabaseOptions(resolved));
-    return result.found
-      ? result.value
-      : { existing: undefined, legacyKeys: [], normalizedKey: resolved.sessionKey };
-  }
-  return read(openOpenClawAgentDatabase(toDatabaseOptions(resolved)));
 }
 
 /** Loads one session entry from the additive SQLite session store. */

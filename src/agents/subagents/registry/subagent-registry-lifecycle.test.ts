@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as sessionAccessor from "../../../config/sessions/session-accessor.js";
 import { resolveSessionStorePathForScope } from "../../../config/sessions/session-store-path.js";
 import {
   runWithOwnedSessionTranscriptWrite,
@@ -6,6 +7,12 @@ import {
 } from "../../../config/sessions/transcript-write-context.js";
 import type { CallGatewayOptions } from "../../../gateway/call.js";
 import { getAgentEventLifecycleGeneration } from "../../../infra/agent-events.js";
+import {
+  claimAgentRunDelegatedAuthority,
+  clearAgentRunContext,
+  registerAgentRunContext,
+  releaseAgentRunDelegatedAuthority,
+} from "../../../infra/agent-run-registry.js";
 // Subagent registry lifecycle tests cover completion, cleanup, announce retry,
 // detached task status, and resource retirement around child-run endings.
 import { bindGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
@@ -20,16 +27,27 @@ import {
 } from "../../../process/gateway-work-admission.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
 import { SUBAGENT_KILL_TASK_ERROR } from "../../../tasks/detached-task-runtime-contract.js";
+import { createTestAdmittedRunContext } from "../../admitted-run-context.test-support.js";
 import {
   buildAnnounceIdFromChildRun,
   buildAnnounceIdempotencyKey,
 } from "../../announce-idempotency.js";
+import {
+  createCronCreatorAuthorityCapability,
+  runWithCronCreatorAuthorityCapability,
+} from "../../cron-creator-authority-context.js";
+import { withGatewayToolCallerIdentity } from "../../tools/gateway-caller-context.js";
 import { createStructuredOutputTool } from "../../tools/structured-output-tool.js";
 import {
   runSubagentAnnounceDispatch,
   type SubagentAnnounceDeliveryResult,
 } from "../announce/subagent-announce-dispatch.js";
 import { maybeWakeRequesterAfterAllChildrenSettled as runRequesterSettleWake } from "../announce/subagent-announce.requester-settle-wake.js";
+import {
+  consumeRequesterCronAuthorityAdmission,
+  revokeRequesterCronAuthority,
+  withRequesterCronAuthority,
+} from "../requester-cron-authority.js";
 import {
   SUBAGENT_ENDED_REASON_COMPLETE,
   SUBAGENT_ENDED_REASON_ERROR,
@@ -47,6 +65,10 @@ import {
   countPendingDescendantRuns,
   getLatestLiveSubagentRunByChildSessionKey,
 } from "./subagent-registry-read.js";
+import {
+  markRequesterTurnYieldedInRuns,
+  settleRequesterTurnAfterSessionSpawns,
+} from "./subagent-registry-requester-yield.js";
 import { markSubagentRunPausedAfterYield } from "./subagent-registry-run-manager.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
@@ -5752,6 +5774,138 @@ describe("requester settle wake trigger", () => {
     expect(entry.requesterSettleWake).toBeUndefined();
     expect(hasDeliveredTaskStatusUpdate(entry.runId)).toBe(false);
   });
+
+  it.each(["committed", "failed persistence", "stale generation"] as const)(
+    "retires requester cron authority only after its own wake cleanup is %s",
+    async (mode) => {
+      const requesterTurnRunId = "cron-authority-requester";
+      const requesterSessionId = "cron-authority-session";
+      const entry = createRunEntry({
+        requesterTurnRunId,
+        requesterAgentId: "main",
+        endedAt: 4_000,
+        expectsCompletionMessage: true,
+        delivery: { status: "delivered" },
+      });
+      const requesterSessionKey = entry.requesterSessionKey;
+      const runs = new Map([[entry.runId, entry]]);
+      const sessionRead = vi.spyOn(sessionAccessor, "loadSessionEntryReadOnly").mockReturnValue({
+        sessionId: requesterSessionId,
+        updatedAt: 1,
+      });
+      const { operationalRunInstance } = createTestAdmittedRunContext(requesterTurnRunId);
+      const authority = claimAgentRunDelegatedAuthority(operationalRunInstance);
+      registerAgentRunContext(requesterTurnRunId, {
+        sessionKey: requesterSessionKey,
+        sessionId: requesterSessionId,
+        agentId: "main",
+      });
+      const capability = createCronCreatorAuthorityCapability(
+        requesterTurnRunId,
+        { kind: "unknown" },
+        true,
+      )!;
+      try {
+        await runWithCronCreatorAuthorityCapability(capability, () =>
+          withGatewayToolCallerIdentity(
+            {
+              agentId: "main",
+              sessionKey: requesterSessionKey,
+              operationalRunInstance,
+              approvalAuthority: authority,
+            },
+            async () => {
+              expect(
+                markRequesterTurnYieldedInRuns({
+                  requesterSessionKey,
+                  requesterAgentId: "main",
+                  requesterTurnRunId,
+                  runs,
+                  persistOrThrow: () => undefined,
+                }),
+              ).toBe(1);
+            },
+          ),
+        );
+        expect(
+          settleRequesterTurnAfterSessionSpawns({
+            requesterSessionKey,
+            requesterAgentId: "main",
+            requesterTurnRunId,
+            requesterYielded: true,
+            acceptedSessionSpawns: [
+              {
+                runId: entry.runId,
+                childSessionKey: entry.childSessionKey,
+                expectsCompletionMessage: true,
+              },
+            ],
+            runs,
+            persistOrThrow: () => undefined,
+            schedule: () => undefined,
+          }),
+        ).toBe(true);
+        const wake = structuredClone(entry.requesterSettleWake)!;
+        let settleParams: RequesterSettleWakeParams | undefined;
+        const persistOrThrow = vi.fn();
+        const controller = createLifecycleController({
+          entry,
+          runs,
+          persistOrThrow,
+          maybeWakeRequesterAfterAllChildrenSettled: vi.fn(async (params) => {
+            settleParams = params;
+            return false;
+          }),
+        });
+        controller.resumeRequesterSettleWake(entry.runId, entry);
+        await waitForLifecycleState(() => expect(settleParams).toBeDefined());
+        if (mode === "failed persistence") {
+          persistOrThrow.mockImplementationOnce(() => {
+            throw new Error("write failed");
+          });
+          expect(() => settleParams!.completeBatch([entry], wake.rearmGeneration)).toThrow(
+            "write failed",
+          );
+        } else {
+          settleParams!.completeBatch(
+            [entry],
+            mode === "stale generation" ? 0 : wake.rearmGeneration,
+          );
+        }
+        // A stale in-process reference cannot resurrect authority after committed outbox cleanup.
+        entry.requesterSettleWake = wake;
+        await withRequesterCronAuthority(
+          {
+            requesterSessionKey,
+            requesterSessionId,
+            requesterAgentId: "main",
+            batch: [entry],
+            rearmGeneration: wake.rearmGeneration,
+            runId: "cron-authority-continuation",
+            isCurrent: () => true,
+          },
+          async () => {
+            const admission = consumeRequesterCronAuthorityAdmission({
+              runId: "cron-authority-continuation",
+              sessionKey: requesterSessionKey,
+              sessionId: requesterSessionId,
+              inputProvenance: {
+                kind: "inter_session",
+                sourceTool: "subagent_settle",
+                sourceSessionKey: entry.childSessionKey,
+              },
+            });
+            expect(Boolean(admission)).toBe(mode !== "committed");
+          },
+        );
+      } finally {
+        revokeRequesterCronAuthority(requesterSessionKey);
+        releaseAgentRunDelegatedAuthority(authority);
+        clearAgentRunContext(requesterTurnRunId);
+        sessionRead.mockRestore();
+      }
+    },
+  );
 
   it("keeps committed blocked state when requester-settle bookkeeping persistence fails", async () => {
     const entry = createRunEntry({

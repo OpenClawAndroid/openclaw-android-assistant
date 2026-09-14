@@ -19,6 +19,7 @@ export const gatewayMethodsIsolatedTestFiles = [
   "src/gateway/server-methods/chat.reset-visible-yield.test.ts",
   // Status uses the host-owned shared SQLite broker.
   "src/gateway/server-methods/health.owner-routing.test.ts",
+  "src/gateway/server-methods/system-agent-nested-inference.integration.test.ts",
   "src/gateway/server-methods/system-agent-setup-control-ui.test.ts",
   "src/gateway/server-methods/users-preferences.test.ts",
   "src/gateway/server-methods/usage.test.ts",

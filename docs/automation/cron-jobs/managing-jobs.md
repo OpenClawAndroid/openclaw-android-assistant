@@ -78,6 +78,8 @@ In the authenticated Control UI, an administrator with `operator.admin` can ask 
 
 The Gateway grants this authority from the authenticated Control UI turn's admission facts. Each operation uses a one-use grant that expires after 60 seconds and remains bound to that exact active run. Channel turns and Control UI turns without `operator.admin` receive no such grant; matching sender IDs, account IDs, or session routes never establish it. If access is denied or a grant expires, retry from a fresh authenticated Control UI administrator turn, or use the **Automations** page.
 
+When an administrator turn uses `sessions_yield` to wait for its subagents, the verified requester continuation retains automation management for that task. It receives fresh grants for its new run; the original run's grants expire normally. Cancellation, session reset or archive, a new direct user turn, and Gateway restart invalidate the handoff. Ordinary inter-session messages and child results do not grant administrator access.
+
 Each admin management request records its method, run, operational instance, and success or failure in the Gateway's `cron: admin management` log, alongside the ordinary tool audit record. Management authority does not transfer creator attribution or replace the job's scheduled execution policy.
 
 ### CLI management

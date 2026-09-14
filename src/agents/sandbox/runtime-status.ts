@@ -11,7 +11,7 @@ import {
   resolveAgentMainSessionKey,
 } from "../../config/sessions/main-session.js";
 import { resolveSessionStorePathCore } from "../../config/sessions/paths.js";
-import { resolveSessionEntry } from "../../config/sessions/session-accessor.sqlite-entry.js";
+import { resolveSessionEntry } from "../../config/sessions/session-accessor.sqlite-exact-read.js";
 import {
   sessionCreatorProfileId,
   type SessionCreatedActor,

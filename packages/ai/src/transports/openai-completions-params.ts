@@ -16,9 +16,11 @@ import {
 } from "../providers/openai-response-format.js";
 import {
   projectOpenAITools,
+  prepareOpenAITools,
   reconcileOpenAICompletionsToolChoice,
 } from "../providers/openai-tool-projection.js";
 import { normalizeOpenAIStrictToolParameters } from "../providers/openai-tool-schema.js";
+import { withPreparedToolSchemaNormalization } from "../providers/tool-schema-normalization-cache.js";
 import { resolveOpenAIStrictToolSetting, resolveProviderEndpoint } from "./host-policy.js";
 import { resolveMaxTokensParam } from "./model-max-tokens-params.js";
 import { emitModelTransportDebug } from "./model-transport-debug.js";
@@ -259,48 +261,52 @@ function convertTools(
   model: OpenAIModeModel,
   mode: "direct" | "managed",
 ) {
-  const projection = projectOpenAITools(tools);
-  const strict =
-    mode === "direct"
-      ? compat.supportsStrictMode
-        ? false
-        : undefined
-      : resolveOpenAIStrictToolFlagWithDiagnostics(
-          projection,
-          resolveOpenAIStrictToolSetting(model, {
-            transport: "stream",
-            supportsStrictMode: compat?.supportsStrictMode,
-          }),
-          {
-            transport: "completions",
-            model,
-          },
-        );
-  return {
-    projection,
-    tools: sortTransportToolsByName(projection.tools).map((tool) => {
-      const functionTool: {
-        name: string;
-        description: string | undefined;
-        parameters: ReturnType<typeof normalizeOpenAIStrictToolParameters>;
-        strict?: boolean;
-      } = {
-        name: tool.name,
-        description: tool.description,
-        parameters:
-          mode === "direct"
-            ? tool.parameters
-            : normalizeOpenAIStrictToolParameters(tool.parameters, strict === true, model.compat),
-      };
-      if (strict !== undefined) {
-        functionTool.strict = strict;
-      }
-      return {
-        type: "function" as const,
-        function: functionTool,
-      };
-    }),
+  const prepared = mode === "managed" ? prepareOpenAITools(tools) : undefined;
+  const projection = prepared?.projection ?? projectOpenAITools(tools);
+  const convert = () => {
+    const strict =
+      mode === "direct"
+        ? compat.supportsStrictMode
+          ? false
+          : undefined
+        : resolveOpenAIStrictToolFlagWithDiagnostics(
+            projection,
+            resolveOpenAIStrictToolSetting(model, {
+              transport: "stream",
+              supportsStrictMode: compat?.supportsStrictMode,
+            }),
+            {
+              transport: "completions",
+              model,
+            },
+          );
+    return {
+      projection,
+      tools: sortTransportToolsByName(projection.tools).map((tool) => {
+        const functionTool: {
+          name: string;
+          description: string | undefined;
+          parameters: ReturnType<typeof normalizeOpenAIStrictToolParameters>;
+          strict?: boolean;
+        } = {
+          name: tool.name,
+          description: tool.description,
+          parameters:
+            mode === "direct"
+              ? tool.parameters
+              : normalizeOpenAIStrictToolParameters(tool.parameters, strict === true, model.compat),
+        };
+        if (strict !== undefined) {
+          functionTool.strict = strict;
+        }
+        return {
+          type: "function" as const,
+          function: functionTool,
+        };
+      }),
+    };
   };
+  return prepared ? withPreparedToolSchemaNormalization(prepared.schemas, convert) : convert();
 }
 
 export function buildOpenAICompletionsParams(

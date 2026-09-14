@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareUpdateFailureReport } from "./update-failure-report-prepare.js";
 import type { UpdateRunRecord } from "./update-run-record.js";
+import * as reportHealth from "./update-run-report-health.js";
 import {
   renderUpdateRunNotice,
   renderUpdateRunReport,
@@ -31,7 +32,108 @@ function run(patch: Partial<UpdateRunRecord> = {}): UpdateRunRecord {
   };
 }
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("update run report", () => {
+  it.each(["private-customer-build", "2026.9.4-private-customer"])(
+    "redacts the private current version %s in public reports",
+    async (version) => {
+      vi.spyOn(reportHealth, "readUpdateRunReportHealth").mockResolvedValue({
+        kind: "responding",
+        version,
+      });
+      const record = run({ status: "failed", verification: { versionMatch: false, port: 19123 } });
+      const report = await prepareUpdateFailureReport(
+        {
+          attemptId: record.runId,
+          recordedRun: record,
+          result: { status: "error", mode: "npm", steps: [], durationMs: 0 },
+        },
+        { stateDir: "/fixture/state", env: {} },
+      );
+      expect(report.body).toContain("Recorded verification: service identity unavailable");
+      expect(report.body).toContain(
+        "Current health: Gateway answered on the recorded port ([redacted-version]).",
+      );
+      expect(report.body).toContain("not a current instruction to stop or restart");
+      expect(report.body).not.toContain(version);
+    },
+  );
+
+  it.each([
+    { runningVersion: "2026.9.1", runningBuildId: undefined, expected: "version mismatch" },
+    { runningVersion: "2026.9.2", runningBuildId: "older-build", expected: "build mismatch" },
+    {
+      runningVersion: "2026.9.2",
+      runningBuildId: undefined,
+      expected: "service identity unavailable",
+    },
+  ])("reports only observed disagreement ($expected)", ({ expected, ...observed }) => {
+    const report = renderUpdateRunReport(
+      run({
+        status: "failed",
+        after: { version: "2026.9.2", buildId: "candidate-build" },
+        verification: { ...observed, versionMatch: false },
+      }),
+    );
+    expect(report.lines).toContain(`Verification: ${expected}.`);
+  });
+
+  it.each(["report", "notice", "failure"])(
+    "reports an unreadable identity as unavailable in the %s surface",
+    async (surface) => {
+      const record = run({
+        status: "failed",
+        reason: "restart-unhealthy",
+        verification: { serviceRunning: true, versionMatch: false },
+      });
+      const text =
+        surface === "failure"
+          ? (
+              await prepareUpdateFailureReport(
+                {
+                  attemptId: record.runId,
+                  recordedRun: record,
+                  result: { status: "error", mode: "npm", steps: [], durationMs: 0 },
+                },
+                { stateDir: "/fixture/state", env: {} },
+              )
+            ).body
+          : surface === "notice"
+            ? renderUpdateRunNotice(record, "finished")
+            : renderUpdateRunReport(record).markdown;
+      expect(text).toContain("identity unavailable");
+      expect(text).not.toContain("version mismatch");
+    },
+  );
+
+  it("qualifies saved stopped advice against a current health observation without losing constraints", () => {
+    const advice =
+      "Managed gateway remains stopped. Keep the gateway stopped until the update succeeds. Keep the candidate installed and do not roll back code alone.";
+    const record = run({
+      status: "failed",
+      reason: "restart-unhealthy",
+      origin: { nextAction: advice },
+      verification: { serviceRunning: false, versionMatch: false },
+    });
+    const options = {
+      nextAction: undefined,
+      currentHealth: { kind: "responding" as const, version: "2026.9.2" },
+    };
+    const report = renderUpdateRunReport(record, options);
+    expect(report.lines).not.toContain(advice);
+    expect(report.markdown).toContain(
+      "Current health: Gateway answered on the recorded port (2026.9.2).",
+    );
+    expect(report.markdown).toContain("supersedes saved claims that the Gateway is stopped");
+    expect(report.markdown).toContain(
+      "Keep the candidate installed and do not roll back code alone.",
+    );
+    expect(report.markdown.endsWith(advice)).toBe(false);
+    expect(record.origin.nextAction).toBe(advice);
+    expect(record.status).toBe("failed");
+  });
+
   it.each(["status", "failure"])(
     "includes the legacy expiry advisory in the %s report",
     async (surface) => {
@@ -187,8 +289,14 @@ describe("update run report", () => {
       run({ status: "failed", reason, origin: { nextAction: originAction } }),
       source === "options" ? { nextAction } : {},
     );
-    expect(report.lines.at(-1)).toBe(nextAction);
-    expect(report.markdown.endsWith(nextAction)).toBe(true);
+    if (source === "options") {
+      expect(report.lines.at(-1)).toBe(nextAction);
+      expect(report.markdown.endsWith(nextAction)).toBe(true);
+    } else {
+      expect(report.lines).not.toContain(nextAction);
+      expect(report.markdown).toContain("Historical recovery advice:");
+      expect(report.markdown).toContain(nextAction);
+    }
     expect(report.markdown).not.toContain("Run openclaw triage");
     expect(report.markdown).not.toContain("run openclaw doctor --fix");
     expect(report.markdown).not.toContain("operator can run openclaw triage locally");
@@ -260,7 +368,7 @@ describe("update run report", () => {
     expect(report.markdown).not.toContain("openclaw doctor");
     expect(report.markdown).not.toContain("Run the update manually");
     expect(report.markdown).toContain(
-      "version mismatch; channels not ready; 1 plugin activation error(s)",
+      "service identity unavailable; channels not ready; 1 plugin activation error(s)",
     );
     expect(report.markdown).toContain("Repair 1: failed — Plugin still unavailable");
     expect(report.markdown).not.toContain("The gateway is running");

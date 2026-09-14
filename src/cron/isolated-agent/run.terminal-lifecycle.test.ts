@@ -170,6 +170,7 @@ describe("runCronIsolatedAgentTurn terminal lifecycle", () => {
     const handler = createAgentEventHandler({
       broadcast,
       broadcastToConnIds: vi.fn(),
+      nodeHasSessionSubscribers: () => false,
       nodeSendToSession: vi.fn(),
       agentRunSeq: new Map(),
       chatRunState,

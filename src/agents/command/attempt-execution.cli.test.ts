@@ -3283,6 +3283,85 @@ describe("CLI attempt execution", () => {
     });
   });
 
+  it("merges the collector result transport into a restricted CLI toolsAllow", async () => {
+    const sessionKey = "agent:main:direct:claude-collector-tools-allow";
+    const sessionEntry = makeSessionEntry("openclaw-session-cli-collector-allow");
+    const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
+    await writeSessionStoreSeed(sessionStore);
+    runCliAgentMock.mockResolvedValueOnce(makeCliResult("restricted collector cli"));
+
+    await runStoredAttempt({
+      providerOverride: "claude-cli",
+      modelOverride: "opus",
+      sessionEntry,
+      sessionKey,
+      body: "collect this",
+      runId: "run-cli-collector-tools-allow",
+      opts: {
+        toolsAllow: ["read"],
+        swarmCollector: true,
+        swarmOutputSchema: { type: "object", properties: { answer: { type: "string" } } },
+      },
+      messageChannel: "discord",
+      sessionStore,
+    });
+
+    expectMockArgFields(runCliAgentMock, {
+      provider: "claude-cli",
+      toolsAllow: ["read", "structured_output"],
+    });
+  });
+
+  it("leaves a schema-less collector's CLI toolsAllow untouched by the merge", async () => {
+    const sessionKey = "agent:main:direct:claude-schemaless-collector-allow";
+    const sessionEntry = makeSessionEntry("openclaw-session-cli-schemaless-collector-allow");
+    const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
+    await writeSessionStoreSeed(sessionStore);
+    runCliAgentMock.mockResolvedValueOnce(makeCliResult("schema-less collector cli"));
+
+    await runStoredAttempt({
+      providerOverride: "claude-cli",
+      modelOverride: "opus",
+      sessionEntry,
+      sessionKey,
+      body: "route this",
+      runId: "run-cli-schemaless-collector-allow",
+      opts: { toolsAllow: ["read"], swarmCollector: true },
+      messageChannel: "discord",
+      sessionStore,
+    });
+
+    expectMockArgFields(runCliAgentMock, {
+      provider: "claude-cli",
+      toolsAllow: ["read"],
+    });
+  });
+
+  it("leaves a non-collector CLI toolsAllow untouched by the collector merge", async () => {
+    const sessionKey = "agent:main:direct:claude-no-collector-allow";
+    const sessionEntry = makeSessionEntry("openclaw-session-cli-no-collector-allow");
+    const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
+    await writeSessionStoreSeed(sessionStore);
+    runCliAgentMock.mockResolvedValueOnce(makeCliResult("plain collector-less cli"));
+
+    await runStoredAttempt({
+      providerOverride: "claude-cli",
+      modelOverride: "opus",
+      sessionEntry,
+      sessionKey,
+      body: "route this",
+      runId: "run-cli-no-collector-allow",
+      opts: { toolsAllow: ["read"] },
+      messageChannel: "discord",
+      sessionStore,
+    });
+
+    expectMockArgFields(runCliAgentMock, {
+      provider: "claude-cli",
+      toolsAllow: ["read"],
+    });
+  });
+
   it.each(SUBAGENT_ANNOUNCE_DELIVERY_CASES)(
     "bounds CLI subagent completion handoff tools for $name",
     async ({

@@ -328,8 +328,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/goal build the thing",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/goal build the thing",
-        commandBodyNormalized: "/goal build the thing",
       },
       overrides: {
         allowTextCommands: true,
@@ -364,8 +362,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/steer use the monochrome version",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/steer use the monochrome version",
-        commandBodyNormalized: "/steer use the monochrome version",
       },
       overrides: {
         allowTextCommands: true,
@@ -397,8 +393,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/dashboard",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/dashboard",
-        commandBodyNormalized: "/dashboard",
       },
       overrides: {
         allowTextCommands: true,
@@ -505,8 +499,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/status",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/status",
-        commandBodyNormalized: "/status",
       },
       overrides: {
         allowTextCommands: true,
@@ -690,10 +682,6 @@ describe("handleInlineActions", () => {
       ctx,
       typing,
       cleanedBody: "old queued message",
-      command: {
-        rawBodyNormalized: "old queued message",
-        commandBodyNormalized: "old queued message",
-      },
       overrides: {
         sessionEntry,
         sessionStore,
@@ -723,8 +711,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/skill send_status now",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/skill send_status now",
-        commandBodyNormalized: "/skill send_status now",
       },
       overrides: {
         allowTextCommands: true,
@@ -757,8 +743,6 @@ describe("handleInlineActions", () => {
       command: {
         isAuthorizedSender: true,
         to: "whatsapp:+123",
-        rawBodyNormalized: "/skill send_status now",
-        commandBodyNormalized: "/skill send_status now",
       },
       overrides: {
         allowTextCommands: true,
@@ -791,10 +775,6 @@ describe("handleInlineActions", () => {
       ctx,
       typing,
       cleanedBody: "new message",
-      command: {
-        rawBodyNormalized: "new message",
-        commandBodyNormalized: "new message",
-      },
       overrides: {
         sessionEntry,
         sessionStore,
@@ -836,10 +816,6 @@ describe("handleInlineActions", () => {
       ctx,
       typing,
       cleanedBody: "old queued message",
-      command: {
-        rawBodyNormalized: "old queued message",
-        commandBodyNormalized: "old queued message",
-      },
       overrides: {
         sessionEntry: wrapperSessionEntry,
         sessionStore: {
@@ -864,8 +840,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/office_hours build me a deployment plan",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/office_hours build me a deployment plan",
-        commandBodyNormalized: "/office_hours build me a deployment plan",
       },
       overrides: {
         allowTextCommands: true,
@@ -899,8 +873,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/office_hours price $$ and $& here",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/office_hours price $$ and $& here",
-        commandBodyNormalized: "/office_hours price $$ and $& here",
       },
       overrides: {
         allowTextCommands: true,
@@ -950,8 +922,6 @@ describe("handleInlineActions", () => {
         cleanedBody: body,
         command: {
           isAuthorizedSender: true,
-          rawBodyNormalized: body,
-          commandBodyNormalized: body,
         },
         overrides: {
           allowTextCommands: true,
@@ -1031,8 +1001,6 @@ describe("handleInlineActions", () => {
         cleanedBody: body,
         command: {
           isAuthorizedSender: false,
-          rawBodyNormalized: body,
-          commandBodyNormalized: body,
         },
         overrides: {
           allowTextCommands: true,
@@ -1088,8 +1056,6 @@ describe("handleInlineActions", () => {
         cleanedBody: body,
         command: {
           isAuthorizedSender: true,
-          rawBodyNormalized: body,
-          commandBodyNormalized: body,
         },
         overrides: {
           allowTextCommands: true,
@@ -1119,8 +1085,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/skill office_hours build me a deployment plan",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/skill office_hours build me a deployment plan",
-        commandBodyNormalized: "/skill office_hours build me a deployment plan",
       },
       overrides: {
         allowTextCommands: true,
@@ -1286,8 +1250,6 @@ describe("handleInlineActions", () => {
       cleanedBody: original,
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: original,
-        commandBodyNormalized: original,
       },
       overrides: {
         allowTextCommands: true,
@@ -1335,8 +1297,6 @@ describe("handleInlineActions", () => {
       cleanedBody: original,
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: original,
-        commandBodyNormalized: original,
       },
       overrides: {
         allowTextCommands: true,
@@ -1364,8 +1324,6 @@ describe("handleInlineActions", () => {
       cleanedBody: original,
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: original,
-        commandBodyNormalized: original,
       },
       overrides: {
         allowTextCommands: true,
@@ -1425,8 +1383,6 @@ describe("handleInlineActions", () => {
       cleanedBody: original,
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: original,
-        commandBodyNormalized: original,
       },
       overrides: {
         allowTextCommands: true,
@@ -1512,8 +1468,6 @@ describe("handleInlineActions", () => {
       cleanedBody: original,
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: original,
-        commandBodyNormalized: original,
       },
       overrides: {
         allowTextCommands: false,
@@ -1540,8 +1494,6 @@ describe("handleInlineActions", () => {
       cleanedBody: "/office_hours help",
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: "/office_hours help",
-        commandBodyNormalized: "/office_hours help",
       },
       overrides: {
         allowTextCommands: true,
@@ -1593,8 +1545,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/spawn_subagent investigate",
-        commandBodyNormalized: "/spawn_subagent investigate",
       },
       overrides: {
         cfg: { commands: { text: true } },
@@ -1650,8 +1600,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/set_profile display name",
-        commandBodyNormalized: "/set_profile display name",
       },
       overrides: {
         cfg: { commands: { text: true } },
@@ -1729,8 +1677,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/set_profile display name",
-        commandBodyNormalized: "/set_profile display name",
       },
       overrides: {
         cfg: {
@@ -1813,8 +1759,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/send_status hello",
-        commandBodyNormalized: "/send_status hello",
       },
       overrides: {
         cfg: { commands: { text: true }, tools: { deny: ["message"] } },
@@ -1872,8 +1816,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/send_status hello",
-        commandBodyNormalized: "/send_status hello",
       },
       overrides: {
         cfg: { commands: { text: true }, tools: { allow: ["sessions_list"] } },
@@ -1927,8 +1869,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/send_status hello",
-        commandBodyNormalized: "/send_status hello",
       },
       overrides: {
         cfg: {
@@ -1984,8 +1924,6 @@ describe("handleInlineActions", () => {
         senderId: "allowed-user",
         senderIsOwner: false,
         abortKey: "allowed-user",
-        rawBodyNormalized: "/send_conversation hello",
-        commandBodyNormalized: "/send_conversation hello",
       },
       overrides: {
         cfg: { commands: { text: true } },
@@ -2054,8 +1992,6 @@ describe("handleInlineActions", () => {
           senderId: "sender-1",
           senderIsOwner: true,
           abortKey: "sender-1",
-          rawBodyNormalized: "/spawn_subagent investigate",
-          commandBodyNormalized: "/spawn_subagent investigate",
         },
         overrides: {
           cfg: {
@@ -2116,8 +2052,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/list_sessions now",
-        commandBodyNormalized: "/list_sessions now",
       },
       overrides: {
         cfg: {
@@ -2160,8 +2094,6 @@ describe("handleInlineActions", () => {
         senderId: "sender-1",
         senderIsOwner: true,
         abortKey: "sender-1",
-        rawBodyNormalized: "/compact",
-        commandBodyNormalized: "/compact",
       },
       overrides: {
         cfg: { commands: { text: true } },
@@ -2367,8 +2299,6 @@ describe("handleInlineActions", () => {
       cleanedBody: body,
       command: {
         isAuthorizedSender: true,
-        rawBodyNormalized: body,
-        commandBodyNormalized: body,
       },
       overrides: {
         allowTextCommands: true,

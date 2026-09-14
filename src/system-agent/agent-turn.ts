@@ -14,6 +14,7 @@ import { SessionManager } from "../agents/sessions/index.js";
 import { resolveAgentTimeoutMs } from "../agents/timeout.js";
 import { resolveStateDir } from "../config/paths.js";
 import type { CliSessionBinding } from "../config/sessions.js";
+import { CommandLane } from "../process/lanes.js";
 import { buildAgentMainSessionKey, toAgentStoreSessionKey } from "../routing/session-key.js";
 import { SYSTEM_AGENT_ID } from "./agent-id.js";
 import { SYSTEM_AGENT_SYSTEM_PROMPT } from "./assistant-prompts.js";
@@ -405,6 +406,7 @@ async function runSystemAgentTurnWithDeps(
         deps.runEmbeddedAgent ?? (await import("../agents/embedded-agent.js")).runEmbeddedAgent;
       result = (await runEmbedded({
         ...shared,
+        lane: CommandLane.SystemAgentInference,
         preparedRunAdmission,
         extraSystemPrompt: SYSTEM_AGENT_SYSTEM_PROMPT,
         toolsAllow: ["openclaw"],

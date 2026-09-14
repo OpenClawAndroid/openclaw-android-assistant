@@ -118,8 +118,8 @@ export function recordUpdateGatewayHealth(
       serviceRunning: health.runtime.status === "running",
       ...(typeof health.runtime.pid === "number" ? { pid: health.runtime.pid } : {}),
       port,
-      ...(health.gatewayVersion ? { runningVersion: health.gatewayVersion } : {}),
-      ...(health.gatewayBuildId ? { runningBuildId: health.gatewayBuildId } : {}),
+      runningVersion: health.gatewayVersion ?? undefined,
+      runningBuildId: health.gatewayBuildId ?? undefined,
       ...(health.expectedVersion
         ? {
             versionMatch:

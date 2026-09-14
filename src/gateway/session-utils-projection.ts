@@ -10,7 +10,7 @@ import {
 import { buildSubagentSessionListReadIndex } from "../agents/subagents/registry/subagent-registry-read.js";
 import { resolveSessionStorePathCore, type SessionEntry } from "../config/sessions.js";
 import type { GatewayStoredSessionTargets } from "../config/sessions/combined-store-gateway.js";
-import { resolveConcreteSessionStorePath } from "../config/sessions/session-accessor.js";
+import { resolveConcreteSessionStorePath } from "../config/sessions/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import {
@@ -19,7 +19,7 @@ import {
 } from "../sessions/stored-model-overrides.js";
 import type { SessionEntryPair } from "./session-list-order.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
-import { readRecentSessionUsageFromTranscript as readScopedRecentSessionUsageFromTranscript } from "./session-transcript-readers.js";
+import { readRecentSessionUsageFromTranscript as readScopedRecentSessionUsageFromTranscript } from "./session-transcript-usage.js";
 import {
   createSessionRowModelCacheKey,
   type GatewaySessionModelSource,

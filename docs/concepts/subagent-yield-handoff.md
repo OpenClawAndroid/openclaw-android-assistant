@@ -57,6 +57,16 @@ with its scheduler-owned continuation.
   fresh execution authority. Adoption preserves task lineage, not old tool,
   approval, channel, or worker callbacks. Cancellation, reset, and owner
   replacement retain their existing admission and cleanup gates.
+- **Scoped automation management.** An authenticated Control UI administrator's
+  explicit yield can transfer automation management to its verified requester
+  continuation. The registry captures the live authority before yield, promotes
+  it after the whole batch persists, and binds fresh management grants to the
+  admitted successor. It never transfers automation creation, old grants, or
+  direct-user identity. The handoff stays process-local and is revoked by a new
+  direct user turn, cancellation, session reset or archive, and Gateway restart.
+  After the successor binds its run scope, that scope owns the entitlement until
+  it closes. Retiring the delivered child batch cannot revoke a still-running
+  requester.
 - **Stable audience.** A nested wake uses internal delivery. A settlement
   continuation targeting a live `sessions_yield`-paused row adopts that row;
   ordinary inter-session messages remain untracked. Explicit plugin follow-ups

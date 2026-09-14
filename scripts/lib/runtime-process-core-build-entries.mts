@@ -25,7 +25,7 @@ export const standaloneRuntimeProcessBuildEntries = createRuntimeProcessBuildEnt
   runtimeProcessEntrypoints.sqliteReadOnly,
 ]);
 
-export function shouldBundleStandaloneRuntimeDependency(id: string): boolean {
+export function shouldBundleRuntimeSqliteDependency(id: string): boolean {
   return id === "kysely" || id.startsWith("kysely/");
 }
 

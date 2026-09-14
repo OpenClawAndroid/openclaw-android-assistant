@@ -11,7 +11,7 @@ import {
 import * as transcriptTail from "../config/sessions/session-accessor.sqlite-active-events.js";
 import { SessionTranscriptProjectionUnavailableError } from "../config/sessions/session-transcript-projection-error.js";
 import type { InternalSessionEntry, SessionContextBudgetStatus } from "../config/sessions/types.js";
-import * as transcriptUsage from "../gateway/session-transcript-readers.js";
+import * as transcriptUsage from "../gateway/session-transcript-usage.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { attachSessionTranscriptRunId } from "../sessions/transcript-events.js";

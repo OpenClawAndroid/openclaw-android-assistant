@@ -28,14 +28,12 @@ import { SETTINGS_ROUTE_TARGETS } from "../pages/config/route-data.ts";
 import "../plugins/control-ui-contributions.ts";
 import { renderPluginSurface } from "../plugins/control-ui-view.ts";
 import "../styles/app-sidebar.css";
-import { sidebarPluginTabs } from "./app-sidebar-nav-menus.ts";
 import {
   renderAppSidebarBrand,
   renderAppSidebarFooterBar,
   renderAppSidebarHomeRow,
   renderAppSidebarOnline,
   renderAppSidebarPagesHead,
-  renderAppSidebarPluginTabEntry,
   renderAppSidebarZoneEntry,
 } from "./app-sidebar-render.ts";
 import type { SessionCatalogGroupsRenderer } from "./app-sidebar-session-catalog-render.ts";
@@ -611,11 +609,6 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
 
   override render() {
     const sidebarZone = this.reconciledSidebarZone();
-    const occupiedPluginPlacements = new Set(
-      sidebarZone.entries.flatMap((entry) =>
-        entry.type === "route" ? [`route:${entry.route}`] : [],
-      ),
-    );
     return html`
       <aside
         class="sidebar"
@@ -665,24 +658,13 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
                       (entry) => this.sidebarAgentsMode !== "roster" || entry.type !== "session",
                     )
                     .map((entry) =>
-                      renderAppSidebarZoneEntry(this, entry, sidebarZone.sessionRows),
+                      renderAppSidebarZoneEntry(
+                        this,
+                        entry,
+                        sidebarZone.sessionRows,
+                        sidebarZone.pluginTabs,
+                      ),
                     )}
-                  ${sidebarPluginTabs(this.context?.gateway.snapshot.hello?.controlUiTabs)
-                    .filter(
-                      (tab) =>
-                        (!tab.placement || !occupiedPluginPlacements.has(tab.placement)) &&
-                        !this.pluginNavigation().some(
-                          (entry) =>
-                            entry.pluginId === tab.pluginId && entry.value.page.id === tab.id,
-                        ),
-                    )
-                    .map((tab) => renderAppSidebarPluginTabEntry(this, tab))}
-                  <openclaw-plugin-contributions
-                    .kind=${"navigation"}
-                    .excludedNavigationKeys=${sidebarZone.entries
-                      .filter((entry) => entry.type === "plugin")
-                      .map((entry) => entry.key)}
-                  ></openclaw-plugin-contributions>
                 </div>
               </nav>
               ${renderAppSidebarOnline(this)} ${this.renderSessions()}

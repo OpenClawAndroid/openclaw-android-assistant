@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred as deferred } from "../../test/helpers/promise.js";
 import type { CliDeps } from "../cli/deps.types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { createMockCronStateForJobs } from "../cron/service.test-harness.js";
+import { listPage } from "../cron/service/ops-read.js";
+import type { CronJob } from "../cron/types.js";
 import type { GatewayCronServiceContract } from "./server-cron-contract.js";
 import type { GatewayCronState } from "./server-cron.js";
 
@@ -85,6 +88,35 @@ describe("createLazyGatewayCronState", () => {
 
     await expect(lazy.prepareExitWatcherHandoff?.()).resolves.toBeUndefined();
     expect(hoisted.buildGatewayCronService).not.toHaveBeenCalled();
+  });
+
+  it("keeps visibility filtering inside the loaded service's page snapshot", async () => {
+    const jobs: CronJob[] = ["hidden", "visible"].map((id) => ({
+      id,
+      name: id,
+      enabled: false,
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      schedule: { kind: "every", everyMs: 60_000, anchorMs: 1 },
+      sessionTarget: "main",
+      wakeMode: "now",
+      payload: { kind: "systemEvent", text: "tick" },
+      state: {},
+    }));
+    const store = createMockCronStateForJobs({ jobs });
+    const cron = createCronService();
+    const start = vi.spyOn(cron, "start");
+    cron.listPage = (opts, matchesJob) => listPage(store, opts, matchesJob);
+    hoisted.setState(createCronState(cron));
+
+    const lazy = createLazyGatewayCronState(createParams());
+    const page = await lazy.cron.listPage(
+      { includeDisabled: true, limit: 1, sortBy: "name" },
+      (job) => job.id === "visible",
+    );
+
+    expect(page).toMatchObject({ total: 1, hasMore: false, jobs: [jobs[1]] });
+    expect(start).not.toHaveBeenCalled();
   });
 
   it("preserves a watcher owner when hot reload overtakes lazy startup", async () => {

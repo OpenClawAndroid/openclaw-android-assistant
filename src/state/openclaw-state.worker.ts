@@ -1,4 +1,9 @@
 import {
+  patchConfigHealthEntryInDatabase,
+  readConfigHealthSnapshotInDatabase,
+} from "../config/io.health-state.kernel.js";
+import { createSqliteAuditRecordKernel } from "../infra/sqlite-audit-record.kernel.js";
+import {
   readStableSqliteFileGeneration,
   sameSqliteFileGeneration,
 } from "../infra/sqlite-file-generation.js";
@@ -40,6 +45,7 @@ import {
 import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 import {
   withArtifactPreservingStateReads,
+  withExistingOpenClawStateDatabaseArtifactPreservingReadOnly,
   withExistingOpenClawStateDatabaseReadOnly,
 } from "./openclaw-state-db-readonly.js";
 import { withSharedStateWriteCoordinator } from "./openclaw-state-db-write-coordination.js";
@@ -233,7 +239,36 @@ function createSharedStateWorkerBackend(
           };
         }
       }
-      const { db } = open();
+      if (command.type === "config.health.read") {
+        const read = command.input.artifactPreserving
+          ? withExistingOpenClawStateDatabaseArtifactPreservingReadOnly
+          : withExistingOpenClawStateDatabaseReadOnly;
+        return (
+          read(({ db }) => readConfigHealthSnapshotInDatabase(db), {
+            path: context.databasePath,
+            env: getSqliteWorkerStateContext().environment,
+          }) ?? { state: {}, basis: {} }
+        );
+      }
+      const database = open();
+      const writeOptions = {
+        database,
+        path: context.databasePath,
+        env: getSqliteWorkerStateContext().environment,
+      };
+      if (command.type === "config.health.patch") {
+        const { configPath, patch, expected, updatedAtMs } = command.input;
+        return runOpenClawStateWriteTransaction(({ db }) => {
+          return patchConfigHealthEntryInDatabase(db, configPath, patch, expected, updatedAtMs);
+        }, writeOptions);
+      }
+      if (command.type === "diagnostic.register") {
+        const { scope, maxEntries, record } = command.input;
+        return runOpenClawStateWriteTransaction(({ db }) => {
+          createSqliteAuditRecordKernel(db, { scope, maxEntries }).register(record);
+        }, writeOptions);
+      }
+      const { db } = database;
       return runSqliteDeferredTransactionSync(db, () => {
         switch (command.type) {
           case "tasks.mutationSnapshot":

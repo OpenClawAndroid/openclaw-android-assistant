@@ -21,14 +21,6 @@ export type ReadOnlyWorkspaceSkillMount = {
   containerPath: string;
 };
 
-function formatManagedWorkspaceBind(params: {
-  hostPath: string;
-  containerPath: string;
-  readOnly: boolean;
-}): string {
-  return `${params.hostPath}:${params.containerPath}:${params.readOnly ? "ro,z" : "z"}`;
-}
-
 function containerJoin(root: string, ...parts: string[]): string {
   const normalizedRoot = root.endsWith("/") && root !== "/" ? root.slice(0, -1) : root;
   const suffix = parts
@@ -38,7 +30,7 @@ function containerJoin(root: string, ...parts: string[]): string {
   return suffix ? `${normalizedRoot}/${suffix}` : normalizedRoot;
 }
 
-function normalizeMountContainerPath(containerPath: string): string {
+export function normalizeMountContainerPath(containerPath: string): string {
   return normalizeContainerPathCore(containerPath).replace(/\/+$/, "") || "/";
 }
 
@@ -117,13 +109,6 @@ export function resolveReadOnlyWorkspaceSkillMounts(params: {
     .map(({ hostPath, containerPath }) => ({ hostPath, containerPath }));
 }
 
-/** Returns stable mount state for sandbox config hashes. */
-export function formatReadOnlyWorkspaceSkillMountHashState(
-  mounts: readonly ReadOnlyWorkspaceSkillMount[],
-): string[] {
-  return mounts.map((mount) => `${mount.hostPath}:${mount.containerPath}:ro`);
-}
-
 /**
  * Returns the set of container paths that are protected by read-only skill mounts.
  *
@@ -166,68 +151,37 @@ export function filterBindsConflictingWithProtectedMounts(
   return filtered;
 }
 
-/** Appends Docker `-v` args for read-only skill mounts. */
-export function appendReadOnlyWorkspaceSkillMountArgs(params: {
-  args: string[];
-  readOnlyWorkspaceSkillMounts: readonly ReadOnlyWorkspaceSkillMount[];
-}): void {
-  for (const mount of params.readOnlyWorkspaceSkillMounts) {
-    params.args.push(
-      "-v",
-      formatManagedWorkspaceBind({
-        hostPath: mount.hostPath,
-        containerPath: mount.containerPath,
-        readOnly: true,
-      }),
-    );
-  }
-}
+export type ManagedWorkspaceMount = ReadOnlyWorkspaceSkillMount & { readOnly: boolean };
 
-/** Appends Docker workspace mount args for the project, agent workspace, and skill overlays. */
-export function appendWorkspaceMountArgs(params: {
-  args: string[];
+/** Resolves Gateway-local sources before the container lifecycle selects daemon paths. */
+export function resolveWorkspaceMounts(params: {
   workspaceDir: string;
   agentWorkspaceDir: string;
   skillsWorkspaceDir?: string;
   workdir: string;
   workspaceAccess: SandboxWorkspaceAccess;
   readOnlyWorkspaceSkillMounts?: readonly ReadOnlyWorkspaceSkillMount[];
-  includeReadOnlyWorkspaceSkillMounts?: boolean;
-}) {
-  const { args, workspaceDir, agentWorkspaceDir, workdir, workspaceAccess } = params;
-
-  args.push(
-    "-v",
-    formatManagedWorkspaceBind({
+}): ManagedWorkspaceMount[] {
+  const { workspaceDir, agentWorkspaceDir, workdir, workspaceAccess } = params;
+  const mounts: ManagedWorkspaceMount[] = [
+    {
       hostPath: workspaceDir,
       containerPath: workdir,
       readOnly: workspaceAccess === "ro",
-    }),
-  );
+    },
+  ];
 
   if (workspaceAccess !== "none" && workspaceDir !== agentWorkspaceDir) {
-    args.push(
-      "-v",
-      formatManagedWorkspaceBind({
-        hostPath: agentWorkspaceDir,
-        containerPath: SANDBOX_AGENT_WORKSPACE_MOUNT,
-        readOnly: workspaceAccess === "ro",
-      }),
-    );
-  }
-
-  if (params.includeReadOnlyWorkspaceSkillMounts !== false) {
-    appendReadOnlyWorkspaceSkillMountArgs({
-      args,
-      readOnlyWorkspaceSkillMounts:
-        params.readOnlyWorkspaceSkillMounts ??
-        resolveReadOnlyWorkspaceSkillMounts({
-          workspaceDir,
-          agentWorkspaceDir,
-          skillsWorkspaceDir: params.skillsWorkspaceDir,
-          workdir,
-          workspaceAccess,
-        }),
+    mounts.push({
+      hostPath: agentWorkspaceDir,
+      containerPath: SANDBOX_AGENT_WORKSPACE_MOUNT,
+      readOnly: workspaceAccess === "ro",
     });
   }
+
+  const skills = params.readOnlyWorkspaceSkillMounts ?? resolveReadOnlyWorkspaceSkillMounts(params);
+  for (const { hostPath, containerPath } of skills) {
+    mounts.push({ hostPath, containerPath, readOnly: true });
+  }
+  return mounts;
 }

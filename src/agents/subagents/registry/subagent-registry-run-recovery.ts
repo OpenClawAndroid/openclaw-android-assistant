@@ -18,6 +18,7 @@ import { prepareCanonicalTaskActivation } from "../../../tasks/task-backing-auth
 import { createSubagentTaskBackingDetail } from "../../../tasks/task-backing-authority.js";
 import { removeInternalSessionEffectsSession } from "../../internal-session-effects.js";
 import type { AgentRunSessionTarget } from "../../run-session-target.js";
+import { replaceRequesterCronAuthorityEntry } from "../requester-cron-authority.js";
 import {
   clearDeliveryState,
   ensureCompletionState,
@@ -366,6 +367,11 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
     if (this.options.runs.get(nextRunId) !== next) {
       return true;
     }
+    replaceRequesterCronAuthorityEntry({
+      previous: source,
+      next,
+      preserve: replaceParams.preserveRequesterSettleWake === true,
+    });
     adoptSuccessorOwner();
     return true;
   };

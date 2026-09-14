@@ -2600,7 +2600,10 @@ class ChatComposerLayoutTest {
         scene = AndroidScreenshotScene.Branches,
       )
     composeRule.waitUntil {
-      model.chatSessionBranches.value.size == 12 && model.chatOutboxPresentationRestored.value && !model.chatSessionBranchesLoading.value
+      // Branch IO can publish after showChat idles; drain Android Main before reading ViewModel bridges.
+      composeRule.runOnIdle {
+        model.chatSessionBranches.value.size == 12 && model.chatOutboxPresentationRestored.value && !model.chatSessionBranchesLoading.value
+      }
     }
     assertEquals(0, controller.pendingRunCount.value)
     return model

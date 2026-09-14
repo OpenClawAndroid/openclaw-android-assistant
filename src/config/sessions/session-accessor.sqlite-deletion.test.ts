@@ -156,7 +156,12 @@ describe("session deletion and native owner state", () => {
   const read = (key = sessionKey) =>
     loadSessionEntry({ sessionKey: key, storePath, readConsistency: "latest" });
 
-  it.each(["no windows", "a shared window", "a placeholder successor"] as const)(
+  it.each([
+    "no windows",
+    "owned without windows",
+    "a shared window",
+    "a placeholder successor",
+  ] as const)(
     "does not materialize surviving prompts when deleting a node with %s",
     async (scenario) => {
       const reclaimedKey = "agent:main:reclaimed-node";
@@ -188,7 +193,7 @@ describe("session deletion and native owner state", () => {
         path: resolveSqliteTargetFromSessionStorePath(storePath, { agentId: "main" }).path,
       };
       const database = openOpenClawAgentDatabase(scope);
-      if (scenario === "no windows") {
+      if (scenario === "no windows" || scenario === "owned without windows") {
         database.db.prepare("DELETE FROM session_windows WHERE session_key = ?").run(reclaimedKey);
       } else {
         replaceTranscriptEventsSync(
@@ -215,13 +220,21 @@ describe("session deletion and native owner state", () => {
         await withSqliteSessionDeletions(scope, [{ sessionKey: reclaimedKey, entry }], async () => {
           runSqliteSessionDeletionTransaction((current) => {
             deleteSessionEntryRows(current, reclaimedKey, {
-              deleteOwnedWindows: scenario === "a shared window",
+              deleteOwnedWindows:
+                scenario === "a shared window" || scenario === "owned without windows",
+              deliveryCleanupKeys:
+                scenario === "owned without windows" ? [reclaimedKey, reclaimedKey] : undefined,
             });
           }, scope);
         });
         const rows = queries.mock.results.flatMap((result) =>
           result.type === "return" ? result.value.rows : [],
         );
+        if (scenario === "owned without windows") {
+          for (const survivorKey of survivorKeys) {
+            expect(rows).not.toContainEqual(expect.objectContaining({ session_key: survivorKey }));
+          }
+        }
         if (scenario === "no windows") {
           for (const survivorKey of survivorKeys) {
             expect(rows).not.toContainEqual(
@@ -246,7 +259,7 @@ describe("session deletion and native owner state", () => {
       }
       expect(loadSessionEntry({ sessionKey: reclaimedKey, storePath })).toBeUndefined();
       expect(readSurvivors()).toEqual(survivorsBefore);
-      if (scenario !== "no windows") {
+      if (scenario !== "no windows" && scenario !== "owned without windows") {
         expect(
           database.db
             .prepare("SELECT session_key FROM session_windows WHERE session_id = ?")

@@ -972,11 +972,17 @@ function prepareModelPolicy(params: ModelPolicyPreparationParams) {
     primary: params.catalog,
     secondary: configuredCatalog,
   }).map((entry) => applyModelCatalogMetadata({ entry, metadata }));
+  const capturedByKey = indexFirstByKey(params.catalog, modelCatalogEntryKey);
   return {
     visibility,
     policyAliasIndex,
     selectionAliasIndex,
-    configuredCatalog,
+    configuredCatalog: configuredCatalog.map((entry) =>
+      applyModelCatalogMetadata({
+        entry: capturedByKey.get(modelCatalogEntryKey(entry)) ?? entry,
+        metadata,
+      }),
+    ),
     metadata,
     catalog,
   };

@@ -65,6 +65,7 @@ const scopedGatewayMethodsIsolatedTestFiles = [
   "server-methods/board.runtime-boundaries.test.ts",
   "server-methods/chat.reset-visible-yield.test.ts",
   "server-methods/health.owner-routing.test.ts",
+  "server-methods/system-agent-nested-inference.integration.test.ts",
   "server-methods/system-agent-setup-control-ui.test.ts",
   "server-methods/users-preferences.test.ts",
   "server-methods/usage.test.ts",

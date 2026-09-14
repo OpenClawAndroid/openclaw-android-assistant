@@ -1,12 +1,14 @@
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
+import { resolveConcreteSessionStorePath } from "./paths.js";
 import { resolveSessionEntrySelection } from "./session-accessor.entry.js";
 import { resolveSessionKeyBySessionId } from "./session-accessor.sqlite-entry.js";
 import {
   resolveSqliteTranscriptScope,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
+import { resolveSessionTranscriptReadTargetCore } from "./session-accessor.transcript-read-target.js";
 import type {
   SessionTranscriptReadScope,
   SessionTranscriptReadTarget,
@@ -75,38 +77,5 @@ export function resolveSessionTranscriptDatabasePath(
 export function resolveSessionTranscriptReadTarget(
   scope: SessionTranscriptReadScope,
 ): SessionTranscriptReadTarget {
-  const sessionKey = scope.sessionKey?.trim();
-  const agentId = scope.agentId ?? resolveAgentIdFromSessionKey(sessionKey);
-  if (!agentId) {
-    throw new Error(`Cannot resolve transcript scope without an agent id: ${sessionKey}`);
-  }
-  const { storePath } = bindSessionTranscriptStoreScope({ ...scope, agentId, sessionKey });
-  const hasMatchingSessionEntry = scope.sessionEntry?.sessionId === scope.sessionId;
-  const resolved =
-    sessionKey && !hasMatchingSessionEntry
-      ? resolveSessionEntrySelection(
-          {
-            agentId,
-            ...(scope.env ? { env: scope.env } : {}),
-            sessionKey,
-            storePath,
-          },
-          { readOnly: true },
-        )
-      : undefined;
-  const resolvedSessionKey = hasMatchingSessionEntry ? sessionKey : resolved?.normalizedKey;
-  return {
-    agentId,
-    sessionId: scope.sessionId,
-    storePath,
-    ...(resolvedSessionKey ? { sessionKey: resolvedSessionKey } : {}),
-  };
-}
-
-export function resolveConcreteSessionStorePath(storePath: string | undefined): string | undefined {
-  const trimmed = storePath?.trim();
-  if (!trimmed || trimmed === "(multiple)" || trimmed.includes("{agentId}")) {
-    return undefined;
-  }
-  return trimmed;
+  return resolveSessionTranscriptReadTargetCore(scope, resolveSessionStorePathForScope);
 }

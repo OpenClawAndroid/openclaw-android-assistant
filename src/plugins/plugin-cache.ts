@@ -131,6 +131,7 @@ function createPluginMetadataCache(): PluginCache["metadata"] {
     },
     snapshots: new Map(),
     discovery: new Map(),
+    sharedDiscovery: new Map(),
     projections: new WeakMap(),
     projectionSources: new WeakMap(),
     completions: new WeakMap(),

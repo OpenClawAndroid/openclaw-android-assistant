@@ -2,12 +2,12 @@ import { once } from "node:events";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { setSqliteBusyTimeout } from "./sqlite-busy-timeout.js";
-import {
-  readSqliteIntegrityFileIdentity,
-  type SqliteIntegrityWorkerInput,
-  type SqliteIntegrityWorkerMessage,
-  type SqliteIntegrityWorkerPhase,
-  type SqliteIntegrityWorkerResult,
+import { readSqliteIntegrityFileIdentity } from "./sqlite-file-generation.js";
+import type {
+  SqliteIntegrityWorkerInput,
+  SqliteIntegrityWorkerMessage,
+  SqliteIntegrityWorkerPhase,
+  SqliteIntegrityWorkerResult,
 } from "./sqlite-integrity-worker.js";
 import { assertSqliteIntegrity } from "./sqlite-integrity.js";
 

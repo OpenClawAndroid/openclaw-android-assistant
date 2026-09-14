@@ -98,9 +98,10 @@ export function parseSidebarEntry(value: unknown): SidebarZoneEntry | null {
   }
   if (value.startsWith("plugin:")) {
     const key = value.slice("plugin:".length);
-    return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(key)
-      ? { type: "plugin", key }
-      : null;
+    // Descriptor ids are opaque, unlike native registration ids. The catalog
+    // controls availability; preserving a key never grants access to a plugin.
+    const separator = key.indexOf("/");
+    return separator > 0 && separator < key.length - 1 ? { type: "plugin", key } : null;
   }
   return null;
 }

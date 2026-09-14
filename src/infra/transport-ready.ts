@@ -43,7 +43,7 @@ export async function waitForTransportReady(params: WaitForTransportReadyParams)
       return;
     }
     const res = await params.check();
-    if (res.ok) {
+    if (res.ok || params.abortSignal?.aborted) {
       return;
     }
     lastError = res.error ?? null;

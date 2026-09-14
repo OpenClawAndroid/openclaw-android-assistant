@@ -667,7 +667,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
     reset,
     retireModelOverride,
     archiveVisibility: archiveState.visibility,
-    setArchivePending: archiveState.setPending,
+    beginArchive: archiveState.beginPending,
     isPreparedWorkSession: (key: string) => preparedWorkSessionKeys.has(key.trim()),
     settlePrepared(result: SessionsListResult | null) {
       for (const row of result?.sessions ?? []) {

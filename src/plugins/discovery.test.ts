@@ -547,6 +547,12 @@ describe("discoverOpenClawPlugins", () => {
       id: "diffs-language-pack",
       requiresPlugins: ["diffs"],
     });
+    const workspaceDir = path.join(stateDir, "workspace");
+    createPackagePluginWithEntry({
+      packageDir: path.join(workspaceDir, ".openclaw", "extensions", "diffs"),
+      packageName: "@openclaw/diffs",
+      pluginId: "diffs",
+    });
 
     const result = await discoverWithStateDir(stateDir, {});
 
@@ -554,6 +560,13 @@ describe("discoverOpenClawPlugins", () => {
     expectDiagnostic({
       diagnostics: result.diagnostics,
       level: "warn",
+      pluginId: "diffs-language-pack",
+      messageIncludes: 'requires plugin "diffs"',
+    });
+    const satisfied = await discoverWithStateDir(stateDir, { workspaceDir });
+    expectCandidatePresence(satisfied, { present: ["diffs-language-pack", "diffs"] });
+    expectNoDiagnostic({
+      diagnostics: satisfied.diagnostics,
       pluginId: "diffs-language-pack",
       messageIncludes: 'requires plugin "diffs"',
     });
@@ -3286,7 +3299,9 @@ describe("discoverOpenClawPlugins", () => {
     const unchangedTimestamp = new Date("2025-01-01T00:00:00.000Z");
     fs.utimesSync(packageManifestPath, unchangedTimestamp, unchangedTimestamp);
 
-    const first = discoverWithEnv({ env });
+    const workspaceA = path.join(stateDir, "workspace-a");
+    const workspaceB = path.join(stateDir, "workspace-b");
+    const first = discoverWithEnv({ env, workspaceDir: workspaceA });
     expect(requireCandidateById(first.candidates, "cached-bundle").packageName).toBe(
       "@openclaw/cache-one",
     );
@@ -3301,14 +3316,14 @@ describe("discoverOpenClawPlugins", () => {
     expect(replacementStat.size).toBe(originalStat.size);
     expect(replacementStat.mtimeMs).toBe(originalStat.mtimeMs);
 
-    const beforeReload = discoverWithEnv({ env });
+    const beforeReload = discoverWithEnv({ env, workspaceDir: workspaceB });
     expect(requireCandidateById(beforeReload.candidates, "cached-bundle").packageName).toBe(
       "@openclaw/cache-one",
     );
 
     clearPluginMetadataLifecycleCaches();
 
-    const afterReload = discoverWithEnv({ env });
+    const afterReload = discoverWithEnv({ env, workspaceDir: workspaceB });
     expect(requireCandidateById(afterReload.candidates, "cached-bundle").packageName).toBe(
       "@openclaw/cache-two",
     );
@@ -3390,6 +3405,71 @@ describe("discoverOpenClawPlugins", () => {
 
     const second = withPluginCache(createPluginCache(), () => discoverWithEnv({ env }));
     expect(second.candidates.map((candidate) => candidate.idHint)).not.toContain("fresh");
+  });
+
+  it("keeps configured selection and installed ownership isolated across workspace scans", () => {
+    const stateDir = makeTempDir();
+    const packageRoot = path.join(stateDir, "node_modules", "openclaw");
+    const bundledDir = path.join(packageRoot, "dist", "extensions");
+    const bundledPlugin = path.join(bundledDir, "shared-plugin");
+    const installedPlugin = path.join(stateDir, "installed", "shared-plugin");
+    for (const packageDir of [bundledPlugin, installedPlugin]) {
+      createPackagePluginWithEntry({
+        packageDir,
+        packageName: "@openclaw/shared-plugin",
+        pluginId: "shared-plugin",
+        entryPath: "index.js",
+      });
+    }
+    const env = buildDiscoveryEnvWithOverrides(stateDir, {
+      OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
+    });
+    const installRecords: Record<string, PluginInstallRecord> = {
+      "installed-owner": {
+        source: "path",
+        installPath: installedPlugin,
+        sourcePath: installedPlugin,
+      },
+    };
+    withOpenClawPackageArgv(packageRoot, () => {
+      const read = (workspaceDir?: string, extraPaths: string[] = []) => {
+        const discovery = discoverWithEnv({ env, workspaceDir, extraPaths, installRecords });
+        const registry = loadPluginManifestRegistryCore({
+          env,
+          workspaceDir,
+          installRecords,
+          discovery,
+          config: { plugins: { load: { paths: extraPaths } } },
+        });
+        const winner = registry.plugins.find((plugin) => plugin.id === "shared-plugin");
+        if (!winner) {
+          throw new Error("Expected a selected shared-plugin manifest");
+        }
+        return { discovery, winner };
+      };
+      const initial = read();
+      expect(initial.winner.rootDir).toBe(fs.realpathSync(installedPlugin));
+      const workspaceA = path.join(stateDir, "workspace-a");
+      const selected = read(workspaceA, [bundledPlugin]);
+      expect(selected.winner.rootDir).toBe(fs.realpathSync(bundledPlugin));
+      expect(selected.winner.sourcePreferred).toBe(true);
+      const workspaceB = path.join(stateDir, "workspace-b");
+      const ordinary = read(workspaceB);
+      expect(ordinary.winner.rootDir).toBe(fs.realpathSync(installedPlugin));
+      expect(resolvePluginManifestInstallOwner(ordinary.winner)).toBe("installed-owner");
+      for (const [result, workspaceDir] of [
+        [initial, undefined],
+        [selected, workspaceA],
+        [ordinary, workspaceB],
+      ] as const) {
+        const installed = result.discovery.candidates.find(
+          (candidate) => candidate.origin === "global",
+        );
+        expectCandidateFields(installed, { workspaceDir, installOwner: "installed-owner" });
+      }
+      expect(selected.winner.sourcePreferred).toBe(true);
+      expect(ordinary.winner.sourcePreferred).toBeUndefined();
+    });
   });
 
   it("discovers bundled and global plugins for each workspace-specific scan", () => {

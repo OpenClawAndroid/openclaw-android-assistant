@@ -50,6 +50,7 @@ function createParams(): SubscriptionParams {
     log: mockLog,
     broadcast: vi.fn(),
     broadcastToConnIds: vi.fn(),
+    nodeHasSessionSubscribers: () => false,
     nodeSendToSession: vi.fn(),
     agentRunSeq: new Map(),
     chatRunState,

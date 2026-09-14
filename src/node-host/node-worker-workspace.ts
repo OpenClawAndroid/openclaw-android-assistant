@@ -77,7 +77,8 @@ async function listOwnedDirectories(parent: string): Promise<string[]> {
     .map((entry) => entry.name);
 }
 
-async function removeIfEmpty(target: string): Promise<void> {
+async function removeIfEmpty(target: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   try {
     await fsp.rmdir(target);
   } catch (error) {
@@ -281,6 +282,7 @@ export class NodeWorkerWorkspaceRuntime {
           listNonterminal,
           signal,
         });
+        signal?.throwIfAborted();
         return { applied: true, ...result };
       } finally {
         protections.delete(retainedDuringPass);
@@ -318,6 +320,7 @@ export class NodeWorkerWorkspaceRuntime {
     for (const session of await this.listWorkspaceSessions(params.gatewayNamespace)) {
       params.signal?.throwIfAborted();
       await serializeNodeWorkerWorkspace(session.sessionRoot, async () => {
+        params.signal?.throwIfAborted();
         const currentSnapshot = this.acceptedSnapshots.get(params.gatewayNamespace);
         if (
           currentSnapshot?.controllerId !== params.snapshot.controllerId ||
@@ -387,6 +390,7 @@ export class NodeWorkerWorkspaceRuntime {
           }
           if (
             await removeNodeWorkerWorkspaceEntry(this.root, candidate.path, "directory", () => {
+              params.signal?.throwIfAborted();
               if (
                 this.currentLocalProtection(
                   params.gatewayNamespace,
@@ -450,14 +454,17 @@ export class NodeWorkerWorkspaceRuntime {
                 this.root,
                 path.join(manifestRoot, entry.name),
                 "file",
-                () => !hasCurrentLocalProtection(),
+                () => {
+                  params.signal?.throwIfAborted();
+                  return !hasCurrentLocalProtection();
+                },
               )
             ) {
               deleted += 1;
             }
           }
-          await removeIfEmpty(manifestRoot);
-          await removeIfEmpty(path.dirname(manifestRoot));
+          await removeIfEmpty(manifestRoot, params.signal);
+          await removeIfEmpty(path.dirname(manifestRoot), params.signal);
         }
         const remaining = await listOwnedEntries(session.sessionRoot);
         const hasGenerationOrArtifact = remaining.some(
@@ -477,18 +484,16 @@ export class NodeWorkerWorkspaceRuntime {
             return;
           }
           if (
-            await removeNodeWorkerWorkspaceEntry(
-              this.root,
-              metadataRoot,
-              "directory",
-              () => !hasCurrentLocalProtection(),
-            )
+            await removeNodeWorkerWorkspaceEntry(this.root, metadataRoot, "directory", () => {
+              params.signal?.throwIfAborted();
+              return !hasCurrentLocalProtection();
+            })
           ) {
             deleted += 1;
           }
-          await removeIfEmpty(session.sessionRoot);
-          await removeIfEmpty(session.environmentRoot);
-          await removeIfEmpty(session.workspacesRoot);
+          await removeIfEmpty(session.sessionRoot, params.signal);
+          await removeIfEmpty(session.environmentRoot, params.signal);
+          await removeIfEmpty(session.workspacesRoot, params.signal);
         }
       });
       if (hasMore) {

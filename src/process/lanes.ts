@@ -2,6 +2,7 @@
 export const enum CommandLane {
   Main = "main",
   SystemAgent = "system-agent",
+  SystemAgentInference = "system-agent-inference",
   Cron = "cron",
   CronNested = "cron-nested",
   /**
@@ -20,6 +21,7 @@ export const enum CommandLane {
 export const STATIC_COMMAND_LANES = [
   CommandLane.Main,
   CommandLane.SystemAgent,
+  CommandLane.SystemAgentInference,
   CommandLane.Cron,
   CommandLane.CronNested,
   CommandLane.HookDispatch,

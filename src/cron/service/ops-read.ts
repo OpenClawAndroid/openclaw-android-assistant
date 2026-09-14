@@ -324,7 +324,11 @@ function resolveTriggerFilter(opts?: CronListPageOptions): CronJobsTriggerFilter
 const SLOW_LIST_PAGE_MS = 1_000;
 
 /** Lists a filtered, sorted, bounded page of cron jobs for CLI/RPC callers. */
-export async function listPage(state: CronServiceState, opts?: CronListPageOptions) {
+export async function listPage(
+  state: CronServiceState,
+  opts?: CronListPageOptions,
+  matchesJob?: (job: CronJob) => boolean,
+) {
   const startedAt = performance.now();
   let enteredAt: number | undefined;
   let finishedAt: number | undefined;
@@ -374,19 +378,22 @@ export async function listPage(state: CronServiceState, opts?: CronListPageOptio
           if (triggerFilter === "unconditional" && job.trigger) {
             return false;
           }
-          if (!query) {
-            return true;
+          if (query) {
+            const haystack = normalizeLowercaseStringOrEmpty(
+              [
+                job.id,
+                job.name,
+                job.description ?? "",
+                job.agentId ?? "",
+                ...(job.displayName ? [job.displayName] : []),
+              ].join(" "),
+            );
+            if (!haystack.includes(query)) {
+              return false;
+            }
           }
-          const haystack = normalizeLowercaseStringOrEmpty(
-            [
-              job.id,
-              job.name,
-              job.description ?? "",
-              job.agentId ?? "",
-              ...(job.displayName ? [job.displayName] : []),
-            ].join(" "),
-          );
-          return haystack.includes(query);
+          // In-process visibility must share the sorted snapshot and its revision.
+          return !matchesJob || matchesJob(job);
         });
         // Hash the complete sorted result under the lock, but detach only the page
         // that can outlive later in-place execution state changes.

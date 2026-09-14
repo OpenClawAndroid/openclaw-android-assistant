@@ -675,6 +675,7 @@ export async function prepareAgentRunDispatch(params: {
   const cronCreatorAuthority = resolveGatewayCronCreatorAuthorityAdmission({
     runId: params.runId,
     resolvedSessionKey: params.resolvedSessionKey,
+    sessionId: params.getAdmittedSessionId(),
     spawnedBy: params.sessionEntry?.spawnedBy,
     client: params.client,
     request: params.request,

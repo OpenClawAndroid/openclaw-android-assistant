@@ -96,6 +96,7 @@ it.each([
         log,
         broadcast: context.broadcast,
         broadcastToConnIds: context.broadcastToConnIds,
+        nodeHasSessionSubscribers: () => false,
         nodeSendToSession: context.nodeSendToSession,
         agentRunSeq: context.agentRunSeq,
         chatRunState: context.chatRunState,

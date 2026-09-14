@@ -213,8 +213,12 @@ export function dispatchAgentRunFromGateway(params: {
         params.cronCreatorAuthority.runId,
         params.cronCreatorAuthority.callerOrigin,
         params.cronCreatorAuthority.controlUiAdmin,
+        params.cronCreatorAuthority.isCurrent,
       )
     : undefined;
+  if (cronCreatorAuthorityCapability) {
+    params.cronCreatorAuthority?.bindRunScope?.(cronCreatorAuthorityCapability);
+  }
   const ingressOptsWithSpawnFacts = withAgentCommandExecutionIdentitySpawnFacts(
     params.ingressOpts,
     readAgentRunDispatchExecutionIdentity(params),

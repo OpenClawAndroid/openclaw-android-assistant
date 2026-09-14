@@ -429,10 +429,13 @@ function projectEmptyAssistantErrorMessages(
   return changed ? projected : messages;
 }
 
-export function projectChatDisplayMessagesWithState(
+export function projectChatHistoryRecovery(
   messages: unknown[],
-  options?: ChatDisplayProjectionOptions,
-): ChatDisplayProjectionResult {
+  options?: Pick<
+    ChatDisplayProjectionOptions,
+    "maxChars" | "stripEnvelope" | "assistantErrorPending"
+  >,
+) {
   const projectedMessages = messages.map((message) => {
     const entry = asOptionalRecord(message);
     if (entry?.role === "custom" && entry.customType === "run-failed-before-reply") {
@@ -468,10 +471,17 @@ export function projectChatDisplayMessagesWithState(
       ? projectedMessages
       : stripEnvelopeFromMessages(projectedMessages);
   const mirrored = mirrorMessageToolVisibleReplies(source);
-  const recoveredErrors = projectRecoveredAssistantErrors(
+  return projectRecoveredAssistantErrors(
     toProjectedMessages(mirrored),
     options?.assistantErrorPending,
   );
+}
+
+export function projectChatDisplayMessagesWithState(
+  messages: unknown[],
+  options?: ChatDisplayProjectionOptions,
+): ChatDisplayProjectionResult {
+  const recoveredErrors = projectChatHistoryRecovery(messages, options);
   const projectedErrors = projectEmptyAssistantErrorMessages(recoveredErrors.messages);
   const sanitizedMessages = toProjectedMessages(
     sanitizeChatHistoryMessages(projectedErrors, Number.MAX_SAFE_INTEGER, {

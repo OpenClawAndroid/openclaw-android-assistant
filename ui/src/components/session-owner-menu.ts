@@ -107,7 +107,7 @@ export class SessionOwnerMenu {
           ?disabled=${params.disabled || checked}
           title=${params.disabledReason ?? nothing}
         >
-          <span slot="icon" class="session-menu__icon" aria-hidden="true"
+          <span slot="icon" class="session-menu__avatar" aria-hidden="true"
             >${renderSessionOwnerAvatar(owner)}</span
           >
           <span class="session-menu__text"

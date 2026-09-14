@@ -30,6 +30,7 @@ import {
   agentDatabaseHeldRuntimeEntrypoint,
   stateLeaseProcessExitRuntimeEntrypoint,
 } from "../../src/state/openclaw-state-lease-runtime.test-support.ts";
+import { groqSetupSdkEntrypoints } from "../../src/system-agent/setup-inference-groq-sdk.test-support.ts";
 import { tuiPtyRuntimeEntrypoints } from "../../src/tui/tui-pty-runtime-test-support.ts";
 import { channelIngressGatewayRestartEntrypoint } from "../../test/fixtures/channel-ingress-gateway-restart-entrypoint.ts";
 import { runtimeProcessBuildEntries } from "./runtime-process-build-entries.mts";
@@ -46,6 +47,7 @@ export const vitestWorkerBuildEntries = {
       ...cliCompactionBackendEntrypoints,
       ...publishedSdkBridgeEntrypoints,
       mcpProviderCatalogEntrypoint,
+      ...groqSetupSdkEntrypoints,
       ...Object.values(cliRecoveryEntrypoints),
       ...Object.values(updateExecutorNativeEntrypoints),
       ...Object.values(gatewayDirectStopEntrypoints),

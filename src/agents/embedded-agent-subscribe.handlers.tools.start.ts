@@ -240,7 +240,11 @@ export function buildPatchItemTitle(meta?: string): string {
   return meta ? `patch ${meta}` : "apply patch";
 }
 
-export function emitTrackedItemEvent(ctx: ToolHandlerContext, itemData: AgentItemEventData): void {
+export function emitTrackedItemEvent(
+  ctx: ToolHandlerContext,
+  itemData: AgentItemEventData,
+  emitLiveUpdate = true,
+): void {
   if (itemData.phase === "start") {
     ctx.state.itemActiveIds.add(itemData.itemId);
     ctx.state.itemStartedCount += 1;
@@ -248,12 +252,15 @@ export function emitTrackedItemEvent(ctx: ToolHandlerContext, itemData: AgentIte
     ctx.state.itemActiveIds.delete(itemData.itemId);
     ctx.state.itemCompletedCount += 1;
   }
-  emitAgentActivityEvent({
-    runId: ctx.params.runId,
-    ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
-    stream: "item",
-    data: itemData,
-  });
+  if (itemData.phase !== "update" || emitLiveUpdate) {
+    emitAgentActivityEvent({
+      runId: ctx.params.runId,
+      ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
+      stream: "item",
+      data: itemData,
+    });
+  }
+  // Reply liveness and channel delivery still consume every original callback.
   emitAgentEventCallbackBestEffort(ctx, {
     stream: "item",
     data: itemData,

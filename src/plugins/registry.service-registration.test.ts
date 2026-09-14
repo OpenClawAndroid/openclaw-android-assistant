@@ -2,16 +2,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createPluginRuntimeStore } from "../plugin-sdk/runtime-store.js";
 import { createPluginRecord } from "./loader-records.js";
 import { PluginInstance } from "./plugin-instance.js";
-import { createPluginRegistry } from "./registry.js";
+import { createTestPluginRegistry } from "./registry-runtime.test-helpers.js";
 import {
   clearActivePluginRegistry,
   disposePluginRegistryInstances,
   setActivePluginRegistry,
 } from "./runtime.js";
-import type { PluginRuntime } from "./runtime/types.js";
 import { startPluginServices } from "./services.js";
 
-const registries: ReturnType<typeof createPluginRegistry>["registry"][] = [];
+const registries: ReturnType<typeof createTestPluginRegistry>["registry"][] = [];
 
 afterEach(async () => {
   await clearActivePluginRegistry();
@@ -36,16 +35,7 @@ class ClassBackedLifecycleService {
 }
 
 function createRegistrationFixture() {
-  const builder = createPluginRegistry({
-    logger: {
-      info() {},
-      warn() {},
-      error() {},
-      debug() {},
-    },
-    runtime: {} as PluginRuntime,
-    activateGlobalSideEffects: false,
-  });
+  const builder = createTestPluginRegistry();
   registries.push(builder.registry);
   const createRecord = (id: string) => {
     const record = createPluginRecord({

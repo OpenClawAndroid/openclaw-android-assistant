@@ -327,7 +327,7 @@ suite.define(() => {
     }
   });
 
-  it("removes an archived current thread from the sidebar before the patch resolves", async () => {
+  it("keeps an archiving thread visible and prevents duplicate archive requests until it settles", async () => {
     const context = await suite.browser.newContext({
       locale: "en-US",
       recordVideo: captureUiProofEnabled
@@ -366,10 +366,34 @@ suite.define(() => {
       await activateSelfRemovingControl(page.getByRole("menuitem", { name: "Archive session" }));
       await gateway.waitForRequest("sessions.patch");
 
-      await expect.poll(() => row.count()).toBe(0);
+      await row.getByRole("status").filter({ hasText: "Archiving…" }).waitFor();
       expect(new URL(page.url()).pathname).toBe(controlUiSessionPath(sessionKey));
       await page.getByText("Research thread content").waitFor({ state: "visible" });
       await captureUiProof(suite, page, "archive-current-thread-pending.png");
+
+      await row.click({ button: "right" });
+      const pendingAction = page.getByRole("menuitem", { name: "Archiving…", exact: true });
+      await pendingAction.waitFor();
+      expect(await pendingAction.isDisabled()).toBe(true);
+      expect(await gateway.getRequests("sessions.patch")).toHaveLength(1);
+      await page.keyboard.press("Escape");
+
+      await gateway.rejectDeferred("sessions.patch", {
+        code: "UNAVAILABLE",
+        message: "Worker cleanup is still in progress. Wait for it to finish, then retry archive.",
+      });
+      await expect.poll(() => row.getByRole("status").count()).toBe(0);
+      await expect
+        .poll(() => page.locator("[data-sidebar-session-error]").textContent())
+        .toContain("Worker cleanup is still in progress");
+      await row.waitFor({ state: "visible" });
+      await captureUiProof(suite, page, "archive-current-thread-failed.png");
+
+      await gateway.deferNext("sessions.patch");
+      await row.click({ button: "right" });
+      await activateSelfRemovingControl(page.getByRole("menuitem", { name: "Archive session" }));
+      await expect.poll(async () => (await gateway.getRequests("sessions.patch")).length).toBe(2);
+      await row.getByRole("status").filter({ hasText: "Archiving…" }).waitFor();
 
       await gateway.resolveDeferred("sessions.patch");
       await expect.poll(() => row.count()).toBe(0);
@@ -393,6 +417,7 @@ suite.define(() => {
     const baseTime = Date.parse("2026-07-01T16:00:00.000Z");
     const batchKeys = ["agent:main:batch-a", "agent:main:batch-b", "agent:main:batch-c"] as const;
     const gateway = await installMockGateway(page, {
+      deferredMethods: ["sessions.patchMany"],
       methodResponses: {
         "sessions.list": sessionsListResponse([
           sessionRow("agent:main:main", "Main", baseTime),
@@ -437,6 +462,15 @@ suite.define(() => {
       await page.keyboard.press("A");
 
       const patchMany = await gateway.waitForRequest("sessions.patchMany");
+      for (const key of batchKeys) {
+        await rowFor(key).getByRole("status").filter({ hasText: "Archiving…" }).waitFor();
+      }
+      await rowFor(batchKeys[0]).click({ button: "right" });
+      const pendingAction = batchMenu.getByRole("menuitem", { name: "Archiving…", exact: true });
+      await pendingAction.waitFor();
+      expect(await pendingAction.isDisabled()).toBe(true);
+      await page.keyboard.press("Escape");
+      await gateway.resolveDeferred("sessions.patchMany");
       const patchManyParams = requireRecord(patchMany.params);
       expect(patchManyParams.patch).toEqual({ archived: true });
       expect(patchManyParams.targets).toEqual(

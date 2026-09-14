@@ -181,21 +181,23 @@ export function writeUserPreferences(
     );
   }
   const updatedAtMs = Date.now();
-  for (const entry of serialized) {
+  if (serialized.length > 0) {
     executeSqliteQuerySync(
       sqlite,
       db
         .insertInto("user_preferences")
-        .values({
-          profile_id: profileId,
-          pref_key: entry.prefKey,
-          value_json: entry.valueJson,
-          updated_at_ms: updatedAtMs,
-        })
-        .onConflict((conflict) =>
-          conflict.columns(["profile_id", "pref_key"]).doUpdateSet({
+        .values(
+          serialized.map((entry) => ({
+            profile_id: profileId,
+            pref_key: entry.prefKey,
             value_json: entry.valueJson,
             updated_at_ms: updatedAtMs,
+          })),
+        )
+        .onConflict((conflict) =>
+          conflict.columns(["profile_id", "pref_key"]).doUpdateSet({
+            value_json: (eb) => eb.ref("excluded.value_json"),
+            updated_at_ms: (eb) => eb.ref("excluded.updated_at_ms"),
           }),
         ),
     );

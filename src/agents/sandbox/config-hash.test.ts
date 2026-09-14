@@ -142,12 +142,12 @@ describe("computeSandboxConfigHash", () => {
 
     const withoutSkills = computeSandboxConfigHash({
       ...shared,
-      readOnlyWorkspaceSkillMounts: [],
+      managedMounts: [],
     });
 
     const withSkills = computeSandboxConfigHash({
       ...shared,
-      readOnlyWorkspaceSkillMounts: ["/tmp/workspace/skills:/workspace/skills:ro"],
+      managedMounts: ["/tmp/workspace/skills:/workspace/skills:ro"],
     });
 
     expect(withoutSkills).not.toBe(withSkills);

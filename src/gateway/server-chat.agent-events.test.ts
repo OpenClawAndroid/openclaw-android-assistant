@@ -188,6 +188,7 @@ describe("agent event handler", () => {
     const broadcast = vi.fn();
     const broadcastToConnIds = vi.fn();
     const nodeSendToSession = vi.fn();
+    const nodeHasSessionSubscribers = vi.fn(() => true);
     const clearAgentRunContext = vi.fn();
     const clearTrackedActiveRun =
       vi.fn<NonNullable<AgentEventHandlerOptions["clearTrackedActiveRun"]>>();
@@ -201,6 +202,7 @@ describe("agent event handler", () => {
       broadcast,
       broadcastToConnIds,
       nodeSendToSession,
+      nodeHasSessionSubscribers,
       agentRunSeq,
       chatRunState,
       resolveSessionKeyForRun: params?.resolveSessionKeyForRun ?? (() => undefined),
@@ -225,6 +227,7 @@ describe("agent event handler", () => {
       broadcast,
       broadcastToConnIds,
       nodeSendToSession,
+      nodeHasSessionSubscribers,
       clearAgentRunContext,
       clearTrackedActiveRun,
       agentRunSeq,
@@ -1581,7 +1584,13 @@ describe("agent event handler", () => {
             expect(chatFor(run.clientRunId)).toHaveLength(1);
           }
         }
+        expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(
+          controlUiVisible ? 0 : runs.length,
+        );
         vi.advanceTimersByTime(75);
+        expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(
+          controlUiVisible ? 0 : runs.length * 2,
+        );
         for (const run of runs) {
           const progress = progressFor(run.clientRunId);
           expect(progress).toHaveLength(leadingFrames * 2);
@@ -3162,6 +3171,66 @@ describe("agent event handler", () => {
     // But node/channel subscribers should NOT receive when verbose is off
     const nodeToolCalls = nodeSendToSession.mock.calls.filter(([, event]) => event === "agent");
     expect(nodeToolCalls).toHaveLength(0);
+  });
+
+  it.each([
+    { audience: "hidden unsubscribed", visible: false, subscribed: false, heartbeat: false },
+    { audience: "hidden subscribed", visible: false, subscribed: true, heartbeat: false },
+    { audience: "heartbeat", visible: true, subscribed: true, heartbeat: true },
+    { audience: "visible without nodes", visible: true, subscribed: false, heartbeat: false },
+  ])("skips unused verbosity reads for registered $audience tool deltas", (audience) => {
+    const {
+      handler,
+      chatRunState,
+      broadcast,
+      broadcastToConnIds,
+      nodeSendToSession,
+      nodeHasSessionSubscribers,
+      sessionMessageSubscribers,
+    } = createHarness();
+    const runId = "run-unused-verbosity";
+    const sessionKey = "session-unused-verbosity";
+    nodeHasSessionSubscribers.mockReturnValue(false);
+    registerAgentRunContext(runId, {
+      sessionKey,
+      isControlUiVisible: audience.visible,
+      isHeartbeat: audience.heartbeat,
+      verboseLevel: "full",
+    });
+    if (audience.subscribed) {
+      sessionMessageSubscribers.subscribe("conn-selected", sessionKey);
+    }
+    if (audience.visible && !audience.heartbeat) {
+      chatRunState.toolEventRecipients.add(runId, "conn-selected");
+    }
+    const stop = onAgentRuntimeEvent(handler);
+    try {
+      for (let added = 1; added <= 32; added++) {
+        emitRuntimeAgentEvent({
+          runId,
+          stream: "tool",
+          data: { phase: "input_delta", toolCallId: "edit-1", diff: { added, removed: 0 } },
+        });
+      }
+      expect(loadSessionEntry).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+      expect(nodeSendToSession).not.toHaveBeenCalled();
+      const delivered = agentBroadcastCalls(broadcastToConnIds);
+      if ((audience.subscribed || audience.visible) && !audience.heartbeat) {
+        expect(delivered.map(([, payload]) => payload.data.diff)).toEqual(
+          Array.from({ length: 32 }, (_, index) => ({ added: index + 1, removed: 0 })),
+        );
+        expect(delivered.every((call) => call[2].has("conn-selected"))).toBe(true);
+      } else {
+        expect(delivered).toHaveLength(0);
+        expect(loadGatewaySessionLifecycleSnapshotMock).not.toHaveBeenCalled();
+      }
+    } finally {
+      stop();
+      handler.dispose();
+      chatRunState.clear();
+      clearRegisteredAgentRunContext(runId);
+    }
   });
 
   it("uses newer session verbose state for in-flight tool events", () => {
@@ -5231,6 +5300,9 @@ describe("agent event handler", () => {
       sessionKey: "global",
       isControlUiVisible: false,
     });
+    loadGatewaySessionLifecycleSnapshotMock.mockReturnValue({
+      row: { key: "global", kind: "global", updatedAt: 1_000, sessionId: "main-global" },
+    });
 
     emitAgentEvent(handler, "run-hidden-main", "assistant", { text: "hidden main global reply" });
 
@@ -5242,6 +5314,20 @@ describe("agent event handler", () => {
         sessionKey: "global",
       }),
     );
+    expect(chatCall?.[1]).not.toHaveProperty("session");
+    emitAgentEvent(
+      handler,
+      "run-hidden-main",
+      "item",
+      { kind: "status", phase: "update", title: "Working" },
+      { seq: 2 },
+    );
+    expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledWith("global", {
+      agentId: "main",
+    });
+    const agentCall = agentBroadcastCalls(broadcastToConnIds)[0];
+    expect(agentCall?.[2]).toEqual(new Set(["conn-main"]));
+    expect(agentCall?.[1].session).toMatchObject({ key: "global", sessionId: "main-global" });
   });
 
   it("routes hidden bare global chat events to the configured default agent subscriber", () => {
@@ -5257,6 +5343,9 @@ describe("agent event handler", () => {
       sessionKey: "global",
       isControlUiVisible: false,
     });
+    loadGatewaySessionLifecycleSnapshotMock.mockReturnValue({
+      row: { key: "global", kind: "global", updatedAt: 1_000, sessionId: "ops-global" },
+    });
 
     emitAgentEvent(handler, "run-hidden-default", "assistant", {
       text: "hidden default global reply",
@@ -5269,6 +5358,18 @@ describe("agent event handler", () => {
         sessionKey: "global",
       }),
     );
+    expect(chatCall?.[1]).not.toHaveProperty("session");
+    emitAgentEvent(
+      handler,
+      "run-hidden-default",
+      "item",
+      { kind: "status", phase: "update", title: "Working" },
+      { seq: 2 },
+    );
+    expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledWith("global", undefined);
+    const agentCall = agentBroadcastCalls(broadcastToConnIds)[0];
+    expect(agentCall?.[2]).toEqual(new Set(["conn-ops"]));
+    expect(agentCall?.[1].session).toMatchObject({ key: "global", sessionId: "ops-global" });
   });
 
   it("keeps chat-linked run remapping alive across per-attempt lifecycle errors", () => {
@@ -6136,17 +6237,30 @@ describe("agent event handler", () => {
     },
   );
 
-  it.each(["item", "assistant"] as const)(
-    "drops queued %s progress after release without dropping another run's updates",
-    (stream) => {
+  it.each([
+    { stream: "item", controlUiVisible: true },
+    { stream: "assistant", controlUiVisible: true },
+    { stream: "item", controlUiVisible: false },
+    { stream: "thinking", controlUiVisible: false },
+  ] as const)(
+    "drops queued $stream progress after release without dropping another run's updates (visible: $controlUiVisible)",
+    ({ stream, controlUiVisible }) => {
       vi.useFakeTimers();
       vi.setSystemTime(10_000);
-      const { broadcast, nodeSendToSession, chatRunState, handler } = createHarness();
+      const {
+        broadcast,
+        broadcastToConnIds,
+        nodeSendToSession,
+        chatRunState,
+        sessionMessageSubscribers,
+        handler,
+      } = createHarness();
+      const delivery = controlUiVisible ? broadcast : broadcastToConnIds;
       const claim = (runId: string) =>
         expectDefined(
           claimAgentRunContext(
             runId,
-            { sessionKey: `session-${runId}`, isControlUiVisible: true },
+            { sessionKey: `session-${runId}`, isControlUiVisible: controlUiVisible },
             { exclusive: true, trackOwner: true },
           ),
           "preview owner claim",
@@ -6155,6 +6269,10 @@ describe("agent event handler", () => {
       const activeRunId = "run-preview-active";
       const retiredClaim = claim(retiredRunId);
       const activeClaim = claim(activeRunId);
+      if (!controlUiVisible) {
+        sessionMessageSubscribers.subscribe("conn-retired", `session-${retiredRunId}`);
+        sessionMessageSubscribers.subscribe("conn-active", `session-${activeRunId}`);
+      }
       const stop = onAgentRuntimeEvent(handler);
 
       try {
@@ -6176,12 +6294,15 @@ describe("agent event handler", () => {
             );
           }
         }
-        expect(agentBroadcastCalls(broadcast)).toHaveLength(2);
+        expect(agentBroadcastCalls(delivery)).toHaveLength(2);
+        expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(
+          controlUiVisible ? 0 : 2,
+        );
 
         releaseAgentRunContext(retiredRunId, retiredClaim);
         vi.advanceTimersByTime(75);
 
-        const delivered = agentBroadcastCalls(broadcast).map(
+        const delivered = agentBroadcastCalls(delivery).map(
           ([, payload]) => payload as AgentEventPayload,
         );
         const expected = [
@@ -6195,14 +6316,23 @@ describe("agent event handler", () => {
             stream === "item" ? data.progressText : data.text,
           ]),
         ).toEqual(expected);
-        expect(sessionAgentCalls(nodeSendToSession).map((call) => call[2])).toEqual(delivered);
+        expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(
+          controlUiVisible ? 0 : 3,
+        );
+        if (controlUiVisible) {
+          expect(sessionAgentCalls(nodeSendToSession).map((call) => call[2])).toEqual(delivered);
+        } else {
+          expect(nodeSendToSession).not.toHaveBeenCalled();
+        }
         if (stream === "assistant") {
-          const chat = chatBroadcastCalls(broadcast).map(([, payload]) => payload);
+          const chat = chatBroadcastCalls(delivery).map(([, payload]) => payload);
           expect(chat.map((payload) => [payload.runId, payload.message.content[0].text])).toEqual(
             expected,
           );
           expect(chat.map((payload) => payload.deltaText)).toEqual(["First", "First", " queued"]);
-          expect(sessionChatCalls(nodeSendToSession).map((call) => call[2])).toEqual(chat);
+          if (controlUiVisible) {
+            expect(sessionChatCalls(nodeSendToSession).map((call) => call[2])).toEqual(chat);
+          }
         }
         expect(vi.getTimerCount()).toBe(0);
       } finally {
@@ -6283,7 +6413,7 @@ describe("agent event handler", () => {
     }
   });
 
-  it.each(["session change", "subscriber removal"] as const)(
+  it.each(["session change", "subscriber removal", "subscriber replacement"] as const)(
     "keeps queued hidden previews isolated across %s",
     (change) => {
       vi.useFakeTimers();
@@ -6297,6 +6427,10 @@ describe("agent event handler", () => {
         handler,
       } = createHarness();
       const runId = "run-hidden-audience";
+      let label = "Before buffering";
+      loadGatewaySessionLifecycleSnapshotMock.mockImplementation((key: string) => ({
+        row: { key, kind: "direct", updatedAt: 10_000, label },
+      }));
       const claimId = expectDefined(
         claimAgentRunContext(
           runId,
@@ -6318,14 +6452,21 @@ describe("agent event handler", () => {
         preview("Old visible");
         preview("Old queued");
         expect(agentBroadcastCalls(broadcastToConnIds)).toHaveLength(1);
+        expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(1);
+        label = "Current metadata";
 
         if (change === "session change") {
           registerAgentRunContext(runId, { sessionKey: "session-B" }, claimId);
-        } else {
+        } else if (change === "subscriber removal") {
           sessionMessageSubscribers.unsubscribe("conn-A", "session-A");
           vi.advanceTimersByTime(75);
           expect(agentBroadcastCalls(broadcastToConnIds)).toHaveLength(1);
+          expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(1);
           sessionMessageSubscribers.subscribe("conn-replacement", "session-A");
+        } else {
+          sessionMessageSubscribers.unsubscribe("conn-A", "session-A");
+          sessionMessageSubscribers.subscribe("conn-replacement", "session-A");
+          vi.advanceTimersByTime(75);
         }
         preview("New visible");
         vi.advanceTimersByTime(75);
@@ -6342,8 +6483,21 @@ describe("agent event handler", () => {
                 ["session-A", "Old queued", new Set(["conn-A"])],
                 ["session-B", "New visible", new Set(["conn-B"])],
               ]
-            : [["session-A", "New visible", new Set(["conn-replacement"])]]),
+            : [
+                ...(change === "subscriber replacement"
+                  ? [["session-A", "Old queued", new Set(["conn-replacement"])]]
+                  : []),
+                ["session-A", "New visible", new Set(["conn-replacement"])],
+              ]),
         ]);
+        const delivered = agentBroadcastCalls(broadcastToConnIds);
+        expect(loadGatewaySessionLifecycleSnapshotMock).toHaveBeenCalledTimes(delivered.length);
+        for (const [index, [, event]] of delivered.entries()) {
+          const payload = requireRecord(event, "hidden preview metadata");
+          const expectedLabel = index === 0 ? "Before buffering" : "Current metadata";
+          expect(payload.label).toBe(expectedLabel);
+          expect(payload.session).toMatchObject({ key: payload.sessionKey, label: expectedLabel });
+        }
         expect(broadcast).not.toHaveBeenCalled();
         expect(nodeSendToSession).not.toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);

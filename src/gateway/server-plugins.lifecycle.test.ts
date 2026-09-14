@@ -30,6 +30,7 @@ import {
   patchInstanceBindingTestConfig,
   requireBoundRuntime,
   requestInstanceBindingProbe,
+  requestSettledInstanceBindingProbe,
 } from "./server-plugins.lifecycle.test-support.js";
 import {
   connectWebchatClient,
@@ -368,7 +369,7 @@ describe("gateway plugin instance bindings", () => {
       const firstRegistry = getActivePluginRegistry();
       expect(firstRegistry).toBeTruthy();
       const firstProbes = await Promise.all(
-        firstMonitors.map(({ runtime }) => requestInstanceBindingProbe(runtime)),
+        firstMonitors.map(({ runtime }) => requestSettledInstanceBindingProbe(runtime)),
       );
       expect(firstProbes[0]).toEqual(firstProbes[1]);
 
@@ -393,7 +394,7 @@ describe("gateway plugin instance bindings", () => {
       expect(new Set(proof.monitors.map(({ runtimeId }) => runtimeId)).size).toBe(2);
       expect(new Set(proof.monitors.map(({ abortSignal }) => abortSignal)).size).toBe(4);
       const secondProbes = await Promise.all(
-        secondMonitors.map(({ runtime }) => requestInstanceBindingProbe(runtime)),
+        secondMonitors.map(({ runtime }) => requestSettledInstanceBindingProbe(runtime)),
       );
       expect(secondProbes[0]).toEqual(secondProbes[1]);
       for (const secondProbe of secondProbes) {
@@ -408,7 +409,9 @@ describe("gateway plugin instance bindings", () => {
       ).toBe(true);
       expect(stopHooks).toEqual([]);
       await expect(
-        Promise.all(firstMonitors.map(({ runtime }) => requestInstanceBindingProbe(runtime))),
+        Promise.all(
+          firstMonitors.map(({ runtime }) => requestSettledInstanceBindingProbe(runtime)),
+        ),
       ).resolves.toEqual(firstProbes);
       proof.observations.push({ phase: "two-gateways-started", firstProbes, secondProbes });
 
@@ -452,7 +455,7 @@ describe("gateway plugin instance bindings", () => {
         );
       }
       const survivingProbes = await Promise.all(
-        secondMonitors.map(({ runtime }) => requestInstanceBindingProbe(runtime)),
+        secondMonitors.map(({ runtime }) => requestSettledInstanceBindingProbe(runtime)),
       );
       expect(survivingProbes).toEqual(secondProbes);
       proof.observations.push({ phase: "second-gateway-still-bound", probes: survivingProbes });
@@ -775,7 +778,7 @@ describe("gateway plugin instance bindings", () => {
         ...CHANNEL_BINDING_IDS,
       ]);
       const initialProbes = await Promise.all(
-        initialMonitors.map((monitor) => requestInstanceBindingProbe(monitor.runtime)),
+        initialMonitors.map((monitor) => requestSettledInstanceBindingProbe(monitor.runtime)),
       );
       expect(initialProbes[0]).toEqual(initialProbes[1]);
       for (const probe of initialProbes) {
@@ -801,12 +804,7 @@ describe("gateway plugin instance bindings", () => {
         coordinator.runtimes.slice(registrationsBeforeReload),
         "reloaded",
       );
-      await expect
-        .poll(async () => (await requestInstanceBindingProbe(freshRuntime)).reloadSettled, {
-          timeout: 30_000,
-        })
-        .toBe(true);
-      const freshProbe = await requestInstanceBindingProbe(freshRuntime);
+      const freshProbe = await requestSettledInstanceBindingProbe(freshRuntime);
       for (const initialProbe of initialProbes) {
         expect(freshProbe.registryId).not.toBe(initialProbe.registryId);
         expect(freshProbe.sessionsId).toBe(initialProbe.sessionsId);
@@ -822,7 +820,9 @@ describe("gateway plugin instance bindings", () => {
       for (const monitor of initialMonitors) {
         expect(monitor.stopped).toBe(false);
         expect(monitor.abortSignal.aborted).toBe(false);
-        await expect(requestInstanceBindingProbe(monitor.runtime)).resolves.toEqual(freshProbe);
+        await expect(requestSettledInstanceBindingProbe(monitor.runtime)).resolves.toEqual(
+          freshProbe,
+        );
       }
       expect(
         proof.events
@@ -849,11 +849,7 @@ describe("gateway plugin instance bindings", () => {
       proof.observations.push({ phase: "successor-handoff", predecessorsStopped });
       expect(predecessorsStopped).toBe(true);
       // The receipt completes this reload; wait separately for global config settlement.
-      await expect
-        .poll(async () => (await requestInstanceBindingProbe(freshRuntime)).reloadSettled, {
-          timeout: 30_000,
-        })
-        .toBe(true);
+      await requestSettledInstanceBindingProbe(freshRuntime);
       const currentProbe = await rpcReq<InstanceBindingProbeResult>(
         socket,
         INSTANCE_BINDING_PROBE_METHOD,
@@ -871,7 +867,7 @@ describe("gateway plugin instance bindings", () => {
         placementId: freshProbe.placementId,
         reloadSettled: true,
       });
-      await expect(requestInstanceBindingProbe(freshRuntime)).resolves.toEqual(channelProbe);
+      await expect(requestSettledInstanceBindingProbe(freshRuntime)).resolves.toEqual(channelProbe);
       proof.observations.push({ phase: "channel-owner-publication", probe: channelProbe });
       for (const monitor of initialMonitors) {
         await expect(requestInstanceBindingProbe(monitor.runtime)).rejects.toThrow(

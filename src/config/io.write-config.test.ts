@@ -22,6 +22,7 @@ import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { readConfigMachineState } from "../state/config-machine-state.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
+  closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
@@ -170,6 +171,7 @@ describe("config io write", () => {
   });
 
   afterEach(async () => {
+    await closeOpenClawStateDatabaseAsync();
     resetConfigRuntimeState();
     mockPrepareConfigFileWrite.mockReset();
     const actual =
@@ -178,6 +180,7 @@ describe("config io write", () => {
   });
 
   afterAll(async () => {
+    await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();
     resetConfigRuntimeState();
     vi.mocked(tmpDirOwner.resolvePreferredOpenClawTmpDir).mockRestore();

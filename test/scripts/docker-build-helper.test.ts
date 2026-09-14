@@ -911,14 +911,22 @@ fi
     expect(runner).toContain("--network host");
     expect(runner).toContain('--group-add "$SOCKET_GID"');
     expect(runner).toContain('-v "$DOCKER_SOCKET:/var/run/docker.sock"');
-    expect(runner).toContain('-v "$SCENARIO_ROOT:$SCENARIO_ROOT"');
+    expect(runner).toContain('-v "$SCENARIO_ROOT:$GATEWAY_ROOT"');
+    expect(runner).toContain('-v "$SCENARIO_ROOT/agent workspace:$GATEWAY_ROOT/workspace"');
+    expect(runner).toContain('-v "$SCENARIO_ROOT/nested data:$GATEWAY_ROOT/workspace/data:ro"');
     expect(runner).toContain("scripts/docker/sandbox/Dockerfile.browser");
-    expect(scenario).toContain('from "openclaw/plugin-sdk/agent-harness-runtime"');
+    expectTextToIncludeInOrder(scenario, [
+      "process.env.HOME =",
+      "process.env.OPENCLAW_STATE_DIR =",
+      "process.env.OPENCLAW_CONFIG_PATH =",
+      'await import("openclaw/plugin-sdk/agent-harness-runtime")',
+    ]);
+    expect(scenario).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/agent-harness-runtime["']/u);
     expect(scenario).toContain('"sandbox", "list", "--browser", "--json"');
-    expect(scenario).not.toMatch(/from\s+["'][.]{1,2}\/.*src\//u);
+    expect(scenario).not.toMatch(/(?:from\s+|import\s*\(\s*)["'][.]{1,2}\/.*src\//u);
   });
 
-  it("cleans only the sidecar task's containers when the runner exits early", () => {
+  it("cleans all sidecar modes without touching another run on the same Gateway workspace", () => {
     const workDir = realpathSync(tempDirs.make("openclaw-sidecar-cleanup-"));
     const binDir = join(workDir, "bin");
     const scenarioRoot = join(workDir, "scenario");
@@ -926,20 +934,28 @@ fi
     const containersPath = join(workDir, "containers.json");
     const sessionKey = "agent:main:sandbox-browser-sidecar";
     const workspaceHash = createHash("sha256")
-      .update(join(scenarioRoot, "workspace"))
+      .update("/home/appuser/.openclaw-e2e/workspace")
       .digest("hex")
       .slice(0, 32);
-    const scopeKey = `${sessionKey}:workspace:${workspaceHash}`;
-    const unrelated = { name: "other-workspace", scopeKey: `${sessionKey}:workspace:other` };
-    writeFileSync(
-      containersPath,
-      JSON.stringify([
-        { name: "short-normal-sandbox", scopeKey },
-        { name: "short-browser-sidecar", scopeKey },
-        unrelated,
-      ]),
-    );
+    const unrelated = [
+      { name: "other-run", scopeKey: `${sessionKey}:other-run:rw:workspace:${workspaceHash}` },
+      { name: "other-workspace", scopeKey: `${sessionKey}:other-run:rw:workspace:other` },
+    ];
+    const seedContainers = `
+const sessionKey = ${JSON.stringify(sessionKey)} + ":" + process.argv[1];
+const containers = ["none", "ro", "rw"].flatMap((access) =>
+  ["sandbox", "browser"].map((kind) => ({
+    name: "short-" + access + "-" + kind,
+    scopeKey: sessionKey + ":" + access + ":workspace:" + ${JSON.stringify(workspaceHash)},
+  })),
+);
+require("node:fs").writeFileSync(${JSON.stringify(containersPath)}, JSON.stringify([
+  ...containers,
+  ...${JSON.stringify(unrelated)},
+]));
+`;
     writeExecutables(binDir, {
+      date: "#!/bin/sh\nprintf '1700000000\\n'\n",
       mktemp: `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
@@ -971,18 +987,24 @@ if (args[0] === "ps") {
 `,
     });
 
-    const result = spawnSync("bash", [SANDBOX_BROWSER_SIDECAR_DOCKER_E2E_PATH], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH ?? ""}`,
-        OPENCLAW_DOCKER_SOCKET: join(workDir, "missing.sock"),
+    // exec preserves the shell PID used by RUN_ID; the fixed date supplies its
+    // other component without deriving expected labels from the cleanup filter.
+    const result = spawnDockerSnippet(
+      'node -e "$1" "$$-1700000000"\nexec /bin/bash "$2"',
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          OPENCLAW_DOCKER_SOCKET: join(workDir, "missing.sock"),
+        },
       },
-    });
+      ["sidecar-cleanup", seedContainers, SANDBOX_BROWSER_SIDECAR_DOCKER_E2E_PATH],
+    );
 
     expect(result.status, result.stderr).toBe(1);
     expect(result.stderr).toContain("Docker socket not found:");
-    expect(JSON.parse(readFileSync(containersPath, "utf8"))).toEqual([unrelated]);
+    expect(JSON.parse(readFileSync(containersPath, "utf8"))).toEqual(unrelated);
     expect(existsSync(scenarioRoot)).toBe(false);
     expect(existsSync(buildRoot)).toBe(false);
   });
@@ -6606,6 +6628,13 @@ source "$ROOT_DIR/scripts/lib/docker-e2e-logs.sh"
   it("includes procps in the shared Docker E2E image for process watchdogs", () => {
     const dockerfile = readFileSync("scripts/e2e/Dockerfile", "utf8");
     expect(dockerfile).toContain("procps");
+  });
+
+  it("normalizes shared Docker E2E harness file permissions", () => {
+    const dockerfile = readFileSync("scripts/e2e/Dockerfile", "utf8");
+    expect(dockerfile).toContain(
+      "COPY --chmod=0644 scripts/prepublish-plugin-registry-artifact.mjs /opt/openclaw-e2e/scripts/",
+    );
   });
 
   it("copies the pnpm lockfile into the runtime image before normalizing its permissions", () => {

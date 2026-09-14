@@ -601,7 +601,8 @@ private struct ChatMessageBody: View {
                 arguments: nil,
                 details: self.message.details,
                 resultText: self.primaryText,
-                state: self.message.isError == true ? .failed : .finished,
+                state: ChatToolActivity
+                    .resultIsError(self.message.isError, text: self.primaryText) ? .failed : .finished,
                 liveDiffStat: nil)]
         }
         guard self.message.role.lowercased() == "assistant" else { return [] }
@@ -648,20 +649,11 @@ private struct ChatMessageBody: View {
     }
 
     private var toolCalls: [OpenClawChatMessageContent] {
-        self.message.content.filter { content in
-            let kind = (content.type ?? "").lowercased()
-            if ["toolcall", "tool_call", "tooluse", "tool_use"].contains(kind) {
-                return true
-            }
-            return content.name != nil && content.arguments != nil
-        }
+        self.message.content.filter(\.isToolCall)
     }
 
     private var inlineToolResults: [OpenClawChatMessageContent] {
-        self.message.content.filter { content in
-            let kind = (content.type ?? "").lowercased()
-            return kind == "toolresult" || kind == "tool_result"
-        }
+        self.message.content.filter(\.isToolResult)
     }
 
     private var isToolResultMessage: Bool {

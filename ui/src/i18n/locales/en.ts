@@ -1154,6 +1154,7 @@ export const en: TranslationMap & {
     sessionState: "Session state",
     all: "All",
     sessionArchived: "Session archived",
+    archiving: "Archiving…",
     sessionsArchived: "Archived {count} sessions",
     deleteAllArchived: "Delete all archived…",
     deleteAllArchivedConfirm:

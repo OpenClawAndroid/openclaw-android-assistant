@@ -24,6 +24,7 @@ import { peekSystemEventEntries } from "openclaw/plugin-sdk/system-event-runtime
 import { appendFailedDreamingEvent } from "./dreaming-events.js";
 import type { NarrativePhaseData } from "./dreaming-narrative.js";
 import { formatErrorMessage, includesSystemEventToken } from "./dreaming-shared.js";
+import { resolveMemoryPromotionFileMaxChars } from "./memory-budget.js";
 import type { PromotionRejectionCategory } from "./short-term-promotion-types.js";
 
 const RUNTIME_CRON_RECONCILE_INTERVAL_MS = 60_000;
@@ -638,6 +639,10 @@ async function runShortTermDreamingPromotionIfTriggered(params: {
         maxAgeDays: params.config.maxAgeDays,
         maxPromotedSnippetTokens: params.config.maxPromotedSnippetTokens,
         maxPriorEntryLossFraction: params.config.maxPriorEntryLossFraction,
+        memoryFileMaxChars: resolveMemoryPromotionFileMaxChars({
+          cfg: params.cfg,
+          agentIds,
+        }),
         consolidation: {
           ...(params.subagent ? { subagent: params.subagent } : {}),
           ...(params.config.execution?.model ? { model: params.config.execution.model } : {}),
@@ -675,7 +680,10 @@ async function runShortTermDreamingPromotionIfTriggered(params: {
           `memory-core: dreaming applied details [workspace=${workspaceDir}] ${appliedSummary}`,
         );
       }
-      const deepHasContent = candidates.length > 0 || applied.applied > 0;
+      const hasReportableRejections = applied.rejectedCandidates.some(
+        ({ category }) => category !== "memory budget",
+      );
+      const deepHasContent = repair.changed || applied.applied > 0 || hasReportableRejections;
       await writeDeepDreamingReport({
         workspaceDir,
         bodyLines: reportLines,
@@ -685,14 +693,12 @@ async function runShortTermDreamingPromotionIfTriggered(params: {
         storage: params.config.storage ?? { mode: "separate", separateReports: false },
       });
       // Generate dream diary narrative from promoted memories.
-      if (candidates.length > 0 || applied.applied > 0) {
+      if (applied.applied > 0) {
         const data: NarrativePhaseData = {
           phase: "deep",
-          snippets: candidates.map((c) => c.snippet).filter(Boolean),
+          snippets: applied.appliedCandidates.map((c) => c.snippet).filter(Boolean),
           promotions: applied.appliedCandidates.map((c) => c.snippet).filter(Boolean),
-          sourceEntryKeys: [
-            ...new Set([...candidates, ...applied.appliedCandidates].map((c) => c.key)),
-          ],
+          sourceEntryKeys: [...new Set(applied.appliedCandidates.map((c) => c.key))],
         };
         if (!params.subagent) {
           await appendFallbackNarrativeEntry({

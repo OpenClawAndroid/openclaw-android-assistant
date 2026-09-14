@@ -22,7 +22,7 @@ import type {
 import { getRuntimeConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { loadExactSessionEntryReadOnlyResult } from "../config/sessions/session-accessor.sqlite-entry-availability.js";
-import { resolveSessionEntry } from "../config/sessions/session-accessor.sqlite-entry.js";
+import { resolveSessionEntry } from "../config/sessions/session-accessor.sqlite-exact-read.js";
 import {
   resolveExistingAgentSessionStoreTargetsReadOnlyResult,
   type SessionStoreTargetsReadCache,

@@ -164,6 +164,7 @@ export async function writeInstanceBindingProbePlugin(
     const request = {};
     require("node:diagnostics_channel").channel(${JSON.stringify(channelName)}).publish(request);
     const coordinator = request.coordinator;
+    const reportReloadSettlement = Boolean(coordinator.channelProof || coordinator.channel);
     const registryId = coordinator.nextRegistryId++;
     coordinator.runtimes.push(api.runtime);
     api.on("gateway_stop", () => { coordinator.gatewayStops.push(registryId); });
@@ -201,7 +202,7 @@ export async function writeInstanceBindingProbePlugin(
         registryId,
         sessionsId: coordinator.identify(context.sessionCompanion),
         placementId: coordinator.identify(context.workerSessionPlacementService),
-        ...(coordinator.channelProof ? { reloadSettled: context.isConfigReloadSettled() } : {}),
+        ...(reportReloadSettlement ? { reloadSettled: context.isConfigReloadSettled() } : {}),
       });
     }, { scope: "operator.read" });
   },

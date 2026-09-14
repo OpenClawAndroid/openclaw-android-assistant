@@ -562,6 +562,10 @@ public struct OpenClawChatView: View {
             case let .historyDivider(divider):
                 ChatHistoryDividerRow(divider: divider)
                     .frame(maxWidth: .infinity)
+            case let .completedWork(work):
+                ChatCompletedWorkDisclosure(work: work) { message in
+                    self.messageRow(for: message, contextWindowTokens: contextWindowTokens)
+                }
             }
         }
 
@@ -804,9 +808,27 @@ public struct OpenClawChatView: View {
         } else {
             base = self.viewModel.messages
         }
-        return ChatTranscriptRow.build(from: self.mergeToolResults(in: base)).filter { row in
-            guard case let .message(message) = row else { return true }
-            return self.shouldDisplayMessage(message)
+        var rows = ChatTranscriptRow.build(from: self.mergeToolResults(in: base))
+        #if os(macOS)
+        if self.isDesktopLayout {
+            rows = ChatTranscriptRow.collapseCompletedWork(
+                rows,
+                runWorking: self.viewModel.hasBlockingRunActivity || self.viewModel.streamingAssistantText != nil,
+                activeRunIDs: Set(self.viewModel.liveAdvertisedRunIDs).union(self.viewModel.liveLocalRunIDs),
+                searchActive: self.isSearchPresented)
+        }
+        #endif
+        return rows.compactMap { row in
+            switch row {
+            case let .message(message):
+                return self.shouldDisplayMessage(message) ? row : nil
+            case let .completedWork(work):
+                let visible = work.messages.filter(self.shouldDisplayMessage)
+                return visible.isEmpty ? nil : .completedWork(.init(
+                    anchorID: work.anchorID, messages: visible, durationMilliseconds: work.durationMilliseconds))
+            default:
+                return row
+            }
         }
     }
 
@@ -1174,6 +1196,11 @@ extension OpenClawChatView {
 
             guard let toolCallId = message.toolCallId,
                   let last = result.last,
+                  message.turnBoundary != true,
+                  !message.isForwardedTurnBoundary,
+                  !last.isForwardedTurnBoundary,
+                  message.transcriptRunID == nil || last.transcriptRunID == nil ||
+                  message.transcriptRunID == last.transcriptRunID,
                   toolCallIds(in: last).contains(toolCallId)
             else {
                 result.append(message)
@@ -1216,7 +1243,11 @@ extension OpenClawChatView {
                 details: last.details,
                 isError: last.isError,
                 provenance: last.provenance,
-                historyMarker: last.historyMarker)
+                historyMarker: last.historyMarker,
+                phase: last.phase,
+                turnBoundary: last.turnBoundary,
+                steerTargetRunID: last.steerTargetRunID,
+                streamFallback: last.streamFallback)
             result[result.count - 1] = merged
         }
 
@@ -1265,20 +1296,11 @@ extension OpenClawChatView {
     }
 
     private func toolCalls(in message: OpenClawChatMessage) -> [OpenClawChatMessageContent] {
-        message.content.filter { content in
-            let kind = (content.type ?? "").lowercased()
-            if ["toolcall", "tool_call", "tooluse", "tool_use"].contains(kind) {
-                return true
-            }
-            return content.name != nil && content.arguments != nil
-        }
+        message.content.filter(\.isToolCall)
     }
 
     private func inlineToolResults(in message: OpenClawChatMessage) -> [OpenClawChatMessageContent] {
-        message.content.filter { content in
-            let kind = (content.type ?? "").lowercased()
-            return kind == "toolresult" || kind == "tool_result"
-        }
+        message.content.filter(\.isToolResult)
     }
 
     private func toolCallIds(in message: OpenClawChatMessage) -> Set<String> {

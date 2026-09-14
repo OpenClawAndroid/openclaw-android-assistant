@@ -31,6 +31,7 @@ export type CronCreatorAuthorityRunScope = {
   readonly signal: AbortSignal;
   readonly grantTokens: Set<string>;
   readonly controlUiAdmin?: true;
+  readonly isCurrent?: () => boolean;
   active: boolean;
   abort: () => void;
 };
@@ -58,6 +59,7 @@ export function createCronCreatorAuthorityRunScope(
   runId: string,
   callerOrigin: CronScheduledToolCallerOrigin = { kind: "unknown" },
   controlUiAdmin?: true,
+  isCurrent?: () => boolean,
 ): CronCreatorAuthorityRunScope {
   const abortController = new AbortController();
   return {
@@ -66,6 +68,7 @@ export function createCronCreatorAuthorityRunScope(
     signal: abortController.signal,
     grantTokens: new Set(),
     ...(controlUiAdmin ? { controlUiAdmin } : {}),
+    ...(isCurrent ? { isCurrent } : {}),
     active: true,
     abort: () => abortController.abort(expiredAuthorityError()),
   };
@@ -77,7 +80,12 @@ export function mintCronCreatorAuthorityGrant(
   runtimeAuthority?: CronRuntimeAuthority,
   management?: CronManagementBinding,
 ): CronCreatorAuthorityGrant {
-  if (!scope.active || scope.signal.aborted || operationSignal?.aborted) {
+  if (
+    !scope.active ||
+    scope.signal.aborted ||
+    operationSignal?.aborted ||
+    scope.isCurrent?.() === false
+  ) {
     throw management ? expiredManagementError() : expiredAuthorityError();
   }
   if (!management && scope.controlUiAdmin && scope.callerOrigin.kind === "unknown") {
@@ -203,6 +211,7 @@ export async function withCronManagementGrant<T>(
       !entry.scope.active ||
       entry.scope.signal.aborted ||
       entry.operationSignal?.aborted ||
+      entry.scope.isCurrent?.() === false ||
       Date.now() >= management.expiresAtMs ||
       !validateAgentRunDelegatedAuthority(management.authority)
     ) {

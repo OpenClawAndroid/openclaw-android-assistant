@@ -137,6 +137,33 @@ async function captureProof(page: Page, surface: string): Promise<void> {
   });
 }
 
+async function expectAssignmentAvatarLayout(page: Page): Promise<void> {
+  const layout = await page
+    .locator('wa-dropdown-item[value^="assign-owner:"]:visible')
+    .evaluateAll((items) =>
+      items.map((item) => {
+        const avatar = item.querySelector(".viewer-avatar")!;
+        const slot = item.querySelector('[slot="icon"]')!;
+        const label = item.querySelector(".session-menu__text")!;
+        const bounds = avatar.getBoundingClientRect();
+        const slotBounds = slot.getBoundingClientRect();
+        const style = getComputedStyle(avatar);
+        return {
+          width: style.width,
+          height: style.height,
+          square: Math.abs(bounds.width - bounds.height) < 0.01,
+          contained: bounds.left >= slotBounds.left && bounds.right <= slotBounds.right,
+          gap: label.getBoundingClientRect().left - bounds.right,
+        };
+      }),
+    );
+  expect(layout.length).toBeGreaterThan(0);
+  for (const avatar of layout) {
+    expect(avatar).toMatchObject({ width: "24px", height: "24px", square: true, contained: true });
+    expect(avatar.gap).toBeGreaterThanOrEqual(6);
+  }
+}
+
 async function chooseMe(page: Page): Promise<void> {
   await page.getByRole("menuitem", { name: "Assign to…", exact: true }).hover();
   const action = page.getByRole("menuitemradio", { name: "Me", exact: true });
@@ -202,27 +229,15 @@ suite.define(() => {
       await expect
         .poll(() => selfAvatar.evaluate((image) => (image as HTMLImageElement).naturalWidth))
         .toBeGreaterThan(0);
-      const avatarSizes = await assignTo
-        .locator(':scope > wa-dropdown-item[slot="submenu"] .viewer-avatar')
-        .evaluateAll((avatars) =>
-          avatars.map((avatar) => {
-            const bounds = avatar.getBoundingClientRect();
-            const style = getComputedStyle(avatar);
-            return {
-              height: bounds.height,
-              width: bounds.width,
-              cssHeight: style.height,
-              cssWidth: style.width,
-            };
-          }),
-        );
-      expect(avatarSizes.length).toBeGreaterThan(0);
-      expect(
-        avatarSizes.every(
-          ({ width, height, cssWidth, cssHeight }) =>
-            Math.abs(width - height) < 0.01 && cssWidth === "14px" && cssHeight === "14px",
-        ),
-      ).toBe(true);
+      await expectAssignmentAvatarLayout(page);
+      await expectBrowser(assignTo.locator(":scope > .session-menu__icon")).toHaveCSS(
+        "width",
+        "14px",
+      );
+      await expectBrowser(assignTo.locator(":scope > .session-menu__icon svg")).toHaveCSS(
+        "width",
+        "14px",
+      );
       await assignTo.getByRole("menuitemradio", { name: "Carol", exact: true }).click();
       await expectAssignmentRequest(gateway, "profile-carol");
       await gateway.resolveDeferred("sessions.assignOwner", {
@@ -301,6 +316,7 @@ suite.define(() => {
           await expectBrowser(
             page.getByRole("menuitemradio").locator(":scope > .session-menu__text"),
           ).toHaveText(["Me", "OpenClaw", "Bob", "Carol", ...extraNames]);
+          await expectAssignmentAvatarLayout(page);
           const target = extraNames.at(-1) ?? "Carol";
           const owner = page.getByRole("menuitemradio", { name: target, exact: true });
           await owner.scrollIntoViewIfNeeded();

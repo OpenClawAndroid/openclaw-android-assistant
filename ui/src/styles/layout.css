@@ -2888,6 +2888,7 @@ wa-dropdown-item.session-menu__item::part(submenu-icon) {
 }
 
 .session-menu__icon,
+.session-menu__avatar,
 .session-menu__check {
   display: inline-flex;
   align-items: center;
@@ -2905,9 +2906,12 @@ wa-dropdown-item.session-menu__item::part(submenu-icon) {
   color: var(--muted);
 }
 
-.session-menu__icon .viewer-avatar {
-  width: 14px;
-  height: 14px;
+/* Identity choices need room for recognizable faces, not action-sized glyphs. */
+.session-menu__avatar,
+.session-menu__avatar .viewer-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
 }
 
 .session-menu__icon svg,

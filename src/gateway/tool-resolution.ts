@@ -12,6 +12,11 @@ import { resolveExecDefaults } from "../agents/exec-defaults.js";
 import { createLazyExecTool, resolveExecToolConfig } from "../agents/lazy-exec-tool.js";
 import { createOpenClawTools } from "../agents/openclaw-tools.js";
 import { filterRequesterYieldTools } from "../agents/openclaw-tools.requester-yield.js";
+import {
+  applySwarmCollectorToolContract,
+  createSwarmCollectorWriteAuthority,
+  resolveSwarmCollectorToolContext,
+} from "../agents/openclaw-tools.swarm.js";
 import { resolveRequesterToolPolicies } from "../agents/requester-tool-policy.js";
 import type { PreparedRootedExecutionCapability } from "../agents/rooted-run-params.js";
 import { resolveSandboxRuntimeStatus } from "../agents/sandbox/runtime-status.js";
@@ -79,6 +84,11 @@ export function resolveGatewayScopedTools(
     allowGatewaySubagentBinding?: boolean;
     allowMediaInvokeCommands?: boolean;
     surface?: GatewayScopedToolSurface;
+    /**
+     * Liveness of the client grant this request authenticated with, supplied by
+     * the loopback server. Run-contract tools re-check it before they write.
+     */
+    isGrantCurrent?: () => boolean;
     excludeToolNames?: Iterable<string>;
     /** Server-minted coding tools that must be mediated through the loopback surface. */
     mediatedToolNames?: Iterable<string>;
@@ -266,10 +276,39 @@ export function resolveGatewayScopedTools(
     gatewayRequestedTools.length > 0 ? { allow: gatewayRequestedTools } : undefined,
   ].some(hasRestrictiveAllowPolicy);
 
+  // CLI backends reach OpenClaw tools through this resolver instead of the
+  // embedded runner, and the loopback grant carries no collector fields, so the
+  // subagent registry supplies the collector run contract for this child.
+  //
+  // Authority is the admitted collector run, not the transport. `params.runId`
+  // reaches this resolver only from `McpLoopbackRequestContext.runId`, which
+  // `resolveMcpRequestContext` copies out of a Gateway-minted, run-bound CLI
+  // client grant; the session-scoped `openclaw attach` branch and the
+  // header-derived branch never set it, and the `http` caller never passes one.
+  // Requiring that id to match the registry's collector record therefore admits
+  // the collector child's own run and nobody else, including an attach client
+  // bound to that same collector session.
+  const swarmCollectorAdmission = {
+    childSessionKey: params.sessionKey,
+    admittedRunId: surface === "loopback" ? params.runId : undefined,
+  };
+  const swarmCollectorContext = resolveSwarmCollectorToolContext(swarmCollectorAdmission);
   const openClawTools = createOpenClawTools({
     gatewayConfigReadAllowed,
     agentSessionKey: params.sessionKey,
     runId: params.runId,
+    ...(swarmCollectorContext
+      ? {
+          swarmCollector: true,
+          assertCollectorWriteAuthority: createSwarmCollectorWriteAuthority({
+            admission: swarmCollectorAdmission,
+            isGrantCurrent: params.isGrantCurrent,
+          }),
+          ...(swarmCollectorContext.swarmOutputSchema
+            ? { swarmOutputSchema: swarmCollectorContext.swarmOutputSchema }
+            : {}),
+        }
+      : {}),
     execSession: params.execSession,
     execOverrides: params.execOverrides,
     approvalReviewerDeviceIds: params.approvalReviewerDeviceId
@@ -555,9 +594,15 @@ export function resolveGatewayScopedTools(
       ...excludedToolNames,
     ].map(normalizeToolPolicyName),
   );
-  const tools = applyDelegationCapability(
-    policyFiltered.filter((tool) => !gatewayDenySet.has(normalizeToolPolicyName(tool.name))),
-    params.delegationCapability,
+  const tools = applySwarmCollectorToolContract(
+    applyDelegationCapability(
+      policyFiltered.filter((tool) => !gatewayDenySet.has(normalizeToolPolicyName(tool.name))),
+      params.delegationCapability,
+    ),
+    {
+      swarmCollector: Boolean(swarmCollectorContext),
+      structuredOutputTool: openClawTools.find((tool) => tool.name === "structured_output"),
+    },
   );
   // The loopback exec tool is node-only. Do not let a raw `exec` capability get
   // reinterpreted as generic Gateway/sandbox exec by spawned sessions or cron jobs.

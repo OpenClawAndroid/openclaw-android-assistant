@@ -1233,6 +1233,14 @@
   }
 }
 
+/* Keep media close to its prompt without compressing the prompt's paragraphs. */
+.chat-group.user
+  .chat-bubble--with-images
+  > .chat-message-images
+  + :is(.chat-text, .chat-message-disclosure, .chat-json-collapse, .chat-message-avatar-anchor) {
+  margin-block-start: var(--space-2);
+}
+
 /* A display-contents anchor transfers its block gap to the first rendered box. */
 .chat-bubble:not(.chat-bubble--with-images) > .chat-message-avatar-anchor > :first-child {
   margin-block-start: inherit;

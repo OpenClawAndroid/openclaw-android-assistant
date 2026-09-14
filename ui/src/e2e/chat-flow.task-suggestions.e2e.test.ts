@@ -1,5 +1,9 @@
+import type { Locator } from "playwright";
 import { expect, it } from "vitest";
 import { GATEWAY_SERVER_CAPS } from "../../../packages/gateway-protocol/src/index.js";
+import { finishElementAnimations } from "../test-helpers/animations.ts";
+import { createControlUiMockBootstrapConfig } from "../test-helpers/control-ui-e2e.ts";
+import { resolveRenderedColors, type RenderedColor } from "../test-helpers/rendered-colors.ts";
 import {
   chatSessionListResponse,
   createChatFlowE2eSuite,
@@ -13,12 +17,33 @@ import { createControlUiE2eContextOptions } from "./control-ui-e2e-suite.test-su
 
 const suite = createChatFlowE2eSuite();
 
+async function expectReadableButton(button: Locator) {
+  const raw = await button.evaluate((element) => ({
+    foreground: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+  }));
+  const colors = await button.page().evaluate(resolveRenderedColors, raw);
+  const luminance = (color: RenderedColor) =>
+    [color.red, color.green, color.blue]
+      .map((value) => value / 255)
+      .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4))
+      .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0);
+  const foreground = colors.foreground!;
+  expect
+    .soft(Math.min(foreground.red, foreground.green, foreground.blue))
+    .toBeGreaterThanOrEqual(240);
+  expect
+    .soft((luminance(foreground) + 0.05) / (luminance(colors.background!) + 0.05))
+    .toBeGreaterThanOrEqual(4.5);
+}
+
 suite.define(() => {
   it.each([
-    { mode: "local", label: "Start in a new session" },
-    { mode: "worktree", label: "Start in a new worktree" },
-    { mode: "session", label: "Start in this session" },
-  ])("starts a suggested task with $mode placement", async ({ mode, label }) => {
+    { mode: "local", label: "Start in a new session", accent: "#da7756" },
+    { mode: "worktree", label: "Start in a new worktree", accent: "#ffffff" },
+    { mode: "session", label: "Start in this session", accent: "#ffffff" },
+    { mode: "worktree", label: "Start in a new worktree", accent: "#00ff00" },
+  ])("starts task ($mode, $accent)", async ({ mode, label, accent }) => {
     const context = await suite.newBrowserContext({
       ...createControlUiE2eContextOptions(),
       colorScheme: mode === "worktree" ? "dark" : "light",
@@ -54,6 +79,12 @@ suite.define(() => {
       },
     });
 
+    await page.route("**/control-ui-config.json", (route) =>
+      route.fulfill({
+        json: { ...createControlUiMockBootstrapConfig(), seamColor: accent },
+      }),
+    );
+
     try {
       await page.goto(`${suite.server.baseUrl}chat`);
       await gateway.waitForRequest("taskSuggestions.list");
@@ -76,14 +107,31 @@ suite.define(() => {
       await options.click();
       await card.getByRole("menuitem", { name: "Start in a new worktree" }).waitFor();
       expect(await gateway.getRequests("taskSuggestions.accept")).toHaveLength(0);
-      await captureUiProof(suite, page, "task-suggestions", `${mode}-menu.png`);
+      const triggerBox = await options.boundingBox();
+      expect(triggerBox).not.toBeNull();
+      const menuBox = await card.getByRole("menu").boundingBox();
+      expect.soft(menuBox?.y).toBeGreaterThanOrEqual(triggerBox!.y + triggerBox!.height);
+      for (const button of [startButton, options]) {
+        await page.mouse.move(0, 0);
+        await button.evaluate(finishElementAnimations);
+        await expectReadableButton(button);
+        await button.hover();
+        await button.evaluate(finishElementAnimations);
+        await expectReadableButton(button);
+      }
+      await captureUiProof(suite, page, "task-suggestions", `${mode}-${accent.slice(1)}-menu.png`);
       await page.keyboard.press("Escape");
       await expect
         .poll(() => options.evaluate((element) => element === document.activeElement))
         .toBe(true);
       expect(await card.getByRole("button", { name: "Copy prompt" }).isEnabled()).toBe(true);
       expect(await gateway.getRequests("environments.list")).toHaveLength(0);
-      await captureUiProof(suite, page, "task-suggestions", `${mode}-split-button.png`);
+      await captureUiProof(
+        suite,
+        page,
+        "task-suggestions",
+        `${mode}-${accent.slice(1)}-split-button.png`,
+      );
       await page.getByText("Show instructions", { exact: true }).click();
       await page
         .getByText("/projects/example", { exact: true })

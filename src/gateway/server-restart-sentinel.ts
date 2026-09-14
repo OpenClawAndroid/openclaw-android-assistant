@@ -43,6 +43,7 @@ import { withSystemEventOwner } from "../infra/system-event-ownership.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { isPendingControlPlaneUpdateRestartSentinel } from "../infra/update-control-plane-sentinel.js";
 import { recordUpdateRunVerification } from "../infra/update-run-ledger.js";
+import { readUpdateRunReportHealth } from "../infra/update-run-report-health.js";
 import {
   renderUpdateRunReport,
   updateRunReportInputFromSentinel,
@@ -435,7 +436,12 @@ async function loadRestartSentinelStartupTask(params: {
   const updateRunId = updateRun?.runId;
   let noticeMessage =
     payload.kind === "update"
-      ? renderUpdateRunReport(updateRun ?? updateRunReportInputFromSentinel(payload)).markdown
+      ? renderUpdateRunReport(
+          updateRun ?? updateRunReportInputFromSentinel(payload),
+          updateRun?.status === "failed"
+            ? { currentHealth: await readUpdateRunReportHealth(updateRun.verification) }
+            : {},
+        ).markdown
       : message;
   const summary = summarizeRestartSentinel(payload);
   const wakeDeliveryContext = mergeDeliveryContext(
@@ -476,7 +482,12 @@ async function loadRestartSentinelStartupTask(params: {
         // runs finish here; first-terminal-wins preserves completed CLI results.
         updateRun = await finalizeRestartUpdateRun(payload, true);
         if (updateRun) {
-          noticeMessage = renderUpdateRunReport(updateRun).markdown;
+          noticeMessage = renderUpdateRunReport(
+            updateRun,
+            updateRun.status === "failed"
+              ? { currentHealth: await readUpdateRunReportHealth(updateRun.verification) }
+              : {},
+          ).markdown;
         }
       }
     }

@@ -8,6 +8,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { findDeliveryIntentOwner } from "../infra/outbound/delivery-queue-storage.js";
 import { recordUpdateRunStep, recordUpdateRunVerification } from "../infra/update-run-ledger.js";
 import type { UpdateRunRecord } from "../infra/update-run-record.js";
+import { readUpdateRunReportHealth } from "../infra/update-run-report-health.js";
 import { renderUpdateRunNotice, type UpdateRunNoticeKind } from "../infra/update-run-report.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { sendGatewayLifecycleNotice } from "./server-restart-sentinel-notice.js";
@@ -35,7 +36,6 @@ export function createUpdateRunNotifier(
   // Update delivery belongs to the host and can outlive the requesting attempt.
   return (run: UpdateRunRecord, kind: UpdateRunNoticeKind) =>
     runWithoutOwnedSessionTranscriptWrites(async () => {
-      const message = renderUpdateRunNotice(run, kind);
       // Pre-park and later activation share one durable notice, never a fifth milestone.
       const milestone = kind === "parking" ? "activating" : kind;
       const recorded =
@@ -44,8 +44,18 @@ export function createUpdateRunNotifier(
           : run.steps.some(
               (step) => step.step === `notice:${milestone}` && step.status === "completed",
             );
-      if (!message || recorded) {
+      if (recorded) {
         return { delivered: false, owned: recorded };
+      }
+      const message = renderUpdateRunNotice(
+        run,
+        kind,
+        kind === "finished" && run.status === "failed"
+          ? { currentHealth: await readUpdateRunReportHealth(run.verification) }
+          : {},
+      );
+      if (!message) {
+        return { delivered: false, owned: false };
       }
       const cfg = getConfig();
       const currentTarget = authorizeUpdateRunNoticeTarget(cfg, target);

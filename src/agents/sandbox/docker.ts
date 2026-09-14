@@ -20,6 +20,11 @@ import {
 } from "./container-engine.js";
 import { handleHotSandboxConfigMismatch } from "./current-config.js";
 import {
+  prepareSandboxMountPlan,
+  sandboxMountPlanMatchesContainer,
+  type SandboxMountPlan,
+} from "./mount-plan.js";
+import {
   assertPodmanSandboxTarget,
   bindPodmanSandboxEngine,
   resolvePodmanSandboxConfigHash,
@@ -36,16 +41,7 @@ import {
 import { buildSandboxContainerName, slugifySessionKey } from "./shared.js";
 import type { SandboxConfig, SandboxDockerConfig, SandboxWorkspaceAccess } from "./types.js";
 import { validateSandboxSecurity } from "./validate-sandbox-security.js";
-import {
-  appendReadOnlyWorkspaceSkillMountArgs,
-  appendWorkspaceMountArgs,
-  filterBindsConflictingWithProtectedMounts,
-  formatReadOnlyWorkspaceSkillMountHashState,
-  resolveReadOnlyWorkspaceSkillMounts,
-  resolveProtectedSkillMountContainerPaths,
-  SANDBOX_MOUNT_FORMAT_VERSION,
-  type ReadOnlyWorkspaceSkillMount,
-} from "./workspace-mounts.js";
+import { SANDBOX_MOUNT_FORMAT_VERSION } from "./workspace-mounts.js";
 
 export {
   DOCKER_SANDBOX_ENGINE,
@@ -462,7 +458,7 @@ async function createSandboxContainer(params: {
   skillsWorkspaceDir?: string;
   scopeKey: string;
   configHash?: string;
-  readOnlyWorkspaceSkillMounts: readonly ReadOnlyWorkspaceSkillMount[];
+  mountPlan: SandboxMountPlan;
   podmanRuntimeInfo?: PodmanSandboxRuntimeInfo;
 }) {
   const { engine, name, cfg, workspaceDir, scopeKey } = params;
@@ -474,7 +470,7 @@ async function createSandboxContainer(params: {
           workspaceDir,
           workspaceAccess: params.workspaceAccess,
           agentWorkspaceDir: params.agentWorkspaceDir,
-          readOnlyWorkspaceSkillMounts: params.readOnlyWorkspaceSkillMounts,
+          readOnlyWorkspaceSkillMounts: params.mountPlan.readOnlyWorkspaceSkillMounts,
           runtimeInfo: params.podmanRuntimeInfo,
         })
       : undefined;
@@ -493,36 +489,12 @@ async function createSandboxContainer(params: {
     args.push(...podmanPolicy.extraCreateArgs);
   }
   args.push("--workdir", cfg.workdir);
-  appendWorkspaceMountArgs({
-    args,
-    workspaceDir,
-    agentWorkspaceDir: params.agentWorkspaceDir,
-    skillsWorkspaceDir: params.skillsWorkspaceDir,
-    workdir: cfg.workdir,
-    workspaceAccess: params.workspaceAccess,
-    readOnlyWorkspaceSkillMounts: params.readOnlyWorkspaceSkillMounts,
-    includeReadOnlyWorkspaceSkillMounts: false,
-  });
-  // Protected skill overlays are authoritative. Remove exact destination
-  // collisions before Docker or Podman sees duplicate mount arguments.
-  const protectedPaths = resolveProtectedSkillMountContainerPaths(
-    params.readOnlyWorkspaceSkillMounts,
-  );
-  let safeBinds = cfg.binds;
-  if (protectedPaths.size > 0 && cfg.binds?.length) {
-    safeBinds = filterBindsConflictingWithProtectedMounts(cfg.binds, protectedPaths);
-    const skipped = cfg.binds.filter((b) => !safeBinds!.includes(b));
-    for (const bind of skipped) {
-      log.warn(
-        `sandbox: skipping user bind "${bind}" — container path conflicts with a protected read-only skill mount`,
-      );
-    }
+  for (const bind of params.mountPlan.skippedBinds) {
+    log.warn(
+      `sandbox: skipping user bind "${bind}" — container path conflicts with a protected read-only skill mount`,
+    );
   }
-  appendCustomBinds(args, safeBinds ? { ...cfg, binds: safeBinds } : cfg);
-  appendReadOnlyWorkspaceSkillMountArgs({
-    args,
-    readOnlyWorkspaceSkillMounts: params.readOnlyWorkspaceSkillMounts,
-  });
+  appendCustomBinds(args, { ...cfg, binds: params.mountPlan.binds });
   await withContainerEnvFile(env, async (envFile) => {
     args.push("--env-file", envFile, cfg.image, "sleep", "infinity");
     await execContainer(engine, args);
@@ -608,12 +580,14 @@ async function ensureSandboxContainerLifecycle(
       existingRegistryEntry = null;
     }
   }
-  const readOnlyWorkspaceSkillMounts = resolveReadOnlyWorkspaceSkillMounts({
+  const mountPlan = await prepareSandboxMountPlan({
+    engine,
     workspaceDir: params.workspaceDir,
     agentWorkspaceDir: params.agentWorkspaceDir,
     skillsWorkspaceDir: params.skillsWorkspaceDir,
     workdir: params.cfg.docker.workdir,
     workspaceAccess: params.cfg.workspaceAccess,
+    binds: params.cfg.docker.binds,
   });
   const genericConfigHash = computeSandboxConfigHash({
     docker: params.cfg.docker,
@@ -623,9 +597,7 @@ async function ensureSandboxContainerLifecycle(
     agentWorkspaceDir: params.agentWorkspaceDir,
     mountFormatVersion: SANDBOX_MOUNT_FORMAT_VERSION,
     createArgsEpoch: SANDBOX_DOCKER_CREATE_ARGS_EPOCH,
-    readOnlyWorkspaceSkillMounts: formatReadOnlyWorkspaceSkillMountHashState(
-      readOnlyWorkspaceSkillMounts,
-    ),
+    managedMounts: mountPlan.binds,
   });
   const expectedHash =
     engine.id === "podman"
@@ -654,10 +626,14 @@ async function ensureSandboxContainerLifecycle(
         running &&
         (typeof lastUsedAtMs !== "number" || now - lastUsedAtMs < HOT_CONTAINER_WINDOW_MS);
       if (isHot) {
+        const mountsMatch =
+          params.requireCurrentConfig ||
+          (await sandboxMountPlanMatchesContainer({ engine, containerName, plan: mountPlan }));
         handleHotSandboxConfigMismatch({
           containerName,
           scope: params.cfg.scope,
           sessionKey: params.scopeKey,
+          mountsChanged: !mountsMatch,
           ...(params.requireCurrentConfig !== undefined
             ? { requireCurrentConfig: params.requireCurrentConfig }
             : {}),
@@ -681,7 +657,7 @@ async function ensureSandboxContainerLifecycle(
       skillsWorkspaceDir: params.skillsWorkspaceDir,
       scopeKey: params.scopeKey,
       configHash: expectedHash,
-      readOnlyWorkspaceSkillMounts,
+      mountPlan,
       podmanRuntimeInfo,
     });
   } else if (!running) {

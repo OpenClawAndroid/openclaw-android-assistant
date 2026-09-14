@@ -54,6 +54,7 @@ describe("retired execution event projection", () => {
     const handler = createAgentEventHandler({
       broadcast,
       broadcastToConnIds,
+      nodeHasSessionSubscribers: () => true,
       nodeSendToSession,
       chatRunState,
       agentRunSeq: new Map(),

@@ -105,7 +105,7 @@ pages emit no such record.
 These are wall times, not CPU time: waiting includes scheduling delays, callback
 time includes awaited work, and completion delay covers settlement after the
 callback finishes. Each source page is measured separately. Caller visibility
-filtering and delivery previews outside that page are not included. Existing
+filtering runs inside the page callback; delivery previews remain outside it. Existing
 trace context is retained when present. Emitter identity identifies the logging process/isolate, not the owner of work
 awaited by the callback. The diagnostic adds no job identifiers,
 job contents, or request parameters.
@@ -120,10 +120,10 @@ uses the existing request trace/span and reports `elapsedMs` plus fixed
 
 `sourcePageMs` and `sourcePageCount` aggregate source-page calls, including
 failed calls. `returnedCount` appears once a page is selected.
-`scopeAttemptCount` is zero for direct lists. Scoped lists allow
-three total attempts. For scoped lists, `scopeProcessingMs` is listing time
-minus source-page time: it includes visibility filtering, snapshot processing
-and scheduling between page calls. These components are already included in
+`scopeAttemptCount` is zero for direct lists and one for scoped lists. Visibility
+filtering, sorting, revision calculation, and pagination share one locked source
+operation. For scoped lists, `scopeProcessingMs` is listing time minus source-page
+time, covering work outside that operation. These components are already included in
 the listing phase and must not be added to it again.
 
 The bounded branch fields are `compact`, `previewsRequested`, and `scopeApplied`.

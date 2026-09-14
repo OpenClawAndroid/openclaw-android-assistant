@@ -8,9 +8,12 @@ import {
   SHELL_NAV_DRAWER_TOGGLE_EVENT,
   type ShellNavDrawerToggleDetail,
 } from "../../../components/command-palette-contract.ts";
-import type { SessionCapability } from "../../../lib/sessions/index.ts";
 import { resolveSessionWorkspace } from "../../../lib/sessions/workspace.ts";
-import { activePlacementSession, createTestChatPane } from "../chat-pane.test-support.ts";
+import {
+  activePlacementSession,
+  createSessionCapabilityFixture,
+  createTestChatPane,
+} from "../chat-pane.test-support.ts";
 import type { ChatPageHost } from "../chat-state-host.ts";
 import { createBackgroundTasksProps } from "./chat-background-tasks.ts";
 import {
@@ -39,7 +42,10 @@ function mountIntegratedPresenceHeader(params: {
   presence: PresenceEntry[];
 }) {
   const client = { instanceId: "self-instance" } as unknown as GatewayBrowserClient;
-  const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
+  const { pane, state } = createTestChatPane({
+    client,
+    sessions: createSessionCapabilityFixture(),
+  });
   const actor = {
     type: "human" as const,
     id: "profile-ada",

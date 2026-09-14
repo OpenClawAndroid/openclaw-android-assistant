@@ -896,7 +896,7 @@ describe("gateway client capability tool filtering", () => {
       );
 
       expect(tool.description).toContain(
-        "Inline hosting is disabled; set pin=true to place it on this session's dashboard",
+        "Inline previews are unavailable this turn; set pin=true to save to the session dashboard",
       );
     } finally {
       resetPluginRuntimeStateForTest();

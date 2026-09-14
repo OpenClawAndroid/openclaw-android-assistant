@@ -180,8 +180,9 @@ describe("show_widget", () => {
     });
 
     expect(tool.description).toContain(
-      "Inline hosting is disabled; set pin=true to place it on this session's dashboard",
+      "Inline previews are unavailable this turn; set pin=true to save to the session dashboard",
     );
+    expect(tool.description).not.toContain("Keep one-off visualizations inline");
     await expect(
       tool.execute("unpinned", {
         title: "Diagram",
@@ -204,7 +205,7 @@ describe("show_widget", () => {
       status: "pinned",
       boardWidgetName: "diagram",
       capabilityState: "none",
-      text: "Widget pinned to dashboard tab main as diagram",
+      text: "Widget pinned to dashboard tab main as diagram. Open this dashboard tab in Control UI to view it.",
     });
     expect(callGatewayMock).toHaveBeenCalledExactlyOnceWith(
       "board.widget.put",

@@ -48,7 +48,7 @@ import {
   hasUserPinnedModelSelection,
 } from "../config/sessions/model-override-provenance.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { readRecentSessionUsageFromTranscript } from "../gateway/session-transcript-readers.js";
+import { readRecentSessionUsageFromTranscript } from "../gateway/session-transcript-usage.js";
 import { formatDurationCompact } from "../infra/format-time/format-duration.ts";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
 import type {

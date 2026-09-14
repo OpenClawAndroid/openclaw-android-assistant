@@ -622,6 +622,7 @@ export abstract class ChatPaneHeader extends ChatPaneDiscussion {
                 pinnable,
                 unread: row.unread === true,
                 archived: row.archived === true,
+                archiving: this.context.sessions.archiveVisibility(row.key) === "pending",
                 category: normalizeOptionalString(row.category) ?? null,
                 icon: normalizeOptionalString(row.icon) ?? null,
                 color: normalizeOptionalString(row.color) ?? null,

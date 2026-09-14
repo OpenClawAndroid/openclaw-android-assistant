@@ -32,9 +32,9 @@ import {
   readSessionUpdatedAtCore,
   replaceSessionEntry,
   replaceSessionEntrySync,
-  resolveSessionEntry,
   upsertSessionEntryCore,
 } from "./session-accessor.sqlite-entry.js";
+import { resolveSessionEntry } from "./session-accessor.sqlite-exact-read.js";
 import { readSessionStoreSummaryReadOnly } from "./session-accessor.sqlite-summary.js";
 import type {
   SessionAccessScope,

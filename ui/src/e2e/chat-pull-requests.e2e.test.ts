@@ -5,6 +5,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import { beforeEach, afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT } from "../../../src/gateway/control-ui-contract.js";
 import { SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD } from "../lib/session-pull-requests.ts";
+import { finishElementAnimations } from "../test-helpers/animations.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
 import {
@@ -261,13 +262,16 @@ describeControlUiE2e("session pull request chips", () => {
     await expect.poll(() => mergedChip.locator(".chat-pr__warning").count()).toBe(0);
 
     // The chip row sits inside the chat column directly above the composer.
+    await page.locator(".chat").evaluate(finishElementAnimations);
     const rowBottom = await page
-      .locator(".chat-prs")
+      .locator(".chat-pr")
+      .last()
       .evaluate((node) => node.getBoundingClientRect().bottom);
     const composerTop = await page
       .locator(".agent-chat__composer-shell")
       .evaluate((node) => node.getBoundingClientRect().top);
     expect(rowBottom).toBeLessThanOrEqual(composerTop);
+    expect(composerTop - rowBottom).toBeLessThanOrEqual(8);
     if (captureUiProof) {
       await page.screenshot({ path: path.join(stackingProofDir, "after-pr-discovery.png") });
     }
@@ -338,68 +342,87 @@ describeControlUiE2e("session pull request chips", () => {
     },
   );
 
-  it("offers a Publish PR row with the stale warning while rate limited pre-PR", async () => {
-    const context = await newBrowserContext();
-    const page = await context.newPage();
-    const gateway = await installMockGateway(page, {
-      featureMethods: [
-        "chat.metadata",
-        "chat.startup",
-        SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
-        "sessions.github.publish",
-      ],
-      methodResponses: {
-        [SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD]: { subscribed: true },
-      },
-    });
-    await page.goto(`${server.baseUrl}chat`);
-    const watchedKey = await waitForWatchedSessionKey(gateway);
-    await gateway.emitGatewayEvent(CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT, {
-      sessions: {
-        [watchedKey]: {
-          pullRequests: [],
-          branch: {
-            owner: "openclaw",
-            repo: "openclaw",
-            branch: "claude/cloud-workers-live-events",
-            additions: 2819,
-            deletions: 205,
-            createUrl:
-              "https://github.com/openclaw/openclaw/pull/new/claude/cloud-workers-live-events",
-          },
-          rateLimited: true,
-          status: "rate-limited",
+  it.each([
+    { label: "desktop", viewport: { width: 1180, height: 800 } },
+    { label: "mobile", viewport: { width: 393, height: 852 } },
+  ])(
+    "offers a compact Publish PR row while rate limited on $label",
+    async ({ label, viewport }) => {
+      const context = await newBrowserContext();
+      const page = await context.newPage();
+      const gateway = await installMockGateway(page, {
+        featureMethods: [
+          "chat.metadata",
+          "chat.startup",
+          SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
+          "sessions.github.publish",
+        ],
+        methodResponses: {
+          [SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD]: { subscribed: true },
         },
-      },
-    });
+      });
+      await page.goto(`${server.baseUrl}chat`);
+      const watchedKey = await waitForWatchedSessionKey(gateway);
+      await gateway.emitGatewayEvent(CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT, {
+        sessions: {
+          [watchedKey]: {
+            pullRequests: [],
+            branch: {
+              owner: "openclaw",
+              repo: "openclaw",
+              branch: "claude/cloud-workers-live-events",
+              additions: 2819,
+              deletions: 205,
+              createUrl:
+                "https://github.com/openclaw/openclaw/pull/new/claude/cloud-workers-live-events",
+            },
+            rateLimited: true,
+            status: "rate-limited",
+          },
+        },
+      });
 
-    const row = page.locator('.chat-pr[data-state="branch"]');
-    await expect.poll(() => row.count()).toBe(1);
-    await expect.poll(() => row.locator(".chat-pr__repo").textContent()).toBe("openclaw");
-    await expect
-      .poll(() => row.locator(".chat-pr__branch").textContent())
-      .toBe("claude/cloud-workers-live-events");
-    // Locale-formatted diff stats, sized like the PR the branch would open.
-    await expect.poll(() => row.locator(".chat-pr__additions").textContent()).toBe("+2,819");
-    await expect.poll(() => row.locator(".chat-pr__deletions").textContent()).toBe("−205");
-    // While rate limited "no PR found" is unreliable, so the warning shows.
-    await expect.poll(() => row.locator(".chat-pr__warning").count()).toBe(1);
-    const create = row.getByRole("button", { name: "Publish PR" });
-    await expect.poll(() => create.textContent()).toContain("Publish PR");
-    await expect.poll(() => create.getAttribute("href")).toBeNull();
-    // No dismiss control: the row reflects the checkout itself.
-    await expect.poll(() => row.locator(".chat-pr__dismiss").count()).toBe(0);
+      const row = page.locator('.chat-pr[data-state="branch"]');
+      await expect.poll(() => row.count()).toBe(1);
+      await expect.poll(() => row.locator(".chat-pr__repo").textContent()).toBe("openclaw");
+      await expect
+        .poll(() => row.locator(".chat-pr__branch").textContent())
+        .toBe("claude/cloud-workers-live-events");
+      // Locale-formatted diff stats, sized like the PR the branch would open.
+      await expect.poll(() => row.locator(".chat-pr__additions").textContent()).toBe("+2,819");
+      await expect.poll(() => row.locator(".chat-pr__deletions").textContent()).toBe("−205");
+      // While rate limited "no PR found" is unreliable, so the warning shows.
+      await expect.poll(() => row.locator(".chat-pr__warning").count()).toBe(1);
+      const create = row.getByRole("button", { name: "Publish PR" });
+      await expect.poll(() => create.textContent()).toContain("Publish PR");
+      await expect.poll(() => create.getAttribute("href")).toBeNull();
+      // No dismiss control: the row reflects the checkout itself.
+      await expect.poll(() => row.locator(".chat-pr__dismiss").count()).toBe(0);
 
-    // The row shares the composer's centered width; it is part of the input
-    // stack, not a full-pane banner.
-    const rowBox = await page.locator(".chat-prs").boundingBox();
-    const composerBox = await page.locator(".agent-chat__composer-shell").boundingBox();
-    expect(rowBox && composerBox).toBeTruthy();
-    if (rowBox && composerBox) {
-      expect(Math.abs(rowBox.width - composerBox.width)).toBeLessThanOrEqual(1);
-      expect(Math.abs(rowBox.x - composerBox.x)).toBeLessThanOrEqual(1);
-    }
-  });
+      // The row shares the composer's centered width; it is part of the input
+      // stack, not a full-pane banner.
+      await page.setViewportSize(viewport);
+      await page.locator(".chat").evaluate(finishElementAnimations);
+      if (captureUiProof) {
+        await page.screenshot({
+          animations: "disabled",
+          path: path.join(stackingProofDir, `${label}-branch-spacing.png`),
+        });
+      }
+      const rowBox = await page.locator(".chat-prs").boundingBox();
+      const composerBox = await page.locator(".agent-chat__composer-shell").boundingBox();
+      expect(rowBox && composerBox).toBeTruthy();
+      if (rowBox && composerBox) {
+        expect(Math.abs(rowBox.width - composerBox.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(rowBox.x - composerBox.x)).toBeLessThanOrEqual(1);
+        const chipBox = await row.boundingBox();
+        expect(chipBox).not.toBeNull();
+        const gap = composerBox.y - (chipBox!.y + chipBox!.height);
+        expect(gap).toBeGreaterThanOrEqual(0);
+        expect(gap).toBeLessThanOrEqual(8);
+      }
+    },
+  );
 
   it("publishes through the Gateway and renders the terminal pull request URL", async () => {
     const context = await browser.newContext({

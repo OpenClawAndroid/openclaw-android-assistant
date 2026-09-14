@@ -99,9 +99,8 @@ export interface SidebarMenusControllerHost
   askAgentCapabilities(agentId: string): void;
   getRouteSessionKey(): string;
   getSessionNavigationState(): { selectedAgentId: string };
-  reconciledSidebarZone(): {
+  reconciledSidebarZone(): ReturnType<SessionOrganizerControllerHost["reconciledSidebarZone"]> & {
     entries: readonly SidebarZoneEntry[];
-    sidebarEntries: readonly string[];
   };
   selectedVisibleSessions(): SidebarRecentSession[];
   switchChipAgent(agentId: string): void;

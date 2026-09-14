@@ -612,7 +612,7 @@ export function createSessionCapability(
     recover: operations.recover,
     patch: mutations.patch,
     archiveVisibility: mutations.archiveVisibility,
-    setArchivePending: mutations.setArchivePending,
+    beginArchive: mutations.beginArchive,
     assignOwner: mutations.assignOwner,
     retireModelOverride: mutations.retireModelOverride,
     think: thinkingClaims.get,

@@ -9,7 +9,6 @@ import type { UiSettings } from "../../../app/settings.ts";
 import { icons } from "../../../components/icons.ts";
 import type { SessionMenuData } from "../../../components/session-menu-actions.ts";
 import type { SessionOwnerOption } from "../../../components/session-owner-chip.ts";
-import type { SessionCapability } from "../../../lib/sessions/index.ts";
 import { createApplicationContextProvider } from "../../../test-helpers/application-context.ts";
 import {
   clearNativeGatewayTestState,
@@ -190,7 +189,10 @@ describe("chat header session menu", () => {
       const client = {
         gatewayUrl: "gatewayUrl" in testCase ? testCase.gatewayUrl : "ws://localhost:18789",
       } as GatewayBrowserClient;
-      const { pane, state } = createTestChatPane({ client, sessions: {} as SessionCapability });
+      const { pane, state } = createTestChatPane({
+        client,
+        sessions: createSessionCapabilityFixture(),
+      });
       const session = {
         key: state.sessionKey,
         kind: "direct" as const,

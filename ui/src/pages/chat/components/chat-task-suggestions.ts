@@ -215,7 +215,7 @@ function renderChatTaskSuggestions(props: {
                 }
               </button>
               <wa-dropdown
-                placement="top-end"
+                placement="bottom-end"
                 ?disabled=${busy || !props.canAccept}
                 @wa-select=${(event: CustomEvent<{ item: { value: string } }>) => {
                   const mode = event.detail.item.value;

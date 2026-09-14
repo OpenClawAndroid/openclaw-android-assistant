@@ -11,10 +11,9 @@ import { prepareMemoryRuntimeReload } from "./memory-runtime.js";
 import { getPluginInstance } from "./plugin-instance-scope.js";
 import type { MemoryPluginRuntime } from "./registry-contribution-types.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
-import { createPluginRegistry } from "./registry.js";
+import { createTestPluginRegistry } from "./registry-runtime.test-helpers.js";
 import { disposePluginRegistryInstances } from "./runtime.js";
 import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
-import type { PluginRuntime } from "./runtime/types.js";
 
 const { memoryRuntime } = await vi.importActual<{ memoryRuntime: MemoryPluginRuntime }>(
   "../../extensions/memory-core/runtime-api.js",
@@ -58,11 +57,7 @@ function registerMemoryOwner(
   config: OpenClawConfig,
   runtimeImplementation: MemoryPluginRuntime = memoryRuntime,
 ) {
-  const owner = createPluginRegistry({
-    logger: { info() {}, warn() {}, error() {}, debug() {} },
-    runtime: {} as PluginRuntime,
-    activateGlobalSideEffects: false,
-  });
+  const owner = createTestPluginRegistry();
   const record = createPluginRecord({
     id: "memory-fixture",
     source: "fixture",

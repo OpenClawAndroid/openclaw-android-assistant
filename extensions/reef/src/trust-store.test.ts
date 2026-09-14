@@ -8,7 +8,7 @@ import {
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createPluginRuntimeMock } from "openclaw/plugin-sdk/plugin-test-runtime";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { generateIdentity } from "../protocol/index.js";
 import { ReefChannelConfigSchema } from "./config-schema.js";
 import { reefPeerIdentity } from "./friend-types.js";
@@ -243,6 +243,9 @@ describe("ReefTrustStore", () => {
   it.each(["overdue", "rejections"] as const)(
     "bounds repeated peer reads in %s scans and refreshes between scans",
     (kind) => {
+      const now = 1_800_000_000_000;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      onTestFinished(() => clock.mockRestore());
       const store = openReefTrustStore(runtime(), config());
       const trust = peerTrust();
       const recipient = reefPeerIdentity(trust);
@@ -252,6 +255,7 @@ describe("ReefTrustStore", () => {
       const peers = ["clawd", "clawd", "other", "stranger", "clawd", "other", "stranger"];
       const ids = peers.map((_, index) => String(index + 1).padStart(26, "0"));
       for (const [index, peer] of peers.entries()) {
+        clock.mockReturnValue(now + index);
         const id = ids[index];
         if (!id) {
           throw new Error("Missing fixture delivery id");

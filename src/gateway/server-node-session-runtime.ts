@@ -163,6 +163,7 @@ export function createGatewayNodeSessionRuntime(params: {
     nodePresenceTimers,
     sessionEventSubscribers,
     sessionMessageSubscribers,
+    nodeHasSessionSubscribers: nodeSubscriptions.hasSubscribers,
     nodeSendToSession,
     nodeSendToAllSubscribed,
     nodeSubscribe,

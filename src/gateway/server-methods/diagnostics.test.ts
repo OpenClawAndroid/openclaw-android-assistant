@@ -193,6 +193,7 @@ describe("diagnostics gateway methods", () => {
         CommandLane.Nested,
         CommandLane.Subagent,
         CommandLane.SystemAgent,
+        CommandLane.SystemAgentInference,
       ]);
       expect(payload.lanes).toContainEqual(
         expect.objectContaining({

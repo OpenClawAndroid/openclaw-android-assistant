@@ -37,6 +37,25 @@ struct ChatToolActivityItem: Identifiable, Equatable {
 }
 
 enum ChatToolActivity {
+    static func resultIsError(_ flag: Bool?, text: String?) -> Bool {
+        if let flag { return flag }
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        if ["tool not found", "tool not found."].contains(text.lowercased()) { return true }
+        guard text.utf16.count <= 20000,
+              text.hasPrefix("{"), text.hasSuffix("}"),
+              let data = text.data(using: .utf8),
+              let result = try? JSONDecoder().decode(AnyCodable.self, from: data).dictionaryValue
+        else { return false }
+        if let flag = result["isError"]?.boolValue ?? result["is_error"]?.boolValue { return flag }
+        if let error = result["error"] {
+            if let text = error.stringValue,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+            if error.boolValue == true || error.dictionaryValue != nil || error.arrayValue != nil { return true }
+        }
+        return ["error", "failed", "timeout"].contains(
+            result["status"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
+    }
+
     static func items(
         calls: [OpenClawChatMessageContent],
         results: [OpenClawChatMessageContent]) -> [ChatToolActivityItem]
@@ -54,7 +73,8 @@ enum ChatToolActivity {
                 arguments: call.arguments,
                 details: result?.details,
                 resultText: result?.text,
-                state: result.map { $0.isError == true ? .failed : .finished } ?? .unavailable,
+                state: result
+                    .map { Self.resultIsError($0.isError, text: $0.text) ? .failed : .finished } ?? .unavailable,
                 liveDiffStat: nil)
         }
 
@@ -65,7 +85,7 @@ enum ChatToolActivity {
                 arguments: nil,
                 details: result.details,
                 resultText: result.text,
-                state: result.isError == true ? .failed : .finished,
+                state: Self.resultIsError(result.isError, text: result.text) ? .failed : .finished,
                 liveDiffStat: nil)
         })
         return items

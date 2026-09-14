@@ -23,7 +23,7 @@ import { createRuntimeDependencyOwnershipBuildPlugin } from "./scripts/lib/runti
 import { runtimeProcessBuildEntries } from "./scripts/lib/runtime-process-build-entries.mts";
 import {
   sharedRuntimeProcessBuildEntries,
-  shouldBundleStandaloneRuntimeDependency,
+  shouldBundleRuntimeSqliteDependency,
   standaloneRuntimeProcessBuildEntries,
 } from "./scripts/lib/runtime-process-core-build-entries.mts";
 import {
@@ -357,7 +357,7 @@ function shouldNeverBundleDeclarationDependency(id: string): boolean {
   // Arrow's relative module augmentations must stay beside their package modules.
   return (
     shouldNeverBundleDependency(id) ||
-    ["zod", "apache-arrow"].some((name) => id === name || id.startsWith(`${name}/`))
+    ["zod", "apache-arrow", "kysely"].some((name) => id === name || id.startsWith(`${name}/`))
   );
 }
 
@@ -858,7 +858,11 @@ const configs: UserConfig[] = [
           ),
         ),
       },
-      deps: unifiedDeps,
+      deps: {
+        ...unifiedDeps,
+        alwaysBundle: (id) =>
+          shouldAlwaysBundleDependency(id) || shouldBundleRuntimeSqliteDependency(id),
+      },
       // Explicit ESM chunks avoid repeated package-format parsing in Node;
       // named entrypoints retain their public .js paths.
       outputOptions: { chunkFileNames: "[name]-[hash].mjs" },
@@ -913,7 +917,7 @@ const configs: UserConfig[] = [
       deps: {
         ...unifiedDeps,
         alwaysBundle: (id) =>
-          shouldAlwaysBundleDependency(id) || shouldBundleStandaloneRuntimeDependency(id),
+          shouldAlwaysBundleDependency(id) || shouldBundleRuntimeSqliteDependency(id),
       },
       outputOptions: { codeSplitting: false },
       plugins: [createStateSchemaInlinePlugin()],

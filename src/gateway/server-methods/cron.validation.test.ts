@@ -267,18 +267,22 @@ function createCronContext(currentJobs?: CronJob | CronJob[]) {
       ),
       list: vi.fn(async () => jobs),
       listPage: vi.fn(
-        async (opts?: {
-          agentId?: string;
-          limit?: number;
-          offset?: number;
-          trigger?: "all" | "conditional" | "unconditional";
-        }) => {
+        async (
+          opts?: {
+            agentId?: string;
+            limit?: number;
+            offset?: number;
+            trigger?: "all" | "conditional" | "unconditional";
+          },
+          matchesJob?: (job: CronJob) => boolean,
+        ) => {
           const requestedAgentId = opts?.agentId?.trim().toLowerCase();
-          const filteredJobs = requestedAgentId
+          const agentJobs = requestedAgentId
             ? jobs.filter(
                 (job) => (job.agentId ?? "main").trim().toLowerCase() === requestedAgentId,
               )
             : jobs;
+          const filteredJobs = matchesJob ? agentJobs.filter(matchesJob) : agentJobs;
           const total = filteredJobs.length;
           const offset = Math.max(0, Math.min(total, Math.floor(opts?.offset ?? 0)));
           const defaultLimit = total === 0 ? 50 : total;
@@ -1026,23 +1030,24 @@ describe("cron method validation", () => {
     });
 
     it.each([false, true])(
-      "attributes scoped inventory attempts without leaking hidden job data (unstable: %s)",
-      async (unstable) => {
+      "attributes scoped inventory work without leaking hidden job data (failure: %s)",
+      async (fails) => {
         const jobs = Array.from({ length: 201 }, (_, index) =>
           createCronJob({ id: `private-job-${index}`, agentId: index === 200 ? "ops" : "other" }),
         );
         const context = createCronContext(jobs);
         const listPage = context.cron.listPage.getMockImplementation()!;
-        context.cron.listPage.mockImplementation(async (opts) => {
-          clock += 600;
-          const page = await listPage(opts);
-          return unstable && opts?.offset === 200
-            ? { ...page, snapshotRevision: "changed-before-second-page" }
-            : page;
+        context.cron.listPage.mockImplementation(async (...args) => {
+          clock += 1100;
+          return await listPage(...args);
         });
         const matches = cronCallerScope.cronJobMatchesCallerScope;
+        const failure = new Error("scope failure");
         vi.spyOn(cronCallerScope, "cronJobMatchesCallerScope").mockImplementation((params) => {
           clock += 1;
+          if (fails && params.job.id === "private-job-200") {
+            throw failure;
+          }
           return matches(params);
         });
         const respond = vi.fn();
@@ -1051,10 +1056,8 @@ describe("cron method validation", () => {
           { compact: true, limit: 1 },
           { context, client: callerClient("ops"), respond },
         );
-        if (unstable) {
-          await expect(invocation).rejects.toThrow(
-            new Error("cron.list changed repeatedly while applying caller scope"),
-          );
+        if (fails) {
+          await expect(invocation).rejects.toBe(failure);
           expect(respond).not.toHaveBeenCalled();
         } else {
           await invocation;
@@ -1068,25 +1071,22 @@ describe("cron method validation", () => {
             undefined,
           );
         }
-        expect(context.cron.listPage.mock.calls.map(([opts]) => opts?.offset)).toEqual(
-          unstable ? [0, 200, 0, 200, 0, 200] : [0, 200],
-        );
         expect(context.logGateway.warn).toHaveBeenCalledExactlyOnceWith("cron: slow list request", {
           operation: "cron.list",
-          elapsedMs: unstable ? 4200 : 1401,
-          phaseDurationsMs: unstable
-            ? { setup: 0, listing: 4200 }
-            : { setup: 0, listing: 1401, projection: 0, response: 0, handlerExit: 0 },
-          sourcePageMs: unstable ? 3600 : 1200,
-          sourcePageCount: unstable ? 6 : 2,
-          scopeAttemptCount: unstable ? 3 : 1,
-          handlerOutcome: unstable ? "threw" : "returned",
-          responseOutcome: unstable ? "none" : "ok",
+          elapsedMs: 1301,
+          phaseDurationsMs: fails
+            ? { setup: 0, listing: 1301 }
+            : { setup: 0, listing: 1301, projection: 0, response: 0, handlerExit: 0 },
+          sourcePageMs: 1301,
+          sourcePageCount: 1,
+          scopeAttemptCount: 1,
+          handlerOutcome: fails ? "threw" : "returned",
+          responseOutcome: fails ? "none" : "ok",
           compact: true,
           previewsRequested: false,
           scopeApplied: true,
-          ...(!unstable ? { returnedCount: 1 } : {}),
-          scopeProcessingMs: unstable ? 600 : 201,
+          ...(!fails ? { returnedCount: 1 } : {}),
+          scopeProcessingMs: 0,
         });
       },
     );
@@ -1197,6 +1197,7 @@ describe("cron method validation", () => {
 
       expect(context.cron.listPage).toHaveBeenCalledWith(
         expect.objectContaining({ includeDisabled: true, agentId: undefined }),
+        expect.any(Function),
       );
       expect(respond).toHaveBeenCalledWith(
         true,
@@ -1377,6 +1378,7 @@ describe("cron method validation", () => {
 
     expect(context.cron.listPage).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "worker", trigger: "conditional" }),
+      undefined,
     );
     expect(respond).toHaveBeenCalledWith(
       true,
@@ -1410,6 +1412,7 @@ describe("cron method validation", () => {
 
     expect(context.cron.listPage).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: undefined }),
+      expect.any(Function),
     );
     expect(respond).toHaveBeenCalledWith(
       true,

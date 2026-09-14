@@ -29,12 +29,12 @@ export function buildUiPresentationPrompt(params: {
       : []),
     ...(showWidgetToolName
       ? [
-          `\`${showWidgetToolName}\`: self-contained sandboxed HTML/JS; pin=true adds a Control UI dashboard widget. Follow result.presentation; inline support varies by surface.`,
+          `\`${showWidgetToolName}\`: author widgets using this turn's schema. pin=true saves to the dashboard; status=pinned means the widget is on the session dashboard. Follow result.presentation when present. Inline availability is per turn, including after restart.`,
         ]
       : []),
     ...(dashboardToolName
       ? [
-          `\`${dashboardToolName}\`: layout/plugin widgets, not HTML authoring.${showWidgetToolName ? "" : " Custom authoring is unavailable this turn, not unsupported by dashboards."}`,
+          `\`${dashboardToolName}\`: layout/plugin widgets, not HTML authoring. For a saved widget, use action="focus_tab" with its tabId.${showWidgetToolName ? "" : " Custom authoring is unavailable this turn, not unsupported by dashboards."}`,
         ]
       : []),
     ...(portalToolName
@@ -42,6 +42,6 @@ export function buildUiPresentationPrompt(params: {
           `\`${portalToolName}\`: separate app in Control UI → Portals. publicUrl is not a launch link; token URLs stay private.`,
         ]
       : []),
-    "Browser tabs, links, and launch cards are not embeds. Verify the delivered interaction or say unverified.",
+    "Inspect widgets in their chat/dashboard frame; do not open hosting URLs as browser pages. Verify the delivered interaction or say unverified.",
   ].join("\n");
 }

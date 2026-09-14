@@ -237,11 +237,14 @@ export async function captureGitHubPublicationWorkspaceSnapshot(params: {
       GIT_INDEX_FILE: path.join(tempDir, "index"),
     };
     // Preserve staged path inventory, and keep write-tree cache updates off the real index.
+    const indexStat = await step(() => fs.stat(index, { bigint: true }));
     await step(() => fs.copyFile(index, env.GIT_INDEX_FILE));
+    // A newer copy timestamp hides racy-clean edits. Round down so lost precision only adds reads.
+    const indexTimestamp = Number(indexStat.mtimeNs / 1_000_000_000n);
+    await step(() => fs.utimes(env.GIT_INDEX_FILE, indexTimestamp, indexTimestamp));
     const sourceIndexTree = await git(["write-tree"], env);
+    // Ordinary staging preserves unchanged blobs; renormalization would rewrite unrelated CRLF files.
     await git(["-c", `core.attributesFile=${os.devNull}`, "add", "-A"], env);
-    // Normalize after removals, retaining intent-to-add paths and ignoring copied stat caches.
-    await git(["-c", `core.attributesFile=${os.devNull}`, "add", "--renormalize", "-u"], env);
     const workspaceTree = await git(["write-tree"], env);
     await step(() =>
       assertGitHubPublicationTreeHasNoFilters(params.cwd, workspaceTree, runPublicationCommand),

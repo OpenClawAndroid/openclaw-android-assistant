@@ -183,7 +183,7 @@ const pluginStateEntryExistsQueries = new WeakMap<
   ReturnType<typeof prepareSqliteQuerySync<PluginStateEntryLookup, { entry_key: string }>>
 >();
 
-function hasPluginStateEntry(db: DatabaseSync, params: PluginStateEntryLookup): boolean {
+export function hasPluginStateEntry(db: DatabaseSync, params: PluginStateEntryLookup): boolean {
   let query = pluginStateEntryExistsQueries.get(db);
   if (!query) {
     query = prepareSqliteQuerySync<PluginStateEntryLookup, { entry_key: string }>(

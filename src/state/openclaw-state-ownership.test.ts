@@ -9,7 +9,7 @@ import { runDoctorStateSqliteCompact } from "../commands/doctor-state-sqlite-com
 import { planPristineStartupStateMigrations } from "../commands/doctor/shared/pristine-startup-state.js";
 import {
   readConfigHealthStateFromStore,
-  writeConfigHealthStateToStore,
+  patchConfigHealthEntryToStore,
 } from "../config/io.health-state.js";
 import { resolvePathViaExistingAncestorSync } from "../infra/boundary-path.js";
 import { sha256HexPrefixCore } from "../infra/crypto-digest.js";
@@ -1012,8 +1012,8 @@ describe("external shared-state ownership", () => {
     };
     expect(readConfigHealthStateFromStore(healthDeps)).toEqual({ entries: {} });
     expect(() =>
-      writeConfigHealthStateToStore(healthDeps, {
-        entries: { "/tmp/openclaw.json": { lastObservedSuspiciousSignature: "test" } },
+      patchConfigHealthEntryToStore(healthDeps, "/tmp/openclaw.json", {
+        lastObservedSuspiciousSignature: "test",
       }),
     ).toThrow(OpenClawStateOwnershipError);
     assert.deepStrictEqual(snapshotSqliteFamily(fixture.databasePath), before);

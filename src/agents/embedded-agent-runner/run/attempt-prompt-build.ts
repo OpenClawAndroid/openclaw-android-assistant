@@ -41,6 +41,7 @@ import {
   buildModelIdentityPromptLine,
 } from "../../system-prompt.js";
 import { log } from "../logger.js";
+import { normalizeAssistantReplayContent } from "../replay-history.js";
 import {
   cloneToolResultPromptProjectionState,
   type ToolResultPromptProjectionState,
@@ -413,13 +414,16 @@ export async function prepareEmbeddedAttemptPromptContext(input: {
   const preparedUserTurnTimestamp = (
     input.preparedUserTurnMessage as { timestamp?: unknown } | undefined
   )?.timestamp;
-  let sessionMessages = filterHeartbeatTranscriptArtifacts(
+  const heartbeatFiltered = filterHeartbeatTranscriptArtifacts(
     input.messages,
     input.prompt.heartbeatSummary?.ackMaxChars,
     input.prompt.heartbeatSummary?.prompt,
   );
-  if (sessionMessages.length < input.messages.length) {
+  let sessionMessages = normalizeAssistantReplayContent(heartbeatFiltered);
+  if (sessionMessages !== heartbeatFiltered || sessionMessages.length < input.messages.length) {
     input.replaceSessionMessages(sessionMessages);
+  } else {
+    sessionMessages = input.messages;
   }
   // Raw probes temporarily hide durable history; only normal prepared history
   // is authoritative for reclaiming session-owned provider projections.

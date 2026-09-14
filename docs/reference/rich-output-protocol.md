@@ -21,6 +21,8 @@ Remote attachments must be public `https:` URLs. `http:`, loopback, link-local, 
 
 Local attachments accept absolute paths, workspace-relative paths, or home-relative `~/` paths. They still pass the agent file-read policy and media type checks before delivery.
 
+In Control UI chat, relative local references resolve against the session's working directory, including a selected project or worktree. They use the same authenticated media route as absolute paths; a missing file shows an attachment error instead of a literal `MEDIA:` line. Files on another execution host must first be delivered as managed attachments.
+
 <Warning>
 Do not emit text commands for attachments from tools, plugins, streaming blocks, browser output, or message actions. Use structured media fields instead:
 

@@ -23,6 +23,7 @@ export type SessionMenuData = {
   pinned: boolean;
   unread: boolean;
   archived: boolean;
+  archiving?: boolean;
   category: string | null;
   icon: string | null;
   color: string | null;
@@ -152,7 +153,7 @@ export class SessionMenuActions {
       case "new-group":
         return session.isChild === true;
       case "toggle-archived":
-        return !batch && !session.archived && !state.archiveAllowed;
+        return session.archiving === true || (!batch && !session.archived && !state.archiveAllowed);
       case "delete":
         return !state.deleteAllowed;
       case "toggle-unread":
@@ -380,13 +381,15 @@ export class SessionMenuActions {
       ${this.renderItem(
         "toggle-archived",
         t(
-          batch
-            ? session.archived
-              ? "sessionsView.restoreSessionCount"
-              : "sessionsView.archiveSessionCount"
-            : session.archived
-              ? "sessionsView.restoreSession"
-              : "sessionsView.archiveSession",
+          session.archiving
+            ? "sessionsView.archiving"
+            : batch
+              ? session.archived
+                ? "sessionsView.restoreSessionCount"
+                : "sessionsView.archiveSessionCount"
+              : session.archived
+                ? "sessionsView.restoreSession"
+                : "sessionsView.archiveSession",
           { count },
         ),
         session.archived ? icons.archiveRestore : icons.archive,

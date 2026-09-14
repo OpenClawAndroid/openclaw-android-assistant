@@ -291,7 +291,6 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) sessionKey = "";
   @property({ attribute: false }) agentId?: string;
   @property({ attribute: false }) navigationKey = "";
-  @property({ attribute: false }) excludedNavigationKeys: readonly string[] = [];
   @property({ type: Boolean }) presented = true;
   @state() private actionError = "";
   private readonly subscriptions = new SubscriptionsController(this)
@@ -380,15 +379,7 @@ class ControlUiPluginContributions extends OpenClawLightDomContentsElement {
     if (this.kind === "navigation") {
       return runtime
         .registrations("navigation")
-        .filter((entry) =>
-          this.navigationKey
-            ? entry.key === this.navigationKey
-            : entry.value.defaultVisible !== false &&
-              !this.excludedNavigationKeys.includes(entry.key),
-        )
-        .toSorted(
-          (a, b) => (a.value.order ?? 0) - (b.value.order ?? 0) || a.key.localeCompare(b.key),
-        )
+        .filter((entry) => entry.key === this.navigationKey)
         .map((entry) => {
           const href = entry.host.navigation.pageHref(entry.value.page);
           const active = href === `${window.location.pathname}${window.location.search}`;

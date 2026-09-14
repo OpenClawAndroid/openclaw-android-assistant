@@ -2,17 +2,76 @@ import { DeleteQueryNode } from "kysely";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   closeOpenClawStateDatabase,
+  closeOpenClawStateDatabaseAsync,
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../state/openclaw-state-db.js";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 import { getNodeSqliteKysely } from "./kysely-sync.js";
-import { createSqliteAuditRecordStore } from "./sqlite-audit-record-store.js";
+import {
+  createSqliteAuditRecordStore,
+  registerSqliteAuditRecordAsync,
+} from "./sqlite-audit-record-store.js";
 
 describe("SQLite audit record store", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     closeOpenClawStateDatabase();
+  });
+
+  it("rolls back async insertion and retention together, preserving sibling scopes", async () => {
+    await withTestDir({ prefix: "openclaw-async-audit-rollback-" }, async (stateDir) => {
+      const env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
+      const options = { env, scope: "async-rollback", maxEntries: 2 };
+      const store = createSqliteAuditRecordStore<{ value: number }>(options);
+      const sibling = createSqliteAuditRecordStore<{ value: number }>({
+        ...options,
+        scope: "sibling",
+      });
+      store.register("one", { value: 1 }, 3);
+      store.register("two", { value: 2 }, 2);
+      sibling.register("one", { value: 9 }, 1);
+      const before = store.latest({ limit: 3 });
+      // Admit the worker before installing a cross-connection transaction fault.
+      await registerSqliteAuditRecordAsync(options, {
+        key: "two",
+        value: { value: 2 },
+        createdAt: 2,
+      });
+      const { db } = openOpenClawStateDatabase({ env });
+      db.exec(`
+        CREATE TRIGGER reject_async_audit_pruning BEFORE DELETE ON diagnostic_events
+        WHEN OLD.scope = 'async-rollback' AND OLD.event_key = 'one'
+        BEGIN SELECT RAISE(ABORT, 'async audit pruning refused'); END;
+      `);
+      try {
+        await expect(
+          registerSqliteAuditRecordAsync(options, {
+            key: "three",
+            value: { value: 3 },
+            createdAt: 1,
+          }),
+        ).rejects.toThrow("async audit pruning refused");
+        expect(store.latest({ limit: 3 })).toEqual(before);
+        expect(sibling.entries()).toEqual([{ key: "one", value: { value: 9 }, createdAt: 1 }]);
+        db.exec("DROP TRIGGER reject_async_audit_pruning");
+        const value = { value: 3 };
+        const pending = registerSqliteAuditRecordAsync(options, {
+          key: "three",
+          value,
+          createdAt: 1,
+        });
+        value.value = 99;
+        await pending;
+        expect(store.latest({ limit: 3 })).toEqual([
+          { key: "three", value: { value: 3 }, createdAt: 1, sequence: 3 },
+          before[0],
+        ]);
+        expect(sibling.entries()).toEqual([{ key: "one", value: { value: 9 }, createdAt: 1 }]);
+      } finally {
+        await closeOpenClawStateDatabaseAsync();
+      }
+    });
   });
 
   it("keeps the newest configured number of rows per scope", async () => {

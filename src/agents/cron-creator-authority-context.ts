@@ -9,7 +9,10 @@ import {
   revokeCronCreatorAuthorityRunScope,
   type CronCreatorAuthorityRunScope,
 } from "../gateway/cron-creator-authority-grant.js";
-import { validateAgentRunDelegatedAuthority } from "../infra/agent-run-registry.js";
+import {
+  getAgentRunContext,
+  validateAgentRunDelegatedAuthority,
+} from "../infra/agent-run-registry.js";
 import type {
   CronCreatorToolAuthorityMaterialization,
   CronToolOptions,
@@ -33,16 +36,89 @@ export function createCronCreatorAuthorityCapability(
   runId: string,
   callerOrigin: CronScheduledToolCallerOrigin = { kind: "unknown" },
   controlUiAdmin?: true,
+  isCurrent?: () => boolean,
 ): CronCreatorAuthorityCapability | undefined {
   const normalizedRunId = runId.trim();
   return normalizedRunId
-    ? createCronCreatorAuthorityRunScope(normalizedRunId, callerOrigin, controlUiAdmin)
+    ? createCronCreatorAuthorityRunScope(normalizedRunId, callerOrigin, controlUiAdmin, isCurrent)
     : undefined;
 }
 
 const activeCronCreatorAuthority = new AsyncLocalStorage<CronCreatorAuthorityRunScope>();
 const activeCronCreatorAuthorityResolver =
   new AsyncLocalStorage<CronCreatorAuthorityResolverScope>();
+
+/** Retain the exact scope for callbacks invoked outside their creation context. */
+export function bindRequesterYieldCronAuthority(
+  runId: string | undefined,
+): (<T>(run: () => T) => T) | undefined {
+  const scope = activeCronCreatorAuthority.getStore();
+  const authority = getGatewayToolCallerIdentity()?.approvalAuthority;
+  if (
+    !scope?.controlUiAdmin ||
+    scope.runId !== runId ||
+    !authority ||
+    authority.operationalRunInstance.runId !== runId
+  ) {
+    return undefined;
+  }
+  return <T>(run: () => T): T => {
+    const caller = getGatewayToolCallerIdentity()?.approvalAuthority;
+    if (
+      !scope.active ||
+      scope.signal.aborted ||
+      caller?.operationalRunInstance.instanceId !== authority.operationalRunInstance.instanceId ||
+      !validateAgentRunDelegatedAuthority(authority)
+    ) {
+      return activeCronCreatorAuthority.exit(run);
+    }
+    return activeCronCreatorAuthority.run(scope, run);
+  };
+}
+
+/** Capture only a live Control UI management entitlement before its requester yields. */
+export function captureActiveControlUiCronAuthority(params: {
+  runId: string;
+  sessionKey: string;
+  agentId: string;
+}): { sessionId: string; lifecycleGeneration: string; isActive: () => boolean } | undefined {
+  const scope = activeCronCreatorAuthority.getStore();
+  const caller = getGatewayToolCallerIdentity();
+  const authority = caller?.approvalAuthority;
+  const context = getAgentRunContext(params.runId);
+  const sessionId = context?.sessionId;
+  if (
+    !scope?.controlUiAdmin ||
+    scope.runId !== params.runId ||
+    caller?.sessionKey !== params.sessionKey ||
+    caller.agentId !== params.agentId ||
+    context?.sessionKey !== params.sessionKey ||
+    context.agentId !== params.agentId ||
+    !sessionId ||
+    !authority ||
+    authority.operationalRunInstance.runId !== params.runId
+  ) {
+    return undefined;
+  }
+  const isActive = () => {
+    try {
+      return (
+        scope.active &&
+        !scope.signal.aborted &&
+        scope.isCurrent?.() !== false &&
+        !caller.approvalSignals?.some((signal) => signal.aborted) &&
+        caller.approvalAuthorityCheck?.() !== false &&
+        getAgentRunContext(params.runId) === context &&
+        validateAgentRunDelegatedAuthority(authority)
+      );
+    } catch {
+      return false;
+    }
+  };
+  return isActive()
+    ? { sessionId, lifecycleGeneration: authority.lifecycleGeneration, isActive }
+    : undefined;
+}
 
 /** Bind at tool construction, never rediscover authority from model arguments or routes. */
 export function bindCronManagementGrant(runId: string | undefined) {
@@ -52,6 +128,7 @@ export function bindCronManagementGrant(runId: string | undefined) {
     !scope?.controlUiAdmin ||
     !scope.active ||
     scope.signal.aborted ||
+    scope.isCurrent?.() === false ||
     scope.runId !== runId ||
     !authority ||
     authority.operationalRunInstance.runId !== runId ||

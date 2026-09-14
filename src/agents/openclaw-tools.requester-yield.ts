@@ -1,4 +1,5 @@
 import { isCronSessionKey, isSubagentSessionKey } from "../sessions/session-key-utils.js";
+import { bindRequesterYieldCronAuthority } from "./cron-creator-authority-context.js";
 
 const ISOLATED_AUTOMATION_YIELD_UNSUPPORTED_ERROR =
   "Isolated automation turns cannot use sessions_yield because no requester continuation is available. Finish this turn so the scheduler can handle child output under the job's delivery policy.";
@@ -43,6 +44,7 @@ export function createRequesterYieldCallback(params: {
   if (!params.claimYieldCompletion && !selfClaimed && !hasRegistryClaim) {
     return undefined;
   }
+  const withCronAuthority = bindRequesterYieldCronAuthority(params.requesterTurnRunId);
   return async () => {
     // Runtime claims are observational. Check them before durable registry state
     // so a runtime failure cannot record a yield that never reaches onYield.
@@ -51,12 +53,14 @@ export function createRequesterYieldCallback(params: {
       return runtimeClaimed || selfClaimed;
     }
     const { markRequesterTurnYielded } = await import("./subagents/registry/subagent-registry.js");
-    const registryClaimed =
+    const markYielded = () =>
       markRequesterTurnYielded({
         requesterSessionKey: params.requesterSessionKey as string,
         requesterAgentId: params.requesterAgentId,
         requesterTurnRunId: params.requesterTurnRunId as string,
-      }) > 0;
+      });
+    const registryClaimed =
+      (withCronAuthority ? withCronAuthority(markYielded) : markYielded()) > 0;
     return runtimeClaimed || selfClaimed || registryClaimed;
   };
 }

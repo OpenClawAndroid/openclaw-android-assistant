@@ -232,7 +232,10 @@ describe("buildDeveloperInstructions UI presentation guidance", () => {
       expect(instructions).toContain("pin=true");
       expect(instructions).toContain("publicUrl");
       expect(instructions).toContain("result.presentation");
-      expect(instructions).toContain("inline support varies by surface");
+      expect(instructions).toContain("this turn's schema");
+      expect(instructions).toContain("status=pinned means the widget is on the session dashboard");
+      expect(instructions).toContain('action="focus_tab" with its tabId');
+      expect(instructions).toContain("do not open hosting URLs as browser pages");
       expect(instructions).toContain(
         `\`${prefix}message(action="send", clawhub={query:"capability"})\``,
       );

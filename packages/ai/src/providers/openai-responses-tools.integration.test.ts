@@ -85,24 +85,34 @@ it.each(
   try {
     const runtime = createLlmRuntime();
     registerBuiltInApiProviders(runtime.registry);
-    const stream =
-      entrypoint === "provider"
-        ? runtime.stream(responsesLoopbackModel, context, options)
-        : await createOpenAIResponsesTransportStreamFn()(responsesLoopbackModel, context, options);
-    for await (const event of stream) {
-      if (event.type === "start" || event.type === "done" || event.type === "error") {
-        lifecycle.push(event.type);
+    for (let request = 0; request < 2; request++) {
+      const stream =
+        entrypoint === "provider"
+          ? runtime.stream(responsesLoopbackModel, context, options)
+          : await createOpenAIResponsesTransportStreamFn()(
+              responsesLoopbackModel,
+              context,
+              options,
+            );
+      for await (const event of stream) {
+        if (event.type === "start" || event.type === "done" || event.type === "error") {
+          lifecycle.push(event.type);
+        }
       }
+      const result = await stream.result();
+      expect(result.stopReason).toBe("stop");
+      expect(result.content).toEqual([expect.objectContaining({ type: "text", text: "done" })]);
+      expect(result.usage).toMatchObject({ input: 5, output: 3, totalTokens: 8 });
     }
-    const result = await stream.result();
-    expect(result.stopReason).toBe("stop");
-    expect(result.content).toEqual([expect.objectContaining({ type: "text", text: "done" })]);
-    expect(result.usage).toMatchObject({ input: 5, output: 3, totalTokens: 8 });
-    expect(lifecycle).toEqual(["payload", "response", "start", "done"]);
-    expect(server.requests).toHaveLength(1);
-    expect(server.requests[0]?.tools).toEqual(expectedTools);
-    expect(server.rawRequests[0]).toContain(`"tools":${JSON.stringify(expectedTools)}`);
-    expect(descriptionReads).toBe(1);
+    expect(lifecycle).toEqual(
+      Array.from({ length: 2 }, () => ["payload", "response", "start", "done"]).flat(),
+    );
+    expect(server.requests).toHaveLength(2);
+    for (let request = 0; request < 2; request++) {
+      expect(server.requests[request]?.tools).toEqual(expectedTools);
+      expect(server.rawRequests[request]).toContain(`"tools":${JSON.stringify(expectedTools)}`);
+    }
+    expect(descriptionReads).toBe(2);
     expect(tools.map((tool) => tool.name)).toEqual(["zeta", "alpha"]);
     expect(tools.every((tool) => tool.parameters === parameters)).toBe(true);
   } finally {

@@ -115,6 +115,7 @@ export function createOpenClawTools(options?: OpenClawToolsOptions): AnyAgentToo
     runId: options?.runId,
     swarmCollector: options?.swarmCollector,
     swarmOutputSchema: options?.swarmOutputSchema,
+    assertCollectorWriteAuthority: options?.assertCollectorWriteAuthority,
   });
   const inferredWorkspaceDir =
     options?.workspaceDir || !resolvedConfig

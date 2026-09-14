@@ -8,6 +8,7 @@ import {
   dropPreSessionStartAnnouncePairs,
   isHeartbeatHistoryTurnBoundaryMessage,
   projectChatDisplayMessagesWithState,
+  projectChatHistoryRecovery,
 } from "./chat-display-projection.js";
 import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
 import { readSessionMessagesAroundIdWithStatsAsync } from "./session-transcript-anchor-reader.js";
@@ -104,7 +105,7 @@ async function readAdjacentChatHistoryMessages(params: {
 /** Resolve only the newer turn context a historical page needs to classify its pending error. */
 export async function readChatHistoryRecoveryContext(params: {
   messages: unknown[];
-  project: (messages: unknown[]) => ReturnType<typeof projectChatDisplayMessagesWithState>;
+  projectRecovery: (messages: unknown[]) => ReturnType<typeof projectChatHistoryRecovery>;
   readScope: SessionTranscriptReadScope;
   displaySource: string | undefined;
   expectedReadWindow?: TranscriptReadWindow;
@@ -143,10 +144,7 @@ export async function readChatHistoryRecoveryContext(params: {
         break;
       }
     }
-    if (
-      boundaryReached ||
-      !params.project([...params.messages, ...context]).assistantErrorPending
-    ) {
+    if (boundaryReached || !params.projectRecovery([...params.messages, ...context]).pending) {
       break;
     }
     anchorId = readChatHistoryMessageId(context.at(-1));
@@ -235,22 +233,23 @@ export async function readIncrementalChatHistoryTail(params: {
   );
   let recoveryContext: unknown[] | undefined = offset === 0 ? [] : undefined;
   const newestPageSeq = readChatHistoryMessageSeq(rawMessages.at(-1));
+  const filterWindowMessages = (messages: unknown[], contextMessage: unknown) =>
+    sessionStartedAt === undefined
+      ? messages
+      : dropChatHistoryOverreadContextMessage(
+          dropPreSessionStartAnnouncePairs(
+            contextMessage === undefined ? messages : [contextMessage, ...messages],
+            sessionStartedAt,
+          ),
+          contextMessage,
+        );
   const project = (
     messages = rawMessages,
     contextMessage = overreadContextMessage,
     resolveProfileDisplay = true,
     newerContext = recoveryContext ?? [],
   ) => {
-    const filteredRawMessages =
-      sessionStartedAt === undefined
-        ? messages
-        : dropChatHistoryOverreadContextMessage(
-            dropPreSessionStartAnnouncePairs(
-              contextMessage === undefined ? messages : [contextMessage, ...messages],
-              sessionStartedAt,
-            ),
-            contextMessage,
-          );
+    const filteredRawMessages = filterWindowMessages(messages, contextMessage);
     const projection = projectChatDisplayMessagesWithState(
       newerContext.length > 0 ? [...filteredRawMessages, ...newerContext] : filteredRawMessages,
       {
@@ -286,7 +285,10 @@ export async function readIncrementalChatHistoryTail(params: {
     }
     recoveryContext = await readChatHistoryRecoveryContext({
       messages: result.filteredRawMessages,
-      project: (messages) => project(messages, overreadContextMessage, true, []).projection,
+      projectRecovery: (messages) =>
+        projectChatHistoryRecovery(filterWindowMessages(messages, overreadContextMessage), {
+          maxChars: params.effectiveMaxChars,
+        }),
       readScope: params.readScope,
       displaySource: readPage.displaySource,
       expectedReadWindow: readWindow,

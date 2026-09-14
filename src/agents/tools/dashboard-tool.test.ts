@@ -86,17 +86,13 @@ function createGatewayAffinityHarness(revision: number) {
 }
 
 describe("dashboard tool", () => {
-  it("declares every action, no client capability guard, sizing, and the dashboard threshold", () => {
+  it("declares dashboard actions without overriding widget placement", () => {
     const tool = createDashboardTool();
     const directoryDescription = tool.description.slice(0, 177);
     expect(tool.requiredClientCaps).toBeUndefined();
     expect(tool.description).toContain("stable names");
     expect(tool.description).toContain("sm=3x3");
-    expect(directoryDescription).toMatch(
-      /(?:single|one[- ]off|ad hoc).{0,40}visualizations?.{0,40}inline/i,
-    );
-    expect(directoryDescription).toContain("explicit dashboard request");
-    expect(directoryDescription).toContain("multiple non-code visualizations");
+    expect(directoryDescription).not.toMatch(/keep .*inline/i);
     expect(directoryDescription).toMatch(/widget_put.*plugin.*only/i);
     expect(tool.description).not.toMatch(/show_widget|widget_code|\bpin\b/);
     expect(tool.parameters).toMatchObject({

@@ -265,6 +265,13 @@ describe("sidebar entries", () => {
     );
   });
 
+  it("preserves opaque descriptor IDs in plugin positions", () => {
+    const entries = ["plugin:reports/daily/team:summary", "plugin:reports/日报 summary"];
+    expect(normalizeSidebarEntries(entries)).toEqual(entries);
+    expect(parseSidebarEntry("plugin:reports/")).toBeNull();
+    expect(parseSidebarEntry("plugin:/report")).toBeNull();
+  });
+
   it("normalizes persisted entries, dropping malformed and duplicate values", () => {
     expect(
       normalizeSidebarEntries([

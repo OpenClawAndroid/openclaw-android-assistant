@@ -32,6 +32,7 @@ import type {
   SubagentRunRecord,
 } from "../registry/subagent-registry.types.js";
 import { hasSubagentRunEnded } from "../registry/subagent-run-liveness.js";
+import { withRequesterCronAuthority } from "../requester-cron-authority.js";
 import {
   consumeRequesterFinalAttachment,
   revokeRequesterFinalAttachment,
@@ -626,30 +627,45 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     }
     let delivery: Awaited<ReturnType<typeof deliverSubagentAnnouncement>>;
     try {
-      delivery = await deliverSubagentAnnouncement({
-        requesterSessionKey,
-        requesterAgentId,
-        triggerMessage: wakeMessage,
-        steerMessage: wakeMessage,
-        summaryLine: "all spawned subagents settled",
-        requesterSessionOrigin,
-        requesterOrigin: requesterSessionOrigin,
-        directOrigin,
-        sourceSessionKey: currentSettledEntry.childSessionKey,
-        sourceTool: "subagent_settle",
-        targetRequesterSessionKey: requesterSessionKey,
-        requesterIsSubagent: requesterDepth >= 1,
-        expectsCompletionMessage: false,
-        requireDirectDelivery: true,
-        ...(parentOnly
-          ? { completionTarget: "parent", completionRequesterSessionId: requesterEntry.sessionId }
-          : {}),
-        ...(!parentOnly && requesterYieldedAfterDelivery ? { requireVisibleReply: true } : {}),
-        directIdempotencyKey,
-        signal: params.signal,
-        resolveGatewayContext,
-        isSourceSessionEffectsAllowed,
-      });
+      delivery = await withRequesterCronAuthority(
+        {
+          requesterSessionKey,
+          requesterSessionId,
+          requesterAgentId,
+          batch: settledBatch,
+          rearmGeneration: state.requesterYieldBatch ? state.rearmGeneration : undefined,
+          runId: directIdempotencyKey,
+          isCurrent: isSourceSessionEffectsAllowed,
+        },
+        () =>
+          deliverSubagentAnnouncement({
+            requesterSessionKey,
+            requesterAgentId,
+            triggerMessage: wakeMessage,
+            steerMessage: wakeMessage,
+            summaryLine: "all spawned subagents settled",
+            requesterSessionOrigin,
+            requesterOrigin: requesterSessionOrigin,
+            directOrigin,
+            sourceSessionKey: currentSettledEntry.childSessionKey,
+            sourceTool: "subagent_settle",
+            targetRequesterSessionKey: requesterSessionKey,
+            requesterIsSubagent: requesterDepth >= 1,
+            expectsCompletionMessage: false,
+            requireDirectDelivery: true,
+            ...(parentOnly
+              ? {
+                  completionTarget: "parent",
+                  completionRequesterSessionId: requesterEntry.sessionId,
+                }
+              : {}),
+            ...(!parentOnly && requesterYieldedAfterDelivery ? { requireVisibleReply: true } : {}),
+            directIdempotencyKey,
+            signal: params.signal,
+            resolveGatewayContext,
+            isSourceSessionEffectsAllowed,
+          }),
+      );
     } catch (error) {
       if (settleRevokedBatch()) {
         return false;

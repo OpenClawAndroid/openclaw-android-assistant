@@ -4,6 +4,7 @@ import {
   executeSqliteQuerySync,
   getNodeSqliteKysely,
   openOpenClawAgentDatabase,
+  prepareSqliteQuerySync,
   runSqliteImmediateTransactionSync,
   tableExists,
   withOpenClawAgentDatabaseReadOnly,
@@ -207,27 +208,30 @@ export function recordMemoryEntryOrigins(params: {
   const db = openMemoryOriginDatabase(params.agentId);
   return runSqliteImmediateTransactionSync(db, () => {
     const kysely = getNodeSqliteKysely<MemoryOriginDatabase>(db);
+    let insert:
+      | ReturnType<typeof prepareSqliteQuerySync<MemoryEntryOrigin, MemoryEntryOriginRow>>
+      | undefined;
     return params.origins.flatMap((origin) => {
       if (origin.agentId !== params.agentId) {
         throw new Error("memory entry origin belongs to another agent");
       }
-      return executeSqliteQuerySync(
-        db,
+      insert ??= prepareSqliteQuerySync<MemoryEntryOrigin, MemoryEntryOriginRow>(db, (parameter) =>
         kysely
           .insertInto("memory_entry_origins")
           .values({
-            entry_key: params.entryKey ?? origin.entryKey,
-            agent_id: origin.agentId,
-            session_id: origin.sessionId,
-            session_key: origin.sessionKey,
-            origin_class: origin.originClass,
-            observed_at: origin.observedAt,
+            entry_key: parameter((value) => params.entryKey ?? value.entryKey),
+            agent_id: parameter((value) => value.agentId),
+            session_id: parameter((value) => value.sessionId),
+            session_key: parameter((value) => value.sessionKey),
+            origin_class: parameter((value) => value.originClass),
+            observed_at: parameter((value) => value.observedAt),
           })
           .onConflict((conflict) =>
             conflict.columns(["entry_key", "agent_id", "session_id"]).doNothing(),
           )
           .returningAll(),
-      ).rows.map(readOrigin);
+      );
+      return insert(origin).rows.map(readOrigin);
     });
   });
 }

@@ -1,3 +1,9 @@
+import type { ConfigHealthPatch } from "../config/io.health-state.kernel.js";
+import type {
+  ConfigHealthSnapshot,
+  ConfigHealthEntryBasis,
+} from "../config/io.health-state.types.js";
+import type { PreparedSqliteAuditRecord } from "../infra/sqlite-audit-record.kernel.js";
 import type { SqliteFileGeneration } from "../infra/sqlite-file-generation.js";
 import type { TaskFlowView } from "../plugins/runtime/task-domain-types.js";
 import type { ManagedTaskInFlowInput } from "../tasks/task-flow-managed-run-task.kernel.js";
@@ -54,6 +60,20 @@ export type OpenClawStateWorkerOperations = UserPreferenceWorkerOperations & {
       | { applied: false; reason: "persist_failed"; current?: TaskFlowRecord };
   };
   "flows.current": { input: { flowId: string }; output: TaskFlowRecord | undefined };
+  "config.health.read": { input: { artifactPreserving: boolean }; output: ConfigHealthSnapshot };
+  "config.health.patch": {
+    input: {
+      configPath: string;
+      patch: ConfigHealthPatch;
+      expected: ConfigHealthEntryBasis | null | undefined;
+      updatedAtMs: number;
+    };
+    output: boolean;
+  };
+  "diagnostic.register": {
+    input: { scope: string; maxEntries: number; record: PreparedSqliteAuditRecord };
+    output: void;
+  };
   "tasks.get": { input: { taskId: string }; output: TaskRecord | undefined };
   "tasks.list": { input: { ownerKey: string }; output: TaskRecord[] };
   "tasks.resolve": {

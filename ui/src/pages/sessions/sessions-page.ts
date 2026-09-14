@@ -1190,7 +1190,16 @@ class SessionsPage extends OpenClawLightDomElement {
     if (!scope) {
       return;
     }
-    const result = await this.patchSession(row.key, { archived: true }, scope, row.sessionId);
+    const finishArchive = scope.sessions.beginArchive(row.key, row.sessionId);
+    if (!finishArchive) {
+      return;
+    }
+    let result: SessionsPageMutationResult;
+    try {
+      result = await this.patchSession(row.key, { archived: true }, scope, row.sessionId);
+    } finally {
+      finishArchive();
+    }
     if (result !== "completed" || !this.isRequestScopeCurrent(scope)) {
       return;
     }
@@ -1491,6 +1500,7 @@ class SessionsPage extends OpenClawLightDomElement {
           pinnable,
           unread: row.unread === true,
           archived: row.archived === true,
+          archiving: context.sessions.archiveVisibility(row.key) === "pending",
           category: normalizeOptionalString(row.category) ?? null,
           icon: normalizeOptionalString(row.icon) ?? null,
           color: normalizeOptionalString(row.color) ?? null,

@@ -304,17 +304,20 @@ export function deleteSessionDeliveryArtifacts(
     normalizeStoreSessionKey(trimmedKey),
     ...additionalKeys,
   ]);
-  const competingIdentities = new Set(
-    executeSqliteQuerySync(
-      database.db,
-      db.selectFrom("session_nodes").select("session_key"),
-    ).rows.flatMap((row) =>
-      row.session_key === sessionKey ? [] : [normalizeStoreSessionKey(row.session_key.trim())],
-    ),
-  );
-  const sessionKeys = lookupKeys.filter(
-    (key) => key === sessionKey || !competingIdentities.has(normalizeStoreSessionKey(key.trim())),
-  );
+  let sessionKeys = lookupKeys;
+  if (lookupKeys.some((key) => key !== sessionKey)) {
+    const competingIdentities = new Set(
+      executeSqliteQuerySync(
+        database.db,
+        db.selectFrom("session_nodes").select("session_key"),
+      ).rows.flatMap((row) =>
+        row.session_key === sessionKey ? [] : [normalizeStoreSessionKey(row.session_key.trim())],
+      ),
+    );
+    sessionKeys = lookupKeys.filter(
+      (key) => key === sessionKey || !competingIdentities.has(normalizeStoreSessionKey(key.trim())),
+    );
+  }
   executeSqliteQuerySync(
     database.db,
     db.deleteFrom("conversation_deliveries").where("source_session_key", "in", sessionKeys),

@@ -273,6 +273,7 @@ export function renderSidebarSessionMenuForController(controller: SidebarMenusCo
           pinnable: session.pinnable,
           unread: batchRows ? allUnread : session.unread,
           archived: allArchived,
+          archiving: rows.some((row) => context?.sessions.archiveVisibility(row.key) === "pending"),
           category: batchRows ? sharedCategory : (session.category ?? null),
           icon: batchRows ? null : (session.icon ?? null),
           color: batchRows ? null : (session.color ?? null),

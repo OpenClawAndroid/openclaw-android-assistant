@@ -3505,15 +3505,14 @@ describe("handleToolExecutionEnd derived tool events", () => {
     const { ctx, onAgentEvent } = createTestContext();
     const largeOutput = "x".repeat(9000);
 
-    await startTool(ctx, {
-      toolName: "exec",
-      toolCallId: "tool-exec-large-update",
-      args: { command: "yes" },
-    });
-
-    const clock = vi.spyOn(Date, "now");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
     try {
-      for (const elapsed of [0, 249, 250]) {
+      await startTool(ctx, {
+        toolName: "exec",
+        toolCallId: "tool-exec-large-update",
+        args: { command: "yes" },
+      });
+      for (const elapsed of [0, 249, 250, 251]) {
         clock.mockReturnValue(1_000 + elapsed);
         updateTool(ctx, {
           toolName: "exec",
@@ -3523,6 +3522,12 @@ describe("handleToolExecutionEnd derived tool events", () => {
           },
         });
       }
+      await endTool(ctx, {
+        toolName: "exec",
+        toolCallId: "tool-exec-large-update",
+        isError: false,
+        result: { details: { status: "completed", aggregated: "final output", exitCode: 0 } },
+      });
     } finally {
       clock.mockRestore();
       resetAgentEventsForTest();
@@ -3532,6 +3537,15 @@ describe("handleToolExecutionEnd derived tool events", () => {
       (evt) => evt.stream === "tool" && (evt.data as { phase?: string })?.phase === "update",
     );
     expect(updateEvents).toHaveLength(2);
+    const itemUpdates = events.filter(
+      (evt) => evt.stream === "item" && evt.data?.phase === "update",
+    );
+    expect(itemUpdates.map((evt) => evt.data?.kind)).toEqual([
+      "tool",
+      "command",
+      "tool",
+      "command",
+    ]);
     const partialResult = updateEvents[0]?.data?.partialResult as
       | { details?: { aggregated?: string } }
       | undefined;
@@ -3540,7 +3554,7 @@ describe("handleToolExecutionEnd derived tool events", () => {
 
     const commandOutputCalls = onAgentEvent.mock.calls
       .map((call) => call[0])
-      .filter((arg: unknown) => (arg as { stream?: string })?.stream === "command_output");
+      .filter((event) => event.stream === "command_output" && event.data.phase === "delta");
     expect(commandOutputCalls).toHaveLength(2);
     const output = (commandOutputCalls[0] as { data?: { output?: string } }).data?.output;
     expect(output).toContain("...(live output truncated)...");
@@ -3550,8 +3564,76 @@ describe("handleToolExecutionEnd derived tool events", () => {
       onAgentEvent.mock.calls
         .map((call) => call[0])
         .filter((event) => event.stream === "tool" && event.data.phase === "update"),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
+    expect(
+      onAgentEvent.mock.calls
+        .map((call) => call[0])
+        .filter((event) => event.stream === "item" && event.data.phase === "update"),
+    ).toHaveLength(8);
+    expect(events.slice(-4).map((event) => [event.stream, event.data?.phase])).toEqual([
+      ["tool", "result"],
+      ["item", "end"],
+      ["item", "end"],
+      ["command_output", "end"],
+    ]);
+    expect(events.at(-1)?.data).toMatchObject({ output: "final output", status: "completed" });
+    expect(ctx.state.itemActiveIds.size).toBe(0);
+    expect(ctx.state.itemCompletedCount).toBe(ctx.state.itemStartedCount);
   });
+
+  it.each(["meta", "commandBearing", "hideFromChannelProgress"] as const)(
+    "publishes changed exec %s without delaying the next output update",
+    async (field) => {
+      resetAgentEventsForTest();
+      const events: Array<{ stream?: string; ts?: number; data?: Record<string, unknown> }> = [];
+      const unsubscribe = registerAgentEventListener((evt) => events.push(evt));
+      const { ctx } = createTestContext();
+      const toolCallId = "exec-metadata-change";
+      await startTool(ctx, { toolName: "exec", toolCallId, args: { command: "echo first" } });
+      const update: ToolExecutionUpdateEvent = {
+        toolName: "exec",
+        toolCallId,
+        partialResult: { content: [{ type: "text", text: "output" }] },
+      };
+      const clock = vi.spyOn(Date, "now");
+      try {
+        clock.mockReturnValue(1_000);
+        updateTool(ctx, update);
+        const metadata = ctx.state.toolMetaById.get(toolCallId);
+        if (!metadata) {
+          throw new Error("Expected active tool metadata");
+        }
+        const changedValue =
+          field === "meta" ? "changed command" : field === "hideFromChannelProgress";
+        if (field === "meta") {
+          metadata.meta = "changed command";
+        } else if (field === "commandBearing") {
+          metadata.commandBearing = false;
+        } else {
+          update.hideFromChannelProgress = true;
+        }
+        for (const now of [1_100, 1_200, 1_250]) {
+          clock.mockReturnValue(now);
+          updateTool(ctx, update);
+        }
+        const itemUpdates = events.filter(
+          (evt) =>
+            evt.stream === "item" && evt.data?.kind === "tool" && evt.data.phase === "update",
+        );
+        expect(itemUpdates.map((evt) => evt.ts)).toEqual([1_000, 1_100, 1_250]);
+        expect(itemUpdates[1]?.data?.[field]).toBe(changedValue);
+        expect(
+          events
+            .filter((evt) => evt.stream === "tool" && evt.data?.phase === "update")
+            .map((evt) => evt.ts),
+        ).toEqual([1_000, 1_250]);
+      } finally {
+        clock.mockRestore();
+        unsubscribe();
+        resetAgentEventsForTest();
+      }
+    },
+  );
 
   it("caps exec final output before result and command output events", async () => {
     resetAgentEventsForTest();

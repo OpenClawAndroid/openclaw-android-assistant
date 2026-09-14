@@ -2,10 +2,8 @@ import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { SessionManager } from "../agents/sessions/session-manager.js";
 import type { SessionTranscriptReadScope } from "../config/sessions/session-accessor.js";
 import { readRecentSessionTranscriptHistoryEvents } from "../config/sessions/session-accessor.sqlite-history-events.js";
-import {
-  resolveTranscriptReadTarget,
-  toTranscriptReadScope,
-} from "./session-transcript-read-target.js";
+import { resolveSessionTranscriptReadTarget } from "../config/sessions/session-accessor.transcript-target.js";
+import { toTranscriptReadScope } from "./session-transcript-read-target.js";
 import { buildSessionPreviewItems } from "./session-utils.fs.js";
 import type { SessionPreviewItem } from "./session-utils.types.js";
 
@@ -16,7 +14,7 @@ export function readSessionPreviewItemsFromTranscript(
   maxChars: number,
   view: "display" | "model-context" = "display",
 ): SessionPreviewItem[] {
-  const target = resolveTranscriptReadTarget(scope);
+  const target = resolveSessionTranscriptReadTarget(scope);
   // Tool-only and suppressed rows need headroom; cap even the recovery scan so previews
   // never materialize an entire large transcript or monopolize the Gateway thread.
   const initialMaxEvents = Math.min(256, Math.max(64, Math.ceil(maxItems) * 4));

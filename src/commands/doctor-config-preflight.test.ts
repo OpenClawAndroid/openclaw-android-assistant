@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyCliProfileEnv } from "../cli/profile.js";
 import { promoteConfigSnapshotToLastKnownGood, readConfigFileSnapshot } from "../config/config.js";
-import { writeConfigHealthStateToStore } from "../config/io.health-state.js";
+import { patchConfigHealthEntryToStore } from "../config/io.health-state.js";
 import { createConfigHealthFingerprint } from "../config/io.observe-state.js";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
@@ -105,20 +105,14 @@ async function seedLastKnownGood(
     parsed: config,
     stat: await fs.stat(lastGoodPath),
   });
-  writeConfigHealthStateToStore(
+  patchConfigHealthEntryToStore(
     {
       env: { ...process.env, HOME: home },
       homedir: () => home,
       logger: { warn: () => {} },
     },
-    {
-      entries: {
-        [configPath]: {
-          lastKnownGood: fingerprint,
-          lastPromotedGood: fingerprint,
-        },
-      },
-    },
+    configPath,
+    { lastKnownGood: fingerprint, lastPromotedGood: fingerprint },
   );
 }
 

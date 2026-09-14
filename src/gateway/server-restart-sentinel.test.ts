@@ -996,7 +996,13 @@ describe("scheduleRestartSentinelWake", () => {
       if (terminal) {
         expect(result.finishedAtMs).toBe(existing.finishedAtMs);
       }
-      const message = renderUpdateRunReport(result).markdown;
+      const message = renderUpdateRunReport(
+        result,
+        terminal ? { currentHealth: { kind: "unavailable" } } : {},
+      ).markdown;
+      if (terminal) {
+        expect(message).toContain("Current health unavailable");
+      }
       if (channel === "webchat") {
         expect(mocks.appendAssistantMessageToSessionTranscript).toHaveBeenCalledWith(
           expect.objectContaining({ text: message }),

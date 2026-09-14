@@ -90,7 +90,6 @@ import {
   type CronCallerScope,
 } from "./cron-caller-scope.js";
 import { isCronInvalidRequestError } from "./cron-error-classification.js";
-import { listCronPageWithVisibility } from "./cron-list-caller-scope.js";
 import { startCronListDiagnostics } from "./cron-list-diagnostics.js";
 import { cronRunLogPageFilters, filterCronRunLogJobsByAgent } from "./cron-run-log-filters.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
@@ -654,27 +653,23 @@ export const cronHandlers: GatewayRequestHandlers = {
         scopeApplied: Boolean(callerScope || cronVisibility),
       });
       diagnostics?.mark("listing");
-      let page: CronListPageResult;
+      let matchesJob: ((job: CronJob) => boolean) | undefined;
       if (callerScope || cronVisibility) {
-        page = await listCronPageWithVisibility({
-          context,
-          options: listOptions,
-          diagnostics,
-          matchesJob: (job) =>
-            cronJobMatchesCallerScope({
-              job,
-              callerScope,
-              defaultAgentId,
-              allowCurrentJob: true,
-            }) && cronJobIsVisible(job, cronVisibility, defaultAgentId),
-        });
-      } else {
-        const finishPage = diagnostics?.startSourcePage();
-        try {
-          page = await context.cron.listPage(listOptions);
-        } finally {
-          finishPage?.();
-        }
+        diagnostics?.startScopeAttempt();
+        matchesJob = (job) =>
+          cronJobMatchesCallerScope({
+            job,
+            callerScope,
+            defaultAgentId,
+            allowCurrentJob: true,
+          }) && cronJobIsVisible(job, cronVisibility, defaultAgentId);
+      }
+      let page: CronListPageResult;
+      const finishPage = diagnostics?.startSourcePage();
+      try {
+        page = await context.cron.listPage(listOptions, matchesJob);
+      } finally {
+        finishPage?.();
       }
       diagnostics?.setReturnedCount(page.jobs.length);
       diagnostics?.mark("projection");

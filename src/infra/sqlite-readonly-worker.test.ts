@@ -1,22 +1,25 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { mockNodeBuiltinModule } from "../plugin-sdk/test-helpers/node-builtin-mocks.js";
+import { withEnvAsync } from "../test-utils/env.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import {
   resolveAggregateSqliteInspectionTimeoutMs,
   resolveSqliteInspectionBudget,
   runSqliteReadOnlyWorker,
   runSqliteReadOnlyWorkerSync,
+  withSqliteReadOnlyWorkerScope,
 } from "./sqlite-readonly-worker.js";
 import {
   inspectSqliteSchemaHeader,
   prepareSqliteReadOnlyLocation,
   prepareSqliteReadOnlyLocationSync,
 } from "./sqlite-snapshot-source.js";
+import { acquireStateDatabaseHandleExclusion } from "./state-database-coordinator.js";
 
 const logs = vi.hoisted(() => ({ debug: vi.fn() }));
 const { getCompileCacheDir } = vi.hoisted(() => ({
@@ -44,12 +47,18 @@ vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   const execFileSpy = vi.fn(actual.execFile);
   Object.defineProperties(execFileSpy, Object.getOwnPropertyDescriptors(actual.execFile));
-  return { ...actual, execFile: execFileSpy, spawnSync: vi.fn(actual.spawnSync) };
+  return {
+    ...actual,
+    execFile: execFileSpy,
+    spawn: vi.fn(actual.spawn),
+    spawnSync: vi.fn(actual.spawnSync),
+  };
 });
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 beforeEach(() => {
   vi.mocked(execFile).mockClear();
+  vi.mocked(spawn).mockClear();
   vi.mocked(spawnSync).mockClear();
   logs.debug.mockClear();
   getCompileCacheDir.mockReset();
@@ -70,7 +79,7 @@ function createDatabase(paddingBytes: number | null): string {
   return source;
 }
 
-describe.each(["sync", "async", "schema-header"] as const)(
+describe.each(["sync", "async", "schema-header", "scoped"] as const)(
   "SQLite child compile cache (%s)",
   (mode) => {
     it.each([
@@ -102,7 +111,11 @@ describe.each(["sync", "async", "schema-header"] as const)(
         const prepared =
           mode === "sync"
             ? prepareSqliteReadOnlyLocationSync(source)
-            : await prepareSqliteReadOnlyLocation(source);
+            : mode === "scoped"
+              ? await withSqliteReadOnlyWorkerScope(() =>
+                  prepareSqliteReadOnlyLocation(source, { preserveSourceArtifacts: true }),
+                )
+              : await prepareSqliteReadOnlyLocation(source);
         try {
           if (mode === "sync") {
             expect(fs.readFileSync(prepared.location)).toEqual(before);
@@ -145,6 +158,163 @@ describe.each(["sync", "async", "schema-header"] as const)(
     });
   },
 );
+async function readRawSnapshotVersion(source: string) {
+  const stagingRoot = tempDirs.make("openclaw-scoped-snapshot-");
+  const location = await runSqliteReadOnlyWorker(source, { mode: "sync", stagingRoot });
+  const snapshot = new (requireNodeSqlite().DatabaseSync)(location, { readOnly: true });
+  try {
+    return snapshot.prepare("PRAGMA user_version").get()?.user_version;
+  } finally {
+    snapshot.close();
+  }
+}
+
+describe("scoped SQLite read-only children", () => {
+  it.each(["callback", "throw"])(
+    "joins an IPC send %s failure before admitting another request",
+    async (failureMode) => {
+      const source = createDatabase(0);
+      const actual =
+        await vi.importActual<typeof import("node:child_process")>("node:child_process");
+      const failure = new Error("fixture IPC channel closed");
+      vi.mocked(spawn).mockImplementationOnce((...args) => {
+        const child = actual.spawn(...args);
+        vi.spyOn(child, "send").mockImplementationOnce((_message: unknown, callback?: unknown) => {
+          if (failureMode === "throw") {
+            throw failure;
+          }
+          if (typeof callback !== "function") {
+            throw new Error("fixture expected an IPC completion callback");
+          }
+          queueMicrotask(() => callback(failure));
+          return false;
+        });
+        return child;
+      });
+      await withSqliteReadOnlyWorkerScope(async () => {
+        await expect(readRawSnapshotVersion(source)).rejects.toBe(failure);
+        expect(vi.mocked(spawn).mock.results[0]?.value.signalCode).toBe("SIGKILL");
+        expect(await readRawSnapshotVersion(source)).toBe(0);
+      });
+      expect(spawn).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("reuses fresh raw snapshots while joining backup-capable children before returning", async () => {
+    const source = createDatabase(1024 * 1024);
+    const sqlite = requireNodeSqlite();
+    const writer = new sqlite.DatabaseSync(source);
+    writer.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;");
+    try {
+      await withSqliteReadOnlyWorkerScope(async () => {
+        for (const [index, mode] of (
+          ["sync", "async", "sync", "schema-header", "sync"] as const
+        ).entries()) {
+          writer.exec(`PRAGMA user_version = ${index + 1}`);
+          if (mode === "sync") {
+            expect(await readRawSnapshotVersion(source)).toBe(index + 1);
+          } else {
+            if (mode === "schema-header") {
+              expect(await inspectSqliteSchemaHeader(source)).toMatchObject({
+                userVersion: index + 1,
+              });
+            } else {
+              const prepared = await prepareSqliteReadOnlyLocation(source);
+              try {
+                const snapshot = new sqlite.DatabaseSync(prepared.location, { readOnly: true });
+                try {
+                  expect(snapshot.prepare("PRAGMA user_version").get()).toEqual({
+                    user_version: index + 1,
+                  });
+                  expect(
+                    snapshot.prepare("SELECT length(data) AS length FROM padding").get(),
+                  ).toEqual({ length: 1024 * 1024 });
+                } finally {
+                  snapshot.close();
+                }
+              } finally {
+                expect(await prepared.cleanupAsync()).toBe(true);
+              }
+            }
+            const child = vi.mocked(execFile).mock.results.at(-1)?.value;
+            expect(child?.exitCode).toBe(0);
+            expect(child?.connected).toBe(false);
+          }
+          expect(vi.mocked(spawn).mock.results[0]?.value.exitCode).toBeNull();
+        }
+      });
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(execFile).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(spawn).mock.results[0]?.value.exitCode).toBe(0);
+    } finally {
+      writer.close();
+    }
+  });
+
+  it("keeps concurrent source inspections in separate processes", async () => {
+    const source = createDatabase(0);
+    await withSqliteReadOnlyWorkerScope(async () => {
+      expect(
+        await Promise.all([readRawSnapshotVersion(source), readRawSnapshotVersion(source)]),
+      ).toEqual([0, 0]);
+    });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(execFile).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(spawn).mock.results[0]?.value.pid).not.toBe(
+      vi.mocked(execFile).mock.results[0]?.value.pid,
+    );
+  });
+
+  it("replaces the child when its launch environment changes", async () => {
+    const source = createDatabase(0);
+    await withSqliteReadOnlyWorkerScope(async () => {
+      await readRawSnapshotVersion(source);
+      await withEnvAsync(
+        { XDG_CACHE_HOME: tempDirs.make("openclaw-scoped-environment-") },
+        async () => {
+          expect(await readRawSnapshotVersion(source)).toBe(0);
+          expect(vi.mocked(spawn).mock.results[0]?.value.exitCode).toBe(0);
+        },
+      );
+    });
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases admission between requests and reacquires it against the current exclusion", async () => {
+    const source = createDatabase(0);
+    await withSqliteReadOnlyWorkerScope(async () => {
+      await readRawSnapshotVersion(source);
+      const exclusion = acquireStateDatabaseHandleExclusion({
+        databasePath: source,
+        busyTimeoutMs: 0,
+      });
+      try {
+        await expect(readRawSnapshotVersion(source)).rejects.toThrow("state-handles");
+      } finally {
+        exclusion.release();
+      }
+      expect(await readRawSnapshotVersion(source)).toBe(0);
+    });
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a descendant inspection after its scope closes", async () => {
+    let resume: () => void;
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let late: Promise<unknown> | undefined;
+    await withSqliteReadOnlyWorkerScope(async () => {
+      late = resumed.then(() =>
+        runSqliteReadOnlyWorker("unused.sqlite", { mode: "schema-header" }),
+      );
+    });
+    resume!();
+    await expect(late).rejects.toThrow("scope closed");
+    expect(spawn).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+  });
+});
 
 describe("resolveSqliteInspectionBudget", () => {
   it.each(

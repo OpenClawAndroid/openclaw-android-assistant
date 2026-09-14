@@ -3,6 +3,7 @@
 import { EventEmitter } from "node:events";
 import { request, ServerResponse } from "node:http";
 import { connect } from "node:net";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import {
@@ -124,7 +125,10 @@ const logWarnMock = vi.hoisted(() => vi.fn<(message: string) => void>());
 const sessionEntries = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 const getRuntimeConfigMock = vi.hoisted(() => vi.fn(() => ({ session: { mainKey: "main" } })));
 
-vi.mock("../config/io.js", () => ({
+// Partial: the real gateway resolver reaches other exports of this module when a
+// test drives it instead of the mock below.
+vi.mock("../config/io.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../config/io.js")>()),
   getRuntimeConfig: getRuntimeConfigMock,
 }));
 
@@ -136,7 +140,10 @@ vi.mock("../logger.js", async () => {
   };
 });
 
-vi.mock("../config/sessions.js", () => ({
+// Partial: the real gateway resolver reaches other exports of this module when a
+// test drives it instead of the mock below.
+vi.mock("../config/sessions.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../config/sessions.js")>()),
   resolveMainSessionKey: () => "agent:main:main",
 }));
 
@@ -164,6 +171,13 @@ vi.mock("./tool-resolution.js", () => ({
     resolveGatewayScopedToolsMock(...args),
 }));
 
+import {
+  addSubagentRunForTests,
+  getSubagentRunByRunId,
+  resetSubagentRegistryForTests,
+  testing as registryTesting,
+} from "../agents/subagents/registry/subagent-registry.test-helpers.js";
+import { consumeSwarmStructuredOutput } from "../agents/tools/structured-output-tool.js";
 import {
   activateMcpLoopbackClientGrantCapture,
   deactivateMcpLoopbackClientGrantCapture,
@@ -4065,6 +4079,162 @@ describe("mcp loopback server", () => {
       origin: "http://localhost:43123",
       fetchSite: "cross-site",
       status: 200,
+    });
+  });
+});
+
+/**
+ * The admission gate keys on the run id `resolveMcpRequestContext` copies out of
+ * a run-bound CLI client grant, and the resolver tests can only assert that
+ * premise. These drive the real loopback server with the real resolver, so the
+ * attach branch's missing run id and the grant liveness re-check are produced
+ * rather than supplied: an `openclaw attach` grant for the collector's own child
+ * session, and the collector's own grant revoked or rebound inside the awaited
+ * before-tool hook.
+ */
+describe("collector result tool across the loopback MCP boundary", () => {
+  const collectorRunId = "mcp-boundary-collector-run";
+  const collectorSessionKey = "agent:main:subagent:mcp-boundary-collector";
+  const captureKey = "capture-collector-boundary";
+  const collectorSchema = {
+    type: "object",
+    properties: { answer: { type: "string" } },
+    required: ["answer"],
+    additionalProperties: false,
+  };
+
+  beforeEach(async () => {
+    resetSubagentRegistryForTests({ persist: false });
+    registryTesting.setDepsForTest({ persistSubagentRunsToDiskOrThrow: vi.fn() });
+    addSubagentRunForTests({
+      runId: collectorRunId,
+      childSessionKey: collectorSessionKey,
+      collect: true,
+      outputSchema: collectorSchema,
+    });
+    const { resolveGatewayScopedTools: resolveActual } =
+      await vi.importActual<typeof import("./tool-resolution.js")>("./tool-resolution.js");
+    resolveGatewayScopedToolsMock.mockImplementation(
+      (...args) =>
+        resolveActual(...(args as Parameters<typeof resolveActual>)) as MockGatewayScopedTools,
+    );
+  });
+
+  afterEach(() => {
+    consumeSwarmStructuredOutput(collectorRunId);
+    resetSubagentRegistryForTests({ persist: false });
+    registryTesting.setDepsForTest();
+  });
+
+  async function mintCollectorGrant(runtimeOwnerToken: string) {
+    const grant = mintMcpLoopbackClientGrant({
+      context: {
+        sessionKey: collectorSessionKey,
+        agentId: "main",
+        senderIsOwner: false,
+        runId: collectorRunId,
+      },
+      runtimeOwnerToken,
+      admittedRunContext: await activeAdmission(collectorRunId),
+    });
+    if (
+      !activateMcpLoopbackClientGrantCapture({ token: grant.token, runtimeOwnerToken, captureKey })
+    ) {
+      throw new Error("expected an active collector grant capture");
+    }
+    return { token: grant.token, headers: { "x-openclaw-cli-capture-key": captureKey } };
+  }
+
+  async function listToolNames(scope: { token: string; headers?: Record<string, string> }) {
+    const payload = await readOkMcpPayload(await sendLoopbackToolsList(scope));
+    return (payload.result?.tools ?? []).map((tool) => tool.name);
+  }
+
+  async function callStructuredOutput(scope: { token: string; headers?: Record<string, string> }) {
+    return await readOkMcpPayload(
+      await sendLoopbackToolCall({
+        ...scope,
+        name: "structured_output",
+        args: { result: { answer: "ok" } },
+      }),
+    );
+  }
+
+  function expectNothingRecorded(runId = collectorRunId) {
+    const entry = getSubagentRunByRunId(runId);
+    expect(entry?.structuredOutput).toBeUndefined();
+    expect(entry?.collectorCompletion).toBeUndefined();
+  }
+
+  it("gives an attach grant on the collector's session no result tool to list or call", async () => {
+    await startLoopbackServerForTest();
+    const attach = mintAttachGrant({ sessionKey: collectorSessionKey, agentId: "main" });
+    const scope = { token: attach.token };
+
+    const names = await listToolNames(scope);
+    expect(names).not.toContain("structured_output");
+    expect(names).toContain("sessions_yield");
+
+    expectMcpResultText(
+      await callStructuredOutput(scope),
+      "Tool not available: structured_output",
+      true,
+    );
+    expectNothingRecorded();
+  });
+
+  it("refuses the collector's own call when its grant is revoked inside the before-tool hook", async () => {
+    const { runtime } = await startLoopbackServerForTest();
+    const scope = await mintCollectorGrant(runtime.ownerToken);
+    expect(await listToolNames(scope)).toContain("structured_output");
+
+    runBeforeToolCallHookMock.mockImplementation(async (args: { params: unknown }) => {
+      revokeMcpLoopbackClientGrant(scope.token);
+      return { blocked: false, params: args.params };
+    });
+
+    // The server re-reads grant liveness after the hook and before execute, so a
+    // revocation landing in that window is refused a layer above the tool's own
+    // pre-persistence re-check. Delete that server check and this same call is
+    // refused with "Failed to persist structured_output: collector run grant is
+    // no longer active" instead, so both layers hold on this path.
+    expectMcpResultText(await callStructuredOutput(scope), "Tool call authorization expired", true);
+    expectNothingRecorded();
+  });
+
+  it("refuses the collector's own call when the record stops owning the admitted run", async () => {
+    const reboundRunId = "mcp-boundary-collector-rebound";
+    const { runtime } = await startLoopbackServerForTest();
+    const scope = await mintCollectorGrant(runtime.ownerToken);
+    expect(await listToolNames(scope)).toContain("structured_output");
+
+    runBeforeToolCallHookMock.mockImplementation(async (args: { params: unknown }) => {
+      // Grant liveness is untouched, so this reaches the pre-persistence re-check.
+      const entry = expectDefined(getSubagentRunByRunId(collectorRunId), "collector run");
+      entry.runId = reboundRunId;
+      entry.swarmRunId = reboundRunId;
+      return { blocked: false, params: args.params };
+    });
+
+    expectMcpResultText(
+      await callStructuredOutput(scope),
+      "Failed to persist structured_output: caller no longer owns the admitted collector run",
+      true,
+    );
+    expectNothingRecorded(reboundRunId);
+  });
+
+  it("records the result for the collector's own run-bound grant", async () => {
+    const { runtime } = await startLoopbackServerForTest();
+    const scope = await mintCollectorGrant(runtime.ownerToken);
+
+    expectMcpResultText(
+      await callStructuredOutput(scope),
+      JSON.stringify({ status: "recorded" }, null, 2),
+    );
+    expect(getSubagentRunByRunId(collectorRunId)?.structuredOutput).toEqual({
+      structured: { answer: "ok" },
+      invalidAttempts: 0,
     });
   });
 });

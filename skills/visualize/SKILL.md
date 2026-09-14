@@ -14,8 +14,8 @@ a widget can illustrate the design but does not complete the implementation.
 
 ## Choose the surface
 
-- **Code work and one-off explanations:** keep the visual inline. Show the actual
-  owners, relationships, measured values, or states relevant to the question.
+- **Code work and one-off explanations:** prefer inline when available this turn.
+  Show the actual owners, relationships, measured values, or states relevant to the question.
   Distinguish proposed designs and illustrative data from observed behavior.
   Several diagrams for a code task do not by themselves call for a dashboard.
 - **Persistent dashboards:** use `pin: true` for an explicit dashboard request
@@ -32,6 +32,8 @@ a widget can illustrate the design but does not complete the implementation.
 Use only tools, source kinds, and presentation targets advertised in this turn.
 On a pinned-only surface, set `pin: true` and omit `presentation.target`. If the
 tool is unavailable, explain the limitation instead of inventing a render call.
+Restart recovery can be pinned-only even when the original turn supported inline
+widgets; follow the current tool schema instead of earlier delivery instructions.
 
 ## Author the content
 
@@ -147,7 +149,11 @@ theme. For live dashboards, exercise the data read in the actual pinned frame.
 Strict embed mode disables scripts. Report any concrete visual or platform
 verification gap; successful hosting alone proves neither rendering nor data access.
 
-The tool result renders the widget. Keep the final prose focused on the useful
-conclusion or remaining limitation, without repeating the entire visual. Do not
-promise PNG exports preserve externally loaded styles or fonts without checking
-the exported image.
+Follow `result.presentation` when present. A `status: "pinned"` result means the
+widget is on the session dashboard. Use the available dashboard tool to focus its
+tab in the current session. Do not navigate to widget hosting URLs in the Browser
+panel as a substitute for presentation.
+
+Keep the final prose focused on the useful conclusion or remaining limitation,
+without repeating the entire visual. Do not promise PNG exports preserve externally
+loaded styles or fonts without checking the exported image.

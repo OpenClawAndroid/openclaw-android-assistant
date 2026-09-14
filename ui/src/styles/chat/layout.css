@@ -1503,8 +1503,8 @@ openclaw-chat-video-player {
   --task-suggestion-card-bg: color-mix(in srgb, var(--panel-strong) 72%, var(--panel-hover) 28%);
   --task-suggestion-path-bg: color-mix(in srgb, var(--panel-hover) 84%, var(--text) 16%);
   --task-suggestion-prompt-bg: var(--panel);
-  --task-suggestion-action-bg: color-mix(in srgb, var(--accent) 82%, var(--panel) 18%);
-  --task-suggestion-action-fg: var(--primary-foreground);
+  /* Keep off-white labels readable even with bright custom accents. */
+  --task-suggestion-action-bg: oklch(from var(--accent) min(l, 0.5) c h);
 
   /* Relative, not static: the --stack variant's offset shadow is positioned
      against this box. Geometry otherwise comes from .chat-gutter-stack. */
@@ -1932,11 +1932,7 @@ openclaw-chat-video-player {
 .task-suggestion__start:focus-visible,
 :root[data-theme-mode="light"] .task-suggestion__start:hover:not(:disabled),
 :root[data-theme-mode="light"] .task-suggestion__start:focus-visible {
-  background: color-mix(
-    in srgb,
-    var(--task-suggestion-action-bg) 90%,
-    var(--task-suggestion-action-fg)
-  );
+  background: oklch(from var(--task-suggestion-action-bg) max(0, l - 0.04) c h);
   color: var(--task-suggestion-action-fg);
 }
 
@@ -1944,8 +1940,6 @@ openclaw-chat-video-player {
   --task-suggestion-card-bg: var(--sidebar-bg, var(--panel));
   --task-suggestion-path-bg: var(--panel-strong);
   --task-suggestion-prompt-bg: var(--card);
-  --task-suggestion-action-bg: color-mix(in srgb, var(--accent) 72%, var(--text-strong) 28%);
-  --task-suggestion-action-fg: var(--primary-foreground);
 }
 
 .task-suggestion__header-action:disabled {
@@ -2148,7 +2142,11 @@ openclaw-chat-video-player {
   width: calc(100% - 36px);
   max-width: var(--chat-thread-max-width, 48rem);
   margin: 0 auto;
-  padding: 0 0 8px;
+}
+
+/* Separate peer cards still need breathing room; the composer owns its own margin. */
+.chat-prs:has(+ :is(.session-suggestions, .chat-swarm), + openclaw-plugin-contributions > *) {
+  padding-bottom: 8px;
 }
 
 .chat-pr {

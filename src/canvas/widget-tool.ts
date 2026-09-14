@@ -314,19 +314,16 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
       ? " Use presentation.target to choose a registered device surface."
       : "";
   const usageGuidance = pinnedOnly
-    ? "This surface is pinned-only: set pin=true to create or update a durable session dashboard widget."
-    : "Keep one-off visualizations inline; pin for explicit dashboard requests or multiple non-code visualizations.";
-  const destinationGuidance = pinnedOnly
-    ? "Author a widget for the current session dashboard. Inline and device presentation are unavailable"
-    : `Show a widget on the user's current surface. ${
-        inlineHostEnabled
-          ? "Set pin=true to also place it on this session's dashboard"
-          : "Inline hosting is disabled; set pin=true to place it on this session's dashboard"
-      }`;
+    ? "This surface is pinned-only: set pin=true to create or update a durable session dashboard widget. Inline and device presentation are unavailable."
+    : currentChannelPresenter
+      ? "Show widgets through the current channel presenter; follow result.presentation for delivery."
+      : inlineAvailable
+        ? "Keep one-off visualizations inline; pin for explicit dashboard requests or multiple non-code visualizations."
+        : "Inline previews are unavailable this turn; set pin=true to save to the session dashboard.";
   return {
     label: "Show Widget",
     name: "show_widget",
-    description: `Visual helps? Make widget. Do not wait for ask. ${usageGuidance} Update pinned HTML by name. Use for code architecture, execution traces, performance comparisons, interactive explanations, UI mockups, and dashboards. Text clearer? Skip. Load the visualize skill when available for composition and dashboard authoring. ${destinationGuidance}; kind defaults to html${advertisedRegisteredKinds.length ? ` and registered kinds are ${advertisedRegisteredKinds.join(", ")}` : ""}. Send markup directly in widget_code. Scripts, stylesheets, and fonts may load from ${WIDGET_CDN_ORIGINS.join(", ")}; pin library versions. Inline widgets cannot fetch APIs. Pinned data access needs declared and granted capabilities.netOrigins or capabilities.tools; inline previews never inherit those grants. Keep filters and controls local; user-clicked openclaw.prompt.send(text) requests an agent follow-up in the Control UI. Data, action, state, and cron host APIs are dashboard-only. openclaw.host.controlUiBaseUrl is the Control UI origin plus base path after dashboard initialization, otherwise null; read it at click time. Open dashboard links with target="_blank" and rel="noopener noreferrer". \`title\` is host metadata. Start directly with content; do not repeat the title or recreate dashboard chrome. Use host theme variables such as --text, --muted, --card, --border, --accent, --font-body, and --font-mono. Inline script syntax errors return line and column; fix and retry. Check library loading and rendered interactions; hosting success alone is not visual proof.${reportGuidance}${presenterPrompt}`,
+    description: `Visual helps? Make widget. Do not wait for ask. ${usageGuidance} Update pinned HTML by name. Use for code architecture, execution traces, performance comparisons, interactive explanations, UI mockups, and dashboards. Text clearer? Skip. Load the visualize skill when available for composition and dashboard authoring. The source kind defaults to html${advertisedRegisteredKinds.length ? ` and registered kinds are ${advertisedRegisteredKinds.join(", ")}` : ""}. Send markup directly in widget_code. Scripts, stylesheets, and fonts may load from ${WIDGET_CDN_ORIGINS.join(", ")}; pin library versions. Inline widgets cannot fetch APIs. Pinned data access needs declared and granted capabilities.netOrigins or capabilities.tools; inline previews never inherit those grants. Keep filters and controls local; user-clicked openclaw.prompt.send(text) requests an agent follow-up in the Control UI. Data, action, state, and cron host APIs are dashboard-only. openclaw.host.controlUiBaseUrl is the Control UI origin plus base path after dashboard initialization, otherwise null; read it at click time. Open dashboard links with target="_blank" and rel="noopener noreferrer". \`title\` is host metadata. Start directly with content; do not repeat the title or recreate dashboard chrome. Use host theme variables such as --text, --muted, --card, --border, --accent, --font-body, and --font-mono. Inline script syntax errors return line and column; fix and retry. Check library loading and rendered interactions; hosting success alone is not visual proof.${reportGuidance}${presenterPrompt}`,
     parameters: createShowWidgetToolSchema(
       kinds,
       explicitPresenters,
@@ -533,7 +530,7 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
               : "pinned",
           boardWidgetName: pinnedWidgetName,
           capabilityState,
-          text: `Widget ${pinnedText}`,
+          text: `Widget ${pinnedText}. Open this dashboard tab in Control UI to view it.`,
         });
       }
       let document: Awaited<ReturnType<typeof createCanvasDocument>> | undefined;

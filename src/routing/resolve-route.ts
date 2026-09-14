@@ -602,7 +602,6 @@ export function resolveAgentRoute(input: ResolveAgentRouteInput): ResolvedAgentR
   const guildId = normalizeRouteBindingId(input.guildId);
   const teamId = normalizeRouteBindingId(input.teamId);
   const memberRoleIds = input.memberRoleIds ?? [];
-  const memberRoleIdSet = new Set(memberRoleIds);
   const dmScope = input.dmScope ?? input.cfg.session?.dmScope ?? "main";
   const groupScope = input.groupScope ?? input.cfg.session?.groupScope ?? "per-group";
   const identityLinks = input.cfg.session?.identityLinks;
@@ -637,6 +636,7 @@ export function resolveAgentRoute(input: ResolveAgentRouteInput): ResolvedAgentR
     }
   }
 
+  const memberRoleIdSet = new Set(memberRoleIds);
   const { bindings, index: bindingsIndex } = getEvaluatedBindingsForChannelAccount(
     input.cfg,
     channel,

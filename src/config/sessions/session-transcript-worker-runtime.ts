@@ -2,6 +2,7 @@ import { runtimeProcessEntrypoints } from "../../infra/runtime-process-entrypoin
 import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import { WorkerTaskPool } from "../../infra/worker-task-pool.js";
 import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
+import type { SessionBranchSummaryReadRequest } from "./session-accessor.sqlite-branches.js";
 import type { readSessionTranscriptModelContext } from "./session-accessor.sqlite-model-context.js";
 import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
@@ -12,6 +13,7 @@ import {
 } from "./session-transcript-read-fence.js";
 import type {
   SessionEntryWorkerInput,
+  SessionBranchSummaryWorkerInput,
   SessionTranscriptHistoryWorkerInput,
   SessionModelContextWorkerInput,
   SessionTranscriptWorkerReply,
@@ -38,9 +40,15 @@ const historyPages = new WorkerTaskPool<
   SessionTranscriptWorkerReply<"history-page">
 >({ workerUrl, maxWorkers: 1 });
 
-function unwrapReply<Kind extends "model-context" | "session-entry" | "history-page">(
-  reply: SessionTranscriptWorkerReply<Kind>,
-) {
+// Branch scans share background compute admission without delaying foreground history or context.
+const branchSummaries = new WorkerTaskPool<
+  SessionBranchSummaryWorkerInput,
+  SessionTranscriptWorkerReply<"branch-summaries">
+>({ workerUrl, maxWorkers: 1, sharedCompute: true });
+
+function unwrapReply<
+  Kind extends "model-context" | "session-entry" | "history-page" | "branch-summaries",
+>(reply: SessionTranscriptWorkerReply<Kind>) {
   if (reply.ok) {
     return reply.value;
   }
@@ -103,5 +111,28 @@ export async function runSessionHistoryWorkerRequest(
 ) {
   return unwrapReply<"history-page">(
     await historyPages.run(prepare, { inputBytes, timeoutMs: 60_000 }),
+  );
+}
+
+export async function runSessionBranchSummaryWorkerRequest(
+  request: SessionBranchSummaryReadRequest,
+  signal: AbortSignal,
+) {
+  return unwrapReply<"branch-summaries">(
+    await branchSummaries.run(
+      { kind: "branch-summaries", request },
+      {
+        inputBytes:
+          2 *
+          (request.database.agentId.length +
+            request.database.path.length +
+            request.databaseIdentity.length +
+            request.sessionKey.length +
+            request.sessionId.length +
+            (request.lifecycleRevision?.length ?? 0)),
+        timeoutMs: 60_000,
+        signal,
+      },
+    ),
   );
 }

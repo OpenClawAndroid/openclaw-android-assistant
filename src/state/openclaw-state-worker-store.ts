@@ -202,22 +202,27 @@ export async function executeOpenClawStateWorker<Key extends keyof OpenClawState
 export function runOpenClawStateWorkerOperation<T>(
   context: OpenClawStateWorkerContext,
   operation: (scope: DomainScope) => Promise<T>,
-  options: { existingOnly: true },
+  options: { existingOnly: true; assertCurrent?: () => void },
 ): Promise<T | undefined>;
 export function runOpenClawStateWorkerOperation<T>(
   context: OpenClawStateWorkerContext,
   operation: (scope: DomainScope) => Promise<T>,
+  options?: { existingOnly?: false; assertCurrent?: () => void },
 ): Promise<T>;
 export async function runOpenClawStateWorkerOperation<T>(
   context: OpenClawStateWorkerContext,
   operation: (scope: DomainScope) => Promise<T>,
-  options?: { existingOnly: true },
+  options?: { existingOnly?: boolean; assertCurrent?: () => void },
 ): Promise<T | undefined> {
   try {
+    context.admission.assertCurrent();
+    options?.assertCurrent?.();
     const failure = await getOpenClawStateDatabaseTerminalFailureAsync(context);
     if (failure) {
       throw failure;
     }
+    context.admission.assertCurrent();
+    options?.assertCurrent?.();
     const store = await owner().open(context, options?.existingOnly);
     context.admission.assertCurrent();
     if (!store) {
@@ -226,7 +231,8 @@ export async function runOpenClawStateWorkerOperation<T>(
       }
       throw new Error("Canonical shared-state worker did not open its database");
     }
-    return await runWithOpenClawStateWorkerStore(store, context, operation);
+    options?.assertCurrent?.();
+    return await runWithOpenClawStateWorkerStore(store, context, operation, options?.assertCurrent);
   } catch (error) {
     if (error instanceof Error) {
       throw hydrateOpenClawStateWorkerError(error);
@@ -267,11 +273,18 @@ async function runWithOpenClawStateWorkerStore<T>(
   store: Store,
   context: OpenClawStateWorkerContext,
   operation: (scope: Pick<Store, "execute">) => Promise<T>,
+  assertCurrent?: () => void,
 ): Promise<T> {
   const { admission } = context;
   try {
-    return await runSqliteWorkerStoreOperation<StoreOperations, T>(store, operation, context, () =>
-      admission.assertCurrent(),
+    return await runSqliteWorkerStoreOperation<StoreOperations, T>(
+      store,
+      operation,
+      context,
+      () => {
+        admission.assertCurrent();
+        assertCurrent?.();
+      },
     );
   } catch (error) {
     if (!isSqliteWorkerStoreAvailable(store)) {

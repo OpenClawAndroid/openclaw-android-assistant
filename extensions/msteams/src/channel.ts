@@ -721,7 +721,16 @@ export const msteamsPlugin: ChannelPlugin<ResolvedMSTeamsAccount, ProbeMSTeamsRe
           }
 
           const graphActionTarget = {
-            toolParams: ctx.params,
+            // Normal message-tool search/member-info use channelId as their conversation filter.
+            toolParams:
+              ctx.action === "search" || ctx.action === "member-info"
+                ? {
+                    ...ctx.params,
+                    to:
+                      resolveActionTarget(ctx.params) ||
+                      normalizeOptionalString(ctx.params.channelId),
+                  }
+                : ctx.params,
             currentChannelId: ctx.toolContext?.currentChannelId,
             currentGraphChannelId: resolveCurrentGraphActionTarget(ctx.toolContext),
             currentChatType: ctx.toolContext?.currentChatType,

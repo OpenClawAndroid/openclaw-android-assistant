@@ -8,6 +8,7 @@ import { prepareEmbeddedSkills } from "../agents/embedded-agent-runner/skill-run
 import { fingerprintResolvedProviderAuth } from "../agents/execution-auth-binding.js";
 import { createSystemAgentTool } from "../agents/tools/system-agent-tool.js";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.js";
+import { CommandLane } from "../process/lanes.js";
 import {
   cleanupSystemAgentSession,
   createSystemAgentSession,
@@ -599,6 +600,7 @@ describe("runSystemAgentTurn", () => {
       model: "claude-opus-4-8",
       agentDir,
     });
+    expect(runCliAgent.mock.calls[0]?.[0].lane).toBeUndefined();
     expect(runCliAgent.mock.calls[0]?.[0].authProfileId).toBeUndefined();
   });
 
@@ -905,6 +907,7 @@ describe("runSystemAgentTurn", () => {
     expect(call).toMatchObject({
       provider: "openai",
       model: "gpt-5.4",
+      lane: CommandLane.SystemAgentInference,
       systemAgentTool: { agentId: "ops" },
       agentDir,
       authProfileId: "openai:ops",

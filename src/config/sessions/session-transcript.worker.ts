@@ -6,6 +6,10 @@ import type {
 import { serveWorkerTasks } from "../../infra/worker-task-pool.js";
 import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
 import type { UserTurnTranscriptAdmissionReceipt } from "../../sessions/user-turn-transcript.types.js";
+import type {
+  SessionBranchSummaryReadRequest,
+  SessionBranchSummaryReadResult,
+} from "./session-accessor.sqlite-branches.js";
 import type { readSessionTranscriptModelContext } from "./session-accessor.sqlite-model-context.js";
 import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
@@ -45,7 +49,13 @@ export type SessionTranscriptHistoryWorkerInput = {
   admission?: UserTurnTranscriptAdmissionReceipt;
 };
 
+export type SessionBranchSummaryWorkerInput = {
+  kind: "branch-summaries";
+  request: SessionBranchSummaryReadRequest;
+};
+
 type SessionTranscriptWorkerValues = {
+  "branch-summaries": SessionBranchSummaryReadResult;
   "history-page": SessionHistoryWorkerResult;
   "model-context": ReturnType<typeof readSessionTranscriptModelContext>;
   "session-entry": {
@@ -71,8 +81,14 @@ serveWorkerTasks(
     const request = input as
       | SessionModelContextWorkerInput
       | SessionEntryWorkerInput
-      | SessionTranscriptHistoryWorkerInput;
+      | SessionTranscriptHistoryWorkerInput
+      | SessionBranchSummaryWorkerInput;
     try {
+      if (request.kind === "branch-summaries") {
+        const { readSessionBranchSummariesInWorker } =
+          await import("./session-accessor.sqlite-branches.js");
+        return { ok: true, value: readSessionBranchSummariesInWorker(request.request) };
+      }
       return await runWithSessionTranscriptReadFence(
         request.admission,
         async (): Promise<SessionTranscriptWorkerReply<keyof SessionTranscriptWorkerValues>> => {

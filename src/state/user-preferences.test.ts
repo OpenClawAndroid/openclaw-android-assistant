@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { ensureAgentProvenanceSchema } from "./agent-provenance.js";
@@ -88,6 +89,74 @@ describe("user preferences", () => {
     expect(getUserPreferences("profile-b", undefined, options)).toEqual({});
     expect(tableExists(reopened, "user_preferences")).toBe(true);
     expect(reopened.prepare("PRAGMA user_version").get()?.user_version).toBe(version);
+  });
+
+  it("persists a full preference batch with bounded native writes", () => {
+    const options = stateOptions();
+    const entries = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => [`key-${index}`, { enabled: index % 2 === 0 }]),
+    );
+    expect(setUserPreferences("profile-a", { "key-0": false }, options)).toMatchObject({
+      ok: true,
+    });
+    expect(setUserPreferences("profile-b", { "key-0": "unrelated" }, options)).toMatchObject({
+      ok: true,
+    });
+    // oxlint-disable-next-line typescript/unbound-method -- apply below preserves the intercepted statement receiver.
+    const originalRun = StatementSync.prototype.run;
+    let writes = 0;
+    const run = vi.spyOn(StatementSync.prototype, "run").mockImplementation(function (
+      this: StatementSync,
+      ...values
+    ) {
+      if (/^insert into "user_preferences"/i.test(this.sourceSQL)) {
+        writes++;
+      }
+      return originalRun.apply(this, values);
+    });
+    try {
+      expect(setUserPreferences("profile-a", entries, options)).toEqual({
+        ok: true,
+        value: undefined,
+      });
+    } finally {
+      run.mockRestore();
+    }
+    expect(getUserPreferences("profile-a", undefined, options)).toEqual(entries);
+    expect(getUserPreferences("profile-b", undefined, options)).toEqual({ "key-0": "unrelated" });
+    expect(writes).toBeGreaterThan(0);
+    expect(writes).toBeLessThanOrEqual(1);
+  });
+
+  it.each(["ABORT", "FAIL"])("rolls back removals and earlier preferences on %s", (action) => {
+    const options = stateOptions();
+    expect(
+      setUserPreferences("profile-a", { existing: "original", removed: true }, options),
+    ).toMatchObject({ ok: true });
+    const { db } = openOpenClawStateDatabase(options);
+    const before = db.prepare("SELECT * FROM user_preferences ORDER BY profile_id, pref_key").all();
+    db.exec(`CREATE TRIGGER refuse_preference BEFORE INSERT ON user_preferences
+      WHEN NEW.pref_key = 'refused' BEGIN SELECT RAISE(${action}, 'preference refused'); END`);
+    try {
+      expect(() =>
+        setUserPreferences(
+          "profile-a",
+          {
+            removed: null,
+            existing: "changed",
+            inserted: true,
+            refused: true,
+          },
+          options,
+        ),
+      ).toThrow("preference refused");
+      expect(db.isTransaction).toBe(false);
+      expect(
+        db.prepare("SELECT * FROM user_preferences ORDER BY profile_id, pref_key").all(),
+      ).toEqual(before);
+    } finally {
+      db.exec("DROP TRIGGER refuse_preference");
+    }
   });
 
   it("rejects oversized batches and values before writing any row", () => {
