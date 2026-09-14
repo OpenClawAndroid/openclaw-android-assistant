@@ -11,6 +11,7 @@ import {
   openOpenClawStateDatabase,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerVoiceCallLogs } from "../cli-call-log.js";
 import {
@@ -90,8 +91,9 @@ describe("voice-call call record store", () => {
     installStateRuntime();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
   });
 
@@ -134,6 +136,7 @@ describe("voice-call call record store", () => {
       ).toEqual(since === 0 ? ["new"] : ["third", "new"]);
     } finally {
       stdout.mockRestore();
+      await closeOpenClawStateDatabaseAsync();
       fs.rmSync(storePath, { recursive: true, force: true });
     }
   });
@@ -248,6 +251,7 @@ describe("voice-call call record store", () => {
       );
       await expect(findCallInStore(storePath, "provider-batch-127")).resolves.toEqual(calls[127]);
     } finally {
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       fs.rmSync(storePath, { recursive: true, force: true });
     }
@@ -304,6 +308,7 @@ describe("voice-call call record store", () => {
         );
         await expect(getCallHistoryFromStore(storePath)).resolves.toEqual([]);
       } finally {
+        await closeOpenClawStateDatabaseAsync();
         resetPluginStateStoreForTests();
         fs.rmSync(storePath, { recursive: true, force: true });
       }
@@ -415,6 +420,7 @@ describe("voice-call call record store", () => {
         expect((await loadActiveCallsFromStore(storePath)).activeCalls.size).toBe(0);
       } finally {
         toString.mockRestore();
+        await closeOpenClawStateDatabaseAsync();
         resetPluginStateStoreForTests();
         fs.rmSync(storePath, { recursive: true, force: true });
       }

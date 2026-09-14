@@ -328,8 +328,7 @@ suite.define(() => {
           expect(
             (await gateway.waitForRequest("openclaw.setup.prepare.start")).params,
           ).toMatchObject({ authChoice: "ollama" });
-          await page.getByRole("radio", { name: "Local only" }).check();
-          await page.getByRole("button", { name: "Continue", exact: true }).click();
+          await page.getByRole("button", { name: "Local only", exact: true }).click();
           await expect
             .poll(() => page.getByLabel("Ollama base URL").inputValue())
             .toBe("http://127.0.0.1:11434");

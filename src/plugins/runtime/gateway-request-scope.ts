@@ -113,6 +113,8 @@ function runWithPluginGatewayScope<T>(
   );
 }
 
+const isNotWebchatConnect = () => false;
+
 const GATEWAY_CONTEXT_RESOLVERS_KEY: unique symbol = Symbol.for("openclaw.gatewayContextResolvers");
 
 // Built plugin chunks and source Gateway code must redeem the same host-issued owner bindings.
@@ -246,7 +248,7 @@ export function withPluginRuntimeGatewayContextResolver<T>(
   const current = options?.inheritRequestScope === false ? undefined : getPluginGatewayScope();
   const scoped: PluginRuntimeGatewayRequestScope = {
     ...current,
-    isWebchatConnect: current?.isWebchatConnect ?? (() => false),
+    isWebchatConnect: current?.isWebchatConnect ?? isNotWebchatConnect,
     resolveGatewayContext,
   };
   delete scoped.context;
@@ -275,7 +277,7 @@ function createRegistryScope(
   declaredProviderOwners?: DeclaredProviderOwnerIndex,
 ): PluginRuntimeGatewayRequestScope {
   return {
-    isWebchatConnect: () => false,
+    isWebchatConnect: isNotWebchatConnect,
     ...current,
     pluginRegistry: registry,
     declaredProviderOwners:
@@ -323,7 +325,7 @@ export function withPluginRuntimePluginScope<T>(
     ? createRegistryScope(registry, current)
     : current
       ? { ...current }
-      : { isWebchatConnect: () => false };
+      : { isWebchatConnect: isNotWebchatConnect };
   applyPluginScope(scoped, scope);
   return runWithPluginGatewayScope(scoped, run, invocation);
 }

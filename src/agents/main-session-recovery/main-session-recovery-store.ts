@@ -76,17 +76,14 @@ export async function commitMainSessionRecovery(params: {
     params.command.kind === "validate_foreground" || params.command.kind === "release_foreground"
       ? params.command.claim
       : undefined;
-  const scansAliases = Boolean(
-    params.scanAliases || reservationCleanup || recoveryAdmission || exactOwnerClaim,
-  );
-  return await applySessionEntryReplacements<MainSessionRecoveryStoreResult>({
+  const result = await applySessionEntryReplacements<MainSessionRecoveryStoreResult | undefined>({
     agentId: params.target.agentId,
     requireWriteSuccess: params.requireWriteSuccess,
-    ...(scansAliases ? {} : { sessionKeys: [params.target.sessionKey] }),
+    ...(params.scanAliases ? {} : { sessionKeys: [params.target.sessionKey] }),
     storePath: params.target.storePath,
     update: (entries) => {
-      // Recheck inside the synchronous commit: shutdown can begin while this
-      // recovery owner is waiting to acquire the session-store transaction.
+      // Recheck after entering write admission: shutdown can begin while this
+      // recovery owner is waiting, including between exact and moved-key lookups.
       if (params.shouldContinue?.() === false) {
         return {
           result: {
@@ -109,34 +106,39 @@ export async function commitMainSessionRecovery(params: {
           ? undefined
           : selected;
       if (reservationCleanup) {
-        candidate =
-          entries.find(({ entry }) => matchesReservation(entry, reservationCleanup)) ?? selected;
+        candidate = entries.find(({ entry }) => matchesReservation(entry, reservationCleanup));
       } else if (recoveryAdmission) {
         // Canonical session-key migration may happen between reservation and
         // Gateway admission; the reservation identity remains authoritative.
-        candidate =
-          entries.find(({ entry }) => {
-            const reservation = (entry as SessionEntry).mainRestartRecovery?.reservation;
-            return (
-              entry.sessionId === recoveryAdmission.sessionId &&
-              reservation?.runId === recoveryAdmission.runId &&
-              reservation.lifecycleGeneration === recoveryAdmission.lifecycleGeneration
-            );
-          }) ?? selected;
+        candidate = entries.find(({ entry }) => {
+          const reservation = (entry as SessionEntry).mainRestartRecovery?.reservation;
+          return (
+            entry.sessionId === recoveryAdmission.sessionId &&
+            reservation?.runId === recoveryAdmission.runId &&
+            reservation.lifecycleGeneration === recoveryAdmission.lifecycleGeneration
+          );
+        });
       } else if (exactOwnerClaim) {
-        candidate =
-          entries.find(({ entry }) => {
-            const state = (entry as SessionEntry).mainRestartRecovery;
-            return (
-              state?.cycleId === exactOwnerClaim.cycleId &&
-              state.foregroundClaims?.lifecycleGeneration === exactOwnerClaim.lifecycleGeneration &&
-              state.foregroundClaims.tokens.includes(exactOwnerClaim.claimId)
-            );
-          }) ?? selected;
+        candidate = entries.find(({ entry }) => {
+          const state = (entry as SessionEntry).mainRestartRecovery;
+          return (
+            state?.cycleId === exactOwnerClaim.cycleId &&
+            state.foregroundClaims?.lifecycleGeneration === exactOwnerClaim.lifecycleGeneration &&
+            state.foregroundClaims.tokens.includes(exactOwnerClaim.claimId)
+          );
+        });
       } else if (ownerClaim && (!selected || selected.entry.sessionId !== ownerClaim.sessionId)) {
         candidate = entries.find(({ entry }) => entry.sessionId === ownerClaim.sessionId);
       } else if (params.scanAliases && params.expectedSessionId) {
         candidate = entries.find(({ entry }) => entry.sessionId === params.expectedSessionId);
+      }
+      if (reservationCleanup || recoveryAdmission || exactOwnerClaim) {
+        if (!candidate && !params.scanAliases) {
+          // A recovery identity has one row owner. Only a missing exact identity needs
+          // inventory discovery; ordinary refresh/release must not hydrate every session.
+          return { result: undefined };
+        }
+        candidate ??= selected;
       }
       if (!candidate) {
         return {
@@ -176,6 +178,7 @@ export async function commitMainSessionRecovery(params: {
       };
     },
   });
+  return result ?? commitMainSessionRecovery({ ...params, scanAliases: true });
 }
 
 export async function refreshMainSessionRecoveryOwner(

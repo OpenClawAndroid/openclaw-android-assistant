@@ -6,8 +6,11 @@ import { icons } from "../../../components/icons.ts";
 import type { MarkdownRenderOptions } from "../../../components/markdown-render-options.ts";
 import { toSanitizedMarkdownHtml, toStreamingMarkdownParts } from "../../../components/markdown.ts";
 import { t } from "../../../i18n/index.ts";
+import { registerChatMessageMetadataEnglish } from "../../../i18n/locales/en-chat-message-metadata.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
 import { renderMarkdownMedia, type MarkdownMedia } from "./chat-message-media-markdown.ts";
+
+registerChatMessageMetadataEnglish();
 
 // The new-session preview shares text presentation without loading transcript actions or tools.
 type DuplicateSuffix = {

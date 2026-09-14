@@ -170,7 +170,7 @@ describe("renderSessionHovercard", () => {
       labels: ["Opens as dashboard", "Automation attached"],
     },
     { name: "absent", facts: {}, labels: [] },
-    { name: "disabled", facts: { boardFace: "chat", hasAutomation: false }, labels: [] },
+    { name: "disabled", facts: { hasAutomation: false }, labels: [] },
   ] satisfies { name: string; facts: Partial<SidebarRecentSession>; labels: string[] }[])(
     "renders $name session facts without other metadata",
     ({ facts, labels }) => {
@@ -178,22 +178,49 @@ describe("renderSessionHovercard", () => {
       render(
         renderSessionHovercard({
           row: row({ createdActor: undefined, workContext: undefined, ...facts }),
+          automationLink: {
+            href: "/automations?session=agent%3Amain%3Awork&agent=main",
+            navigate: vi.fn(),
+          },
         }),
         container,
       );
-
-      const metadata = container.querySelector(".session-hovercard__section--metadata");
-      expect(Boolean(metadata)).toBe(labels.length > 0);
-      const contextRows = [...container.querySelectorAll(".session-hovercard__context-row")];
-      expect(contextRows.map((context) => context.textContent?.trim())).toEqual(labels);
-      expect(contextRows.map((context) => context.getAttribute("aria-label"))).toEqual(labels);
-      for (const context of contextRows) {
-        expect(
-          context.querySelector('.session-hovercard__context-icon[aria-hidden="true"] svg'),
-        ).not.toBeNull();
-      }
+      expect(
+        [...container.querySelectorAll(".session-hovercard__context-row")].map((entry) =>
+          entry.textContent?.trim(),
+        ),
+      ).toEqual(labels);
+      expect(Boolean(container.querySelector(".session-hovercard__section--metadata"))).toBe(
+        labels.length > 0,
+      );
+      expect(container.querySelectorAll("a.session-hovercard__automation-link").length).toBe(
+        facts.hasAutomation ? 1 : 0,
+      );
     },
   );
+
+  it("opens attached automations without hijacking modified clicks", () => {
+    const container = document.createElement("div");
+    const navigate = vi.fn();
+    const href = "/control/automations?session=agent%3Aops%3Anight+watch&agent=ops";
+    render(
+      renderSessionHovercard({
+        row: row({ hasAutomation: true }),
+        automationLink: { href, navigate },
+      }),
+      container,
+    );
+    const link = container.querySelector<HTMLAnchorElement>(".session-hovercard__automation-link")!;
+    expect(link?.getAttribute("href")).toBe(href);
+    const modified = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    link.dispatchEvent(modified);
+    expect(modified.defaultPrevented).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith();
+  });
 
   it("renders the channel avatar with gateway auth instead of an initials span", () => {
     const container = document.createElement("div");

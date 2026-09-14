@@ -362,6 +362,25 @@ function renderViewportContent(controller: BrowserPanelController) {
         @pointercancel=${(event: PointerEvent) => controller.handleOverlayPointerUp(event)}
         @lostpointercapture=${(event: PointerEvent) => controller.handleOverlayPointerUp(event)}
       ></canvas>
+      ${
+        controller.mode === "interact"
+          ? html`<textarea
+              class="bp-overlay bp-input"
+              aria-label=${t("browser.inputLabel")}
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              @click=${(event: MouseEvent) => controller.handleStageClick(event)}
+              @contextmenu=${(event: MouseEvent) => controller.handleStageClick(event)}
+              @beforeinput=${(event: InputEvent) => event.preventDefault()}
+              @input=${(event: InputEvent) => {
+                if (event.currentTarget instanceof HTMLTextAreaElement) {
+                  event.currentTarget.value = "";
+                }
+              }}
+            ></textarea>`
+          : nothing
+      }
       ${renderInspectTooltip(controller)}
     </div>
   `;
@@ -382,6 +401,7 @@ function renderViewport(controller: BrowserPanelController, rendersTabStrip: boo
       tabindex="0"
       @wheel=${(event: WheelEvent) => controller.handleWheel(event)}
       @keydown=${(event: KeyboardEvent) => controller.handleViewportKeydown(event)}
+      @paste=${(event: ClipboardEvent) => controller.handleViewportPaste(event)}
       aria-busy=${controller.loading ? "true" : "false"}
     >
       ${renderViewportContent(controller)}

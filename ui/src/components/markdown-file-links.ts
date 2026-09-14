@@ -1,6 +1,6 @@
 const HOST_LOCAL_FILE_HREF_RE =
   /^(?:~\/|\/(?:Users|home|tmp|private\/tmp|var\/folders|private\/var\/folders)\/|\/[A-Za-z]:\/|[A-Za-z]:[\\/])/;
-const FILE_SEGMENT_SOURCE = "[A-Za-z0-9_.@#+-]+";
+const FILE_SEGMENT_SOURCE = "[\\p{L}\\p{M}\\p{N}_.@#+-]+";
 // Scanned prose and code spans require a letter-led extension so version numbers ("1.1/1.2") are not
 // files; explicitly authored Markdown links keep digit-led extensions. ":a-b" ranges target line a.
 const SCANNED_EXTENSION_SOURCE = "[A-Za-z][A-Za-z0-9]{0,7}";
@@ -12,19 +12,19 @@ function fileGrammar(extension: string) {
   const unprefixed = `${FILE_SEGMENT_SOURCE}(?:\\/${FILE_SEGMENT_SOURCE})*\\/${name}`;
   const windowsAbsolute = `[A-Za-z]:[\\\\/](?:${FILE_SEGMENT_SOURCE}[\\\\/])*${name}`;
   // A reference may not stop early inside a longer token ("logs/app.log.1" must not link "logs/app.log").
-  const end = "(?!\\.?[A-Za-z0-9_])";
+  const end = "(?!\\.?[\\p{L}\\p{M}\\p{N}_])";
   const multiSegment = `(?:${prefixed}|${windowsAbsolute}|${unprefixed})(?:${FILE_LINE_SUFFIX_SOURCE})?${end}`;
   const bareWithLine = `${name}${FILE_LINE_SUFFIX_SOURCE}${end}`;
   return {
-    scan: new RegExp(`${multiSegment}|${bareWithLine}`, "g"),
-    exact: new RegExp(`^(?:${multiSegment}|${bareWithLine})$`),
+    scan: new RegExp(`${multiSegment}|${bareWithLine}`, "gu"),
+    exact: new RegExp(`^(?:${multiSegment}|${bareWithLine})$`, "u"),
   };
 }
 const SCANNED_FILE = fileGrammar(SCANNED_EXTENSION_SOURCE);
 const AUTHORED_FILE = fileGrammar(AUTHORED_EXTENSION_SOURCE);
 const BARE_FILENAME_RE = new RegExp(
   `^${FILE_SEGMENT_SOURCE}\\.(${SCANNED_EXTENSION_SOURCE})$`,
-  "i",
+  "u",
 );
 export const MARKDOWN_FILE_LINK_SCAN_RE = SCANNED_FILE.scan;
 const FILE_LINE_SUFFIX_RE = /:(\d{1,6})(?:[-:]\d{1,6})?$/;

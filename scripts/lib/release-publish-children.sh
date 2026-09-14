@@ -748,33 +748,9 @@ verify_release_tag_target() {
 
 canonical_release_body_matches() {
   local body_file="$1"
-  RELEASE_BODY_FILE="${body_file}" \
-    RELEASE_SOURCE_SHA="${TARGET_SHA}" \
-    RELEASE_REPOSITORY="${GITHUB_REPOSITORY}" \
-    RELEASE_TAG="${RELEASE_TAG}" \
-    node --import tsx --input-type=module <<'NODE'
-import { readFileSync } from "node:fs";
-import {
-  releaseNotesVersionForTag,
-  loadReleaseNotesForTag,
-  verifyGithubReleaseNotes,
-} from "./.release-harness/scripts/render-github-release-notes.mts";
-
-const body = readFileSync(process.env.RELEASE_BODY_FILE, "utf8");
-const source = loadReleaseNotesForTag({ rootDir: process.env.GITHUB_WORKSPACE, ref: process.env.RELEASE_SOURCE_SHA,
-  tag: process.env.RELEASE_TAG, version: releaseNotesVersionForTag(process.env.RELEASE_TAG) });
-const result = verifyGithubReleaseNotes({
-  body,
-  changelog: source.section,
-  contributionRecordPath: source.recordPath ?? undefined,
-  version: releaseNotesVersionForTag(process.env.RELEASE_TAG),
-  tag: process.env.RELEASE_TAG,
-  repository: process.env.RELEASE_REPOSITORY,
-});
-if (!result.matches) {
-  process.exitCode = 1;
-}
-NODE
+  node --import tsx "${GITHUB_WORKSPACE}/.release-harness/scripts/render-github-release-notes.mts" \
+    --root "$GITHUB_WORKSPACE" --ref "$TARGET_SHA" \
+    --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --verify-body "$body_file"
 }
 
 assert_initial_release_body() {
@@ -812,6 +788,8 @@ create_or_update_github_release() {
         echo "- GitHub release: existing public page left untouched until proof append" >> "$GITHUB_STEP_SUMMARY"
         return 0
       fi
+      echo "Public release notes are no longer canonical; refusing to overwrite them." >&2
+      return 1
     fi
     # Latest promotion is invalid while this existing release remains a draft.
     gh release edit "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" \
@@ -881,6 +859,29 @@ verify_android_release_asset_contract() {
   echo "- Android APK asset contract: verified" >> "${GITHUB_STEP_SUMMARY}"
 }
 
+dispatch_linux_mirror() {
+  local parent_ref="$1" parent_full_ref="$2" parent_sha="$3" parent_run="$4" parent_attempt="$5"
+  local mirror_run_id
+  jq -n --arg tag "$RELEASE_TAG" --arg sha "$TARGET_SHA" \
+    '{tag: $tag, sourceSha: $sha, state: "dispatch-unconfirmed", mirrorVerified: false}' \
+    > "$RUNNER_TEMP/linux-mirror-dispatch.json"
+  [[ "$parent_full_ref" == "refs/tags/$parent_ref" ]] || return 1
+  verify_release_tag_target || return 1
+  node "${BASH_SOURCE[0]%/*}/../release-tooling-identity.mjs" verify \
+    --repository "$GITHUB_REPOSITORY" \
+    --workflow-ref "$parent_ref" --workflow-full-ref "$parent_full_ref" --workflow-sha "$parent_sha" \
+    --release-publish-run-id "$parent_run" --release-publish-run-attempt "$parent_attempt" \
+    --release-publish-ref "$parent_ref" --release-publish-full-ref "$parent_full_ref" \
+    --release-publish-parent-state-policy active-or-success || return 1
+  mirror_run_id="$(dispatch_workflow_at_ref "$parent_ref" "$parent_sha" linux-app-release.yml \
+    -f release_tag="$RELEASE_TAG" -f source_sha="$TARGET_SHA" -f tooling_sha="$parent_sha" \
+    -f release_publish_run_id="$parent_run" -f release_publish_run_attempt="$parent_attempt")" || return 1
+  jq --arg runId "$mirror_run_id" '. + {state: "dispatched", childRunId: $runId}' \
+    "$RUNNER_TEMP/linux-mirror-dispatch.json" > "$RUNNER_TEMP/linux-mirror-dispatch.next.json" || return 1
+  mv "$RUNNER_TEMP/linux-mirror-dispatch.next.json" "$RUNNER_TEMP/linux-mirror-dispatch.json" || return 1
+  echo "- Legacy Linux bridge: dispatched, not yet verified. Follow https://github.com/${GITHUB_REPOSITORY}/actions/runs/${mirror_run_id}; cancellation, queue overflow, timeout, or failed readback requires reconciliation." >> "$GITHUB_STEP_SUMMARY"
+}
+
 dispatch_linux_release_assets() {
   local release_train release_json workflow_sha request_run_id publication_state
   release_train="$(node --input-type=module - "${BASH_SOURCE[0]%/*}/release-version.mjs" "${RELEASE_TAG}" <<'NODE'
@@ -906,7 +907,8 @@ NODE
     --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" \
     --output "$RUNNER_TEMP/linux-release-completion")" || return 1
   if [[ "$(jq -er '.state' <<< "$publication_state")" == published &&
-        "$(jq -r '.needsUpdaterPublication' <<< "$publication_state")" != true ]]; then
+        "$(jq -r '.needsUpdaterPublication' <<< "$publication_state")" != true &&
+        "$(jq -r '.needsChannelPublication' <<< "$publication_state")" == false ]]; then
     jq -n --arg tag "$RELEASE_TAG" '{tag: $tag, state: "published-assets-reused"}' \
       > "$RUNNER_TEMP/linux-dispatch.json"
     echo "- Linux: existing same-tag AppImage, Debian package, signed updater manifest, and checksums verified; no build requested." >> "$GITHUB_STEP_SUMMARY"

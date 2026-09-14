@@ -1,7 +1,13 @@
 import { expectDefined } from "@openclaw/normalization-core";
-import { readAcpSessionMetaBatch } from "../acp/runtime/session-meta.js";
+import {
+  readAcpSessionMeta,
+  readAcpSessionMetaForEntry,
+  readAcpSessionMetaBatch,
+} from "../acp/runtime/session-meta.js";
+import { resolveCurrentSessionAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";
 import { readSessionRuntimeOwnership } from "../agents/harness/session-runtime-ownership.js";
 import { findModelCatalogEntry } from "../agents/model-catalog-lookup.js";
+import { selectModelCatalogRuntimeEntry } from "../agents/model-catalog-view.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import {
   resolveSessionModelIdentityRef,
@@ -36,6 +42,10 @@ export function buildSessionListRowMetadataContext(params: {
     ModelCatalogEntry[],
     Map<string, ModelCatalogEntry | undefined>
   >();
+  const runtimeEntries = new WeakMap<
+    readonly ModelCatalogEntry[],
+    Map<string, ReturnType<typeof selectModelCatalogRuntimeEntry>>
+  >();
   return {
     subagentRuns: buildSubagentSessionListReadIndex(params.now),
     selectedModelByOverrideRef: new Map(),
@@ -51,6 +61,20 @@ export function buildSessionListRowMetadataContext(params: {
         entries.set(key, findModelCatalogEntry(catalog, query));
       }
       return entries.get(key);
+    },
+    selectModelCatalogRuntimeEntry: (selection) => {
+      let entries = runtimeEntries.get(selection.routeVariants);
+      if (!entries) {
+        entries = new Map();
+        runtimeEntries.set(selection.routeVariants, entries);
+      }
+      const key = `${selection.runtimeId}\0${createSessionRowModelCacheKey(selection.entry.provider, selection.entry.id)}`;
+      let selected = entries.get(key);
+      if (!selected) {
+        selected = selectModelCatalogRuntimeEntry(selection);
+        entries.set(key, selected);
+      }
+      return selected;
     },
     displayModelIdentityByKey: new Map(),
     modelCostConfigByModelRef: new Map(),
@@ -247,4 +271,49 @@ export function populateSessionListAcpMetadata(params: {
   for (const { entry } of entries) {
     metadataByEntry.set(entry, metadata.get(entry));
   }
+}
+
+/** Runtime ownership is independent of whether the model itself can change. */
+export function resolveGatewaySessionRuntimeSelectionLocked(
+  entry: Pick<SessionEntry, "modelSelectionLocked"> | undefined,
+  acpMeta: SessionEntry["acp"],
+): boolean {
+  return entry?.modelSelectionLocked === true || acpMeta != null;
+}
+
+export function resolveGatewaySessionRuntimeProjection(params: {
+  cfg: OpenClawConfig;
+  provider: string;
+  model: string;
+  agentId: string;
+  sessionKey: string;
+  entry?: SessionEntry;
+  rowContext?: SessionListRowContext;
+}) {
+  const { cfg, agentId, sessionKey, entry } = params;
+  const cachedAcpMeta = params.rowContext?.acpSessionMetaByEntry;
+  // Keep metadata bound to the projected row; rereading its key can adopt a
+  // replacement lifecycle while projecting the original entry.
+  const acpMeta =
+    entry?.acp ??
+    (entry && cachedAcpMeta?.has(entry)
+      ? cachedAcpMeta.get(entry)
+      : entry
+        ? readAcpSessionMetaForEntry({ cfg, sessionKey, agentId, entry })
+        : readAcpSessionMeta({ sessionKey, agentId }));
+  const agentRuntime = resolveCurrentSessionAgentRuntimeMetadata({
+    cfg: params.cfg,
+    agentScope: { kind: "prepared", agentId: params.agentId },
+    provider: params.provider,
+    model: params.model,
+    sessionKey: params.sessionKey,
+    sessionEntry: params.entry,
+    acpRuntime: acpMeta != null,
+    acpBackend: acpMeta?.backend,
+  });
+  return {
+    acpMeta,
+    agentRuntime,
+    runtimeSelectionLocked: resolveGatewaySessionRuntimeSelectionLocked(entry, acpMeta),
+  };
 }

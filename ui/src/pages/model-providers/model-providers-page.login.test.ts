@@ -105,23 +105,33 @@ function loginHarness() {
   return { ...harness, answer, cancel, status };
 }
 
-async function openLogin(page: ModelProvidersPageTestElement, choice = "example-secret") {
+async function chooseLogin(page: ModelProvidersPageTestElement, choice = "example-secret") {
   await waitForFast(() =>
     expect(page.querySelector<HTMLButtonElement>("[data-models-connect]")?.disabled).toBe(false),
   );
   page.querySelector<HTMLButtonElement>("[data-models-connect]")!.click();
   await page.updateComplete;
-  const picker = page.querySelector<HTMLSelectElement>("[data-models-login-choice]")!;
-  picker.value = choice;
-  picker.dispatchEvent(new Event("change", { bubbles: true }));
-  await page.updateComplete;
-  page.querySelector<HTMLButtonElement>("[data-models-login-start]")!.click();
+  const label = choice === "example-secret" ? "Example API key" : "Example browser sign-in";
+  const choiceButton = Array.from(
+    page.querySelectorAll<HTMLButtonElement>("openclaw-modal-dialog button"),
+  ).find((button) => button.textContent?.includes(label));
+  expect(page.querySelector("openclaw-modal-dialog select")).toBeNull();
+  choiceButton!.click();
+}
+
+async function openLogin(page: ModelProvidersPageTestElement, choice = "example-secret") {
+  await chooseLogin(page, choice);
   await waitForFast(() =>
     expect(page.querySelector<HTMLInputElement>('input[name="wizard-text"]')?.disabled).toBe(false),
   );
 }
 
 async function submitCredential(page: ModelProvidersPageTestElement) {
+  const manual = page.querySelector<HTMLDetailsElement>(".wizard-step__manual-entry");
+  if (manual && !manual.open) {
+    manual.querySelector<HTMLElement>("summary")!.click();
+    expect(manual.open).toBe(true);
+  }
   const input = page.querySelector<HTMLInputElement>('input[name="wizard-text"]')!;
   input.value = "synthetic-test-credential";
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -131,6 +141,227 @@ async function submitCredential(page: ModelProvidersPageTestElement) {
 }
 
 describe("Models provider login", () => {
+  it.each([
+    { kind: "oauth", cancel: false, submit: false },
+    { kind: "oauth", cancel: false, submit: true },
+    { kind: "device-code", cancel: false, submit: false },
+    { kind: "oauth", cancel: true, submit: false },
+    { kind: "device-code", cancel: true, submit: false },
+  ] as const)(
+    "settles $kind sign-in through the registered Models page without a Continue (cancel: $cancel, submit: $submit)",
+    async ({ kind, cancel, submit }) => {
+      vi.spyOn(window, "open").mockReturnValue(null);
+      const { context, request } = loginHarness();
+      const originalRequest = request.getMockImplementation()!;
+      const mutate = context.runtimeConfig.runExternalMutation;
+      context.runtimeConfig.runExternalMutation = async (task, options) => {
+        const result = await mutate(task, options);
+        return result.ok && result.value
+          ? {
+              ...result,
+              refresh: { ok: false, error: "Saved sign-in; configuration refresh failed." },
+            }
+          : result;
+      };
+      const authStatus =
+        await context.gateway.snapshot.client!.request<ModelAuthStatusResult>("models.authStatus");
+      for (const capability of authStatus.providerCapabilities ?? []) {
+        const option = capability.loginOptions?.find((choice) => choice.id === "example-browser");
+        if (option) {
+          option.kind = kind;
+        }
+      }
+      const completed = deferred();
+      const manualAbort = new AbortController();
+      let session: WizardSession | undefined;
+      let purged = false;
+      const terminalRead = deferred();
+      const terminalDelivery = deferred();
+      const cancellationRead = deferred();
+      request.mockImplementation(
+        async (method, params?: Partial<WizardNextParams & WizardCancelParams>) => {
+          if (method === "models.authStatus") {
+            return authStatus;
+          }
+          if (method === "models.authLogin") {
+            session = new WizardSession(async (prompter) => {
+              await prompter.note("Scope: System / agent", "Provider sign-in");
+              await prompter.openUrl?.("https://provider.example/sign-in");
+              await prompter.note("Open the sign-in page.", "Provider instructions");
+              if (kind === "device-code") {
+                await prompter.deviceCode?.({
+                  title: "Pair account",
+                  code: "PAIR-1234",
+                  message: "Enter this code to pair your account.",
+                });
+              } else {
+                void prompter
+                  .text({ message: "Paste the redirect URL", signal: manualAbort.signal })
+                  .catch(() => {});
+              }
+              await completed.promise;
+              manualAbort.abort();
+            });
+            return { done: false, status: "running" };
+          }
+          if (method === "wizard.next") {
+            if (purged) {
+              throw new GatewayRequestError({
+                code: "INVALID_REQUEST",
+                message: "Wizard session not found",
+                details: { code: "WIZARD_NOT_FOUND" },
+              });
+            }
+            if (!session) {
+              throw new Error("Expected admitted sign-in");
+            }
+            if (params?.answer) {
+              await session.answer(params.answer.stepId, params.answer.value);
+            }
+            const result = await session.next();
+            if (result.done && cancel && kind === "device-code") {
+              await cancellationRead.promise;
+            }
+            if (result.done && submit) {
+              purged = true;
+              terminalRead.resolve();
+              await terminalDelivery.promise;
+            }
+            return result;
+          }
+          if (method === "wizard.cancel") {
+            session?.cancel();
+            completed.resolve();
+            manualAbort.abort();
+            await session?.whenSettled();
+            return { status: "cancelled" };
+          }
+          if (method === "wizard.status") {
+            cancellationRead.resolve();
+            return { status: session?.getStatus() };
+          }
+          return originalRequest(method);
+        },
+      );
+      const page = appendPage(context);
+      try {
+        await waitForFast(() =>
+          expect(page.querySelector<HTMLButtonElement>("[data-models-connect]")?.disabled).toBe(
+            false,
+          ),
+        );
+        page.querySelector<HTMLButtonElement>("[data-models-connect]")!.click();
+        await page.updateComplete;
+        [...page.querySelectorAll<HTMLButtonElement>("openclaw-modal-dialog button")]
+          .find((button) => button.textContent?.includes("Example browser sign-in"))!
+          .click();
+        await waitForFast(() =>
+          expect(page.querySelector<HTMLAnchorElement>(".wizard-step__sign-in a")?.href).toBe(
+            "https://provider.example/sign-in",
+          ),
+        );
+        expect(page.textContent).not.toContain("Scope:");
+        expect(
+          [...page.querySelectorAll("openclaw-modal-dialog button")].some(
+            (button) => button.textContent?.trim() === "Continue",
+          ),
+        ).toBe(false);
+        if (kind === "device-code") {
+          expect(page.querySelector(".wizard-step__sign-in-code")?.textContent).toBe("PAIR-1234");
+        } else {
+          expect(page.querySelector<HTMLDetailsElement>(".wizard-step__manual-entry")?.open).toBe(
+            false,
+          );
+        }
+        if (cancel) {
+          [...page.querySelectorAll<HTMLButtonElement>("openclaw-modal-dialog button")]
+            .find((button) => button.textContent?.trim() === "Cancel")!
+            .click();
+          await waitForFast(() => expect(page.querySelector("openclaw-modal-dialog")).toBeNull());
+          expect(session?.getStatus()).toBe("cancelled");
+        } else {
+          completed.resolve();
+          if (submit) {
+            await terminalRead.promise;
+            await submitCredential(page);
+            terminalDelivery.resolve();
+          }
+          await waitForFast(
+            () => expect(page.textContent).toContain("Provider credentials saved."),
+            { timeout: 3000 },
+          );
+          expect(page.querySelector("openclaw-modal-dialog")).toBeNull();
+          expect(session?.getStatus()).toBe("done");
+          expect(page.textContent).toContain("Saved sign-in; configuration refresh failed.");
+        }
+        const reads = request.mock.calls.filter(([method]) => method === "wizard.next").length;
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1100);
+        });
+        expect(request.mock.calls.filter(([method]) => method === "wizard.next")).toHaveLength(
+          reads,
+        );
+      } finally {
+        session?.cancel();
+        completed.resolve();
+        terminalDelivery.resolve();
+        cancellationRead.resolve();
+        manualAbort.abort();
+        await session?.whenSettled();
+      }
+    },
+  );
+
+  it.each(["error", "input"] as const)(
+    "retains provider guidance for the next %s without a note acknowledgement",
+    async (outcome) => {
+      vi.spyOn(window, "open").mockReturnValue(null);
+      const { context, request } = loginHarness();
+      const originalRequest = request.getMockImplementation()!;
+      const guidance =
+        "Node/OpenSSL cannot validate TLS certificates. Run brew postinstall ca-certificates, then retry sign-in.";
+      let shown = false;
+      request.mockImplementation(async (method) => {
+        if (method !== "wizard.next") {
+          return originalRequest(method);
+        }
+        if (!shown) {
+          shown = true;
+          return {
+            done: false,
+            status: "running",
+            step: { id: "provider-help", type: "note", executor: "client", message: guidance },
+          };
+        }
+        return outcome === "error"
+          ? { done: true, status: "error", error: "Certificate validation failed." }
+          : {
+              done: false,
+              status: "running",
+              step: {
+                id: "client-id",
+                type: "text",
+                executor: "client",
+                message: "Enter the client ID",
+              },
+            };
+      });
+      const page = appendPage(context);
+      await chooseLogin(page, "example-browser");
+      await waitForFast(() =>
+        expect(page.querySelector("openclaw-modal-dialog")?.textContent).toContain(guidance),
+      );
+      expect(page.querySelector("openclaw-modal-dialog")?.textContent).toContain(
+        outcome === "error" ? "Certificate validation failed." : "Enter the client ID",
+      );
+      expect(request).toHaveBeenCalledWith(
+        "wizard.next",
+        { sessionId: expect.any(String), answer: { stepId: "provider-help" } },
+        expect.anything(),
+      );
+    },
+  );
+
   it("saves credentials through the selected manifest choice and refreshes the provider card", async () => {
     const { context, request, runtimeConfig, answer } = loginHarness();
     const page = appendPage(context);
@@ -323,7 +554,7 @@ describe("Models provider login", () => {
       expect(page.textContent).not.toContain("Provider credentials saved.");
       page.querySelector<HTMLButtonElement>("[data-models-connect]")!.click();
       await page.updateComplete;
-      expect(page.querySelector("[data-models-login-choice]")).not.toBeNull();
+      expect(page.querySelector(".wizard-step__actions")).not.toBeNull();
     },
   );
 
@@ -355,11 +586,11 @@ describe("Models provider login", () => {
     page.querySelector<HTMLButtonElement>("[data-models-connect]")!.click();
     await page.updateComplete;
     expect(
-      [...page.querySelectorAll<HTMLOptionElement>("[data-models-login-choice] option")].map(
-        (option) => option.value,
+      [...page.querySelectorAll(".wizard-step__actions strong")].map(
+        (element) => element.textContent,
       ),
-    ).toEqual(["", "example-browser", "example-secret"]);
-    expect(page.querySelector<HTMLButtonElement>("[data-models-login-start]")?.disabled).toBe(true);
+    ).toEqual(["Example browser sign-in", "Example API key"]);
+    expect(page.querySelector("openclaw-modal-dialog select")).toBeNull();
     expect(
       [...page.querySelectorAll("button")].some((button) =>
         button.textContent?.includes("Model setup"),

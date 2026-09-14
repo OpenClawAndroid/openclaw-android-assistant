@@ -1,6 +1,9 @@
 import type { SessionActivitySummary } from "../../packages/gateway-protocol/src/schema/sessions-activity-summary.js";
 import { resolveUtilityModelRefForAgent } from "../agents/utility-model.js";
-import { readSessionActivitySummary } from "../config/sessions/activity-summary.js";
+import {
+  ACTIVITY_SUMMARY_FORMAT_REVISION,
+  readSessionActivitySummary,
+} from "../config/sessions/activity-summary.js";
 import { resolveSessionStorePathCore } from "../config/sessions/paths.js";
 import {
   readSessionTranscriptWatermark,
@@ -102,6 +105,7 @@ export function projectSessionActivitySummary(
     : undefined;
   const fresh =
     summary &&
+    summary.formatRevision === ACTIVITY_SUMMARY_FORMAT_REVISION &&
     summary.coveredMessages === summary.totalMessages &&
     watermark?.generation === summary.generation &&
     watermark.maxSeq === summary.maxSeq;

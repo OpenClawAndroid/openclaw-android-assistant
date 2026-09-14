@@ -112,7 +112,14 @@ export async function root(rootDir: string, defaults?: RootDefaults): Promise<Ro
   // Keep the dependency's handle and identity. Its JSON methods call these writes.
   const overrides: Pick<FsSafeRoot, "create" | "write"> = {
     create: async (relativePath, data, options) =>
-      await runPinnedWrite(async () => await create(relativePath, data, options)),
+      await runPinnedWrite(async () => {
+        // Select the dependency's overload without widening streamed-write options.
+        if (typeof data === "string" || Buffer.isBuffer(data)) {
+          await create(relativePath, data, options);
+        } else {
+          await create(relativePath, data, options);
+        }
+      }),
     write: async (relativePath, data, options) =>
       await runPinnedWrite(async () => await write(relativePath, data, options)),
   };

@@ -328,13 +328,26 @@ describe("sessions.patch", () => {
         const entered = createDeferredCore();
         const release = createDeferredCore();
         const catalogEntered = createDeferredCore();
-        const catalogRelease = createDeferredCore();
-        const loadGatewayModelCatalog = vi.fn(async () => {
+        type CatalogSnapshot = Awaited<
+          ReturnType<GatewayRequestContext["loadGatewayModelCatalogSnapshot"]>
+        >;
+        const catalogRelease = createDeferredCore<CatalogSnapshot>();
+        const snapshot: CatalogSnapshot = {
+          agentId: "main",
+          agentDir: state.agentDir("main"),
+          workspaceDir: state.workspaceDir,
+          config: cfg,
+          catalogComplete: true,
+          entries: [],
+          routeVariants: [],
+        };
+        const loadGatewayModelCatalogSnapshot = vi.fn<
+          GatewayRequestContext["loadGatewayModelCatalogSnapshot"]
+        >(async () => {
           catalogEntered.resolve();
-          await catalogRelease.promise;
-          return [];
+          return catalogRelease.promise;
         });
-        requestContext.loadGatewayModelCatalog = loadGatewayModelCatalog;
+        requestContext.loadGatewayModelCatalogSnapshot = loadGatewayModelCatalogSnapshot;
         const applyPermissionMode = vi.fn(async (_mode: string | null, revoke: () => void) => {
           revoke();
           entered.resolve();
@@ -362,7 +375,7 @@ describe("sessions.patch", () => {
         try {
           if (prepareCatalog) {
             await Promise.race([catalogEntered.promise, first]);
-            expect(loadGatewayModelCatalog).toHaveBeenCalledOnce();
+            expect(loadGatewayModelCatalogSnapshot).toHaveBeenCalledOnce();
             expect(applyPermissionMode).not.toHaveBeenCalled();
             expect(patched).not.toHaveBeenCalled();
             expect(isSessionPermissionChangePending(sessionId)).toBe(false);
@@ -371,7 +384,7 @@ describe("sessions.patch", () => {
               loadSessionEntry({ agentId: "main", env: state.env, sessionKey })?.permissionMode,
             ).toBe("guarded");
           }
-          catalogRelease.resolve();
+          catalogRelease.resolve(snapshot);
           await Promise.race([entered.promise, first]);
           expect(applyPermissionMode).toHaveBeenCalledTimes(1);
           expect(responses[0]).not.toHaveBeenCalled();
@@ -391,7 +404,7 @@ describe("sessions.patch", () => {
           expect(responses[0]).toHaveBeenCalledWith(true, expect.any(Object), undefined);
           expect(responses[1]).toHaveBeenCalledWith(true, expect.any(Object), undefined);
           expect(patched).toHaveBeenCalledTimes(2);
-          expect(loadGatewayModelCatalog).toHaveBeenCalledTimes(prepareCatalog ? 1 : 0);
+          expect(loadGatewayModelCatalogSnapshot).toHaveBeenCalledTimes(prepareCatalog ? 1 : 0);
           expect(isSessionPermissionChangePending(sessionId)).toBe(false);
           expect(
             loadSessionEntry({ agentId: "main", env: state.env, sessionKey })?.permissionMode,
@@ -402,7 +415,7 @@ describe("sessions.patch", () => {
             ).toBe("low");
           }
         } finally {
-          catalogRelease.resolve();
+          catalogRelease.resolve(snapshot);
           release.resolve();
           await Promise.allSettled([first, second]);
           unregisterInternalHook("session:patch", patched);

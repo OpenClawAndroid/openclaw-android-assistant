@@ -5,6 +5,7 @@
  */
 import type { AgentToolResult } from "../../agents/runtime/index.js";
 import { normalizeOptionalAccountId, normalizeAccountId } from "../../routing/account-id.js";
+import { withChannelReadAuthority } from "../../shared/channel-read-authority.js";
 import { normalizeChatType, type ChatType } from "../chat-type.js";
 import { normalizeConversationReadInvocationOrigin } from "./conversation-read-origin.js";
 import { resolveChannelPluginRegistration } from "./registry.js";
@@ -32,6 +33,7 @@ type PreparedMessageActionReadContext = {
   origin: ServerOwnedConversationReadOrigin;
   actionPolicy: ChannelMessageActionReadPolicy;
   enforcement: MessageActionReadEnforcement;
+  assertReadAuthorityCurrent?: () => void;
 };
 
 type ChannelMessageActionReadPolicy =
@@ -122,30 +124,50 @@ function resolveChannelMessageActionReadPolicy(
   return CHANNEL_MESSAGE_ACTION_READ_POLICIES[action as ChannelMessageActionName];
 }
 
-function resolveServerOwnedConversationReadOrigin(
-  value: unknown,
-): ServerOwnedConversationReadOrigin {
-  return normalizeConversationReadInvocationOrigin(value) as ServerOwnedConversationReadOrigin;
-}
-
 type MessageActionReadEnforcement =
-  | { kind: "provider-owned" }
+  | { kind: "provider-owned"; pluginTrust: "bundled" | "external"; fenced: boolean }
   | {
       kind: "host-exact-current";
       pluginTrust: "bundled" | "external";
     };
 
+// Context retrieval only. The broader conversation-read class also contains mutations.
+const FENCED_PROVIDER_READ_ACTIONS = new Set<ChannelMessageActionName>([
+  "read",
+  "search",
+  "reactions",
+  "list-pins",
+  "thread-list",
+  "channel-info",
+  "permissions",
+  "member-info",
+  "role-info",
+  "emoji-list",
+  "channel-list",
+  "voice-status",
+  "event-list",
+  "sticker-search",
+]);
+
 function resolveMessageActionReadEnforcement(params: {
   action: ChannelMessageActionName;
   actions: ChannelPlugin["actions"];
   pluginOrigin: string | undefined;
+  hasReadAuthority: boolean;
 }): MessageActionReadEnforcement {
   const providerOwnedReadGates = params.actions?.providerOwnedReadGates;
-  if (
-    params.pluginOrigin === "bundled" &&
-    (providerOwnedReadGates === true || providerOwnedReadGates?.includes(params.action) === true)
-  ) {
-    return { kind: "provider-owned" };
+  if (providerOwnedReadGates === true || providerOwnedReadGates?.includes(params.action) === true) {
+    const fencedReadAction =
+      params.actions?.readAuthorityActions?.includes(params.action) === true &&
+      FENCED_PROVIDER_READ_ACTIONS.has(params.action);
+    if (params.pluginOrigin === "bundled") {
+      // Bundled admission stays provider-owned, but an opted-in read must use
+      // its registered lifecycle owner rather than an unfenced artifact fallback.
+      return { kind: "provider-owned", pluginTrust: "bundled", fenced: fencedReadAction };
+    }
+    if (params.hasReadAuthority && fencedReadAction) {
+      return { kind: "provider-owned", pluginTrust: "external", fenced: true };
+    }
   }
   return {
     kind: "host-exact-current",
@@ -539,22 +561,38 @@ function prepareMessageActionReadContext(
     return undefined;
   }
   const action = ctx.action as ChannelMessageActionName;
-  const origin = resolveServerOwnedConversationReadOrigin(ctx.conversationReadOrigin);
+  const origin = normalizeConversationReadInvocationOrigin(
+    ctx.conversationReadOrigin,
+  ) as ServerOwnedConversationReadOrigin;
   const actionContext: ChannelMessageActionContext = {
     ...ctx,
     action,
     conversationReadOrigin: origin,
   };
+  const authority = registration.captureReadAuthority?.();
+  const enforcement = resolveMessageActionReadEnforcement({
+    action,
+    actions: registration.plugin.actions,
+    pluginOrigin: registration.origin,
+    hasReadAuthority: authority?.() === true,
+  });
+  const assertCallerCurrent = ctx.assertDirectAdapterHandoff;
+  const assertReadAuthorityCurrent =
+    origin !== "direct-operator" && enforcement.kind === "provider-owned" && enforcement.fenced
+      ? () => {
+          assertCallerCurrent?.();
+          if (!authority?.()) {
+            throw new Error(`Plugin ${ctx.channel} read authority is no longer active.`);
+          }
+        }
+      : undefined;
   return {
     actionContext,
     plugin: registration.plugin,
     origin,
     actionPolicy,
-    enforcement: resolveMessageActionReadEnforcement({
-      action,
-      actions: registration.plugin.actions,
-      pluginOrigin: registration.origin,
-    }),
+    enforcement,
+    assertReadAuthorityCurrent,
   };
 }
 
@@ -587,6 +625,18 @@ function enforceMessageActionConversationReadGate(params: {
     return;
   }
   if (params.enforcement.kind === "provider-owned") {
+    // Restore cross-conversation reads, not missing-origin or cross-account authority.
+    if (
+      params.enforcement.fenced &&
+      params.enforcement.pluginTrust === "external" &&
+      (!hasMatchingCurrentProviderContext(params.ctx) ||
+        !hasMatchingCurrentAccountContext(params.ctx) ||
+        !hasCurrentConversationTarget(params.ctx))
+    ) {
+      throw new Error(
+        `Delegated ${params.ctx.channel}:${params.ctx.action} requires current provider and account context.`,
+      );
+    }
     return;
   }
 
@@ -616,35 +666,41 @@ function enforceMessageActionConversationReadGate(params: {
 /** Authorizes and canonicalizes external exact-current targets before target resolution. */
 export function prepareExternalMessageActionTargetForResolution(
   ctx: ChannelMessageActionDispatchContext,
-): Record<string, unknown> {
+): { params: Record<string, unknown>; assertReadAuthorityCurrent?: () => void } {
   const prepared = prepareMessageActionReadContext(ctx);
+  if (prepared?.assertReadAuthorityCurrent) {
+    prepared.assertReadAuthorityCurrent();
+    enforceMessageActionConversationReadGate({
+      ctx: prepared.actionContext,
+      ...prepared,
+    });
+    return { params: ctx.params, assertReadAuthorityCurrent: prepared.assertReadAuthorityCurrent };
+  }
   if (!isExternalDelegatedMessageActionRead(prepared)) {
-    return ctx.params;
+    return { params: ctx.params };
   }
   // External target resolution can execute plugin directory/provider lookups.
   // Establish exact-current authority before that boundary, then recheck at dispatch.
   const authorizedActionContext = attachExternalCurrentTargetSibling({
     ctx: prepared.actionContext,
-    plugin: prepared.plugin,
-    origin: prepared.origin,
-    actionPolicy: prepared.actionPolicy,
-    enforcement: prepared.enforcement,
+    ...prepared,
   });
   enforceMessageActionConversationReadGate({
     ctx: authorizedActionContext,
-    plugin: prepared.plugin,
-    origin: prepared.origin,
-    actionPolicy: prepared.actionPolicy,
-    enforcement: prepared.enforcement,
+    ...prepared,
   });
-  return authorizedActionContext.params;
+  return { params: authorizedActionContext.params };
 }
 
 /** Defers delegated external target interpretation to the attested Gateway boundary. */
 export function shouldDeferExternalMessageActionTargetResolution(
   ctx: ChannelMessageActionDispatchContext,
 ): boolean {
-  return isExternalDelegatedMessageActionRead(prepareMessageActionReadContext(ctx));
+  const prepared = prepareMessageActionReadContext(ctx);
+  // Official reads also wait for the Gateway's attested requester and live registry.
+  return (
+    isExternalDelegatedMessageActionRead(prepared) || Boolean(prepared?.assertReadAuthorityCurrent)
+  );
 }
 
 function requiresTrustedRequesterSender(
@@ -669,42 +725,38 @@ export async function dispatchChannelMessageAction(
   if (!prepared) {
     return null;
   }
-  const { actionContext, plugin, origin, actionPolicy, enforcement } = prepared;
-  const actions = plugin.actions;
-  if (!actions?.handleAction) {
-    return null;
-  }
-  const authorizedActionContext = attachExternalCurrentTargetSibling({
-    ctx: actionContext,
-    plugin,
-    origin,
-    actionPolicy,
-    enforcement,
+  return await withChannelReadAuthority(prepared.assertReadAuthorityCurrent, async () => {
+    const { actionContext, plugin } = prepared;
+    const actions = plugin.actions;
+    if (!actions?.handleAction) {
+      return null;
+    }
+    const authorizedActionContext = attachExternalCurrentTargetSibling({
+      ctx: actionContext,
+      ...prepared,
+    });
+    enforceMessageActionConversationReadGate({
+      ctx: authorizedActionContext,
+      ...prepared,
+    });
+    // Some plugin actions depend on the sender identity to enforce channel-local
+    // trust. Reject tool-driven calls before invoking the action without it.
+    if (
+      requiresTrustedRequesterSender(authorizedActionContext, plugin) &&
+      !authorizedActionContext.requesterSenderId?.trim()
+    ) {
+      throw new Error(
+        `Trusted sender identity is required for ${authorizedActionContext.channel}:${authorizedActionContext.action} in tool-driven contexts.`,
+      );
+    }
+    // `handleAction` may be broad; `supportsAction` lets plugins cheaply decline
+    // action names before the dispatcher enters channel-specific behavior.
+    if (
+      actions.supportsAction &&
+      !actions.supportsAction({ action: authorizedActionContext.action })
+    ) {
+      return null;
+    }
+    return await actions.handleAction(authorizedActionContext);
   });
-  enforceMessageActionConversationReadGate({
-    ctx: authorizedActionContext,
-    plugin,
-    origin,
-    actionPolicy,
-    enforcement,
-  });
-  // Some plugin actions depend on the sender identity to enforce channel-local
-  // trust. Reject tool-driven calls before invoking the action without it.
-  if (
-    requiresTrustedRequesterSender(authorizedActionContext, plugin) &&
-    !authorizedActionContext.requesterSenderId?.trim()
-  ) {
-    throw new Error(
-      `Trusted sender identity is required for ${authorizedActionContext.channel}:${authorizedActionContext.action} in tool-driven contexts.`,
-    );
-  }
-  // `handleAction` may be broad; `supportsAction` lets plugins cheaply decline
-  // action names before the dispatcher enters channel-specific behavior.
-  if (
-    actions.supportsAction &&
-    !actions.supportsAction({ action: authorizedActionContext.action })
-  ) {
-    return null;
-  }
-  return await actions.handleAction(authorizedActionContext);
 }

@@ -3,9 +3,11 @@ import type {
   ConfigHealthSnapshot,
   ConfigHealthEntryBasis,
 } from "../config/io.health-state.types.js";
+import type { CronStoreWorkerOperations } from "../cron/store/load-worker.types.js";
 import type { SessionDeliveryWorkerOperations } from "../infra/session-delivery-queue.worker-contract.js";
 import type { PreparedSqliteAuditRecord } from "../infra/sqlite-audit-record.kernel.js";
 import type { SqliteFileGeneration } from "../infra/sqlite-file-generation.js";
+import type { PluginMetadataStateSelector } from "../plugins/installed-plugin-index-row.js";
 import type { TaskFlowView } from "../plugins/runtime/task-domain-types.js";
 import type { ManagedTaskInFlowInput } from "../tasks/task-flow-managed-run-task.kernel.js";
 import type { RunTaskInFlowResult } from "../tasks/task-flow-managed-run-task.types.js";
@@ -41,7 +43,12 @@ type TaskFlowReadQuery = {
 
 /** Commands share one physical shared-state actor; bindings belong to commands, not open input. */
 export type OpenClawStateWorkerOperations = UserPreferenceWorkerOperations &
+  CronStoreWorkerOperations &
   SessionDeliveryWorkerOperations & {
+    "plugins.metadata.read": {
+      input: { selector: PluginMetadataStateSelector; artifactPreservingReadOnly?: boolean };
+      output: { value_json: string } | undefined;
+    };
     "tasks.statusSummary": {
       input: { now: number; preserveSourceArtifacts: boolean };
       output: TaskRegistryStatusSnapshot | undefined;

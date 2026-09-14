@@ -450,7 +450,7 @@ export function renderSettingsSegmented<T extends string>(
       size="s"
       orientation="horizontal"
       .value=${live(props.value)}
-      ?disabled=${props.disabled ?? false}
+      ?disabled=${live(props.disabled ?? false)}
       @change=${(event: Event) => {
         const group = event.currentTarget as HTMLElement & { value?: string };
         const value = group.value;
@@ -478,7 +478,7 @@ export function renderSettingsSegmented<T extends string>(
             appearance="button"
             value=${option.value}
             .checked=${live(option.value === props.value)}
-            ?disabled=${option.disabled ?? false}
+            ?disabled=${live(option.disabled ?? false)}
             title=${option.title ?? nothing}
             data-test-id=${option.testId ?? nothing}
             @click=${(event: Event) => {

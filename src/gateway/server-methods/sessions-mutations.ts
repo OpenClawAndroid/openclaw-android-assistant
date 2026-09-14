@@ -149,13 +149,15 @@ export const sessionMutationHandlers: GatewayRequestHandlers = {
       }
       const prepared = executed.preparedByIndex[0]!;
       diagnostics?.scope("response");
+      const catalog = await executed.catalogs.available(prepared.targetAgentId);
       respond(
         true,
         projectSessionPatchResult({
           ...prepared,
           cfg: executed.cfg,
           entry: outcome.entry,
-          modelCatalog: await executed.catalogs.available(prepared.targetAgentId),
+          modelCatalog: catalog?.entries,
+          modelCatalogRouteVariants: catalog?.routeVariants,
         }),
         undefined,
       );

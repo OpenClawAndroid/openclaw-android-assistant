@@ -35,6 +35,7 @@ struct ChatProTab: View {
     }
 
     @Environment(NodeAppModel.self) private var appModel
+    @Environment(GatewayConnectionController.self) private var gatewayController
     @AppStorage("openclaw.webchat.showAssistantTrace")
     private var showsAssistantTrace = true
     @State private var viewModel: OpenClawChatViewModel?
@@ -74,6 +75,7 @@ struct ChatProTab: View {
 
     var body: some View {
         self.content
+            .disabled(self.isGatewayTransitionPending)
             .task {
                 await self.appModel.restoreChatSessionRoutingIdentityIfNeeded()
                 self.syncChatViewModel()
@@ -124,6 +126,15 @@ struct ChatProTab: View {
             .onChange(of: self.appModel.newChatRequestID) { _, requestID in
                 Task { await self.handleNewChatRequest(requestID) }
             }
+    }
+
+    private var isGatewayTransitionPending: Bool {
+        self.appModel.isGatewayPickerRequestInFlight ||
+            self.gatewayController.hasPendingConnectionHandoff ||
+            // Route commitment precedes SwiftUI applying the new presentation.
+            // A deliberately pinned attachment owner keeps its existing controls
+            // so the user can remove/finish it rather than becoming stuck.
+            (!self.isAttachmentOwnerPinned && self.viewModelOwnerID != self.appModel.chatViewModelOwnerID)
     }
 
     private var content: some View {
@@ -449,6 +460,7 @@ struct ChatProTab: View {
     }
 
     private func syncChatViewModel() {
+        defer { self.appModel.presentedChatViewModel = self.viewModel }
         let sessionKey = self.appModel.chatSessionKey
         // Includes the cache gateway identity so switching paired gateways
         // rebuilds the view model even while the transport mode stays the same.

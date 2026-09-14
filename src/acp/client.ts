@@ -1,10 +1,10 @@
 /** Interactive stdio ACP client used to connect a terminal session to an OpenClaw ACP server. */
 import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import * as readline from "node:readline";
 import { Readable, Writable } from "node:stream";
-import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
   ClientSideConnection,
@@ -40,16 +40,14 @@ type AcpClientHandle = {
 
 const ACP_SERVER_KILL_GRACE_MS = 1000;
 const ACP_SERVER_FORCE_KILL_TIMEOUT_MS = 1000;
-const ACP_SERVER_EXIT_POLL_MS = 25;
 
 function hasChildExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
 async function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (!hasChildExited(child) && Date.now() < deadline) {
-    await delay(ACP_SERVER_EXIT_POLL_MS);
+  if (!hasChildExited(child)) {
+    await once(child, "exit", { signal: AbortSignal.timeout(timeoutMs) }).catch(() => {});
   }
   return hasChildExited(child);
 }
@@ -254,6 +252,7 @@ export async function runAcpClientInteractive(opts: AcpClientOptions = {}): Prom
   console.log(`Session: ${sessionId}`);
   console.log('Type a prompt, or "exit" to quit.\n');
 
+  let quitting = false; // Only explicit quit makes the client-owned signal stop successful.
   const prompt = () => {
     rl.question("> ", (input) => {
       void (async () => {
@@ -263,6 +262,7 @@ export async function runAcpClientInteractive(opts: AcpClientOptions = {}): Prom
           return;
         }
         if (text === "exit" || text === "quit") {
+          quitting = true;
           await terminateAcpServer(agent);
           rl.close();
           process.exit(0);
@@ -285,9 +285,9 @@ export async function runAcpClientInteractive(opts: AcpClientOptions = {}): Prom
 
   prompt();
 
-  agent.on("exit", (code) => {
-    console.log(`\nAgent exited with code ${code ?? 0}`);
+  agent.on("exit", (code, signal) => {
+    console.log(`\nAgent exited with ${signal ? `signal ${signal}` : `code ${code}`}`);
     rl.close();
-    process.exit(code ?? 0);
+    process.exit(code ?? (quitting ? 0 : 1));
   });
 }

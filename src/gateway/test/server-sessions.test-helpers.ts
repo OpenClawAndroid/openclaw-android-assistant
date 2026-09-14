@@ -656,6 +656,21 @@ export async function directSessionReq<TPayload = unknown>(
   const loadGatewayModelCatalog =
     (opts?.context?.loadGatewayModelCatalog as GatewayRequestContext["loadGatewayModelCatalog"]) ??
     (async () => agentDiscoveryMock.models);
+  const loadGatewayModelCatalogSnapshot: GatewayRequestContext["loadGatewayModelCatalogSnapshot"] =
+    (opts?.context
+      ?.loadGatewayModelCatalogSnapshot as GatewayRequestContext["loadGatewayModelCatalogSnapshot"]) ??
+    (async (request) => {
+      const entries = await loadGatewayModelCatalog(request);
+      return {
+        entries,
+        routeVariants: entries,
+        agentId: request?.agentId ?? "main",
+        agentDir: "/tmp/session-catalog-agent",
+        workspaceDir: "/tmp/session-catalog-workspace",
+        config: getRuntimeConfig(),
+        catalogComplete: true,
+      };
+    });
   let result:
     | {
         ok: boolean;
@@ -690,7 +705,11 @@ export async function directSessionReq<TPayload = unknown>(
       dedupe: new Map(),
       getSessionEventSubscriberConnIds: () => new Set<string>(),
       loadGatewayModelCatalog,
-      readPreparedGatewayModelCatalog: async () => ({ entries: await loadGatewayModelCatalog() }),
+      loadGatewayModelCatalogSnapshot,
+      readPreparedGatewayModelCatalog: async () => {
+        const catalog = await loadGatewayModelCatalogSnapshot();
+        return { entries: catalog.entries, routeVariants: catalog.routeVariants };
+      },
       getRuntimeConfig,
       ...opts?.context,
     } as never,

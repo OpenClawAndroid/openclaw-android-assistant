@@ -73,10 +73,11 @@ it.each(["success", "failure"] as const)(
         .mockImplementation(async (...args) => {
           entered.resolve();
           await release.promise;
-          await close(...args);
+          const result = await close(...args);
           if (outcome === "failure") {
             throw failure;
           }
+          return result;
         });
       restoreClose = () => held.mockRestore();
       closing = server.close({ reason: "retire bound context" }).catch((error: unknown) => error);

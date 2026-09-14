@@ -159,6 +159,11 @@ Start agent work in the background: hook-dispatched turns for external content, 
     before reporting its result. Updates check the owner, managed mode, and
     expected revision together inside the worker's SQLite transaction.
 
+    On an ordinary persistence rejection, `createManaged` throws
+    `TaskFlow persistence failed.` with the original error in `cause`;
+    `tryCreateManaged` returns `null`. Both methods propagate preparation and
+    input-validation errors.
+
     Results preserve the corresponding synchronous payloads and owner scope.
     Reads query persisted SQLite records in the shared database worker, without
     overwriting the process registry. Cold registry restoration still uses its

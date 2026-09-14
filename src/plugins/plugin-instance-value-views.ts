@@ -33,8 +33,9 @@ function readPluginMember(
   invoke: (run: () => unknown) => unknown,
   receiver = object,
 ): unknown {
-  const read = () => Reflect.get(object, key, receiver);
-  return pluginMemberNeedsAdmission(object, key) ? invoke(read) : read();
+  return pluginMemberNeedsAdmission(object, key)
+    ? invoke(() => Reflect.get(object, key, receiver))
+    : Reflect.get(object, key, receiver);
 }
 
 function pluginMemberNeedsAdmission(object: object, key: PropertyKey, getters = true): boolean {

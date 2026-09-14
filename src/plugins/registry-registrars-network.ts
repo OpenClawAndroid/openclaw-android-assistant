@@ -12,6 +12,7 @@ import { normalizePluginHttpPath } from "./http-path.js";
 import { findPluginHttpRouteRegistrationConflicts } from "./http-route-overlap.js";
 import { getPluginHttpRouteViews, replacePluginHttpRoutes } from "./http-route-owner.js";
 import { wrapCurrentPluginInstance } from "./plugin-instance-scope.js";
+import { capturePluginLifecycleAuthority, getPluginRecordRegistry } from "./registry-lifecycle.js";
 import {
   resolvePluginRegistrationCapabilities,
   type PluginRegistryState,
@@ -301,9 +302,26 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
       source: record.source,
       rootDir: record.rootDir,
     };
+    // Bind the selected registration; unchanged instances can move to a new registry.
+    const captureReadAuthority = () => {
+      const currentRegistry = getPluginRecordRegistry(registry, record);
+      const entry = currentRegistry.channels.find((candidate) => candidate.plugin.id === id);
+      const ownerCurrent = capturePluginLifecycleAuthority(currentRegistry, record, {
+        scopedRuntime: true,
+      });
+      const isCurrent = () =>
+        ownerCurrent?.() === true &&
+        (record.origin === "bundled" || record.trustedOfficialInstall === true) &&
+        entry !== undefined &&
+        getPluginRecordRegistry(registry, record).channels.includes(entry) &&
+        entry.pluginId === record.id &&
+        entry.plugin === metadata.plugin &&
+        entry.captureReadAuthority === captureReadAuthority;
+      return isCurrent() ? isCurrent : undefined;
+    };
     if (existing) {
       if (existingRuntime) {
-        Object.assign(existingRuntime, metadata, { resolveChannelRuntime });
+        Object.assign(existingRuntime, metadata, { resolveChannelRuntime, captureReadAuthority });
       }
       if (existingSetup) {
         Object.assign(existingSetup, metadata, { enabled: record.enabled });
@@ -315,7 +333,12 @@ export function createNetworkRegistrars(state: PluginRegistryState) {
     }
     registry.channelSetups.push({ ...metadata, pluginId: record.id, enabled: record.enabled });
     if (registrationCapabilities.runtimeChannel) {
-      registry.channels.push({ ...metadata, pluginId: record.id, resolveChannelRuntime });
+      registry.channels.push({
+        ...metadata,
+        pluginId: record.id,
+        resolveChannelRuntime,
+        captureReadAuthority,
+      });
     }
   };
 

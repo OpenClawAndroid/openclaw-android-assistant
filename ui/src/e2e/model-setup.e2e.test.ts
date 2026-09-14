@@ -1,6 +1,7 @@
 // Control UI tests cover guided model setup against a mocked Gateway.
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Page } from "playwright";
 import { beforeEach, expect, it } from "vitest";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
@@ -20,6 +21,17 @@ beforeEach(() => {
     ? createControlUiE2eArtifactDir("model-setup", artifactRoot)
     : undefined;
 });
+async function captureSignIn(page: Page, name: string) {
+  if (artifactDir) {
+    await writeFile(
+      path.join(artifactDir, `sign-in-${name}.png`),
+      await takeControlUiViewportScreenshot(page, page.locator(".model-setup-wizard"), [
+        page.locator(".wizard-step__actions:not(.wizard-step__actions--split)"),
+      ]),
+    );
+  }
+}
+
 const localPrepareOptions = [
   {
     id: "ollama",
@@ -225,6 +237,117 @@ suite.define(() => {
     );
   });
 
+  it("starts browser sign-in from two direct choices and opens a detached tab", async () => {
+    await suite.withPage(
+      {
+        locale: "en-US",
+        reducedMotion: "reduce",
+        serviceWorkers: "block",
+        viewport: { width: 1280, height: 900 },
+      },
+      async ({ page, context }) => {
+        const signInUrl = "https://provider.example/sign-in";
+        await context.route("https://provider.example/**", (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: "<title>Provider sign-in</title>Provider sign-in",
+          }),
+        );
+        const gateway = await installMockGateway(page, {
+          featureMethods: [
+            "config.get",
+            "config.patch",
+            "models.authStatus",
+            "models.authLogin",
+            "wizard.next",
+            "wizard.cancel",
+          ],
+          methodResponses: {
+            "models.authStatus": {
+              ts: 1,
+              providers: [],
+              providerCapabilities: [
+                {
+                  provider: "example",
+                  apiKeySupported: false,
+                  quickApiKeySetup: false,
+                  loginOptions: [
+                    {
+                      id: "example-device",
+                      brandId: "example",
+                      label: "Device pairing",
+                      kind: "device-code",
+                      featured: true,
+                    },
+                    {
+                      id: "example-browser",
+                      brandId: "example",
+                      label: "Browser sign-in",
+                      kind: "oauth",
+                      featured: false,
+                    },
+                  ],
+                },
+              ],
+            },
+            "models.authLogin": { done: false, status: "running" },
+            "wizard.next": {
+              sequence: [
+                {
+                  done: false,
+                  status: "running",
+                  step: {
+                    id: "instructions",
+                    type: "note",
+                    executor: "client",
+                    message: "Remote environment",
+                    externalUrl: signInUrl,
+                  },
+                },
+                {
+                  done: false,
+                  status: "running",
+                  step: {
+                    id: "browser",
+                    type: "progress",
+                    executor: "gateway",
+                    externalUrl: signInUrl,
+                    message: "Complete sign-in",
+                  },
+                },
+                { done: true, status: "done" },
+              ],
+            },
+          },
+        });
+        await page.goto(suite.server.baseUrl + "settings/model-providers");
+        await page.locator("[data-models-connect]").click();
+        const dialog = page.locator(".model-setup-wizard");
+        await page.getByRole("button", { name: "Device pairing", exact: true }).waitFor();
+        expect(await dialog.locator("select").count()).toBe(0);
+        await captureSignIn(page, "choices");
+        await gateway.deferNext("wizard.next", { answer: { stepId: "instructions" } });
+        const popupReady = page.waitForEvent("popup");
+        await page.getByRole("button", { name: "Browser sign-in", exact: true }).click();
+        const popup = await popupReady;
+        await gateway.waitForRequest("wizard.next", {
+          match: { answer: { stepId: "instructions" } },
+        });
+        await gateway.deferNext("wizard.next");
+        await gateway.resolveDeferred("wizard.next");
+        await page.getByRole("link", { name: "Open sign-in", exact: true }).waitFor();
+        await expect.poll(() => popup.url()).toBe(signInUrl);
+        expect(await popup.evaluate(() => window.opener)).toBeNull();
+        await page.getByRole("button", { name: "Copy link", exact: true }).waitFor();
+        expect(await dialog.textContent()).not.toContain(signInUrl);
+        await captureSignIn(page, "browser");
+        await gateway.resolveDeferred("wizard.next");
+        await expect.poll(() => page.locator("openclaw-modal-dialog").count()).toBe(0);
+        await popup.close();
+      },
+    );
+  });
+
   it("completes device-code sign-in from its verified activation result", async () => {
     await suite.withPage(
       {
@@ -232,6 +355,7 @@ suite.define(() => {
           ? { recordVideo: { dir: artifactDir, size: { width: 1280, height: 900 } } }
           : {}),
         locale: "en-US",
+        reducedMotion: "reduce",
         serviceWorkers: "block",
         viewport: { height: 900, width: 1280 },
       },
@@ -286,12 +410,27 @@ suite.define(() => {
                   done: false,
                   status: "running",
                   step: {
-                    id: "device-code",
+                    id: "scope",
                     type: "note",
+                    message: "Scope: System / agent",
+                    executor: "client",
+                  },
+                },
+                {
+                  done: false,
+                  status: "running",
+                  step: {
+                    id: "device-code",
+                    type: "progress",
+                    executor: "gateway",
                     title: "Authorize device",
                     message: `Open this URL in your local browser:\n\n${signInUrl}`,
                     externalUrl: signInUrl,
-                    deviceCode: { code: "ABCD-1234", expiresInMinutes: 14 },
+                    deviceCode: {
+                      code: "ABCD-1234",
+                      expiresInMinutes: 14,
+                      message: "Enter this one-time code on the sign-in page.",
+                    },
                   },
                 },
                 {
@@ -306,39 +445,27 @@ suite.define(() => {
 
         const response = await page.goto(`${suite.server.baseUrl}settings/model-setup`);
         expect(response?.status()).toBe(200);
-        const configReadsBeforeStart = (await gateway.getRequests("config.get")).length;
-        await gateway.deferNext("config.get");
+        await gateway.deferNext("wizard.next", { answer: { stepId: "scope" } });
         await page.getByRole("button", { name: "Pair" }).click();
-
         const start = await gateway.waitForRequest("openclaw.setup.auth.start");
         expect(start.params).toMatchObject({ authChoice: "provider-device-code" });
-        await expect
-          .poll(async () => (await gateway.getRequests("config.get")).length)
-          .toBe(configReadsBeforeStart + 1);
-        await page.getByText("ABCD-1234").waitFor();
-        await page.getByText("Working…").waitFor();
-        if (artifactDir) {
-          await page.screenshot({
-            path: path.join(artifactDir, "model-setup-refresh-pending.png"),
-          });
-        }
-        await gateway.rejectDeferred("config.get", {
-          code: "UNAVAILABLE",
-          message: "authoritative snapshot unavailable",
-        });
-        await expect.poll(() => page.getByText("Working…").count()).toBe(0);
-        await page.getByText("Expires in 14 minutes").waitFor();
-        await page
-          .locator("openclaw-modal-dialog")
-          .getByRole("alert")
-          .filter({ hasText: "authoritative snapshot unavailable" })
-          .waitFor();
-        if (artifactDir) {
-          await page.screenshot({
-            path: path.join(artifactDir, "model-setup-refresh-warning.png"),
-          });
-        }
-        const signInLink = page.getByRole("link", { name: "Open sign-in page" });
+        await gateway.waitForRequest("wizard.next", { match: { answer: { stepId: "scope" } } });
+        await gateway.deferNext("wizard.next");
+        await gateway.resolveDeferred("wizard.next");
+        await page.getByText("ABCD-1234", { exact: true }).waitFor();
+        await page.getByRole("button", { name: "Copy code", exact: true }).waitFor();
+        expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
+        expect(await page.locator(".model-setup-wizard__body").textContent()).not.toContain(
+          signInUrl,
+        );
+        expect(await page.locator(".model-setup-wizard__body").textContent()).not.toContain(
+          "Scope:",
+        );
+        await captureSignIn(page, "light");
+        await page.emulateMedia({ colorScheme: "dark" });
+        await expect.poll(() => page.locator("html").getAttribute("data-theme-mode")).toBe("dark");
+        await captureSignIn(page, "dark");
+        const signInLink = page.getByRole("link", { name: "Open sign-in" });
         await expect.poll(() => signInLink.getAttribute("href")).toBe(signInUrl);
         const wizardBody = page.locator(".model-setup-wizard__body");
         await expect
@@ -348,19 +475,11 @@ suite.define(() => {
         await expect
           .poll(() => wizardBody.evaluate((element) => element.scrollWidth <= element.clientWidth))
           .toBe(true);
-        await page.getByRole("button", { name: "Continue" }).waitFor();
         await page.getByRole("button", { name: "Cancel" }).waitFor();
-
+        await captureSignIn(page, "narrow");
         const detectCountBeforeCompletion = (await gateway.getRequests("openclaw.setup.detect"))
           .length;
-        await page.getByRole("button", { name: "Continue" }).click();
-        await expect.poll(async () => (await gateway.getRequests("wizard.next")).length).toBe(2);
-        const wizardRequests = await gateway.getRequests("wizard.next");
-        expect(wizardRequests[0]?.params).toMatchObject({ sessionId: expect.any(String) });
-        expect(wizardRequests[1]?.params).toMatchObject({
-          sessionId: expect.any(String),
-          answer: { stepId: "device-code" },
-        });
+        await gateway.resolveDeferred("wizard.next");
         await page.getByRole("heading", { name: "Connection verified" }).waitFor();
         expect(await gateway.getRequests("openclaw.setup.detect")).toHaveLength(
           detectCountBeforeCompletion,
@@ -516,8 +635,8 @@ suite.define(() => {
           });
         }
 
-        await page.getByRole("radio", { name: /Local only/u }).check();
-        await page.getByRole("button", { name: "Continue" }).click();
+        await page.getByRole("button", { name: "Ollama mode", exact: true }).click();
+        await page.getByRole("option", { name: /Local only/u }).click();
         const baseUrl = page.getByLabel("Ollama base URL");
         await expect.poll(() => baseUrl.inputValue()).toBe("http://127.0.0.1:11434");
 

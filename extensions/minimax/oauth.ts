@@ -288,7 +288,7 @@ export async function loginMiniMaxPortalOAuth(params: {
       title: "MiniMax OAuth",
       code: oauth.user_code,
       expiresInMinutes: Math.ceil((oauth.expired_in - Date.now()) / 60_000),
-      message: `Open ${verificationUrl} to approve access.`,
+      message: "Enter this one-time code to approve access.",
     });
   } else {
     await params.note(noteLines.join("\n"), "MiniMax OAuth");

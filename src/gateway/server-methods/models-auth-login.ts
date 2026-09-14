@@ -7,7 +7,7 @@ import {
   completeProviderModelAccess,
   type PreparedProviderModelAccess,
 } from "../../commands/models/auth-model-policy.js";
-import { runModelsAuthLoginFlowCore } from "../../commands/models/auth.js";
+import { runModelsAuthLoginFlowForGateway } from "../../commands/models/auth.js";
 import { resolveManifestDeclaredProviderAuthChoices } from "../../plugins/provider-auth-choices.js";
 import {
   formatProviderLoginChoiceRef,
@@ -118,9 +118,9 @@ export const modelsAuthLoginHandlers: GatewayRequestHandlers = {
             assertCurrent();
             browser?.assertCurrent();
           };
-          let result: Awaited<ReturnType<typeof runModelsAuthLoginFlowCore>>;
+          let result: Awaited<ReturnType<typeof runModelsAuthLoginFlowForGateway>>;
           try {
-            result = await runModelsAuthLoginFlowCore({
+            result = await runModelsAuthLoginFlowForGateway({
               provider: choice.providerId,
               method: choice.methodId,
               ownerPluginId: choice.pluginId,

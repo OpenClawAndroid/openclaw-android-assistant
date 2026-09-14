@@ -10,15 +10,17 @@ import {
   createCapturedPluginRegistration,
   createPluginRuntimeMock,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
+import { resolveRuntimeWorkerUrl } from "openclaw/plugin-sdk/process-runtime";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import plugin from "../index.js";
 import { resolveLogbookConfig } from "./config.js";
 import { dayKeyFor } from "./day.js";
 import { LogbookService } from "./service.js";
+import { logbookSqliteBackendEntrypoint } from "./sqlite-backend-entrypoint.test-support.js";
 import { LogbookStore } from "./store.js";
 
-const workerModuleUrl = new URL("./store.worker.ts", import.meta.url);
+const workerModuleUrl = resolveRuntimeWorkerUrl(logbookSqliteBackendEntrypoint);
 const runtimeSource = fileURLToPath(new URL("../index.ts", import.meta.url));
 const quietLogger = { info() {}, warn() {}, error() {}, debug() {} };
 const snapshot = { payload: { base64: Buffer.from("synthetic image").toString("base64") } };

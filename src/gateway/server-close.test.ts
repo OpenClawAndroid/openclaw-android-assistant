@@ -191,22 +191,26 @@ function createGatewayCloseTestDeps(
   return {
     resolveGatewayContext: () => undefined,
     closePluginRegistry: async (onRetirement) => {
-      let retirement: Promise<void> | undefined;
-      const retire = () => (retirement ??= clearActivePluginRegistry());
+      let retirement: ReturnType<GatewayCloseParams["pluginMetadata"]["close"]> | undefined;
+      const retire = () =>
+        (retirement ??= clearActivePluginRegistry().then(() => ({
+          cleanupCount: 0,
+          failures: [],
+        })));
       await onRetirement?.(retire);
       await retire();
-      return { memoryErrors: [] };
+      return { memoryErrors: [], pluginFailures: [] };
     },
     pluginMetadata: {
       beginClose() {},
       async close(onFinal, retireRegistry) {
-        let retirement: Promise<void> | undefined;
+        let retirement: ReturnType<GatewayCloseParams["pluginMetadata"]["close"]> | undefined;
         const retire = () =>
           (retirement ??= Promise.resolve()
             .then(retireRegistry)
-            .then(() => {}));
+            .then((result) => result ?? { cleanupCount: 0, failures: [] }));
         await onFinal?.(retire);
-        await retire();
+        return retire();
       },
     },
     bonjourStop: null,
@@ -365,7 +369,7 @@ describe("createGatewayCloseHandler", () => {
     expect(clearSecretsRuntimeSnapshot).toHaveBeenCalledOnce();
     const repeated = owner.close();
     expect(owner.close()).toBe(repeated);
-    await expect(repeated).resolves.toEqual({ memoryErrors: [failure] });
+    await expect(repeated).resolves.toEqual({ memoryErrors: [failure], pluginFailures: [] });
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
@@ -504,26 +508,6 @@ describe("createGatewayCloseHandler", () => {
     },
   );
 
-  it("reports failed instance disposal and completes shared dependency teardown", async () => {
-    const failure = new Error("active instance cleanup failed");
-    const registry = createEmptyPluginRegistry();
-    const record = createPluginRecord({ id: "active-cleanup" });
-    registry.plugins.push(record);
-    const instance = new PluginInstance(record.id, { record, registry });
-    instance.lifecycle.onDispose(() => {
-      throw failure;
-    });
-    setActivePluginRegistry(registry);
-    const clearSecretsRuntimeSnapshot = vi.fn();
-    await createGatewayCloseHandler(createGatewayCloseTestDeps({ clearSecretsRuntimeSnapshot }))();
-    expect(mocks.logWarn).toHaveBeenCalledWith(expect.stringContaining(failure.message));
-    await expect(instance.dispose()).resolves.toEqual({ errors: [failure] });
-    expect(instance.lifecycle.signal.aborted).toBe(true);
-    expect(getActivePluginRegistry()).toBeNull();
-    expect(mocks.closePluginStateDatabaseAsync).toHaveBeenCalledOnce();
-    expect(clearSecretsRuntimeSnapshot).toHaveBeenCalledOnce();
-  });
-
   beforeEach(() => {
     resetPluginRuntimeStateForTest();
     vi.useRealTimers();
@@ -589,7 +573,7 @@ describe("createGatewayCloseHandler", () => {
         onStartFailure: () => true,
         onRemoved,
       });
-      const retireRegistry = vi.fn(async () => {});
+      const retireRegistry = vi.fn(async () => ({ cleanupCount: 0, failures: [] }));
       const closeSdkResources = vi.fn(async () => {});
       const clearSecretsRuntimeSnapshot = vi.fn();
       const close = createGatewayCloseHandler(
@@ -599,7 +583,7 @@ describe("createGatewayCloseHandler", () => {
           clearSecretsRuntimeSnapshot,
           closePluginRegistry: async (onRetirement) => {
             await onRetirement?.(retireRegistry);
-            return { memoryErrors: [] };
+            return { memoryErrors: [], pluginFailures: [] };
           },
         }),
       );

@@ -17,6 +17,7 @@ registerDesktopEnglish();
 
 export function renderDesktopPanelView(options: {
   embedded: boolean;
+  workspaceControls?: boolean;
   dock: "bottom" | "right";
   height: number;
   width: number;
@@ -32,6 +33,17 @@ export function renderDesktopPanelView(options: {
   const connection = renderDesktopConnection({
     ...options.connection,
     state: options.content.state,
+    presentationControls: options.workspaceControls
+      ? html`<button
+            class="desktop-toolbar-action"
+            type="button"
+            title=${t("desktop.openWindow")}
+            aria-label=${t("desktop.openWindow")}
+            @click=${options.onOpenWindow}
+          >
+            ${icons.externalLink}</button
+          >${options.renderFullscreenControl()}`
+      : nothing,
   });
   const style =
     options.embedded || options.fullscreen
@@ -270,6 +282,7 @@ export function renderDesktopConnection(options: {
   showApps: boolean;
   sizing: DesktopSizingOptions;
   pictureInPictureControl: TemplateResult;
+  presentationControls?: TemplateResult | typeof nothing;
   onDisconnect: () => void;
   onLaunch: (app: WorkerDesktopAppId) => void;
   onTakeControl: () => void;
@@ -307,6 +320,7 @@ export function renderDesktopConnection(options: {
       }
       <span class="desktop-toolbar__spacer"></span>
       ${renderDesktopSizing(options.sizing)} ${options.pictureInPictureControl}
+      ${options.presentationControls ?? nothing}
       <button
         class="desktop-toolbar-action"
         type="button"

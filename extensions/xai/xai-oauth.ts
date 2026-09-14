@@ -581,7 +581,7 @@ async function noteXaiDeviceCode(
       title: "xAI OAuth",
       code: deviceCode.userCode,
       expiresInMinutes,
-      message: `Open ${deviceCode.verificationUriComplete ?? deviceCode.verificationUri} and enter this one-time code.`,
+      message: "Enter this one-time code on the sign-in page.",
     });
     return;
   }

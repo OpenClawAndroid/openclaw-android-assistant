@@ -112,32 +112,39 @@ describe("OAuth refresh generation fence", () => {
         commit: () => {},
       });
 
-    const first = run(refresh);
-    await started;
-    expect(JSON.parse(persisted)[profileId].access).toMatch(
-      /^openclaw-oauth-refresh-fence:v1:[a-f0-9]{32}:access:[a-f0-9]{64}$/,
-    );
-    await expect(first).rejects.toThrow("exceeded hard timeout");
-    const peerRefresh = vi.fn(async () => null);
-    const peer = run(peerRefresh);
-    expect(peerRefresh).not.toHaveBeenCalled();
+    vi.useFakeTimers();
+    try {
+      const first = run(refresh);
+      await started;
+      expect(JSON.parse(persisted)[profileId].access).toMatch(
+        /^openclaw-oauth-refresh-fence:v1:[a-f0-9]{32}:access:[a-f0-9]{64}$/,
+      );
+      const timedOut = expect(first).rejects.toThrow("exceeded hard timeout (10ms)");
+      await vi.advanceTimersByTimeAsync(10);
+      await timedOut;
+      const peerRefresh = vi.fn(async () => null);
+      const peer = run(peerRefresh);
+      expect(peerRefresh).not.toHaveBeenCalled();
 
-    finish?.({
-      apiKey: "serialized-rotated-access",
-      credential: createCredential({
-        access: "serialized-rotated-access",
-        refresh: "serialized-rotated-refresh",
-        expires: Date.now() + 600_000,
-        accountId: "acct-123",
-      }),
-    });
-    await expect(peer).resolves.toMatchObject({ apiKey: "serialized-rotated-access" });
-    await vi.waitFor(() => {
-      expect(JSON.parse(persisted)[profileId]).toMatchObject({
-        access: "serialized-rotated-access",
-        refresh: "serialized-rotated-refresh",
+      finish?.({
+        apiKey: "serialized-rotated-access",
+        credential: createCredential({
+          access: "serialized-rotated-access",
+          refresh: "serialized-rotated-refresh",
+          expires: Date.now() + 600_000,
+          accountId: "acct-123",
+        }),
       });
-    });
+      await expect(peer).resolves.toMatchObject({ apiKey: "serialized-rotated-access" });
+      await vi.waitFor(() => {
+        expect(JSON.parse(persisted)[profileId]).toMatchObject({
+          access: "serialized-rotated-access",
+          refresh: "serialized-rotated-refresh",
+        });
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a different-account replacement for serialized owner and observer settlement", async () => {

@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest";
 import type { ModelsListResult } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
 import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import * as databaseIdentity from "../../state/openclaw-agent-db-identity.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "../test-helpers.e2e.js";
 
@@ -18,6 +19,7 @@ async function withDispatchLifecycle(
   run: (fixture: {
     client: Awaited<ReturnType<typeof startGatewayWithClient>>["client"];
     requests: DispatchRequest[];
+    discoveryAccounts: (string | undefined)[];
     advertised: Map<string, string[]>;
     setDiscoveryAvailable: (available: boolean) => void;
     holdDiscovery: () => { started: Promise<void>; release: () => void };
@@ -40,6 +42,7 @@ async function withDispatchLifecycle(
     },
   });
   const requests: DispatchRequest[] = [];
+  const discoveryAccounts: (string | undefined)[] = [];
   const hotReloadRecovery = vi.fn(() => ({ status: "emitted" as const }));
   const advertised = new Map([
     ["account-a-key", ["account-a-only"]],
@@ -56,6 +59,8 @@ async function withDispatchLifecycle(
   const endpoint = createServer((request, response) => {
     const work = (async () => {
       if (request.method === "GET" && request.url === "/v1/models") {
+        const key = request.headers.authorization?.replace(/^Bearer /, "");
+        discoveryAccounts.push(key);
         const held = heldDiscovery;
         if (held) {
           held.started.resolve();
@@ -65,7 +70,6 @@ async function withDispatchLifecycle(
           response.writeHead(503).end();
           return;
         }
-        const key = request.headers.authorization?.replace(/^Bearer /, "");
         const models = key ? advertised.get(key) : undefined;
         if (!models) {
           response.writeHead(401).end();
@@ -213,6 +217,7 @@ async function withDispatchLifecycle(
         return active.client;
       },
       requests,
+      discoveryAccounts,
       advertised,
       setDiscoveryAvailable: (available) => {
         discoveryAvailable = available;
@@ -302,6 +307,80 @@ async function withDispatchLifecycle(
     }
   }
 }
+
+it.each([
+  { scenario: "held discovery control", patchOtherSession: false },
+  { scenario: "another session label changes", patchOtherSession: true },
+])(
+  "models.list keeps the selected session catalog when $scenario",
+  async ({ patchOtherSession }) => {
+    await withDispatchLifecycle(async (fixture) => {
+      const expectedIds = [
+        "account-a-only",
+        ...Array.from({ length: 64 }, (_, index) => `account-a-extra-${index}`),
+      ];
+      fixture.advertised.set("account-a-key", expectedIds);
+      await fixture.list(true);
+      const selected = await fixture.client.request<{ key: string }>("sessions.create", {
+        agentId: "main",
+        key: "agent:main:catalog-selected",
+        label: "Selected catalog session",
+        model: "opencode/account-a-only",
+      });
+      const other = await fixture.client.request<{ key: string }>("sessions.create", {
+        agentId: "main",
+        key: "agent:main:catalog-other",
+        label: "Other session",
+        model: "opencode/account-a-only",
+      });
+      fixture.discoveryAccounts.length = 0;
+      const pathChecks = vi.spyOn(databaseIdentity, "isOpenClawAgentDatabasePathCurrent");
+      const held = fixture.holdDiscovery();
+      const pending = fixture.client
+        .request<ModelsListResult>("models.list", {
+          agentId: "main",
+          sessionKey: selected.key,
+          provider: "opencode",
+          view: "all",
+          refresh: true,
+        })
+        .then(
+          (result) => ({ result, error: undefined }),
+          (error: unknown) => ({
+            result: undefined,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      try {
+        await withTestTimeout(held.started, 30_000, "Selected session discovery did not start");
+        expect(fixture.discoveryAccounts).toEqual(["account-a-key"]);
+        if (patchOtherSession) {
+          await expect(
+            fixture.client.request("sessions.patch", {
+              key: other.key,
+              label: "Other session renamed",
+            }),
+          ).resolves.toMatchObject({ entry: { label: "Other session renamed" } });
+        }
+      } finally {
+        held.release();
+      }
+      const outcome = await pending;
+      expect(outcome.error).toBeUndefined();
+      expect(
+        outcome.result?.models
+          .filter((model) => model.provider === "opencode")
+          .map(({ id, available }) => ({ id, available })),
+      ).toEqual(expectedIds.toSorted().map((id) => ({ id, available: true })));
+      expect(fixture.discoveryAccounts).toEqual(["account-a-key"]);
+      const pathCheckCount = pathChecks.mock.calls.length;
+      pathChecks.mockRestore();
+      console.info(`catalog read path checks: ${pathCheckCount} for ${expectedIds.length} models`);
+      expect(pathCheckCount).toBeLessThanOrEqual(2);
+    });
+  },
+  180_000,
+);
 
 it("models.list retains executable rows on failed refresh and replaces them after Gateway restart", async () => {
   await withDispatchLifecycle(async (fixture) => {

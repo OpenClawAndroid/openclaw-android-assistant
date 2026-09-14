@@ -1478,21 +1478,28 @@ describe("memory-core doctor dreaming migration", () => {
     });
   });
 
-  it("leaves invalid legacy JSON in place", async () => {
-    const recallPath = path.join(workspaceDir, "memory", ".dreams", "short-term-recall.json");
-    await fs.writeFile(recallPath, "{", "utf8");
+  it.each([
+    { fileName: "short-term-recall.json", label: "short-term recall" },
+    { fileName: "phase-signals.json", label: "phase signals" },
+  ])("leaves invalid legacy $label JSON in place", async ({ fileName, label }) => {
+    const sourcePath = path.join(workspaceDir, "memory", ".dreams", fileName);
+    await fs.writeFile(sourcePath, "{", "utf8");
 
     const result = await dreamingStateMigration().migrateLegacyState(migrationParams());
 
     expect(result.changes).toEqual([]);
     expect(result.warnings).toEqual([
-      expect.stringContaining("Skipped Memory Core short-term recall import"),
+      expect.stringContaining(`Skipped Memory Core ${label} import`),
     ]);
-    await fs.access(recallPath);
-    await expect(fs.access(`${recallPath}.migrated`)).rejects.toThrow();
+    await fs.access(sourcePath);
+    await expect(fs.access(`${sourcePath}.migrated`)).rejects.toThrow();
     configureMemoryCoreDreamingState(context().openPluginStateKeyedStore);
-    const recall = await shortTermTesting.readRecallStore(workspaceDir, new Date().toISOString());
-    expect(recall.entries).toEqual({});
+    const nowIso = new Date().toISOString();
+    const store =
+      fileName === "short-term-recall.json"
+        ? await shortTermTesting.readRecallStore(workspaceDir, nowIso)
+        : await shortTermTesting.readPhaseSignalStore(workspaceDir, nowIso);
+    expect(store.entries).toEqual({});
   });
 
   it("uses migration env when resolving default workspaces", async () => {

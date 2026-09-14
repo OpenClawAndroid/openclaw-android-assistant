@@ -12,6 +12,7 @@ import {
   projectUpdateSentinel,
   projectUpdateStatusResponse,
   resolveUpdateStatusBanner,
+  resolveUpdateStatusCheckBanner,
 } from "./update-overlay-helpers.ts";
 import {
   readUpdateAvailable,
@@ -380,6 +381,18 @@ describe("update schedule hydration", () => {
 });
 
 describe("update status localization", () => {
+  it("distinguishes a failed status check from a failed update", () => {
+    const error = "gateway request timed out after 5000ms: update.status";
+    expect(resolveUpdateStatusCheckBanner(new Error(error))).toEqual({
+      tone: "warn",
+      text: `Could not check for updates: ${error}`,
+    });
+    expect(resolveUpdateStatusBanner({ status: "error", reason: "build-failed" })).toMatchObject({
+      tone: "danger",
+      text: expect.stringContaining("Update error: build-failed"),
+    });
+  });
+
   it("projects the recorded update attempt without inferring from localized text", () => {
     installTranslations();
     const projected = projectUpdateStatusResponse(

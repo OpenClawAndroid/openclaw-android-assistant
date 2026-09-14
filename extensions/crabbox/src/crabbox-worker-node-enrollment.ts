@@ -330,12 +330,13 @@ setPhase("preparation");
     if (!fs.lstatSync(runtimeLink).isSymbolicLink()) throw new Error("Cloud worker runtime pointer is occupied");
     fs.unlinkSync(runtimeLink);
   } catch (error) { if (error.code !== "ENOENT") throw error; }
-  fs.symlinkSync(runtimeDir, runtimeLink, process.platform === "win32" ? "junction" : "dir");
   setPhase("plugin activation");
   for (const pluginId of new Set([...bootstrap.enabledPluginIds, ...${JSON.stringify(params.desktop ? ["cua-computer"] : [])}])) {
     const enabled = spawnSync(process.execPath, [cli, "plugins", "enable", pluginId], { env: nodeEnv, encoding: "utf8", timeout: 60000 });
     if (enabled.status !== 0) throw new Error("Cloud worker bootstrap could not enable plugin " + pluginId);
   }
+  // Publishing this pointer earlier makes fresh state look like a legacy installation.
+  fs.symlinkSync(runtimeDir, runtimeLink, process.platform === "win32" ? "junction" : "dir");
   if (mode === "connect") {
     if (!setupCode) throw new Error("Cloud worker enrollment credential is unavailable");
     fs.writeFileSync(setupFile, setupCode + "\\n", { mode: 0o600 });

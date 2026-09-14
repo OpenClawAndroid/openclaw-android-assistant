@@ -144,6 +144,8 @@ Agents can also call `suggest_task` when they discover confirmed follow-up work 
 
 In the Control UI, the arrow beside **Start in a new session** offers two additional actions: **Start in a new worktree** creates an isolated session from the suggested Git checkout, and **Start in this session** sends the task to the current conversation. If the current session is running, the task follows its normal steering behavior. Worktree creation requires a usable Git checkout; a failed start displays an error and keeps the suggestion available to retry.
 
+Closing a suggested-task card removes it immediately while the Control UI sends the dismissal to the Gateway. Other cards and the composer remain usable. If the request fails, the card returns with an error so you can retry; switching chats does not bring the old card into the new conversation.
+
 The primary action and the Gateway-backed TUI send `taskSuggestions.accept` with `mode: "local"`. The Control UI menu sends explicit `worktree` or `session` modes for those choices. RPC clients also retain `cloud` mode. Omitted mode still means `worktree` for callers that used the original worktree action; the Control UI and TUI never omit it.
 
 OpenClaw exposes these tools only to operator sessions with an actionable Gateway UI. Channel sessions and local/embedded TUI sessions do not receive them, because those surfaces have no portable typed task-action contract.

@@ -256,11 +256,6 @@ internal class ChatComposerStateStore(
 
   fun clearAttachmentOmission(owner: ChatComposerOwner) = synchronized(lock) { attachmentNoticesState.value = attachmentNoticesState.value - owner }
 
-  fun reportImageOmission(
-    owner: ChatComposerOwner,
-    omitted: Int,
-  ) = synchronized(lock) { recordAttachmentOmissionLocked(owner, omitted, ChatComposerAttachmentNotice.Image) }
-
   fun reportAttachmentOmission(
     owner: ChatComposerOwner,
     omitted: Int,

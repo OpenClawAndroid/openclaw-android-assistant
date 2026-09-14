@@ -577,11 +577,11 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
                   ? "chat-split-view__column--narrow-hidden"
                   : ""
               }"
-              style="flex: ${splitWeight(
-                layout.columnWeights,
-                columnIndex,
-                "rendered split column weight",
-              )} 1 0"
+              style="flex: ${
+                this.narrow
+                  ? 1
+                  : splitWeight(layout.columnWeights, columnIndex, "rendered split column weight")
+              } 1 0"
             >
               ${repeat(
                 column.panes,

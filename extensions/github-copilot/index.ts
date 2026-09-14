@@ -498,6 +498,15 @@ export default definePluginEntry({
             if (ctx.isRemote) {
               await ctx.openUrl(verificationUrl);
             }
+            if (ctx.prompter.deviceCode) {
+              await ctx.prompter.deviceCode({
+                title: "Authorize GitHub Copilot",
+                code: userCode,
+                expiresInMinutes,
+                message: "Enter this one-time code to authorize Copilot.",
+              });
+              return;
+            }
             await ctx.prompter.note(
               [
                 "Open this URL in your browser and enter the code below.",

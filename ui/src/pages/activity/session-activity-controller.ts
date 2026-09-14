@@ -394,6 +394,7 @@ export class SessionActivityController implements ReactiveController {
             excludeSubagents: true,
             includeActivitySummary: true,
             includeDerivedTitles: true,
+            sortBy: "activity",
             limit: 100,
             ...(filters.personId ? { involvingProfileId: filters.personId } : {}),
             ...(filters.query ? { search: filters.query } : {}),

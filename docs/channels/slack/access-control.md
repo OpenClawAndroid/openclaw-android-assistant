@@ -26,6 +26,12 @@ Available action groups in current Slack tooling:
 
 Current Slack message actions include `send`, `conversation-open`, `upload-file`, `download-file`, `read`, `edit`, `delete`, `pin`, `unpin`, `list-pins`, `member-info`, and `emoji-list`. `download-file` accepts Slack file IDs shown in inbound file placeholders and returns image previews for images or local file metadata for other file types.
 
+In a Slack conversation, delegated `member-info` reads only the current requester
+on the same account; omitting `userId` selects that requester. `emoji-list` uses
+the trusted current workspace. Both metadata actions work without a channel target
+with the bundled plugin and verified official npm or ClawHub installations. Existing
+action gates and Enterprise workspace requirements still apply.
+
 Use `emoji-list` to discover workspace custom emoji and aliases:
 
 ```json

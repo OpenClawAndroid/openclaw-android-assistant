@@ -1,0 +1,131 @@
+.gateways-shell {
+  gap: 28px;
+  width: min(940px, calc(100vw - 64px));
+}
+
+.gateways-panel {
+  align-self: start;
+  padding: 32px;
+}
+
+.gateways-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.gateways-heading h1 {
+  margin-top: 12px;
+  font-size: 32px;
+}
+
+.gateways-heading button {
+  flex: none;
+}
+
+.gateway-profiles {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 24px 0 0;
+  list-style: none;
+}
+
+.gateway-profile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #303440;
+  border-radius: 12px;
+  background: rgb(14 16 21 / 45%);
+}
+
+.gateway-profile .gateway-copy {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.gateway-profile .gateway-name,
+.gateway-profile .gateway-endpoint {
+  white-space: normal;
+}
+
+.gateway-profile-actions,
+.gateway-editor-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gateway-profile-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.gateway-editor {
+  margin-top: 24px;
+  padding: 24px;
+}
+
+.gateway-editor h2,
+#remove-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.gateway-editor-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.gateways-panel [hidden] {
+  display: none;
+}
+
+#gateway-error {
+  margin: 16px 0;
+}
+
+#remove-dialog {
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 28px;
+  border: 1px solid #353947;
+  border-radius: 16px;
+  color: #f6f7fb;
+  background: #191c25;
+}
+
+#remove-dialog::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+
+#remove-description {
+  margin: 8px 0 24px;
+  color: #aeb2c0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .gateways-shell {
+    width: calc(100vw - 32px);
+  }
+
+  .gateways-panel {
+    padding: 24px;
+  }
+
+  .gateways-heading,
+  .gateway-profile {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .gateway-editor {
+    padding: 16px;
+  }
+}

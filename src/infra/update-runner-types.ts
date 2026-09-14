@@ -137,6 +137,8 @@ export type UpdateRunnerOptions = {
   }) => Promise<void>;
   /** Admit the built candidate after validation, before retention or activation. */
   inspectGitCandidate?: (candidateRoot: string) => Promise<void>;
+  /** Admit required preparation after no-op detection, before allocating the candidate worktree. */
+  beforeGitStaging?: () => Promise<{ step: UpdateStepResult; failureReason: string }>;
   validateCandidate?: (root: string) => Promise<void>;
   /** CLI-owned activation Doctor retains its config writer and requester authority. */
   runGitDoctor?: (root: string) => Promise<UpdateStepResult | null>;

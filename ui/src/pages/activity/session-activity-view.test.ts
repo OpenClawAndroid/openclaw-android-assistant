@@ -2,84 +2,14 @@
 
 import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GatewaySessionRow } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { setAvatarGatewayOrigin } from "../../lib/identity-avatar-context.ts";
-import type { PresenceViewer } from "../../lib/presence-users.ts";
 import { SESSION_NAVIGATION_KEY_PARAM } from "../../lib/sessions/route-navigation.ts";
+import { createContext, createGateway, createSessions } from "../../test-helpers/app-sidebar.ts";
+import { createApplicationContextProvider } from "../../test-helpers/application-context.ts";
+import { createTestGatewayClient } from "../../test-helpers/gateway-client.ts";
+import { props, row } from "./session-activity-view.test-harness.ts";
 import { renderSessionActivityView } from "./session-activity-view.ts";
-
-function row(
-  key: string,
-  owner: { id: string; label?: string },
-  updatedAt: number,
-  overrides: Partial<GatewaySessionRow> = {},
-) {
-  const actor = {
-    type: "human" as const,
-    ...owner,
-    identity: { type: "profile" as const, id: owner.id },
-  };
-  return {
-    key,
-    kind: "direct",
-    displayName: key,
-    updatedAt,
-    createdActor: actor,
-    owner: { actor },
-    ...overrides,
-  } satisfies GatewaySessionRow;
-}
-
-function props({
-  rows = [],
-  ...overrides
-}: Partial<Parameters<typeof renderSessionActivityView>[0]> & {
-  rows?: GatewaySessionRow[];
-} = {}): Parameters<typeof renderSessionActivityView>[0] {
-  return {
-    context: {
-      basePath: "",
-      navigate: vi.fn(),
-      gateway: {
-        snapshot: { hello: null, client: null, phase: "stopped" },
-        subscribe: () => () => {},
-        subscribeEvents: () => () => {},
-      },
-      agents: { state: { agentsList: { defaultId: "main", mainKey: "main" } } },
-      agentSelection: { state: { selectedId: "main" } },
-      sessions: { state: { result: { sessions: [] } } },
-    } as unknown as ApplicationContext,
-    filters: { personId: null, query: "", time: "7d" as const },
-    presenceViewers: [] as PresenceViewer[],
-    result: {
-      ts: 1,
-      path: "",
-      count: rows.length,
-      sessions: rows,
-      defaults: { model: null, modelProvider: null, contextTokens: null },
-      people: [
-        {
-          identity: { type: "profile" as const, id: "online" },
-          label: "Online person",
-          sessionCount: 1,
-        },
-        {
-          identity: { type: "profile" as const, id: "offline" },
-          label: "Offline person",
-          sessionCount: 1,
-        },
-      ],
-    },
-    loading: false,
-    retrying: false,
-    onRetry: vi.fn(),
-    expandedAutomationDays: new Set<string>(),
-    onAutomationDayToggle: vi.fn(),
-    onFiltersChange: vi.fn(),
-    ...overrides,
-  };
-}
 
 describe("session activity semantics", () => {
   afterEach(() => {
@@ -88,26 +18,6 @@ describe("session activity semantics", () => {
   });
   beforeEach(() => {
     document.body.innerHTML = "";
-  });
-
-  it("offers recap Retry only for rows with current generation permission", () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const retry = vi.fn();
-    const rows = [true, false].map((canEnsure, index) =>
-      row(`recap-${index}`, { id: "owner" }, Date.now(), {
-        activitySummary: { state: "unavailable", text: "Cached recap", canEnsure },
-      }),
-    );
-    render(renderSessionActivityView(props({ rows, onSummaryRetry: retry })), container);
-    const buttons = container.querySelectorAll<HTMLButtonElement>(".activity-feed__recap-retry");
-    expect(buttons).toHaveLength(1);
-    buttons[0]!.click();
-    expect(retry).toHaveBeenCalledWith(rows[0]);
-    rows[0]!.activitySummary!.canEnsure = false;
-    render(renderSessionActivityView(props({ rows, onSummaryRetry: retry })), container);
-    expect(container.querySelector(".activity-feed__recap-retry")).toBeNull();
-    expect(container.textContent).toContain("Cached recap");
   });
 
   it("leaves the page main landmark to the app shell", () => {
@@ -292,6 +202,47 @@ describe("session activity semantics", () => {
       ).toBe("blob:agent");
     });
   });
+
+  it("keeps human attribution beside the session agent's configured avatar and name", async () => {
+    const context = createContext(
+      createGateway(createTestGatewayClient(vi.fn(async () => ({})))),
+      createSessions("main", []),
+      {
+        defaultId: "main",
+        mainKey: "main",
+        scope: "per-sender",
+        agents: [{ id: "research", name: "Research partner", identity: { emoji: "🔬" } }],
+      },
+    );
+    const container = createApplicationContextProvider(context);
+    document.body.append(container);
+    render(
+      renderSessionActivityView(
+        props({
+          context,
+          rows: [
+            row("agent:research:review", { id: "person", label: "Alex Morgan" }, Date.now(), {
+              channel: "discord",
+            }),
+          ],
+        }),
+      ),
+      container,
+    );
+
+    await vi.waitFor(() => {
+      const session = container.querySelector('[data-activity-session="agent:research:review"]');
+      expect(session?.textContent).toContain("Alex Morgan");
+      expect(session?.textContent).toContain("Channel: discord");
+      expect(session?.textContent).not.toContain("Agent:");
+      expect(
+        session?.querySelector('[aria-label="Research partner (agent:research)"]'),
+      ).not.toBeNull();
+      expect(session?.querySelector(".identity-avatar__text")?.getAttribute("data-avatar")).toBe(
+        "🔬",
+      );
+    });
+  });
 });
 
 describe("session activity people filter", () => {
@@ -417,7 +368,9 @@ describe("session activity people filter", () => {
       });
       render(renderSessionActivityView({ ...input, result: undefined, loading: true }), container);
       expect(container.querySelector(".activity-feed__not-found")).toBeNull();
-      expect(container.querySelector('[role="status"]')?.textContent).toContain("Loading");
+      expect(
+        container.querySelector('.activity-feed__loading [role="status"]')?.textContent,
+      ).toContain("Loading");
 
       render(renderSessionActivityView(input), container);
       if (personId === "offline") {

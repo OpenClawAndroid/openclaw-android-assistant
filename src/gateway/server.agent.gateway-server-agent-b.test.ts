@@ -116,13 +116,13 @@ const defaultRegistry = createRegistry([
   },
 ]);
 
-function expectChannels(call: Record<string, unknown>, channel: string) {
+function expectChannels(call: Record<string, unknown>, channel: string | undefined) {
   expect(call.channel).toBe(channel);
   expect(call.messageChannel).toBe(channel);
 }
 
 async function expectAgentRoutingCall(params: {
-  channel: string;
+  channel: string | undefined;
   deliver: boolean;
   to?: string;
   fromEnd?: number;
@@ -412,7 +412,7 @@ describe("gateway server agent", () => {
     });
     expect(res.ok).toBe(true);
     await expectAgentRoutingCall({
-      channel: "webchat",
+      channel: undefined,
       deliver: true,
       runId: "idem-agent-multi-configured-best-effort",
     });

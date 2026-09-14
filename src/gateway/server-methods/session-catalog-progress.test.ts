@@ -1,5 +1,11 @@
+import { performance } from "node:perf_hooks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  areDiagnosticsEnabledForProcess,
+  setDiagnosticsEnabledForProcess,
+} from "../../infra/diagnostic-events.js";
 import { createDeferredCore } from "../../shared/deferred.js";
+import { catalogLog } from "./session-catalog-log.test-support.js";
 import {
   call,
   hoisted,
@@ -59,6 +65,12 @@ describe("session catalog progress ownership", () => {
   });
 
   it("single-flights identical concurrent lists for one caller and fans progress to active followers", async () => {
+    const previousDiagnostics = areDiagnosticsEnabledForProcess();
+    setDiagnosticsEnabledForProcess(true);
+    let clock = 0;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const enabled = catalogLog.isEnabled.mockReset().mockReturnValue(true);
+    const warn = catalogLog.warn.mockReset().mockImplementation(() => {});
     const { promise: gate, resolve: release } = createDeferredCore();
     const host = {
       hostId: "gateway:local",
@@ -105,6 +117,7 @@ describe("session catalog progress ownership", () => {
 
     try {
       await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+      clock = 1_500;
       release();
       await Promise.all([
         leader.completion,
@@ -115,6 +128,11 @@ describe("session catalog progress ownership", () => {
 
       expect(leaderBroadcast).toHaveBeenCalledOnce();
       expect(followerBroadcast).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledTimes(3);
+      for (const [message, fields] of warn.mock.calls) {
+        expect(message).toBe("slow session catalog provider list");
+        expect(fields).toMatchObject({ providerElapsedMs: 1_500, returnedGatewayHostCount: 1 });
+      }
       for (const pending of [leader, follower, otherAgent, otherParams]) {
         expect(pending.respond).toHaveBeenCalledWith(true, {
           catalogs: [expect.objectContaining({ id: "codex", hosts: [host] })],
@@ -128,12 +146,14 @@ describe("session catalog progress ownership", () => {
         sharedClient,
         { broadcastToConnIds: settledBroadcast },
       );
+      clock = 5_000;
       late.resolve();
       await Promise.all(publications);
       expect(leaderBroadcast).toHaveBeenCalledTimes(2);
       expect(followerBroadcast).toHaveBeenCalledTimes(2);
       expect(settledBroadcast).not.toHaveBeenCalled();
       expect(list).toHaveBeenCalledTimes(3);
+      expect(warn).toHaveBeenCalledTimes(3);
     } finally {
       release();
       late.resolve();
@@ -144,6 +164,10 @@ describe("session catalog progress ownership", () => {
         otherParams.completion,
         ...publications,
       ]);
+      now.mockRestore();
+      enabled.mockReset();
+      warn.mockReset();
+      setDiagnosticsEnabledForProcess(previousDiagnostics);
     }
   });
 

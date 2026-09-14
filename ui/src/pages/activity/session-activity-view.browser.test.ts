@@ -142,6 +142,8 @@ it.each([
     }
 
     render(renderSessionActivityView({ ...props, result: undefined, loading: true }), container);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain("Loading");
+    expect(
+      container.querySelector('.activity-feed__loading [role="status"]')?.textContent,
+    ).toContain("Loading");
   },
 );

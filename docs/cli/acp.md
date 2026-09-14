@@ -77,6 +77,8 @@ openclaw acp --session agent:main:main --reset-session
 
 Use the built-in ACP client to sanity-check the bridge without an IDE. It spawns the ACP bridge and lets you type prompts interactively.
 
+After a session is established, an unexpected server signal exit makes the client exit with status `1`. An explicit `exit` or `quit` remains successful when it stops the server by signal. Numeric server exit codes are propagated, including a nonzero code returned during an explicit quit.
+
 ```bash
 openclaw acp client
 

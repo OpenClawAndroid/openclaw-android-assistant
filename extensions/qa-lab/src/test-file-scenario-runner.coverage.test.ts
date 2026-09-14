@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { validateQaEvidenceSummaryJson } from "./evidence-summary.js";
 import { readQaScenarioById } from "./scenario-catalog.js";
 import { attachQaProfileScorecardEvidenceToFile } from "./scorecard-evidence.js";
-import { runQaTestFileScenarios } from "./test-file-scenario-runner.js";
+import {
+  resolveQaScriptRuntimeExecutable,
+  runQaTestFileScenarios,
+} from "./test-file-scenario-runner.js";
 import {
   buildScriptProducerEvidence,
   createScenarioRunnerTestHarness,
@@ -141,7 +144,7 @@ describe.skipIf(process.platform === "win32")("onboarding assertion attribution"
       });
       expect(result.results[0]).toMatchObject({
         status: "fail",
-        failureMessage: `${path.basename(process.execPath)} exited with 7`,
+        failureMessage: `${path.basename(resolveQaScriptRuntimeExecutable())} exited with 7`,
         includeFallbackEvidence: true,
       });
       expect(result.evidence.entries.map((entry) => [entry.test.id, entry.result.status])).toEqual([
@@ -221,6 +224,8 @@ describe.skipIf(process.platform === "win32")("onboarding assertion attribution"
       expect(written.entries).toEqual(result.evidence.entries);
       expect(written.evidenceMode).toBe(evidenceMode);
 
+      const docsRoot = path.join(tempRoot, "docs");
+      await fs.mkdir(docsRoot);
       const taxonomyPath = path.join(tempRoot, "taxonomy.json");
       const scoresPath = path.join(tempRoot, "scores.json");
       const surface = { id: "cli", name: "CLI", family: "core", level: "experimental" };
@@ -277,6 +282,8 @@ describe.skipIf(process.platform === "win32")("onboarding assertion attribution"
         "--import",
         "tsx",
         "scripts/qa/render-maturity-docs.ts",
+        "--docs-root",
+        docsRoot,
         "--taxonomy",
         taxonomyPath,
         "--scores",

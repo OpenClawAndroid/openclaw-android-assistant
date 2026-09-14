@@ -783,9 +783,11 @@ function shouldRequireOAuthDir(cfg: OpenClawConfig, env: NodeJS.ProcessEnv): boo
   if ([...withPersistedAuth].some((channelId) => !withoutPersistedAuth.has(channelId))) {
     return true;
   }
-  // Pairing allowlists are persisted under credentials/<channel>-allowFrom.json.
+  // Pairing allowlists are persisted under credentials/<channel>-allowFrom.json, so a
+  // channel id with no effective plugin owner can never pair and must not require the dir.
   for (const [channelId, channelCfg] of Object.entries(channels)) {
-    if (channelId === "defaults" || channelId === "modelByChannel") {
+    const scopedChannelId = normalizeOptionalLowercaseString(channelId);
+    if (!scopedChannelId || !withPersistedAuth.has(scopedChannelId)) {
       continue;
     }
     if (hasPairingPolicy(channelCfg)) {

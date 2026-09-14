@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 361362,
-  "reason": "Maintainer-approved 353 KiB cap for #147574. Exact-head CI job 103826823422 measured 361362 B gzip for the PR merged with current main, including newer main UI changes and the Settings restore repair. This remains below the 361472 B committed-baseline cap; existing 512 B growth and 64 B build variance allowances remain unchanged.",
+  "startupJsGzipBytes": 362012,
+  "reason": "Maintainer-approved 354 KiB cap after integrated scoped catalog invalidation (#147845), remote workspaces (#147773), and update-status feedback (#147883). Controlled build measured 362012 B; deferring the new workspace labels saved only 64 B and still failed the previous limit. Existing 512 B growth and 64 B build variance allowances remain unchanged.",
   "updatedAt": "2026-09-14"
 }

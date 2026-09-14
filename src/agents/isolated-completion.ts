@@ -12,6 +12,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withTempWorkspace } from "../infra/private-temp-workspace.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import type { AssistantMessage, Model } from "../llm/types.js";
+import { isTerminalAssistantError } from "../llm/utils/retry.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { runWithAsyncWorkResources } from "../shared/async-work-resources.js";
 import { prepareSystemAgentRunAdmission } from "./admitted-run-context.js";
@@ -19,6 +20,7 @@ import { resolveAgentDir, resolveAgentWorkspaceDir, resolveDefaultAgentId } from
 import { reconcileAuthProfileQuotaBlocks } from "./auth-profiles/usage.js";
 import { resolveCliBackendConfig, resolveCliRuntimeCanonicalProvider } from "./cli-backends.js";
 import { normalizeCliModel } from "./cli-runner/helpers.js";
+import { buildAssistantFailoverSignal } from "./embedded-agent-helpers/assistant-message-failures.js";
 import { resolveEmbeddedCliBackendDispatchEligibility } from "./embedded-agent-runner/cli-backend-dispatch-eligibility.js";
 import { resolveModelAsync } from "./embedded-agent-runner/model.js";
 import { getRegisteredAgentHarness } from "./harness/registry.js";
@@ -130,6 +132,9 @@ function requireIsolatedAssistantText(assistant: AssistantMessage): string {
     throw new IsolatedCompletionError(
       "output-rejected",
       `Isolated completion failed with stop reason ${assistant.stopReason}.`,
+      assistant.stopReason === "error" && !isTerminalAssistantError(assistant)
+        ? { cause: buildAssistantFailoverSignal(assistant) }
+        : undefined,
     );
   }
   const textParts: string[] = [];

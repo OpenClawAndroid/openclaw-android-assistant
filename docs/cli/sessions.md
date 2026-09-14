@@ -243,6 +243,7 @@ openclaw sessions export-trajectory --session-key "agent:main:telegram:direct:12
 This is the command path used by the `/export-trajectory` slash command after
 the owner approves the exec request. The output directory is always resolved
 inside `.openclaw/trajectory-exports/` under the selected workspace.
+The file list in text and JSON output reports only artifacts written to the bundle.
 
 ## Cleanup maintenance
 

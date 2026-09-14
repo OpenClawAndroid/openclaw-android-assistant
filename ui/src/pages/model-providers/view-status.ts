@@ -1,7 +1,10 @@
 import { html, nothing } from "lit";
 import { renderSettingsStatus } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
+import { registerModelControlsEnglish } from "../../i18n/locales/en-model-controls.ts";
 import type { ModelProviderAuthKind, ModelProviderCard } from "./data.ts";
+
+registerModelControlsEnglish();
 
 const AUTH_KIND_I18N: Record<ModelProviderAuthKind, string> = {
   ok: "modelProviders.status.ok",

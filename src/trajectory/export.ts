@@ -28,7 +28,6 @@ import {
   supportBundleContents,
   textSupportBundleFile,
   writeSupportBundleDirectory,
-  type DiagnosticSupportBundleContent,
   type DiagnosticSupportBundleFile,
 } from "../logging/diagnostic-support-bundle.js";
 import {
@@ -1224,6 +1223,7 @@ export async function exportTrajectoryBundle(params: BuildTrajectoryBundleParams
   header: SessionHeader | null;
   runtimeFile?: string;
   supplementalFiles: string[];
+  files: string[];
 }> {
   const redaction = buildTrajectoryExportRedaction({
     workspaceDir: params.workspaceDir,
@@ -1379,8 +1379,7 @@ export async function exportTrajectoryBundle(params: BuildTrajectoryBundleParams
   }
 
   const redactedFiles = files.map(redactTrajectoryBundleFileContent);
-  const contents: DiagnosticSupportBundleContent[] = [...supportBundleContents(redactedFiles)];
-  manifest.contents = contents;
+  manifest.contents = supportBundleContents(redactedFiles);
   const redactedManifest = redactTrajectoryExportValue(
     manifest,
     redaction,
@@ -1389,7 +1388,7 @@ export async function exportTrajectoryBundle(params: BuildTrajectoryBundleParams
     jsonSupportBundleFile("manifest.json", redactedManifest),
   );
 
-  await writeSupportBundleDirectory({
+  const writtenFiles = await writeSupportBundleDirectory({
     outputDir: params.outputDir,
     files: [manifestFile, ...redactedFiles],
   });
@@ -1402,6 +1401,7 @@ export async function exportTrajectoryBundle(params: BuildTrajectoryBundleParams
     runtimeFile:
       runtimeFile && (await isRegularNonSymlinkFile(runtimeFile)) ? runtimeFile : undefined,
     supplementalFiles,
+    files: writtenFiles.map((file) => file.path),
   };
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

@@ -19,6 +19,7 @@ import { releaseMarkdownTables } from "../../../components/markdown-tables.ts";
 import type { PersonActivityRouting } from "../../../components/person-activity-link.ts";
 import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
+import { registerChatMessageMetadataEnglish } from "../../../i18n/locales/en-chat-message-metadata.ts";
 import type { BoardProvider } from "../../../lib/board/provider.ts";
 import type {
   ChatGuardianNotice,
@@ -49,6 +50,8 @@ import {
 } from "./chat-message.ts";
 import { handleChatSelectionPointerUp, removeChatSelectionPopup } from "./chat-selection-popup.ts";
 import type { SidebarContent, SidebarFullMessageLoader } from "./chat-sidebar.ts";
+
+registerChatMessageMetadataEnglish();
 
 export type ChatThreadState = {
   asyncQuestionDrafts: Map<string, AsyncQuestionDraft>;

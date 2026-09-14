@@ -9,6 +9,7 @@ import {
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { createRequireRecord, importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { markdownToTelegramHtml, telegramHtmlToPlainTextFallback } from "./format.js";
@@ -517,9 +518,10 @@ async function capturedLogText(logFile: string): Promise<string> {
   return content;
 }
 
-afterEach(() => {
+afterEach(async () => {
   resetTelegramSentMessageCacheForTest();
   clearTelegramRuntime();
+  await closeOpenClawStateDatabaseAsync();
   resetPluginStateStoreForTests();
   setLoggerOverride(null);
   resetLogger();

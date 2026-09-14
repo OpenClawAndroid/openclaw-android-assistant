@@ -91,7 +91,9 @@ For `remote-exec` turns, computer cleanup finishes before workspace reconciliati
 
 ## Automatic load balancing across devices
 
-You do not have to pick a device. Choosing **Auto** (least-busy device) in the Place picker — or dispatching with `autoDevice: true` — selects a paired session host automatically and retries up to three ranked hosts if provisioning fails before a machine is allocated. OpenClaw `worker-turn` placements rank hosts by most free worker slots, breaking ties by device ID; Codex `remote-exec` placements do not consume worker slots, so eligible hosts are ranked by device ID alone. When no host qualifies, the error says exactly why: no session hosts paired, all disconnected, or all at capacity.
+You do not have to pick a device. Choosing **Auto** (least-busy device) in the Place picker — or dispatching with `autoDevice: true` — selects a paired session host automatically. OpenClaw `worker-turn` placements first prefer hosts with less admitted work relative to their worker capacity. They then compare free worker slots after accounting for dispatches still starting, breaking remaining ties by device ID. A session’s placement alone does not reserve a worker slot. Codex `remote-exec` placements do not consume worker slots, so eligible hosts are ranked by device ID alone. When no host qualifies, the error says exactly why: no session hosts paired, all disconnected, or all at capacity.
+
+If a selected device becomes ineligible before workspace preparation begins, Auto tries up to three ranked hosts after confirming that the failed allocation is fully cleaned up. It does not replay workspace setup or work already started. Once workspace preparation is admitted, another turn filling the device's slots does not cancel it; the node checks physical capacity again when the session launches a turn. Node identity and command authorization remain checked throughout preparation.
 
 See [Nodes](/nodes/session-hosting#host-openclaw-sessions) for the selection rules and [Control UI](/web/control-ui) for the picker.
 

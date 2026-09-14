@@ -1,6 +1,5 @@
 // Memory Core tests cover manager sync ops.startup-catchup plugin behavior.
 import { AsyncLocalStorage } from "node:async_hooks";
-import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveSessionTranscriptsDirForAgent } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
@@ -180,9 +179,7 @@ describe("session startup catch-up", () => {
     const scanError = Object.assign(new Error("transient session archive scan failure"), {
       code: "EIO",
     });
-    const readdirSpy = vi.spyOn(fsSync, "readdirSync").mockImplementation(() => {
-      throw scanError;
-    });
+    const readdirSpy = vi.spyOn(fs, "readdir").mockRejectedValue(scanError);
 
     try {
       const catchUp = harness.catchUp();
@@ -661,6 +658,7 @@ describe("session startup catch-up", () => {
       expect(timerContexts).toEqual([{ turn: undefined, pendingInput: undefined }]);
 
       await vi.advanceTimersByTimeAsync(6000);
+      await harness.waitForCorpusList();
       await harness.waitForSessionSync();
 
       expect(harness.indexedPaths).toEqual([session.corpusPath]);

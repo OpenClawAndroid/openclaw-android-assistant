@@ -124,7 +124,10 @@ export async function runHeartbeatOnce(opts: HeartbeatRunOptions): Promise<Heart
               }
             : {}),
           abortSignal: signal,
-          timeoutOverrideSeconds: resolveHeartbeatTimeoutOverrideSeconds(cfg, heartbeat),
+          // Completed commands resume agent work under the ordinary agent timeout.
+          timeoutOverrideSeconds: prepared.hasExecCompletion
+            ? undefined
+            : resolveHeartbeatTimeoutOverrideSeconds(cfg, heartbeat),
           bootstrapContextMode: heartbeat?.lightContext === true ? "lightweight" : undefined,
           disableBlockStreaming: true,
           suppressToolProgressMessages: true,

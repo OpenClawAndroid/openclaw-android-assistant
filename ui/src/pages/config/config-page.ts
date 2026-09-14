@@ -1017,9 +1017,7 @@ export class ConfigPage extends OpenClawLightDomElement {
 
   private isUpdateBusy(): boolean {
     const update = this.context.overlays.snapshot;
-    return (
-      update.updateRunning || update.updateStatusRefreshing || update.updateReconciliationPending
-    );
+    return update.updateRunning || update.updateReconciliationPending;
   }
 
   // The update dialog outlives this page and the connection, so it reads live
@@ -1035,6 +1033,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       runtimeState.configSaving ||
       runtimeState.configApplying ||
       this.isUpdateBusy() ||
+      this.context.overlays.snapshot.updateStatusRefreshing ||
       !this.context.runtimeConfig.canSet ||
       !hasOperatorAdminAccess(this.context.gateway.snapshot.hello?.auth ?? null)
     );
@@ -1061,6 +1060,7 @@ export class ConfigPage extends OpenClawLightDomElement {
         heldUpdateCampaignId: overlaySnapshot.heldUpdateCampaignId,
         updateAvailable: overlaySnapshot.updateAvailable,
         statusBanner: overlaySnapshot.updateStatusBanner,
+        statusCheckBanner: overlaySnapshot.updateStatusCheckBanner,
         reportableUpdateFailureId: overlaySnapshot.reportableUpdateFailureId,
         updateFailureReportBusy: overlaySnapshot.updateFailureReportBusy,
         updateFailureReportNotice: overlaySnapshot.updateFailureReportNotice,
@@ -1073,6 +1073,7 @@ export class ConfigPage extends OpenClawLightDomElement {
         canHoldUpdate: canCallGatewayMethod(gatewaySnapshot, "update.hold", "operator.admin"),
         canReport: canReportUpdateFailure(gatewaySnapshot),
         updateBusy: this.isUpdateBusy(),
+        statusChecking: overlaySnapshot.updateStatusRefreshing,
         onChannelChange: (channel) => runtimeConfig.patchForm(["update", "channel"], channel),
         onUpdateChecksChange: (enabled) =>
           runtimeConfig.patchForm(["update", "checkOnStart"], enabled),
@@ -1121,6 +1122,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       configState.configSaving ||
       configState.configApplying ||
       this.isUpdateBusy() ||
+      this.context.overlays.snapshot.updateStatusRefreshing ||
       !hasOperatorAdminAccess(this.context.gateway.snapshot.hello?.auth ?? null);
     const props: ConfigProps = {
       raw: configState.configRaw,
@@ -1130,7 +1132,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       loading: configState.configLoading,
       saving: configState.configSaving,
       applying: configState.configApplying,
-      updating: this.isUpdateBusy(),
+      updating: this.isUpdateBusy() || this.context.overlays.snapshot.updateStatusRefreshing,
       connected: configState.connected,
       mutationAllowed: runtimeConfig.canSet,
       openFileAllowed: runtimeConfig.canOpenFile,

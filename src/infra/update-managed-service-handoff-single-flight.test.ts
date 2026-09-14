@@ -90,9 +90,16 @@ beforeEach(async () => {
   vi.spyOn(processIdentity, "getFileLockProcessStartTime").mockImplementation((targetPid) =>
     targetPid === process.pid ? parentStartIdentity : liveChildren.has(targetPid) ? 17 : null,
   );
-  vi.spyOn(processIdentity, "isPidAlive").mockImplementation(
-    (targetPid) => targetPid === process.pid || liveChildren.has(targetPid),
-  );
+  const kill = process.kill.bind(process);
+  vi.spyOn(process, "kill").mockImplementation((targetPid, signal) => {
+    if (signal !== 0 || targetPid === process.pid) {
+      return kill(targetPid, signal);
+    }
+    if (liveChildren.has(targetPid)) {
+      return true;
+    }
+    throw Object.assign(new Error("fixture process is absent"), { code: "ESRCH" });
+  });
   forceKillChildProcessTreeMock.mockReset();
   forceKillChildProcessTreeMock.mockImplementation((child: ReturnType<typeof createReadyChild>) => {
     child.stdout.destroy();

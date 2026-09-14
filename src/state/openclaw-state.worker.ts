@@ -2,6 +2,7 @@ import {
   patchConfigHealthEntryInDatabase,
   readConfigHealthSnapshotInDatabase,
 } from "../config/io.health-state.kernel.js";
+import { loadMutableCronStoreInWorker } from "../cron/store/load.worker.js";
 import { executeSessionDeliveryCommand } from "../infra/session-delivery-queue.worker.js";
 import { createSqliteAuditRecordKernel } from "../infra/sqlite-audit-record.kernel.js";
 import {
@@ -13,6 +14,7 @@ import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js
 import type { SqliteWorkerBackend } from "../infra/sqlite-worker-contract.js";
 import { getSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { readPluginMetadataStateRowSync } from "../plugins/installed-plugin-index-row.js";
 import { mapTaskFlowView } from "../tasks/task-domain-views.js";
 import { runManagedTaskInFlowInDatabase } from "../tasks/task-flow-managed-run-task.kernel.js";
 import type { RunTaskInFlowResult } from "../tasks/task-flow-managed-run-task.types.js";
@@ -130,6 +132,13 @@ function createSharedStateWorkerBackend(
         return command.input.preserveSourceArtifacts
           ? withArtifactPreservingStateReads(read)
           : read();
+      }
+      if (command.type === "plugins.metadata.read") {
+        return readPluginMetadataStateRowSync(
+          command.input.selector,
+          { path: context.databasePath, env: getSqliteWorkerStateContext().environment },
+          command.input.artifactPreservingReadOnly,
+        );
       }
       if (command.type === "database.generationMatches") {
         // Unavailable inspection retains the known failure; only a stable mismatch expires it.
@@ -252,6 +261,9 @@ function createSharedStateWorkerBackend(
         );
       }
       const database = open();
+      if (command.type === "cron.loadMutable") {
+        return loadMutableCronStoreInWorker(database, command.input.storeKey);
+      }
       if (
         command.type === "sessionDelivery.enqueue" ||
         command.type === "sessionDelivery.enqueueClaimed" ||

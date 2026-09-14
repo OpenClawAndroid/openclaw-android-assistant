@@ -6,7 +6,10 @@ import {
   supportsWorkerExecutionContextLaunch,
   verifyWorkerAdmissionHandshake,
 } from "./admission.js";
-import { resolveDevicePlacementEligibility } from "./device-placement-eligibility.js";
+import {
+  DevicePlacementUnavailableError,
+  resolveDevicePlacementEligibility,
+} from "./device-placement-eligibility.js";
 import { DEVICE_WORKER_PROVIDER_ID } from "./device-provider-identity.js";
 import type {
   PlacementFailureActions,
@@ -164,7 +167,7 @@ export function createWorkerPlacementDispatchStartup(options: {
       config: getRuntimeConfig(),
     });
     if (!eligibility.ok) {
-      throw new Error(eligibility.error);
+      throw new DevicePlacementUnavailableError(request.deviceId, eligibility.error);
     }
   };
   const requireNodePlacementEligibility = async (
@@ -192,14 +195,21 @@ export function createWorkerPlacementDispatchStartup(options: {
     const eligibility = await resolveDevicePlacementEligibility({
       environmentService: environments,
       deviceId,
-      requirement,
+      requirement: admittedNode ? { ...requirement, consumesWorkerSlot: false } : requirement,
       config: getRuntimeConfig(),
       ...(admittedNode ? { currentNode: admittedNode } : {}),
     });
     if (!eligibility.ok) {
-      throw new Error(eligibility.error);
+      throw admittedNode
+        ? new Error(eligibility.error)
+        : new DevicePlacementUnavailableError(deviceId, eligibility.error);
     }
-    return { node: eligibility.node, requirement };
+    // Workspace preparation consumes no worker slot. Keep identity and commands live;
+    // the node's launch owner admits the eventual turn against physical capacity.
+    return {
+      node: eligibility.node,
+      requirement: { ...requirement, consumesWorkerSlot: false },
+    };
   };
 
   const bindPreparedPlacement = async (params: {
@@ -496,7 +506,7 @@ export function createWorkerPlacementDispatchStartup(options: {
           !options.isCurrentNodePlacement?.(admittedNode.node, admittedNode.requirement)
         ) {
           throw new Error(
-            "Worker dispatch lost its current node connection, pairing generation, command authorization, or capacity before activation",
+            "Worker dispatch lost its current node connection, pairing generation, or command authorization before activation",
           );
         }
         const active = placements.transition({

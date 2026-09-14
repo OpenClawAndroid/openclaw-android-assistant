@@ -40,7 +40,11 @@ import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import type { ChatPage } from "../pages/chat/chat-page.ts";
 import type { NewSessionTarget } from "../pages/new-session/location.ts";
-import { selectShellRouteState, type ShellRouteState } from "./app-host-route-state.ts";
+import {
+  equalShellRouteState,
+  selectShellRouteState,
+  type ShellRouteState,
+} from "./app-host-route-state.ts";
 import { OpenClawApp } from "./app-root.ts";
 import { ShellChromeOwner, type ShellChromeHost } from "./app-shell-chrome.ts";
 import {
@@ -95,21 +99,6 @@ i18n.setLocaleLoadRecovery({
     void scheduleStaleChunkReload();
   },
 });
-
-function equalShellRouteState(previous: ShellRouteState, next: ShellRouteState): boolean {
-  return (
-    previous.routeId === next.routeId &&
-    previous.routeFailed === next.routeFailed &&
-    previous.location?.pathname === next.location?.pathname &&
-    previous.location?.search === next.location?.search &&
-    previous.location?.hash === next.location?.hash &&
-    previous.committedRouteId === next.committedRouteId &&
-    previous.committedLocation?.pathname === next.committedLocation?.pathname &&
-    previous.committedLocation?.search === next.committedLocation?.search &&
-    previous.committedLocation?.hash === next.committedLocation?.hash &&
-    previous.committedSessionKey === next.committedSessionKey
-  );
-}
 
 class OpenClawShell
   extends OpenClawLightDomElement

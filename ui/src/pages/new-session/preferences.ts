@@ -38,6 +38,7 @@ export type NewSessionPreference = {
   baseRef?: string;
   worktreeName?: string;
   model?: string;
+  agentRuntime?: string;
   thinkingLevel?: string;
 };
 
@@ -79,6 +80,7 @@ function normalizePreference(value: unknown): NewSessionPreference | null {
   const baseRef = normalizeOptionalString(record.baseRef);
   const worktreeName = normalizeOptionalString(record.worktreeName);
   const model = normalizeOptionalString(record.model);
+  const agentRuntime = model ? normalizeOptionalString(record.agentRuntime) : undefined;
   const thinkingLevel = normalizeOptionalString(record.thinkingLevel);
   const worktree = typeof record.worktree === "boolean" ? record.worktree : undefined;
   // Preserve the legacy source choice before Git discovery can clear worktree availability.
@@ -113,6 +115,7 @@ function normalizePreference(value: unknown): NewSessionPreference | null {
     ...(baseRef ? { baseRef } : {}),
     ...(worktreeName ? { worktreeName } : {}),
     ...(model ? { model } : {}),
+    ...(agentRuntime ? { agentRuntime } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
   };
 }
@@ -202,16 +205,22 @@ export function replaceBrowserPreference(
   const storage = getSafeLocalStorage();
   const normalizedAgentId = normalizeAgentId(agentId);
   const normalized = normalizePreference(preference);
-  if (!storage || !gatewayUrl || !normalizedAgentId || !normalized) {
+  if (!storage || !gatewayUrl || !normalizedAgentId) {
     return;
   }
   const store = readStore(storage, gatewayUrl);
+  const agents = { ...store.agents };
+  if (normalized) {
+    agents[normalizedAgentId] = normalized;
+  } else {
+    delete agents[normalizedAgentId];
+  }
   try {
     storage.setItem(
       storageKey(gatewayUrl),
       JSON.stringify({
         ...store,
-        agents: { ...store.agents, [normalizedAgentId]: normalized },
+        agents,
       } satisfies PersistedPreferences),
     );
   } catch {
@@ -232,15 +241,19 @@ export function patchNewSessionPreference(
   const store = readStore(storage, gatewayUrl);
   const current = normalizePreference(store.agents?.[normalizedAgentId]) ?? {};
   const next = normalizePreference({ ...current, ...patch });
-  if (!next) {
-    return;
+  const agents = { ...store.agents };
+  if (next) {
+    agents[normalizedAgentId] = next;
+  } else {
+    // Clearing the final selection removes the preference; it is not an omitted patch.
+    delete agents[normalizedAgentId];
   }
   try {
     storage.setItem(
       storageKey(gatewayUrl),
       JSON.stringify({
         ...store,
-        agents: { ...store.agents, [normalizedAgentId]: next },
+        agents,
       } satisfies PersistedPreferences),
     );
   } catch {

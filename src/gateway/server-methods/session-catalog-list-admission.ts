@@ -1,4 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { performance } from "node:perf_hooks";
+
+export type SessionCatalogListTiming = {
+  admittedAt?: number;
+  settledAt?: number;
+};
 
 type QueuedProviderList = {
   start: () => void;
@@ -31,10 +37,14 @@ export class SessionCatalogListAdmission {
     }
   }
 
-  async run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  async run<T>(
+    task: () => Promise<T>,
+    signal?: AbortSignal,
+    timing?: SessionCatalogListTiming,
+  ): Promise<T> {
     signal?.throwIfAborted();
     if (this.active < this.maxConcurrent) {
-      return await this.start(task);
+      return await this.start(task, timing);
     }
     if (this.queue.length >= this.maxQueued) {
       throw new SessionCatalogListBusyError(this.maxConcurrent, this.maxQueued);
@@ -46,7 +56,7 @@ export class SessionCatalogListAdmission {
       const queued: QueuedProviderList = {
         start: () => {
           signal?.removeEventListener("abort", onAbort);
-          resolve({ kind: "started", result: runInAsyncContext(() => this.start(task)) });
+          resolve({ kind: "started", result: runInAsyncContext(() => this.start(task, timing)) });
         },
       };
       const onAbort = () => {
@@ -72,11 +82,18 @@ export class SessionCatalogListAdmission {
     return await outcome.result;
   }
 
-  private async start<T>(task: () => Promise<T>): Promise<T> {
+  private async start<T>(task: () => Promise<T>, timing?: SessionCatalogListTiming): Promise<T> {
     this.active += 1;
+    if (timing) {
+      timing.admittedAt = performance.now();
+    }
     try {
       return await task();
     } finally {
+      if (timing) {
+        // Successor startup during drain belongs outside this provider's elapsed time.
+        timing.settledAt = performance.now();
+      }
       // Release before draining so every settlement, including rejection, hands
       // exactly one slot to the oldest waiter instead of leaking capacity.
       this.active -= 1;

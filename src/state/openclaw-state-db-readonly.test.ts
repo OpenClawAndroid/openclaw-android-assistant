@@ -21,6 +21,7 @@ import {
   recordOpenClawStateDatabaseOpenFailure,
 } from "./openclaw-state-db-cache.js";
 import {
+  withSynchronousArtifactPreservingStateSnapshot,
   isArtifactPreservingStateRead,
   iterateOpenClawStateDatabaseReadOnly,
   withExistingOpenClawStateDatabaseArtifactPreservingReadOnly,
@@ -548,5 +549,106 @@ it("reads under its live mutation owner but refuses an unrelated caller", async 
       }
     }
     expect(await read()).toBe("original");
+  });
+});
+
+it("shares only one synchronous metadata snapshot and refreshes committed WAL next time", async () => {
+  await withTempDir("openclaw-metadata-snapshot-", async (root) => {
+    const options = createOptions(root);
+    openOpenClawStateDatabase(options);
+    closeOpenClawStateDatabaseForTest();
+    const writer = new DatabaseSync(options.path);
+    writer.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE held(value TEXT); INSERT INTO held VALUES ('first');",
+    );
+    const read = () =>
+      withExistingOpenClawStateDatabaseReadOnly(
+        ({ db }) => db.prepare("SELECT value FROM held").get()?.value,
+        options,
+      );
+    const prepare = vi.spyOn(sqliteReadOnly, "prepareSqliteReadOnlyLocationSync");
+    const artifacts = () =>
+      ["", "-wal", "-shm"].map((suffix) => fs.readFileSync(options.path + suffix));
+    const scope = (operation: () => unknown) =>
+      withArtifactPreservingStateReads(() =>
+        withSynchronousArtifactPreservingStateSnapshot(operation),
+      );
+    try {
+      const before = artifacts();
+      scope(() => {
+        expect(read()).toBe("first");
+        expect(read()).toBe("first");
+      });
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(artifacts()).toEqual(before);
+      scope(() => {
+        expect(read()).toBe("first");
+        writer.exec("UPDATE held SET value='second'");
+        expect(read()).toBe("first");
+      });
+      expect(prepare).toHaveBeenCalledTimes(2);
+      scope(() => expect(read()).toBe("second"));
+      expect(prepare).toHaveBeenCalledTimes(3);
+      expect(() =>
+        scope(() => {
+          read();
+          throw new Error("consumer failure");
+        }),
+      ).toThrow("consumer failure");
+      scope(() => expect(read()).toBe("second"));
+      expect(prepare).toHaveBeenCalledTimes(5);
+      expect(() => scope(() => Promise.resolve(1))).toThrow("must remain synchronous");
+    } finally {
+      writer.close();
+    }
+  });
+});
+
+it("rechecks a terminal failure before reusing scoped metadata bytes", async () => {
+  await withTempDir("openclaw-metadata-refusal-", async (root) => {
+    const options = createOptions(root);
+    openOpenClawStateDatabase(options);
+    closeOpenClawStateDatabaseForTest();
+    const failure = new Error("synthetic verification failure");
+    const read = () => withExistingOpenClawStateDatabaseReadOnly(() => 1, options);
+    withArtifactPreservingStateReads(() =>
+      withSynchronousArtifactPreservingStateSnapshot(() => {
+        expect(read()).toBe(1);
+        recordOpenClawStateDatabaseOpenFailure(options.path, failure);
+        expect(read).toThrow("synthetic verification failure");
+      }),
+    );
+  });
+});
+
+it("reports scoped cleanup failure and does not reuse its snapshot", async () => {
+  await withTempDir("openclaw-metadata-cleanup-", async (root) => {
+    const options = createOptions(root);
+    openOpenClawStateDatabase(options);
+    closeOpenClawStateDatabaseForTest();
+    const prepare = sqliteReadOnly.prepareSqliteReadOnlyLocationSync;
+    let cleanup: (() => boolean) | undefined;
+    vi.spyOn(sqliteReadOnly, "prepareSqliteReadOnlyLocationSync").mockImplementationOnce(
+      (pathname) => {
+        const prepared = prepare(pathname);
+        cleanup = prepared.cleanup;
+        return {
+          ...prepared,
+          cleanup: vi
+            .fn()
+            .mockImplementationOnce(() => false)
+            .mockImplementation(prepared.cleanup),
+        };
+      },
+    );
+    const read = () => withExistingOpenClawStateDatabaseReadOnly(() => 1, options);
+    const scope = () =>
+      withArtifactPreservingStateReads(() => withSynchronousArtifactPreservingStateSnapshot(read));
+    try {
+      expect(scope).toThrow("metadata snapshot cleanup failed");
+      expect(scope()).toBe(1);
+    } finally {
+      cleanup?.();
+    }
   });
 });

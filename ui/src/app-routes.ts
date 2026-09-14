@@ -18,6 +18,7 @@ import {
   pluginTabSlugFromPath,
   routeIdFromPath,
   setPluginTabSlugs,
+  sameRouteLocation,
   type RouteId,
 } from "./app-route-paths.ts";
 import type { ApplicationContext } from "./app/context.ts";
@@ -58,6 +59,7 @@ import { page as secretsPage } from "./pages/secrets/route.ts";
 import { page as sessionsPage } from "./pages/sessions/route.ts";
 import { page as skillWorkshopPage } from "./pages/skill-workshop/route.ts";
 import { pages as skillsPages } from "./pages/skills/route.ts";
+import { page as systemsPage } from "./pages/systems/route.ts";
 import { page as tasksPage } from "./pages/tasks/route.ts";
 import { page as terminalPage } from "./pages/terminal/route.ts";
 import { page as usagePage } from "./pages/usage/route.ts";
@@ -67,6 +69,8 @@ import { page as worktreesPage } from "./pages/worktrees/route.ts";
 
 type AppRouteModule = {
   render: (data: unknown, loaderPending: boolean, presented?: boolean) => unknown;
+  /** Optional lower-sidebar content owned by the same route and loader as the page. */
+  renderSidebar?: (data: unknown, loaderPending: boolean, presented?: boolean) => unknown;
   retainOnNavigate?: boolean;
   renderOwnerKey?: (
     match: Pick<RouteMatch, "data" | "location">,
@@ -109,6 +113,7 @@ const APP_ROUTE_TREE = [
   workboardPage,
   worktreesPage,
   sessionsPage,
+  systemsPage,
   secretsPage,
   usagePage,
   debugPage,
@@ -184,12 +189,6 @@ function routerHistoryLocation(location: ReturnType<RouterHistory["location"]>, 
     pathname: pathForRoute(routeId, basePath),
     search: `?${search.toString()}`,
   };
-}
-
-export function sameRouteLocation(left: RouteLocation, right: RouteLocation): boolean {
-  return (
-    left.pathname === right.pathname && left.search === right.search && left.hash === right.hash
-  );
 }
 
 function isRouteNotFound(error: unknown): error is RouteNotFound {

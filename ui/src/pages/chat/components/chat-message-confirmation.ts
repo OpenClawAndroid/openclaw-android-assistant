@@ -1,7 +1,10 @@
 import { html } from "lit";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
+import { registerChatMessageMetadataEnglish } from "../../../i18n/locales/en-chat-message-metadata.ts";
 import { getSafeLocalStorage } from "../../../local-storage.ts";
+
+registerChatMessageMetadataEnglish();
 
 // Persisted preference key: renaming it would reset users' "Don't ask again" choice.
 const SKIP_REWIND_CONFIRM_PREFERENCE = "openclaw:skip-rewind-confirm";

@@ -88,6 +88,12 @@ function pushConfiguredModelRuntimeIds(config: OpenClawConfig, runtimes: Set<str
       if (isSelectablePluginRuntime(runtime)) {
         runtimes.add(runtime);
       }
+      for (const value of Array.isArray(entry.pickerRuntimes) ? entry.pickerRuntimes : []) {
+        const pickerRuntime = normalizeConfiguredRuntimeId(value);
+        if (isSelectablePluginRuntime(pickerRuntime)) {
+          runtimes.add(pickerRuntime);
+        }
+      }
     }
   };
   pushModelMapRuntimeIds(config.agents?.defaults?.models);

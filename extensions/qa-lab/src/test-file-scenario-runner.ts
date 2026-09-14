@@ -203,10 +203,16 @@ function scriptSteps(
       : [];
   return [
     {
-      command: process.execPath,
+      command: resolveQaScriptRuntimeExecutable(),
       args: ["--import", "tsx", scenario.execution.path, ...scriptArgs],
     },
   ];
+}
+
+export function resolveQaScriptRuntimeExecutable(): string {
+  // Removal: run source QA producers directly on Bun after oven-sh/bun#35690 lets
+  // tsx's module hooks resolve OpenClaw's private local plugin-SDK aliases.
+  return process.versions.bun ? "node" : process.execPath;
 }
 
 const testFileRunnerDefinitions: Record<QaTestFileExecutionKind, QaTestFileRunnerDefinition> = {

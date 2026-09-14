@@ -32,6 +32,21 @@ export function readOpenClawAgentDatabaseIdentity(database: AgentDatabaseOwner) 
   return prepared;
 }
 
+/** A retained connection can remain open after its public pathname is replaced. */
+export function isOpenClawAgentDatabasePathCurrent(
+  database: AgentDatabaseOwner & { path: string },
+): boolean {
+  if (!database.db.isOpen) {
+    return false;
+  }
+  const { identity } = readOpenClawAgentDatabaseIdentity(database);
+  if (typeof identity === "symbol") {
+    return true;
+  }
+  const current = statSync(database.path, { bigint: true, throwIfNoEntry: false });
+  return current !== undefined && identity === `${current.dev}:${current.ino}`;
+}
+
 export type OpenClawAgentDatabaseClaim = {
   identity: OpenClawAgentDatabaseIdentity;
   /** Changes on reopen even when the underlying file is unchanged. */

@@ -54,6 +54,7 @@ import {
   waitForOwnedNodeWorkerTreeDeath,
 } from "./node-worker-tree-control.js";
 import {
+  reconcileNodeWorkerTurnCancellation,
   settleNodeWorkerTurn,
   startNodeWorkerTurn,
   waitForNodeWorkerRetirement,
@@ -437,11 +438,8 @@ class NodeWorkerSupervisor {
     }
     await this.initialize();
     const receipt = this.turns.getMatching(expected);
-    if (!receipt) {
-      return undefined;
-    }
-    if (receipt.state !== "pending" && receipt.state !== "running") {
-      return await this.status(receipt.launchId);
+    if (!receipt || (receipt.state !== "pending" && receipt.state !== "running")) {
+      return receipt ? await this.status(receipt.launchId) : undefined;
     }
     const active = this.active.get(receipt.ownerLaunchId);
     if (active?.state !== "running" || active.turn?.claim.launchId !== expected.launchId) {
@@ -613,6 +611,7 @@ class NodeWorkerSupervisor {
   }
 
   private reconcileActiveTerminal(active: NodeWorkerObservedTerminal): NodeWorkerLaunchReceipt {
+    reconcileNodeWorkerTurnCancellation(active, this.turns);
     const receipt = this.capacity.finish({
       launchId: active.launchId,
       planHash: active.planHash,
@@ -675,6 +674,7 @@ class NodeWorkerSupervisor {
       worker: active.worker,
       ...(active.container ? { container: active.container } : {}),
       outcome,
+      ...(!active.stopState && active.turn?.cancelled ? { cancelledTurn: active.turn.claim } : {}),
     };
     if (this.active.get(active.launchId) !== active) {
       return;

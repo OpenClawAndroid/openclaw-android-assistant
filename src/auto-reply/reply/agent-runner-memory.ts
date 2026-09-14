@@ -1130,12 +1130,9 @@ export async function runSessionCompactionIfNeeded(params: {
               typeof activeTranscriptBytes === "number" &&
               typeof maxActiveTranscriptBytes === "number"
                 ? {
-                    withCompactionPersistence: (
-                      append: () => string,
-                      validateAppend: (entryId: string, appendedText: string) => boolean,
-                    ) => {
+                    withCompactionPersistence: (prepared) => {
                       assertActive();
-                      const entryId = persistCompactionBoundaryWithSessionEntrySync(
+                      const committed = persistCompactionBoundaryWithSessionEntrySync(
                         {
                           ...compactionTarget,
                           expectedLifecycleRevision: expectedSession.lifecycleRevision,
@@ -1143,17 +1140,16 @@ export async function runSessionCompactionIfNeeded(params: {
                           sessionId: expectedSession.sessionId,
                         },
                         {
-                          append,
+                          prepared,
                           transcriptByteCompactionLatch: {
                             activeBytes: activeTranscriptBytes,
                             sessionId: expectedSession.sessionId,
                             maxBytes: maxActiveTranscriptBytes,
                           },
-                          validateAppend,
                         },
                       );
                       hostAccountingCommitted = true;
-                      return entryId;
+                      return committed;
                     },
                   }
                 : {}),

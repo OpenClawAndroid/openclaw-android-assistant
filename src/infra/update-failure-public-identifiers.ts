@@ -55,6 +55,7 @@ const PUBLIC_CODES = new Set<string>([
   ...updateRecoverySchema.options[1].shape.reason.options,
   ...GATEWAY_RESTART_WAIT_OUTCOMES,
   ...CANARY_CHECKS.map((phase) => `candidate-${phase}-failed`),
+  "candidate-readiness-probe-failed",
   "Error",
   "TypeError",
   "SyntaxError",

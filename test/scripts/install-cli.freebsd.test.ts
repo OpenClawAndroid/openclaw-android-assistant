@@ -9,17 +9,19 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { requireNodeTool } from "../helpers/node-toolchain.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const scriptPath = "scripts/install-cli.sh";
+const nodeExecutable = requireNodeTool("node");
 
 function fixture() {
   const root = tempDirs.make("openclaw-freebsd-installer-");
   const bin = join(root, "system bin");
   const prefix = join(root, "prefix");
   mkdirSync(bin);
-  symlinkSync(process.execPath, join(bin, "node"));
+  symlinkSync(nodeExecutable, join(bin, "node"));
   writeFileSync(join(bin, "npm"), "#!/usr/bin/env node\nconsole.log('11.19.1');\n", {
     mode: 0o755,
   });
@@ -61,11 +63,11 @@ describe("FreeBSD CLI runtime installation", () => {
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain('"method":"system"');
     const active = join(prefix, "tools", "node", "bin");
-    expect(realpathSync(join(active, "node"))).toBe(realpathSync(process.execPath));
+    expect(realpathSync(join(active, "node"))).toBe(realpathSync(nodeExecutable));
     expect(realpathSync(join(active, "npm"))).toBe(join(bin, "npm"));
     const rerun = install(active, prefix);
     expect(rerun.status, rerun.stdout + rerun.stderr).toBe(0);
-    expect(realpathSync(join(active, "node"))).toBe(realpathSync(process.execPath));
+    expect(realpathSync(join(active, "node"))).toBe(realpathSync(nodeExecutable));
     expect(realpathSync(join(active, "npm"))).toBe(join(bin, "npm"));
   });
 
@@ -101,7 +103,7 @@ describe("FreeBSD CLI runtime installation", () => {
         ${failure === "requested" ? "NODE_VERSION=99.0.0; NODE_VERSION_REQUESTED=1" : ""}
         `,
         {
-          FIXTURE_NODE: process.execPath,
+          FIXTURE_NODE: nodeExecutable,
           FIXTURE_CANDIDATE_NODE:
             failure === "missing"
               ? ""

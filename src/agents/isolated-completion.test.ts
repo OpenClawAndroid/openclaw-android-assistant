@@ -24,6 +24,8 @@ const { AsyncWorkScope, getAsyncWorkSignal, trackAsyncWork } =
 const { validateAgentRunDelegatedAuthority } = await import("../infra/agent-run-registry.js");
 const { mintSecretSentinel } = await import("../secrets/sentinel.js");
 const { getAdmittedRunDelegatedAuthority } = await import("./admitted-run-context.js");
+const { resolveModelFallbackError } = await import("./failover-error.js");
+const { PROVIDER_FAILURE_WITH_OUTPUT_ERROR_CODE } = await import("../llm/types.js");
 
 beforeEach(resetIsolatedCompletionTestState);
 
@@ -421,6 +423,45 @@ describe("runIsolatedCompletion", () => {
         code: "output-rejected",
         message: expect.stringContaining(`stop reason ${stopReason}`),
       });
+    },
+  );
+
+  it.each([
+    { errorMessage: "529 Overloaded", errorCode: undefined, reason: "overloaded" },
+    {
+      errorMessage: "429 Too many requests. Retry after 90 seconds.",
+      errorCode: undefined,
+      reason: "rate_limit",
+      retryAfterMs: 90_000,
+    },
+    {
+      errorMessage: "529 Overloaded after output started",
+      errorCode: PROVIDER_FAILURE_WITH_OUTPUT_ERROR_CODE,
+      reason: undefined,
+    },
+  ])(
+    "preserves retry classification without replaying terminal output: $errorMessage",
+    async ({ errorMessage, errorCode, reason, retryAfterMs }) => {
+      registerIsolatedHarness({
+        runIsolatedCompletion: vi.fn(async () => ({
+          assistant: {
+            ...isolatedAssistant([], "error"),
+            errorMessage,
+            errorCode,
+          },
+        })),
+      });
+      const error = await runIsolatedCompletion(isolatedRequest()).catch(
+        (failure: unknown) => failure,
+      );
+      expect(error).toMatchObject({ code: "output-rejected" });
+      expect(resolveModelFallbackError(error)).toMatchObject(
+        reason ? { kind: "failover", error: { reason } } : { kind: "unknown" },
+      );
+      if (retryAfterMs !== undefined) {
+        expect(error).toMatchObject({ cause: { retryAfterMs } });
+      }
+      expect(releaseRuntimeLease).toHaveBeenCalledOnce();
     },
   );
 

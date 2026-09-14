@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
-import { runSqliteImmediateTransactionSync } from "../../infra/sqlite-transaction.js";
 import { createNestedToolActivity } from "../../sessions/nested-tool-activity.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -23,6 +22,7 @@ import {
   readSessionTranscriptHistoryEventCount,
   readSessionTranscriptHistoryEventPage,
 } from "./session-accessor.sqlite-history-events.js";
+import { insertSyntheticHistory } from "./session-accessor.sqlite-history.test-support.js";
 import { transcriptMessage } from "./transcript-message.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -45,65 +45,6 @@ function enforceSqliteVariableLimit(
       throw new Error("too many SQL variables");
     }
     return prepare(source);
-  });
-}
-
-function insertSyntheticHistory(
-  database: OpenClawAgentDatabase,
-  sessionId: string,
-  count: number,
-  boundaries = false,
-): void {
-  const lastSeq = count * (boundaries ? 2 : 1) + 1;
-  const insertEvent = database.db.prepare(
-    "INSERT INTO transcript_events (session_id, seq, event_json, created_at) VALUES (?, ?, ?, ?)",
-  );
-  const insertIdentity = database.db.prepare(
-    `INSERT INTO transcript_event_identities
-       (session_id, event_id, seq, event_type, parent_id, message_idempotency_key, created_at)
-     VALUES (?, ?, ?, ?, NULL, NULL, ?)`,
-  );
-  const insertActive = database.db.prepare(
-    `INSERT INTO session_transcript_active_events
-       (session_id, active_position, event_seq, message_position, context_eligible)
-     VALUES (?, ?, ?, ?, 1)`,
-  );
-  runSqliteImmediateTransactionSync(database.db, () => {
-    for (let seq = 2; seq <= lastSeq; seq += 1) {
-      const isBoundary = boundaries && seq % 2 === 0;
-      const id = `synthetic-${isBoundary ? "boundary" : "message"}-${String(seq)}`;
-      const type = isBoundary ? "compaction" : "message";
-      const event = {
-        type,
-        id,
-        parentId: null,
-        timestamp: "2026-08-15T00:00:00.000Z",
-        ...(isBoundary
-          ? { summary: "synthetic" }
-          : { message: { role: "user", content: "synthetic" } }),
-      };
-      insertEvent.run(sessionId, seq, JSON.stringify(event), seq);
-      insertIdentity.run(sessionId, id, seq, type, seq);
-      insertActive.run(
-        sessionId,
-        seq - 1,
-        seq,
-        isBoundary ? null : boundaries ? Math.floor(seq / 2) : seq - 1,
-      );
-    }
-    database.db
-      .prepare(
-        `UPDATE session_transcript_index_state
-         SET indexed_seq = ?, leaf_event_id = ?, active_event_count = ?, active_message_count = ?
-         WHERE session_id = ?`,
-      )
-      .run(
-        lastSeq,
-        `synthetic-message-${String(lastSeq)}`,
-        lastSeq,
-        boundaries ? count + 1 : lastSeq,
-        sessionId,
-      );
   });
 }
 

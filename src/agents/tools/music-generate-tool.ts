@@ -46,7 +46,7 @@ import {
   executeMusicGenerationJob,
   normalizeMusicGenerationTimeoutMs,
 } from "./music-generate-tool.execution.js";
-import type { AnyAgentTool } from "./tool-runtime.helpers.js";
+import type { AnyAgentTool, ToolFsPolicy } from "./tool-runtime.helpers.js";
 
 const log = createSubsystemLogger("agents/tools/music-generate");
 const MAX_INPUT_IMAGES = 10;
@@ -178,6 +178,8 @@ async function loadReferenceImages(params: {
   inputs: string[];
   maxBytes: number;
   workspaceDir?: string;
+  cwd?: string;
+  fsPolicy?: ToolFsPolicy;
   sandboxConfig: ReturnType<typeof resolveMediaToolSandboxConfig>;
   ssrfPolicy?: SsrFPolicy;
   timeoutMs?: number;
@@ -195,6 +197,8 @@ async function loadReferenceImages(params: {
     expectedKind: "image",
     sandbox: params.sandboxConfig,
     workspaceDir: params.workspaceDir,
+    cwd: params.cwd,
+    fsPolicy: params.fsPolicy,
     maxBytes: params.maxBytes,
     ssrfPolicy: params.ssrfPolicy,
     timeoutMs: params.timeoutMs,
@@ -354,6 +358,8 @@ export function createMusicGenerateTool(options?: MediaGenerateToolOptions): Any
             inputs: imageInputs,
             maxBytes: resolveGeneratedMediaMaxBytes(effectiveCfg, "image"),
             workspaceDir: options?.workspaceDir,
+            cwd: options?.cwd,
+            fsPolicy: options?.fsPolicy,
             sandboxConfig,
             ssrfPolicy: remoteMediaSsrfPolicy,
             signal,

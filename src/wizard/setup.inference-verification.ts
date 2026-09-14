@@ -13,10 +13,9 @@ import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
 import { resolveDefaultModelForAgent } from "../agents/model-selection-config.js";
 import { resolveOnboardingSetupTarget } from "../commands/onboard-agent-target.js";
 import type { OnboardOptions } from "../commands/onboard-types.js";
-import { readConfigFileSnapshot } from "../config/config.js";
 import { migratePersistedImplicitMainRoster } from "../config/legacy.roster.js";
 import { applyMergePatch, createMergePatch } from "../config/merge-patch.js";
-import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.openclaw.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withConsoleSubsystemsSuppressed } from "../logging/console.js";
 import type { RuntimeEnv } from "../runtime.js";
 import {
@@ -24,10 +23,12 @@ import {
   projectInferenceRoute,
   sameDefaultInferenceRoute,
 } from "../system-agent/inference-route.js";
+import { activateSavedSetupCredential } from "../system-agent/setup-inference-credential-access.js";
+import { isSetupCredentialReplacement } from "../system-agent/setup-inference-credentials.js";
 import {
-  activateSavedSetupCredential,
-  isSetupCredentialReplacement,
-} from "../system-agent/setup-inference-credentials.js";
+  commitSetupInferenceActivation,
+  type SetupInferenceConfigTarget,
+} from "../system-agent/setup-inference-transition.js";
 import { revalidateStableSetupInferenceOwner } from "../system-agent/setup-inference-turn.js";
 import type { SystemAgentVerifiedInferenceBinding } from "../system-agent/verified-inference.js";
 import { t } from "./i18n/index.js";
@@ -44,10 +45,7 @@ export async function completeSetupModelAuth(params: {
   usedImportFlow: boolean;
   keepExistingModelConfig: boolean;
   importedInferenceVerified: boolean;
-  writeConfig: (
-    config: OpenClawConfig,
-    verifiedSnapshot?: ConfigFileSnapshot,
-  ) => Promise<OpenClawConfig>;
+  configTarget: SetupInferenceConfigTarget;
 }): Promise<{ config: OpenClawConfig; verified: boolean; persisted: boolean }> {
   const { stagedCandidate, opts, baseConfig } = params;
   const replacementTarget = resolveOnboardingSetupTarget(baseConfig);
@@ -82,7 +80,7 @@ export async function completeSetupModelAuth(params: {
       prompter: params.prompter,
       runtime: params.runtime,
       workspaceDir: verificationTarget.workspaceDir,
-      writeConfig: params.writeConfig,
+      configTarget: params.configTarget,
       required: params.usedImportFlow && params.keepExistingModelConfig,
     });
     let config = verification.config;
@@ -111,10 +109,7 @@ export async function offerLiveModelVerification(params: {
   workspaceDir: string;
   agentDir?: string;
   stateDir?: string;
-  writeConfig: (
-    config: OpenClawConfig,
-    verifiedSnapshot?: ConfigFileSnapshot,
-  ) => Promise<OpenClawConfig>;
+  configTarget: SetupInferenceConfigTarget;
   required?: boolean;
 }): Promise<{
   config: OpenClawConfig;
@@ -156,7 +151,7 @@ export async function offerLiveModelVerification(params: {
   let shouldPersistCandidate = params.initialCandidate !== undefined;
   let savedProfile: { profileId: string; credential: AuthProfileCredential } | undefined;
   let verifiedBinding: SystemAgentVerifiedInferenceBinding | undefined;
-  let verifiedSnapshot: ConfigFileSnapshot | undefined;
+  let verifiedConfig: Awaited<ReturnType<SetupInferenceConfigTarget["read"]>> | undefined;
   const verify = async (candidate: SetupModelAuthCandidate) => {
     const progress = params.prompter.progress(t("wizard.setup.testAiProgress"));
     let result: Awaited<ReturnType<typeof inference.verifySetupInferenceConfig>>;
@@ -208,8 +203,8 @@ export async function offerLiveModelVerification(params: {
         : undefined;
       savedProfile = profileId && credential ? { profileId, credential } : undefined;
       verifiedBinding = undefined;
-      verifiedSnapshot = savedProfile?.credential.setup?.replacement
-        ? await readConfigFileSnapshot()
+      verifiedConfig = savedProfile?.credential.setup?.replacement
+        ? await params.configTarget.read()
         : undefined;
       const runVerification = () =>
         withConsoleSubsystemsSuppressed(() =>
@@ -319,10 +314,7 @@ export async function offerLiveModelVerification(params: {
       if (savedProfile?.credential.setup?.replacement) {
         if (
           !binding ||
-          !isDeepStrictEqual(
-            (await readConfigFileSnapshot()).sourceConfig,
-            verifiedSnapshot?.sourceConfig,
-          )
+          !isDeepStrictEqual((await params.configTarget.read()).config, verifiedConfig?.config)
         ) {
           throw new Error(
             "Connection settings changed or verification is incomplete. The saved sign-in is inactive; test it again.",
@@ -333,18 +325,28 @@ export async function offerLiveModelVerification(params: {
       const verifiedRoute = savedProfile?.credential.setup?.replacement
         ? await projectInferenceRoute(candidate.config)
         : undefined;
-      const config = await params.writeConfig(candidate.config, verifiedSnapshot);
-      if (savedProfile?.credential.setup?.replacement && verifiedRoute) {
-        if (!sameDefaultInferenceRoute(await projectInferenceRoute(config), verifiedRoute)) {
-          throw new Error(
-            "Settings were saved, but the connection changed. The sign-in remains inactive; test it again.",
-          );
-        }
-        await revalidateCredential(config);
-        await activateSavedSetupCredential({ ...savedProfile, agentDir });
-      } else if (savedProfile?.credential.setup) {
-        await activateSavedSetupCredential({ ...savedProfile, agentDir });
-      }
+      const config = await commitSetupInferenceActivation({
+        commit: (options) =>
+          (verifiedConfig?.write ?? params.configTarget.write)(candidate.config, options),
+        activate: async () => {
+          if (savedProfile?.credential.setup?.replacement && verifiedRoute) {
+            const latest = (await params.configTarget.read()).config;
+            if (!sameDefaultInferenceRoute(await projectInferenceRoute(latest), verifiedRoute)) {
+              throw new Error(
+                "The connection changed before activation. Test the saved sign-in again.",
+              );
+            }
+            await revalidateCredential(latest);
+          }
+          return savedProfile?.credential.setup
+            ? await activateSavedSetupCredential({
+                ...savedProfile,
+                agentDir,
+                stateDir: params.stateDir,
+              })
+            : undefined;
+        },
+      });
       return {
         config,
         attempted: true,

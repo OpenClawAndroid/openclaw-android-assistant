@@ -5,7 +5,7 @@ import { classifyUpdateOutcome } from "../../../src/shared/update-outcome.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { UpdateAvailable, UpdateScheduleState } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
-import { formatUiExternalText } from "../lib/format-error.ts";
+import { formatUiError, formatUiExternalText } from "../lib/format-error.ts";
 import { readUpdateAvailableValue, readUpdateScheduleValue } from "./update-schedule-dto.ts";
 
 export type ApplicationStatusBanner = {
@@ -320,6 +320,13 @@ export function projectUpdateRunFailure(run: UpdateRunRecord): UpdateFailureTria
       afterSha: run.after.sha ?? null,
       failure: step ? { step: step.step, detail: step.detail ?? "" } : null,
     },
+  };
+}
+
+export function resolveUpdateStatusCheckBanner(error: unknown): ApplicationStatusBanner {
+  return {
+    tone: "warn",
+    text: t("updates.checkError", { error: formatUiError(error) }),
   };
 }
 

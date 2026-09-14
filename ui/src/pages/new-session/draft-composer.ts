@@ -1,3 +1,4 @@
+import "../../styles/chat/startup-layout.css";
 import { html, nothing, type TemplateResult } from "lit";
 import type { GatewayAgentRow } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
@@ -12,6 +13,7 @@ import {
   resolveLobsterRunOutcome,
 } from "../../components/lobster-pet-contract.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import { resolveMessageDisplayMarkdown } from "../../lib/chat/message-display.ts";
 import { normalizeMessage } from "../../lib/chat/message-normalizer.ts";
@@ -46,6 +48,8 @@ import { isWorktreeNameValid, type NewSessionVisibility } from "./create-params.
 import type { DraftPlaceState } from "./draft-place-state.ts";
 import type { DraftSubmissionFlow } from "./draft-submission-flow.ts";
 import type { NewSessionModelControl } from "./model-control.ts";
+
+registerNewSessionSetupEnglish();
 
 function renderDraftError(message: string, action?: { label: string; onClick: () => void }) {
   return html`

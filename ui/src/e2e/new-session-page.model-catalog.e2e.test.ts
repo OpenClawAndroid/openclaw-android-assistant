@@ -366,18 +366,13 @@ suite.define(() => {
     const gateway = await installMockGateway(page, {
       methodResponses: {
         "models.list": {
-          sequence: [
-            {
-              __mockError: {
-                code: "UNAVAILABLE",
-                details: { reason: "startup-sidecars" },
-                message: "gateway startup sidecars are still initializing",
-                retryable: true,
-                retryAfterMs: 100,
-              },
-            },
-            { commands: [], models: [recoveredModel] },
-          ],
+          __mockError: {
+            code: "UNAVAILABLE",
+            details: { reason: "startup-sidecars" },
+            message: "gateway startup sidecars are still initializing",
+            retryable: true,
+            retryAfterMs: 100,
+          },
         },
       },
     });
@@ -388,8 +383,10 @@ suite.define(() => {
       await expect
         .poll(() => page.getByText("Models unavailable", { exact: true }).count())
         .toBeGreaterThan(0);
+      expect(await gateway.getRequests("models.list")).toHaveLength(2);
+      await gateway.setMethodResponse("models.list", { commands: [], models: [recoveredModel] });
       await gateway.emitGatewayEvent("chat.metadata.changed", {});
-      await expect.poll(async () => (await gateway.getRequests("models.list")).length).toBe(2);
+      await expect.poll(async () => (await gateway.getRequests("models.list")).length).toBe(3);
 
       const modelSelect = page.locator(
         '.new-session-page__composer [data-chat-model-select="true"]',
@@ -400,7 +397,7 @@ suite.define(() => {
         .poll(() => page.locator('[data-chat-model-option="openai/gpt-5.6-luna"]').textContent())
         .toContain(recoveredModel.name);
 
-      expect(await gateway.getRequests("models.list")).toHaveLength(2);
+      expect(await gateway.getRequests("models.list")).toHaveLength(3);
       for (const request of await gateway.getRequests("models.list")) {
         expect(request.params).toEqual({ view: "configured", agentId: "main" });
       }

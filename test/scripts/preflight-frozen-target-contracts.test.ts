@@ -795,6 +795,7 @@ describe("frozen admission entry", () => {
       expect(JSON.parse(result.stdout).contracts[0].files).toEqual([
         { source: "selected", path: scenario },
         { source: "tooling", path: "scripts/e2e/lib/release-scenarios/assertions.mjs" },
+        { source: "tooling", path: "scripts/e2e/lib/release-assertion-files.mjs" },
         { source: "tooling", path: "scripts/e2e/lib/fixtures/mock-openai-config.mjs" },
       ]);
     },

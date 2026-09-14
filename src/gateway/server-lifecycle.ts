@@ -535,7 +535,7 @@ export async function prepareGatewayLifecycle(params: {
                 beginClose: params.pluginMetadata.beginClose,
                 close: async (...args) => {
                   try {
-                    await params.pluginMetadata.close(...args);
+                    return await params.pluginMetadata.close(...args);
                   } finally {
                     contextLifetime.abort(new Error("Gateway closed; plugin runtime unavailable."));
                   }

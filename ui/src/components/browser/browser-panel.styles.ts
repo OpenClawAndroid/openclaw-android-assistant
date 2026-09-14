@@ -179,6 +179,18 @@ export const browserPanelStyles = css`
   .bp-overlay--annotate {
     cursor: crosshair;
   }
+  .bp-input {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    cursor: default;
+  }
   .bp-overlay--inspect {
     cursor: default;
   }

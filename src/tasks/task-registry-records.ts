@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
@@ -73,6 +74,12 @@ export function cloneTaskRecord(record: TaskRecord): TaskRecord {
     ...(record.executionOwner ? { executionOwner: { ...record.executionOwner } } : {}),
     ...(record.detail !== undefined ? { detail: structuredClone(record.detail) } : {}),
   };
+}
+
+export function isEquivalentTaskRecord(current: TaskRecord, next: TaskRecord): boolean {
+  const fields = (record: TaskRecord) =>
+    Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
+  return isDeepStrictEqual(fields(current), fields(next));
 }
 
 /** Observer notifications need detached metadata, never runtime-owned detail. */

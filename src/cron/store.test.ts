@@ -1874,11 +1874,12 @@ describe("cron jobs fingerprint guard", () => {
         const fingerprint = createHash("sha256")
           .update(JSON.stringify(expectedOrder))
           .digest("hex");
+        const loaded = await loadCronJobsStoreWithConfigJobs(storePath);
         const reads = trackSqliteStatementExecutions(db, ["jobs"], (sql) =>
           sql.startsWith("select ") && sql.includes('from "cron_jobs"') ? "jobs" : null,
         );
         try {
-          const loaded = await loadCronJobsStoreWithConfigJobs(storePath);
+          expect(loadCronJobsStoreSync(storePath)).toEqual(loaded.store);
           expect(loaded.jobsFingerprint).toBe(fingerprint);
           expect(loaded.store.jobs.map((job) => job.id)).toEqual(["z", "\u{10000}", "\ue000"]);
           expect(loaded.invalidConfigRows).toHaveLength(1);

@@ -27,6 +27,7 @@ Every settings surface (the `/settings` takeover pages plus the Plugins/Skills h
 - **Motion budget:** color/background transitions only. No enter animations, staggered reveals, or hover glows.
 - **Buttons:** default `.btn` (quiet). `--accent` primary at most once per view. Danger actions live in a `danger: true` section at the page bottom.
 - **One control set.** Use `renderSettingsToggleRow` (preferred: label-wrapped, whole row clickable, accessible name for free) or `renderSettingsToggle` with a required `ariaLabel`, `renderSettingsSegmented`, `.settings-select`, `.settings-input`. Do not add another toggle or badge variant.
+- **Disabled state follows the current form.** Segmented controls recover after a busy fieldset is enabled again; explicitly disabled groups and options stay disabled. Keep their disabled bindings live because form-associated components can reflect inherited fieldset state into their own attributes.
 - **Every control needs an accessible name.** Row titles are plain text, not `<label>`s — selects/inputs in a control slot must carry `aria-label` (usually the row title string).
 - **No new page CSS files for settings surfaces.** Page-specific styles belong in `settings.css` only when a primitive is genuinely missing — extend the system, don't fork it.
 

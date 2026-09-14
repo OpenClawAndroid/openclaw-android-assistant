@@ -840,16 +840,28 @@ describe("server-owned pending input display", () => {
   );
 
   it("replaces a server pending bubble with canonical persistence exactly once", () => {
+    const clients = [{ id: "cli", mode: "cli", displayName: "Release helper" }];
     const promoted = {
       role: "user",
       content: "Keep my accepted input",
-      __openclaw: { id: "input-1", seq: 2, idempotencyKey: "run-queued:user" },
+      __openclaw: {
+        id: "input-1",
+        seq: 2,
+        idempotencyKey: "run-queued:user",
+        transport: { clients },
+      },
     };
     const items = buildChatItems({
       paneId: "promoted-pane",
       sessionKey,
       messages: [promoted],
-      pendingInputs: page.items,
+      pendingInputs: page.items.map((entry) => ({
+        ...entry,
+        message: {
+          ...promoted,
+          __openclaw: { id: `pending:${entry.id}`, transport: { clients } },
+        },
+      })),
       queue: [],
       toolMessages: [],
       streamSegments: [],
@@ -861,6 +873,7 @@ describe("server-owned pending input display", () => {
     expect(items[0]).toMatchObject({
       kind: "group",
       role: "user",
+      sourceClients: clients,
       messages: [{ message: promoted }],
     });
   });

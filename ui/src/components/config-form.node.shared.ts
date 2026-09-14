@@ -2,6 +2,7 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { html, nothing, type TemplateResult } from "lit";
 import { ref } from "lit/directives/ref.js";
+import { isSensitiveConfigPath } from "../../../src/config/sensitive-paths.js";
 import type { ConfigUiHints } from "../api/types.ts";
 import { icons } from "../components/icons.ts";
 import { t } from "../i18n/index.ts";
@@ -14,6 +15,8 @@ import type { ConfigSearchCriteria } from "./config-form.search.ts";
 import {
   configFieldId,
   hasSensitiveConfigData,
+  hintForPath,
+  pathKey as configPathKey,
   redactedPlaceholder,
   type JsonSchema,
 } from "./config-form.shared.ts";
@@ -50,6 +53,7 @@ export type ConfigNodeRenderParams = {
   showHeaderMeta?: boolean;
   searchCriteria?: ConfigSearchCriteria;
   revealSensitive?: boolean;
+  maskSensitive?: boolean;
   isSensitivePathRevealed?: (path: Array<string | number>) => boolean;
   onToggleSensitivePath?: (path: Array<string | number>) => void;
   onPatch: (path: Array<string | number>, value: unknown) => boolean | void;
@@ -62,6 +66,7 @@ export type ConfigNodeRenderer = (
 
 type SensitiveRenderState = {
   isSensitive: boolean;
+  isMasked: boolean;
   isRedacted: boolean;
   isRevealed: boolean;
   canReveal: boolean;
@@ -111,7 +116,8 @@ export function getSensitiveRenderState(params: {
   path: Array<string | number>;
   value: unknown;
   hints: ConfigUiHints;
-  revealSensitive: boolean;
+  revealSensitive?: boolean;
+  maskSensitive?: boolean;
   isSensitivePathRevealed?: (path: Array<string | number>) => boolean;
 }): SensitiveRenderState {
   const isSensitive = hasSensitiveConfigData(params.value, params.path, params.hints);
@@ -125,6 +131,14 @@ export function getSensitiveRenderState(params: {
     (params.revealSensitive || (params.isSensitivePathRevealed?.(params.path) ?? false));
   return {
     isSensitive,
+    isMasked:
+      params.maskSensitive === true &&
+      !params.revealSensitive &&
+      !isRevealed &&
+      (params.value === undefined || typeof params.value === "string") &&
+      (hintForPath(params.path, params.hints)?.sensitive ||
+        isSensitiveConfigPath(configPathKey(params.path)) ||
+        isSensitive),
     isRedacted: isSensitive && !isRevealed,
     isRevealed,
     canReveal: isSensitive && !sentinel,

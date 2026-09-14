@@ -52,6 +52,55 @@ function host(rootDir: string, standalone = false) {
 }
 
 describe("native plugin generation interop", () => {
+  it.each([true, false])(
+    "preserves native-addon package-root detection (declared loader: %s)",
+    (declared) => {
+      const root = fixture({
+        "package.json": '{"dependencies":{"native-addon":"1.0.0"}}',
+        "entry.cjs": "module.exports = require('native-addon');",
+        "node_modules/native-addon/package.json": JSON.stringify({
+          name: "native-addon",
+          main: "lib/database.cjs",
+          dependencies: declared ? { "root-loader": "1.0.0" } : undefined,
+        }),
+        "node_modules/native-addon/lib/database.cjs": `
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = require('root-loader')(__filename);
+          exports.relativeRoot = path.relative(__dirname, root);
+          exports.read = () => fs.readFileSync(path.join(root, 'build/Release/addon.txt'), 'utf8');`,
+        "node_modules/native-addon/build/Release/addon.txt": "before",
+        "node_modules/root-loader/package.json": '{"main":"index.cjs"}',
+        "node_modules/root-loader/index.cjs": `
+          const fs = require('node:fs');
+          const path = require('node:path');
+          module.exports = file => {
+            let directory = path.dirname(file);
+            while (!fs.existsSync(path.join(directory, 'package.json')) &&
+                   !fs.existsSync(path.join(directory, 'node_modules'))) {
+              const parent = path.dirname(directory);
+              if (parent === directory) throw new Error('Package root not found');
+              directory = parent;
+            }
+            return directory;
+          };`,
+      });
+      type Addon = { relativeRoot: string; read(): string };
+      const entry = path.join(root, "entry.cjs");
+      const original = createRequire(entry)(entry) as Addon;
+      expect(original.relativeRoot).toBe("..");
+      expect(original.read()).toBe("before");
+      const captured = host(root).load("entry.cjs") as Addon;
+      expect(captured.relativeRoot).toBe(original.relativeRoot);
+      fs.writeFileSync(
+        path.join(root, "node_modules/native-addon/build/Release/addon.txt"),
+        "after",
+      );
+      expect(captured.read()).toBe("before");
+      expect((host(root).load("entry.cjs") as Addon).read()).toBe("after");
+    },
+  );
+
   it.each(["ts", "cjs"])(
     "reclaims only the retired %s generation's Node cache records",
     async (extension) => {
@@ -459,23 +508,29 @@ describe("native plugin generation interop", () => {
 
   it.each(
     [false, true].flatMap((standalone) =>
-      ["static", "computed"].map((reference) => ({ standalone, reference })),
+      ["static", "computed"].flatMap((reference) =>
+        [false, true].map((nestedManifest) => ({ standalone, reference, nestedManifest })),
+      ),
     ),
   )(
-    "resolves nested dependency versions from each importer ($reference, standalone: $standalone)",
-    async ({ standalone, reference }) => {
+    "resolves nested dependency versions from each importer ($reference, standalone: $standalone, nested manifest: $nestedManifest)",
+    async ({ standalone, reference, nestedManifest }) => {
       const root = fixture({
         "package.json": JSON.stringify({
           type: "module",
           dependencies: { "versioned-dependency": "1.0.0" },
         }),
         "entry.mjs":
-          'import { value as rootVersion } from "versioned-dependency"; export { rootVersion }; export { read as readNested } from "./nested/consumer.mjs";',
-        "nested/package.json": JSON.stringify({
-          type: "module",
-          dependencies: { "versioned-dependency": "2.0.0" },
-        }),
-        "nested/consumer.mjs":
+          'import { value as rootVersion } from "versioned-dependency"; export { rootVersion }; export { read as readNested } from "./nested/lib/consumer.mjs";',
+        ...(nestedManifest
+          ? {
+              "nested/package.json": JSON.stringify({
+                type: "module",
+                dependencies: { "versioned-dependency": "2.0.0" },
+              }),
+            }
+          : {}),
+        "nested/lib/consumer.mjs":
           reference === "static"
             ? 'import { value } from "versioned-dependency"; export const read = async () => value;'
             : "export const read = async name => (await import(name)).value;",

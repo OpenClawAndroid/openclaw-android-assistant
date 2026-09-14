@@ -1,3 +1,4 @@
+import "../../styles/chat/startup-layout.css";
 import { consume } from "@lit/context";
 import { html, nothing, type TemplateResult } from "lit";
 import { property } from "lit/decorators.js";
@@ -15,6 +16,7 @@ import "../../styles/chat/grouped.css";
 import "../../styles/chat/layout.css";
 import "../../styles/chat/message-layout.css";
 import "../../styles/chat/composer.css";
+import "../../styles/chat/composer-surface.css";
 import "../../styles/chat/text.css";
 import "../../styles/custodian.css";
 import { renderCustodianAlertCard } from "./custodian-alert-card.ts";

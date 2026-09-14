@@ -490,7 +490,7 @@ node    1234 user   12u  IPv4    0t0      TCP localhost:1234
   });
 
   it("summarizes failure rate, restart.ready totals, and resource slope", () => {
-    const result = testing.summarizeCase({ config: {}, id: "demo", name: "demo" }, [
+    const samples: Parameters<typeof testing.summarizeCase>[1] = [
       {
         childExitCode: null,
         childSignal: "SIGTERM",
@@ -606,13 +606,27 @@ node    1234 user   12u  IPv4    0t0      TCP localhost:1234
           rssMbPerRestart: 6,
         },
       },
-    ]);
+    ];
+    const result = testing.summarizeCase({ config: {}, id: "demo", name: "demo" }, samples);
 
+    expect(result.samples).toBe(samples);
     expect(result.summary.failureRate).toBe(0.5);
     expect(result.summary.firstFailureCode).toBe("trace_missing");
     expect(result.summary.restartReadyTotalMs?.p50).toBe(50);
     expect(result.summary.resourceSlope.heapUsedMbPerRestart?.p50).toBe(4);
     expect(result.summary.resourceSlope.rssMbPerRestart?.p50).toBe(6);
+    expect(Object.keys(result.summary.restartTrace)).toEqual([
+      "restart.ready",
+      "restart.ready.heapUsedMb",
+      "restart.ready.rssMb",
+      "restart.ready.total",
+    ]);
+    expect(result.summary.restartTrace).toEqual({
+      "restart.ready": { avg: 12, max: 12, min: 12, p50: 12, p95: 12 },
+      "restart.ready.heapUsedMb": { avg: 102, max: 104, min: 100, p50: 102, p95: 104 },
+      "restart.ready.rssMb": { avg: 203, max: 206, min: 200, p50: 203, p95: 206 },
+      "restart.ready.total": { avg: 50, max: 50, min: 50, p50: 50, p95: 50 },
+    });
   });
 
   it("counts sample failures that happen before restart iterations", () => {
@@ -663,6 +677,7 @@ node    1234 user   12u  IPv4    0t0      TCP localhost:1234
 
     expect(result.summary.failureRate).toBe(1);
     expect(result.summary.firstFailureCode).toBe("initial_readyz_timeout");
+    expect(result.summary.restartTrace).toEqual({});
     expect(testing.hasBenchmarkFailures([result])).toBe(true);
     expect(testing.shouldFailBenchmark([result], { allowFailures: false })).toBe(true);
     expect(testing.shouldFailBenchmark([result], { allowFailures: true })).toBe(false);

@@ -96,12 +96,11 @@ suite.define(() => {
         await expect.poll(() => modelPickerValue(primary)).toBe("example/existing");
         await captureProviderProof(`login-models-before-${modelAccess.value}.png`, primary);
         await page.locator("[data-models-connect]").click();
-        const picker = page.locator("[data-models-login-choice]");
-        await picker.waitFor();
+        const signIn = page.getByRole("button", { name: "Example device sign-in", exact: true });
+        await signIn.waitFor();
         expect(await gateway.getRequests("models.authLogin")).toHaveLength(0);
-        await captureProviderProof(`login-before-choice-${modelAccess.value}.png`, picker);
-        await picker.selectOption("example-device");
-        await page.locator("[data-models-login-start]").click();
+        await captureProviderProof(`login-before-choice-${modelAccess.value}.png`, signIn);
+        await signIn.click();
         const login = await gateway.waitForRequest("models.authLogin");
         const loginParams = login.params;
         assert(loginParams && typeof loginParams === "object" && "sessionId" in loginParams);
@@ -113,7 +112,9 @@ suite.define(() => {
         const dialog = page.locator("openclaw-modal-dialog");
         await dialog.getByText("TEST-1234", { exact: true }).waitFor();
         expect(
-          await dialog.getByRole("link", { name: "Open sign-in page" }).getAttribute("href"),
+          await dialog
+            .getByRole("link", { name: "Open sign-in", exact: true })
+            .getAttribute("href"),
         ).toBe("https://example.invalid/device");
         await captureProviderProof(
           `login-device-code-${modelAccess.value}.png`,
@@ -154,13 +155,16 @@ suite.define(() => {
           },
         });
         await dialog.getByRole("button", { name: "Continue", exact: true }).click();
-        const keep = dialog.getByRole("radio", { name: "Keep current restrictions" });
+        const keep = dialog.getByRole("button", { name: "Keep current restrictions", exact: true });
         await keep.waitFor();
-        expect(await keep.isChecked()).toBe(true);
-        await dialog.getByRole("radio", { name: modelAccess.label }).check();
+        expect(await keep.isEnabled()).toBe(true);
+        expect((await gateway.getRequests("wizard.next")).at(-1)?.params).toEqual({
+          sessionId: loginParams.sessionId,
+          answer: { stepId: "device" },
+        });
         await captureProviderProof(`login-model-access-${modelAccess.value}.png`, dialog);
         await gateway.setMethodResponse("wizard.next", { done: true, status: "done" });
-        await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+        await dialog.getByRole("button", { name: modelAccess.label, exact: true }).click();
         await expect
           .poll(async () => {
             const requests = await gateway.getRequests("wizard.next");

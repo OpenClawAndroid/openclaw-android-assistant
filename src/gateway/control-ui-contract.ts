@@ -76,6 +76,43 @@ type ControlUiSessionPullRequestChecks = {
   running: number;
 };
 
+/** Ordered GitHub Actions step facts; timestamps let the client render live duration. */
+export type ControlUiSessionPullRequestCheckStep = {
+  number: number;
+  name: string;
+  status: string;
+  conclusion?: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+export type ControlUiSessionPullRequestCheck = {
+  id: number;
+  name: string;
+  state: "failed" | "running" | "passed" | "skipped";
+  status: string;
+  conclusion?: string;
+  startedAt?: string;
+  completedAt?: string;
+  detailsUrl?: string;
+  source: "actions" | "check";
+  /** Absent for non-Actions checks or when Actions details could not be loaded. */
+  steps?: ControlUiSessionPullRequestCheckStep[];
+};
+
+/** On-demand details bound to one session PR head, never part of background polling. */
+export type ControlUiSessionPullRequestCheckDetails = {
+  owner: string;
+  repo: string;
+  number: number;
+  headSha: string;
+  checks: ControlUiSessionPullRequestCheck[];
+  status: "ready" | "stale" | "unavailable";
+  rateLimited: boolean;
+  error?: string;
+  retryAfterMs?: number;
+};
+
 /** A working-branch PR or a same-repository PR linked in recent assistant replies. */
 export type ControlUiSessionPullRequest = {
   number: number;
@@ -99,6 +136,8 @@ export type ControlUiSessionPullRequest = {
   /** Latest check-run rollup for the head commit; absent when no checks ran. */
   checks?: ControlUiSessionPullRequestChecks;
   checksUrl?: string;
+  /** Head binding for on-demand CI details; not a client-selected repository revision. */
+  headSha?: string;
 };
 
 /**

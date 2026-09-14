@@ -255,10 +255,12 @@ describe("WizardSession", () => {
 
     const first = await session.next();
     expect(first.step).toMatchObject({
-      type: "note",
+      type: "progress",
+      executor: "gateway",
       title: "Provider sign-in",
       message: [
         "Enter this one-time code in your browser.",
+        "https://provider.example/device",
         "Code: ABCD-1234",
         "Code expires in 15 minutes.",
         DEVICE_CODE_PHISHING_WARNING,
@@ -270,6 +272,8 @@ describe("WizardSession", () => {
         message: "Enter this one-time code in your browser.",
       },
     });
+    await session.whenSettled();
+    expect(await session.next()).toMatchObject({ done: true, status: "done" });
   });
 
   test("invalid answers throw", async () => {

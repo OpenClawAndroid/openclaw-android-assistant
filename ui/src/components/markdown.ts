@@ -6,7 +6,7 @@ import { resolveControlUiPaths } from "../app/browser.ts";
 import { i18n, t } from "../i18n/index.ts";
 import { truncateText } from "../lib/format.ts";
 import { parseGitHubLinkTarget } from "./github-link-target.ts";
-import { renderAssistantTranscriptPlainTextFallback } from "./markdown-assistant-transcript.ts";
+import { createAssistantTranscriptPlainTextFallback } from "./markdown-assistant-transcript.ts";
 import { renderMarkdownCodeBlock } from "./markdown-code-blocks.ts";
 import { isHostLocalMarkdownFileHref } from "./markdown-file-links.ts";
 import { createMarkdownParser } from "./markdown-parser.ts";
@@ -17,11 +17,7 @@ import {
   type MarkdownRenderOptions,
 } from "./markdown-render-options.ts";
 import { repairStreamingMarkdownTail, splitStableStreamingMarkdown } from "./markdown-streaming.ts";
-import {
-  escapeMarkdownHtml,
-  isMarkdownBlockArtText,
-  normalizeMarkdownLineBreaks,
-} from "./markdown-text.ts";
+import { isMarkdownBlockArtText, normalizeMarkdownLineBreaks } from "./markdown-text.ts";
 
 const allowedTags = [
   "a",
@@ -564,15 +560,15 @@ function renderSanitizedMarkdown(renderInput: string, renderOptions: MarkdownRen
     // Large plain-text replies should stay readable without inheriting the
     // capped code-block chrome, while still preserving whitespace for logs
     // and other structured text that commonly trips the parse guard.
-    return DOMPurify.sanitize(toEscapedPlainTextHtml(input, renderOptions), activeSanitizeOptions);
+    return DOMPurify.sanitize(toPlainTextElement(input, renderOptions), activeSanitizeOptions);
   }
-  let rendered: string;
+  let rendered: string | HTMLDivElement;
   try {
     rendered = markdownParser.render(input, renderOptions);
   } catch (err) {
     // Fall back to escaped plain text when md.render() throws (#36213).
     console.warn("[markdown] md.render failed, falling back to plain text:", err);
-    rendered = toEscapedPlainTextHtml(input, renderOptions);
+    rendered = toPlainTextElement(input, renderOptions);
   }
   return DOMPurify.sanitize(rendered, activeSanitizeOptions);
 }
@@ -601,12 +597,11 @@ export function toSanitizedMarkdownHtml(
   return sanitized;
 }
 
-function toEscapedPlainTextHtml(value: string, options: MarkdownRenderEnv): string {
-  return renderAssistantTranscriptPlainTextFallback(
+function toPlainTextElement(value: string, options: MarkdownRenderEnv): HTMLDivElement {
+  return createAssistantTranscriptPlainTextFallback(
     normalizeMarkdownLineBreaks(value),
     options.assistantTranscriptRoleHeaders,
     () => t("sessionsView.assistant"),
-    escapeMarkdownHtml,
   );
 }
 

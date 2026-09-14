@@ -246,6 +246,8 @@ function renderAdvanced(props: InventoryProps): TemplateResult {
   }
   return html`
     ${renderNode({
+      rawAvailable: false,
+      maskSensitive: true,
       schema: props.advancedSchema,
       value: props.configValue.plugins ?? {},
       path: ["plugins"],
@@ -333,6 +335,8 @@ function renderConfiguration(props: DetailProps, plugin: PluginCatalogItem): Tem
   const pluginEntry = pluginEntryValue(props.configValue, plugin.id);
   return html`
     ${renderNode({
+      rawAvailable: false,
+      maskSensitive: true,
       schema: props.configSchema,
       value: pluginEntry.config ?? {},
       path: ["plugins", "entries", plugin.id, "config"],
@@ -404,6 +408,8 @@ function renderInstalledAdvanced(props: DetailProps): TemplateResult {
   return html`${
     props.hostControlsSchema && props.configValue
       ? renderNode({
+          rawAvailable: false,
+          maskSensitive: true,
           schema: props.hostControlsSchema,
           value: pluginEntry,
           path: ["plugins", "entries", props.pluginId],

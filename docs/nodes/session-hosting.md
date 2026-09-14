@@ -82,6 +82,11 @@ node has one worker slot per available CPU core. Configure the slot count with
 for a durable slot; while all slots are occupied, the node remains available
 for status and cancellation but is not selected for a new session turn.
 
+Stopping an active hosted turn records the accepted cancellation even if the
+worker encounters an error while stopping. Worker diagnostics retain the shutdown
+failure separately. A worker slot becomes available only after its process tree
+or container has finished cleanup.
+
 The picker derives every device row from `environments.list`. Every selected
 runtime requires an available, connected paired session host. OpenClaw worker
 turns additionally require valid exact worker slots with at least one free
@@ -102,15 +107,26 @@ arrives. Local remains selectable; cached worker slots never authorize a new
 remote session.
 
 Choose **Auto** to let the Gateway select an eligible paired,
-connected session host. For OpenClaw worker turns, it selects the host with the
-most available worker slots and breaks ties by device ID. Runtimes that do not
-consume worker slots choose the eligible host with the lowest device ID instead.
-If a selected host disconnects, reaches capacity, or otherwise becomes
-ineligible before dispatch finishes, the Gateway tries the next ranked host, up
-to three hosts total. Other dispatch failures are returned immediately. If no
-host is eligible, the error explains whether no session hosts are paired, hosts
-are disconnected or at capacity, a host needs an update, or the selected runtime
-is unsupported. The dispatch response identifies the device that was selected.
+connected session host. For OpenClaw worker turns, it first prefers hosts with
+less admitted work relative to their worker capacity. It then compares free
+worker slots after accounting for dispatches still starting, and breaks
+remaining ties by device ID. A session's placement alone does not reserve a
+worker slot. Runtimes that do not consume worker slots choose the eligible host
+with the lowest device ID instead.
+
+If a selected host becomes ineligible before workspace preparation begins, the
+Gateway tries the next ranked host, up to three hosts total, after confirming
+that any failed allocation has been cleaned up. Other dispatch failures are
+returned immediately; Auto never replays workspace preparation or work already
+started. Once workspace preparation is admitted, another turn filling the host's
+slots does not cancel it; the node checks physical capacity when the session
+launches a turn.
+Node identity and command authorization remain checked throughout preparation.
+
+If no host is eligible, the error explains whether no session hosts are paired,
+hosts are disconnected or at capacity, a host needs an update, or the selected
+runtime is unsupported. The dispatch response identifies the device that was
+selected.
 
 When a known session host disconnects, its paired-device record preserves only
 the last accepted current-v6 hosting consent. The offline row remains visible

@@ -27,7 +27,11 @@ it("keeps the same-query snapshot during invalidation and clears it on person ch
   expect(controller.result).toEqual(result);
   expect(request).toHaveBeenLastCalledWith(
     "sessions.list",
-    expect.objectContaining({ involvingProfileId: "former", includePeople: true }),
+    expect.objectContaining({
+      involvingProfileId: "former",
+      includePeople: true,
+      sortBy: "activity",
+    }),
     expect.anything(),
   );
   controller.load(client, { ...filters, personId: "other" });

@@ -14,6 +14,40 @@ function prepareDiagnosticReport(reason: string) {
 }
 
 describe("update report diagnostic command boundary", () => {
+  it.each(["startupz", "readyz"])(
+    "preserves the %s readiness probe failure identifier",
+    async (check) => {
+      const report = await prepareUpdateFailureReport(
+        {
+          attemptId: "candidate-readiness-probe",
+          result: {
+            status: "error",
+            mode: "npm",
+            durationMs: 1,
+            steps: [
+              {
+                name: "candidate gateway canary",
+                command: "gateway run",
+                cwd: "/candidate",
+                durationMs: 1,
+                exitCode: 1,
+                failureFacts: [
+                  {
+                    check,
+                    code: "candidate-readiness-probe-failed",
+                    message: "Readiness probe failed: HTTP 502. Check the configured proxy.",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        context,
+      );
+      expect(report.body).toContain(`Failing check ${check} (candidate-readiness-probe-failed)`);
+    },
+  );
+
   it.each([true, false])("uses only matching finalization facts (matches=%s)", async (matches) => {
     const message =
       "Doctor could not enter maintenance. Error: The update parent owns Gateway activation.";

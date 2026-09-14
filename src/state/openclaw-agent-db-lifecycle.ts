@@ -31,6 +31,10 @@ import {
   readExistingAgentSchemaMeta,
 } from "./openclaw-agent-db-schema-helpers.js";
 import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
+import {
+  getOpenClawDatabaseMaintenanceScope,
+  observeOpenClawDatabaseMaintenanceResource,
+} from "./openclaw-state-db-async-lifecycle.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db.js";
 
 // Target 64 cached handles (roughly three WAL FDs each). Live borrowers,
@@ -134,6 +138,7 @@ export function retainFailedAgentDatabaseClose(
     },
   };
   cache.retainedCloses.add(retained);
+  getOpenClawDatabaseMaintenanceScope()?.own(retained, "agent-handles", retained.close);
   cache.unregisterExitClose ??= registerSqliteCacheExitClose(closeOpenClawAgentDatabases);
 }
 
@@ -149,6 +154,7 @@ export function revokePendingAgentDatabaseOpen(pathname: string, expectedAgentId
 }
 
 export function retainAgentDatabase(db: DatabaseSync): () => void {
+  observeOpenClawDatabaseMaintenanceResource(db);
   const borrowers = cache.borrowers.get(db) ?? new Set<object>();
   const borrower = {};
   borrowers.add(borrower);
@@ -156,6 +162,19 @@ export function retainAgentDatabase(db: DatabaseSync): () => void {
   return () => {
     borrowers.delete(borrower);
   };
+}
+
+/** Dispose only this publication; a later admission at the same path is independent. */
+export function closeMaintenanceAgentDatabase(database: OpenClawAgentDatabase): void {
+  if (cache.databases.get(database.path) !== database) {
+    return;
+  }
+  closeCachedOpenClawAgentDatabase(database);
+  cache.databases.delete(database.path);
+  cache.failures.delete(database.path);
+  if (cache.incognito.has(database)) {
+    cache.generation += 1;
+  }
 }
 
 export function closeCachedOpenClawAgentDatabase(

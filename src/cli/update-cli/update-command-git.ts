@@ -1,8 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { theme } from "../../../packages/terminal-core/src/theme.js";
+import { resolveStateDir } from "../../config/paths.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PackageUpdateTransaction } from "../../infra/package-update-steps.js";
 import { hasNodeErrorCode } from "../../infra/path-guards.js";
 import { mergeProcessEnv } from "../../infra/process-env.js";
+import { assessInitialUpdateSnapshotCapacity } from "../../infra/update-candidate-snapshot.js";
 import {
   DEV_BRANCH,
   resolveDevUpstreamRefs,
@@ -452,6 +456,8 @@ export async function updateGitInstall(params: {
   onConfigSnapshot?: Parameters<typeof runPackageUpdateDoctor>[0]["onConfigSnapshot"];
   getDoctorContext?: Parameters<typeof runPackageUpdateDoctor>[0]["getDoctorContext"];
   getManagedServiceEnv: () => NodeJS.ProcessEnv | undefined;
+  getSnapshotSource: () => Promise<{ config: OpenClawConfig; env: NodeJS.ProcessEnv }>;
+  jsonMode?: boolean;
   invocationCwd?: string;
   nodeRunner?: string;
   inspectGitTarget?: UpdateRunnerOptions["inspectGitTarget"];
@@ -494,6 +500,47 @@ export async function updateGitInstall(params: {
     };
   }
 
+  const checkSnapshot = async () => {
+    const info = {
+      name: "snapshot-space-preflight",
+      command: "snapshot-space-preflight",
+      index: 0,
+      total: 0,
+    };
+    params.progress.onStepStart?.(info);
+    const { config, env } = await params.getSnapshotSource();
+    const snapshot = await assessInitialUpdateSnapshotCapacity({
+      config,
+      stateDir: resolveStateDir(env),
+      env,
+    });
+    params.progress.onStepComplete?.({ ...snapshot, index: 0, total: 0 });
+    if (snapshot.exitCode !== 0) {
+      defaultRuntime.error(snapshot.stderrTail ?? "snapshot-capacity-insufficient");
+    } else {
+      for (const warning of snapshot.warnings ?? []) {
+        if (params.jsonMode) {
+          defaultRuntime.error(`Warning: ${warning}`);
+        } else {
+          defaultRuntime.log(theme.warn(warning));
+        }
+      }
+    }
+    return snapshot;
+  };
+  const snapshotBeforeClone = params.switchToGit ? await checkSnapshot() : undefined;
+  if (snapshotBeforeClone && snapshotBeforeClone.exitCode !== 0) {
+    return {
+      status: "error",
+      mode: "git",
+      root: params.root,
+      reason: "snapshot-capacity-insufficient",
+      steps: [snapshotBeforeClone],
+      recovery: await verifyPackageUpdateRecovery(params.root),
+      durationMs: Date.now() - params.startedAt,
+    };
+  }
+
   const previousPackage = installTarget
     ? await readPackageUpdateIdentity(installTarget.packageRoot ?? params.root)
     : undefined;
@@ -512,6 +559,12 @@ export async function updateGitInstall(params: {
       allowGatewayActivation: params.allowGatewayActivation,
       beforeGitMutation: params.beforeGitMutation,
       inspectGitTarget: params.inspectGitTarget,
+      beforeGitStaging: params.switchToGit
+        ? undefined
+        : async () => ({
+            step: await checkSnapshot(),
+            failureReason: "snapshot-capacity-insufficient",
+          }),
       publishGitCheckout,
       validateCandidate: params.validateCandidate,
       runGitDoctor: installTarget
@@ -587,14 +640,18 @@ export async function updateGitInstall(params: {
         recovery: await (params.installKind === "git"
           ? readCurrentGitUpdateRecovery(params.root, effectiveTimeout)
           : verifyPackageUpdateRecovery(params.root)),
-        steps: [cloneStep],
+        steps: [...(snapshotBeforeClone ? [snapshotBeforeClone] : []), cloneStep],
         durationMs: Date.now() - params.startedAt,
       };
     }
 
     const updateResult = stagedUpdateResult ?? (await runUpdate(updateRoot));
     const before = previousPackage ?? updateResult.before;
-    const steps = [...(cloneStep ? [cloneStep] : []), ...updateResult.steps];
+    const steps = [
+      ...(snapshotBeforeClone ? [snapshotBeforeClone] : []),
+      ...(cloneStep ? [cloneStep] : []),
+      ...updateResult.steps,
+    ];
     if (exposure && updateResult.status === "ok") {
       const packageUpdate = await exposure.activate();
       return {

@@ -434,6 +434,7 @@ run_logged_print_heartbeat "npm-telegram-live-suite" 60 docker_e2e_run_with_harn
   -v "$ROOT_DIR/.artifacts:/app/.artifacts" \
   -v "$OUTPUT_DIR_HOST:$OUTPUT_DIR_CONTAINER" \
   -v "$harness_package_json:/app/package.json:ro" \
+  -v "$harness_package_json:/app/extensions/qa-lab/node_modules/openclaw/package.json:ro" \
   -v "$ROOT_DIR/dist:/app/dist:ro" \
   -v "$ROOT_DIR/node_modules:/trusted-harness/node_modules:ro" \
   -v "$ROOT_DIR/packages:/app/packages:ro" \

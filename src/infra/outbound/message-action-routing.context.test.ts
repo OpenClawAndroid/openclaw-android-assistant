@@ -452,9 +452,13 @@ describe("runMessageAction context isolation", () => {
     ).rejects.toThrow(message);
   });
 
-  it.each(["topic-create", "topic-edit"] as const)(
-    "denies cross-provider %s before provider adapter dispatch",
-    async (action) => {
+  it.each(
+    (["topic-create", "topic-edit"] as const).flatMap((action) =>
+      ["C12345678", undefined].map((currentChannelId) => ({ action, currentChannelId })),
+    ),
+  )(
+    "denies cross-provider $action with current target $currentChannelId before provider adapter dispatch",
+    async ({ action, currentChannelId }) => {
       const outcome = await runMessageAction({
         cfg: workspaceConfig,
         action,
@@ -465,7 +469,7 @@ describe("runMessageAction context isolation", () => {
           ...(action === "topic-edit" ? { messageThreadId: "42" } : {}),
         },
         toolContext: {
-          currentChannelId: "C12345678",
+          currentChannelId,
           currentChannelProvider: "workspace",
         },
         dryRun: false,

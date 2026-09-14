@@ -18,7 +18,10 @@ import {
   sharedVitestConfig,
 } from "../test/vitest/vitest.shared.config.ts";
 import { uiIsolatedTestFiles } from "../test/vitest/vitest.ui-isolated-paths.mjs";
-import { uiNodeDrivenBrowserTestFiles } from "../test/vitest/vitest.ui-paths.mjs";
+import {
+  uiNodeDrivenBrowserTestFiles,
+  uiTimingTestFiles,
+} from "../test/vitest/vitest.ui-paths.mjs";
 import { controlUiLocaleModulesPlugin } from "./config/control-ui-locales.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -120,6 +123,7 @@ const sharedUiTestConfig = {
   hookTimeout: 60_000,
 } as const;
 const nodeDrivenBrowserLayoutTests = relativizeScopedPatterns(uiNodeDrivenBrowserTestFiles, "ui");
+const timingTests = relativizeScopedPatterns(uiTimingTestFiles, "ui");
 const mockRegistryUnitTests = uiIsolatedTestFiles.map((testFile) => testFile.slice("ui/".length));
 const chromiumExecutableOverrideEnvKey = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH";
 const systemChromiumExecutableCandidates = [
@@ -273,6 +277,7 @@ export default defineConfig({
           ...sharedUiTestConfig,
           deps: jsdomOptimizedDeps,
           name: "unit-node",
+          exclude: timingTests,
           // No cleanup runner: this project also carries the Playwright-driven
           // layout tests, whose browser lives in module scope. Resetting the
           // module graph between files churns that browser and flakes them.
@@ -286,6 +291,22 @@ export default defineConfig({
         },
       },
       { ...createUiBrowserVitestConfig(), extends: false },
+      {
+        extends: false,
+        plugins: [controlUiLocaleModulesPlugin()],
+        resolve: { alias: workspaceSourceAliases },
+        test: {
+          ...sharedUiTestConfig,
+          deps: jsdomOptimizedDeps,
+          name: "unit-timing",
+          isolate: true,
+          // Finish other UI tests before measuring full-render wall time.
+          sequence: { groupOrder: 1 },
+          include: includeUiTests(timingTests),
+          environment: "jsdom",
+          setupFiles: ["./src/test-helpers/lit-warnings.setup.ts"],
+        },
+      },
     ],
   },
 });

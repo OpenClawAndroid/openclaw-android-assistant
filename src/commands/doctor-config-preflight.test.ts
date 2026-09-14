@@ -1,4 +1,5 @@
 // Doctor config preflight tests cover last-known-good snapshots and config snapshot promotion.
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,9 @@ import { patchConfigHealthEntryToStore } from "../config/io.health-state.js";
 import { createConfigHealthFingerprint } from "../config/io.observe-state.js";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
+import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { SQLITE_READONLY_CHILD_ARG } from "../infra/runtime-process-entrypoints.js";
+import { prepareSqliteReadOnlyLocation } from "../infra/sqlite-snapshot-source.js";
 import {
   hasActiveStartupMigrationLease,
   readMigrationCheckpointStatus,
@@ -40,6 +44,11 @@ import { isStartupConfigRepairResult } from "./doctor/shared/automatic-startup-c
 const noteMock = vi.hoisted(() => vi.fn<(message: string, title?: string) => void>());
 
 vi.mock("../../packages/terminal-core/src/note.js", () => ({ note: noteMock }));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 // Checkpoint provenance comes from dist/build-info.json, which unit-test environments
 // (CI shards, unbuilt checkouts) legitimately lack; without it the checkpoint layer
@@ -117,6 +126,91 @@ async function seedLastKnownGood(
 }
 
 describe("runDoctorConfigPreflight", () => {
+  it.each([
+    {
+      name: "startup admission",
+      options: { requireStartupMigrationCheckpoint: true },
+      children: 1,
+      error: { name: "ExitError", code: 78 },
+    },
+    {
+      name: "explicit state repair",
+      options: { doctorOnlyStateMigrations: true },
+      children: 1,
+      error: { name: "Error" },
+    },
+    {
+      name: "state probe",
+      options: { requireStateMigrationCheckpoint: true },
+      children: 0,
+      error: { name: "Error" },
+    },
+    {
+      name: "config-only repair",
+      options: { migrateState: false, doctorOnlyStateMigrations: true },
+      children: 0,
+      error: { name: "Error" },
+    },
+  ])(
+    "owns read-only child reuse and error cleanup for $name",
+    async ({ options, children, error }) => {
+      await withDoctorConfigPreflightHome(async (home) => {
+        await writeOpenClawConfig(home, { gateway: { mode: "local" } });
+        const source = path.join(home, "source.sqlite");
+        const sqlite = requireNodeSqlite();
+        const failure = new Error("preflight measurement failed");
+        vi.mocked(spawn).mockClear();
+        await expect(
+          runDoctorConfigPreflight({
+            ...options,
+            migrateLegacyConfig: false,
+            skipPristineStartupStateMigrations: true,
+            measure: async (name, run) => {
+              if (name !== "doctor.config-preflight.config-snapshot") {
+                return await run();
+              }
+              for (const version of [1, 2]) {
+                const writer = new sqlite.DatabaseSync(source);
+                writer.exec(`PRAGMA user_version=${version}`);
+                writer.close();
+                const prepared = await prepareSqliteReadOnlyLocation(source, {
+                  preserveSourceArtifacts: true,
+                });
+                try {
+                  const snapshot = new sqlite.DatabaseSync(prepared.location, { readOnly: true });
+                  try {
+                    expect(snapshot.prepare("PRAGMA user_version").get()).toEqual({
+                      user_version: version,
+                    });
+                  } finally {
+                    snapshot.close();
+                  }
+                } finally {
+                  expect(await prepared.cleanupAsync()).toBe(true);
+                }
+              }
+              throw failure;
+            },
+          }),
+        ).rejects.toMatchObject({ ...error, message: failure.message });
+        const sessions = vi
+          .mocked(spawn)
+          .mock.calls.flatMap((call, index) =>
+            Array.isArray(call[1]) &&
+            call[1].includes(SQLITE_READONLY_CHILD_ARG) &&
+            call[1].includes("session")
+              ? [vi.mocked(spawn).mock.results[index]!.value]
+              : [],
+          );
+        expect(sessions).toHaveLength(children);
+        for (const child of sessions) {
+          expect(child.exitCode).toBe(0);
+          expect(child.connected).toBe(false);
+        }
+      });
+    },
+  );
+
   it("reports an activation timeout without reopening its finished history", async () => {
     await withDoctorConfigPreflightHome(async (home) => {
       await writeOpenClawConfig(home, { gateway: { mode: "local" } });

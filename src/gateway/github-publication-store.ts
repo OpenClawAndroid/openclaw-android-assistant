@@ -137,21 +137,34 @@ export function readSharedGitHubPublicationRequest(
       // not current workspace evidence; pending receipts still fail closed when unbound.
       const candidate = hasLifecycle
         ? executeSqliteQueryTakeFirstSync(db, ordered.limit(1))
+        : undefined;
+      const existing = hasLifecycle
+        ? candidate
         : executeSqliteQueryTakeFirstSync(
             db,
             selection.where("status", "not in", ["published", "failed"]).limit(1),
           );
-      if (!candidate) {
+      if (!existing) {
         return undefined;
       }
       const workspace = readSharedGitHubPublicationWorkspace(db, session, entry);
       if (workspace?.kind !== "worktree") {
         return undefined;
       }
-      if (!hasLifecycle) {
+      if (!candidate) {
         throw new Error("GitHub publication session binding is unavailable.");
       }
       const revision = entry.lifecycleRevision ?? null;
+      const matchesWorkspace = (row: typeof candidate) =>
+        row.session_id === session.sessionId &&
+        row.lifecycle_revision === revision &&
+        row.worktree_id === workspace.worktreeId &&
+        row.repository_fingerprint === workspace.repositoryFingerprint &&
+        row.branch === workspace.branch;
+      if (candidate.lifecycle_request_id !== null && matchesWorkspace(candidate)) {
+        checkSharedWorktreeReceipt(candidate);
+        return candidate;
+      }
       let cursor: GitHubPublicationRow | undefined;
       for (;;) {
         const after = cursor;
@@ -172,13 +185,7 @@ export function readSharedGitHubPublicationRequest(
           if (row.lifecycle_request_id === null) {
             throw new Error("GitHub publication session binding is unavailable.");
           }
-          if (
-            row.session_id === session.sessionId &&
-            row.lifecycle_revision === revision &&
-            row.worktree_id === workspace.worktreeId &&
-            row.repository_fingerprint === workspace.repositoryFingerprint &&
-            row.branch === workspace.branch
-          ) {
+          if (matchesWorkspace(row)) {
             return row;
           }
         }
@@ -524,7 +531,7 @@ export function deferGitHubPublicationRequests(requestIds: string[]): void {
             })
             .where("request_id", "=", requestId)
             .where("status", "in", ["requested", "publishing"])
-            .returningAll(),
+            .returning(["session_key", "agent_id", "identity_source"]),
         ).rows;
         for (const row of changed) {
           deferSharedGitHubPublicationChanged(db, row);

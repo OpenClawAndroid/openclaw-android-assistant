@@ -1,5 +1,8 @@
 import { fileURLToPath } from "node:url";
+import { logbookSqliteBackendEntrypoint } from "../../extensions/logbook/src/sqlite-backend-entrypoint.test-support.ts";
 import { qaGatewayCleanupRuntimeEntrypoint } from "../../extensions/qa-lab/src/gateway-child-artifacts-runtime.test-support.ts";
+import { teamReportsSqliteBackendEntrypoint } from "../../extensions/team-reports/src/sqlite-backend-entrypoint.test-support.ts";
+import { workboardSqliteBackendEntrypoint } from "../../extensions/workboard/src/sqlite-backend-entrypoint.test-support.ts";
 import {
   codeModeDescriptionRetentionEntrypoint,
   codeModeRetentionEntrypoint,
@@ -62,6 +65,9 @@ export const vitestWorkerBuildEntries = {
       channelIngressGatewayRestartEntrypoint,
       persistenceRuntimeEntrypoint,
       qaGatewayCleanupRuntimeEntrypoint,
+      logbookSqliteBackendEntrypoint,
+      teamReportsSqliteBackendEntrypoint,
+      workboardSqliteBackendEntrypoint,
       stateLeaseProcessExitRuntimeEntrypoint,
       agentDatabaseHeldRuntimeEntrypoint,
     ].map((entry) => [

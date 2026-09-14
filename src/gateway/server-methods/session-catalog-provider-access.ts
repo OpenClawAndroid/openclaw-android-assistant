@@ -13,6 +13,7 @@ import type {
   SessionCatalogProvider,
 } from "../../plugins/session-catalog.js";
 import { SessionCatalogListAdmission } from "./session-catalog-list-admission.js";
+import { startSessionCatalogListDiagnostics } from "./session-catalog-list-diagnostics.js";
 
 const MAX_CONCURRENT_SESSION_CATALOG_LISTS = 4;
 const MAX_QUEUED_SESSION_CATALOG_LISTS = 32;
@@ -43,10 +44,28 @@ export function listSessionCatalogProvider(
   provider: SessionCatalogProvider,
   params: SessionCatalogListProviderParams,
 ) {
-  return sessionCatalogListAdmission.run(() => {
-    params.signal?.throwIfAborted();
-    return provider.list(params);
-  }, params.signal);
+  const diagnostics = startSessionCatalogListDiagnostics(provider, params.signal);
+  const result = sessionCatalogListAdmission.run(
+    () => {
+      params.signal?.throwIfAborted();
+      diagnostics?.providerStarted();
+      return provider.list(params);
+    },
+    params.signal,
+    diagnostics?.timing,
+  );
+  return diagnostics
+    ? result.then(
+        (hosts) => {
+          diagnostics.finish("resolved", hosts);
+          return hosts;
+        },
+        (error: unknown) => {
+          diagnostics.finish("rejected");
+          throw error;
+        },
+      )
+    : result;
 }
 
 function resolveSessionCatalogRegistry(): PluginRegistry | null {

@@ -1,11 +1,11 @@
-import { getEventListeners } from "node:events";
+import { EventEmitter, getEventListeners } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { GATEWAY_CLIENT_CAPS } from "../../packages/gateway-protocol/src/client-info.js";
 import { USER_PROFILE_ID_MAX_LENGTH } from "../../packages/gateway-protocol/src/schema/user-profile-constants.js";
 import { createGatewayBroadcaster } from "./server-broadcast.js";
 import { createSessionMessageSubscriberRegistry } from "./server-chat-state.js";
-import { MAX_BUFFERED_BYTES } from "./server-constants.js";
+import { MAX_BUFFERED_BYTES, WEBSOCKET_CLOSE_GRACE_MS } from "./server-constants.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
@@ -17,7 +17,7 @@ type Frame = {
   payload: TextPayload;
   recipientProfileId?: string;
 };
-type PeerSocket = {
+type PeerSocket = EventEmitter & {
   readyState: number;
   bufferedAmount: number;
   close: () => void;
@@ -28,7 +28,7 @@ type PeerSocket = {
 function createPeer(connId: string, completeImmediately = false) {
   const callbacks: Array<(error?: Error) => void> = [];
   const frames: Frame[] = [];
-  const socket: PeerSocket = {
+  const socket: PeerSocket = Object.assign(new EventEmitter(), {
     readyState: WebSocket.OPEN,
     bufferedAmount: 0,
     close: vi.fn(),
@@ -41,7 +41,7 @@ function createPeer(connId: string, completeImmediately = false) {
         callbacks.push(callback);
       }
     }),
-  };
+  });
   const client: GatewayWsClient = {
     connId,
     socket: socket as unknown as GatewayWsClient["socket"],
@@ -474,6 +474,7 @@ describe("connection live-text delivery", () => {
   it.each([false, true])(
     "applies slow-consumer policy to sibling pending bytes after an ordinary write (droppable=%s)",
     (dropIfSlow) => {
+      vi.useFakeTimers();
       const peer = createBufferedPeer("sibling-pressure", MAX_BUFFERED_BYTES - 8192);
       const { broadcast } = createGatewayBroadcaster({
         clients: new GatewayClientRegistry([peer.client]),
@@ -501,14 +502,18 @@ describe("connection live-text delivery", () => {
         expect(peer.frames.at(-1)).toMatchObject({ seq: 4, payload: text("A".repeat(4096)) });
       } else {
         expect(peer.socket.close).toHaveBeenCalledWith(1008, "slow consumer");
+        expect(peer.socket.terminate).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(WEBSOCKET_CLOSE_GRACE_MS);
         expect(peer.socket.terminate).toHaveBeenCalledOnce();
       }
+      vi.useRealTimers();
     },
   );
 
   it.each([false, true])(
     "preserves slow-consumer closure with nonzero transport backlog (coalesce=%s)",
     (coalesce) => {
+      vi.useFakeTimers();
       const peer = createBufferedPeer("backlogged", MAX_BUFFERED_BYTES - 4096);
       const { broadcast } = createGatewayBroadcaster({
         clients: new GatewayClientRegistry([peer.client]),
@@ -532,7 +537,10 @@ describe("connection live-text delivery", () => {
       ]);
       expect(peer.socket.bufferedAmount).toBeGreaterThan(MAX_BUFFERED_BYTES);
       expect(peer.socket.close).toHaveBeenCalledExactlyOnceWith(1008, "slow consumer");
+      expect(peer.socket.terminate).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(WEBSOCKET_CLOSE_GRACE_MS);
       expect(peer.socket.terminate).toHaveBeenCalledOnce();
+      vi.useRealTimers();
     },
   );
 

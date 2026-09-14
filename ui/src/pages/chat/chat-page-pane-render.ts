@@ -59,7 +59,7 @@ export function renderChatPagePaneCell(options: ChatPagePaneRenderOptions) {
         options.splitMode && options.active ? "chat-split-view__cell--active" : ""
       } ${options.narrow && !options.active ? "chat-split-view__cell--narrow-hidden" : ""}"
       aria-current=${options.splitMode && options.active ? "true" : nothing}
-      style="flex: ${options.weight} 1 0"
+      style="flex: ${options.narrow ? 1 : options.weight} 1 0"
       @pointerdown=${() => options.onFocusPane(options.pane.id)}
       @focusin=${() => options.onFocusPane(options.pane.id)}
     >

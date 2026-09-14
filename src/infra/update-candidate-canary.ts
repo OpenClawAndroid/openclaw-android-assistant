@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
@@ -17,11 +16,11 @@ import {
   parseOpenClawSchemaVersions,
   type OpenClawSchemaVersions,
 } from "../state/openclaw-schema-versions.js";
-import { scheduleAbsoluteDeadline } from "../utils/absolute-deadline.js";
 import { hasErrnoCode } from "./errors.js";
 import { readPackageVersion } from "./package-json.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
 import { resolveSqliteInspectionBudget } from "./sqlite-readonly-worker.js";
+import { waitForUpdateCandidateReadiness } from "./update-candidate-canary-readiness.js";
 import {
   prepareUpdateCandidateRehearsal,
   type UpdateCandidateRehearsal,
@@ -51,6 +50,7 @@ type CanaryPhase =
   | "runtime"
   | "startup"
   | "readiness";
+
 type CanaryResult = {
   phase: CanaryPhase;
   durationMs: number;
@@ -571,51 +571,37 @@ export async function validateUpdateCandidateCanary(params: {
       "--port",
       String(port),
     ]);
-    const probeDeadline = new AbortController();
-    const cancelProbeDeadline = scheduleAbsoluteDeadline(workDeadline, () => probeDeadline.abort());
     try {
-      for (const endpoint of ["startupz", "readyz"] as const) {
-        phase = endpoint === "startupz" ? "startup" : "readiness";
-        while (true) {
-          remaining();
-          if (running.hasExited()) {
-            throw new Error("Candidate gateway exited before readiness");
-          }
-          try {
-            const response = await fetch(`http://127.0.0.1:${port}/${endpoint}`, {
-              signal: AbortSignal.any([
-                probeDeadline.signal,
-                ...(params.signal ? [params.signal] : []),
-              ]),
-            });
-            const payload: unknown = await response.json();
-            remaining();
-            if (
-              response.status === 200 &&
-              (endpoint === "readyz" || (isRecord(payload) && payload.status === "started"))
-            ) {
-              capture(
-                `${endpoint}: ${endpoint === "startupz" ? "started" : "ready"} (${Date.now() - started}ms)`,
-              );
-              break;
-            }
-          } catch {
-            // The listener may not exist yet; only the common deadline permits another probe.
-          }
-          await sleep(Math.min(100, remaining()), undefined, { signal: params.signal });
-        }
-      }
+      const probeFailure = await waitForUpdateCandidateReadiness({
+        port,
+        workDeadline,
+        started,
+        signal: params.signal,
+        assertCurrent: params.assertCurrent,
+        hasExited: running.hasExited,
+        env,
+        stateDir: params.stateDir,
+        onEndpoint: (endpoint) => {
+          phase = endpoint === "startupz" ? "startup" : "readiness";
+        },
+        capture,
+      });
       const step: UpdateStepResult = {
         name: "candidate gateway canary",
         command: "gateway run",
         cwd: params.root,
         durationMs: Date.now() - gatewayStart,
-        exitCode: 0,
+        exitCode: probeFailure ? null : 0,
+        ...(probeFailure
+          ? {
+              advisory: { kind: "candidate-runtime-unavailable", message: probeFailure.message },
+              failureFacts: [probeFailure.fact],
+            }
+          : {}),
       };
       steps.push(step);
       params.onStep?.(step);
     } finally {
-      cancelProbeDeadline();
       await terminateCanary(running.child, running.closed, deadline);
     }
     return {

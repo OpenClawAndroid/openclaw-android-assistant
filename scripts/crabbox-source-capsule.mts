@@ -242,15 +242,34 @@ export function prepareCrabboxSourceCapsule(options: {
     mkdirSync(linkBlobs);
     function writeFrozen(path: string, bytes: Buffer, mode: string) {
       const destination = join(directory, path);
-      mkdirSync(dirname(destination), { recursive: true });
       let blobPath = destination;
-      if (mode === "120000") {
-        symlinkSync(bytes, destination);
-        blobPath = join(linkBlobs, String(frozen.size));
-        writeFileSync(blobPath, bytes);
-      } else {
-        writeFileSync(destination, bytes);
-        chmodSync(destination, mode === "100755" ? 0o755 : 0o644);
+      let operation = "mkdir";
+      try {
+        mkdirSync(dirname(destination), { recursive: true });
+        if (mode === "120000") {
+          operation = "symlink";
+          symlinkSync(bytes, destination);
+          blobPath = join(linkBlobs, String(frozen.size));
+          operation = "write symlink blob";
+          writeFileSync(blobPath, bytes);
+        } else {
+          operation = "write file";
+          writeFileSync(destination, bytes);
+          operation = "chmod";
+          chmodSync(destination, mode === "100755" ? 0o755 : 0o644);
+        }
+      } catch (error) {
+        const failure = error as NodeJS.ErrnoException;
+        const details = [
+          failure?.code === undefined ? undefined : `code=${JSON.stringify(failure.code)}`,
+          failure?.errno === undefined ? undefined : `errno=${JSON.stringify(failure.errno)}`,
+        ]
+          .filter(Boolean)
+          .join(", ");
+        throw new Error(
+          `source capsule: ${operation} failed for ${JSON.stringify(path)}${details ? ` (${details})` : ""}; source was not uploaded`,
+          { cause: error },
+        );
       }
       frozen.set(path, { mode, blobPath });
     }

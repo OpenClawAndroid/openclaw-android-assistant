@@ -16,6 +16,7 @@ import {
   type PluginMetadataSnapshot,
 } from "../plugins/plugin-metadata-snapshot.js";
 import { normalizePluginPolicyId } from "../plugins/plugin-policy-id.js";
+import { withSynchronousArtifactPreservingStateSnapshot } from "../state/openclaw-state-db-readonly.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 import type { PluginInstallRecord } from "./types.plugins.js";
 
@@ -101,6 +102,14 @@ export function resolveConfigWidePluginMetadataSnapshot(
       return gatewaySnapshot;
     }
   }
+  return withSynchronousArtifactPreservingStateSnapshot(() =>
+    resolveConfigWidePluginMetadataSnapshotInScope(params),
+  );
+}
+
+function resolveConfigWidePluginMetadataSnapshotInScope(
+  params: ResolveConfigWidePluginMetadataParams,
+): PluginMetadataSnapshot {
   const env = params.env ?? process.env;
   const dirs = listAgentWorkspaceDirs(params.config, env);
   const workspaceDirs: Array<string | undefined> = dirs.length ? dirs : [undefined];

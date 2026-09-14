@@ -23,7 +23,7 @@ import { createPreparedModelCatalogProviderNormalizer } from "./model-catalog-pr
 import type { ModelCatalogEntry, ModelCatalogSnapshot } from "./model-catalog.types.js";
 import { createConfiguredProviderCatalogModelIdNormalizer } from "./model-ref-shared.js";
 import { buildConfiguredModelCatalog } from "./model-selection-shared.js";
-import { resolveModelCatalogIdentityKey } from "./openai-model-routes.js";
+import { createModelCatalogIdentityKeyResolver } from "./openai-model-routes.js";
 import type { AuthStorageData, ModelRegistry } from "./sessions/index.js";
 
 const log = createSubsystemLogger("model-catalog");
@@ -87,11 +87,10 @@ function mergeCatalogEntries(
     preserveBaseCompat?: boolean;
   },
 ): void {
-  const indexByKey = new Map(
-    models.map((entry, index) => [resolveModelCatalogIdentityKey(entry), index]),
-  );
+  const keyOf = createModelCatalogIdentityKeyResolver();
+  const indexByKey = new Map(models.map((entry, index) => [keyOf(entry), index]));
   for (const entry of entries) {
-    const key = resolveModelCatalogIdentityKey(entry);
+    const key = keyOf(entry);
     const existingIndex = indexByKey.get(key);
     if (existingIndex === undefined) {
       models.push(entry);
@@ -104,7 +103,7 @@ function mergeCatalogEntries(
       // from the exact catalog variant selected by config, not that sibling.
       const routes = options?.catalogRoutes;
       const routeIndex = options?.preserveBaseCompat
-        ? routes?.indexByKey.get(catalogRouteVariantKey(entry))
+        ? routes?.indexByKey.get(catalogRouteVariantKey(entry, key))
         : undefined;
       const catalogRoute = routeIndex === undefined ? undefined : routes?.entries[routeIndex];
       models[existingIndex] = overlayCatalogMetadata(catalogRoute ?? existing, entry, options);
@@ -112,12 +111,10 @@ function mergeCatalogEntries(
   }
 }
 
-function catalogRouteVariantKey(entry: ModelCatalogEntry): string {
-  return [
-    resolveModelCatalogIdentityKey(entry),
-    entry.api ?? "",
-    normalizeCatalogRouteBaseUrl(entry.baseUrl) ?? "",
-  ].join("\u0000");
+function catalogRouteVariantKey(entry: ModelCatalogEntry, identityKey: string): string {
+  return [identityKey, entry.api ?? "", normalizeCatalogRouteBaseUrl(entry.baseUrl) ?? ""].join(
+    "\u0000",
+  );
 }
 
 type ModelCatalogRouteVariantCollector = {
@@ -134,8 +131,9 @@ function mergeCatalogRouteVariants(
   entries: readonly ModelCatalogEntry[],
   options?: { preserveBaseCompat?: boolean },
 ): void {
+  const keyOf = createModelCatalogIdentityKeyResolver();
   for (const entry of entries) {
-    const key = catalogRouteVariantKey(entry);
+    const key = catalogRouteVariantKey(entry, keyOf(entry));
     const existingIndex = collector.indexByKey.get(key);
     if (existingIndex === undefined) {
       collector.entries.push(entry);
@@ -352,13 +350,13 @@ export async function buildPreparedModelCatalogSnapshot(
     ]);
     // Runtime declarations describe possible models, not account entitlement.
     // Only live registry or refreshed rows may publish those provider models.
-    const discoveredKeys = new Set(models.map(resolveModelCatalogIdentityKey));
+    const manifestKeyOf = createModelCatalogIdentityKeyResolver();
+    const discoveredKeys = new Set(models.map(manifestKeyOf));
     const manifestModels = declaredManifestModels.filter(
       (entry) =>
         (params.includeProviderPluginAugmentation === false ||
           !dynamicManifestKeys.has(buildModelCatalogMergeKey(entry.provider, entry.id))) &&
-        (!observedProviders.has(entry.provider) ||
-          discoveredKeys.has(resolveModelCatalogIdentityKey(entry))),
+        (!observedProviders.has(entry.provider) || discoveredKeys.has(manifestKeyOf(entry))),
     );
     mergeCatalogRouteVariants(routeVariants, manifestModels);
     mergeCatalogEntries(models, manifestModels);
@@ -413,9 +411,8 @@ export async function buildPreparedModelCatalogSnapshot(
       if (supplemental.length > 0) {
         // Explicitly configured rows are user-authorized even when live
         // discovery omits them; compare emitted identities to preserve their routes.
-        const accountVisibleModelKeys = new Set(
-          [...models, ...configuredModels].map(resolveModelCatalogIdentityKey),
-        );
+        const keyOf = createModelCatalogIdentityKeyResolver();
+        const accountVisibleModelKeys = new Set([...models, ...configuredModels].map(keyOf));
         const normalizedSupplemental: ModelCatalogEntry[] = [];
         for (const entry of supplemental) {
           const provider = normalizeProvider(entry.provider);
@@ -433,7 +430,7 @@ export async function buildPreparedModelCatalogSnapshot(
           // but must never advertise a model the account did not discover.
           if (
             runtimeDiscoveryProviders.has(normalizeProviderId(provider)) &&
-            !accountVisibleModelKeys.has(resolveModelCatalogIdentityKey({ provider, id }))
+            !accountVisibleModelKeys.has(keyOf({ provider, id }))
           ) {
             continue;
           }
@@ -460,8 +457,9 @@ export async function buildPreparedModelCatalogSnapshot(
       // Augmentation may mutate borrowed rows. Reindex before configured overlays so
       // route lookup keeps the first current donor, including duplicate keys.
       routeVariants.indexByKey.clear();
+      const keyOf = createModelCatalogIdentityKeyResolver();
       routeVariants.entries.forEach((entry, index) => {
-        const key = catalogRouteVariantKey(entry);
+        const key = catalogRouteVariantKey(entry, keyOf(entry));
         if (!routeVariants.indexByKey.has(key)) {
           routeVariants.indexByKey.set(key, index);
         }

@@ -3,7 +3,10 @@ import type { GatewayRecoveryRuntime } from "../../../gateway/server-instance-ru
 import { getAgentRunContext } from "../../../infra/agent-run-registry.js";
 import { isFastTestRuntimeEnv } from "../../../infra/env.js";
 import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
-import { runWithGatewayIndependentRootWorkAdmission } from "../../../process/gateway-work-admission.js";
+import {
+  isGatewayRestartDrainError,
+  runWithGatewayIndependentRootWorkAdmission,
+} from "../../../process/gateway-work-admission.js";
 import { emitSessionLifecycleEvent } from "../../../sessions/session-lifecycle-events.js";
 import { createLazyImportLoader } from "../../../shared/lazy-promise.js";
 import { reconcileRetiredSubagentCancellation } from "../completion/subagent-completion-admission.store.js";
@@ -92,8 +95,7 @@ export function createSubagentRegistrySweeper(params: {
 }) {
   const { runs, resumedRuns } = params;
   let intervalStarted = false;
-  let scheduledTimer: NodeJS.Timeout | null = null;
-  let scheduledAt = Number.POSITIVE_INFINITY;
+  let scheduled: { timer: NodeJS.Timeout; at: number } | undefined;
   let sweepInProgress = false;
   let rerunRequested = false;
 
@@ -107,22 +109,24 @@ export function createSubagentRegistrySweeper(params: {
 
   function stop() {
     intervalStarted = false;
+    clearTimeout(scheduled?.timer);
+    scheduled = undefined;
+    rerunRequested = false;
   }
 
   function schedule(options?: { delayMs?: number }) {
     const delayMs = Math.max(0, options?.delayMs ?? 5_000);
     const nextAt = Date.now() + delayMs;
-    if (scheduledTimer && scheduledAt <= nextAt) {
+    if (scheduled && scheduled.at <= nextAt) {
       return;
     }
-    clearTimeout(scheduledTimer ?? undefined);
-    scheduledAt = nextAt;
-    scheduledTimer = setTimeout(() => {
-      scheduledTimer = null;
-      scheduledAt = Number.POSITIVE_INFINITY;
+    clearTimeout(scheduled?.timer);
+    const timer = setTimeout(() => {
+      scheduled = undefined;
       void runTick();
     }, delayMs);
-    scheduledTimer.unref?.();
+    timer.unref?.();
+    scheduled = { timer, at: nextAt };
   }
 
   async function runTick() {
@@ -133,16 +137,18 @@ export function createSubagentRegistrySweeper(params: {
     try {
       await runWithGatewayIndependentRootWorkAdmission(sweepOnce, "subagents:sweeper");
     } catch (error) {
+      if (isGatewayRestartDrainError(error)) {
+        return params.warn("subagent run sweep skipped: gateway is draining for restart");
+      }
       params.warn(
         `subagent run sweep failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-    } finally {
-      if (rerunRequested) {
-        rerunRequested = false;
-        schedule({ delayMs: 0 });
-      } else if (intervalStarted) {
-        schedule({ delayMs: 60_000 });
-      }
+    }
+    if (rerunRequested) {
+      rerunRequested = false;
+      schedule({ delayMs: 0 });
+    } else if (intervalStarted) {
+      schedule({ delayMs: 60_000 });
     }
   }
 
@@ -716,12 +722,7 @@ export function createSubagentRegistrySweeper(params: {
     runTick,
     reset() {
       stop();
-      clearTimeout(scheduledTimer ?? undefined);
-      scheduledTimer = null;
-      scheduledAt = Number.POSITIVE_INFINITY;
       recovery.reset();
-      rerunRequested = false;
-      intervalStarted = false;
       sweepInProgress = false;
     },
   };

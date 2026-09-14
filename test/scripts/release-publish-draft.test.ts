@@ -109,6 +109,7 @@ it.each([
   { existing: "draft", distTag: "beta", command: "edit" },
   { existing: "missing", distTag: "latest", command: "create" },
   { existing: "public", distTag: "latest", command: undefined },
+  { existing: "diverged-public", distTag: "latest", command: undefined },
 ])(
   "prepares $existing release on $distTag without promoting a draft",
   ({ existing, distTag, command }) => {
@@ -123,7 +124,7 @@ it.each([
         `
 source "$OWNER_SCRIPT"
 verify_release_tag_target() { :; }
-canonical_release_body_matches() { :; }
+canonical_release_body_matches() { [[ "$EXISTING" != diverged-public ]]; }
 gh() {
   if [[ "$1 $2" == "release view" ]]; then
     [[ "$EXISTING" != missing ]] || return 1
@@ -159,7 +160,7 @@ create_or_update_github_release
         },
       },
     );
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(existing === "diverged-public" ? 1 : 0);
     if (!command) {
       expect(existsSync(commands)).toBe(false);
       return;

@@ -29,7 +29,19 @@ export function renderGitHubPublicationAction(publication: GitHubPublicationView
       >
         ${t("chat.pullRequests.openPublishedPr")}
       </a>
-      ${renderPublicationButton(publication)}`;
+      ${
+        publication.onNewAction
+          ? html`<button
+              class="chat-pr__dismiss"
+              type="button"
+              aria-label=${t("common.dismiss")}
+              ?disabled=${publication.activity !== null}
+              @click=${publication.onNewAction}
+            >
+              ${icons.x}
+            </button>`
+          : nothing
+      }`;
   }
   if (publication.result || publication.locked) {
     return renderPublicationButton(publication);
@@ -79,7 +91,7 @@ function renderPublicationButton(publication: GitHubPublicationView) {
   const busy = activity !== null;
   const pendingLabel = t(activity === "read" ? "common.loading" : "chat.pullRequests.publishing");
   let action: { click: (() => void) | undefined; label: string; disabled: boolean };
-  if (result?.status === "failed" || result?.status === "published") {
+  if (result?.status === "failed") {
     action = {
       click: publication.onNewAction,
       label: t(publication.canWrite ? "githubPublication.newAction" : "common.dismiss"),
@@ -217,6 +229,9 @@ function renderPublicationRefresh(publication: GitHubPublicationView) {
 
 export function renderGitHubPublicationDetails(publication: GitHubPublicationView) {
   const { selection, result, confirmation, activity, locked, error } = publication;
+  if (result?.status === "published" && !error) {
+    return nothing;
+  }
   const busy = activity !== null;
   const personalUnavailable = selection?.source === "personal" && !publication.personalReady;
   if (!result && !confirmation && !error && !locked && !personalUnavailable) {

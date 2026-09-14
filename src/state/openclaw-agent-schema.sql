@@ -51,6 +51,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_session_nodes_updated_at
 CREATE INDEX IF NOT EXISTS idx_agent_session_nodes_last_interaction_at
   ON session_nodes(last_interaction_at DESC, session_key);
 
+CREATE INDEX IF NOT EXISTS idx_agent_session_nodes_label
+  ON session_nodes(label, session_key)
+  WHERE label IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_agent_session_nodes_parent_session_key
   ON session_nodes(parent_session_key, session_key);
 

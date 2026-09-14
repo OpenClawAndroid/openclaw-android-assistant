@@ -131,15 +131,22 @@ describe.each([false, true])("assertSqliteSchemaContains (statement cache: %s)",
         unexpectedUniqueIndex,
       ]);
 
-      database.exec("CREATE INDEX idx_children_parent ON children(id, parent_id);");
-      expect(collectSqliteSchemaIssues(database, CANONICAL_SCHEMA, compatibility)).toEqual([
-        {
-          code: "missing-or-drifted-index",
-          objectName: "idx_children_parent",
-          message: "missing or drifted index idx_children_parent",
-        },
-        unexpectedUniqueIndex,
-      ]);
+      for (const [name, definition] of [
+        ["idx_children_parent", "children(id, parent_id)"],
+        ["idx_children_parent", "parents(value, id)"],
+        ["IDX_CHILDREN_PARENT", "parents(value, id)"],
+      ]) {
+        database.exec(`CREATE INDEX ${name} ON ${definition};`);
+        expect(collectSqliteSchemaIssues(database, CANONICAL_SCHEMA, compatibility)).toEqual([
+          {
+            code: "missing-or-drifted-index",
+            objectName: "idx_children_parent",
+            message: "missing or drifted index idx_children_parent",
+          },
+          unexpectedUniqueIndex,
+        ]);
+        database.exec("DROP INDEX idx_children_parent;");
+      }
     } finally {
       database.close();
     }

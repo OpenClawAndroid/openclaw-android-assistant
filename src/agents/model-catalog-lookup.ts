@@ -16,7 +16,7 @@ import {
 import type { ModelCatalogEntry, ModelInputType } from "./model-catalog.types.js";
 import { modelTransportRoutesMatch } from "./model-compat-catalog.js";
 import { splitTrailingAuthProfile } from "./model-ref-profile.js";
-import { resolveModelCatalogIdentityKey } from "./openai-model-routes.js";
+import { createModelCatalogIdentityKeyResolver } from "./openai-model-routes.js";
 import { canonicalizeProviderModelId } from "./provider-model-route.js";
 
 type ModelThinkingCompat = {
@@ -195,10 +195,9 @@ export function findModelCatalogEntry(
     return findModelInCatalog(catalog, provider, modelId);
   }
 
+  const keyOf = createModelCatalogIdentityKeyResolver();
   const exact = catalog.filter(
-    (entry) =>
-      resolveModelCatalogIdentityKey(entry) ===
-      resolveModelCatalogIdentityKey({ provider: entry.provider, id: modelId }),
+    (entry) => keyOf(entry) === keyOf({ provider: entry.provider, id: modelId }),
   );
   const normalizedModelId = normalizeLowercaseStringOrEmpty(modelId);
   const matches = exact.length

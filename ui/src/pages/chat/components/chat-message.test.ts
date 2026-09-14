@@ -2,6 +2,7 @@
 
 import { html, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MessageClientSource } from "../../../../../src/chat/message-client-source.js";
 import { GatewayBrowserClient } from "../../../api/gateway.ts";
 import * as markdown from "../../../components/markdown.ts";
 import { SessionLinkTitler } from "../../../components/session-link-titling.ts";
@@ -2197,6 +2198,68 @@ describe("grouped chat rendering", () => {
     const avatar = named.querySelector<HTMLElement>(".chat-avatar.user");
     expect(avatar?.tagName).toBe("DIV");
   });
+
+  it.each([
+    { client: { id: "cli", mode: "cli" }, label: "CLI" },
+    { client: { id: "openclaw-control-ui", mode: "webchat" }, label: "Web" },
+    { client: { id: "openclaw-tui", mode: "ui" }, label: "TUI" },
+    { client: { id: "openclaw-ios", mode: "node" }, label: "App" },
+    { client: { id: "gateway-client", mode: "backend" }, label: "RPC" },
+  ] satisfies Array<{ client: MessageClientSource; label: string }>)(
+    "shows $label separately from the authenticated human author",
+    ({ client, label }) => {
+      const message = createUserMessage("Follow up on the current task.", {
+        __openclaw: {
+          senderId: "profile-1",
+          senderName: "Recorded Name",
+          senderIdentity: { type: "profile", id: "profile-1" },
+          transport: { clients: [{ ...client, displayName: "Task helper" }] },
+        },
+      });
+      const group = prepareMessageGroup(createMessageEntry("source-message", message));
+      const container = document.createElement("div");
+      render(
+        renderTestMessageGroup(group, { userId: "profile-1", userName: "Current Name" }),
+        container,
+      );
+      expect(container.querySelector(".chat-sender-name")?.textContent).toBe("Current Name");
+      expect(container.querySelector(".chat-message-source")?.textContent).toBe(
+        `via ${label} (Task helper)`,
+      );
+    },
+  );
+
+  it.each(["gutter", "footer"] as const)(
+    "does not borrow the viewer's name or %s avatar for source-only input",
+    (avatarPlacement) => {
+      const message = createUserMessage("Collected follow-ups.", {
+        __openclaw: {
+          transport: {
+            clients: [
+              { id: "cli", mode: "cli", displayName: "Release helper" },
+              { id: "gateway-client", mode: "backend", displayName: "Build helper" },
+            ],
+          },
+        },
+      });
+      const group = prepareMessageGroup(createMessageEntry("source-only-message", message));
+      const container = document.createElement("div");
+      render(
+        renderTestMessageGroup(group, {
+          avatarPlacement,
+          userName: "Unrelated Viewer",
+          userAvatar: "https://example.test/viewer.png",
+        }),
+        container,
+      );
+      expect(container.querySelector(".chat-sender-name")).toBeNull();
+      expect(container.querySelector(".chat-avatar, .chat-author-avatar")).toBeNull();
+      expect(container.textContent).not.toContain("Unrelated Viewer");
+      expect(container.querySelector(".chat-message-source")?.textContent).toBe(
+        "via CLI (Release helper), RPC (Build helper)",
+      );
+    },
+  );
 
   it.each([
     {

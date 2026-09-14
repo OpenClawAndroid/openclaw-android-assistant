@@ -51,8 +51,8 @@ export type CommandOptions = {
   timeoutMs?: number;
   cwd?: string;
   input?: string | Uint8Array;
-  /** Synchronous live-child admission. Input is withheld until this returns. */
-  beforeInput?: (pid: number) => void;
+  /** Synchronous admission with the spawned PID and argv, before input is released. */
+  beforeInput?: (pid: number, argv?: readonly string[]) => void;
   baseEnv?: NodeJS.ProcessEnv;
   env?: NodeJS.ProcessEnv;
   windowsVerbatimArguments?: boolean;
@@ -448,7 +448,7 @@ async function runCommandWithOutputEncoding(
       if (nodeChild.pid === undefined || !nodeChild.stdin) {
         throw new Error("Child input admission has no spawned process");
       }
-      const admitted: unknown = options.beforeInput(nodeChild.pid);
+      const admitted: unknown = options.beforeInput(nodeChild.pid, nodeChild.spawnargs);
       if (admitted !== undefined) {
         if (isPromiseLike(admitted)) {
           void Promise.resolve(admitted).catch(() => undefined);

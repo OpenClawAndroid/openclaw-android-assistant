@@ -54,7 +54,7 @@ function selectedByFilters(file: string, filters: string[]): boolean {
   );
 }
 
-it.each(["src/gateway/config-reload.test.ts", "src/gateway"])(
+it.each(["src/gateway/config-reload.telegram-policy.test.ts", "src/gateway"])(
   "preserves mixed Gateway worker watch selection with %s",
   (target) => {
     const [workerFile] = gatewayDatabaseWorkerTestFiles;
@@ -86,7 +86,7 @@ it.each(["src/gateway/config-reload.test.ts", "src/gateway"])(
     expect(selected["gateway-database-workers"]).toEqual(
       gatewayDatabaseWorkerTestFiles.filter((file) => selectedByFilters(file, filters)),
     );
-    expect(selected["gateway-core"]).toContain("src/gateway/config-reload.test.ts");
+    expect(selected["gateway-core"]).toContain("src/gateway/config-reload.telegram-policy.test.ts");
     const files = Object.values(selected).flat();
     expect(new Set(files).size).toBe(files.length);
     if (target.endsWith(".test.ts")) {

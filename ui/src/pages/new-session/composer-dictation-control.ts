@@ -2,6 +2,7 @@ import { html } from "lit";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { patchSettings } from "../../app/settings.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import {
   renderComposerDictationSendAction,
   renderComposerDictationStatus,
@@ -11,6 +12,8 @@ import {
 import { ComposerDictationController } from "../chat/composer-dictation.ts";
 import { ComposerMicrophonePicker } from "../chat/composer-microphone-picker.ts";
 import type { NewSessionComposerTextareaController } from "./composer.ts";
+
+registerNewSessionSetupEnglish();
 
 type NewSessionDictationOptions = {
   textarea: NewSessionComposerTextareaController;

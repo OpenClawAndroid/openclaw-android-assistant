@@ -172,9 +172,23 @@ export function prepareChatSendUserTurn(params: {
     !request.suppressCommandInterpretation && commandBody.trim().startsWith("/")
       ? "text"
       : undefined;
-  const messageForAgent = request.systemProvenanceReceipt
-    ? [request.systemProvenanceReceipt, attachments.parsedMessage].filter(Boolean).join("\n\n")
-    : attachments.parsedMessage;
+  const buildTextContext = (text: string) => {
+    // The attachment parser appends managed-media hints after the original input.
+    const parsedMessage =
+      text === request.inboundMessage
+        ? attachments.parsedMessage
+        : `${text}${attachments.parsedMessage.slice(request.inboundMessage.length)}`;
+    const body = request.systemProvenanceReceipt
+      ? [request.systemProvenanceReceipt, parsedMessage].filter(Boolean).join("\n\n")
+      : parsedMessage;
+    return {
+      Body: body,
+      BodyForAgent: body,
+      BodyForCommands: text,
+      RawBody: parsedMessage,
+      CommandBody: text,
+    };
+  };
   const queuedFollowupOwnerDeviceId = normalizeOptionalChatText(client?.connect?.device?.id);
   const queuedFollowupOwnerConnId = normalizeOptionalChatText(client?.connId);
   const gatewayUiCommandTarget = captureGatewayUiCommandTarget(client);
@@ -196,11 +210,7 @@ export function prepareChatSendUserTurn(params: {
   // Current and historical turns must reach the single LLM timestamp boundary
   // with identical bare text. Stamping this live turn would bust the prompt cache.
   const ctx: MsgContext = {
-    Body: messageForAgent,
-    BodyForAgent: messageForAgent,
-    BodyForCommands: commandBody,
-    RawBody: attachments.parsedMessage,
-    CommandBody: commandBody,
+    ...buildTextContext(commandBody),
     InputProvenance: request.systemInputProvenance,
     SessionKey: session.sessionKey,
     AgentId: session.agentId,
@@ -247,6 +257,15 @@ export function prepareChatSendUserTurn(params: {
     prepareSessionParticipantInput(ctx, participant, userTurn.baseInput.timestamp);
   }
   return {
+    applyApprovedText: (text: string) => {
+      if (text === request.inboundMessage.trim()) {
+        return;
+      }
+      Object.assign(ctx, buildTextContext(text));
+      if (ctx.CommandTurn) {
+        ctx.CommandTurn = { ...ctx.CommandTurn, body: text };
+      }
+    },
     discardUnreferencedMedia: async (approved: PersistedUserTurnMessage | undefined) => {
       if (!approved) {
         return;

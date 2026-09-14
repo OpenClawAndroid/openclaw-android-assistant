@@ -7,7 +7,7 @@ import type { OnboardMode, OnboardOptions } from "../commands/onboard-types.js";
 import { hasResolvedRosterBeforeMigrations } from "../config/agent-roster-provenance.js";
 import { ConfigMutationConflictError } from "../config/config.js";
 import { resolveAgentModelPrimaryValue } from "../config/model-input.js";
-import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.openclaw.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveGatewayProbeAuthSafeWithSecretInputs } from "../gateway/probe-auth.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import {
@@ -42,6 +42,8 @@ import {
   requestTelemetryConsent,
   resolveQuickstartGatewayDefaults,
   writeWizardConfigFile,
+  createWizardInferenceConfigTarget,
+  type WizardConfigWriteOptions,
 } from "./setup.shared.js";
 import type { QuickstartGatewayDefaults, WizardFlow } from "./setup.types.js";
 import { resolveSetupWorkspaceSelection } from "./setup.workspace.js";
@@ -88,7 +90,7 @@ async function runSetupWizardOnce(
   // openclaw#84692.
   const commitSetupConfigFile = async (
     config: OpenClawConfig,
-    optsLocal: { allowConfigSizeDrop?: boolean; baseSnapshot?: ConfigFileSnapshot } = {},
+    optsLocal: WizardConfigWriteOptions = {},
   ) => {
     const committed = await writeWizardConfigFile(config, {
       ...optsLocal,
@@ -570,13 +572,7 @@ async function runSetupWizardOnce(
     usedImportFlow,
     keepExistingModelConfig,
     importedInferenceVerified,
-    writeConfig: async (config, verifiedSnapshot) =>
-      (
-        await commitSetupConfigFile(config, {
-          allowConfigSizeDrop: false,
-          baseSnapshot: verifiedSnapshot,
-        })
-      ).nextConfig,
+    configTarget: createWizardInferenceConfigTarget(commitSetupConfigFile),
   });
   nextConfig = modelAuth.config;
   const liveModelVerified = modelAuth.verified;

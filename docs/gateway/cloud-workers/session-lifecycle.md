@@ -77,6 +77,8 @@ Undo can restore visibility while failed-worker cleanup remains pending when the
 
 Deleting a non-main cloud-worker session still stops and reclaims its worker before removing session or recovery state. Active workers receive final workspace reconciliation, and pending provisioning or failed-worker cleanup must settle before deletion succeeds. Restoring a reclaimed session retains placement metadata so the next turn can dispatch a fresh worker with the same workspace profile.
 
+When a single-session Delete or Archive is blocked by unsynced work on an offline device, the Control UI offers a separate loss confirmation. Reconnect the device to preserve its changes, or explicitly discard the unsynced device files and in-flight work. After confirmed recovery to the Gateway, the UI retries the requested removal once. Cancel keeps the pending result intact. Batch actions never confirm loss for the whole selection; recover each affected session separately before retrying the selection.
+
 For a broken or runaway cloud environment, an administrator can call the admin-only `environments.destroy` method with `{ "force": true }` as a last resort. Forced teardown durably marks the placement failed and abandons any unreconciled remote result before destroying the environment. For an unreachable paired device, forced destroy succeeds without waiting for reconnection and discards unsynced device changes.
 
 The equivalent write-scoped session RPC is:

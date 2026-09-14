@@ -6,7 +6,10 @@ import {
 } from "../config/plugin-install-record-map.js";
 import { safeParseWithSchema } from "../utils/zod-parse.js";
 import { recordInstalledPluginIndexInstallOwner } from "./installed-plugin-index-install-owner.js";
-import { getPersistedInstalledPluginIndexCacheEntry } from "./installed-plugin-index-record-state.js";
+import {
+  getPersistedInstalledPluginIndexCacheEntry,
+  preparePersistedInstalledPluginIndexCacheEntry,
+} from "./installed-plugin-index-record-state.js";
 import type { InstalledPluginIndexStoreOptions } from "./installed-plugin-index-store-path.js";
 import {
   extractPluginInstallRecordsFromInstalledPluginIndex,
@@ -14,6 +17,7 @@ import {
   INSTALLED_PLUGIN_INDEX_MIGRATION_VERSION,
   type InstalledPluginIndex,
 } from "./installed-plugin-index.js";
+import type { PersistedInstalledPluginIndexCacheEntry } from "./plugin-cache-management.js";
 
 export {
   resolveInstalledPluginIndexStorePath,
@@ -155,13 +159,20 @@ export function parseInstalledPluginIndex(value: unknown): InstalledPluginIndex 
 export async function readPersistedInstalledPluginIndex(
   options: InstalledPluginIndexStoreOptions = {},
 ): Promise<InstalledPluginIndex | null> {
-  return readPersistedInstalledPluginIndexSync(options);
+  const prepared = await preparePersistedInstalledPluginIndexCacheEntry(options);
+  prepared.assertCurrent();
+  return parseCachedInstalledPluginIndex(prepared.entry);
 }
 
 export function readPersistedInstalledPluginIndexSync(
   options: InstalledPluginIndexStoreOptions = {},
 ): InstalledPluginIndex | null {
-  const entry = getPersistedInstalledPluginIndexCacheEntry(options);
+  return parseCachedInstalledPluginIndex(getPersistedInstalledPluginIndexCacheEntry(options));
+}
+
+function parseCachedInstalledPluginIndex(
+  entry: PersistedInstalledPluginIndexCacheEntry,
+): InstalledPluginIndex | null {
   if (entry.index === undefined) {
     const value = entry.state.status === "present" ? entry.state.value : undefined;
     entry.index =

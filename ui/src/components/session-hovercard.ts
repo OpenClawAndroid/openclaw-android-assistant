@@ -7,6 +7,7 @@ import type {
   ControlUiSessionPullRequestSnapshot,
 } from "../../../src/gateway/control-ui-contract.js";
 import { i18n, t } from "../i18n/index.ts";
+import { shouldHandleNavigationClick } from "../lib/navigation-click.ts";
 import type { SidebarSessionHovercardRow } from "./app-sidebar-session-types.ts";
 import { icons } from "./icons.ts";
 import {
@@ -53,6 +54,7 @@ type SessionHovercardInput = {
   selfUserId?: string;
   avatarAuth?: SessionHovercardAvatarAuth;
   personActivity?: PersonActivityRouting;
+  automationLink?: { href: string; navigate: () => void };
   pullRequests?: ControlUiSessionPullRequestSnapshot;
   progressCard?: ProgressCard | null;
 };
@@ -447,7 +449,7 @@ function renderProgressHeadsUp(headsUp: ReturnType<typeof progressCardHeadsUp>) 
 }
 
 function renderSessionContext(
-  { row }: SessionHovercardInput,
+  { row, automationLink }: SessionHovercardInput,
   headsUp: ReturnType<typeof progressCardHeadsUp>,
 ) {
   const context = row?.workContext;
@@ -534,16 +536,25 @@ function renderSessionContext(
         : nothing
     }
     ${
-      row?.hasAutomation === true
-        ? html`<div
-            class="session-hovercard__context-row"
-            aria-label=${t("sessionsView.automationAttached")}
+      row?.hasAutomation && automationLink
+        ? html`<a
+            class="session-hovercard__context-row session-hovercard__automation-link"
+            href=${automationLink.href}
+            @click=${(event: MouseEvent) => {
+              if (shouldHandleNavigationClick(event)) {
+                event.preventDefault();
+                automationLink.navigate();
+              }
+            }}
           >
             <span class="session-hovercard__context-icon" aria-hidden="true">${icons.clock}</span>
             <span class="session-hovercard__context-value session-hovercard__context-text"
               >${t("sessionsView.automationAttached")}</span
             >
-          </div>`
+            <span class="session-hovercard__context-icon" aria-hidden="true"
+              >${icons.chevronRight}</span
+            >
+          </a>`
         : nothing
     }
     ${renderProgressHeadsUp(headsUp)}
@@ -655,7 +666,7 @@ export function renderSessionHovercard(input: SessionHovercardInput) {
     input.row?.workContext ||
     (input.row?.placementProviderId && input.row.placementProfileId) ||
     input.row?.boardFace === "dashboard" ||
-    input.row?.hasAutomation === true ||
+    (input.row?.hasAutomation && input.automationLink) ||
     headsUp,
   );
   const lastMessagePreview = input.progressCard

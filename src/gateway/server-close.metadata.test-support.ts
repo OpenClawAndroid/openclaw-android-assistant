@@ -16,7 +16,7 @@ import {
 } from "../plugins/runtime.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createGatewayKernel } from "./server-kernel.js";
-import type { GatewayServer } from "./server-public.js";
+import type { GatewayServer, GatewayServerOptions } from "./server-public.js";
 import { startGatewayServerCore } from "./server-start.js";
 
 export async function createGatewayMetadataCloseFixture(label: string) {
@@ -115,7 +115,7 @@ export async function createGatewayMetadataCloseFixture(label: string) {
         return callback;
       });
     },
-    async start(port: number) {
+    async start(port: number, options?: GatewayServerOptions) {
       const token = `metadata-close-token-${port}`;
       await state.writeConfig({
         ...config,
@@ -140,6 +140,7 @@ export async function createGatewayMetadataCloseFixture(label: string) {
           bind: "loopback",
           controlUiEnabled: false,
           sidecarStartup: "defer",
+          ...options,
         });
         servers.push(server);
       } finally {

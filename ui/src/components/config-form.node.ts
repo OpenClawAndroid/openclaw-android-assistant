@@ -12,6 +12,7 @@ import { renderNumberInput, renderSelect, renderTextInput } from "./config-form.
 import {
   renderFieldRow,
   isAnySchema,
+  isSecretRefObject,
   renderSchemaDefaultDescription,
   renderSegmentedControl,
   renderTags,
@@ -139,6 +140,17 @@ export function renderNode(params: ConfigNodeRenderParams): TemplateResult | typ
         variantType === "integer" ? "number" : variantType,
       ),
     );
+
+    if (
+      params.maskSensitive === true &&
+      Array.isArray(schema.type) &&
+      normalizedTypes.size === 2 &&
+      normalizedTypes.has("string") &&
+      normalizedTypes.has("object") &&
+      (value === undefined || typeof value === "string" || isSecretRefObject(value))
+    ) {
+      return renderTextInput({ ...params, inputType: "text" });
+    }
 
     if (
       [...normalizedTypes].every((variantType) =>

@@ -908,11 +908,17 @@ describe("buildGatewayCronService", () => {
 
       await vi.advanceTimersByTimeAsync(60_000);
 
-      expect(state.cron.getJob(job.id)?.state).toMatchObject({
-        lastStatus: "ok",
-        consecutiveErrors: 0,
-        lastError: undefined,
-      });
+      await vi.waitFor(
+        () => {
+          expect(state.cron.getJob(job.id)?.state).toMatchObject({
+            lastStatus: "ok",
+            consecutiveErrors: 0,
+            lastError: undefined,
+          });
+          expect(getCronState(state).activeTimerTicks).toBe(0);
+        },
+        { interval: 0 },
+      );
       expectIsolatedRunFields({ agentId: "main" });
     } finally {
       state.cron.stop();
@@ -1610,6 +1616,7 @@ describe("buildGatewayCronService", () => {
       const firstFailure = expect(state.cron.stopAndDrain?.()).rejects.toThrow(
         "stream source did not exit",
       );
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1), { interval: 0 });
       await vi.advanceTimersByTimeAsync(10_000);
       await firstFailure;
       await expect(state.cron.stopAndDrain?.()).resolves.toBeUndefined();
@@ -1655,6 +1662,7 @@ describe("buildGatewayCronService", () => {
       // The durable disable commits before teardown settles; a stop timeout
       // must not surface as a failed update after the mutation persisted.
       const updatePromise = state.cron.update(streamJob.id, { enabled: false });
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1), { interval: 0 });
       await vi.advanceTimersByTimeAsync(30_000);
       const updated = await updatePromise;
       expect(updated.enabled).toBe(false);
@@ -1701,6 +1709,7 @@ describe("buildGatewayCronService", () => {
       const streamJob = "job" in added ? added.job : added;
       const removal = state.cron.remove(streamJob.id);
       const removalFailure = expect(removal).rejects.toThrow("stream source did not exit");
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1), { interval: 0 });
       await vi.advanceTimersByTimeAsync(10_000);
 
       await removalFailure;

@@ -42,6 +42,7 @@ import {
   buildCodexRingZeroThreadConfigPatch,
   readCodexInheritedMcpServerNames,
 } from "./thread-requests.js";
+import { resolveCodexPromptError } from "./usage-limit-error.js";
 
 const CODEX_APP_SERVER_ARGS_ENV_KEY = "OPENCLAW_CODEX_APP_SERVER_ARGS";
 const CODEX_BOUNDED_THREAD_CONFIG: JsonObject = {
@@ -323,11 +324,13 @@ async function runBoundedCodexAppServerTurnInWorkspace(
           resolveCodexBoundedTurnAbortError(abortController.signal, params.taskLabel, timeoutError),
       });
       if (result.error || result.turn?.status === "failed") {
-        throw new Error(
-          (result.error
-            ? readCodexErrorNotification(result.error)?.error.message
-            : result.turn?.error?.message) ?? `codex app-server ${params.taskLabel} turn failed`,
-        );
+        const source = result.error
+          ? readCodexErrorNotification(result.error)?.error
+          : result.turn?.error;
+        const failure = source ? resolveCodexPromptError(source) : undefined;
+        throw failure instanceof Error
+          ? failure
+          : new Error(failure ?? `codex app-server ${params.taskLabel} turn failed`);
       }
       if (result.turn?.status !== "completed") {
         throw new Error(

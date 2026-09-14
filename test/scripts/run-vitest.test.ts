@@ -865,6 +865,14 @@ registerHooks({resolve(specifier, context, nextResolve) {
       null,
     ],
     [["ui/src/**/*.browser.test.ts"], null],
+    [["ui/src/components/markdown.progress.node.test.ts"], null],
+    [
+      [
+        "ui/src/components/markdown.progress.node.test.ts",
+        "ui/src/components/form-controls.browser.test.ts",
+      ],
+      null,
+    ],
     [["ui/src/components", "ui/src/pages/chat/chat-message-markdown.browser.test.ts"], null],
   ])("preserves browser ownership for implicit targets %j", (targets, config) => {
     expect(resolveImplicitVitestArgs(["run", ...targets])).toEqual(

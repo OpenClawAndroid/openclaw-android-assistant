@@ -22,14 +22,6 @@ import { resolveRequesterStoreKey } from "./subagent-requester-store-key.js";
 
 const SOURCE_OWNER_CHANGED = Symbol("source_owner_changed");
 
-function formatQueueWakeFailureError(
-  fallback: string,
-  outcome: EmbeddedAgentQueueMessageOutcome,
-): string {
-  const summary = formatEmbeddedAgentQueueFailureSummary(outcome);
-  return summary ? `${fallback}: ${summary}` : fallback;
-}
-
 export function resolveRequesterSessionActivity(
   requesterSessionKey: string,
   requesterAgentId?: string,
@@ -265,7 +257,8 @@ export function formatActiveWakeFailure(
   fallback: string,
   outcome: EmbeddedAgentQueueMessageOutcome,
 ): string {
-  return formatQueueWakeFailureError(fallback, outcome);
+  const summary = formatEmbeddedAgentQueueFailureSummary(outcome);
+  return summary ? `${fallback}: ${summary}` : fallback;
 }
 
 export function isSourceOwnerChangedWake(

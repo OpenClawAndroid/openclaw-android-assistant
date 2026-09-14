@@ -131,7 +131,7 @@ describe("projects vitest config", () => {
     async (selection) => {
       const [workerFile] = gatewayDatabaseWorkerTestFiles;
       assert(workerFile);
-      const ordinaryFile = "src/gateway/config-reload.test.ts";
+      const ordinaryFile = "src/gateway/config-reload.telegram-policy.test.ts";
       const selected = selection === "worker" ? [workerFile] : [workerFile, ordinaryFile];
       const env = {
         OPENCLAW_GATEWAY_PROJECT_SHARDS: "0",
@@ -600,7 +600,11 @@ describe("projects vitest config", () => {
       rootVitestProjects,
       fullSuiteVitestShards.find((shard) => shard.name === "core-runtime")?.projects ?? [],
     ]) {
-      for (const config of ["vitest.ui.config.ts", "vitest.ui-isolated.config.ts"]) {
+      for (const config of [
+        "vitest.ui.config.ts",
+        "vitest.ui-isolated.config.ts",
+        "vitest.ui-timing.config.ts",
+      ]) {
         expect(projects.filter((project) => project === `test/vitest/${config}`)).toHaveLength(1);
       }
     }

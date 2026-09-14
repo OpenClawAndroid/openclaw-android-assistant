@@ -16,6 +16,7 @@ import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import type { ControlUiGitHubPreview, ControlUiSessionPreview } from "../control-ui-contract.js";
 import { ControlUiGitHubError } from "../control-ui-github-api.js";
 import { createControlUiHandlers } from "./control-ui.js";
+import { identifiedClient } from "./sessions-sharing.test-support.js";
 import type { RespondFn } from "./types.js";
 
 function requestOptions(
@@ -533,6 +534,176 @@ describe("controlUi.sessionPullRequests.subscribe", () => {
     expect(respond).toHaveBeenCalledWith(false, undefined, {
       code: "INVALID_REQUEST",
       message: "invalid controlUi.sessionPullRequests.subscribe params",
+    });
+  });
+});
+
+describe("controlUi.sessionPullRequests.checks", () => {
+  const params = {
+    sessionKey: "agent:main:ci-details",
+    owner: "openclaw",
+    repo: "openclaw",
+    number: 103469,
+    headSha: "a".repeat(40),
+  };
+  const result = {
+    owner: params.owner,
+    repo: params.repo,
+    number: params.number,
+    headSha: params.headSha,
+    checks: [],
+    status: "ready" as const,
+    rateLimited: false,
+  };
+
+  it.each([
+    { ...params, headSha: "main" },
+    { ...params, owner: "../other" },
+    { ...params, number: -1 },
+    { ...params, url: "https://github.com/other/repo" },
+    { ...params, sessionKey: "" },
+  ])("rejects invalid or client-URL parameters before loading: %j", async (input) => {
+    const load = vi.fn().mockResolvedValue(result);
+    const handler = expectDefined(
+      createControlUiHandlers(undefined, undefined, load)["controlUi.sessionPullRequests.checks"],
+      "CI checks handler",
+    );
+    const respond = vi.fn<RespondFn>();
+    await handler(requestOptions(input, respond));
+    expect(load).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "INVALID_REQUEST" }),
+    );
+  });
+
+  it("rejects unknown sessions without invoking the GitHub loader", async () => {
+    await withOpenClawTestState({ label: "ci-details-unknown" }, async () => {
+      const load = vi.fn().mockResolvedValue(result);
+      const handler = expectDefined(
+        createControlUiHandlers(undefined, undefined, load)["controlUi.sessionPullRequests.checks"],
+        "CI checks handler",
+      );
+      const respond = vi.fn<RespondFn>();
+      await handler(requestOptions(params, respond));
+      expect(load).not.toHaveBeenCalled();
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({ code: "UNAVAILABLE" }),
+      );
+    });
+  });
+
+  it("binds the visible session generation and rechecks it before returning details", async () => {
+    await withOpenClawTestState({ label: "ci-details-generation" }, async () => {
+      const session = {
+        agentId: "main",
+        sessionKey: params.sessionKey,
+        sessionId: "ci-generation-one",
+      };
+      await replaceSessionEntry(session, {
+        sessionId: session.sessionId,
+        updatedAt: 1,
+        spawnedCwd: "/synthetic/ci",
+      });
+      const deferred = createDeferred<typeof result>();
+      const started = createDeferred();
+      const load = vi.fn(async () => {
+        started.resolve();
+        return deferred.promise;
+      });
+      const handler = expectDefined(
+        createControlUiHandlers(undefined, undefined, load)["controlUi.sessionPullRequests.checks"],
+        "CI checks handler",
+      );
+      const respond = vi.fn<RespondFn>();
+      const request = handler(requestOptions(params, respond));
+      await started.promise;
+      expect(load).toHaveBeenCalledWith(
+        expect.objectContaining({ ...params, agentId: "main" }),
+        expect.objectContaining({
+          assertCurrent: expect.any(Function),
+          sessionScope: expect.stringContaining("ci-generation-one"),
+        }),
+      );
+      await replaceSessionEntry(session, {
+        sessionId: "ci-generation-two",
+        updatedAt: 2,
+        spawnedCwd: "/synthetic/ci",
+      });
+      deferred.resolve(result);
+      await request;
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({
+          code: "UNAVAILABLE",
+          message: "Session changed; reopen CI details",
+        }),
+      );
+    });
+  });
+
+  it.each([{ incognito: true as const }, { visibility: "draft" as const }])(
+    "does not expose a hidden session to another profile: %j",
+    async (hidden) => {
+      await withOpenClawTestState({ label: "ci-details-hidden" }, async () => {
+        await replaceSessionEntry(
+          { agentId: "main", sessionKey: params.sessionKey },
+          {
+            sessionId: "hidden-ci",
+            updatedAt: 1,
+            createdActor: { type: "human", source: "profile", id: "owner" },
+            ...hidden,
+          },
+        );
+        const load = vi.fn().mockResolvedValue(result);
+        const handler = expectDefined(
+          createControlUiHandlers(undefined, undefined, load)[
+            "controlUi.sessionPullRequests.checks"
+          ],
+          "CI checks handler",
+        );
+        const respond = vi.fn<RespondFn>();
+        await handler({ ...requestOptions(params, respond), client: identifiedClient("viewer") });
+        expect(load).not.toHaveBeenCalled();
+        expect(respond).toHaveBeenCalledWith(
+          false,
+          undefined,
+          expect.objectContaining({ code: "UNAVAILABLE" }),
+        );
+      });
+    },
+  );
+
+  it("keeps qualified global sessions bound to their resolved agent", async () => {
+    await withOpenClawTestState({ label: "ci-details-global" }, async () => {
+      const cfg: OpenClawConfig = {
+        session: { scope: "global" },
+        agents: { entries: { main: { default: true }, research: {} } },
+      };
+      await replaceSessionEntry(
+        { agentId: "research", sessionKey: "global" },
+        { sessionId: "research-ci", updatedAt: 1 },
+      );
+      const load = vi.fn().mockResolvedValue(result);
+      const handler = expectDefined(
+        createControlUiHandlers(undefined, undefined, load)["controlUi.sessionPullRequests.checks"],
+        "CI checks handler",
+      );
+      const respond = vi.fn<RespondFn>();
+      await handler(
+        requestOptions({ ...params, sessionKey: "agent:research:main" }, respond, {
+          context: { getRuntimeConfig: () => cfg },
+        }),
+      );
+      expect(load).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: "research" }),
+        expect.objectContaining({ sessionScope: expect.stringContaining("research-ci") }),
+      );
+      expect(respond).toHaveBeenCalledWith(true, result, undefined);
     });
   });
 });

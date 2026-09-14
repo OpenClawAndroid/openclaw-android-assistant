@@ -2,7 +2,6 @@
 import fs from "node:fs/promises";
 import { asNonArrayRecord } from "@openclaw/normalization-core/record-coerce";
 import JSON5 from "json5";
-import type { classifyGatewayConnectFailure } from "../../../packages/gateway-protocol/src/connect-error-details.js";
 import {
   isDefaultInstallIdentity,
   resolveConfigPath,
@@ -15,20 +14,13 @@ import type {
 } from "../../config/types.js";
 import { resolveSecretInputRef } from "../../config/types.secrets.js";
 import { readLastGatewayErrorLine } from "../../daemon/diagnostics.js";
-import { inspectGatewayHeapLimit, type GatewayHeapLimitReport } from "../../daemon/gateway-heap.js";
-import type { ExtraGatewayService, FindExtraGatewayServicesOptions } from "../../daemon/inspect.js";
+import { inspectGatewayHeapLimit } from "../../daemon/gateway-heap.js";
+import type { FindExtraGatewayServicesOptions } from "../../daemon/inspect.js";
 import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
-import type { ServiceInspectionReason } from "../../daemon/service-inspection-error.js";
 import { summarizeGatewayServiceLayout } from "../../daemon/service-layout.js";
-import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
-import type {
-  GatewayServiceCommandConfig,
-  GatewayServiceLoadState,
-} from "../../daemon/service-types.js";
 import { readGatewayServiceState, resolveGatewayService } from "../../daemon/service.js";
 import { gatewaySecretInputPathCanWin } from "../../gateway/credentials-secret-inputs.js";
 import { trimToUndefined } from "../../gateway/credentials.js";
-import type { HostDesktopStatus } from "../../gateway/desktop/host-source.js";
 import { resolveGatewayRequiredListenHosts } from "../../gateway/net.js";
 import { resolveGatewayProbeCredentialConfig } from "../../gateway/probe-auth.js";
 import {
@@ -39,10 +31,7 @@ import { isGatewayExternallySupervised } from "../../infra/gateway-supervision.j
 import { formatPortDiagnostics } from "../../infra/ports-format.js";
 import { inspectPortConnections } from "../../infra/ports-inspect.js";
 import type { PortConnection } from "../../infra/ports-types.js";
-import {
-  readGatewayRestartHandoffSync,
-  type GatewayRestartHandoff,
-} from "../../infra/restart-handoff.js";
+import { readGatewayRestartHandoffSync } from "../../infra/restart-handoff.js";
 import { inspectWindowsGatewayFirewall } from "../../infra/windows-gateway-firewall-diagnostics.js";
 import { resolveConfiguredLogFilePath } from "../../logging/log-file-path.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-record-reader.js";
@@ -61,10 +50,7 @@ import {
   inspectDaemonPortStatuses,
   resolveGatewayStatusProbeConfig,
   resolveGatewayStatusSummary,
-  type GatewayStatusSummary,
-  type PortStatusSummary,
 } from "./status.gateway.js";
-import type { LaunchdJobDiagnostics } from "./status.launchd.js";
 import type { GatewayRpcOpts } from "./types.js";
 
 type ConfigSummary = {
@@ -95,8 +81,6 @@ type CliStatusSummary = {
   version: string;
   entrypoint?: string;
 };
-
-type GatewayConnectFailureKind = ReturnType<typeof classifyGatewayConnectFailure>["kind"];
 
 const loadGatewayProbeAuthModule = createLazyPromise(() => import("../../gateway/probe-auth.js"));
 const loadConfigIoRuntime = createLazyPromise(() => import("../../config/io.runtime.js"));
@@ -203,77 +187,6 @@ async function readStatusConfig(params: {
   );
 }
 
-export type DaemonStatus = {
-  cli?: CliStatusSummary;
-  logFile?: string;
-  service: LaunchdJobDiagnostics & {
-    inspectionReason?: ServiceInspectionReason;
-    label: string;
-    loaded: boolean | null;
-    loadState: GatewayServiceLoadState;
-    loadedText: string;
-    notLoadedText: string;
-    targetRole?: "target" | "diagnostic-only";
-    command?: GatewayServiceCommandConfig | null;
-    runtime?: GatewayServiceRuntime;
-    configAudit?: ServiceConfigAudit;
-    gatewayHeap?: GatewayHeapLimitReport;
-    restartHandoff?: GatewayRestartHandoff;
-  };
-  config?: {
-    cli: ConfigSummary;
-    daemon?: ConfigSummary;
-    mismatch?: boolean;
-  };
-  gateway?: GatewayStatusSummary;
-  hostDesktop?: HostDesktopStatus;
-  port?: PortStatusSummary;
-  portCli?: PortStatusSummary;
-  connections?: {
-    port: number;
-    established: PortConnection[];
-  };
-  lastError?: string;
-  rpc?: {
-    ok: boolean;
-    gatewayReached?: true;
-    kind?: "connect" | "read";
-    capability?: string;
-    auth?: {
-      role?: string | null;
-      scopes?: string[];
-      capability?: string;
-    };
-    server?: {
-      version?: string | null;
-      buildId?: string | null;
-      connId?: string | null;
-    };
-    version?: string | null;
-    error?: string;
-    connectFailure?: {
-      kind: GatewayConnectFailureKind;
-      detailCode?: string;
-    };
-    url?: string;
-    authWarning?: string;
-  };
-  health?: {
-    healthy: boolean;
-    staleGatewayPids: number[];
-  };
-  extraServices: ExtraGatewayService[];
-  /**
-   * Plugin version drift report. Surfaces active official external plugins
-   * whose installed version does not match the running gateway version, which
-   * can happen after `npm install -g openclaw@<v>` updates the gateway binary
-   * without a corresponding `openclaw plugins update`.
-   */
-  pluginVersionDrift?: PluginVersionDriftReport;
-  /** Doctor-only comparison against the installed service package a restart will load. */
-  pluginVersionRestartReadiness?: PluginVersionRestartReadiness;
-};
-
 function resolveCliStatusSummary(argv: string[] = process.argv): CliStatusSummary {
   const entrypoint = argv[1]?.trim();
   return {
@@ -323,7 +236,7 @@ async function inspectEstablishedGatewayClients(params: {
   daemonPort: number;
   deep?: boolean;
   gatewayMode?: string;
-}): Promise<DaemonStatus["connections"] | undefined> {
+}): Promise<{ port: number; established: PortConnection[] } | undefined> {
   if (params.deep !== true || params.gatewayMode === "remote") {
     return undefined;
   }
@@ -374,7 +287,7 @@ function hasActiveGatewayExecProbeCredential(params: {
   });
 }
 
-export async function gatherDaemonStatus(
+async function gatherDaemonStatusImpl(
   opts: {
     rpc: GatewayRpcOpts;
     probe: boolean;
@@ -383,7 +296,7 @@ export async function gatherDaemonStatus(
     allowExecSecretRefs?: boolean;
     pluginVersionTarget?: "running" | "restart";
   } & FindExtraGatewayServicesOptions,
-): Promise<DaemonStatus> {
+) {
   const localPortOverride = resolveGatewayLocalPortOverride(opts.rpc);
   const timeoutMs = parseTimeoutMsWithFallback(opts.rpc.timeout, 10_000, {
     invalidType: "error",
@@ -724,6 +637,41 @@ export async function gatherDaemonStatus(
     ...(pluginVersionDrift ? { pluginVersionDrift } : {}),
     ...(pluginVersionRestartReadiness ? { pluginVersionRestartReadiness } : {}),
   };
+}
+
+type GatheredDaemonStatus = Awaited<ReturnType<typeof gatherDaemonStatusImpl>>;
+type GatheredDaemonService = GatheredDaemonStatus["service"];
+type GatheredDaemonRpc = NonNullable<GatheredDaemonStatus["rpc"]>;
+type UnionKeys<Value> = Value extends Value ? keyof Value : never;
+type UnionValue<Value, Key extends PropertyKey> = Value extends Value
+  ? Key extends keyof Value
+    ? Value[Key]
+    : never
+  : never;
+type RequiredDaemonServiceField = "label" | "loaded" | "loadState" | "loadedText" | "notLoadedText";
+type CompatibleDaemonRpcValue<Key extends PropertyKey> = Key extends "server" | "auth"
+  ? Partial<NonNullable<UnionValue<GatheredDaemonRpc, Key>>>
+  : Key extends "capability"
+    ? string
+    : UnionValue<GatheredDaemonRpc, Key>;
+
+export type DaemonStatus = Partial<
+  Omit<GatheredDaemonStatus, "service" | "extraServices" | "config" | "rpc">
+> & {
+  service: Pick<GatheredDaemonService, RequiredDaemonServiceField> &
+    Partial<Omit<GatheredDaemonService, RequiredDaemonServiceField>>;
+  extraServices: GatheredDaemonStatus["extraServices"];
+  config?: Pick<NonNullable<GatheredDaemonStatus["config"]>, "cli"> &
+    Partial<Omit<NonNullable<GatheredDaemonStatus["config"]>, "cli">>;
+  rpc?: { ok: GatheredDaemonRpc["ok"] } & {
+    [Key in Exclude<UnionKeys<GatheredDaemonRpc>, "ok">]?: CompatibleDaemonRpcValue<Key>;
+  };
+};
+
+export async function gatherDaemonStatus(
+  opts: Parameters<typeof gatherDaemonStatusImpl>[0],
+): Promise<DaemonStatus> {
+  return gatherDaemonStatusImpl(opts);
 }
 
 export function renderPortDiagnosticsForCli({ port }: DaemonStatus, rpcOk?: boolean): string[] {

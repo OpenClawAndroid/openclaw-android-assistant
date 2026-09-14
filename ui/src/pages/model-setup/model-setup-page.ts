@@ -137,6 +137,8 @@ export class ModelSetupPage extends OpenClawLightDomElement {
         return () => this.firstRun.ownsActivation(activation);
       };
     },
+    onBackgroundCompletion: (completion) =>
+      this.runWizardMutation(() => Promise.resolve(completion), true),
     requestFailedMessage: () => t("modelSetup.errors.requestFailed"),
     cancelledMessage: () => t("modelSetup.wizard.cancelled"),
     sessionExpiredMessage: () => t("modelSetup.wizard.sessionExpired"),
@@ -527,10 +529,11 @@ export class ModelSetupPage extends OpenClawLightDomElement {
 
   private async runWizardMutation(
     task: () => Promise<ModelSetupWizardCompletion | null>,
+    settling = false,
   ): Promise<void> {
     const client = this.context.gateway.snapshot.client;
     if (
-      this.wizardMutationActive ||
+      (this.wizardMutationActive && !settling) ||
       !this.canUseSetup(client) ||
       (this.wizard.state.phase === "idle" && this.firstRun.unresolved)
     ) {
@@ -684,6 +687,7 @@ export class ModelSetupPage extends OpenClawLightDomElement {
       onVerify: () => void this.firstRun.verify(),
       onActivateCandidate: (candidate) => this.activateCandidate(candidate),
       onStartAuth: (option) => {
+        this.wizard.prepareSignIn(option.kind);
         this.pendingPrepareOption = null;
         this.wizardMode = "auth";
         void this.runWizardMutation(() =>

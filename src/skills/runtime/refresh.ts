@@ -758,9 +758,3 @@ export async function closeSkillsWatchers(resetState = false): Promise<void> {
   workspaceWatchLastEnsuredAt.clear();
   await Promise.all(active.map(teardownSkillsPathWatcher));
 }
-
-if (process.env.VITEST || process.env.NODE_ENV === "test") {
-  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.skillsRefreshTestApi")] = {
-    resetSkillsRefreshForTest: () => closeSkillsWatchers(true),
-  };
-}

@@ -225,39 +225,45 @@ export function createSessionDeletions(host: DeletionHost) {
     }
     // Claim the complete selection before the first RPC. Cloud teardown may
     // take time, but the remaining selected rows must disappear together.
-    const records = new Map<Deletion, Set<string>>();
+    const records = new Map<Deletion, Map<string, SessionDeleteTarget>>();
     for (const target of targets) {
       const record = begin(target);
-      const keys = records.get(record) ?? new Set<string>();
-      keys.add(target.key);
-      records.set(record, keys);
+      const callerTargets = records.get(record) ?? new Map<string, SessionDeleteTarget>();
+      callerTargets.set(target.key, target);
+      records.set(record, callerTargets);
     }
     publish();
-    for (const [record, keys] of records) {
+    for (const [record, callerTargets] of records) {
       if (!host.connection.isCurrent(scope) && !record.operation) {
         const unstarted = [...records.keys()].filter(
           (candidate) => !candidate.operation && owns(candidate),
         );
-        for (const candidate of unstarted) {
-          rollback(candidate);
-        }
         if (unstarted.length > 0) {
-          const message = t("sessionsView.deleteSessionsStale", { count: String(targets.length) });
-          reportError(message);
-          result.errors.push(message);
+          const error = new Error(
+            t("sessionsView.deleteSessionsStale", { count: String(targets.length) }),
+          );
+          for (const candidate of unstarted) {
+            rollback(candidate);
+            for (const target of records.get(candidate)!.values()) {
+              result.errors.push({ target, error });
+            }
+          }
+          reportError(error.message);
         }
         break;
       }
       try {
         const outcome = await perform(record, scope);
         if (outcome.deleted) {
-          result.deleted.push(...keys);
+          result.deleted.push(...callerTargets.keys());
           if (outcome.worktreePreserved) {
             result.preservedWorktrees.push(outcome.worktreePreserved);
           }
         }
       } catch (error) {
-        result.errors.push(formatUiError(error));
+        for (const target of callerTargets.values()) {
+          result.errors.push({ target, error });
+        }
       }
     }
     if (result.deleted.length > 0) {
@@ -284,7 +290,7 @@ export function createSessionDeletions(host: DeletionHost) {
     ): Promise<SessionDeleteOutcome> {
       const result = await removeMany([{ key, ...options }]);
       if (result.errors.length > 0) {
-        throw new Error(result.errors.join("; "));
+        throw result.errors[0]!.error;
       }
       return {
         deleted: result.deleted.includes(key),

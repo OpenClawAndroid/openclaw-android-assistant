@@ -49,6 +49,7 @@ export type ModelSetupWizardState =
       phase: "step";
       authChoice: string;
       step: WizardStep;
+      externalAuthInput?: boolean;
       busy: boolean;
       validationError: string | null;
     }

@@ -25,6 +25,7 @@ import {
   sessionLikelyHasOversizedToolResults,
   truncateOversizedToolResultsInSessionManager,
 } from "../tool-result-truncation.js";
+import { isCurrentAttemptReplaySafe } from "./attempt-terminal-evidence.js";
 import {
   compactEmbeddedRunForRecovery,
   type EmbeddedRunCompactionRecoveryInput,
@@ -138,6 +139,8 @@ export async function recoverEmbeddedRunOverflow(
   const errorText = contextOverflowError.text;
   const observedOverflowTokens = extractObservedOverflowTokenCount(errorText);
   const preflightRecovery = input.attempt.preflightRecovery;
+  const requiresTranscriptContinuation =
+    preflightRecovery?.source === "mid-turn" || !isCurrentAttemptReplaySafe(input.attempt);
   const truncateToolResults = async () => {
     const { sessionManager, assertActive } = input.prepareRecoverySession(contextTokenBudget);
     if (!sessionManager) {
@@ -230,7 +233,7 @@ export async function recoverEmbeddedRunOverflow(
     log.warn(
       `context overflow persisted after in-attempt compaction (attempt ${input.state.overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); retrying prompt without additional compaction for ${input.modelSelection.provider}/${input.modelSelection.model}`,
     );
-    if (preflightRecovery?.source === "mid-turn") {
+    if (requiresTranscriptContinuation) {
       input.prepareCurrentTranscriptRetry();
     }
     return { action: "retry" };
@@ -268,7 +271,7 @@ export async function recoverEmbeddedRunOverflow(
       // stays committed, but only a same-session mid-turn continuation is safe.
       parkedWorkBlocksContinuation =
         previousSessionId !== undefined &&
-        preflightRecovery?.source === "mid-turn" &&
+        requiresTranscriptContinuation &&
         input.attempt.toolMetas.some((entry) => entry.codeModeSuspended === true);
       if (parkedWorkBlocksContinuation) {
         log.warn(
@@ -313,7 +316,7 @@ export async function recoverEmbeddedRunOverflow(
         `[context-overflow-precheck] stale token state had no real conversation messages for ` +
           `${input.modelSelection.provider}/${input.modelSelection.model}; resetting the context snapshot and retrying prompt`,
       );
-      if (preflightRecovery.source === "mid-turn") {
+      if (requiresTranscriptContinuation) {
         input.prepareCurrentTranscriptRetry();
       }
       return { action: "retry" };
@@ -345,7 +348,7 @@ export async function recoverEmbeddedRunOverflow(
           `auto-compaction succeeded for ${input.modelSelection.provider}/${input.modelSelection.model}; retrying prompt`,
         );
         input.markOwnedTranscriptRetry();
-        if (preflightRecovery?.source === "mid-turn") {
+        if (requiresTranscriptContinuation) {
           input.prepareCurrentTranscriptRetry();
         } else {
           await input.prepareCompactedTranscriptRetry(input.assertRecoveryActive);
@@ -383,7 +386,7 @@ export async function recoverEmbeddedRunOverflow(
         log.info(
           `[context-overflow-recovery] Truncated ${truncResult.truncatedCount} tool result(s); retrying prompt`,
         );
-        if (preflightRecovery?.source === "mid-turn") {
+        if (requiresTranscriptContinuation) {
           input.prepareCurrentTranscriptRetry();
         }
         return { action: "retry" };

@@ -224,10 +224,10 @@ describe("cross-OS release checks workflow", () => {
     const install = step(prepare, "Install workflow validation dependencies");
 
     expect(install).toMatchObject({
-      if: "inputs.candidate_artifact_name != '' || inputs.mode != 'fresh'",
       "working-directory": "workflow",
       run: "pnpm install --frozen-lockfile --prefer-offline --ignore-scripts",
     });
+    expect(install.if).toBeUndefined();
     expect(step(prepare, "Build candidate artifact once").if).toBe(
       "inputs.candidate_artifact_name == ''",
     );
@@ -238,6 +238,7 @@ describe("cross-OS release checks workflow", () => {
         (candidate) => candidate.name === "Install workflow validation dependencies",
       ) ?? -1;
     for (const dependentStep of [
+      "Resolve provider-owned companion requirements",
       "Resolve provided candidate package",
       "Capture baseline metadata",
     ]) {

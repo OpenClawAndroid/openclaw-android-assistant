@@ -228,13 +228,16 @@ export async function continueMigratedUpdateInFreshProcess(
       ...(windowsRecovery ? { windowsTaskAutoStartSuspended: true } : {}),
       resultPath,
     };
-    const runChild = (grant?: UpdateCommandChildGrant, beforeInput?: (pid: number) => void) =>
+    const runChild = (
+      grant?: UpdateCommandChildGrant,
+      bindChild?: (pid: number, argv?: readonly string[]) => void,
+    ) =>
       runUtf8CommandWithTimeout(workerCommand, {
         cwd: root,
         baseEnv: {},
         env: workerEnv,
         input: JSON.stringify({ ...input, ...(grant ? { executor: grant } : {}) }),
-        beforeInput,
+        beforeInput: bindChild,
         // This continuation includes bounded plugin steps as well as service
         // verification; the whole-process bound must exceed one step's budget.
         timeoutMs: run.activationTimeoutMs,

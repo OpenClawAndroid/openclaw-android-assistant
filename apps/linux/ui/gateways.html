@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Manage Gateways · OpenClaw</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="window-chrome.css" />
+    <link rel="stylesheet" href="gateways.css" />
+    <script src="gateway-notice.js"></script>
+  </head>
+  <body>
+    <main class="shell gateways-shell">
+      <section class="brand" aria-label="OpenClaw">
+        <img class="brand-mark" src="mascot.svg" alt="" aria-hidden="true" />
+        <span>OPENCLAW</span>
+      </section>
+      <section class="panel gateways-panel" aria-labelledby="title">
+        <div class="gateways-heading">
+          <div>
+            <span class="eyebrow">CONNECTIONS</span>
+            <h1 id="title">Manage Gateways</h1>
+          </div>
+          <button id="add-gateway" class="primary" type="button">Add Gateway</button>
+        </div>
+        <p id="description">Save connections to your other computers. Open one in a separate window, or switch from your profile menu.</p>
+        <p id="gateway-status" class="hint" role="status">Loading saved Gateways…</p>
+        <p id="gateway-error" class="remote-feedback error" role="alert" hidden></p>
+        <button id="retry-load" type="button" hidden>Try again</button>
+        <ul id="profiles" class="gateway-profiles" aria-label="Saved Gateways" aria-busy="true"></ul>
+
+        <form id="gateway-editor" class="remote-details gateway-editor" hidden>
+          <h2 id="editor-title">Add Gateway</h2>
+          <div class="remote-field">
+            <label for="gateway-name">Name</label>
+            <input id="gateway-name" name="name" required maxlength="120" autocomplete="off" placeholder="Home studio" />
+            <label for="gateway-transport">Connection type</label>
+            <select id="gateway-transport" name="transport">
+              <option value="direct">Gateway URL</option>
+              <option value="ssh">SSH tunnel</option>
+            </select>
+          </div>
+          <div id="direct-fields" class="remote-field">
+            <label for="gateway-url">Gateway URL</label>
+            <input id="gateway-url" name="url" type="url" required autocomplete="url" spellcheck="false" placeholder="https://gateway.example.ts.net" />
+          </div>
+          <div id="ssh-fields" class="remote-field" hidden>
+            <label for="gateway-ssh">SSH target</label>
+            <input id="gateway-ssh" name="sshTarget" autocomplete="off" spellcheck="false" placeholder="you@gateway.example.com" />
+            <label for="gateway-port">Gateway port</label>
+            <input id="gateway-port" name="remotePort" type="number" min="1" max="65535" value="18789" inputmode="numeric" />
+            <label for="gateway-fingerprint">TLS fingerprint (optional)</label>
+            <input id="gateway-fingerprint" name="tlsFingerprint" autocomplete="off" spellcheck="false" />
+          </div>
+          <details id="gateway-auth" class="remote-auth">
+            <summary>Gateway authentication</summary>
+            <p id="credential-hint" class="hint">Enter a token or password if the Gateway requires one.</p>
+            <div class="remote-field">
+              <label for="gateway-token">Gateway token</label>
+              <input id="gateway-token" name="token" type="password" autocomplete="new-password" aria-describedby="credential-hint" />
+              <label for="gateway-password">Gateway password</label>
+              <input id="gateway-password" name="password" type="password" autocomplete="new-password" aria-describedby="credential-hint" />
+            </div>
+          </details>
+          <div class="gateway-editor-actions">
+            <button id="cancel-edit" class="button-subtle" type="button">Cancel</button>
+            <button id="save-gateway" class="primary" type="submit">Save Gateway</button>
+          </div>
+        </form>
+      </section>
+      <footer><span>SAVED ON THIS COMPUTER</span></footer>
+    </main>
+    <dialog id="remove-dialog" aria-labelledby="remove-title" aria-describedby="remove-description">
+      <h2 id="remove-title">Remove Gateway?</h2>
+      <p id="remove-description"></p>
+      <div class="gateway-editor-actions">
+        <button id="cancel-remove" type="button" autofocus>Cancel</button>
+        <button id="confirm-remove" class="primary" type="button">Remove Gateway</button>
+      </div>
+    </dialog>
+    <script type="module" src="gateways.js"></script>
+  </body>
+</html>

@@ -35,7 +35,7 @@ vi.mock("../../commands/models/shared.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../commands/models/shared.js")>()),
   updateConfig: hooks.writeConfig,
 }));
-vi.mock("../../commands/models/auth.js", () => ({ runModelsAuthLoginFlowCore: hooks.login }));
+vi.mock("../../commands/models/auth.js", () => ({ runModelsAuthLoginFlowForGateway: hooks.login }));
 vi.mock("../../plugins/provider-auth-choices.js", () => ({
   resolveManifestDeclaredProviderAuthChoices: () => {
     const choice = hooks.choice();

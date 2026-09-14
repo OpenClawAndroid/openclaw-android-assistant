@@ -1,10 +1,10 @@
-/**
- * Gateway session store RPC tests.
- */
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { expect, test, vi } from "vitest";
+/**
+ * Gateway session store RPC tests.
+ */
 import * as sessionDirs from "../agents/session-dirs.js";
 import {
   loadSessionEntry,
@@ -153,6 +153,10 @@ test("lists and patches session store via sessions.* RPC", async () => {
     getSessionEventSubscriberConnIds: () => new Set<string>(),
     logGateway: { debug: vi.fn() },
     loadGatewayModelCatalog: async () => agentDiscoveryMock.models,
+    loadGatewayModelCatalogSnapshot: async () => ({
+      entries: agentDiscoveryMock.models,
+      routeVariants: agentDiscoveryMock.models,
+    }),
     getRuntimeConfig,
   };
   async function directSessionReq<TPayload = unknown>(

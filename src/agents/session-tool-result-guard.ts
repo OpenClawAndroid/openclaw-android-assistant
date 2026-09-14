@@ -45,6 +45,8 @@ import {
 } from "./session-raw-append-message.js";
 import { makeMissingToolResult, sanitizeToolCallInputs } from "./session-transcript-repair.js";
 import type { SessionManager } from "./sessions/index.js";
+import { withSessionCompactionPersistence } from "./sessions/session-compaction-persistence.js";
+import type { CompactionAppendPersistence } from "./sessions/session-compaction-persistence.js";
 import {
   extractToolCallsFromAssistant,
   extractToolResultId,
@@ -92,36 +94,10 @@ type UserMessagePersistedCallback = (
     sessionTarget?: ReturnType<SessionManager["getSessionTarget"]>;
   },
 ) => void | Promise<void>;
-type CompactionAppendValidator = (entryId: string, appendedText: string) => boolean;
 type AppendMessageOptions = Parameters<SessionManager["appendMessage"]>[1];
 
 function isUserAgentMessage(message: AgentMessage): message is UserAgentMessage {
   return message.role === "user";
-}
-
-function isExpectedCompactionAppend(entryId: string, appendedText: string): boolean {
-  const lines = appendedText
-    .trimEnd()
-    .split("\n")
-    .filter((line) => line.length > 0);
-  if (lines.length !== 1) {
-    return false;
-  }
-  try {
-    const line = lines.at(0);
-    if (!line) {
-      return false;
-    }
-    const entry: unknown = JSON.parse(line);
-    return (
-      typeof entry === "object" &&
-      entry !== null &&
-      Reflect.get(entry, "type") === "compaction" &&
-      Reflect.get(entry, "id") === entryId
-    );
-  } catch {
-    return false;
-  }
 }
 
 type TranscriptSeqByEntryId = Map<string, number>;
@@ -659,10 +635,7 @@ export function installSessionToolResultGuard(
     onUserMessagePersistenceSuppressed?: AsyncMessageCallback<UserAgentMessage>;
     onUserMessageBlocked?: (message: UserAgentMessage) => void;
     onMessagePersisted?: (message: AgentMessage) => void | Promise<void>;
-    withCompactionPersistence?: (
-      append: () => string,
-      validateAppend: CompactionAppendValidator,
-    ) => string;
+    withCompactionPersistence?: CompactionAppendPersistence;
   },
 ): {
   hasPendingToolResults: () => boolean;
@@ -780,16 +753,9 @@ export function installSessionToolResultGuard(
   ): string => {
     // Replayed boundaries supply their recorded identity; new ones inherit the owning run.
     args[5] = { runId: transcriptRunId, ...args[5] };
-    const append = () => originalAppendCompaction(...args);
-    if (!opts?.withCompactionPersistence) {
-      return append();
-    }
-    try {
-      return opts.withCompactionPersistence(append, isExpectedCompactionAppend);
-    } catch (error) {
-      sessionManager.reloadPersistedTranscript();
-      throw error;
-    }
+    return withSessionCompactionPersistence(sessionManager, opts?.withCompactionPersistence, () =>
+      originalAppendCompaction(...args),
+    );
   }) as SessionManager["appendCompaction"];
 
   /**

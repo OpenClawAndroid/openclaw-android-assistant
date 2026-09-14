@@ -487,7 +487,19 @@ async function releaseTooling(baseSha) {
     );
     const archive = path.join(stage, "scripts.tar");
     try {
-      git(trustedRoot, "archive", "--format=tar", `--output=${archive}`, baseSha, "--", "scripts");
+      // Skip archive's whole-tree index prefetch without trusting checkout attributes.
+      // Recovery may archive receipt tooling from a different commit than HEAD.
+      git(
+        trustedRoot,
+        `--attr-source=${baseSha}`,
+        "archive",
+        "--worktree-attributes",
+        "--format=tar",
+        `--output=${archive}`,
+        baseSha,
+        "--",
+        "scripts",
+      );
       runBuffer("tar", ["-xf", archive, "-C", stage]);
     } finally {
       fs.rmSync(archive, { force: true });

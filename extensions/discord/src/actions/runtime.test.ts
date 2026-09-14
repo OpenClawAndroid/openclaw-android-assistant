@@ -598,10 +598,6 @@ describe("handleDiscordMessagingAction", () => {
     { name: "DM", type: ChannelType.DM },
     { name: "group DM", type: ChannelType.GroupDM },
   ])("blocks delegated reads of arbitrary Discord $name targets", async ({ type }) => {
-    const resolveReactionTarget = vi.fn(async () => "DM1");
-    vi.mocked(
-      discordMessagingActionRuntime.resolveDiscordReactionTargetChannelId,
-    ).mockImplementation(resolveReactionTarget);
     fetchChannelInfoDiscord.mockResolvedValueOnce({
       id: "DM1",
       type,
@@ -611,7 +607,7 @@ describe("handleDiscordMessagingAction", () => {
       handleMessagingAction(
         "reactions",
         {
-          to: "user:U1",
+          to: "channel:DM1",
           messageId: "M1",
         },
         enableAllActions,

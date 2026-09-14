@@ -31,7 +31,7 @@ registerAgentSessionLoopTestLifecycle();
 const createBrowserFollowupFixture = useBrowserFollowupFixture();
 
 describe("native profile-bound input admission", () => {
-  it.each(["reservation", "writer"] as const)(
+  it.each(["reservation", "writer", "approval"] as const)(
     "rejects a native account merge at %s without accepting or terminalizing input",
     async (boundary) => {
       const fixture = await createBrowserFollowupFixture();
@@ -90,23 +90,28 @@ describe("native profile-bound input admission", () => {
           });
           expect(fixture.context.dedupe.size).toBe(0);
         } else {
-          const entered = createDeferred();
-          writer = runExclusiveSessionStoreWrite(fixture.scope.storePath, async () => {
-            entered.resolve();
-            await release.promise;
-          });
-          await entered.promise;
-          request = fixture.send(undefined, { expectedProfileId: source.id });
-          await vi.waitFor(() =>
-            expect(
-              fixture.context.dedupe.has(
-                `${PENDING_CHAT_SEND_DEDUPE_PREFIX}${fixture.params.idempotencyKey}`,
-              ),
-            ).toBe(true),
-          );
-          linkEmail(email, target.id);
-          release.resolve();
-          await writer;
+          if (boundary === "writer") {
+            const entered = createDeferred();
+            writer = runExclusiveSessionStoreWrite(fixture.scope.storePath, async () => {
+              entered.resolve();
+              await release.promise;
+            });
+            await entered.promise;
+            request = fixture.send(undefined, { expectedProfileId: source.id });
+            await vi.waitFor(() =>
+              expect(
+                fixture.context.dedupe.has(
+                  `${PENDING_CHAT_SEND_DEDUPE_PREFIX}${fixture.params.idempotencyKey}`,
+                ),
+              ).toBe(true),
+            );
+            linkEmail(email, target.id);
+            release.resolve();
+            await writer;
+          } else {
+            fixture.beforeApprove.mockImplementation(() => linkEmail(email, target.id));
+            request = fixture.send(undefined, { expectedProfileId: source.id });
+          }
           const respond = await request;
           expect(respond).toHaveBeenCalledExactlyOnceWith(
             false,
@@ -134,8 +139,9 @@ describe("native profile-bound input admission", () => {
     },
   );
 
-  it("terminalizes a native account merge during dispatch transcript approval without rewriting the ACK", async () => {
+  it("terminalizes a native command account merge during fresh transcript approval without rewriting the ACK", async () => {
     const fixture = await createBrowserFollowupFixture({ persistDuringDispatch: true });
+    fixture.params.message = "/context list";
     const email = "native-approval@example.test";
     const source = ensureProfileForEmail(email);
     const target = ensureProfileForEmail("native-approval-target@example.test");
@@ -351,7 +357,7 @@ describe("native profile-bound input admission", () => {
         release.resolve();
         const respond = await request;
         if (change === "same profile") {
-          expect(enqueued).toHaveBeenCalledExactlyOnceWith(fixture.params.message);
+          expect(enqueued).toHaveBeenCalledExactlyOnceWith(fixture.approvedContent);
           expect(respond.mock.calls[0]?.[1]).toMatchObject({ status: "started" });
         } else {
           expect.soft(enqueued).not.toHaveBeenCalled();

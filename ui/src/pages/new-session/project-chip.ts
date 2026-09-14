@@ -6,11 +6,14 @@ import type {
 } from "../../../../packages/gateway-protocol/src/index.js";
 import { icons } from "../../components/icons.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import { renderSessionMenuItem } from "./cloud-target.ts";
 import { folderDisplayName, parentFolderDisplayName } from "./path.ts";
 import type { PlaceBrowserState } from "./place-browser-state.ts";
 import { renderPlaceBrowser } from "./place-browser.ts";
 import { disambiguate } from "./place-labels.ts";
+
+registerNewSessionSetupEnglish();
 
 /** Detects pasted clone URLs; the Gateway remains authoritative for host validation. */
 export function projectCloneInput(value: string): string | null {

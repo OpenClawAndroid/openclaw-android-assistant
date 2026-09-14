@@ -21,7 +21,10 @@ import {
   openSessionEntryReadView,
   upsertSessionEntryCore,
 } from "./session-accessor.js";
-import { readSessionEntryCache } from "./session-accessor.sqlite-entry-cache.js";
+import {
+  captureSessionEntryCacheRead,
+  readSessionEntryCache,
+} from "./session-accessor.sqlite-entry-cache.js";
 import {
   readSessionEntryCount,
   iterateSessionEntryKeys,
@@ -122,6 +125,74 @@ function createSessionScope(label: string) {
     projection: "list" as const,
   };
 }
+
+describe("exact session entry read lifetimes", () => {
+  it("keeps a selected read through sibling writes and full-list expansion", async () => {
+    const scope = createSessionScope("selected-read");
+    const sibling = { ...scope, sessionKey: "agent:main:unrelated" };
+    await upsertSessionEntryCore(scope, { sessionId: "selected", label: "A", updatedAt: 1 });
+    await upsertSessionEntryCore(sibling, { sessionId: "other", label: "B", updatedAt: 1 });
+    const database = openOpenClawAgentDatabase(scope);
+    parseSessionEntryCalls.mockClear();
+    const read = captureSessionEntryCacheRead(database, scope.sessionKey);
+    try {
+      expect(read.entry).toMatchObject({ sessionId: "selected", label: "A" });
+      expect(parseSessionEntryCalls).not.toHaveBeenCalled();
+      await upsertSessionEntryCore(sibling, { label: "renamed B" });
+      expect(read.isCurrent()).toBe(true);
+      expect(
+        readSessionEntryCache(database, { cache: true }).entries.get(sibling.sessionKey),
+      ).toMatchObject({ label: "renamed B" });
+      expect(read.isCurrent()).toBe(true);
+      await upsertSessionEntryCore(scope, { label: "changed A" });
+      expect(read.isCurrent()).toBe(false);
+    } finally {
+      read.release();
+    }
+    expect(read.isCurrent()).toBe(false);
+  });
+
+  it.each(["same connection", "other connection"])(
+    "rejects delete/recreate with identical rows on %s",
+    async (writer) => {
+      const scope = createSessionScope("selected-read-aba");
+      await upsertSessionEntryCore(scope, { sessionId: "same-id", label: "A", updatedAt: 1 });
+      const database = openOpenClawAgentDatabase(scope);
+      const read = captureSessionEntryCacheRead(database, scope.sessionKey);
+      const connection =
+        writer === "same connection" ? database.db : new DatabaseSync(database.path);
+      try {
+        connection.exec("CREATE TEMP TABLE saved_node AS SELECT * FROM session_nodes;");
+        connection.prepare("DELETE FROM session_nodes WHERE session_key = ?").run(scope.sessionKey);
+        connection.exec("INSERT INTO session_nodes SELECT * FROM saved_node;");
+        expect(read.isCurrent()).toBe(false);
+        expect(loadSessionEntry(scope)).toMatchObject(read.entry!);
+      } finally {
+        read.release();
+        if (connection !== database.db) {
+          connection.close();
+        }
+      }
+    },
+  );
+
+  it("keeps concurrent missing-row reads until creation and releases independently", async () => {
+    const scope = createSessionScope("selected-missing");
+    const database = openOpenClawAgentDatabase(scope);
+    const first = captureSessionEntryCacheRead(database, scope.sessionKey);
+    const second = captureSessionEntryCacheRead(database, scope.sessionKey);
+    try {
+      expect(first.entry).toBeUndefined();
+      first.release();
+      expect(second.isCurrent()).toBe(true);
+      await upsertSessionEntryCore(scope, { sessionId: "created", updatedAt: 1 });
+      expect(second.isCurrent()).toBe(false);
+    } finally {
+      first.release();
+      second.release();
+    }
+  });
+});
 
 describe("SQLite retained session window references", () => {
   it("reads retained candidate windows freshly and honors owner exclusions", () => {

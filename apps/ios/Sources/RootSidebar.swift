@@ -486,29 +486,9 @@ struct RootSidebar: View {
         VStack(spacing: 0) {
             self.separator
             HStack(spacing: 4) {
-                Button {
+                RootSidebarGatewayControl(fallbackName: self.gatewayName) {
                     self.selectSidebarDestination(.gateway)
-                } label: {
-                    HStack(spacing: 9) {
-                        // The agent card owns the healthy status; like the web
-                        // footer, a dot appears here only when degraded.
-                        if !self.isGatewayConnected {
-                            Circle()
-                                .fill(self.gatewayStatusColor)
-                                .frame(width: 8, height: 8)
-                                .accessibilityHidden(true)
-                        }
-                        Text(verbatim: self.gatewayName)
-                            .font(OpenClawType.subheadSemiBold)
-                            .lineLimit(1)
-                    }
-                    .frame(minHeight: 44, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(OpenClawSidebarPalette.text)
-                .accessibilityValue(self.gatewayStatusTitle)
 
                 Spacer(minLength: 4)
 
@@ -786,28 +766,6 @@ struct RootSidebar: View {
             if !trimmed.isEmpty { return trimmed }
         }
         return String(localized: "Connection")
-    }
-
-    private var gatewayStatusTitle: String {
-        switch GatewayStatusBuilder.build(appModel: self.appModel) {
-        case .connected: String(localized: "Online")
-        case .connecting: String(localized: "Connecting")
-        case .error: String(localized: "Needs attention")
-        case .disconnected: String(localized: "Offline")
-        }
-    }
-
-    private var isGatewayConnected: Bool {
-        GatewayStatusBuilder.build(appModel: self.appModel) == .connected
-    }
-
-    private var gatewayStatusColor: Color {
-        switch GatewayStatusBuilder.build(appModel: self.appModel) {
-        case .connected: OpenClawBrand.ok
-        case .connecting: OpenClawBrand.accent
-        case .error: OpenClawBrand.warn
-        case .disconnected: OpenClawSidebarPalette.muted
-        }
     }
 
     private func patchSession(

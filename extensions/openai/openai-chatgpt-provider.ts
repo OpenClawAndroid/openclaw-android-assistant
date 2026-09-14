@@ -567,7 +567,7 @@ async function runOpenAICodexDeviceCode(ctx: ProviderAuthContext) {
             title: "OpenAI Codex device code",
             code: userCode,
             expiresInMinutes,
-            message: deviceCodeMessage,
+            message: "Enter this one-time code on the sign-in page.",
           });
         } else {
           // The prompter note is the user-facing TTY fallback, so

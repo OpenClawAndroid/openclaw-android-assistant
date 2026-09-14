@@ -117,7 +117,6 @@ import {
 } from "../embedded-agent-runner/run/runtime-context-prompt.js";
 import {
   mapSandboxSkillEntriesForPrompt,
-  mapSandboxSkillUsagePaths,
   remapSkillReferencePaths,
   resolveSandboxSkillRuntimeInputs,
 } from "../embedded-agent-runner/sandbox-skills.js";
@@ -349,6 +348,7 @@ async function resolveCliSkillsPrompt(params: {
 
   const {
     skillsEligibility,
+    skillUsagePaths,
     skillsPromptWorkspaceDir,
     skillsSnapshot: skillsSnapshotForRun,
     skillsWorkspaceDir,
@@ -391,11 +391,7 @@ async function resolveCliSkillsPrompt(params: {
     skillsPromptWorkspaceDir,
   });
   return {
-    usagePaths: mapSandboxSkillUsagePaths({
-      paths: sandboxWorkspace.skillUsagePaths,
-      skillsWorkspaceDir,
-      skillsPromptWorkspaceDir,
-    }),
+    usagePaths: skillUsagePaths,
     prompt: await resolveSkillsPrompt({
       assertCurrent: params.assertCurrent,
       skillsSnapshot: skillsSnapshotForRun,

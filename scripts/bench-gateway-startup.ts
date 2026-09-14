@@ -32,6 +32,7 @@ import {
   STALLED_CATALOG_MODEL_ID,
   STALLED_CATALOG_PROVIDER_ID,
   summarizeNumbers,
+  summarizeTraceStats,
   type InitialProbeResult,
   type SummaryStats,
   validateCliArgs as validateGatewayBenchCliArgs,
@@ -401,23 +402,7 @@ Case ids:
 }
 
 function summarizeCase(benchCase: GatewayBenchCase, samples: GatewaySample[]): CaseResult {
-  const startupTraceKeys = new Set<string>();
-  for (const sample of samples) {
-    for (const key of Object.keys(sample.startupTrace)) {
-      startupTraceKeys.add(key);
-    }
-  }
-  const startupTrace: Record<string, SummaryStats> = {};
-  for (const key of [...startupTraceKeys].toSorted()) {
-    const stats = summarizeNumbers(
-      samples
-        .map((sample) => sample.startupTrace[key])
-        .filter((value): value is number => typeof value === "number"),
-    );
-    if (stats) {
-      startupTrace[key] = stats;
-    }
-  }
+  const startupTrace = summarizeTraceStats(samples, (sample) => sample.startupTrace);
   return {
     id: benchCase.id,
     name: benchCase.name,

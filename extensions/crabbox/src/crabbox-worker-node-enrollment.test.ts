@@ -65,6 +65,8 @@ const state = process.env.OPENCLAW_STATE_DIR;
 if (args[0] === "--version") {
   console.log("OpenClaw 2026.8.1");
 } else if (args[0] === "plugins" && args[1] === "enable") {
+  fs.appendFileSync(path.join(state, "activation.jsonl"), JSON.stringify({ runtimePublished: fs.existsSync(path.join(state, "runtime")) }) + "\\n");
+  if (${JSON.stringify(build)} === "activation-failed") process.exit(1);
   fs.appendFileSync(path.join(state, "enabled"), args[2] + "\\n");
 } else {
   process.title = "openclaw-connect";
@@ -453,6 +455,44 @@ describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
     expect(Object.keys(openCrabboxWarmImageStore().entries()[0]!.value.allocations)).toEqual([]);
   }, 60_000);
 
+  it.each(["file", "directory"] as const)(
+    "rejects an occupied runtime %s before plugin activation",
+    async (kind) => {
+      const { home, stateDir } = testHome();
+      fs.mkdirSync(stateDir, { recursive: true });
+      const pointer = path.join(stateDir, "runtime");
+      if (kind === "directory") {
+        fs.mkdirSync(pointer);
+      }
+      const retained = kind === "directory" ? path.join(pointer, "keep") : pointer;
+      fs.writeFileSync(retained, "retained fixture");
+      const { nodeBootstrap } = await serveArtifact(await packageFixture("occupied"));
+      const result = await enroll(home, nodeBootstrap);
+      expect(result).toMatchObject({
+        code: 1,
+        output: expect.stringContaining("runtime pointer is occupied"),
+      });
+      expect(fs.readFileSync(retained, "utf8")).toBe("retained fixture");
+      expect(fs.existsSync(path.join(stateDir, "activation.jsonl"))).toBe(false);
+      expect(fs.existsSync(path.join(stateDir, "node.pid"))).toBe(false);
+    },
+  );
+
+  it("leaves the runtime pointer unpublished when plugin activation fails", async () => {
+    const { home, stateDir } = testHome();
+    const { nodeBootstrap } = await serveArtifact(await packageFixture("activation-failed"));
+    const result = await enroll(home, nodeBootstrap);
+    expect(result).toMatchObject({
+      code: 1,
+      output: expect.stringContaining("could not enable plugin"),
+    });
+    expect(fs.existsSync(path.join(stateDir, "runtime"))).toBe(false);
+    expect(fs.existsSync(path.join(stateDir, "node.pid"))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(stateDir, "activation.jsonl"), "utf8"))).toEqual({
+      runtimePublished: false,
+    });
+  });
+
   it("rejects malformed forwarded credentials without disclosing their value", async () => {
     const { home } = testHome();
     const { nodeBootstrap, authorizations } = await serveArtifact(
@@ -594,6 +634,12 @@ describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
       JSON.parse(fs.readFileSync(path.join(path.dirname(launch.cli), "installed.json"), "utf8")),
     ).toEqual({ scriptsRan: true });
     expect(fs.readFileSync(path.join(stateDir, "enabled"), "utf8")).toBe("demo\n");
+    expect(JSON.parse(fs.readFileSync(path.join(stateDir, "activation.jsonl"), "utf8"))).toEqual({
+      runtimePublished: false,
+    });
+    expect(fs.realpathSync(path.join(stateDir, "runtime"))).toBe(
+      path.dirname(path.dirname(path.dirname(launch.cli))),
+    );
     expect(fs.readdirSync(stateDir).some((name) => name.startsWith("node-bootstrap-"))).toBe(false);
     expect(authorizations).toEqual([`Bearer ${nodeBootstrap.token}`]);
     stop();

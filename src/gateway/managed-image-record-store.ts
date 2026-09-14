@@ -172,6 +172,25 @@ export function listManagedImageRecordEntries(params: {
   }));
 }
 
+export function listManagedImageOriginalMediaIds(stateDir?: string): string[] {
+  const database = openOpenClawStateDatabase(stateDatabaseOptions(stateDir));
+  return executeSqliteQuerySync(
+    database.db,
+    getNodeSqliteKysely<ManagedImageRecordDatabase>(database.db)
+      .selectFrom("managed_outgoing_image_records")
+      // Preserve native integer decoding failures before destructive orphan cleanup.
+      .select([
+        "original_media_id",
+        "original_width",
+        "original_height",
+        "original_size_bytes",
+        "cleanup_pending",
+      ])
+      .orderBy("created_at", "desc")
+      .orderBy("attachment_id", "asc"),
+  ).rows.map((row) => row.original_media_id);
+}
+
 export function insertManagedImageRecord(record: ManagedImageRecord, stateDir?: string): void {
   runOpenClawStateWriteTransaction(({ db }) => {
     executeSqliteQuerySync(

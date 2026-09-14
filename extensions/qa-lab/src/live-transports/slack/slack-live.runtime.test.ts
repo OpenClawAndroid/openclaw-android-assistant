@@ -752,6 +752,20 @@ describe("Slack live QA runtime helpers", () => {
           messages,
         }),
       ).toContain("verified");
+
+      if (testCase.id === "slack-progress-commentary-omitted") {
+        expect(
+          verifyObserved({
+            finalMessage: { text: finalMarker, ts: "2.000000" },
+            messages: messages.map((message) => {
+              if (message.ts !== "1.500000") {
+                return message;
+              }
+              return Object.assign({}, message, { blockText: ["Exec — sleep 5"] });
+            }),
+          }),
+        ).toContain("verified");
+      }
     }
   });
 

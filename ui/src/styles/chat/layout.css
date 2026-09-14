@@ -610,15 +610,6 @@ openclaw-chat-page {
   min-width: 240px;
 }
 
-/* Extend only the scroll viewport behind the composer's own surface. The
-   bottom padding keeps resting content above the fade; the following
-   zero-height anchor keeps its original layout position. */
-.chat-main__conversation > .chat-thread {
-  margin-bottom: calc(
-    0px - var(--chat-composer-top-margin) - var(--chat-transcript-composer-underlap)
-  );
-}
-
 .chat-inline-approval {
   flex: 0 0 auto;
   width: calc(100% - 2 * var(--chat-thread-gutter) - 2 * var(--chat-thread-side-inset));
@@ -2120,6 +2111,7 @@ openclaw-chat-video-player {
 }
 
 .chat-pr {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2320,12 +2312,13 @@ button.chat-pr__diff {
   z-index: 30;
   right: 0;
   bottom: calc(100% + 8px);
-  min-width: 200px;
-  padding: 10px 12px;
+  width: 480px;
+  max-width: calc(100vw - 72px);
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel);
-  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.18));
+  box-shadow: var(--shadow-md);
   color: var(--text);
   font-size: 13px;
   font-weight: 500;
@@ -2349,7 +2342,7 @@ button.chat-pr__diff {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -2369,11 +2362,19 @@ button.chat-pr__diff {
   height: 14px;
 }
 
-.chat-pr__checks-row {
+.chat-pr__checks-counts {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+.chat-pr__checks-row {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px 0;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .chat-pr__checks-row-dot {
@@ -2400,12 +2401,223 @@ button.chat-pr__diff {
 }
 
 .chat-pr__checks-row-label {
-  flex: 1;
+  color: var(--muted);
 }
 
 .chat-pr__checks-row-count {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+openclaw-chat-ci-details {
+  display: block;
+  min-width: 0;
+}
+
+.chat-ci__jobs {
+  max-height: min(420px, 52dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.chat-ci__job {
+  min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.chat-ci__job-summary,
+.chat-ci__skipped > summary {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto 12px;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 4px;
+  border-radius: 5px;
+  color: var(--text);
+  cursor: var(--cursor-action);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  list-style: none;
+}
+
+.chat-ci__job-summary::-webkit-details-marker,
+.chat-ci__skipped > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-ci__job-summary::before,
+.chat-ci__skipped > summary::before {
+  content: none;
+}
+
+.chat-ci__job-summary:hover,
+.chat-ci__skipped > summary:hover {
+  background: var(--bg-hover);
+}
+
+.chat-ci__job-summary:focus-visible,
+.chat-ci__skipped > summary:focus-visible,
+.chat-ci__retry:focus-visible,
+.chat-ci__job-link:focus-visible,
+.chat-pr__checks-menu-header a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.chat-ci__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-ci__duration {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chat-ci__status,
+.chat-ci__chevron {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.chat-ci__status svg {
+  width: 15px;
+  height: 15px;
+}
+
+.chat-ci__chevron svg,
+.chat-ci__job-link svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chat-ci__status[data-state="passed"] {
+  color: var(--ok);
+}
+
+.chat-ci__status[data-state="failed"] {
+  color: var(--danger);
+}
+
+.chat-ci__status[data-state="running"],
+.chat-ci__status[data-state="queued"] {
+  color: var(--warn);
+}
+
+.chat-ci__job[open] > summary .chat-ci__chevron,
+.chat-ci__skipped[open] > summary .chat-ci__chevron {
+  transform: rotate(180deg);
+}
+
+.chat-ci__job-detail {
+  padding: 0 24px 10px;
+}
+
+.chat-ci__steps {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-ci__step {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.chat-ci__step[data-state="failed"] {
+  color: var(--text);
+}
+
+.chat-ci__job-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chat-ci__job-link:hover {
+  color: var(--text);
+}
+
+.chat-ci__empty-steps {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.chat-ci__skipped > summary {
+  grid-template-columns: 16px minmax(0, 1fr) 12px;
+  color: var(--muted);
+}
+
+.chat-ci__notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.chat-ci__notice > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-ci__retry {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: var(--cursor-action);
+  font: inherit;
+}
+
+.chat-ci__retry:disabled {
+  opacity: 0.5;
+}
+
+@media (max-width: 560px) {
+  .chat-pr__checks {
+    position: static;
+  }
+
+  .chat-pr__checks-menu {
+    right: 0;
+    width: min(480px, calc(100vw - 36px));
+    max-width: 100%;
+  }
+
+  .chat-pr__checks-menu::after {
+    right: 52px;
+  }
+
+  .chat-ci__job-detail {
+    padding-right: 4px;
+  }
 }
 
 .chat-pr__state {
@@ -2539,33 +2751,6 @@ button.chat-pr__diff {
 
     margin-inline: 6px;
   }
-}
-
-/* Input-affecting notices belong to the composer owner but not its layout.
-   One absolute lane keeps model, placement, voice and lifecycle feedback on
-   the same axis without changing transcript or composer geometry. */
-.agent-chat__composer-overlay {
-  position: absolute;
-  z-index: 24;
-  inset-inline: 0;
-  bottom: calc(100% + var(--chat-composer-shell-gap));
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  pointer-events: none;
-}
-
-.agent-chat__composer-overlay:empty {
-  display: none;
-}
-
-/* Reserve notice height beside publication controls instead of covering them. */
-.chat-prs:has(.chat-pr__create) ~ .agent-chat__composer-shell .agent-chat__composer-overlay {
-  position: static;
-}
-
-.agent-chat__composer-overlay > * {
-  pointer-events: auto;
 }
 
 .agent-chat__composer-overlay
@@ -2768,10 +2953,6 @@ button.chat-pr__diff {
 }
 
 @media (max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
-  .chat-main__conversation {
-    --chat-composer-top-margin: 6px;
-  }
-
   .chat-main__conversation
     > .agent-chat__composer-shell:not(:has(> .agent-chat__progress-float))::before,
   .chat-main__conversation

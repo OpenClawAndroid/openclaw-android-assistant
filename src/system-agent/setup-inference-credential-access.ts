@@ -1,9 +1,14 @@
+import { isDeepStrictEqual } from "node:util";
 import { getRuntimeAuthProfileStoreCredentialsRevision } from "../agents/auth-profiles/runtime-snapshots.js";
 import {
   withSetupCredentialAccess,
   type SetupRuntimeCredential,
 } from "../agents/auth-profiles/setup-access.js";
-import { loadAuthProfileStoreWithoutExternalProfiles } from "../agents/auth-profiles/store-runtime.js";
+import {
+  loadAuthProfileStoreWithoutExternalProfiles,
+  updateAuthProfileStoreWithLock,
+} from "../agents/auth-profiles/store-runtime.js";
+import { resolvePersistedAuthProfileOwnerAgentDir } from "../agents/auth-profiles/store.js";
 import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
 import { coerceSecretRef } from "../config/types.secrets.js";
 import { isMissingSecretRefResolutionError } from "../secrets/resolve-errors.js";
@@ -14,7 +19,6 @@ import {
   type StageContext,
   type StagedCandidate,
 } from "./setup-inference-core.js";
-import { activateSavedSetupCredential } from "./setup-inference-credentials.js";
 
 /** Prepares one selected account without publishing a candidate runtime. */
 export async function withPreparedSetupCredentialAccess(
@@ -95,6 +99,36 @@ export async function withPreparedSetupCredentialAccess(
       verify(runtimeCredential),
     );
   });
+}
+
+export async function activateSavedSetupCredential(params: {
+  agentDir: string;
+  stateDir?: string;
+  profileId: string;
+  credential: AuthProfileCredential;
+  beforeWrite?: () => void;
+}): Promise<void> {
+  if (!params.credential.setup) {
+    return;
+  }
+  const updated = await updateAuthProfileStoreWithLock({
+    agentDir: params.stateDir ? params.agentDir : resolvePersistedAuthProfileOwnerAgentDir(params),
+    stateDir: params.stateDir,
+    updater: (store) => {
+      params.beforeWrite?.();
+      const current = store.profiles[params.profileId];
+      if (!current || !isDeepStrictEqual(current, params.credential)) {
+        throw new Error(
+          "The saved sign-in changed before activation. Test it again in Model Setup.",
+        );
+      }
+      delete current.setup;
+      return true;
+    },
+  });
+  if (!updated) {
+    throw new Error("The saved sign-in is still inactive. Retry activation in Model Setup.");
+  }
 }
 
 /** Revalidates and activates the original prepared owner after runtime application. */

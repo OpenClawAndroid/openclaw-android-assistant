@@ -9,6 +9,7 @@ import { tryResolveAmbientOwnerAgentId } from "../../agents/agent-scope-config.j
 import { PreparedModelRuntimePublicationSupersededError } from "../../agents/prepared-model-runtime.errors.js";
 import { ModelAccountConnectAuthorityError } from "../model-account-connect.js";
 import { resolveAgentIdOrRespondError } from "./agent-id-shared.js";
+import type { ChatMetadataReadParams } from "./chat-metadata-contract.js";
 import { resolveChatMetadataReadParams } from "./chat-metadata-handler.js";
 import { projectSessionModelCatalog } from "./chat-metadata-session-projection.js";
 import { buildModelsListResult } from "./models-list-result.js";
@@ -24,9 +25,10 @@ export const modelsHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateModelsListParams, "models.list", respond)) {
       return;
     }
+    let scope: ChatMetadataReadParams | undefined;
     try {
       const scoped = Boolean(params.sessionKey || params.authProfileId);
-      const scope = scoped ? resolveChatMetadataReadParams(options, params) : undefined;
+      scope = scoped ? resolveChatMetadataReadParams(options, params) : undefined;
       if (scoped && !scope) {
         return;
       }
@@ -50,11 +52,7 @@ export const modelsHandlers: GatewayRequestHandlers = {
         ...(scope ? { readScope: scope } : {}),
       });
       scope?.draftAccountSelection?.assertCurrent();
-      if (scope?.isCurrent?.() === false) {
-        throw new PreparedModelRuntimePublicationSupersededError(
-          "Session changed while preparing its model catalog. Retry the request.",
-        );
-      }
+      scope?.assertCurrent?.();
       respond(
         true,
         scope && params.view !== "provider-config"
@@ -66,10 +64,20 @@ export const modelsHandlers: GatewayRequestHandlers = {
         undefined,
       );
     } catch (error) {
+      if (error instanceof PreparedModelRuntimePublicationSupersededError) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, error.message, { retryable: true, retryAfterMs: 0 }),
+        );
+        return;
+      }
       if (!(error instanceof ModelAccountConnectAuthorityError)) {
         throw error;
       }
       respond(false, undefined, errorShape(ErrorCodes.FORBIDDEN, error.message));
+    } finally {
+      scope?.release?.();
     }
   },
 };

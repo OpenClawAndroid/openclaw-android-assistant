@@ -27,11 +27,13 @@ import {
   type PublicationSourceFact,
 } from "../../scripts/full-release-publication-contract.mjs";
 import { resolveReleaseContextIdentity } from "../../scripts/lib/release-context.mjs";
+import { requireNodeTool } from "../helpers/node-toolchain.js";
 import { writePublishablePluginFixture } from "../helpers/publishable-plugin-fixture.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const temps = useAutoCleanupTempDirTracker(afterEach);
 const repo = resolve(".");
+const nodeExecutable = realpathSync(requireNodeTool("node"));
 const workflowPath = ".github/workflows/full-release-validation.yml";
 type Step = {
   name: string;
@@ -1180,7 +1182,7 @@ globalThis.Date = class extends OriginalDate {
   }
   if (workerBoundary) {
     expect(workerBoundary).toMatchObject({
-      executable: process.execPath,
+      executable: nodeExecutable,
       args: ["--import", pathToFileURL(join(tooling, "scripts/tsx.mjs")).href],
       cwd: tooling,
       snapshotPresent: true,
@@ -1194,6 +1196,7 @@ globalThis.Date = class extends OriginalDate {
         "LANG",
         "LC_ALL",
         "TSX_DISABLE_CACHE",
+        ...(process.platform === "darwin" ? ["__CF_USER_TEXT_ENCODING"] : []),
       ].toSorted(),
     });
     for (const path of [

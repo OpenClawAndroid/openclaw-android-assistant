@@ -1473,8 +1473,10 @@ describe("gateway server chat", () => {
             (o) =>
               o.type === "event" &&
               o.event === "sessions.changed" &&
-              o.payload?.reason === "chat.dispatch-error" &&
-              o.payload?.sessionKey === "agent:main:main",
+              o.payload?.sessionKey === "agent:main:main" &&
+              o.payload?.status === "failed" &&
+              o.payload?.lastRunId === "idem-dispatch-error-1" &&
+              o.payload?.hasActiveRun === false,
             8_000,
           );
           messagePromises.push(sessionChangedPromise);
@@ -3027,7 +3029,7 @@ describe("gateway server chat", () => {
     await withMainSessionStore(async () => {
       const runId = "idem-wait-chat-active-vs-stale-agent";
       const seedAgentRes = await rpcReq(ws, "agent", {
-        sessionKey: "main",
+        sessionKey: "agent:main:stale-wait-snapshot",
         message: "seed stale agent snapshot",
         idempotencyKey: runId,
       });

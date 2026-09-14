@@ -98,7 +98,12 @@ async function withCronStore(
   }
 }
 
-async function listScoped(context: GatewayRequestContext, offset = 0) {
+async function listScoped(
+  context: GatewayRequestContext,
+  offset = 0,
+  sessionKey?: string,
+  client: GatewayClient | null = scopedClient(),
+) {
   const respond = vi.fn();
   await expectDefined(
     cronHandlers["cron.list"],
@@ -108,12 +113,13 @@ async function listScoped(context: GatewayRequestContext, offset = 0) {
     params: {
       includeDisabled: true,
       includeDeliveryPreviews: false,
+      ...(sessionKey ? { sessionKey, sessionAgentId: "ops" } : {}),
       sortBy: "name",
       limit: 1,
       offset,
     },
     context,
-    client: scopedClient(),
+    client,
     respond,
     isWebchatConnect: () => false,
   });
@@ -130,6 +136,29 @@ async function listScoped(context: GatewayRequestContext, offset = 0) {
 }
 
 describe("cron.list scoped SQLite snapshots", () => {
+  it("filters session bindings before pagination without widening caller visibility", async () => {
+    await withCronStore(401, async ({ context, storePath }) => {
+      const store = await loadCronStore(storePath);
+      const sessionKey = "agent:ops:night-watch";
+      for (const index of [0, 1, 200]) {
+        store.jobs[index]!.sessionKey = sessionKey;
+      }
+      await saveCronStore(storePath, store);
+      const page = await listScoped(context, 0, sessionKey);
+      expect(page.total).toBe(2);
+      expect(page.jobs.map((job) => job.id)).toEqual(["job-0000"]);
+      expect((await listScoped(context, 1, sessionKey)).jobs.map((job) => job.id)).toEqual([
+        "job-0200",
+      ]);
+      expect((await listScoped(context, 0, "agent:ops:missing")).total).toBe(0);
+      // A user with inventory access also sees jobs run by another agent but bound here.
+      expect((await listScoped(context, 0, sessionKey, null)).total).toBe(3);
+      expect((await listScoped(context, 1, sessionKey, null)).jobs.map((job) => job.id)).toEqual([
+        "job-0001",
+      ]);
+    });
+  });
+
   it.each([200, 201, 401])(
     "bounds sorting work while finding visible jobs across a %i-job inventory",
     async (count) => {

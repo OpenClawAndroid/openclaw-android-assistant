@@ -10,6 +10,13 @@ const relativePath = "nested/file.txt";
 const writeRoutes = {
   write: async (rootDir: string) => (await root(rootDir)).write(relativePath, "next"),
   create: async (rootDir: string) => (await root(rootDir)).create(relativePath, "next"),
+  createStream: async (rootDir: string) =>
+    (await root(rootDir)).create(
+      relativePath,
+      (async function* () {
+        yield Buffer.from("next");
+      })(),
+    ),
   writeJson: async (rootDir: string) =>
     (await root(rootDir)).writeJson(relativePath, { next: true }),
   createJson: async (rootDir: string) =>

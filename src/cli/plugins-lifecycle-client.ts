@@ -7,7 +7,6 @@ import type {
   PluginsInspectResult,
   PluginsReloadResult,
 } from "../../packages/gateway-protocol/src/schema/plugins.js";
-import { callGateway } from "../gateway/call.js";
 import { readActiveGatewayLockIdentity } from "../infra/gateway-lock.js";
 import type { PluginCapabilityConsentHandler } from "../plugins/capability-consent.js";
 import type { PluginInstallBatchReload } from "../plugins/install-runtime-batch.js";
@@ -44,6 +43,7 @@ export async function resolvePluginLifecycleGateway(): Promise<PluginLifecycleGa
   if (!owner) {
     return null;
   }
+  const { callGateway } = await import("../gateway/call.js");
   const request = <T>(method: string, params: Record<string, unknown>) =>
     callGateway<T>({
       method,

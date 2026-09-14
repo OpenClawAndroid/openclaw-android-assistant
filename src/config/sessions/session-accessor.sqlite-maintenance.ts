@@ -367,13 +367,6 @@ export function applySessionEntryMaintenance(
     params.activeSessionKey ?? "",
     ...(params.activeSessionKeys ?? []),
   ]);
-  const keyProjection = readSessionMaintenanceKeyProjection(database);
-  const preserveKeys =
-    collectSessionMaintenancePreserveKeysForStore({
-      storePath: params.storePath,
-      store: keyProjection,
-      baseKeys: collectSqliteSessionMaintenanceBaseKeys(keyProjection, activeSessionKeys),
-    }) ?? new Set<string>();
   const removalReasons = new Map<
     string,
     NonNullable<SessionEntryMaintenancePlan["entryRemovals"][number]["maintenanceReason"]>
@@ -385,7 +378,14 @@ export function applySessionEntryMaintenance(
       maintenance,
       initialUnarchivedCount: entryCount,
       forceMaintenance: params.forceMaintenance,
-      preserveKeys,
+      readPreserveKeys: () => {
+        const keyProjection = readSessionMaintenanceKeyProjection(database);
+        return collectSessionMaintenancePreserveKeysForStore({
+          storePath: params.storePath,
+          store: keyProjection,
+          baseKeys: collectSqliteSessionMaintenanceBaseKeys(keyProjection, activeSessionKeys),
+        });
+      },
       log: false,
       readAgeCandidates: (minimumAgeMs) =>
         readSessionMaintenanceAgeCandidates({ database, minimumAgeMs }),

@@ -7,6 +7,7 @@ import { withFileLock } from "openclaw/plugin-sdk/file-lock";
 import {
   MATRIX_IDB_SNAPSHOT_FILENAME,
   readMatrixIdbSnapshotJson,
+  type MatrixSyncStateRuntime,
   writeMatrixIdbSnapshotJson,
 } from "../crypto-state-store.js";
 import { MATRIX_IDB_SNAPSHOT_LOCK_OPTIONS } from "./idb-persistence-lock.js";
@@ -258,7 +259,10 @@ function resolveDefaultIdbSnapshotPath(): string {
 }
 
 // Production callers pass MatrixStoragePaths.idbSnapshotPath; explicit paths only isolate tests.
-export async function restoreIdbFromDisk(snapshotPath?: string): Promise<boolean> {
+export async function restoreIdbFromDisk(
+  snapshotPath?: string,
+  stateRuntime?: MatrixSyncStateRuntime,
+): Promise<boolean> {
   const resolvedPath = snapshotPath ?? resolveDefaultIdbSnapshotPath();
   const storageRootDir = path.dirname(resolvedPath);
   let callbackStarted = false;
@@ -268,7 +272,7 @@ export async function restoreIdbFromDisk(snapshotPath?: string): Promise<boolean
       callbackStarted = true;
       let storedSnapshotJson: string | null;
       try {
-        storedSnapshotJson = readMatrixIdbSnapshotJson(storageRootDir);
+        storedSnapshotJson = readMatrixIdbSnapshotJson(storageRootDir, stateRuntime);
       } catch (err) {
         if (fs.existsSync(resolvedPath)) {
           throwLegacySnapshotMigrationRequired();
@@ -308,6 +312,7 @@ export async function persistIdbToDisk(params?: {
   databasePrefix?: string;
   strict?: boolean;
   abortSignal?: AbortSignal;
+  stateRuntime?: MatrixSyncStateRuntime;
 }): Promise<void> {
   const snapshotPath = params?.snapshotPath ?? resolveDefaultIdbSnapshotPath();
   let callbackStarted = false;
@@ -322,7 +327,7 @@ export async function persistIdbToDisk(params?: {
         const storageRootDir = path.dirname(snapshotPath);
         let storedSnapshotJson: string | null;
         try {
-          storedSnapshotJson = readMatrixIdbSnapshotJson(storageRootDir);
+          storedSnapshotJson = readMatrixIdbSnapshotJson(storageRootDir, params?.stateRuntime);
         } catch (err) {
           if (fs.existsSync(snapshotPath)) {
             throwLegacySnapshotMigrationRequired();
@@ -338,6 +343,7 @@ export async function persistIdbToDisk(params?: {
           storageRootDir,
           snapshotJson: JSON.stringify(snapshot),
           databaseCount: snapshot.length,
+          stateRuntime: params?.stateRuntime,
         });
         return snapshot.length;
       },

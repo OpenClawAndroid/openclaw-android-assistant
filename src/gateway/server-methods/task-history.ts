@@ -8,7 +8,11 @@ import {
   type ErrorCode,
   type TasksHistoryResult,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { resolveSessionStorePathCore } from "../../config/sessions/paths.js";
+import { resolveTranscriptSessionKeyBySessionId } from "../../config/sessions/session-accessor.js";
+import { cronTaskRecordToRunLogEntry } from "../../cron/task-run-detail.js";
 import { parseAgentSessionKey } from "../../routing/session-key.js";
+import { parseCronRunScopeSuffix } from "../../sessions/session-key-utils.js";
 import { getTaskById } from "../../tasks/runtime-internal.js";
 import { resolveTaskHistoryHarness, taskTranscriptSessionKey } from "../../tasks/task-history.js";
 import type { TaskRecord } from "../../tasks/task-registry.types.js";
@@ -31,6 +35,7 @@ function historyBinding(task: TaskRecord): string {
         task.requesterAgentId,
         task.requesterSessionKey,
         task.ownerKey,
+        cronTaskRecordToRunLogEntry(task)?.sessionId,
         taskTranscriptSessionKey(task) ? null : task.detail,
       ]),
     )
@@ -93,6 +98,14 @@ export const taskHistoryHandler: GatewayRequestHandler = async (opts) => {
   }
   const harness = resolveTaskHistoryHarness(task);
   let active = true;
+  let retainedTranscript:
+    | {
+        agentId: string | undefined;
+        sessionId: string;
+        storePath: string;
+        sessionKey: string;
+      }
+    | undefined;
   const assertCurrent = () => {
     const current = getTaskById(task.taskId);
     if (
@@ -100,7 +113,13 @@ export const taskHistoryHandler: GatewayRequestHandler = async (opts) => {
       opts.signal?.aborted ||
       !allowed(current) ||
       historyBinding(current) !== binding ||
-      (!sessionKey && resolveTaskHistoryHarness(current) !== harness)
+      (!sessionKey && resolveTaskHistoryHarness(current) !== harness) ||
+      (retainedTranscript &&
+        (resolveSessionStorePathCore(context.getRuntimeConfig().session?.store, {
+          agentId: retainedTranscript.agentId,
+        }) !== retainedTranscript.storePath ||
+          resolveTranscriptSessionKeyBySessionId(retainedTranscript) !==
+            retainedTranscript.sessionKey))
     ) {
       throw new Error("Task history access changed");
     }
@@ -128,16 +147,39 @@ export const taskHistoryHandler: GatewayRequestHandler = async (opts) => {
   try {
     const limit = params.limit ?? 100;
     if (sessionKey) {
-      const { chatHistoryHandlers } = await import("./chat-history-handler.js");
+      const { chatHistoryHandlers, handleChatHistoryRequest } =
+        await import("./chat-history-handler.js");
       assertCurrent();
       const childAgentId = parseAgentSessionKey(sessionKey)?.agentId ?? task.agentId;
-      await expectDefined(
-        chatHistoryHandlers["chat.history"],
-        "chat history handler",
-      )({
+      const cronRun = cronTaskRecordToRunLogEntry(task);
+      const retainedSessionId = cronRun?.sessionId;
+      if (cronRun && !retainedSessionId) {
+        throw new Error("The task has no recorded transcript generation");
+      }
+      let historySessionKey = sessionKey;
+      if (retainedSessionId) {
+        const readScope = {
+          agentId: childAgentId,
+          sessionId: retainedSessionId,
+          storePath: resolveSessionStorePathCore(context.getRuntimeConfig().session?.store, {
+            agentId: childAgentId,
+          }),
+        };
+        const ownerKey = resolveTranscriptSessionKeyBySessionId(readScope);
+        const { baseSessionKey } = parseCronRunScopeSuffix(sessionKey);
+        if (!ownerKey || (ownerKey !== sessionKey && ownerKey !== baseSessionKey)) {
+          throw new Error("The recorded task transcript is unavailable");
+        }
+        retainedTranscript = { ...readScope, sessionKey: ownerKey };
+        historySessionKey = ownerKey;
+      }
+      const readHistory: GatewayRequestHandler = retainedSessionId
+        ? (args) => handleChatHistoryRequest({ ...args, method: "chat.history", retainedSessionId })
+        : expectDefined(chatHistoryHandlers["chat.history"], "chat history handler");
+      await readHistory({
         ...opts,
         params: {
-          sessionKey,
+          sessionKey: historySessionKey,
           ...(childAgentId ? { agentId: childAgentId } : {}),
           limit,
           offset,

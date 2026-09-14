@@ -3,7 +3,10 @@ import { bufferToBlobPart } from "openclaw/plugin-sdk/blob-runtime";
 import { createChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
 import { collectErrorGraphCandidates } from "openclaw/plugin-sdk/error-runtime";
 import { buildTimeoutAbortSignal } from "openclaw/plugin-sdk/extension-shared";
-import { responseWithRelease } from "openclaw/plugin-sdk/fetch-runtime";
+import {
+  captureChannelReadAuthority,
+  responseWithRelease,
+} from "openclaw/plugin-sdk/fetch-runtime";
 import { resolveTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import {
   readProviderJsonResponse,
@@ -204,6 +207,8 @@ export function createMattermostClient(params: {
     input: RequestInfo | URL,
     init?: MattermostRequestInit,
   ): Promise<Response> => {
+    const assertReadAuthority = captureChannelReadAuthority();
+    assertReadAuthority?.();
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const { timeoutMs: initTimeoutMs, ...requestInit } = init ?? {};
@@ -211,6 +216,7 @@ export function createMattermostClient(params: {
     const { response, release } = await fetchWithSsrFGuard({
       url,
       init: requestInit,
+      beforeRequest: assertReadAuthority,
       auditContext: "mattermost-api",
       policy: ssrfPolicyFromPrivateNetworkOptIn(params.allowPrivateNetwork),
       signal: requestInit.signal ?? undefined,
@@ -223,6 +229,8 @@ export function createMattermostClient(params: {
     | ((input: RequestInfo | URL, init?: MattermostRequestInit) => Promise<Response>)
     | undefined = externalFetchImpl
     ? async (input, init) => {
+        const assertReadAuthority = captureChannelReadAuthority();
+        assertReadAuthority?.();
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
         const { timeoutMs: initTimeoutMs, ...requestInit } = init ?? {};

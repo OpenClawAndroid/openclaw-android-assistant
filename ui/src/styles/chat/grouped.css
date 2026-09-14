@@ -2,31 +2,6 @@
    GROUPED CHAT LAYOUT (Slack-style)
    ============================================= */
 
-/* Chat Group Layout - default (assistant/other on left). Groups without a
-   footer keep the shared turn gap directly. Footer-bearing groups reserve that
-   gap in the footer row, which grows for wrapped metadata and touch controls
-   without subtracting an assumed footer height. */
-.chat-group {
-  --chat-avatar-column: 36px;
-  --chat-avatar-gap: 10px;
-  --chat-avatar-gutter: calc(var(--chat-avatar-column) + var(--chat-avatar-gap));
-  --chat-message-column-max: var(--chat-message-max-width, min(900px, 68%));
-  --chat-run-block-gap: 8px;
-  --chat-turn-gap: 28px;
-  display: flex;
-  gap: var(--chat-avatar-gap);
-  align-items: flex-start;
-  padding-bottom: var(--chat-turn-gap);
-  margin-inline: 4px 16px;
-}
-
-/* User messages on right */
-.chat-group.user {
-  --chat-user-content-align: end;
-  flex-direction: row-reverse;
-  justify-content: flex-start;
-}
-
 .chat-group.user.chat-group--peer {
   --chat-user-content-align: start;
   /* The left-aligned identity owns the leading edge while hidden details
@@ -95,19 +70,6 @@
   max-width: none;
 }
 
-.chat-group-messages {
-  --chat-message-type-boundary-gap: var(--space-1);
-  position: relative; /* anchors message-local popovers */
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1 1 auto;
-  align-items: flex-start;
-  width: 100%;
-  max-width: var(--chat-message-column-max);
-  min-width: 0;
-}
-
 .chat-group-messages
   > :is(
     .chat-bubble--tool-shell + .chat-bubble:not(.chat-bubble--tool-shell),
@@ -129,11 +91,6 @@
     .chat-activity-group + .chat-work-group
   ) {
   margin-block-start: calc(var(--chat-run-block-gap) - 2px);
-}
-
-/* Content follows the same side as the participant's bubble. */
-.chat-group.user .chat-group-messages {
-  align-items: var(--chat-user-content-align);
 }
 
 .chat-group.tool {
@@ -241,7 +198,9 @@
 /* Own-message footers are right-aligned, so hover-revealed time/actions must
    slot in to the LEFT of the always-visible name; otherwise the name jumps
    sideways on hover. */
-.chat-group.user:not(.chat-group--peer) .chat-group-footer--persistent-identity .chat-sender-name {
+.chat-group.user:not(.chat-group--peer)
+  .chat-group-footer--persistent-identity
+  :is(.chat-sender-name, .chat-message-source) {
   order: 1;
 }
 
@@ -284,6 +243,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chat-message-source {
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chat-send-status {
@@ -621,23 +587,6 @@
   color: inherit;
 }
 
-/* Avatar Styles. Identity avatars are circles everywhere (sidebar, pickers,
-   profile, native apps); square tiles expose opaque avatar corners. */
-.chat-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-full);
-  background: var(--panel-strong);
-  display: grid;
-  place-items: center;
-  font-weight: 600;
-  font-size: 13px;
-  flex-shrink: 0;
-  align-self: flex-end;
-  margin-bottom: 4px;
-  border: 1px solid var(--border);
-}
-
 .chat-avatar.user {
   background: var(--accent-subtle);
   color: var(--accent);
@@ -694,22 +643,6 @@ img.chat-avatar {
   object-position: center;
 }
 
-/* Minimal Bubble Design - dynamic width based on content */
-.chat-bubble {
-  position: relative;
-  display: block;
-  border: 1px solid transparent;
-  background: var(--card);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  box-shadow: none;
-  transition: border-color var(--duration-fast) ease-out;
-  width: auto;
-  max-width: 100%;
-  min-width: 0;
-  overflow-wrap: break-word;
-}
-
 :is(.chat-thread, .chat-session-rail__thread) .chat-bubble {
   letter-spacing: 0; /* Custodian shares .chat-bubble but keeps the application-wide tracking. */
 }
@@ -750,23 +683,6 @@ img.chat-avatar {
   box-shadow: none;
 }
 
-/* Assistant replies render as a flat text stream; user and forwarded messages
-   keep bubble cards. Border collapses to 0 so the streaming border pulse and hover
-   outline become no-ops without extra rules. */
-.chat-group.assistant {
-  --chat-message-column-max: var(
-    --chat-message-max-width,
-    min(980px, calc(100% - var(--chat-avatar-gutter)))
-  );
-}
-
-.chat-group.assistant .chat-bubble {
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .chat-group.assistant.chat-group--forwarded .chat-bubble {
   width: fit-content;
   padding: 13px 16px;
@@ -786,19 +702,6 @@ img.chat-avatar {
    exactly where it punched. Direct threads have no avatar indent to match. */
 .chat-group--working .chat-group-messages {
   padding-inline-start: var(--chat-avatar-gutter);
-}
-
-/* Direct (1:1) threads drop avatars entirely: one agent plus one user makes
-   the repeated identity icons pure decoration. Group threads (any labeled
-   foreign sender) keep avatars as the always-visible identity marker. */
-.chat-thread--direct :is(.chat-avatar, .chat-avatar-slot) {
-  display: none;
-}
-
-.chat-thread--direct .chat-group {
-  --chat-avatar-column: 0px;
-  --chat-avatar-gap: 0px;
-  margin-inline: 0;
 }
 
 .chat-duplicate-count {
@@ -1363,25 +1266,8 @@ img.chat-avatar {
 }
 
 @media (max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
-  .chat-group {
-    --chat-avatar-column: 0px;
-    --chat-avatar-gap: 0px;
-    --chat-message-column-max: 82%;
-    margin-inline: 0;
-  }
-
-  .chat-group :is(.chat-avatar, .chat-avatar-slot) {
-    display: none;
-  }
-
   /* Peer names carry identity when narrow rows have no avatar column. */
   .chat-group.user.chat-group--peer {
     --chat-persistent-footer-opacity: 1;
-  }
-}
-
-@media (max-width: 400px) {
-  .chat-group {
-    --chat-message-column-max: 88%;
   }
 }

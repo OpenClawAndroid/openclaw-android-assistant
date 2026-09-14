@@ -1,6 +1,9 @@
 // Control UI tests cover the canonical installed-plugin administration surface.
 import path from "node:path";
+import { asRecord } from "@openclaw/normalization-core/record-coerce";
 import { beforeEach, expect, it } from "vitest";
+import { loadPluginManifest, PLUGIN_MANIFEST_FILENAME } from "../../../src/plugins/manifest.ts";
+import { resolveBundledPluginPublicModulePath } from "../../../src/test-utils/bundled-plugin-public-surface.ts";
 import type {
   PluginCatalogItem,
   PluginListResult,
@@ -366,6 +369,213 @@ async function openWorkboard(page: Parameters<typeof waitForControlUiRoute>[0], 
 }
 
 suite.define(() => {
+  it.each<{
+    pluginId: string;
+    name: string;
+    section: string;
+    sectionLabel: string;
+    label: string;
+    referenceLabel: string;
+    readOnly: boolean;
+    pluginConfig: Record<string, Record<string, unknown>>;
+  }>([
+    ...[false, true].map((readOnly) => ({
+      pluginId: "brave",
+      name: "Brave",
+      section: "webSearch",
+      sectionLabel: "Web Search",
+      label: "Brave Search API Key",
+      referenceLabel: "Brave Search Base URL",
+      readOnly,
+      pluginConfig: {
+        webSearch: {
+          baseUrl: { source: "env", provider: "default", id: "BRAVE_PROXY_URL" },
+          mode: "web",
+        },
+      },
+    })),
+    {
+      pluginId: "firecrawl",
+      name: "Firecrawl",
+      section: "webFetch",
+      sectionLabel: "Web Fetch",
+      label: "Firecrawl Fetch API Key",
+      referenceLabel: "Firecrawl Search API Key",
+      readOnly: false,
+      pluginConfig: {
+        webSearch: { apiKey: { source: "env", provider: "default", id: "FIRECRAWL_API_KEY" } },
+        webFetch: { onlyMainContent: true, timeoutSeconds: 20 },
+      },
+    },
+  ])(
+    "edits $name string/object credentials and preserves settings (readOnly=$readOnly)",
+    async ({
+      pluginId,
+      name,
+      section,
+      sectionLabel,
+      label,
+      referenceLabel,
+      readOnly,
+      pluginConfig,
+    }) => {
+      const manifestResult = loadPluginManifest(
+        path.dirname(
+          resolveBundledPluginPublicModulePath({
+            pluginId,
+            artifactBasename: PLUGIN_MANIFEST_FILENAME,
+          }),
+        ),
+      );
+      if (!manifestResult.ok) {
+        throw new Error(manifestResult.error);
+      }
+      const { manifest } = manifestResult;
+      const uiHints = manifest.uiHints;
+      if (!uiHints) {
+        throw new Error(`Expected credential UI hints for ${pluginId}`);
+      }
+      await suite.withPage(
+        {
+          colorScheme: "dark",
+          locale: "en-US",
+          serviceWorkers: "block",
+          viewport: { height: 1000, width: 1440 },
+        },
+        async ({ page }) => {
+          const credentialConfig = {
+            ...config,
+            plugins: {
+              ...config.plugins,
+              entries: {
+                ...config.plugins.entries,
+                [manifest.id]: { enabled: true, config: pluginConfig },
+              },
+            },
+          };
+          const gateway = await installMockGateway(page, {
+            featureMethods: pluginMethods,
+            operatorScopes: readOnly ? ["operator.read"] : ["operator.read", "operator.admin"],
+            methodResponses: {
+              ...pluginResponses(),
+              "plugins.list": {
+                ...inventory,
+                plugins: [
+                  {
+                    ...workboard,
+                    id: manifest.id,
+                    name,
+                    packageName: `@openclaw/${manifest.id}`,
+                    description: `${name} web tools.`,
+                    origin: "bundled",
+                  },
+                ],
+              },
+              "plugins.inspect": {
+                ...inspection,
+                catalog: undefined,
+                components: undefined,
+                source: { kind: "npm", packageName: `@openclaw/${manifest.id}` },
+                plugin: { ...inspection.plugin, id: manifest.id, name, origin: "bundled" },
+              },
+              "config.get": {
+                ...configMocks["config.get"],
+                config: credentialConfig,
+                raw: JSON.stringify(credentialConfig),
+              },
+              "config.schema": {
+                ...configMocks["config.schema"],
+                schema: {
+                  type: "object",
+                  properties: {
+                    plugins: {
+                      type: "object",
+                      properties: {
+                        entries: {
+                          type: "object",
+                          properties: {
+                            [manifest.id]: {
+                              type: "object",
+                              properties: { config: manifest.configSchema },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                uiHints: Object.fromEntries(
+                  Object.entries(uiHints).map(([key, hint]) => [
+                    `plugins.entries.${manifest.id}.config.${key}`,
+                    hint,
+                  ]),
+                ),
+              },
+            },
+          });
+          await page.goto(`${suite.server.baseUrl}settings/plugins/${manifest.id}#configuration`);
+          await page.getByRole("tab", { name: "Configuration", exact: true }).waitFor();
+          await page.getByText("Web Search", { exact: true }).click();
+          if (sectionLabel !== "Web Search") {
+            await page.getByText(sectionLabel, { exact: true }).click();
+          }
+          await page.getByText(label, { exact: true }).waitFor();
+          if (captureUiProof) {
+            await page.screenshot({
+              animations: "disabled",
+              path: path.join(proofDir, "credential-inputs.png"),
+            });
+          }
+          const apiKey = page.getByLabel(label, { exact: true });
+          expect(await apiKey.count()).toBe(1);
+          expect(await apiKey.getAttribute("type")).toBe("password");
+          const reference = page.getByLabel(referenceLabel, { exact: true });
+          expect(await reference.inputValue()).toBe("");
+          expect(await reference.getAttribute("readonly")).not.toBeNull();
+          expect(await reference.getAttribute("placeholder")).not.toContain("Raw");
+          expect(await apiKey.isDisabled()).toBe(readOnly);
+          if (readOnly) {
+            expect(await reference.isDisabled()).toBe(true);
+            expect(await gateway.getRequests("config.set")).toHaveLength(0);
+            return;
+          }
+          await apiKey.pressSequentially("synthetic-credential", { delay: 30 });
+          expect(await apiKey.inputValue()).toBe("synthetic-credential");
+          expect(await apiKey.getAttribute("type")).toBe("password");
+          const save = await gateway.waitForRequest("config.set");
+          expect(JSON.parse(String(asRecord(save.params).raw))).toEqual({
+            ...credentialConfig,
+            plugins: {
+              ...credentialConfig.plugins,
+              entries: {
+                ...credentialConfig.plugins.entries,
+                [manifest.id]: {
+                  enabled: true,
+                  config: {
+                    ...pluginConfig,
+                    [section]: { ...pluginConfig[section], apiKey: "synthetic-credential" },
+                  },
+                },
+              },
+            },
+          });
+          const reads = (await gateway.getRequests("config.get")).length;
+          await page.getByRole("button", { name: "Reload", exact: true }).click();
+          await gateway.waitForRequest("config.get", { after: reads });
+          await expect.poll(() => apiKey.inputValue()).toBe("synthetic-credential");
+          expect(await reference.inputValue()).toBe("");
+          expect(await reference.getAttribute("readonly")).not.toBeNull();
+          if (captureUiProof) {
+            await page.screenshot({
+              animations: "disabled",
+              path: path.join(proofDir, "credential-reloaded.png"),
+            });
+          }
+        },
+      );
+    },
+  );
+
   it("moves needs-setup guidance into the Configuration tab", async () => {
     await suite.withPage(
       {

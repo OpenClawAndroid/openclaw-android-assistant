@@ -10,8 +10,9 @@ import {
   openOpenClawStateDatabase,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getMatrixRuntime } from "../../runtime.js";
+import { getMatrixRuntime, setMatrixRuntime } from "../../runtime.js";
 import { installMatrixTestRuntime } from "../../test-runtime.js";
 import {
   openMatrixIdbSnapshotStoreOptions,
@@ -53,6 +54,7 @@ describe("Matrix IndexedDB persistence", () => {
   afterEach(async () => {
     warnSpy.mockRestore();
     await clearTestIndexedDbState();
+    await closeOpenClawStateDatabaseAsync();
     resetFileLockStateForTest();
     resetPluginStateStoreForTests();
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -90,6 +92,36 @@ describe("Matrix IndexedDB persistence", () => {
 
     const dbs = await indexedDB.databases();
     expect(dbs.map((entry) => entry.name)).not.toContain(otherCryptoDatabaseName);
+  });
+
+  it("uses the client-owned state runtime after the ambient plugin scope changes", async () => {
+    const snapshotPath = path.join(tmpDir, "crypto-idb-snapshot.json");
+    const stateRuntime = getMatrixRuntime().state;
+    await seedDatabase({
+      name: cryptoDatabaseName,
+      storeName: "sessions",
+      records: [{ key: "room-owned", value: { session: "retained-runtime" } }],
+    });
+    setMatrixRuntime({
+      ...getMatrixRuntime(),
+      state: {
+        ...stateRuntime,
+        openSyncKeyedStore: () => {
+          throw new Error("ambient Matrix runtime is unavailable");
+        },
+      },
+    });
+
+    await persistIdbToDisk({
+      snapshotPath,
+      databasePrefix: DATABASE_PREFIX,
+      stateRuntime,
+    });
+    await clearTestIndexedDbState();
+    await expect(restoreIdbFromDisk(snapshotPath, stateRuntime)).resolves.toBe(true);
+    await expect(
+      readDatabaseRecords({ name: cryptoDatabaseName, storeName: "sessions" }),
+    ).resolves.toEqual([{ key: "room-owned", value: { session: "retained-runtime" } }]);
   });
 
   it.each(["bulk", "legacy"])(

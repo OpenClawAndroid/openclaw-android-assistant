@@ -483,7 +483,9 @@ describe("AppSidebar session mutation feedback", () => {
     const { harness, sidebar } = await mountMutationHarness();
     harness.deleteMany.mockResolvedValueOnce({
       deleted: ["agent:main:a"],
-      errors: ["agent:main:b: permission denied"],
+      errors: [
+        { target: { key: "agent:main:b" }, error: new Error("agent:main:b: permission denied") },
+      ],
       preservedWorktrees: [],
     });
     selectSession(sidebar, "agent:main:a");

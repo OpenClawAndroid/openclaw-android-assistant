@@ -11,9 +11,10 @@ import { EventStatus } from "matrix-js-sdk/lib/models/event-status.js";
 import type { Direction } from "matrix-js-sdk/lib/models/event-timeline.js";
 import { formatMatrixErrorReason } from "../errors.js";
 import { MATRIX_REACTION_EVENT_TYPE } from "../reaction-common.js";
-import { MatrixClientBase, type MatrixMessageWireDispatch } from "./client-base.js";
+import { MatrixClientBase } from "./client-base.js";
 import { matrixEventToRaw, parseMxc } from "./event-helpers.js";
 import { noop } from "./logger.js";
+import type { MatrixMessageWireDispatch } from "./message-wire-dispatch.js";
 import type { HttpMethod, QueryParams } from "./transport.js";
 import type { MatrixRawEvent, MatrixRelationsPage, MessageEventContent } from "./types.js";
 
@@ -192,7 +193,7 @@ export abstract class MatrixClientCore extends MatrixClientBase {
     beforeWireDispatch?: (dispatch: MatrixMessageWireDispatch) => Promise<void>,
   ): Promise<string> {
     return await this.runSerializedRoomSend(roomId, async () => {
-      return await this.withMessageWireDispatchGuard({
+      return await this.messageWireDispatchGuards.run({
         transactionId,
         guard: beforeWireDispatch,
         run: async () => {

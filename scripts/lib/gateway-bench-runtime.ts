@@ -221,6 +221,30 @@ export function summarizeNumbers(values: number[]): SummaryStats | null {
   };
 }
 
+export function summarizeTraceStats<T>(
+  samples: readonly T[],
+  readTrace: (sample: T) => Record<string, number>,
+): Record<string, SummaryStats> {
+  const traceKeys = new Set<string>();
+  for (const sample of samples) {
+    for (const key of Object.keys(readTrace(sample))) {
+      traceKeys.add(key);
+    }
+  }
+  const trace: Record<string, SummaryStats> = {};
+  for (const key of [...traceKeys].toSorted()) {
+    const stats = summarizeNumbers(
+      samples
+        .map((sample) => readTrace(sample)[key])
+        .filter((value): value is number => typeof value === "number"),
+    );
+    if (stats) {
+      trace[key] = stats;
+    }
+  }
+  return trace;
+}
+
 export function formatMs(value: number | null): string {
   return value == null ? "n/a" : `${value.toFixed(1)}ms`;
 }

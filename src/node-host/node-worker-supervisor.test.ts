@@ -1005,6 +1005,59 @@ describe("node worker supervisor", () => {
     await supervisor.close();
   });
 
+  it.each([false, true])(
+    "preserves accepted turn cancellation after a rejected terminal event (journal retry: %s)",
+    async (retryJournal) => {
+      const capacities: Array<{ total: number; available: number }> = [];
+      const { supervisor, workspaceDir, env } = fixture({
+        capacity: 1,
+        onCapacityChanged: (capacity) => capacities.push(capacity),
+      });
+      const input = launchInput(workspaceDir, "cancel-rejected-terminal", "tree-cancel-reject");
+      try {
+        const running = await supervisor.launch(input, TEST_WORKER_ENDPOINT);
+        const grandchildPath = path.join(workspaceDir, "grandchild.pid");
+        await vi.waitFor(() =>
+          expect(fs.readFileSync(grandchildPath, "utf8")).toMatch(/^[1-9]\d*$/u),
+        );
+        const grandchild = requireNodeWorkerProcessIdentity(
+          Number(fs.readFileSync(grandchildPath, "utf8")),
+        );
+
+        if (retryJournal) {
+          vi.spyOn(NodeWorkerTurnStore.prototype, "finish").mockImplementationOnce(() => {
+            throw new Error("injected cancellation journal failure");
+          });
+        }
+        const firstReceipt = await supervisor.cancel(testNodeWorkerLaunchIdentity(input));
+        if (retryJournal) {
+          expect(firstReceipt?.state).toBe("running");
+          expect(capacities.at(-1)).toEqual({ total: 1, available: 0 });
+        }
+        expect(await supervisor.status(input.launchId)).toMatchObject({
+          state: "cancelled",
+          worker: running.worker,
+        });
+        expect(new NodeWorkerLaunchStore({ env }).get(input.launchId)).toMatchObject({
+          state: "failed",
+          errorText:
+            "node worker failed with exit code 1: worker live event rejected: invalid-event",
+        });
+        expect(inspectNodeWorkerProcessIdentity(running.worker!)).not.toBe("live");
+        expect(inspectNodeWorkerProcessIdentity(grandchild)).not.toBe("live");
+        expect(capacities.at(-1)).toEqual({ total: 1, available: 1 });
+
+        const next = launchInput(workspaceDir, "after-cancel-rejected-terminal");
+        await supervisor.launch(next, TEST_WORKER_ENDPOINT);
+        expect(await waitForTerminal(supervisor, next.launchId)).toMatchObject({
+          state: "completed",
+        });
+      } finally {
+        await supervisor.close();
+      }
+    },
+  );
+
   it("fails closed when the bundle entry resolves outside its namespaced bundle", async () => {
     const { bundleRoot, root, supervisor, workspaceDir } = fixture();
     const escapedHash = "b".repeat(64);

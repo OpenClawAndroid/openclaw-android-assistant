@@ -647,45 +647,47 @@ export async function migrateLegacyAuditLogs(params: {
     return { changes, warnings };
   }
   try {
-    await withLegacyAuditMigrationLease(params.stateDir, async () => {
-      const blockedLogicalSources = new Set<string>();
-      for (const [index, source] of params.detected.sources.entries()) {
-        if (blockedLogicalSources.has(source.logicalSourcePath)) {
-          continue;
-        }
-        try {
-          const recreatedSourceScheduled = params.detected.sources
-            .slice(index + 1)
-            .some(
-              (candidate) =>
-                candidate.storage === "active" &&
-                candidate.logicalSourcePath === source.logicalSourcePath,
-            );
-          const result = await migrateLegacyAuditLogSource({
-            source,
-            stateDir: params.stateDir,
-            ...(recreatedSourceScheduled ? { recreatedSourceScheduled: true } : {}),
-          });
-          changes.push(...result.changes);
-          warnings.push(...result.warnings);
-          if (
-            result.outcome === "refused" ||
-            (result.outcome === "completed" && result.warnings.length > 0)
-          ) {
-            hasRefusal = true;
+    await lock.run(() =>
+      withLegacyAuditMigrationLease(params.stateDir, async () => {
+        const blockedLogicalSources = new Set<string>();
+        for (const [index, source] of params.detected.sources.entries()) {
+          if (blockedLogicalSources.has(source.logicalSourcePath)) {
+            continue;
           }
-          if (result.outcome !== "completed") {
-            // Generations encode append order. A later archive must not overtake
-            // an older source that still needs repair or durable checkpointing.
+          try {
+            const recreatedSourceScheduled = params.detected.sources
+              .slice(index + 1)
+              .some(
+                (candidate) =>
+                  candidate.storage === "active" &&
+                  candidate.logicalSourcePath === source.logicalSourcePath,
+              );
+            const result = await migrateLegacyAuditLogSource({
+              source,
+              stateDir: params.stateDir,
+              ...(recreatedSourceScheduled ? { recreatedSourceScheduled: true } : {}),
+            });
+            changes.push(...result.changes);
+            warnings.push(...result.warnings);
+            if (
+              result.outcome === "refused" ||
+              (result.outcome === "completed" && result.warnings.length > 0)
+            ) {
+              hasRefusal = true;
+            }
+            if (result.outcome !== "completed") {
+              // Generations encode append order. A later archive must not overtake
+              // an older source that still needs repair or durable checkpointing.
+              blockedLogicalSources.add(source.logicalSourcePath);
+            }
+          } catch (error) {
+            hasRefusal = true;
+            warnings.push(`Failed migrating ${source.label}: ${String(error)}`);
             blockedLogicalSources.add(source.logicalSourcePath);
           }
-        } catch (error) {
-          hasRefusal = true;
-          warnings.push(`Failed migrating ${source.label}: ${String(error)}`);
-          blockedLogicalSources.add(source.logicalSourcePath);
         }
-      }
-    });
+      }),
+    );
   } catch (error) {
     hasRefusal = true;
     warnings.push(`Skipped legacy audit migration because coordination failed: ${String(error)}`);

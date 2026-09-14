@@ -3,8 +3,11 @@ import { html, nothing } from "lit";
 import type { AgentsListResult } from "../../../api/types.ts";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
+import { registerChatMessageMetadataEnglish } from "../../../i18n/locales/en-chat-message-metadata.ts";
 import type { MessageGroup } from "../../../lib/chat/chat-types.ts";
 import { parseAgentSessionKey } from "../../../lib/sessions/session-key.ts";
+
+registerChatMessageMetadataEnglish();
 
 type ForwardedAttributionOptions = {
   agentId?: string;

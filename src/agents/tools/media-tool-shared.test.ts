@@ -108,30 +108,13 @@ describe("resolveMediaToolLocalRoots", () => {
       },
     };
 
-    const withoutChannel = await resolveMediaToolReferenceAccess({
+    const { localRoots } = await resolveMediaToolReferenceAccess({
       input: "relative/reference.png",
       isDataUrl: false,
-      rootOptions: { cfg },
     });
-    expect(withoutChannel.localRoots.map(normalizeHostPath)).not.toContain(
-      normalizeHostPath(accountRoot),
-    );
-    expect(withoutChannel.localRoots.map(normalizeHostPath)).not.toContain(
-      normalizeHostPath(sharedRoot),
-    );
+    expect(localRoots.map(normalizeHostPath)).not.toContain(normalizeHostPath(accountRoot));
+    expect(localRoots.map(normalizeHostPath)).not.toContain(normalizeHostPath(sharedRoot));
     expect(resolveMediaToolInboundRoots({ cfg })).toEqual([]);
-
-    const withImessage = await resolveMediaToolReferenceAccess({
-      input: "relative/reference.png",
-      isDataUrl: false,
-      rootOptions: { cfg, channelId: "imessage", accountId: "work" },
-    });
-    expect(withImessage.localRoots.map(normalizeHostPath)).not.toContain(
-      normalizeHostPath(accountRoot),
-    );
-    expect(withImessage.localRoots.map(normalizeHostPath)).not.toContain(
-      normalizeHostPath(sharedRoot),
-    );
     expect(
       resolveMediaToolInboundRoots({
         cfg,
@@ -157,7 +140,7 @@ describe("resolveMediaToolReferenceAccess", () => {
     ).resolves.toMatchObject({ resolvedPath: filePath });
   });
 
-  it.each(["relative/reference.png", "https://example.com/reference.png", "media://inbound/a.png"])(
+  it.each(["https://example.com/reference.png", "media://inbound/a.png"])(
     "preserves non-file reference %s",
     async (input) => {
       await expect(

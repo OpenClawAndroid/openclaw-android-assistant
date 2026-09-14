@@ -312,24 +312,28 @@ export function createPlacementWorkspaceResultOps(runtime: PlacementStoreRuntime
       return hasCurrentWorkspaceResultClaim(read(), claim);
     },
 
-    listPendingWorkspaceResults(): WorkerWorkspacePendingResult[] {
+    listPendingWorkspaceResults(sessionId?: string): WorkerWorkspacePendingResult[] {
       const db = read();
+      let pendingResults = query(db)
+        .selectFrom("worker_workspace_pending_results")
+        .select([
+          "session_id",
+          "environment_id",
+          "owner_epoch",
+          "placement_generation",
+          "claim_id",
+          "run_id",
+          "gateway_instance_id",
+          "recovery_requested_at_ms",
+          "workspace_accepted_at_ms",
+          "staged_result_ref",
+        ]);
+      if (sessionId !== undefined) {
+        pendingResults = pendingResults.where("session_id", "=", sessionId);
+      }
       return executeSqliteQuerySync(
         db,
-        query(db)
-          .selectFrom("worker_workspace_pending_results")
-          .select([
-            "session_id",
-            "environment_id",
-            "owner_epoch",
-            "placement_generation",
-            "claim_id",
-            "run_id",
-            "gateway_instance_id",
-            "recovery_requested_at_ms",
-            "workspace_accepted_at_ms",
-            "staged_result_ref",
-          ])
+        pendingResults
           .$if(hasRepositoryWorkspacePendingResultSchema(db), (builder) =>
             builder.select("repository_workspace_id"),
           )

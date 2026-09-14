@@ -16,7 +16,6 @@ vi.mock("../loading/plugin-skills.js", () => ({
 }));
 
 let refreshModule: typeof import("./refresh.js");
-let refreshTestSupport: typeof import("./refresh.test-support.js");
 let fixtureRoot: string;
 let fixtureWorkspaceDir: string;
 
@@ -29,7 +28,6 @@ async function createFixtureDirectory(relativePath: string): Promise<string> {
 describe("ensureSkillsWatcher", () => {
   beforeAll(async () => {
     refreshModule = await import("./refresh.js");
-    refreshTestSupport = await import("./refresh.test-support.js");
   });
 
   beforeEach(async () => {
@@ -43,7 +41,7 @@ describe("ensureSkillsWatcher", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
-    await refreshTestSupport.resetSkillsRefreshForTest();
+    await refreshModule.closeSkillsWatchers(true);
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   });
 

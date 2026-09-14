@@ -46,7 +46,10 @@ export function createChatSendMessageInjectionStarter(params: {
     "cfg" | "entry" | "sessionKey" | "storePath" | "clientRunId"
   >;
   admittedSessionSettings?: Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides">>;
-  turn: ReturnType<typeof prepareChatSendUserTurn>;
+  turn: Pick<
+    ReturnType<typeof prepareChatSendUserTurn>,
+    "ctx" | "isInternalTextSlashCommandTurn" | "replyOptionImages" | "replyOptionMedia"
+  >;
   imageOrder: ReplyBackendQueueMessageOptions["imageOrder"];
   documentContext?: ({ status: "rendered" } & InboundDocumentContext) | { status: "failed" };
   userTurnTranscriptRecorder: NonNullable<

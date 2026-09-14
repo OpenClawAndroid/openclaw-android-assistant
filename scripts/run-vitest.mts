@@ -10,6 +10,7 @@ import {
   isPluginControlUiPath,
   isUiBrowserTestFile,
   isUiTestTarget,
+  uiTimingTestFiles,
 } from "../test/vitest/vitest.ui-paths.mjs";
 import { boundaryTestFiles } from "../test/vitest/vitest.unit-paths.mjs";
 import { parsePermissiveBooleanToken } from "./lib/arg-utils.mts";
@@ -596,6 +597,10 @@ export function resolveImplicitVitestArgs(argv: string[], cwd = process.cwd()): 
     testTargets.length > 0 &&
     testTargets.every((target) => isUiTestTarget(target) && !isUiBrowserTestFile(target))
   ) {
+    // Mixed timing/ordinary UI selection needs the root matrix to preserve groups.
+    if (testTargets.some((target) => uiTimingTestFiles.includes(target))) {
+      return argv;
+    }
     return withImplicitVitestConfig(argv, UI_VITEST_CONFIG);
   }
   return argv;

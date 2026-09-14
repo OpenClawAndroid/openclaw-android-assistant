@@ -21,6 +21,7 @@ import {
   parseAgentSessionKey,
 } from "../routing/session-key.js";
 import { isCronRunSessionKey, isSubagentSessionKey } from "../sessions/session-key-utils.js";
+import { sessionActivityTimestamp } from "../shared/session-activity-timestamp.js";
 import { SESSIONS_LIST_OWNER_LIMIT } from "../shared/session-list-limits.js";
 import type { SessionOwnerFacetIdentity } from "../shared/session-types.js";
 import { runSynchronousWork, type SynchronousWork } from "../shared/synchronous-work.js";
@@ -309,10 +310,12 @@ function* filterSessionEntries(params: {
       yield;
     }
     const [key, entry] = pair;
-    if (matchesSearch && !matchesSearch(key, entry)) {
-      continue;
-    }
-    if (activeCutoff !== undefined && (entry.updatedAt ?? 0) < activeCutoff) {
+    if (
+      (matchesSearch && !matchesSearch(key, entry)) ||
+      (activeCutoff !== undefined &&
+        (opts.sortBy === "activity" ? sessionActivityTimestamp(entry) : (entry.updatedAt ?? 0)) <
+          activeCutoff)
+    ) {
       continue;
     }
     const effectiveOwner = projectSessionOwner(entry, identities, cfg, configuredAgentIds)?.actor;
@@ -478,9 +481,7 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
     restrictProfileReferences: params.entryFilter !== undefined,
     defaultLimit: SESSIONS_LIST_DEFAULT_LIMIT,
     getRowContext:
-      hasSpawnedByFilter || Boolean(normalizeOptionalString(opts.search))
-        ? getRowContext
-        : undefined,
+      hasSpawnedByFilter || normalizeOptionalString(opts.search) ? getRowContext : undefined,
     userProfileIdentityById,
     configuredAgentIds,
     involvingActorId: params.involvingActorId,

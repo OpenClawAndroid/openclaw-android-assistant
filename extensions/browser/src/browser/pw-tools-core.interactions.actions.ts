@@ -223,6 +223,24 @@ export async function pressKeyViaPlaywright(
   });
 }
 
+export async function insertTextViaPlaywright(
+  opts: GuardedInteractionOptions & { text: string },
+): Promise<void> {
+  const page = await getPageForTargetId(opts);
+  ensurePageState(page);
+  await runGuardedPageInteraction(page, opts, async () => {
+    try {
+      // Native insertion preserves the focused frame and selection without reading the clipboard.
+      await page.keyboard.insertText(opts.text);
+    } catch {
+      // Playwright errors can contain the inserted text, including pasted passwords.
+      throw new Error(
+        "Unable to paste text into the browser. Focus an editable field and try again.",
+      );
+    }
+  });
+}
+
 export async function typeViaPlaywright(
   opts: ElementInteractionOptions & {
     text: string;

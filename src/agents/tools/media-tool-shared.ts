@@ -1,4 +1,5 @@
 /** Shared media tool routing, auth, path, and reference helpers. */
+import path from "node:path";
 import { normalizeInboundPathRoots } from "@openclaw/media-core/inbound-path-policy";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import {
@@ -32,6 +33,7 @@ import {
   resolveSandboxedBridgeMediaPath,
   type SandboxedBridgeMediaPathConfig,
 } from "../sandbox-media-paths.js";
+import type { ToolFsPolicy } from "../tool-fs-policy.js";
 import {
   ToolInputError,
   readPositiveIntegerParam,
@@ -77,20 +79,9 @@ type GenerationModelRef = {
 
 type ParseGenerationModelRef = (raw: string | undefined) => GenerationModelRef | null;
 
-type MediaReferenceDetailEntry = {
-  rewrittenFrom?: string;
-};
-
 type TaskRunDetailHandle = {
   taskId: string;
   runId: string;
-};
-
-type MediaToolLocalRootOptions = {
-  workspaceOnly?: boolean;
-  cfg?: OpenClawConfig;
-  channelId?: string | null;
-  accountId?: string | null;
 };
 
 export const REMOTE_MEDIA_READ_IDLE_TIMEOUT_MS = 120_000;
@@ -496,7 +487,7 @@ export function normalizeMediaReferenceInputs(params: {
 /**
  * Builds result detail fields for one or many rewritten media references.
  */
-export function buildMediaReferenceDetails<T extends MediaReferenceDetailEntry>(params: {
+export function buildMediaReferenceDetails<T extends { rewrittenFrom?: string }>(params: {
   entries: readonly T[];
   singleKey: string;
   pluralKey: string;
@@ -542,32 +533,35 @@ export function buildTaskRunDetails(
 }
 
 /**
- * Resolves host-local read roots for tools that accept filesystem media references.
- */
-function resolveMediaToolLocalRoots(
-  workspaceDirRaw: string | undefined,
-  options?: MediaToolLocalRootOptions,
-): string[] {
-  const workspaceDir = normalizeWorkspaceDir(workspaceDirRaw);
-  if (options?.workspaceOnly) {
-    return workspaceDir ? [workspaceDir] : [];
-  }
-  // Channel inbound attachment roots stay separate: those paths are scoped to inbound media
-  // access, not broad host-local file reads.
-  const roots = getDefaultLocalRootsCore();
-  return uniqueStrings([...roots, ...(workspaceDir ? [workspaceDir] : [])]);
-}
-
-/**
  * Resolves the common filesystem access shape for media-tool references.
  */
 export async function resolveMediaToolReferenceAccess(params: {
   input: string;
   isDataUrl: boolean;
   workspaceDir?: string;
+  cwd?: string;
+  fsPolicy?: ToolFsPolicy;
   sandbox?: SandboxedBridgeMediaPathConfig | null;
-  rootOptions?: MediaToolLocalRootOptions;
 }): Promise<{ resolvedPath: string | null; localRoots: string[]; rewrittenFrom?: string }> {
+  const root = normalizeWorkspaceDir(
+    params.sandbox?.root ?? params.fsPolicy?.root ?? params.cwd ?? params.workspaceDir,
+  );
+  const cwd = normalizeWorkspaceDir(params.cwd) ?? root;
+  const workspaceRoots = root ? [root] : [];
+  const workspaceOnly = params.fsPolicy?.workspaceOnly ?? params.sandbox?.workspaceOnly === true;
+  const reference = classifyMediaReferenceSource(params.input);
+  const resolveHostPath = () => {
+    if (reference.isFileUrl) {
+      return safeFileURLToPath(params.input);
+    }
+    if (reference.isHttpUrl || reference.isMediaStoreUrl || reference.looksLikeWindowsDrivePath) {
+      return params.input;
+    }
+    if (params.input.startsWith("~")) {
+      return resolveUserPath(params.input);
+    }
+    return cwd ? path.resolve(cwd, params.input) : params.input;
+  };
   const pathInfo: { resolved: string; rewrittenFrom?: string } = params.isDataUrl
     ? { resolved: "" }
     : params.sandbox
@@ -576,18 +570,12 @@ export async function resolveMediaToolReferenceAccess(params: {
           mediaPath: params.input,
           inboundFallbackDir: "media/inbound",
         })
-      : {
-          resolved: classifyMediaReferenceSource(params.input).isFileUrl
-            ? safeFileURLToPath(params.input)
-            : params.input,
-        };
-  const resolvedPath = params.isDataUrl ? null : pathInfo.resolved;
-  const rootOptions = params.rootOptions ?? {
-    workspaceOnly: params.sandbox?.workspaceOnly === true,
-  };
+      : { resolved: resolveHostPath() };
   return {
-    resolvedPath,
-    localRoots: resolveMediaToolLocalRoots(params.workspaceDir, rootOptions),
+    resolvedPath: params.isDataUrl ? null : pathInfo.resolved,
+    localRoots: workspaceOnly
+      ? workspaceRoots
+      : uniqueStrings([...getDefaultLocalRootsCore(), ...workspaceRoots]),
     ...(pathInfo.rewrittenFrom ? { rewrittenFrom: pathInfo.rewrittenFrom } : {}),
   };
 }
@@ -617,6 +605,8 @@ export async function loadMediaToolReferences<T>(params: {
   expectedKind: "image" | "video" | "audio";
   sandbox: SandboxedBridgeMediaPathConfig | null;
   workspaceDir?: string;
+  cwd?: string;
+  fsPolicy?: ToolFsPolicy;
   maxBytes: number;
   ssrfPolicy?: SsrFPolicy;
   timeoutMs?: number;
@@ -650,6 +640,8 @@ export async function loadMediaToolReferences<T>(params: {
       input: resolvedInput,
       isDataUrl: reference.isDataUrl,
       workspaceDir: params.workspaceDir,
+      cwd: params.cwd,
+      fsPolicy: params.fsPolicy,
       sandbox: params.sandbox,
     });
     params.signal?.throwIfAborted();

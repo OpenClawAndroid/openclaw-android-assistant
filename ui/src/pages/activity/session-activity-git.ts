@@ -99,6 +99,19 @@ class ActivitySessionGit extends OpenClawLightDomElement {
     return html`<openclaw-github-link-hovercard-provider
       .client=${gateway.snapshot.client}
       .agentId=${this.agentId}
+      .previewSeeds=${snapshot.pullRequests.map((pr) => ({
+        kind: "pull",
+        owner: pr.owner,
+        repo: pr.repo,
+        number: pr.number,
+        href: pr.url,
+        title: pr.title,
+        state: pr.state === "draft" ? "open" : pr.state,
+        draft: pr.state === "draft",
+        login: pr.author?.login,
+        additions: pr.additions,
+        deletions: pr.deletions,
+      }))}
     >
       <div class="activity-feed__git">
         ${

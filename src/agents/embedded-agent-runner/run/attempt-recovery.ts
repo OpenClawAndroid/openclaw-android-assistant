@@ -138,6 +138,18 @@ export async function recoverEmbeddedRunAttempt(input: {
     attempt.preflightRecovery?.source === "mid-turn" &&
     midTurnBatchSettled &&
     !hasAsyncActivity(attempt.toolMetas);
+  // A provider can reject the next prompt after writes have settled. Compact
+  // their recorded results under this owner without replaying the original task.
+  const canRecoverSettledToolResults =
+    !runtime.pluginHarnessOwnsTransport &&
+    !terminalInterrupted &&
+    (!promptError || promptErrorSource === "prompt") &&
+    settledEvidence.allToolsProvenSettled &&
+    !settledEvidence.intentionalTermination &&
+    !hasAsyncActivity(attempt.toolMetas) &&
+    !attempt.yieldDetected &&
+    !attempt.clientToolCalls &&
+    !attempt.didSendDeterministicApprovalPrompt;
   const { signalOwnedInterruption } = terminalState;
   const assistantOverflowCandidate =
     currentAttemptCompletedAssistant !== undefined
@@ -361,7 +373,11 @@ export async function recoverEmbeddedRunAttempt(input: {
     });
     return retry({ lastRetryFailoverReason: failureReason });
   }
-  if (!currentAttemptReplaySafe && !canContinueSettledMidTurnOverflow) {
+  if (
+    !currentAttemptReplaySafe &&
+    !canContinueSettledMidTurnOverflow &&
+    !canRecoverSettledToolResults
+  ) {
     return { action: "proceed" };
   }
 

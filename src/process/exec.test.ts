@@ -917,24 +917,31 @@ describe("attachChildProcessBridge", () => {
 });
 
 describe("child input admission", () => {
-  it("publishes input only after binding the actual spawned PID", async () => {
+  it("publishes input only after binding the actual spawned PID and argv", async () => {
     let admittedPid: number | undefined;
+    let admittedArgv: readonly string[] | undefined;
     const result = await runCommandWithTimeout(
       [
         process.execPath,
         "-e",
-        "let input='';process.stdin.on('data',x=>input+=x);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({pid:process.pid,input})))",
+        "let input='';process.stdin.on('data',x=>input+=x);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({pid:process.pid,argv:[process.argv0,...process.execArgv,...process.argv.slice(1)],input})))",
       ],
       {
         input: "owned",
         timeoutMs: 5_000,
-        beforeInput: (pid) => {
+        beforeInput: (pid, argv) => {
           admittedPid = pid;
+          admittedArgv = argv;
         },
       },
     );
     expect(result.code).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ pid: admittedPid, input: "owned" });
+    expect(admittedArgv).toBeDefined();
+    expect(JSON.parse(result.stdout)).toEqual({
+      pid: admittedPid,
+      argv: admittedArgv,
+      input: "owned",
+    });
   });
 
   it("joins the child without delivering input when admission rejects", async () => {

@@ -31,6 +31,7 @@ import { projectAgentHarnessTranscriptMessageForDisplay } from "./harness/transc
 import type { AgentMessage } from "./runtime/index.js";
 import { installSessionToolResultGuard } from "./session-tool-result-guard.js";
 import type { SessionManager } from "./sessions/index.js";
+import type { CompactionAppendPersistence } from "./sessions/session-compaction-persistence.js";
 import { setSessionToolTextPreparer } from "./sessions/session-tool-result-redaction.js";
 import {
   copyCodeModeSourceAppend,
@@ -96,10 +97,7 @@ export function guardSessionManager(
     ) => void;
     onUserMessageBlocked?: (message: Extract<AgentMessage, { role: "user" }>) => void;
     onMessagePersisted?: (message: AgentMessage) => void | Promise<void>;
-    withCompactionPersistence?: (
-      append: () => string,
-      validateAppend: (entryId: string, appendedText: string) => boolean,
-    ) => string;
+    withCompactionPersistence?: CompactionAppendPersistence;
   },
 ): GuardedSessionManager {
   const guardedSessionManager: GuardedSessionManager = sessionManager;

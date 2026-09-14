@@ -119,9 +119,11 @@ while IFS=$'\t' read -r candidate_slug candidate_install_ref; do
     install_ref="$candidate_install_ref"
     break
   fi
-  if [ -z "$requested_slug" ] && \
-    grep -Fq "ClawHub Security Audit" "$install_log" && \
-    grep -Eq "Outcome: .*Blocked" "$install_log"; then
+  if [ -z "$requested_slug" ] && {
+    { grep -Fq "ClawHub Security Audit" "$install_log" && grep -Eq "Outcome: .*Blocked" "$install_log"; } ||
+      { grep -Fq "ClawHub found security risks" "$install_log" &&
+        grep -Fq "Update cancelled; rerun with --acknowledge-clawhub-risk" "$install_log"; }
+  }; then
     echo "Skipping live ClawHub skill with current security findings: $candidate_slug"
     continue
   fi

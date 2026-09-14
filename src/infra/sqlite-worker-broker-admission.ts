@@ -69,6 +69,55 @@ export async function prepareSqliteWorkerDatabaseAdmission(options: PreparedSqli
   return { databasePath, inputHash, identity };
 }
 
+export function captureSqliteWorkerAdmissionPaths(
+  databasePath: string,
+  identity: DatabasePathIdentity,
+  actors: Iterable<Actor>,
+): Set<string> {
+  const admittedPaths = new Set([databasePath, identity.canonicalPath]);
+  if (
+    [...actors].some(
+      (entry) =>
+        entry.key !== identity.key &&
+        [...admittedPaths].some((pathname) => entry.pathReferences.has(pathname)),
+    )
+  ) {
+    throw new Error(
+      "SQLite database pathname changed while its worker owner is active; close the existing store first",
+    );
+  }
+  return admittedPaths;
+}
+
+export function retainSqliteWorkerAdmissionCleanup(
+  actor: Actor,
+  retain: PreparedSqliteWorkerOpen["retainCleanup"],
+  close: () => Promise<void>,
+): void {
+  retain?.({
+    get pending() {
+      return actor.references === 0 && actor.cleanupState === "pending";
+    },
+    close: () => (actor.references === 0 ? close() : Promise.resolve()),
+  });
+}
+
+export function retainSqliteWorkerAdmissionPathReferences(actor: Actor, paths: Set<string>) {
+  for (const pathname of paths) {
+    actor.pathReferences.set(pathname, (actor.pathReferences.get(pathname) ?? 0) + 1);
+  }
+  return () => {
+    for (const pathname of paths) {
+      const references = actor.pathReferences.get(pathname) ?? 0;
+      if (references > 1) {
+        actor.pathReferences.set(pathname, references - 1);
+      } else {
+        actor.pathReferences.delete(pathname);
+      }
+    }
+  };
+}
+
 export async function resolveOpenedSqliteWorkerIdentity(
   databasePath: string,
   previous: DatabasePathIdentity,
@@ -150,6 +199,17 @@ export function prepareSqliteWorkerLifecycle(job: Job, actor: Actor | undefined)
   if (!actor || !context) {
     return;
   }
+  const schemaFence = actor.gatewaySchemaFence
+    ? undefined
+    : job.maintenanceScope?.createSchemaFenceDelegate({
+        databasePath: actor.databasePath,
+        runtimeDirectory: context.coordinatorRuntime.directory,
+        actorId: `${actor.id}:${job.request.id}`,
+      });
+  if (schemaFence) {
+    job.maintenanceSchemaFence = { actor, delegate: schemaFence };
+    job.request.maintenanceSchemaFence = schemaFence.port;
+  }
   // Retirement must veto pooling on the physical owner, including a borrowed lease.
   const runtime =
     job.request.type === "close"
@@ -168,20 +228,38 @@ export function prepareSqliteWorkerLifecycle(job: Job, actor: Actor | undefined)
 }
 
 export function releaseSqliteWorkerLifecycle(job: Job): void {
-  if (!job.stateLifecycle) {
-    return;
-  }
-  const { actor, delegate } = job.stateLifecycle;
-  try {
-    delegate.release();
-  } catch (error) {
-    if (!delegate.closed) {
-      actor.pendingStateLifecycles.add(delegate);
-      actor.cleanupState = "pending";
+  const errors: unknown[] = [];
+  for (const held of [job.stateLifecycle, job.maintenanceSchemaFence]) {
+    if (!held) {
+      continue;
     }
-    throw error;
-  } finally {
-    job.stateLifecycle = undefined;
+    const { actor, delegate } = held;
+    try {
+      delegate.release();
+    } catch (error) {
+      if (!delegate.closed) {
+        actor.pendingStateLifecycles.add(delegate);
+        actor.cleanupState = "pending";
+        job.maintenanceScope?.own(delegate, "shared-resources", () => {
+          try {
+            delegate.release();
+          } finally {
+            if (delegate.closed) {
+              actor.pendingStateLifecycles.delete(delegate);
+            }
+          }
+        });
+      }
+      errors.push(error);
+    }
+  }
+  job.stateLifecycle = undefined;
+  job.maintenanceSchemaFence = undefined;
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, "SQLite worker coordinator cleanup failed");
   }
 }
 

@@ -800,8 +800,15 @@ export type ChannelMessageActionAdapter = {
   describeMessageTool: (
     params: ChannelMessageActionDiscoveryContext,
   ) => ChannelMessageToolDiscovery | null | undefined;
-  /** Delegate conversation-read authorization to this adapter for bundled registrations only. */
+  /** Delegate conversation-read admission to the provider for registrations the host permits. */
   providerOwnedReadGates?: true | readonly ChannelMessageActionName[];
+  /**
+   * Opt into these host-fenced context actions for loader-verified official installs.
+   * Every provider request must captureChannelReadAuthority() at submission and
+   * invoke that check immediately before each I/O attempt, including queued retries.
+   * Does not extend conversation-read mutation authority or bypass provider policy.
+   */
+  readAuthorityActions?: readonly ChannelMessageActionName[];
   supportsAction?: (params: { action: ChannelMessageActionName }) => boolean;
   resolveExecutionMode?: (params: { action: ChannelMessageActionName }) => "local" | "gateway";
   resolveCliActionRequest?: (params: {

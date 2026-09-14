@@ -15,6 +15,7 @@ import { isCurrentManagedServiceUpdateHandoffProcess } from "../../infra/update-
 import type { UpdateRecoveryFence } from "../../infra/update-run-recovery.js";
 import { withCommandProcessScope } from "../../process/exec-spawn.js";
 import { createUpdateActivationDeadline } from "./update-command-activation.js";
+import { createUpdateIdentityWarningReporter } from "./update-command-identity-warning.js";
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
 
 /** A live invocation, never a serialized claim, PID or recovered history row. */
@@ -68,8 +69,9 @@ export type UpdateCommandChildGrant = {
 };
 type ChildOperation<T> = (
   grant: UpdateCommandChildGrant,
-  bindChild: (pid: number) => void,
+  bindChild: (pid: number, argv?: readonly string[]) => void,
 ) => Promise<T>;
+
 const childOwners = new WeakMap<
   UpdateRecoveryFence,
   <T>(root: string, operation: ChildOperation<T>) => Promise<T>
@@ -224,7 +226,7 @@ function createChildOwner(params: {
             childKey: children[children.length - 1]!.key,
             databaseIdentity,
           };
-          const result = await operation(grant, (pid) => {
+          const result = await operation(grant, (pid, argv) => {
             assertOwners();
             if (bound || pid === process.pid) {
               throw new UpdateCommandRecoveryPendingError(
@@ -232,7 +234,7 @@ function createChildOwner(params: {
               );
             }
             for (let index = 0; index < children.length; index++) {
-              const assigned = store.bind(children[index]!, pid);
+              const assigned = store.bind(children[index]!, pid, undefined, argv);
               if (!assigned) {
                 throw new UpdateCommandRecoveryPendingError("Candidate process binding failed.");
               }
@@ -326,10 +328,12 @@ export async function withDelegatedUpdateCommandExecutor<T>(
         ? captureManagedUpdateLeaseDatabaseIdentity(grant.databasePath)
         : grant.databaseIdentity;
       const databasePath = databaseIdentity?.databasePath ?? grant.databasePath;
+      const identityWarnings = createUpdateIdentityWarningReporter(runId);
       const store = createManagedHandoffLeaseStore({
         databasePath,
         serviceManagerEnv: resolveServiceManagerEnv(),
         existingIdentity: databaseIdentity,
+        onProcessIdentityWarning: identityWarnings.warn,
       });
       const parent = store.read(resolveUpdateInstallRoot(root));
       const originalChild = store.read(grant.originalChildKey ?? grant.childKey);
@@ -386,8 +390,15 @@ export async function withDelegatedUpdateCommandExecutor<T>(
       }
       let active = true;
       const isLive = (identity: ManagedHandoffLease["executor"]) =>
-        store.isPidAlive(identity.pid) &&
-        store.readProcessStartIdentity(identity.pid) === identity.startIdentity;
+        store.isProcessIdentityCurrent(identity);
+      if (
+        !store.acceptParentBoundExecutor(originalChild.lease) ||
+        !store.acceptParentBoundExecutor(child.lease)
+      ) {
+        throw new UpdateCommandRecoveryPendingError(
+          "Candidate executor ownership is no longer current.",
+        );
+      }
       const assertBase = () => {
         activation.assertCurrent();
         if (
@@ -453,6 +464,7 @@ export async function withDelegatedUpdateCommandExecutor<T>(
       try {
         await owner.settle();
         fence.assertCurrent();
+        identityWarnings.flush();
       } catch (cause) {
         outcome = {
           error:
@@ -496,6 +508,7 @@ export async function withUpdateCommandExecutor<T>(
       let store: ReturnType<typeof createManagedHandoffLeaseStore> | undefined;
       let lease: ManagedHandoffLease | undefined;
       let borrowed = false;
+      const identityWarnings = createUpdateIdentityWarningReporter(runId);
       const assertBase = () => {
         activation.assertCurrent();
         if (!active || !store || !lease || !store.owns(lease, "executor")) {
@@ -553,6 +566,7 @@ export async function withUpdateCommandExecutor<T>(
           }
           if (lease) {
             assertCurrent();
+            identityWarnings.flush();
             if (lease.key !== key) {
               throw new UpdateCommandRecoveryPendingError("Update executor installation changed.");
             }
@@ -572,6 +586,7 @@ export async function withUpdateCommandExecutor<T>(
               databasePath,
               serviceManagerEnv: resolveServiceManagerEnv(),
               existingIdentity: options?.existingAuthority,
+              onProcessIdentityWarning: identityWarnings.warn,
             });
             const found = store.read(key);
             if (found.kind === "unreadable") {
@@ -593,7 +608,8 @@ export async function withUpdateCommandExecutor<T>(
                 !active ||
                 !handedOff ||
                 found.lease.action.kind !== "update" ||
-                !store.owns(found.lease, "executor")
+                (!store.owns(found.lease, "executor") &&
+                  !(process.connected && store.acceptParentBoundExecutor(found.lease)))
               ) {
                 throw new UpdateCommandRecoveryPendingError(
                   "Managed update executor changed during admission.",
@@ -624,7 +640,17 @@ export async function withUpdateCommandExecutor<T>(
               databasePath,
               serviceManagerEnv: resolveServiceManagerEnv(),
               existingIdentity: authority,
+              onProcessIdentityWarning: identityWarnings.warn,
             });
+            if (
+              borrowed &&
+              !store.owns(lease, "executor") &&
+              !(process.connected && store.acceptParentBoundExecutor(lease))
+            ) {
+              throw new UpdateCommandRecoveryPendingError(
+                "Managed update executor changed during admission.",
+              );
+            }
             assertCurrent();
             admittedAuthorities.set(fence, authority);
             if (enterOptions?.preflight && !borrowed) {
@@ -659,6 +685,7 @@ export async function withUpdateCommandExecutor<T>(
         if (lease) {
           assertCurrent();
         }
+        identityWarnings.flush();
         outcome = { result };
       } catch (cause) {
         outcome = {

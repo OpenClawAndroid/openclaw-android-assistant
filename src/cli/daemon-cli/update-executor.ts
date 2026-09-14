@@ -22,7 +22,7 @@ export async function runGatewayServiceUpdateCommand(
     return;
   }
   if (mode === "check") {
-    writeGatewayServiceUpdateCapability();
+    await writeGatewayServiceUpdateCapability();
     return;
   }
   if (mode !== "run") {

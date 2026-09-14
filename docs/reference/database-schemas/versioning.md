@@ -21,6 +21,16 @@ Changes may stay at the same schema version only when downgraded readers remain 
 
 Matching numeric versions are necessary but not sufficient. A release can add a lazy or startup-repairable table, column, index, or trigger without advancing `user_version`, so two databases at the same version can still have different shapes. OpenClaw validates the canonical table definitions, constraints, indexes, triggers, virtual tables, and table options owned by the running release.
 
+Session label lookups use a nonunique partial index on
+`session_nodes(label, session_key)` for non-null labels, without changing agent
+schema 20. The existing writable schema owner installs and repairs the index;
+read-only startup accepts its absence until that owner opens the database. A
+present but noncanonical definition still fails schema validation. Canonical
+session JSON, label uniqueness checks, and retention remain unchanged. Older
+same-version readers can ignore the extra index, so binary rollback leaves it
+intact. The accepted design is recorded in the
+[session label index decision](https://github.com/openclaw/openclaw/pull/147837#issuecomment-5658783288).
+
 Task execution ownership uses three bare nullable columns on `task_runs`:
 `execution_owner_host TEXT`, `execution_owner_pid INTEGER`, and
 `execution_owner_start_identity INTEGER`. The first task write ensures them

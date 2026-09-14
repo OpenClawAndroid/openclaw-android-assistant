@@ -11,6 +11,7 @@ import {
   setMaxPluginStateEntriesPerPluginForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import type { PluginDoctorStateMigrationContext } from "openclaw/plugin-sdk/runtime-doctor-migrations";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stateMigrations } from "./doctor-contract-api.js";
 import {
@@ -56,6 +57,7 @@ describe("Teams custom migration retention", () => {
   });
 
   afterEach(async () => {
+    await closeOpenClawStateDatabaseAsync();
     setMaxPluginStateEntriesPerPluginForTests();
     resetPluginStateStoreForTests();
     await fs.rm(stateDir, { recursive: true, force: true });

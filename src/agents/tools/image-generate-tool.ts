@@ -529,6 +529,8 @@ export function createImageGenerateTool(options?: MediaGenerateToolOptions): Any
             imageInputs,
             maxBytes: referenceMaxBytes,
             workspaceDir: options?.workspaceDir,
+            cwd: options?.cwd,
+            fsPolicy: options?.fsPolicy,
             sandboxConfig,
             ssrfPolicy: remoteMediaSsrfPolicy,
             signal,

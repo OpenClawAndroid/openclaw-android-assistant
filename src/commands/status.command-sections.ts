@@ -115,7 +115,7 @@ export function buildStatusHeartbeatValue(params: { summary: Pick<SummaryLike, "
         return `disabled (${agent.agentId})`;
       }
       if (agent.waitingForRoute) {
-        return `${agent.every} (${agent.agentId}; waiting for delivery route — set commands.ownerAllowFrom or channel allowFrom, or heartbeat.target)`;
+        return `${agent.every} (${agent.agentId}; waiting for delivery route — set commands.ownerAllowFrom=["telegram:123456789"] or channel allowFrom; explicit delivery: heartbeat.target="telegram" with heartbeat.to="123456789")`;
       }
       return `${agent.every} (${agent.agentId})`;
     })

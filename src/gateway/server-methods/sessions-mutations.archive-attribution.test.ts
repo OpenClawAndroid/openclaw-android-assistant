@@ -45,7 +45,7 @@ function client(profileId?: string, displayName?: string): GatewayClient {
 function context(): GatewayRequestContext {
   return {
     getRuntimeConfig: () => ({}),
-    loadGatewayModelCatalog: vi.fn(async () => []),
+    loadGatewayModelCatalogSnapshot: vi.fn(async () => ({ entries: [], routeVariants: [] })),
     broadcastToConnIds: vi.fn(),
     getSessionEventSubscriberConnIds: () => new Set(),
     chatAbortControllers: new Map(),

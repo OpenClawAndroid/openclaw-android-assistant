@@ -50,17 +50,32 @@ describe("formatCliProcessFailure", () => {
 });
 
 describe("runCliProcessChild", () => {
-  it("reports the child's exit code and both streams", async () => {
-    const result = await runCliProcessChild({
-      nodeArgs: [
-        "-e",
-        "process.stdout.write('out'); process.stderr.write('err'); process.exit(3);",
-      ],
-      env: process.env,
-    });
+  it.each([false, true])(
+    "reports the child's exit and streams with the test runtime policy (Maglev=%s)",
+    async (enableMaglev) => {
+      const result = await runCliProcessChild({
+        nodeArgs: [
+          "-e",
+          "process.stdout.write(JSON.stringify({ output: 'out', maglevDisabled: process.execArgv.includes('--no-maglev') })); process.stderr.write('err'); process.exit(3);",
+        ],
+        env: {
+          ...process.env,
+          OPENCLAW_VITEST_ENABLE_MAGLEV: enableMaglev ? "1" : undefined,
+          NODE_OPTIONS: undefined,
+        },
+      });
 
-    expect(result).toEqual({ code: 3, signal: null, stdout: "out", stderr: "err" });
-  });
+      expect(result).toEqual({
+        code: 3,
+        signal: null,
+        stdout: JSON.stringify({
+          output: "out",
+          maglevDisabled: !process.versions.bun && !enableMaglev,
+        }),
+        stderr: "err",
+      });
+    },
+  );
 
   it("names the deadlock guard and keeps partial output when a child never exits", async () => {
     await expect(

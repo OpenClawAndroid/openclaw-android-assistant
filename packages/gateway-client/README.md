@@ -125,6 +125,10 @@ The shared protocol client still owns frame parsing, request correlation,
 challenge ordering, timeout cleanup, sequence-gap detection, and reconnect
 scheduling.
 
+Both the Node and browser entries export `isGatewayProtocolResponseError(error)`.
+It recognizes correlated Gateway response errors; constructed errors and local
+transport timeouts return `false`. Both entries use the same implementation.
+
 ## Defaults and reconnect behavior
 
 The Node client starts with a 30 second request timeout, a 15 second

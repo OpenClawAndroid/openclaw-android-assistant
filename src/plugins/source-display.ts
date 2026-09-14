@@ -2,7 +2,7 @@
 import path from "node:path";
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { isPathInside } from "../infra/path-guards.js";
-import { shortenHomeInString } from "../utils.js";
+import { shortenHomePath } from "../utils.js";
 import type { PluginRecord } from "./registry.js";
 import type { PluginSourceRoots } from "./roots.js";
 export { resolvePluginSourceRoots } from "./roots.js";
@@ -58,5 +58,5 @@ export function formatPluginSourceForTable(
     }
   }
 
-  return { value: middleTruncatePath(shortenHomeInString(raw)) };
+  return { value: middleTruncatePath(shortenHomePath(raw)) };
 }

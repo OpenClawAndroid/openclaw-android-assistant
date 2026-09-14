@@ -42,6 +42,7 @@ const shellOwners = {
       `${prefix}ONBOARD_SESSION_MEMORY_HOOK_MODE`,
       `${prefix}TYPED_ONBOARDING_SCENARIO_PATH`,
       `${prefix}TYPED_ONBOARDING_ASSERTIONS_PATH`,
+      `${prefix}TYPED_ONBOARDING_ASSERTION_FILES_PATH`,
       `${prefix}TYPED_ONBOARDING_MOCK_CONFIG_PATH`,
     ],
   ],
@@ -147,6 +148,7 @@ const selectedMetadata = {
     "src/commands/onboard-hooks.ts",
     "scripts/e2e/lib/release-typed-onboarding/scenario.sh",
     "scripts/e2e/lib/release-scenarios/assertions.mjs",
+    "scripts/e2e/lib/release-assertion-files.mjs",
     "scripts/e2e/lib/fixtures/mock-openai-config.mjs",
   ],
   "session-runtime-context": [

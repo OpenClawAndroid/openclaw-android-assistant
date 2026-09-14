@@ -126,7 +126,7 @@ export function openUnpublishedStateDatabase(params: {
     return { db, path: params.pathname, walMaintenance: maintenance };
   } catch (error) {
     // Acquisition owns the native handle until every setup and hardening step returns.
-    const errors = openClawStateDatabaseCache.closeOpenClawStateDatabaseHandle({
+    const errors = openClawStateDatabaseCache.closeUnpublishedOpenClawStateDatabaseHandle({
       db,
       path: params.pathname,
       walMaintenance,

@@ -14,6 +14,7 @@ import {
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import type { VisitorGrant } from "./src/visitors.js";
@@ -79,6 +80,7 @@ describe("visitor-access plugin lifecycle", () => {
     for (const cleanup of cleanups.splice(0)) {
       await cleanup();
     }
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
     vi.useRealTimers();
     vi.unstubAllGlobals();

@@ -5,6 +5,7 @@ import type { ProviderThinkingRegistry } from "../plugins/provider-thinking.type
 /** Catalog entries and policy come from the same completed prepared generation. */
 export type PreparedGatewayModelCatalog = {
   entries: ModelCatalogEntry[];
+  routeVariants?: ModelCatalogEntry[];
   pluginRegistry?: ProviderThinkingRegistry;
 };
 

@@ -539,6 +539,8 @@ export const CronJobSchema = closedObject({
 
 /** Query params for listing cron jobs with filters and pagination. */
 export const CronListParamsSchema = closedObject({
+  sessionKey: Type.Optional(NonEmptyString),
+  sessionAgentId: Type.Optional(NonEmptyString),
   includeDisabled: Type.Optional(Type.Boolean()),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
   offset: Type.Optional(Type.Integer({ minimum: 0 })),

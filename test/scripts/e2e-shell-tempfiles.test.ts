@@ -474,10 +474,13 @@ case "\${1:-} \${2:-}" in
         printf '%s\n' 'network connection reset' >&2
         exit 1
       fi
-      printf '%s\n' '╭─ ClawHub Security Audit ─────────────────────────────────────────────╮' >&2
-      printf '%s\n' '│ risky@1.0.0                                                         │' >&2
-      printf '%s\n' '│ Outcome: Blocked                                                    │' >&2
-      printf '%s\n' '╰──────────────────────────────────────────────────────────────────────╯' >&2
+      if [ "\${FAKE_RISK_MODE:-current}" = frozen ]; then
+        printf '%s\n' '╭─ ClawHub Security Audit ─╮' >&2
+        printf '%s\n' '│ Outcome: Blocked        │' >&2
+      else
+        printf '%s\n' 'ClawHub found security risks in risky@1.0.0' >&2
+        printf '%s\n' 'Update cancelled; rerun with --acknowledge-clawhub-risk' >&2
+      fi
       exit 1
     fi
     skill_dir="$HOME/.openclaw/workspace/skills/safe"
@@ -514,6 +517,23 @@ esac
         "Skipping live ClawHub skill with current security findings: risky",
       );
       expect(result.stdout).toContain("E2E_OK installed=safe version=1.0.0");
+      expect((await readFile(attemptsPath, "utf8")).trim().split("\n")).toEqual(["risky", "safe"]);
+
+      await rm(attemptsPath, { force: true });
+      const frozenResult = spawnSync("bash", ["scripts/e2e/lib/skills/clawhub-install-proof.sh"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          FAKE_RISK_MODE: "frozen",
+          OPENCLAW_CURRENT_PACKAGE_TGZ: "",
+          OPENCLAW_SKILL_INSTALL_E2E_PREFERRED_SLUG: "risky",
+          OPENCLAW_TEST_STATE_SCRIPT_B64: "",
+          PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+          TMPDIR: scratchRoot,
+        },
+      });
+      expect(frozenResult.status, `${frozenResult.stdout}\n${frozenResult.stderr}`).toBe(0);
       expect((await readFile(attemptsPath, "utf8")).trim().split("\n")).toEqual(["risky", "safe"]);
 
       await rm(attemptsPath, { force: true });

@@ -612,11 +612,12 @@ function createChatModelControlsProps(state: ChatHeaderTestState): ChatModelCont
         value,
         targetSessionKey,
       ),
-    onModelSelect: (value, targetSessionKey) =>
+    onModelSelect: (value, targetSessionKey, agentRuntime) =>
       switchChatModel(
         state as unknown as Parameters<typeof switchChatModel>[0],
         value,
         targetSessionKey,
+        agentRuntime,
       ),
     onThinkingSelect: (value, targetSessionKey) =>
       switchChatThinkingLevel(
@@ -7813,7 +7814,7 @@ describe("chat model controls", () => {
     expect(modelOption).toBeInstanceOf(HTMLButtonElement);
     modelOption?.click();
 
-    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main");
+    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main", null);
   });
 
   it.each([
@@ -7846,7 +7847,11 @@ describe("chat model controls", () => {
       ).find((button) => button.getAttribute("aria-selected") === "false");
       modelOption?.click();
 
-      expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main");
+      expect(onModelSelect).toHaveBeenCalledWith(
+        modelOption?.dataset.chatModelOption,
+        "main",
+        null,
+      );
     },
   );
 
@@ -8036,7 +8041,7 @@ describe("chat model controls", () => {
     getThinkingSlider(container)?.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(onFastModeSelect).not.toHaveBeenCalled();
-    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main");
+    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main", null);
     expect(onThinkingSelect).not.toHaveBeenCalled();
   });
 
@@ -8070,7 +8075,7 @@ describe("chat model controls", () => {
     expect(reset?.textContent).toContain("Default");
     reset?.focus();
     reset?.click();
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
     expect(details?.open).toBe(false);
     expect(document.activeElement).toBe(modelSelect);
     container.remove();
@@ -8095,7 +8100,7 @@ describe("chat model controls", () => {
     expect(defaultRow?.getAttribute("aria-selected")).toBe("false");
     expect(defaultRow?.parentElement?.querySelector("[data-chat-model-option]")).toBe(defaultRow);
     defaultRow?.click();
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
   });
 
   it("keeps the Default row selectable when the default model needs sign-in", () => {
@@ -8123,7 +8128,7 @@ describe("chat model controls", () => {
     expect(defaultRow?.disabled).toBe(false);
     expect(defaultRow?.querySelector("[data-chat-model-auth-warning]")).not.toBeNull();
     defaultRow?.click();
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
     expect(onModelSetup).not.toHaveBeenCalled();
   });
 
@@ -8152,7 +8157,7 @@ describe("chat model controls", () => {
     expect(defaultRow?.getAttribute("aria-selected")).toBe("true");
     expect(defaultRow?.disabled).toBe(false);
     defaultRow?.click();
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
     expect(onModelSetup).not.toHaveBeenCalled();
   });
 
@@ -8180,7 +8185,7 @@ describe("chat model controls", () => {
     expect(defaultRow?.getAttribute("aria-selected")).toBe("false");
     defaultRow?.click();
 
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
   });
 
   it.each(["agent", "global"] as const)(
@@ -8207,7 +8212,7 @@ describe("chat model controls", () => {
       expect(reset?.textContent).toContain("Default");
       reset?.click();
 
-      expect(onModelSelect).toHaveBeenCalledWith("", "main");
+      expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
     },
   );
 
@@ -8241,7 +8246,7 @@ describe("chat model controls", () => {
     // Pre-fix this row was already the selected "inherited" sentinel, so the click
     // was swallowed and the stored pin survived forever.
     defaultRow?.click();
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
 
     // The default moves away again; the untouched pin is still a pin.
     onModelSelect.mockClear();
@@ -8255,7 +8260,7 @@ describe("chat model controls", () => {
     };
     renderModelControls(state, { onModelSelect }, container);
     container.querySelector<HTMLButtonElement>('[data-chat-model-default="true"]')?.click();
-    expect(onModelSelect).toHaveBeenCalledWith("", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("", "main", null);
     container.remove();
   });
 
@@ -8508,13 +8513,17 @@ describe("chat model controls", () => {
       expect(search?.getAttribute("aria-activedescendant")).toBe(highlighted?.id);
 
       search!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main");
+      expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main", null);
       expect(details?.open).toBe(false);
 
       onModelSelect.mockClear();
       details!.open = true;
       details!.dispatchEvent(new KeyboardEvent("keydown", { key: "3", bubbles: true }));
-      expect(onModelSelect).toHaveBeenCalledExactlyOnceWith("anthropic/claude-sonnet-4-6", "main");
+      expect(onModelSelect).toHaveBeenCalledExactlyOnceWith(
+        "anthropic/claude-sonnet-4-6",
+        "main",
+        null,
+      );
       expect(details?.open).toBe(false);
       container.remove();
     },
@@ -8581,7 +8590,7 @@ describe("chat model controls", () => {
     expect(onModelSelect).not.toHaveBeenCalled();
 
     details!.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
-    expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main");
+    expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main", null);
     container.remove();
   });
 
@@ -9097,7 +9106,7 @@ describe("chat model controls", () => {
     defaultOption?.click();
 
     await waitForFast(() => {
-      expect(onModelSelect).toHaveBeenCalledWith("", sessionKey);
+      expect(onModelSelect).toHaveBeenCalledWith("", sessionKey, null);
     });
   });
 
@@ -9312,7 +9321,7 @@ describe("chat model controls", () => {
     );
     expect(modelOption).toBeInstanceOf(HTMLButtonElement);
     modelOption?.click();
-    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main");
+    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main", null);
 
     const slider = getThinkingSlider(container);
     expect(slider).toBeInstanceOf(HTMLInputElement);
@@ -9662,7 +9671,7 @@ describe("chat model controls", () => {
       ?.click();
 
     await waitForFast(() => {
-      expect(onModelSelect).toHaveBeenCalledWith("openai/gpt-5.4", "main");
+      expect(onModelSelect).toHaveBeenCalledWith("openai/gpt-5.4", "main", null);
     });
     render(renderChatModelControls(props), container);
     expect(

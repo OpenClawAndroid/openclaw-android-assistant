@@ -271,7 +271,7 @@ test("OpenClaw executes and controls the complete real process lifecycle", async
     expect(killed.details).toMatchObject({ status: "completed" });
     const killedTerminal = await pollTerminal(processTool, killedSession.sessionId);
     expect(killedTerminal.details).toMatchObject({
-      status: "failed",
+      status: "completed",
       exitReason: "manual-cancel",
     });
     await clearFinished(processTool, killedSession.sessionId);

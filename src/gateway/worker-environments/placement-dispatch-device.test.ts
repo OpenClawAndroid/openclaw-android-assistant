@@ -391,6 +391,30 @@ describe("device worker placement dispatch", () => {
     expect(harness.placements.current()).toMatchObject({ state: "failed" });
   });
 
+  it("finishes admitted workspace preparation when another turn fills the node's slots", async () => {
+    let available = 1;
+    const harness = createHarness(database, placementStore, {
+      isCurrentNodePlacement: (_node, requirement) =>
+        !requirement.consumesWorkerSlot || available > 0,
+    });
+    bindDeviceWorkerAvailability(harness.environments, async () => ({
+      available: true,
+      node: deviceProof(available),
+    }));
+    const request = prepareCloudNodeDispatch(harness, "worker-turn");
+
+    await expect(
+      harness.service.dispatch(request, (placement) => {
+        if (placement.state === "syncing") {
+          available = 0;
+        }
+      }),
+    ).resolves.toMatchObject({ state: "active", executionMode: "worker-turn" });
+
+    expect(harness.log.filter((entry) => entry === "sync")).toHaveLength(1);
+    expect(harness.environments.destroy).not.toHaveBeenCalled();
+  });
+
   it("rejects a cloud node re-paired while its managed workspace is synchronizing", async () => {
     let currentNode = deviceProof(0);
     const harness = createHarness(database, placementStore, {

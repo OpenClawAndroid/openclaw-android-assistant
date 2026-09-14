@@ -1,6 +1,7 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
+import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import {
   GitHubIdentityError,
   prepareGitHubReadIdentity,
@@ -8,15 +9,23 @@ import {
 } from "../../agents/github-tool-identity.js";
 import { redactToolPayloadText } from "../../logging/redact.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../../secrets/runtime-state.js";
+import { getSessionRepositoryWorkspaceStore } from "../../state/session-repository-workspaces.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import type { ControlUiSessionPreview } from "../control-ui-contract.js";
-import { formatControlUiGitHubPreviewError } from "../control-ui-github-api.js";
+import {
+  ControlUiGitHubError,
+  formatControlUiGitHubPreviewError,
+} from "../control-ui-github-api.js";
 import {
   loadControlUiGitHubPreview,
   parseControlUiGitHubPreviewTarget,
   type ControlUiGitHubPreviewIdentity,
   type ControlUiGitHubPreviewTarget,
 } from "../control-ui-github-preview.js";
+import type {
+  ControlUiSessionPullRequestChecksParams,
+  loadControlUiSessionPullRequestChecks,
+} from "../control-ui-session-pr-check-details.js";
 import { parseControlUiSessionPullRequestsSubscribeParams } from "../control-ui-session-pr-subscriptions.js";
 import { requestCurrentGitHubOAuthRefresh } from "../github-oauth-lifecycle.js";
 import { resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId } from "../session-request-agent.js";
@@ -194,9 +203,81 @@ function loadControlUiSessionPreview(
   };
 }
 
+function parseCheckDetailsParams(
+  params: Record<string, unknown>,
+): ControlUiSessionPullRequestChecksParams | null {
+  if (
+    Object.keys(params).some(
+      (key) => !["sessionKey", "owner", "repo", "number", "headSha"].includes(key),
+    )
+  ) {
+    return null;
+  }
+  const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey.trim() : "";
+  const headSha = typeof params.headSha === "string" ? params.headSha : "";
+  const target = parseControlUiGitHubPreviewTarget({ ...params, kind: "pull" });
+  return target && sessionKey && sessionKey.length <= 512 && /^[0-9a-f]{40}$/i.test(headSha)
+    ? {
+        sessionKey,
+        owner: target.owner,
+        repo: target.repo,
+        number: target.number,
+        headSha: headSha.toLowerCase(),
+      }
+    : null;
+}
+
+function resolveCheckDetailsSession(
+  sessionKey: string,
+  context: GatewayRequestContext,
+  client: GatewayClient | null,
+): { sessionScope: string; agentId: string } | null {
+  const cfg = context.getRuntimeConfig();
+  const requested = resolveRequestedGlobalAgentId(cfg, sessionKey);
+  if (!requested.ok) {
+    return null;
+  }
+  const { target, entry } = loadSessionEntriesForTarget({
+    key: sessionKey,
+    cfg,
+    agentId: requested.agentId,
+  });
+  const entryFilter = createSessionListEntryFilter({ client, cfg });
+  if (!entry?.sessionId || (entryFilter && !entryFilter(target.canonicalKey, entry))) {
+    return null;
+  }
+  const repository = entry.repositoryWorkspaceId
+    ? getSessionRepositoryWorkspaceStore().get(entry.repositoryWorkspaceId)
+    : undefined;
+  return {
+    agentId: target.agentId,
+    sessionScope: JSON.stringify([
+      target.agentId,
+      target.canonicalKey,
+      entry.sessionId,
+      entry.lifecycleRevision,
+      entry.repositoryWorkspaceId,
+      repository?.url,
+      repository?.branch,
+      entry.spawnedCwd,
+      entry.spawnedWorkspaceDir,
+      resolveAgentWorkspaceDir(cfg, target.agentId),
+    ]),
+  };
+}
+
+async function loadSessionCheckDetails(
+  ...args: Parameters<typeof loadControlUiSessionPullRequestChecks>
+): ReturnType<typeof loadControlUiSessionPullRequestChecks> {
+  const { loadControlUiSessionPullRequestChecks } =
+    await import("../control-ui-session-pr-check-details.js");
+  return loadControlUiSessionPullRequestChecks(...args);
+}
+
 export function createControlUiHandlers(
   loadGitHubPreview: LoadGitHubPreview = loadControlUiGitHubPreview,
   loadSessionPreview: LoadSessionPreview = loadControlUiSessionPreview,
+  loadChecks: typeof loadControlUiSessionPullRequestChecks = loadSessionCheckDetails,
 ): GatewayRequestHandlers {
   return {
     "controlUi.githubPreview": async (options) => {
@@ -257,6 +338,56 @@ export function createControlUiHandlers(
           undefined,
           errorShape(ErrorCodes.UNAVAILABLE, "Session preview unavailable"),
         );
+      }
+    },
+    "controlUi.sessionPullRequests.checks": async ({
+      params,
+      client,
+      context,
+      respond,
+      signal,
+    }) => {
+      const parsed = parseCheckDetailsParams(params);
+      if (!parsed) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "invalid controlUi.sessionPullRequests.checks params",
+          ),
+        );
+        return;
+      }
+      try {
+        const binding = resolveCheckDetailsSession(parsed.sessionKey, context, client);
+        if (!binding) {
+          throw new ControlUiGitHubError(404, "Session CI details unavailable");
+        }
+        const assertCurrent = () => {
+          const current = resolveCheckDetailsSession(parsed.sessionKey, context, client);
+          if (
+            signal?.aborted ||
+            current?.sessionScope !== binding.sessionScope ||
+            (client?.connId &&
+              !context.getClientConnIds?.((candidate) => candidate === client).has(client.connId))
+          ) {
+            throw new ControlUiGitHubError(409, "Session changed; reopen CI details");
+          }
+        };
+        const result = await loadChecks(
+          { ...parsed, agentId: binding.agentId },
+          { ...binding, assertCurrent },
+        );
+        assertCurrent();
+        respond(true, result, undefined);
+      } catch (error) {
+        const message =
+          error instanceof ControlUiGitHubError &&
+          (error.statusCode === 404 || error.statusCode === 409)
+            ? error.message
+            : formatControlUiGitHubPreviewError(error).message;
+        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, message));
       }
     },
     "controlUi.sessionPullRequests.subscribe": ({ params, client, context, respond }) => {

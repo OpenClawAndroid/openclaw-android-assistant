@@ -1,5 +1,6 @@
 // Memory Host SDK tests cover session files behavior.
 import fsSync from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -129,7 +130,7 @@ describe("listSessionTranscriptCorpusEntriesForAgent", () => {
     const scanError = Object.assign(new Error("transient session archive scan failure"), {
       code: "EIO",
     });
-    const readdirSpy = vi.spyOn(fsSync, "readdirSync").mockImplementation(() => {
+    const readdirSpy = vi.spyOn(fs, "readdir").mockImplementation(async () => {
       throw scanError;
     });
 

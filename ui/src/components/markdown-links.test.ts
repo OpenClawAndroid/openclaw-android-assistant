@@ -379,6 +379,42 @@ describe("toSanitizedMarkdownHtml links", () => {
       expect(disabled.querySelector("a")?.hasAttribute("data-file-path")).toBe(false);
     });
 
+    it.each([
+      "qa-café/index.md",
+      "文档/说明.md",
+      "qa-cafe\u0301/re\u0301sume\u0301.md",
+      "notes/２０２６.md",
+    ])("preserves Unicode workspace path %s across Markdown forms", (path) => {
+      for (const markdown of [
+        `[Read file](${path}:17)`,
+        `[Read file](${encodeURI(path)}:17)`,
+        `\`${path}:17\``,
+        `Inspect ${path}:17 now.`,
+      ]) {
+        const fragment = htmlFragment(toSanitizedMarkdownHtml(markdown, { fileLinks: true }));
+        const link = fragment.querySelector<HTMLAnchorElement>("a.markdown-file-link");
+        expect(link?.dataset).toMatchObject({ filePath: path, fileLine: "17" });
+        expect(link?.getAttribute("role")).toBe("button");
+        expect(link?.hasAttribute("href")).toBe(false);
+        if (markdown.startsWith("[")) {
+          expect(link?.textContent).toBe("Read file");
+        }
+      }
+    });
+
+    it("recognizes Unicode bare and Windows filenames without normalizing their spelling", () => {
+      const fragment = htmlFragment(
+        toSanitizedMarkdownHtml("`re\u0301sume\u0301.md` and `C:\\文档\\café.md:9`", {
+          fileLinks: true,
+        }),
+      );
+      expect(
+        [...fragment.querySelectorAll<HTMLAnchorElement>("a.markdown-file-link")].map(
+          (link) => link.dataset.filePath,
+        ),
+      ).toEqual(["re\u0301sume\u0301.md", "C:\\文档\\café.md"]);
+    });
+
     it("leaves http links as normal links", () => {
       const fragment = htmlFragment(
         toSanitizedMarkdownHtml("https://example.com/a/b.ts", { fileLinks: true }),

@@ -126,7 +126,9 @@ Methods an operator client calls on behalf of a person: helper reads, exec appro
 Ordinary requests read the published catalog without starting provider discovery.
 Views select rows; they do not decide whether discovery runs. If the owner is not
 published yet, the request reports that the model catalog is not ready. A result
-whose owner becomes stale during projection is rejected for retry.
+whose owner becomes stale during projection is rejected with `UNAVAILABLE`,
+`retryable: true`, and `retryAfterMs: 0`. The Control UI shares one retry across
+catalog consumers, retaining cancellation and any explicit request deadline.
 
 - `preparedOnly: true` remains supported for automatic clients. Ordinary reads
   are passive with or without this flag.

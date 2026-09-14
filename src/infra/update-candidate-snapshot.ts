@@ -19,6 +19,7 @@ import {
   UpdateCandidateStateSnapshotSchema,
 } from "./update-candidate-state.js";
 import { resolveUpdateCaptureRoot } from "./update-capture-paths.js";
+import type { UpdateStepResult } from "./update-runner-types.js";
 import {
   UpdateSnapshotCapacityError,
   type UpdateSnapshotCapacity,
@@ -89,6 +90,93 @@ function measureSnapshotCapacity(
   };
 }
 
+type InitialSnapshotParams = {
+  config: OpenClawConfig;
+  stateDir: string;
+  env: NodeJS.ProcessEnv;
+};
+
+/** Measure known SQLite families without allocating state or reading the candidate plugin inventory. */
+async function measureInitialUpdateSnapshotState(params: InitialSnapshotParams) {
+  const files = await collectStateDatabasePaths(params);
+  const size = await measureUpdateStateFiles(
+    [...files.values()].map(({ spellings }) => spellings[0]),
+  );
+  return {
+    capacity: measureSnapshotCapacity(params.stateDir, { ...size, pluginBytes: null }, params.env),
+    families: size.families,
+  };
+}
+
+export async function assessInitialUpdateSnapshotCapacity(
+  params: InitialSnapshotParams,
+): Promise<UpdateStepResult> {
+  const started = Date.now();
+  const warnings = [
+    "Snapshot capacity estimate incomplete: plugin copies and registered external databases are measured after staging.",
+  ];
+  const step = {
+    name: "snapshot-space-preflight",
+    command: "snapshot-space-preflight",
+    cwd: params.stateDir,
+  };
+  try {
+    const { capacity, families } = await measureInitialUpdateSnapshotState(params);
+    // Refuse only at the existing allocator's data-at-risk boundary: every
+    // eligible destination is known to be too small for the private state copy.
+    const refused =
+      capacity.candidates.length > 0 &&
+      capacity.candidates.every(
+        (candidate) =>
+          candidate.availableBytes !== null && candidate.availableBytes < capacity.requiredBytes,
+      );
+    const diagnostics = [
+      `Initial snapshot needs ${capacity.requiredBytes} bytes for ${capacity.sqliteBytes} known SQLite-family bytes and the existing snapshot scratch allowance.`,
+      ...capacity.candidates.map(
+        (candidate) =>
+          `${candidate.kind} ${candidate.directory}: ${capacity.requiredBytes} bytes needed; ${candidate.availableBytes === null ? "free space unknown" : `${candidate.availableBytes} bytes free`}.`,
+      ),
+      ...families.map(
+        (family) =>
+          `SQLite family ${family.path}: ${family.bytes} bytes (database, WAL, SHM, and journal).`,
+      ),
+    ];
+    warnings.push(...diagnostics);
+    if (refused) {
+      return {
+        ...step,
+        durationMs: Date.now() - started,
+        exitCode: 1,
+        stderrTail: [
+          "snapshot-capacity-insufficient: no eligible directory has enough free space for the required state snapshot.",
+          ...warnings,
+          "Free space on a reported filesystem or set TMPDIR to a writable directory with enough space, then retry the update.",
+        ].join("\n"),
+        warnings,
+        snapshotCapacity: capacity,
+      };
+    }
+    return {
+      ...step,
+      durationMs: Date.now() - started,
+      exitCode: 0,
+      stdoutTail:
+        "Continuing with the initial snapshot estimate; the complete inventory is checked after staging.",
+      warnings,
+    };
+  } catch {
+    warnings.push(
+      "Initial snapshot capacity could not be measured; continuing to the candidate snapshot check.",
+    );
+    return {
+      ...step,
+      durationMs: Date.now() - started,
+      exitCode: 0,
+      warnings,
+    };
+  }
+}
+
 async function allocateSnapshotRoot(
   capacity: UpdateSnapshotCapacity,
   current?: { root: string; directory: string },
@@ -154,14 +242,7 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
   snapshotCapacity: UpdateSnapshotCapacity;
   cleanupDirectories: string[];
 }> {
-  const initialFiles = await collectStateDatabasePaths(params);
-  let size: SnapshotSize = {
-    ...(await measureUpdateStateFiles(
-      [...initialFiles.values()].map(({ spellings }) => spellings[0]),
-    )),
-    pluginBytes: null,
-  };
-  let capacity = measureSnapshotCapacity(params.stateDir, size, params.env);
+  let { capacity } = await measureInitialUpdateSnapshotState(params);
   let directory = await allocateSnapshotRoot(capacity);
   let selectedRoot = capacity.selection!;
   const inventoryDirectory = directory;
@@ -179,7 +260,7 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
     return await withUpdateCandidateIoBudget(
       {
         directory,
-        bytes: size.bytes + (size.pluginBytes ?? 0),
+        bytes: capacity.sqliteBytes + (capacity.pluginBytes ?? 0),
         timeoutMs: params.timeoutMs,
         signal: params.signal,
         operation: "snapshot",
@@ -232,7 +313,7 @@ export async function prepareUpdateCandidateStateSnapshot(params: {
     const inventory = UpdateCandidateSnapshotInventorySchema.parse(
       await run({ mode: "inventory" }),
     );
-    size = {
+    const size: SnapshotSize = {
       ...(await measureUpdateStateFiles(
         [...inventory.databases.values()].map(({ spellings }) => spellings[0]),
       )),

@@ -36,6 +36,13 @@ Open **Settings** in the sidebar to use the same Dashboard settings pages as the
 web and macOS apps. A connected operator session with `operator.admin` is required.
 The toolbar's **Gateway** button opens the native connection screen, including
 setup, paired Gateways, manual connection, and advanced connection options.
+The sidebar footer also provides Gateway access: **Add Gateway** when none are
+saved, a direct connection-settings button when one is saved, and a quick picker
+when multiple Gateways are saved. The picker keeps saved Gateways available even
+when they are offline and includes a management action for setup and pairing.
+Selection identifies the focused Gateway, not whether it is connected.
+Finish recording or delivering attachments and send or clear the current draft
+before using the quick picker. It does not move drafts to another Gateway.
 **Approvals** opens the native approval inbox and shows the pending count.
 
 The Gateway must serve Dashboard pages that support the companion iOS app.

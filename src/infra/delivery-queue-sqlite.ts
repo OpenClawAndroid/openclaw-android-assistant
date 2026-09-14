@@ -13,7 +13,6 @@ import {
   countFailedDeliveryQueueEntriesInDatabase,
   countPendingDeliveryQueueEntriesInDatabase,
   deleteDeliveryQueueEntryInDatabase,
-  expireStagingAndLoadDeliveryQueueEntriesInDatabase,
   getDeliveryQueueEntryOwnersInDatabase,
   loadDeliveryQueueEntriesInDatabase,
   prepareDeliveryQueueTerminalEntry,
@@ -75,29 +74,6 @@ export function upsertDeliveryQueueEntry(
   context?: DeliveryQueueStateContext,
 ): boolean {
   return upsertDeliveryQueueEntryInDatabase(params, openStateDatabase(params.stateDir, context));
-}
-
-/**
- * Expire abandoned staging rows and capture destination/staging ownership in
- * one write snapshot. A concurrent commit either lands before this snapshot or
- * loses its staging row and must fail closed.
- */
-export function expireStagingAndLoadDeliveryQueueEntries(
-  params: {
-    expireBeforeMs: number;
-    queueNames: readonly string[];
-    stagingQueueName: string;
-    stateDir?: string;
-  },
-  context?: DeliveryQueueStateContext,
-): {
-  entries: DeliveryQueueEntryState[];
-  stagingEntries: DeliveryQueueEntryState[];
-} {
-  return expireStagingAndLoadDeliveryQueueEntriesInDatabase(
-    openStateDatabase(params.stateDir, context),
-    params,
-  );
 }
 
 /** Load a single pending delivery queue entry. */

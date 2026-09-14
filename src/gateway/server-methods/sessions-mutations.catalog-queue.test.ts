@@ -42,7 +42,12 @@ function patchContext(
 ) {
   return {
     getRuntimeConfig: () => cfg,
-    loadGatewayModelCatalog,
+    loadGatewayModelCatalogSnapshot: async (
+      params: Parameters<GatewayRequestContext["loadGatewayModelCatalogSnapshot"]>[0],
+    ) => {
+      const entries = await loadGatewayModelCatalog(params);
+      return { entries, routeVariants: entries };
+    },
     getSessionEventSubscriberConnIds: () => new Set(),
     broadcastToConnIds: vi.fn(),
     chatAbortControllers: new Map(),

@@ -5,6 +5,7 @@ import {
   shouldAutoPromptNotificationsOnSend,
 } from "../../app/notifications-auto-prompt.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
 import { parseSlashCommand } from "../../lib/chat/commands.ts";
 import { resolveCurrentUserIdentity } from "../../lib/chat/current-user-identity.ts";
@@ -54,6 +55,8 @@ import {
   type NewSessionSubmitBlock,
 } from "./submit-gates.ts";
 import { navigateToStartedTerminal, startNewSessionInTerminal } from "./terminal-start.ts";
+
+registerNewSessionSetupEnglish();
 
 export class DraftSubmissionFlow {
   private visibilityValue: NewSessionVisibility = "normal";

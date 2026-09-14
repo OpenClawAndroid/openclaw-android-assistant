@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
+import type { MessageClientSource } from "../../../../src/chat/message-client-source.js";
 import type { ChatItem } from "../../lib/chat/chat-types.ts";
 import { coalesceAgentRunFrames } from "./chat-agent-run-grouping.ts";
 import {
@@ -32,6 +33,62 @@ function cachedGroups(messages: unknown[]) {
     showToolCalls: true,
   }).filter((item) => item.kind === "group");
 }
+
+describe("message client attribution", () => {
+  beforeEach(() => resetChatThreadState());
+
+  const cli: MessageClientSource = { id: "cli", mode: "cli", displayName: "Release helper" };
+  const web: MessageClientSource = { id: "openclaw-control-ui", mode: "webchat" };
+  const messageFrom = (clients: MessageClientSource[], content = "Continue the task.") => ({
+    role: "user",
+    content,
+    timestamp: 1,
+    __openclaw: {
+      senderId: "same-person",
+      senderIdentity: { type: "profile", id: "same-person" },
+      transport: { clients },
+    },
+  });
+
+  it.each([
+    { source: "different clients", next: [web] },
+    { source: "different app labels", next: [{ ...cli, displayName: "Deploy helper" }] },
+    { source: "a collected source list", next: [cli, web] },
+  ])("keeps identical messages from $source separate for the same human", ({ next }) => {
+    const groups = cachedGroups([messageFrom([cli]), messageFrom(next)]);
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.sourceClients)).toEqual([[cli], next]);
+    expect(groups.map((group) => group.sender?.identity)).toEqual([
+      { type: "profile", id: "same-person" },
+      { type: "profile", id: "same-person" },
+    ]);
+    expect(groups.flatMap((group) => group.messages).map((entry) => entry.duplicateCount)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("groups different text from the same client and keeps all collected client labels", () => {
+    const clients = [cli, web];
+    const groups = cachedGroups([
+      messageFrom(clients, "First collected turn."),
+      messageFrom(clients, "Second collected turn."),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.sourceClients).toEqual(clients);
+    expect(groups[0]?.messages).toHaveLength(2);
+  });
+
+  it("refreshes cached source attribution after an in-place history projection changes", () => {
+    const message = messageFrom([cli]);
+    const initial = cachedGroups([message]);
+    message["__openclaw"].transport.clients = [web];
+    const refreshed = cachedGroups([message]);
+    expect(initial[0]?.sourceClients).toEqual([cli]);
+    expect(refreshed[0]?.sourceClients).toEqual([web]);
+    expect(refreshed[0]).not.toBe(initial[0]);
+  });
+});
 
 describe("reasoning activity boundaries", () => {
   it.each([

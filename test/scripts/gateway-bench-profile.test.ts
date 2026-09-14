@@ -12,6 +12,9 @@ import {
   readGatewayCpuUsage,
   readGatewayHeapProfile,
 } from "../../scripts/lib/gateway-bench-profile.js";
+import { requireNodeTool } from "../helpers/node-toolchain.js";
+
+const nodeExecutable = requireNodeTool("node");
 
 type WorkerProfileManifest = {
   workers: Array<{
@@ -33,7 +36,7 @@ type WorkerProfileManifest = {
 
 it("measures fixed CPU work including a retired Worker without starting the inspector", async () => {
   const child = spawn(
-    process.execPath,
+    nodeExecutable,
     [fileURLToPath(new URL("./fixtures/gateway-bench-cpu-usage.mjs", import.meta.url))],
     { stdio: ["ignore", "ignore", "pipe", "ipc"] },
   );
@@ -82,7 +85,7 @@ it("measures fixed CPU work including a retired Worker without starting the insp
 
 it.each(["exit", "disconnect"])("rejects a CPU sample when the child %ss", async (action) => {
   const child = spawn(
-    process.execPath,
+    nodeExecutable,
     ["-e", `process.on("message", () => process.${action}()); process.send({ ready: true });`],
     { stdio: ["ignore", "ignore", "pipe", "ipc"] },
   );
@@ -106,7 +109,7 @@ it.each([false, true])(
   async (unknownIdentity) => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "gateway-worker-profile-startup-"));
     const child = spawn(
-      process.execPath,
+      nodeExecutable,
       [
         fileURLToPath(new URL("./fixtures/gateway-bench-profile-startup.mjs", import.meta.url)),
         directory,
@@ -238,7 +241,7 @@ it.each([
     const directory = await mkdtemp(path.join(os.tmpdir(), "gateway-worker-profile-"));
     const profilePath = path.join(directory, kind);
     const child = spawn(
-      process.execPath,
+      nodeExecutable,
       [
         "-e",
         workload,

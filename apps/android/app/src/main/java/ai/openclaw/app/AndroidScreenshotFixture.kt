@@ -26,9 +26,12 @@ internal object AndroidScreenshotFixture {
 
   val branchesEnabled: Boolean get() = scene == AndroidScreenshotScene.Branches
 
+  private val workScene: Boolean
+    get() = scene in setOf(AndroidScreenshotScene.CompletedWork, AndroidScreenshotScene.ActiveWork, AndroidScreenshotScene.WorkBoundaries)
+
   const val gatewayId = "android-screenshot-gateway"
   const val controlUiBaseUrl = "http://127.0.0.1:18789"
-  const val mainSessionKey = "agent:main:node-screenshot"
+  val mainSessionKey: String get() = if (workScene) "agent:main:node-work-proof" else "agent:main:node-screenshot"
   const val primarySessionTitle = "Android release planning"
   const val cronJobId = "android-release-digest"
   const val cronJobName = "Android release digest"
@@ -67,6 +70,8 @@ internal object AndroidScreenshotFixture {
           if (branchesEnabled) {
             branchRequestParams(paramsJson)
             branchHistory(activeLeaf.get())
+          } else if (workScene) {
+            workHistory()
           } else {
             chatHistory()
           }
@@ -108,7 +113,7 @@ internal object AndroidScreenshotFixture {
         }
 
         "question.list" -> {
-          Json.encodeToString(QuestionListResult(listOf(pendingQuestion)))
+          Json.encodeToString(QuestionListResult(if (workScene) emptyList() else listOf(pendingQuestion)))
         }
 
         "cron.list" -> {
@@ -500,6 +505,144 @@ internal object AndroidScreenshotFixture {
         },
       )
     }.toString()
+
+  private fun workHistory(): String =
+    buildJsonObject {
+      put("sessionId", JsonPrimitive("screenshot-work"))
+      put("thinkingLevel", JsonPrimitive("low"))
+      put("sessionInfo", session(mainSessionKey, "Checklist review", 1_783_555_320_000))
+      put(
+        "messages",
+        buildJsonArray {
+          add(chatMessage("user", "Check the release checklist and summarize what is ready.", 1_783_555_260_000))
+          add(workMessage("review", "I’ll read the checklist and check the results.", 1_783_555_265_000, "commentary"))
+          add(workTool("read", "read", "docs/release-checklist.md", "Checklist read: build, tests, and documentation.", 1_783_555_270_000))
+          if (scene == AndroidScreenshotScene.WorkBoundaries) {
+            add(
+              buildJsonObject {
+                put("role", JsonPrimitive("assistant"))
+                put("timestamp", JsonPrimitive(1_783_555_280_000))
+                put("phase", JsonPrimitive("commentary"))
+                put(
+                  "content",
+                  buildJsonArray {
+                    add(
+                      buildJsonObject {
+                        put("type", JsonPrimitive("text"))
+                        put("text", JsonPrimitive("The checklist attachment is available here."))
+                      },
+                    )
+                    add(
+                      buildJsonObject {
+                        put("type", JsonPrimitive("file"))
+                        put("mimeType", JsonPrimitive("text/plain"))
+                        put("fileName", JsonPrimitive("release-checklist.txt"))
+                        put("sizeBytes", JsonPrimitive(48))
+                        put("url", JsonPrimitive("https://example.com/release-checklist.txt"))
+                      },
+                    )
+                  },
+                )
+              },
+            )
+            add(workTool("verify", "exec", "check localization", "Localization check failed: one translation is missing.", 1_783_555_290_000, isError = true))
+            add(
+              buildJsonObject {
+                put("role", JsonPrimitive("assistant"))
+                put("id", JsonPrimitive("android-screenshot-final-audit-call"))
+                put("timestamp", JsonPrimitive(1_783_555_310_000))
+                put(
+                  "content",
+                  buildJsonArray {
+                    add(
+                      buildJsonObject {
+                        put("type", JsonPrimitive("toolCall"))
+                        put("id", JsonPrimitive("android-screenshot-call-final-audit"))
+                        put("name", JsonPrimitive("exec"))
+                        put("arguments", buildJsonObject { put("command", JsonPrimitive("check final release audit")) })
+                      },
+                    )
+                  },
+                )
+              },
+            )
+            add(workMessage("answer", "The build and tests are ready. One translation still needs attention.", 1_783_555_320_000, "final_answer"))
+            add(
+              buildJsonObject {
+                put("role", JsonPrimitive("toolResult"))
+                put("id", JsonPrimitive("android-screenshot-final-audit-result"))
+                put("timestamp", JsonPrimitive(1_783_555_330_000))
+                put("toolCallId", JsonPrimitive("android-screenshot-call-final-audit"))
+                put("toolName", JsonPrimitive("exec"))
+                put("content", JsonPrimitive("Final audit failed: signature check needs attention."))
+                put("isError", JsonPrimitive(true))
+              },
+            )
+          } else {
+            add(workMessage("verify", "The checklist is complete. I’ll verify the test results.", 1_783_555_280_000, "commentary"))
+            add(workTool("tests", "exec", "check release results", "Build passed. Tests passed. Documentation checked.", 1_783_555_300_000))
+            if (scene == AndroidScreenshotScene.CompletedWork) {
+              add(workMessage("answer", "The release checklist is ready: the build, tests, and documentation checks passed.", 1_783_555_320_000, "final_answer"))
+            }
+          }
+        },
+      )
+      if (scene == AndroidScreenshotScene.ActiveWork) {
+        put(
+          "inFlightRun",
+          buildJsonObject {
+            put("runId", JsonPrimitive("android-screenshot-work-active"))
+            put("text", JsonPrimitive("I’m checking the final release details."))
+          },
+        )
+      }
+    }.toString()
+
+  private fun workMessage(
+    id: String,
+    text: String,
+    timestamp: Long,
+    phase: String,
+  ) = buildJsonObject {
+    chatMessage("assistant", text, timestamp).forEach { (key, value) -> put(key, value) }
+    put("id", JsonPrimitive("android-screenshot-work-$id"))
+    put("phase", JsonPrimitive(phase))
+  }
+
+  private fun workTool(
+    id: String,
+    name: String,
+    detail: String,
+    result: String,
+    timestamp: Long,
+    isError: Boolean = false,
+  ) = buildJsonObject {
+    put("role", JsonPrimitive("assistant"))
+    put("id", JsonPrimitive("android-screenshot-tool-$id"))
+    put("timestamp", JsonPrimitive(timestamp))
+    put(
+      "content",
+      buildJsonArray {
+        add(
+          buildJsonObject {
+            put("type", JsonPrimitive("toolCall"))
+            put("id", JsonPrimitive("android-screenshot-call-$id"))
+            put("name", JsonPrimitive(name))
+            put("arguments", buildJsonObject { put(if (name == "read") "path" else "command", JsonPrimitive(detail)) })
+          },
+        )
+        add(
+          buildJsonObject {
+            put("type", JsonPrimitive("toolResult"))
+            put("toolCallId", JsonPrimitive("android-screenshot-call-$id"))
+            put("name", JsonPrimitive(name))
+            put("content", JsonPrimitive(result))
+            put("isError", JsonPrimitive(isError))
+          },
+        )
+      },
+    )
+  }
 
   private fun chatHistory(): String =
     buildJsonObject {

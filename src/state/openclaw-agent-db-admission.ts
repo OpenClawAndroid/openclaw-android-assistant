@@ -28,6 +28,10 @@ import {
 } from "./openclaw-agent-db-schema-helpers.js";
 import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import { resolveOpenClawAgentSqlitePath } from "./openclaw-agent-db.paths.js";
+import {
+  getOpenClawDatabaseMaintenanceScope,
+  observeOpenClawDatabaseMaintenanceResource,
+} from "./openclaw-state-db-async-lifecycle.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db-contract.js";
 
 /** Denial still invokes run under admission, with a throwing authority check, to permit cleanup. */
@@ -75,6 +79,16 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     /** Synchronous live authority for the initiating open and this caller's operation. */
     assertCurrent?: () => void,
   ): Promise<T> {
+    const run = () => runAgentDatabaseAsync(inputOptions, operation, assertCurrent);
+    const scope = getOpenClawDatabaseMaintenanceScope();
+    return scope ? scope.run(run) : run();
+  }
+
+  function runAgentDatabaseAsync<T>(
+    inputOptions: OpenClawAgentDatabaseOptions,
+    operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
+    assertCurrent?: () => void,
+  ): Promise<T> {
     try {
       assertCurrent?.();
     } catch (error) {
@@ -100,7 +114,7 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     const pending =
       existing ?? startOpenClawAgentDatabaseAdmission(options, agentId, pathname, assertCurrent);
     pending.operations += 1;
-    return pending.promise
+    const work = pending.promise
       .then((database) => {
         pending.controller.signal.throwIfAborted();
         if (cache.databases.get(pathname) !== database || !database.db.isOpen) {
@@ -110,6 +124,7 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
         assertAgentDeletionDatabaseCleanupAccess(database, options);
         assertCurrent?.();
         assertAgentDatabaseMaintenanceAccess(database.db);
+        observeOpenClawDatabaseMaintenanceResource(database.db);
         return operation(database);
       })
       .finally(() => {
@@ -120,10 +135,21 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
           pending.releaseBorrow?.();
         }
       });
+    return work;
   }
 
   /** Run on a Worker to keep its same-connection integrity check outside the parent writer. */
-  async function withOpenClawAgentDatabaseAdmission<T>(
+  function withOpenClawAgentDatabaseAdmission<T>(
+    inputOptions: OpenClawAgentDatabaseOptions,
+    withAdmission: OpenClawAgentDatabaseWriteAdmission,
+    operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
+  ): Promise<T> {
+    const run = () => runAgentDatabaseAdmission(inputOptions, withAdmission, operation);
+    const scope = getOpenClawDatabaseMaintenanceScope();
+    return scope ? scope.run(() => scope.track(run())) : run();
+  }
+
+  async function runAgentDatabaseAdmission<T>(
     inputOptions: OpenClawAgentDatabaseOptions,
     withAdmission: OpenClawAgentDatabaseWriteAdmission,
     operation: (database: OpenClawAgentDatabase) => T | Promise<T>,

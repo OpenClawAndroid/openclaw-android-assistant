@@ -696,7 +696,41 @@ describe("ConfigPage Updates integration", () => {
     document.body.append(container);
     const restoreDialogPolyfill = installDialogPolyfill();
 
+    state.context.overlays.snapshot.updateStatusRefreshing = true;
     render(page.render(), container);
+    const checkingButton = container.querySelector<HTMLButtonElement>(".btn.primary")!;
+    expect(checkingButton.textContent?.trim()).toBe("Update now");
+    expect(checkingButton.disabled).toBe(true);
+    expect(checkingButton.title).toBe("Checking for updates…");
+    expect(container.querySelector(".settings-status")?.textContent).toContain(
+      "Checking for updates…",
+    );
+    expect(container.querySelector("wa-radio-group")?.hasAttribute("disabled")).toBe(true);
+    state.context.overlays.snapshot.updateStatusRefreshing = false;
+    state.context.overlays.snapshot.updateStatusCheckBanner = {
+      tone: "warn",
+      text: "Could not check for updates: timeout",
+    };
+    render(page.render(), container);
+    const unknownUpdateButton = container.querySelector<HTMLButtonElement>(".btn.primary")!;
+    expect(unknownUpdateButton.disabled).toBe(true);
+    expect(unknownUpdateButton.title).toBe(
+      "Check for updates successfully before starting an update.",
+    );
+
+    state.context.overlays.snapshot.updateSchedule = {
+      channel: "dev",
+      autoEnabled: false,
+      install: { kind: "git", git: { status: "diverged", commitsAhead: 1, commitsBehind: 3 } },
+    };
+    render(page.render(), container);
+    const knownUpdateButton = container.querySelector<HTMLButtonElement>(".btn.primary")!;
+    expect(knownUpdateButton.disabled).toBe(false);
+    expect(knownUpdateButton.title).toBe("");
+    expect(container.querySelector(".settings-status")?.textContent).toContain(
+      "Could not check for updates: timeout",
+    );
+    expect(runUpdate).not.toHaveBeenCalled();
 
     const channel = container.querySelector<HTMLElement & { value: string }>("wa-radio-group");
     if (!channel) {

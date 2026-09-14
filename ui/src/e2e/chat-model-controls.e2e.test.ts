@@ -721,6 +721,7 @@ suite.define(() => {
             .toContainEqual({
               key: "agent:main:main",
               model: "openai/speed-only",
+              agentRuntime: null,
             });
         } else {
           await expect.poll(() => effort.count()).toBe(1);

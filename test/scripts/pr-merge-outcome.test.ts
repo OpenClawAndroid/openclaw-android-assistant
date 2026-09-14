@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { requireNodeTool } from "../helpers/node-toolchain.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import { validReview, writeReviewArtifacts } from "./pr-review-artifact-fixture.js";
 
@@ -21,6 +22,7 @@ const temps = useAutoCleanupTempDirTracker(afterEach);
 const templateDirs = useAutoCleanupTempDirTracker(afterAll);
 let fixtureTemplate: ReturnType<typeof createFixtureTemplate> | undefined;
 const scripts = join(process.cwd(), "scripts");
+const nodeExecutable = requireNodeTool("node");
 const outcomeRef = "refs/openclaw/pr-merge-outcomes/123";
 const lockRef = "refs/openclaw/pr-operation-locks/123";
 const describePosix = process.platform === "win32" ? describe.skip : describe;
@@ -468,7 +470,7 @@ fi
     completionOid = "",
   ) => {
     const result = spawnSync(
-      process.execPath,
+      nodeExecutable,
       [
         join(scripts, "pr-lib/process-group-runner.mjs"),
         repo,
@@ -539,7 +541,7 @@ fi
   const ordinaryRead = () =>
     JSON.parse(
       execFileSync(
-        process.execPath,
+        nodeExecutable,
         [gh, "path", "pr", "view", "123", "--json", "state,headRefOid,mergeCommit"],
         { cwd: repo, env, encoding: "utf8" },
       ),

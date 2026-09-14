@@ -236,13 +236,11 @@ describe("session mutation reconnect truth", () => {
     },
   );
 
-  it.each([
-    { laterOutcome: "no-op", errors: [] },
-    { laterOutcome: "transport rejection", errors: ["transport closed before response"] },
-  ] as const)(
-    "keeps earlier confirmed batch deletions when a later $laterOutcome follows reconnect",
-    async ({ laterOutcome, errors }) => {
+  it.each(["no-op", "transport rejection"] as const)(
+    "keeps earlier confirmed batch deletions when a later %s follows reconnect",
+    async (laterOutcome) => {
       const laterDelete = createDeferred<{ deleted: boolean }>();
+      const error = new Error("transport closed before response");
       let deleteCalls = 0;
       const { publish, sessions } = createMutationHarness({
         "sessions.delete": () => {
@@ -260,12 +258,13 @@ describe("session mutation reconnect truth", () => {
       if (laterOutcome === "no-op") {
         laterDelete.resolve({ deleted: false });
       } else {
-        laterDelete.reject(new Error("transport closed before response"));
+        laterDelete.reject(error);
       }
 
       await expect(operation).resolves.toEqual({
         deleted: ["agent:main:confirmed"],
-        errors: [...errors],
+        errors:
+          laterOutcome === "no-op" ? [] : [{ target: { key: "agent:main:unchanged" }, error }],
         preservedWorktrees: [],
       });
       expect(sessions.state.deletedSessions).toEqual([]);

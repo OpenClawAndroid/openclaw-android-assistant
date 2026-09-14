@@ -8,7 +8,7 @@ import { createDeferred } from "../../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { NodeRegistry } from "../../gateway/node-registry.js";
 import { getSkillsSnapshotVersion } from "./refresh-state.js";
-import { resetSkillsRefreshForTest } from "./refresh.test-support.js";
+import { closeSkillsWatchers } from "./refresh.js";
 import { mergeRemoteNodeSkillEntries, replaceRemoteNodeSkills } from "./remote-skills.js";
 
 vi.mock("../../infra/device-pairing-node-facts.js", async (importOriginal) => {
@@ -195,7 +195,7 @@ describe("skills-remote", () => {
   });
 
   it("bumps the skills snapshot version when an eligible remote node disconnects", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const workspaceDir = `/tmp/ws-${randomUUID()}`;
     const nodeId = `node-${randomUUID()}`;
     recordRemoteNodeInfo({
@@ -213,7 +213,7 @@ describe("skills-remote", () => {
   });
 
   it("bumps the skills snapshot version when an eligible remote node connects", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const workspaceDir = `/tmp/ws-${randomUUID()}`;
     const nodeId = `node-${randomUUID()}`;
 
@@ -337,7 +337,7 @@ describe("skills-remote", () => {
   )(
     "clears stale bins after a probe failure ($command/$failure, skills=$skills)",
     async ({ command, failure, skills }) => {
-      await resetSkillsRefreshForTest();
+      await closeSkillsWatchers(true);
       const nodeId = `node-${randomUUID()}`;
       const bin = `bin-${randomUUID()}`;
       const { cfg, workspaceDir } = createRemoteSkillWorkspace(bin);
@@ -383,7 +383,7 @@ describe("skills-remote", () => {
   );
 
   it("skips remote bin probes when the node connectivity preflight fails", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const nodeId = `node-${randomUUID()}`;
     const bin = `bin-${randomUUID()}`;
     const { cfg, workspaceDir } = createRemoteSkillWorkspace(bin);
@@ -431,7 +431,7 @@ describe("skills-remote", () => {
   });
 
   it("retries the bin probe when the node reconnects during preflight", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const nodeId = `node-${randomUUID()}`;
     const bin = `bin-${randomUUID()}`;
     const { cfg, workspaceDir } = createRemoteSkillWorkspace(bin);
@@ -554,7 +554,7 @@ describe("skills-remote", () => {
   });
 
   it("reuses a successful probe after reconnect and invalidates the skills snapshot", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const nodeId = `node-${randomUUID()}`;
     const bin = `bin-${randomUUID()}`;
     const { cfg, workspaceDir } = createRemoteSkillWorkspace(bin);
@@ -863,7 +863,7 @@ describe("skills-remote", () => {
   });
 
   it("records bins from system.which object-map responses", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const nodeId = `node-${randomUUID()}`;
     const bin = `bin-${randomUUID()}`;
     const { cfg, workspaceDir } = createRemoteSkillWorkspace(bin);
@@ -902,7 +902,7 @@ describe("skills-remote", () => {
   });
 
   it("continues the connected-node refresh after one node fails", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const nodeA = `node-${randomUUID()}`;
     const nodeB = `node-${randomUUID()}`;
     const bin = `bin-${randomUUID()}`;
@@ -939,7 +939,7 @@ describe("skills-remote", () => {
   });
 
   it("refreshes bins only for generation-current connected sessions", async () => {
-    await resetSkillsRefreshForTest();
+    await closeSkillsWatchers(true);
     const staleNodeId = `node-${randomUUID()}`;
     const currentNodeId = `node-${randomUUID()}`;
     const bin = `bin-${randomUUID()}`;

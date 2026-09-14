@@ -18,6 +18,7 @@ import { type EditorId, openEditor } from "../../../lib/editor-links.ts";
 import { formatUiError } from "../../../lib/format-error.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { FileCopyController } from "./chat-file-copy-controller.ts";
+import { readFileDraft, setFileDraft } from "./chat-file-drafts.ts";
 import { FileHtmlPreviewController } from "./chat-html-preview.ts";
 import { releaseChatMediaResourceSubscriber } from "./chat-message-media.ts";
 import type {
@@ -31,7 +32,7 @@ import {
   handleSidebarKeydown,
   renderSidebarPanel,
 } from "./chat-sidebar-content.ts";
-import { computeFileMatches, readFileDraft, setFileDraft } from "./chat-sidebar-file-view.ts";
+import { computeFileMatches } from "./chat-sidebar-file-view.ts";
 import type { FileEditorViewHandle } from "./file-editor-view.ts";
 
 type FileSidebarContent = Extract<SidebarContent, { kind: "file" }>;
@@ -471,12 +472,13 @@ class ChatDetailPanel extends OpenClawLightDomElement {
     this.fileDraftContent = !this.fileEditor && this.fileDirty ? draftContent : null;
     setFileDraft(content, this.fileDirty ? { content: draftContent, expectedHash: hash } : null);
     this.fileSaveNotice = null;
-    this.visibleContent = {
-      ...content,
-      content: nextContent,
-      rawText: nextContent,
-      ...(content.edit ? { edit: { ...content.edit, hash } } : {}),
-    };
+    // The retained file tab owns the saved buffer used by later reads and opens.
+    content.content = nextContent;
+    content.rawText = nextContent;
+    if (content.edit) {
+      content.edit.hash = hash;
+    }
+    this.visibleContent = content;
   }
 
   private async saveFileContent(
@@ -660,6 +662,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
       : 0;
     return renderSidebarPanel({
       content: this.visibleContent,
+      showingRawText: this.showingRawText,
       error: file ? null : this.error,
       onRetry: this.retryFileEditor,
       fileView: {

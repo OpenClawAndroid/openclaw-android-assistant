@@ -218,6 +218,8 @@ export type PreparedModelCatalogInventory = {
   discoveryOrigins: readonly { provider: string; profileId?: string }[];
 };
 
+export type PreparedModelCatalogAcquisitionKind = "provider" | "native";
+
 export type PreparedModelCatalogAttempt = {
   source: {
     key: string;
@@ -225,7 +227,7 @@ export type PreparedModelCatalogAttempt = {
     credentials: Readonly<AuthStorageData>;
   };
   /** Undefined records a failure before an individual provider scope starts. */
-  failedProviders: Set<string | undefined>;
+  failedProviders: Record<PreparedModelCatalogAcquisitionKind, Set<string | undefined>>;
 };
 
 export type PreparedModelRuntimeOwner = {

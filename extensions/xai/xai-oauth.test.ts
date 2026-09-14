@@ -727,8 +727,7 @@ describe("xAI OAuth", () => {
         title: "xAI OAuth",
         code: "ABCD-1234",
         expiresInMinutes: 15,
-        message:
-          "Open https://accounts.x.ai/oauth2/device?user_code=ABCD-1234 and enter this one-time code.",
+        message: "Enter this one-time code on the sign-in page.",
       });
       expect(openUrl.mock.invocationCallOrder[0]).toBeLessThan(
         deviceCode.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,

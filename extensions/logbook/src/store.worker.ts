@@ -25,6 +25,7 @@ import type {
   LogbookStandup,
   LogbookTimeline,
 } from "./store-contract.js";
+import { createLogbookFrameQueries } from "./store-frame-queries.js";
 import {
   LOGBOOK_SCHEMA_VERSION,
   SCHEMA,
@@ -91,27 +92,14 @@ class LogbookDatabaseStore {
       this.db = db;
       this.walMaintenance = walMaintenance;
       this.query = getNodeSqliteKysely<LogbookDatabase>(db);
-      // Timestamp ties follow insertion ids, matching existing SQLite reads.
-      this.framesQuery = this.query
-        .selectFrom("frames")
-        .select([
-          "id",
-          "captured_at_ms",
-          "day",
-          "path",
-          "screen_index",
-          "width",
-          "height",
-          "byte_size",
-          "idle",
-        ])
-        .orderBy("captured_at_ms", "asc")
-        .orderBy("id", "asc");
+      const { framesQuery, sampledBatchFrames } = createLogbookFrameQueries(db, this.query);
+      this.framesQuery = framesQuery;
       this.batchesQuery = this.query
         .selectFrom("batches")
         .select(["id", "day", "start_ms", "end_ms", "status", "error", "frame_count", "model"]);
       this.cardsQuery = this.query.selectFrom("cards");
       this.statements = {
+        sampledBatchFrames,
         insertFrame: prepareSqliteQuerySync<LogbookFrameInput>(db, (p) =>
           this.query.insertInto("frames").values({
             captured_at_ms: p((row) => row.capturedAtMs),
@@ -392,6 +380,11 @@ class LogbookDatabaseStore {
     ).rows.map(toFrame);
   }
 
+  sampledBatchFrames(batchId: number): LogbookFrame[] {
+    // The ordinal scan and sampled payload read share one SQLite statement.
+    return this.statements.sampledBatchFrames(batchId).rows.map(toFrame);
+  }
+
   // Replace batch evidence atomically so manual retries cannot duplicate it.
   replaceObservations(batchId: number, day: string, segments: LogbookObservationInput[]): void {
     runSqliteImmediateTransactionSync(
@@ -653,6 +646,8 @@ export function createSqliteWorkerBackend(
           return store.nextPendingBatch();
         case "batchFrames":
           return store.batchFrames(command.input.batchId);
+        case "sampledBatchFrames":
+          return store.sampledBatchFrames(command.input.batchId);
         case "replaceObservations":
           return store.replaceObservations(
             command.input.batchId,

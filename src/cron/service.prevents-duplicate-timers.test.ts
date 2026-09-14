@@ -210,7 +210,13 @@ describe("CronService", () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(stale.enqueueSystemEvent).toHaveBeenCalledWith("earlier-job", expect.any(Object));
+    await vi.waitFor(
+      () => {
+        expect(stale.enqueueSystemEvent).toHaveBeenCalledWith("earlier-job", expect.any(Object));
+        expect(stale.state.activeTimerTicks).toBe(0);
+      },
+      { interval: 0 },
+    );
     if (stale.state.timer) {
       clearTimeout(stale.state.timer);
     }

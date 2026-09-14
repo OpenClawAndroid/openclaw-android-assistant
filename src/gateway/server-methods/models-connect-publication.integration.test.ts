@@ -272,6 +272,45 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
           await disconnectGatewayClient(racingClient);
         }
       }
+      const unrelatedKey = "agent:alpha:catalog-other";
+      await upsertSessionEntryCore(
+        { agentId: "alpha", sessionKey: unrelatedKey },
+        { sessionId: "unrelated-catalog-session", updatedAt: Date.now() },
+      );
+      const requestEntered = createDeferred();
+      const releaseRequest = createDeferred();
+      const pendingAcquisition = vi
+        .spyOn(modelCatalogAuth, "readPreparedCatalog")
+        .mockImplementationOnce(async (...args) => {
+          requestEntered.resolve();
+          await releaseRequest.promise;
+          return readPreparedCatalog(...args);
+        });
+      const pendingCatalog = client.request("models.list", { agentId: "alpha", sessionKey });
+      const superseded = expect(pendingCatalog).rejects.toMatchObject({
+        code: "UNAVAILABLE",
+        retryable: true,
+        retryAfterMs: 0,
+      });
+      try {
+        await withTestTimeout(requestEntered.promise, 10_000, "Catalog request did not start");
+        await client.request("sessions.patch", {
+          key: unrelatedKey,
+          agentId: "alpha",
+          label: "Renamed unrelated session",
+        });
+        releaseRequest.resolve();
+        await superseded;
+        await expect(
+          client.request("models.list", { agentId: "alpha", sessionKey }),
+        ).resolves.toMatchObject({
+          accountSelection: { authProfileId: "fixture:replacement-account" },
+        });
+      } finally {
+        releaseRequest.resolve();
+        pendingAcquisition.mockRestore();
+        await Promise.allSettled([pendingCatalog, superseded]);
+      }
       for (const clientName of [
         GATEWAY_CLIENT_IDS.CONTROL_UI,
         GATEWAY_CLIENT_IDS.CLI,

@@ -5,7 +5,12 @@ import {
   normalizeProviderId,
 } from "@openclaw/model-catalog-core/provider-id";
 import { asDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
-import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
+import {
+  ErrorCodes,
+  errorShape,
+  validateModelsAuthSetApiKeyParams,
+  type ModelsAuthSetApiKeyResult,
+} from "../../../packages/gateway-protocol/src/index.js";
 import { tryResolveAmbientOwnerAgentId } from "../../agents/agent-scope-config.js";
 import {
   type AuthHealthSummary,
@@ -61,6 +66,7 @@ import type {
 import { getProviderUsageRuntimeSnapshot } from "./provider-usage-runtime.js";
 import { respondUnavailableOnThrow } from "./response.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
+import { assertValidParams } from "./validation.js";
 
 export type {
   ModelAuthExpiry,
@@ -429,16 +435,12 @@ async function refreshAfterCredentialMutation(
 export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
   ...modelsAuthRefreshHandlers,
   "models.authSetApiKey": async ({ params, respond, context }) => {
-    const provider = readProviderParam(params);
-    const apiKey = typeof params.apiKey === "string" ? params.apiKey : "";
-    if (!provider || !apiKey.trim()) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "provider and apiKey are required"),
-      );
+    if (
+      !assertValidParams(params, validateModelsAuthSetApiKeyParams, "models.authSetApiKey", respond)
+    ) {
       return;
     }
+    const provider = normalizeProviderId(params.provider);
     await respondUnavailableOnThrow(respond, async () => {
       const config = context.getRuntimeConfig();
       const scope = resolveModelAuthAgentScope(config, params.agentId);
@@ -450,11 +452,16 @@ export const modelsAuthStatusHandlers: GatewayRequestHandlers = {
       const profileId = await saveModelProviderApiKey({
         config,
         provider,
-        apiKey,
+        apiKey: params.apiKey,
         agentDir: scope.agentDir,
       });
       const warning = await refreshAfterCredentialMutation(context, "update", scope.agentId);
-      respond(true, { provider, profileId, ...(warning ? { warning } : {}) }, undefined);
+      const result: ModelsAuthSetApiKeyResult = {
+        provider,
+        profileId,
+        ...(warning ? { warning } : {}),
+      };
+      respond(true, result, undefined);
     });
   },
   "models.authLogout": async ({ params, respond, context }) => {

@@ -367,7 +367,10 @@ async function createPersonalAccountSessionFixture() {
   const cfg = gatewayConfig.getRuntimeConfig();
   const context = {
     getRuntimeConfig: () => cfg,
-    loadGatewayModelCatalog: vi.fn(async () => catalog),
+    loadGatewayModelCatalogSnapshot: vi.fn(async () => ({
+      entries: catalog,
+      routeVariants: catalog,
+    })),
     getClientConnIds: (filter?: (current: GatewayClient) => boolean) =>
       new Set(
         [...clients].filter((current) => !filter || filter(current)).map(({ connId }) => connId),
@@ -424,12 +427,12 @@ test("session creation provenance cannot authorize a fresh personal account", as
       creation: { via: "operator", actor: { type: "human", source: "profile", id: owner.id } },
       commandSource: "webchat",
       prepareLifecycle,
-      loadGatewayModelCatalog: context.loadGatewayModelCatalog,
+      loadGatewayModelCatalogSnapshot: context.loadGatewayModelCatalogSnapshot,
     });
 
     expect(created).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
     expect(prepareLifecycle).not.toHaveBeenCalled();
-    expect(context.loadGatewayModelCatalog).not.toHaveBeenCalled();
+    expect(context.loadGatewayModelCatalogSnapshot).not.toHaveBeenCalled();
     expect(loadSessionEntry({ sessionKey: key, storePath })).toBeUndefined();
   });
 });
@@ -670,14 +673,17 @@ test.each([
             const context = {
               getRuntimeConfig: () => cfg,
               modelAccountConnectService: service,
-              loadGatewayModelCatalog: async () => [
-                { id: "trinity-large-thinking", name: "Direct Arcee model", provider: "arcee" },
-                {
-                  id: "trinity-large-preview",
-                  name: "Arcee model through OpenRouter",
-                  provider: "arcee",
-                },
-              ],
+              loadGatewayModelCatalogSnapshot: async () => {
+                const entries = [
+                  { id: "trinity-large-thinking", name: "Direct Arcee model", provider: "arcee" },
+                  {
+                    id: "trinity-large-preview",
+                    name: "Arcee model through OpenRouter",
+                    provider: "arcee",
+                  },
+                ];
+                return { entries, routeVariants: entries };
+              },
               getClientConnIds: (filter?: (current: GatewayClient) => boolean) =>
                 new Set(
                   [...clients]
@@ -866,7 +872,7 @@ test.each(["foreign admin", "unidentified admin", "synthetic owner"] as const)(
         );
 
         expect(created).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
-        expect(context.loadGatewayModelCatalog).not.toHaveBeenCalled();
+        expect(context.loadGatewayModelCatalogSnapshot).not.toHaveBeenCalled();
         expect(dashboardTitleGenerationMocks.generate).not.toHaveBeenCalled();
         expect(loadSessionEntry({ sessionKey: key, storePath })).toEqual(before);
         expect(managedWorktrees.findLiveByOwner("session", key)).toBeUndefined();
@@ -906,9 +912,9 @@ test.each([
         gateway: { roles: { default: "writer", definitions: { writer } } },
       };
       const catalogGate = createDeferredCore();
-      context.loadGatewayModelCatalog.mockImplementationOnce(async () => {
+      context.loadGatewayModelCatalogSnapshot.mockImplementationOnce(async () => {
         await catalogGate.promise;
-        return catalog;
+        return { entries: catalog, routeVariants: catalog };
       });
       const key = "agent:main:dashboard:personal-revoked";
       const creating = directSessionReq(
@@ -920,7 +926,9 @@ test.each([
         { client, context: { ...context, getRuntimeConfig: () => cfg } },
       );
       try {
-        await waitForFast(() => expect(context.loadGatewayModelCatalog).toHaveBeenCalledOnce());
+        await waitForFast(() =>
+          expect(context.loadGatewayModelCatalogSnapshot).toHaveBeenCalledOnce(),
+        );
         if (loss === "disconnected") {
           clients.delete(client);
         } else {
@@ -6682,10 +6690,15 @@ test("sessions.create forks the parent transcript into the new session", async (
   const { dir, storePath } = await createSessionStoreDir();
   testState.sessionConfig = { scope: "per-sender" };
   const parent = await createCheckpointFixture(dir);
+  const projectRoot = path.join(dir, "qa-writer");
+  await fs.mkdir(projectRoot);
   await writeSessionStore({
     entries: {
       main: sessionStoreEntry(parent.sessionId, {
         sessionFile: parent.sessionFile,
+        projectId: "qa-writer",
+        spawnedCwd: projectRoot,
+        sessionRoot: projectRoot,
         totalTokens: 123,
         totalTokensFresh: true,
         totalTokensVersion: 1,
@@ -6764,6 +6777,9 @@ test("sessions.create forks the parent transcript into the new session", async (
 
   const key = requireNonEmptyString(created.payload?.key, "forked session key");
   expect(loadSessionEntry({ sessionKey: key, storePath })).toMatchObject({
+    projectId: "qa-writer",
+    spawnedCwd: projectRoot,
+    sessionRoot: projectRoot,
     sessionId: created.payload?.sessionId,
     forkSource: {
       sessionKey: "agent:main:main",

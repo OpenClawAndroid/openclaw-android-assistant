@@ -93,6 +93,7 @@ export type NodeWorkerRunningChild = NodeWorkerActiveBase & {
 export type NodeWorkerObservedTerminal = NodeWorkerActiveBase & {
   state: "observed";
   outcome: NodeWorkerTerminalOutcome;
+  cancelledTurn?: NodeWorkerLaunchClaim;
 };
 
 export type NodeWorkerActiveOwnership = NodeWorkerRunningChild | NodeWorkerObservedTerminal;

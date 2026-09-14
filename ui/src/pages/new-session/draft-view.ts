@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import { renderChatPermissionPicker } from "../chat/components/chat-permission-picker.ts";
 import type { NewSessionDictationControl } from "./composer-dictation-control.ts";
@@ -11,6 +12,8 @@ import type { DraftPlaceState } from "./draft-place-state.ts";
 import type { DraftSubmissionFlow } from "./draft-submission-flow.ts";
 import type { NewSessionTitleController } from "./draft-title.ts";
 import { renderNewSessionIncognitoNotice } from "./incognito-control.ts";
+
+registerNewSessionSetupEnglish();
 
 export function renderNewSessionDraftView(options: {
   context: ApplicationContext | undefined;

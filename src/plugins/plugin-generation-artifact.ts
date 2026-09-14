@@ -23,6 +23,7 @@ import {
   readPluginSourceBytes,
   createPluginPackageMetadataCapture,
   createPluginSourceCapture,
+  type PluginDependencyResolution,
   type PluginPackageCapture,
   type PluginModuleCapture,
   isPluginPackageFile as inPackage,
@@ -61,7 +62,7 @@ export function capturePluginGenerationArtifact(
     assertModuleAvailable,
   } = sourceCapture;
   const moduleCaptures = new Map<string, PluginModuleCapture>();
-  const dependencyRoot = createPluginDependencyResolver();
+  const resolveDependency = createPluginDependencyResolver();
   // Callers canonicalize roots; already-captured packages survive removal of their original files.
   const copyPackage = (
     root: string,
@@ -214,9 +215,9 @@ export function capturePluginGenerationArtifact(
               if (alias === "openclaw" || alias === "@openclaw/plugin-sdk") {
                 continue;
               }
-              const dependency = dependencyRoot(alias, source);
+              const dependency = resolveDependency(alias, source);
               if (dependency) {
-                linkDependency(alias, source, dependency, true);
+                linkDependency(alias, dependency, true);
               }
             }
           });
@@ -227,14 +228,16 @@ export function capturePluginGenerationArtifact(
     };
     const linkDependency = (
       name: string,
-      importer: string,
-      dependency: string,
+      dependency: PluginDependencyResolution,
       captureMetadataOnly = false,
     ) => {
-      const captured = copyPackage(dependency, undefined, captureMetadataOnly);
-      // Native lookup starts beside this importer, including within whole-package captures.
-      const link = path.join(path.dirname(capturedPaths.get(importer)!), "node_modules", name);
-      packages.get(dependency)!.links.add(link);
+      const captured = copyPackage(dependency.root, undefined, captureMetadataOnly);
+      // Preserve real nested installs; synthetic per-file node_modules confuse native addon roots.
+      const lookupDirectory = inPackage(boundary, dependency.lookupDirectory)
+        ? path.join(capturedBoundary, path.relative(boundary, dependency.lookupDirectory))
+        : capturedBoundary;
+      const link = path.join(lookupDirectory, "node_modules", name);
+      packages.get(dependency.root)!.links.add(link);
       if (!fs.existsSync(link)) {
         fs.mkdirSync(path.dirname(link), { recursive: true, mode: 0o700 });
         fs.symlinkSync(path.relative(path.dirname(link), captured), link, "junction");
@@ -250,8 +253,8 @@ export function capturePluginGenerationArtifact(
     });
     const references = new Map<string, Set<string>>();
     const getNativeScope = createPluginNativeDependencyScopes(
-      dependencyRoot,
-      (name, source, dependency) => linkDependency(name, source, dependency, true),
+      resolveDependency,
+      (name, dependency) => linkDependency(name, dependency, true),
     );
     const scannedDirectories = new Set<string>();
     const captureFile = (source: string, options?: JitiOptions): void => {
@@ -290,8 +293,8 @@ export function capturePluginGenerationArtifact(
       const prepareDependency = createPluginDependencyLookup(
         source,
         scope?.manifest,
-        dependencyRoot,
-        (name, dependency) => linkDependency(name, source, dependency),
+        resolveDependency,
+        linkDependency,
       );
       const resolver = createJiti(source, {
         ...options,
@@ -360,7 +363,7 @@ export function capturePluginGenerationArtifact(
               captureFile(input, resolver.options);
               return input;
             }
-            if (!isPathInside(dependencyRoot(name, source) ?? boundary, input)) {
+            if (!isPathInside(resolveDependency(name, source)?.root ?? boundary, input)) {
               return conditions && execute ? captureExecutableFile(input) : null;
             }
           }
@@ -380,8 +383,8 @@ export function capturePluginGenerationArtifact(
             // Jiti selects the condition/target. String leaves identify lookup aliases only;
             // preserve every matching alias when several names share one physical package.
             for (const alias of scope.aliases) {
-              const dependency = dependencyRoot(alias, scope.source);
-              if (dependency && isPathInside(dependency, input)) {
+              const dependency = resolveDependency(alias, scope.source);
+              if (dependency && isPathInside(dependency.root, input)) {
                 addDependency(alias, scope.source);
                 external = true;
               }
@@ -566,7 +569,7 @@ export function capturePluginGenerationArtifact(
         root,
         manifestFile: entry ? undefined : path.join(destination, "package.json"),
         references,
-        resolve: dependencyRoot,
+        resolve: resolveDependency,
         capture: linkDependency,
       });
       if (!entry) {

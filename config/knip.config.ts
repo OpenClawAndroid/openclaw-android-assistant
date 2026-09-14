@@ -309,6 +309,9 @@ const rootEntries = [
   "apps/linux/ui/quickchat.js!",
   // The native window-chrome owner injects this script through Rust include_str!.
   "apps/linux/ui/window-chrome.js!",
+  "apps/linux/ui/gateway-switch.js!",
+  "apps/linux/ui/gateway-notice.js!",
+  "apps/linux/ui/gateways.js!",
   "scripts/qa/render-maturity-docs.ts!",
   bundledPluginFile("telegram", "src/audit.ts", "!"),
   bundledPluginFile("telegram", "src/token.ts", "!"),

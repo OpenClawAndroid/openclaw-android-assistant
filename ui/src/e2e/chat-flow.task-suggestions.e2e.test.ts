@@ -174,6 +174,91 @@ suite.define(() => {
     }
   });
 
+  it("dismisses suggested tasks immediately and restores a rejected dismissal without changing selection", async () => {
+    const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
+    const page = await context.newPage();
+    const suggestion = {
+      id: "task_dismiss",
+      title: "Remove stale adapter",
+      prompt: "Delete the stale adapter and update its tests.",
+      tldr: "This follow-up is no longer needed.",
+      cwd: "/projects/example",
+      sessionKey: "main",
+      agentId: "main",
+      createdAt: 2,
+    };
+    const nextSuggestion = {
+      ...suggestion,
+      id: "task_next",
+      title: "Inspect remaining tests",
+      prompt: "Inspect coverage of the remaining adapters.",
+      tldr: "This follow-up remains useful.",
+      createdAt: 1,
+    };
+    const gateway = await installMockGateway(page, {
+      featureMethods: [
+        "chat.metadata",
+        "chat.startup",
+        "taskSuggestions.list",
+        "taskSuggestions.accept",
+        "taskSuggestions.dismiss",
+      ],
+      methodResponses: {
+        "taskSuggestions.list": { suggestions: [suggestion, nextSuggestion] },
+      },
+    });
+
+    try {
+      await page.goto(`${suite.server.baseUrl}chat`);
+      const card = page.locator(`.task-suggestion[data-task-id="${suggestion.id}"]`);
+      const nextCard = page.locator(`.task-suggestion[data-task-id="${nextSuggestion.id}"]`);
+      await card.waitFor({ state: "visible", timeout: 10_000 });
+      await gateway.deferNext("taskSuggestions.dismiss");
+      await card.getByRole("button", { name: `Dismiss ${suggestion.title}` }).click();
+      const dismissal = await gateway.waitForRequest("taskSuggestions.dismiss");
+      expect(dismissal.params).toEqual({ taskId: suggestion.id });
+      await captureUiProof(suite, page, "task-suggestions", "dismiss-pending.png");
+
+      await expect.poll(() => card.count()).toBe(0);
+      await nextCard.waitFor({ state: "visible" });
+      expect(
+        await nextCard.getByRole("button", { name: "Start in a new session" }).isEnabled(),
+      ).toBe(true);
+      const composer = page.locator(".agent-chat__composer-combobox textarea");
+      await composer.fill("Continue working while the suggestion closes.");
+
+      await gateway.deferNext("taskSuggestions.list");
+      await gateway.emitGatewayEvent("task.suggestion", { action: "created", suggestion });
+      await waitForRequests(gateway, "taskSuggestions.list", 2);
+      const refreshedSuggestion = {
+        ...nextSuggestion,
+        tldr: "This follow-up remains available after refreshing the list.",
+      };
+      await gateway.resolveDeferred("taskSuggestions.list", {
+        suggestions: [suggestion, refreshedSuggestion],
+      });
+      await nextCard.getByText(refreshedSuggestion.tldr, { exact: true }).waitFor();
+      expect(await card.count()).toBe(0);
+
+      const failure = "The suggestion could not be dismissed.";
+      await gateway.rejectDeferred("taskSuggestions.dismiss", { message: failure });
+      await page.getByText(failure, { exact: true }).first().waitFor();
+      await expect.poll(() => card.count()).toBe(1);
+      expect(await card.isVisible()).toBe(false);
+      expect(await nextCard.isVisible()).toBe(true);
+      expect(await composer.inputValue()).toBe("Continue working while the suggestion closes.");
+      await nextCard.getByRole("button", { name: "Previous suggested task" }).click();
+      await card.waitFor({ state: "visible" });
+      expect(await card.getByRole("button", { name: "Start in a new session" }).isEnabled()).toBe(
+        true,
+      );
+      expect(await gateway.getRequests("taskSuggestions.dismiss")).toHaveLength(1);
+      expect(await gateway.getRequests("taskSuggestions.accept")).toHaveLength(0);
+    } finally {
+      await suite.closeBrowserContext(context);
+    }
+  });
+
   it("clears model-suggested follow-ups while switching sessions", async () => {
     const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
     const page = await context.newPage();

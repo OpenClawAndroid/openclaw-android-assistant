@@ -24,6 +24,10 @@ When another operator takes control, your viewer reconnects in view-only mode. T
 
 ## Desktop size
 
+Open **Systems** in the Control UI sidebar to select a worker and use its desktop
+as the main workspace. The docked and chat-side Desktop panels remain available;
+all presentations reuse the desktop connection implementation and Gateway control arbitration.
+
 The **Desktop size** menu is available in the panel and the standalone desktop view:
 
 - **Fit** is the default. It scales the existing framebuffer to the viewer without changing the worker's display resolution.

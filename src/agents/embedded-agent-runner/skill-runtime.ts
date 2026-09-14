@@ -11,7 +11,6 @@ import type { EmbeddedRunAttemptParams } from "./run/types.js";
 import {
   createSandboxPromptEntryLoader,
   mapSandboxSkillEntriesForPrompt,
-  mapSandboxSkillUsagePaths,
   resolveSandboxSkillRuntimeInputs,
 } from "./sandbox-skills.js";
 
@@ -51,6 +50,7 @@ export async function prepareEmbeddedSkills(params: {
   }
   const {
     skillsEligibility,
+    skillUsagePaths,
     skillsPromptWorkspaceDir,
     skillsSnapshot,
     skillsWorkspaceDir,
@@ -79,11 +79,6 @@ export async function prepareEmbeddedSkills(params: {
   try {
     const promptSkillEntries = mapSandboxSkillEntriesForPrompt({
       entries: shouldLoadSkillEntries ? skillEntries : undefined,
-      skillsWorkspaceDir,
-      skillsPromptWorkspaceDir,
-    });
-    const skillUsagePaths = mapSandboxSkillUsagePaths({
-      paths: params.sandbox?.skillUsagePaths,
       skillsWorkspaceDir,
       skillsPromptWorkspaceDir,
     });

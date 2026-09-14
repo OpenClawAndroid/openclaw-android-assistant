@@ -1,6 +1,7 @@
-import { html, nothing, type ReactiveController, type ReactiveControllerHost } from "lit";
+import { html, type ReactiveController, type ReactiveControllerHost } from "lit";
 import type { ProviderLoginOption } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
+import { renderWizardSingleChoice } from "../../components/wizard-step-controls.ts";
 import { t } from "../../i18n/index.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import "../../styles/model-setup.css";
@@ -22,7 +23,7 @@ type LoginControllerOptions = {
 };
 
 export class ModelProviderLoginController implements ReactiveController {
-  private picker: { providers?: string[]; choice: string } | null = null;
+  private picker: { providers?: string[] } | null = null;
   private state: ModelSetupWizardState = { phase: "idle" };
   private value: unknown;
   private generation = 0;
@@ -51,6 +52,7 @@ export class ModelProviderLoginController implements ReactiveController {
         }
         this.host.requestUpdate();
       },
+      onBackgroundCompletion: (completion) => this.run(() => Promise.resolve(completion), true),
       requestFailedMessage: () => t("modelProviders.requestFailed"),
       cancelledMessage: () => t("modelSetup.wizard.cancelled"),
       sessionExpiredMessage: () => t("modelProviders.login.sessionExpired"),
@@ -103,7 +105,7 @@ export class ModelProviderLoginController implements ReactiveController {
     if (!this.options.canStart() || this.busy || !this.loginOptions(providers).length) {
       return;
     }
-    this.picker = { providers, choice: "" };
+    this.picker = { providers };
     this.message = undefined;
     this.host.requestUpdate();
   }
@@ -129,7 +131,6 @@ export class ModelProviderLoginController implements ReactiveController {
     const picker = this.picker;
     if (picker) {
       const choices = this.loginOptions(picker.providers);
-      const selected = choices.find((option) => option.id === picker.choice);
       return html`
         <openclaw-modal-dialog
           label=${t("modelProviders.login.title")}
@@ -141,48 +142,29 @@ export class ModelProviderLoginController implements ReactiveController {
             </div>
             <div class="model-setup-wizard__body">
               <p>${t("modelProviders.login.description")}</p>
-              <label class="field">
-                <span>${t("modelSetup.manual.provider")}</span>
-                <select
-                  class="settings-select"
-                  data-models-login-choice
-                  .value=${picker.choice}
-                  @change=${(event: Event) => {
-                    // SAFETY: This change handler is attached directly to the select element.
-                    picker.choice = (event.currentTarget as HTMLSelectElement).value;
-                    this.host.requestUpdate();
-                  }}
-                >
-                  <option value="">${t("modelSetup.manual.selectProvider")}</option>
-                  ${choices.map(
-                    (option) => html`
-                      <option value=${option.id}>
-                        ${option.groupLabel ? `${option.groupLabel} · ` : ""}${option.label}
-                      </option>
-                    `,
-                  )}
-                </select>
-              </label>
-              ${selected?.hint ? html`<p class="muted">${selected.hint}</p>` : nothing}
-            </div>
-            <div class="model-setup-wizard__footer">
-              <button class="btn" @click=${() => this.reset()}>${t("common.cancel")}</button>
-              <button
-                class="btn primary"
-                data-models-login-start
-                ?disabled=${!selected || !this.options.canStart()}
-                @click=${() => {
+              ${renderWizardSingleChoice({
+                label: t("modelSetup.manual.provider"),
+                options: choices.map((option) => ({
+                  value: option.id,
+                  label: option.label,
+                  hint: option.hint,
+                })),
+                busy: !this.options.canStart(),
+                onAnswer: (value) => {
+                  const selected = choices.find((option) => option.id === value);
                   if (!selected || !this.options.canStart()) {
                     return;
                   }
                   this.picker = null;
                   this.cancellationNotice = null;
                   this.refreshWarning = null;
+                  this.runner.prepareSignIn(selected.kind);
                   void this.run(() => this.runner.start(selected.id, "models.authLogin"));
-                }}
-              >
-                ${t("modelProviders.login.action")}
-              </button>
+                },
+              })}
+            </div>
+            <div class="model-setup-wizard__footer">
+              <button class="btn" @click=${() => this.reset()}>${t("common.cancel")}</button>
             </div>
           </div>
         </openclaw-modal-dialog>
@@ -243,12 +225,26 @@ export class ModelProviderLoginController implements ReactiveController {
     }
   }
 
-  private async run(task: () => Promise<ModelSetupWizardCompletion | null>): Promise<void> {
+  private async complete(): Promise<void> {
+    this.runner.close();
+    this.message = {
+      kind: "success",
+      text: t("modelProviders.login.done"),
+      ...(this.refreshWarning ? { warning: this.refreshWarning } : {}),
+    };
+    this.host.requestUpdate();
+    await this.options.refresh();
+  }
+
+  private async run(
+    task: () => Promise<ModelSetupWizardCompletion | null>,
+    settling = false,
+  ): Promise<void> {
     const client = this.options.getScope().context.gateway.snapshot.client;
-    if (!client || this.mutationActive || !this.options.canContinue()) {
+    if (!client || (this.mutationActive && !settling) || !this.options.canContinue()) {
       return;
     }
-    const generation = this.generation;
+    const generation = ++this.generation;
     this.mutationActive = true;
     this.host.requestUpdate();
     try {
@@ -275,14 +271,8 @@ export class ModelProviderLoginController implements ReactiveController {
         return;
       }
       this.refreshWarning = mutation.refresh.ok ? null : mutation.refresh.error;
-      if (mutation.value) {
-        this.runner.close();
-        this.message = {
-          kind: "success",
-          text: t("modelProviders.login.done"),
-          ...(this.refreshWarning ? { warning: this.refreshWarning } : {}),
-        };
-        await this.options.refresh();
+      if (mutation.value && mutation.value.isCurrent?.() !== false) {
+        await this.complete();
       }
     } catch (error) {
       if (generation === this.generation) {

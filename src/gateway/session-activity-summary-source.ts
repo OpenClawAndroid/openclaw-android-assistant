@@ -9,6 +9,11 @@ import {
   waitForSessionTranscriptProjection,
 } from "../config/sessions/session-accessor.js";
 import { redactToolPayloadText } from "../logging/redact.js";
+import { extractTextFromChatContent } from "../shared/chat-content.js";
+import {
+  extractAssistantPhaseText,
+  extractAssistantTextForPhase,
+} from "../shared/chat-message-content.js";
 
 /** Restore only this transcript, then read one chronological, byte-bounded batch. */
 export async function readActivitySummarySource(params: {
@@ -68,30 +73,18 @@ export async function readActivitySummarySource(params: {
     const notes = page.events
       .map(({ event }) => {
         const message = isRecord(event) ? event.message : undefined;
-        if (!isRecord(message)) {
+        if (!isRecord(message) || (message.role !== "user" && message.role !== "assistant")) {
           return "";
         }
-        const role = typeof message.role === "string" ? message.role : "message";
-        const content = message.content;
+        const role = message.role;
         const text =
-          typeof content === "string"
-            ? content
-            : Array.isArray(content)
-              ? content
-                  .flatMap((part) => {
-                    if (!isRecord(part)) {
-                      return [];
-                    }
-                    if (part.type === "text" && typeof part.text === "string") {
-                      return [part.text];
-                    }
-                    if (part.type === "toolCall" && typeof part.name === "string") {
-                      return [`Tool: ${part.name}`];
-                    }
-                    return [];
-                  })
-                  .join(" ")
-              : "";
+          role === "assistant"
+            ? (extractAssistantPhaseText(message) ??
+              extractAssistantTextForPhase(message, { phase: "commentary" }))
+            : extractTextFromChatContent(message.content);
+        if (!text) {
+          return "";
+        }
         const cleaned = redactToolPayloadText(text).replace(/\s+/gu, " ").trim();
         const excerpt =
           cleaned.length <= 800

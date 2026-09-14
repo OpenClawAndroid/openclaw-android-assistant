@@ -184,6 +184,8 @@ export type WorkerPlacementReclaimSourceCheck = (
 // Leaf dispatch contract: GatewayRequestContext must not import the dispatch
 // runtime (it reaches agents/plugins and closes an import cycle through core).
 export type WorkerPlacementDispatchContract = {
+  getPendingDeviceDispatchCount?(deviceId: string, excludeSessionId?: string): number;
+  getAdmittedDeviceSessionCounts?(excludeSessionId?: string): ReadonlyMap<string, number>;
   dispatch(
     request: WorkerPlacementDispatchRequest,
     onTransition?: (placement: WorkerSessionPlacementRecord) => void,

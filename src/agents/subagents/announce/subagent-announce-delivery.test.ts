@@ -5070,7 +5070,15 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
     })),
     {
       name: "acknowledges a core-settled next wave without recording a visible final",
-      routes: requesterSettleRoutes,
+      routes: [
+        ...requesterSettleRoutes,
+        {
+          name: "Discord without a target",
+          sessionKey: "agent:main:requester-settle-without-target",
+          origin: { channel: "discord", accountId: "acct-1" },
+          agentParams: { deliver: false, channel: "discord", accountId: "acct-1", to: undefined },
+        },
+      ],
       response: {
         result: { payloads: [], meta: { yielded: true }, requesterContinuationSettled: true },
       },

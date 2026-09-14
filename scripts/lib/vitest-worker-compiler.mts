@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolveBuildInfo } from "../write-build-info.ts";
 import { createManagedHandoffBuildConfig } from "./managed-handoff-build-config.mts";
 import {
   sharedRuntimeProcessBuildEntries,
@@ -57,6 +58,12 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
     "scripts/lib/runtime-process-core-build-entries.mts",
     "scripts/lib/vitest-worker-build-entries.mts",
     "scripts/lib/state-schema-inline-plugin.mts",
+    "scripts/write-build-info.ts",
+    "scripts/lib/direct-run.mjs",
+    "ui/src/build-info-normalizers.ts",
+    "packages/normalization-core/src/record-coerce.ts",
+    "packages/normalization-core/src/string-coerce.ts",
+    "packages/normalization-core/src/utf16-slice.ts",
     "scripts/lib/vitest-cli-mode.mts",
   ]) {
     recordInput(path.join(root, name));
@@ -166,6 +173,11 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
   for (const name of Object.keys(entry)) {
     fs.accessSync(path.join(directory, "dist", `${name}.js`));
   }
+  // Version consumers need the built source identity without making this
+  // disposable generation a competing OpenClaw installation root.
+  const buildInfo = `${JSON.stringify(resolveBuildInfo({ rootDir: root }), null, 2)}\n`;
+  fs.writeFileSync(path.join(outDir, "build-info.json"), buildInfo, { flag: "wx" });
+  outputs["build-info.json"] = hashVitestWorkerArtifact(buildInfo);
   const sortedInputs = Object.fromEntries(
     Object.entries(inputs).toSorted(([a], [b]) => a.localeCompare(b)),
   );

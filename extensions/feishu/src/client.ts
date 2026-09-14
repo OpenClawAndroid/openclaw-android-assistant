@@ -8,6 +8,7 @@ import {
   readPluginPackageVersion,
   resolveAmbientNodeProxyAgent,
 } from "openclaw/plugin-sdk/extension-shared";
+import { captureChannelReadAuthority } from "openclaw/plugin-sdk/fetch-runtime";
 import { resolveConfiguredHttpTimeoutMs } from "./client-timeout.js";
 import type { FeishuConfig, FeishuDomain, ResolvedFeishuAccount } from "./types.js";
 
@@ -223,11 +224,15 @@ export function resetFeishuProxyAgentForTest(): void {
   cachedFeishuProxyAgent = undefined;
 }
 
-type FeishuProxyAwareHttpRequestOptions<D> = Lark.HttpRequestOptions<D> & {
-  httpAgent?: Agent;
-  httpsAgent?: Agent;
-  proxy?: false;
-};
+type FeishuProxyAwareHttpRequestOptions<D> = Lark.HttpRequestOptions<D> &
+  Pick<
+    Parameters<typeof Lark.defaultHttpInstance.request>[0],
+    "transformRequest" | "beforeRedirect"
+  > & {
+    httpAgent?: Agent;
+    httpsAgent?: Agent;
+    proxy?: false;
+  };
 
 // Multi-account client cache
 const clientCache = new Map<
@@ -278,12 +283,14 @@ function createFeishuHttpInstance(
 
   async function injectRequestOptions<D>(
     opts?: Lark.HttpRequestOptions<D>,
+    assertReadAuthority?: () => void,
   ): Promise<FeishuProxyAwareHttpRequestOptions<D>> {
     const next: FeishuProxyAwareHttpRequestOptions<D> = { timeout: defaultTimeoutMs, ...opts };
     if (typeof next.url === "string") {
       next.url = resolveRequestUrl(next.url);
     }
     const agent = await getFeishuProxyAgent();
+    assertReadAuthority?.();
     if (agent) {
       if (isManagedProxyActive()) {
         next.httpAgent = agent;
@@ -294,24 +301,77 @@ function createFeishuHttpInstance(
       }
       next.proxy = false;
     }
+    if (assertReadAuthority) {
+      const defaults = feishuClientSdk.defaultHttpInstance.defaults;
+      const transforms =
+        next.transformRequest === undefined ? defaults.transformRequest : next.transformRequest;
+      // Axios runs these after its async interceptors, immediately before the
+      // HTTP adapter starts a read or JSON token request.
+      next.transformRequest = [
+        ...(Array.isArray(transforms) ? transforms : transforms ? [transforms] : []),
+        (data: unknown) => {
+          assertReadAuthority();
+          return data;
+        },
+      ];
+      const beforeRedirect =
+        next.beforeRedirect === undefined ? defaults.beforeRedirect : next.beforeRedirect;
+      next.beforeRedirect = (...args) => {
+        beforeRedirect?.(...args);
+        assertReadAuthority();
+      };
+    }
     return next;
   }
 
+  async function runRequest<T>(
+    request: (assertReadAuthority: (() => void) | undefined) => Promise<T>,
+  ): Promise<T> {
+    const assertReadAuthority = captureChannelReadAuthority();
+    assertReadAuthority?.();
+    try {
+      return await request(assertReadAuthority);
+    } catch (error) {
+      // SDK auth diagnostics include transport request data. Replace a closed
+      // invocation's wrapped error before those diagnostics can expose credentials.
+      assertReadAuthority?.();
+      throw error;
+    }
+  }
+
   return {
-    request: async (opts) =>
-      base.request(await injectRequestOptions(normalizeMultipartUploadData(opts))),
-    get: async (url, opts) => base.get(resolveRequestUrl(url), await injectRequestOptions(opts)),
-    post: async (url, data, opts) =>
-      base.post(resolveRequestUrl(url), data, await injectRequestOptions(opts)),
-    put: async (url, data, opts) =>
-      base.put(resolveRequestUrl(url), data, await injectRequestOptions(opts)),
-    patch: async (url, data, opts) =>
-      base.patch(resolveRequestUrl(url), data, await injectRequestOptions(opts)),
-    delete: async (url, opts) =>
-      base.delete(resolveRequestUrl(url), await injectRequestOptions(opts)),
-    head: async (url, opts) => base.head(resolveRequestUrl(url), await injectRequestOptions(opts)),
-    options: async (url, opts) =>
-      base.options(resolveRequestUrl(url), await injectRequestOptions(opts)),
+    request: (opts) =>
+      runRequest(async (assert) =>
+        base.request(await injectRequestOptions(normalizeMultipartUploadData(opts), assert)),
+      ),
+    get: (url, opts) =>
+      runRequest(async (assert) =>
+        base.get(resolveRequestUrl(url), await injectRequestOptions(opts, assert)),
+      ),
+    post: (url, data, opts) =>
+      runRequest(async (assert) =>
+        base.post(resolveRequestUrl(url), data, await injectRequestOptions(opts, assert)),
+      ),
+    put: (url, data, opts) =>
+      runRequest(async (assert) =>
+        base.put(resolveRequestUrl(url), data, await injectRequestOptions(opts, assert)),
+      ),
+    patch: (url, data, opts) =>
+      runRequest(async (assert) =>
+        base.patch(resolveRequestUrl(url), data, await injectRequestOptions(opts, assert)),
+      ),
+    delete: (url, opts) =>
+      runRequest(async (assert) =>
+        base.delete(resolveRequestUrl(url), await injectRequestOptions(opts, assert)),
+      ),
+    head: (url, opts) =>
+      runRequest(async (assert) =>
+        base.head(resolveRequestUrl(url), await injectRequestOptions(opts, assert)),
+      ),
+    options: (url, opts) =>
+      runRequest(async (assert) =>
+        base.options(resolveRequestUrl(url), await injectRequestOptions(opts, assert)),
+      ),
   };
 }
 

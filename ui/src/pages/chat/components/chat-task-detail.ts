@@ -35,6 +35,7 @@ import {
   resetTaskDetail,
   retryTaskTranscript,
   type TaskDetailHost,
+  type TaskTranscriptHost,
 } from "./chat-task-detail-state.ts";
 
 registerBackgroundTasksEnglish();
@@ -223,8 +224,8 @@ function renderTaskObservation(task: TaskSummary, props: BackgroundTasksProps) {
   </div>`;
 }
 
-function renderTaskTranscript(params: {
-  host: TaskDetailHost;
+export function renderTaskTranscript(params: {
+  host: TaskTranscriptHost;
   task: TaskSummary;
   transcriptSessionKey?: string;
   loadFullAssistantMessage?: SidebarFullMessageLoader | null;

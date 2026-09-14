@@ -38,7 +38,6 @@ import * as discoveryEval from "./discovery-eval.js";
 import { QaSuiteScenarioSkipError } from "./errors.js";
 import * as extractToolPayload from "./extract-tool-payload.js";
 import * as modelSwitchEval from "./model-switch-eval.js";
-import type { QaScenarioRuntimeDeps } from "./scenario-runtime-api.js";
 import * as suiteRuntimeAgent from "./suite-runtime-agent.js";
 import { runQaSuiteScenarioDefinition, runQaSuiteScenarioSteps } from "./suite-runtime-flow.js";
 import * as suiteRuntimeGateway from "./suite-runtime-gateway.js";
@@ -268,7 +267,9 @@ describe("qa suite runtime flow", () => {
     const call = createQaScenarioRuntimeApi.mock.calls[0]?.[0] as {
       env: typeof env;
       scenario: typeof scenario;
-      deps: QaScenarioRuntimeDeps & {
+      deps: {
+        runScenario: (...args: never[]) => unknown;
+        normalizeModelRef: unknown;
         waitForOutboundMessage: typeof waitForOutboundMessage;
         markGatewayLogCursor: () => number;
         assertNoGatewayLogSentinels: () => void;

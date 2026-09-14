@@ -1151,10 +1151,10 @@ export const sendHandlers: GatewayRequestHandlers = {
             toolContext: trustedContext.toolContext,
             dryRun: false,
             gatewayClientScopes,
+            assertDirectAdapterHandoff,
             ...(request.action === "send"
               ? {
                   onPlatformSendDispatch,
-                  assertDirectAdapterHandoff,
                   // Recovery cannot retain a live run's closure-bound send authority.
                   skipQueue: client?.internal?.agentRuntimeIdentity !== undefined,
                 }

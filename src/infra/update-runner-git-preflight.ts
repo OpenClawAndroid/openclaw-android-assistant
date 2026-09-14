@@ -525,6 +525,7 @@ export async function runGitCandidatePreflight(params: {
   devTarget?: DevUpdateTarget;
   targetRevision?: string;
   beforeSha?: string | null;
+  beforeGitStaging?: UpdateRunnerOptions["beforeGitStaging"];
   validateCandidate?: (root: string) => Promise<void>;
   inspectGitCandidate?: UpdateRunnerOptions["inspectGitCandidate"];
   prepareGitExposure?: UpdateRunnerOptions["prepareGitExposure"];
@@ -598,6 +599,13 @@ export async function runGitCandidatePreflight(params: {
   // A resolved no-op must not enter validation, stop the service, or rewrite its runtime.
   if (!params.prepareGitExposure && preflightBaseSha === params.beforeSha) {
     return { status: "skipped", reason: "already-current" };
+  }
+  if (params.beforeGitStaging) {
+    const admission = await params.beforeGitStaging();
+    params.steps.push(admission.step);
+    if (admission.step.exitCode !== 0) {
+      return { status: "error", reason: admission.failureReason };
+    }
   }
   const rebaseFrom =
     !params.targetRevision && !params.devTarget && localDevBranchExists !== false

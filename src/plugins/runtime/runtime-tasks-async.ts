@@ -138,7 +138,9 @@ function bindManagedFlows(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
         ),
       );
   };
-  const tryCreateManaged: BoundAsyncManagedTaskFlowsRuntime["tryCreateManaged"] = async (input) => {
+  const createManagedResult = async (
+    input: Parameters<BoundAsyncManagedTaskFlowsRuntime["createManaged"]>[0],
+  ) => {
     const snapshot = structuredClone(input);
     const write = await prepareWrite();
     const flow = buildFlowRecord({
@@ -151,7 +153,7 @@ function bindManagedFlows(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
       const created = await write(flow.flowId, (scope) =>
         scope.execute({ type: "flows.createManaged", input: { flow } }),
       );
-      return asManagedTaskFlowRecord(created) ?? null;
+      return { flow: asManagedTaskFlowRecord(created) ?? null };
     } catch (error) {
       // Retirement can aggregate an uncertain operation with a cleanup error.
       if (
@@ -161,7 +163,7 @@ function bindManagedFlows(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
       ) {
         throw error;
       }
-      return null;
+      return { flow: null, error };
     }
   };
   const update = async (
@@ -194,13 +196,13 @@ function bindManagedFlows(params: Binding): BoundAsyncManagedTaskFlowsRuntime {
   };
   return {
     ...binding,
-    tryCreateManaged,
+    tryCreateManaged: async (input) => (await createManagedResult(input)).flow,
     async createManaged(input) {
-      const flow = await tryCreateManaged(input);
-      if (!flow) {
-        throw new Error("TaskFlow persistence failed.");
+      const result = await createManagedResult(input);
+      if (!result.flow) {
+        throw new Error("TaskFlow persistence failed.", { cause: result.error });
       }
-      return flow;
+      return result.flow;
     },
     setWaiting: (input) => update("setWaiting", input),
     resume: (input) => update("resume", input),

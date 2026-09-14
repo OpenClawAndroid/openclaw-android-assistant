@@ -223,6 +223,13 @@ export function normalizeActRequest(
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       };
     }
+    case "insertText": {
+      if (typeof body.text !== "string") {
+        throw new Error("insertText requires text");
+      }
+      const targetId = toStringOrEmpty(body.targetId) || undefined;
+      return { kind, text: body.text, ...(targetId ? { targetId } : {}) };
+    }
     case "press": {
       // Empty chord segments represent a literal plus key and must survive normalization.
       const key = toStringOrEmpty(body.key)

@@ -50,6 +50,9 @@ vi.mock("../infra/state-database-coordinator.js", async (importOriginal) => {
     acquireGatewayLifecycleCoordinator: (
       params: Parameters<typeof actual.acquireGatewayLifecycleCoordinator>[0],
     ) => actual.acquireGatewayLifecycleCoordinator(withIsolatedRuntimeDir(params)),
+    acquireGatewayMaintenanceCoordinator: (
+      params: Parameters<typeof actual.acquireGatewayMaintenanceCoordinator>[0],
+    ) => actual.acquireGatewayMaintenanceCoordinator(withIsolatedRuntimeDir(params)),
     acquireStateDatabaseCoordinator: (
       params: Parameters<typeof actual.acquireStateDatabaseCoordinator>[0],
     ) => actual.acquireStateDatabaseCoordinator(withIsolatedRuntimeDir(params)),

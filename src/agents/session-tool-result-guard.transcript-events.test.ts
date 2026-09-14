@@ -12,6 +12,7 @@ import { makeTextToolResult } from "../../test/helpers/text-tool-result.js";
 import { makeUserMessage } from "../../test/helpers/user-message.js";
 import {
   appendTranscriptMessage,
+  loadSessionEntry,
   listSessionPendingInputs,
   persistCompactionBoundaryWithSessionEntrySync,
 } from "../config/sessions/session-accessor.js";
@@ -100,7 +101,18 @@ describe("guardSessionManager transcript updates", () => {
   it("persists compaction item identity under each current run across reload", async () => {
     const { sessionManager, root, target } = await openPersistedSessionManager();
     for (const runId of ["run-first", "run-second"]) {
-      const guarded = guardSessionManager(sessionManager, { runId });
+      const guarded = guardSessionManager(sessionManager, {
+        runId,
+        withCompactionPersistence: (prepared) =>
+          persistCompactionBoundaryWithSessionEntrySync(target, {
+            prepared,
+            transcriptByteCompactionLatch: {
+              activeBytes: 2048,
+              sessionId: target.sessionId,
+              maxBytes: 1024,
+            },
+          }),
+      });
       const keptId = guarded.appendMessage({ role: "user", content: runId, timestamp: 1 });
       guarded.appendCompaction("summary", keptId, 100, { source: "hook" }, true, {
         itemId: `compaction-${runId}`,
@@ -121,29 +133,26 @@ describe("guardSessionManager transcript updates", () => {
         fromHook: true,
       },
     ]);
+    expect(loadSessionEntry(target)?.compactionCount).toBe(2);
   });
 
-  it("reloads the session manager after atomic compaction persistence rolls back", async () => {
+  it("leaves the session manager unchanged when atomic compaction persistence rejects the boundary", async () => {
     const { sessionManager, root, target } = await openPersistedSessionManager();
     const keptId = sessionManager.appendMessage(makeUserMessage("keep", 1));
     const guarded = guardSessionManager(sessionManager, {
-      withCompactionPersistence: (append, validateAppend) =>
+      withCompactionPersistence: (prepared) =>
         persistCompactionBoundaryWithSessionEntrySync(target, {
-          append,
+          prepared: { ...prepared, event: { ...prepared.event, id: keptId } },
           transcriptByteCompactionLatch: {
             activeBytes: 2048,
             sessionId: target.sessionId,
             maxBytes: 1024,
           },
-          validateAppend: (entryId, appendedText) => {
-            expect(validateAppend(entryId, appendedText)).toBe(true);
-            return false;
-          },
         }),
     });
 
     expect(() => guarded.appendCompaction("summary", keptId, 100)).toThrow(
-      "Compaction boundary validation failed",
+      `Session transcript entry was not persisted: ${keptId}: transcript-event-not-appended`,
     );
     expect(sessionManager.getLeafId()).toBe(keptId);
     expect(sessionManager.getBranch().filter((entry) => entry.type === "compaction")).toEqual([]);

@@ -289,7 +289,7 @@ async function migratePluginDoctorStatePlans(
   try {
     // Plugin migrations may claim retired files after verified import. Keep the
     // predecessor Gateway excluded for the full read, import, and archive window.
-    return await migrate();
+    return await lock.run(migrate);
   } finally {
     await lock.release();
   }

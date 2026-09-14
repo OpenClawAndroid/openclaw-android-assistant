@@ -3,6 +3,7 @@ import { resolveStateDir } from "../config/state-dir.js";
 import { isGatewayExternallySupervised } from "../infra/gateway-supervision.js";
 import type { SqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { captureStateDatabaseCoordinatorRuntime } from "../infra/state-database-coordinator.js";
+import { getOpenClawDatabaseMaintenanceScope } from "./openclaw-state-db-async-lifecycle.js";
 import { captureOpenClawStateDatabaseReadAdmission } from "./openclaw-state-db-cache.js";
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 import type { OpenClawStateWorkerContext } from "./openclaw-state-worker-context.types.js";
@@ -17,6 +18,7 @@ export function captureOpenClawStateWorkerContext(
     ...(isGatewayExternallySupervised(env) ? { OPENCLAW_SUPERVISOR_MODE: "external" } : {}),
   };
   return {
+    maintenanceScope: getOpenClawDatabaseMaintenanceScope(),
     admission: captureOpenClawStateDatabaseReadAdmission(
       path.resolve(options.path ?? resolveOpenClawStateSqlitePath(environment)),
     ),

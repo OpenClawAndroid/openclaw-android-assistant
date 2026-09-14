@@ -227,7 +227,8 @@ suite.define(() => {
         latestShared: completed,
       });
       await gateway.resolveDeferred("sessions.github.status", completed);
-      await page.locator(".chat-pr__publication-outcome[data-state=published]").waitFor();
+      await page.getByRole("link", { name: "Open PR", exact: true }).waitFor();
+      expect(await page.locator(".chat-pr__publication-outcome").count()).toBe(0);
       await expect
         .poll(async () => (await gateway.getRequests("sessions.github.options")).length)
         .toBe(2);
@@ -244,7 +245,7 @@ suite.define(() => {
       });
       await showBranch();
       await gateway.waitForRequest("sessions.github.options", { after: beforeReconnect });
-      await page.locator(".chat-pr__publication-outcome[data-state=published]").waitFor();
+      await page.getByRole("link", { name: "Open PR", exact: true }).waitFor();
       if (captureUiProof) {
         const row = page.locator(".chat-prs");
         await writeFile(
@@ -252,7 +253,41 @@ suite.define(() => {
           await takeControlUiViewportScreenshot(page, row, [row.locator("a.chat-pr__create")]),
         );
       }
-      await page.getByRole("button", { name: "Choose a new publication", exact: true }).click();
+      await gateway.emitGatewayEvent(CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT, {
+        sessions: {
+          [key]: {
+            repository,
+            pullRequests: [
+              {
+                ...repository,
+                number: 44,
+                branch,
+                title: "Shared publication",
+                url: published.url,
+                state: "merged",
+              },
+            ],
+            rateLimited: false,
+            status: "ready",
+          },
+        },
+      });
+      const rows = page.locator(".chat-prs .chat-pr");
+      await expect.poll(() => rows.count()).toBe(1);
+      await expect.poll(() => rows.getAttribute("data-state")).toBe("merged");
+      expect(await rows.textContent()).not.toContain("Publish as");
+      expect(await page.getByRole("button", { name: "Choose a new publication" }).count()).toBe(0);
+      if (captureUiProof) {
+        await writeFile(
+          path.join(suite.artifactDir, "shared-publication-merged.png"),
+          await takeControlUiViewportScreenshot(page, page.locator(".chat-prs"), [
+            rows.locator(".chat-pr__number"),
+          ]),
+        );
+      }
+      await rows.getByRole("button", { name: "Dismiss pull request #44" }).click();
+      await expect.poll(() => rows.count()).toBe(0);
+      await showBranch();
       await page.getByRole("button", { name: "Publish PR", exact: true }).waitFor();
       expect(await gateway.getRequests("sessions.github.publish")).toHaveLength(0);
       expect(await gateway.getRequests("sessions.github.confirm")).toHaveLength(0);

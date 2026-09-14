@@ -33,7 +33,11 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, execFile: snapshotProcesses.execFile };
 });
 
-const maintenance = vi.hoisted(() => ({ finish: vi.fn(), release: vi.fn() }));
+const maintenance = vi.hoisted(() => ({
+  run: <T>(operation: () => T): T => operation(),
+  finish: vi.fn(),
+  release: vi.fn(),
+}));
 afterEach(() => vi.restoreAllMocks());
 
 describe("Doctor refused-migration maintenance outcome", () => {
@@ -166,7 +170,7 @@ describe("Doctor maintenance admission", () => {
           vi.spyOn(
             coordinators,
             owner === "gateway"
-              ? "acquireGatewayLifecycleCoordinator"
+              ? "acquireGatewayMaintenanceCoordinator"
               : "acquireStateDatabaseCoordinator",
           ).mockImplementation(() => {
             throw new coordinators.StateDatabaseCoordinatorContentionError(

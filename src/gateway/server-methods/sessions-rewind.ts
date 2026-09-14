@@ -43,6 +43,7 @@ import { asWorkerInferenceControl } from "../worker-environments/inference-contr
 import { forkSessionRepositoryWorkspace } from "../worker-environments/session-repository-checkpoints.js";
 import { resolveVisibleActiveSessionRunState } from "./session-active-runs.js";
 import { emitSessionsChanged } from "./session-change-event.js";
+import { prepareSessionForkFilesystemRoot } from "./session-create-root.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
 import {
   loadAccessorSessionEntryForGatewayTarget,
@@ -493,6 +494,20 @@ async function mutateSessionAtMessage(
         });
         return;
       }
+      const forkWorkspace =
+        action === "fork"
+          ? prepareSessionForkFilesystemRoot({
+              cfg,
+              parent: current.entry,
+              targetAgentId: current.target.agentId,
+              sessionKey: targetKey,
+              sandboxRequired: sandbox === "required",
+            })
+          : undefined;
+      if (forkWorkspace && !forkWorkspace.ok) {
+        respond(false, undefined, forkWorkspace.error);
+        return;
+      }
       let result: MessageCutMutationResult;
       let forkRepositoryWorkspaceId: string | undefined;
       const mutationParams = {
@@ -542,6 +557,7 @@ async function mutateSessionAtMessage(
                 entryId,
                 targetKey,
                 repositoryWorkspaceId: forkRepositoryWorkspaceId,
+                forkWorkspace: forkWorkspace?.value,
                 creation: { ...creation, sandbox },
               },
               expectedState,

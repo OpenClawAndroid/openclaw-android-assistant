@@ -1,12 +1,13 @@
 /**
  * Tests talk transcription relay behavior between realtime events and clients.
  */
+import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { RealtimeTranscriptionProviderPlugin } from "../plugins/types.js";
 import type { RealtimeTranscriptionSessionCreateRequest } from "../realtime-transcription/provider-types.js";
 import { createGatewayBroadcaster } from "./server-broadcast.js";
-import { MAX_BUFFERED_BYTES } from "./server-constants.js";
+import { MAX_BUFFERED_BYTES, WEBSOCKET_CLOSE_GRACE_MS } from "./server-constants.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import {
@@ -561,14 +562,15 @@ describe("talk transcription gateway relay", () => {
   });
 
   it("closes a backpressured owner for final transcripts while healthy owners still receive them", async () => {
+    vi.useFakeTimers();
     const createSocket = () => {
-      const socket = {
+      const socket = Object.assign(new EventEmitter(), {
         readyState: WebSocket.OPEN as number,
         bufferedAmount: 0,
         send: vi.fn<(payload: string) => void>(),
         close: vi.fn<(code: number, reason: string) => void>(),
         terminate: vi.fn<() => void>(),
-      };
+      });
       socket.close.mockImplementation(() => {
         socket.readyState = WebSocket.CLOSING;
       });
@@ -631,6 +633,7 @@ describe("talk transcription gateway relay", () => {
       healthyRequest.onTranscript?.("healthy final");
 
       expect(slowSocket.close).toHaveBeenCalledWith(1008, "slow consumer");
+      vi.advanceTimersByTime(WEBSOCKET_CLOSE_GRACE_MS);
       expect(slowSocket.terminate).toHaveBeenCalledOnce();
       const healthyFrames = healthySocket.send.mock.calls.map(
         ([frame]) => JSON.parse(frame) as { event: string; payload: unknown },

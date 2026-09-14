@@ -353,7 +353,10 @@ export async function confirmAndStartUpdateRuntime(
           draw();
           return;
         }
-        const failure = progress.failure ?? progress.readError;
+        const failure =
+          progress.failure && progress.readError
+            ? `${progress.failure}\n${progress.readError}`
+            : (progress.failure ?? progress.readError);
         if (failure && !staleFailure) {
           phase = { kind: "failed", message: failure };
           draw();

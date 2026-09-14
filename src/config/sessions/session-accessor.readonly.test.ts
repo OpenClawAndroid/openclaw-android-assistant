@@ -746,6 +746,37 @@ describe("session accessor readonly listing", () => {
       if (!exact && !fallback) {
         return statement;
       }
+      const afterRead = () => {
+        events.push(exact ? "exact-read" : "fallback-read");
+        if (exact) {
+          // Commit after SQLite finishes the exact read. The identity-only probe
+          // still requires a fallback, whose later row must replace that snapshot.
+          external.exec("BEGIN IMMEDIATE");
+          try {
+            external
+              .prepare(
+                "UPDATE session_nodes SET entry_json = ?, updated_at = ? WHERE session_key = ?",
+              )
+              .run(JSON.stringify({ sessionId, updatedAt: 2 }), 3, sessionKey);
+            external
+              .prepare("UPDATE session_nodes SET entry_valid = 1 WHERE session_key = ?")
+              .run(sessionKey);
+            external.exec("COMMIT");
+            events.push("external-commit");
+          } catch (error) {
+            external.exec("ROLLBACK");
+            throw error;
+          }
+        }
+      };
+      const originalAll = statement.all.bind(statement);
+      statement.all = new Proxy(originalAll, {
+        apply(all, _receiver, args) {
+          const rows = all(...args);
+          afterRead();
+          return rows;
+        },
+      });
       const originalIterate = statement.iterate.bind(statement) as (
         ...args: unknown[]
       ) => ReturnType<StatementSync["iterate"]>;
@@ -753,27 +784,7 @@ describe("session accessor readonly listing", () => {
         const rows = originalIterate(...args);
         return (function* () {
           yield* rows;
-          events.push(exact ? "exact-read" : "fallback-read");
-          if (exact) {
-            // Commit after SQLite finishes the exact read. The identity-only probe
-            // still requires a fallback, whose later row must replace that snapshot.
-            external.exec("BEGIN IMMEDIATE");
-            try {
-              external
-                .prepare(
-                  "UPDATE session_nodes SET entry_json = ?, updated_at = ? WHERE session_key = ?",
-                )
-                .run(JSON.stringify({ sessionId, updatedAt: 2 }), 3, sessionKey);
-              external
-                .prepare("UPDATE session_nodes SET entry_valid = 1 WHERE session_key = ?")
-                .run(sessionKey);
-              external.exec("COMMIT");
-              events.push("external-commit");
-            } catch (error) {
-              external.exec("ROLLBACK");
-              throw error;
-            }
-          }
+          afterRead();
         })();
       }) as StatementSync["iterate"];
       return statement;

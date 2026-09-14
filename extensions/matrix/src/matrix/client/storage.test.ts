@@ -6,6 +6,7 @@ import {
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMatrixAccountStorageRoot } from "../../storage-paths.js";
 import { installMatrixTestRuntime } from "../../test-runtime.js";
@@ -38,8 +39,9 @@ describe("matrix client storage paths", () => {
     resetPluginStateStoreForTests();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -437,6 +439,7 @@ describe("matrix client storage paths", () => {
         "synthetic migration archive denied",
       );
       rename.mockRestore();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
 
       const expectPreservedState = () => {
@@ -476,6 +479,7 @@ describe("matrix client storage paths", () => {
 
       resetPluginStateStoreForTests();
       await maybeMigrateLegacyStorage({ storagePaths, env });
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
 
       expectPreservedState();

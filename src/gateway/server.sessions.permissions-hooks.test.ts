@@ -384,6 +384,7 @@ test("session:patch hook mutations cannot change the response path", async () =>
     modelProvider: "anthropic",
     model: "claude-opus-4-6",
     agentRuntime: { id: "auto", source: "implicit" },
+    runtimeSelectionLocked: false,
   });
   expect(patched.payload?.entry.label).toBe("cfg-isolation");
 

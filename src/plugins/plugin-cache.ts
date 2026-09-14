@@ -15,7 +15,7 @@ import type {
   PluginFileCacheEntry,
   PluginPathCacheEntry,
 } from "./plugin-cache-files.types.js";
-import type { PluginCacheManagement } from "./plugin-cache-management.js";
+import type { PluginCacheFact, PluginCacheManagement } from "./plugin-cache-management.js";
 import type { PluginCacheMetadata } from "./plugin-cache-metadata.js";
 import { createPluginCacheSdk, type PluginCacheSdk } from "./plugin-cache-sdk.js";
 import { pluginInstanceInvocation } from "./plugin-instance-invocation.js";
@@ -211,6 +211,61 @@ export function getPluginCache(): PluginCache {
 
 export function withPluginCache<T>(cache: PluginCache, run: () => T): T {
   return state.scope.run({ cache, parent: state.scope.getStore() }, run);
+}
+
+/** Coalesce asynchronous facts without republishing data after explicit invalidation. */
+export async function preparePluginCacheFact<T>(
+  owner: PluginCache,
+  facts: Map<string, PluginCacheFact<T>>,
+  key: string,
+  read: () => Promise<T>,
+): Promise<{ value: T; assertCurrent: () => void }> {
+  const signal = getPluginCacheRetirementSignal(owner);
+  signal.throwIfAborted();
+  let current = facts.get(key);
+  if (!current) {
+    const release = retainPluginCache(owner);
+    let reading: Promise<T>;
+    try {
+      reading = read();
+    } catch (error) {
+      release();
+      throw error;
+    }
+    const pending: { pending: Promise<{ value: T }> } = {
+      pending: reading
+        .then((value) => {
+          signal.throwIfAborted();
+          const published = facts.get(key);
+          if (published !== pending) {
+            if (published && "value" in published) {
+              return published;
+            }
+            throw new Error("Plugin state changed during preparation; retry the operation.");
+          }
+          const ready = { value };
+          facts.set(key, ready);
+          return ready;
+        })
+        .finally(release),
+    };
+    facts.set(key, pending);
+    void pending.pending.catch(() => {
+      if (facts.get(key) === pending) {
+        facts.delete(key);
+      }
+    });
+    current = pending;
+  }
+  const ready = "pending" in current ? await current.pending : current;
+  const assertCurrent = () => {
+    signal.throwIfAborted();
+    if (facts.get(key) !== ready) {
+      throw new Error("Plugin state changed during preparation; retry the operation.");
+    }
+  };
+  assertCurrent();
+  return { value: ready.value, assertCurrent };
 }
 
 export function runOutsidePluginCache<T>(run: () => T): T {

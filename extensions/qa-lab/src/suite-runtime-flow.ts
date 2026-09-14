@@ -21,11 +21,7 @@ import * as modelSwitchEval from "./model-switch-eval.js";
 import * as runtimeToolFixture from "./runtime-tool-fixture.js";
 import type { QaSeedScenarioWithSource } from "./scenario-catalog.js";
 import { runScenarioFlow } from "./scenario-flow-runner.js";
-import {
-  createQaScenarioRuntimeApi,
-  type QaScenarioRuntimeDeps,
-  type QaScenarioRuntimeEnv,
-} from "./scenario-runtime-api.js";
+import { createQaScenarioRuntimeApi, type QaScenarioRuntimeEnv } from "./scenario-runtime-api.js";
 import * as suiteRuntimeAgent from "./suite-runtime-agent.js";
 import * as suiteRuntimeGateway from "./suite-runtime-gateway.js";
 import * as suiteRuntimeTransport from "./suite-runtime-transport.js";
@@ -292,7 +288,7 @@ function createQaSuiteScenarioDeps(params: QaSuiteScenarioDepsParams) {
         : null;
     },
     splitModelRef: params.splitModelRef,
-  } satisfies QaScenarioRuntimeDeps;
+  };
 }
 
 function createQaSuiteScenarioFlowApi(

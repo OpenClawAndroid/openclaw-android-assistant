@@ -541,7 +541,15 @@ it.each([
       }));
       const context = createDirectChatContext({
         getRuntimeConfig: () => cfg,
-        loadGatewayModelCatalog: async () => catalog,
+        loadGatewayModelCatalogSnapshot: async () => ({
+          entries: catalog,
+          routeVariants: catalog,
+          agentId: "main",
+          agentDir: "/tmp/fixture-agent",
+          workspaceDir: "/tmp/fixture-workspace",
+          config: cfg,
+          catalogComplete: true,
+        }),
         readPreparedGatewayModelCatalog: async () => ({ entries: catalog }),
       });
       const request = async (

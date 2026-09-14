@@ -63,6 +63,7 @@ import {
   isControlUiSourcePath,
   isPluginControlUiPath,
   isUiBrowserTestFile,
+  uiTimingTestFiles,
 } from "../test/vitest/vitest.ui-paths.mjs";
 import {
   getUnitFastIsolatedTestFiles,
@@ -465,6 +466,7 @@ const BROAD_TOOLING_SCRIPT_TEST_TARGET_CHUNK_SIZE = 60;
 const FULL_SUITE_AGENTS_CORE_TEST_TARGET_CHUNK_COUNT = 6;
 const FULL_SUITE_TOOLING_TEST_TARGET_CHUNK_SIZE = 2;
 const FULL_SUITE_UNIT_FAST_TEST_TARGET_CHUNK_SIZE = 70;
+const FULL_SUITE_UNIT_SRC_TEST_TARGET_CHUNK_SIZE = 150;
 const TUI_VITEST_CONFIG = "test/vitest/vitest.tui.config.ts";
 const TUI_PTY_VITEST_CONFIG = "test/vitest/vitest.tui-pty.config.ts";
 const UI_VITEST_CONFIG = "test/vitest/vitest.ui.config.ts";
@@ -540,6 +542,7 @@ const VITEST_CONFIG_BY_KIND: Record<string, string> = {
   ui: UI_VITEST_CONFIG,
   uiIsolated: UI_ISOLATED_VITEST_CONFIG,
   uiBrowser: UI_BROWSER_VITEST_CONFIG,
+  uiTiming: "test/vitest/vitest.ui-timing.config.ts",
   uiE2e: UI_E2E_VITEST_CONFIG,
   unitSrc: UNIT_SRC_VITEST_CONFIG,
   unitSecurity: UNIT_SECURITY_VITEST_CONFIG,
@@ -1053,6 +1056,31 @@ function listUnitFastFullSuiteTestTargets() {
   return getUnitFastTestFiles().filter(
     (file) => !timerTargets.has(file) && !isolatedTargets.has(file),
   );
+}
+
+let cachedUnitSrcFullSuiteTestTargets: string[] | null = null;
+let cachedUnitSrcFullSuiteTestTargetsCwd: string | null = null;
+
+function listUnitSrcFullSuiteTestTargets(cwd: string) {
+  if (cachedUnitSrcFullSuiteTestTargets && cachedUnitSrcFullSuiteTestTargetsCwd === cwd) {
+    return cachedUnitSrcFullSuiteTestTargets;
+  }
+  const unitFastTargets = new Set(getUnitFastTestFiles());
+  const srcDir = path.join(cwd, "src");
+  cachedUnitSrcFullSuiteTestTargets = (
+    fs.existsSync(srcDir) ? listRepoFilesRecursive(srcDir, cwd) : []
+  )
+    .filter(
+      (file) =>
+        file.endsWith(".test.ts") &&
+        isUnitConfigTestFile(file) &&
+        !unitFastTargets.has(file) &&
+        !path.matchesGlob(file, "src/acp/**") &&
+        !path.matchesGlob(file, "src/security/**"),
+    )
+    .toSorted((left, right) => left.localeCompare(right));
+  cachedUnitSrcFullSuiteTestTargetsCwd = cwd;
+  return cachedUnitSrcFullSuiteTestTargets;
 }
 
 function listAgentsCoreFullSuiteTestTargets(cwd: string) {
@@ -3594,6 +3622,9 @@ function classifyTarget(arg: string, cwd: string, beforeDatabaseWorkerOwnership 
   if (isUiIsolatedTestFile(relative)) {
     return "uiIsolated";
   }
+  if (uiTimingTestFiles.includes(relative)) {
+    return "uiTiming";
+  }
   if (isUiBrowserTestFile(relative)) {
     return "uiBrowser";
   }
@@ -4075,6 +4106,16 @@ export function buildVitestRunPlans(
     groupedTargets.set("toolingIsolated", current);
   }
   const uiTargets = groupedTargets.get("ui") ?? [];
+  const impliedUiTimingTargets = uiTimingTestFiles.filter((file) =>
+    uiTargets.some((targetArg) =>
+      includePatternMatchesAnyFile(toScopedIncludePattern(targetArg, cwd), [file]),
+    ),
+  );
+  if (impliedUiTimingTargets.length > 0) {
+    groupedTargets.set("uiTiming", [
+      ...new Set([...(groupedTargets.get("uiTiming") ?? []), ...impliedUiTimingTargets]),
+    ]);
+  }
   const broadUiTargets = uiTargets.filter(
     (targetArg) => !isTestFileTarget(toRepoRelativeTarget(targetArg, cwd)),
   );
@@ -4319,6 +4360,13 @@ export function buildFullSuiteVitestRunPlans(args: string[], cwd = process.cwd()
           const chunkCount = Math.ceil(
             targets.length / FULL_SUITE_UNIT_FAST_TEST_TARGET_CHUNK_SIZE,
           );
+          chunks = splitTargetChunks(targets, chunkCount);
+        } else if (config === UNIT_SRC_VITEST_CONFIG) {
+          // The 600+ file process can run for 20 minutes and has produced late,
+          // non-reproducible mock-transform failures under Bun. Bound the worker
+          // lifetime while preserving the complete file inventory.
+          const targets = listUnitSrcFullSuiteTestTargets(cwd);
+          const chunkCount = Math.ceil(targets.length / FULL_SUITE_UNIT_SRC_TEST_TARGET_CHUNK_SIZE);
           chunks = splitTargetChunks(targets, chunkCount);
         } else if (config === TOOLING_VITEST_CONFIG) {
           // Tooling tests spawn package managers and native helpers. Keep native

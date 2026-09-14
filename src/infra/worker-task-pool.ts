@@ -7,6 +7,7 @@ import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coerc
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { createDeferredCore, type Deferred } from "../shared/deferred.js";
 import { runBestEffortCleanup } from "./non-fatal-cleanup.js";
+import { resolveRuntimeWorkerThreadExecArgv } from "./runtime-worker-url.js";
 import {
   DEFAULT_WORKER_PENDING_BYTES,
   DEFAULT_WORKER_PENDING_TASKS,
@@ -283,7 +284,7 @@ export class WorkerTaskPool<Input, Output> {
       const workerUrl = this.options.workerUrl;
       const workerOptions = {
         // Preserve native require(ESM) and its transitive import-only exports.
-        execArgv: workerUrl.pathname.endsWith(".ts") ? ["--import", "tsx/esm"] : [],
+        execArgv: resolveRuntimeWorkerThreadExecArgv(workerUrl),
         ...this.options.workerOptions,
         ...prepared?.options,
       };

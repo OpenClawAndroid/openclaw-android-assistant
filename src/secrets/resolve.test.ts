@@ -284,34 +284,60 @@ describe("secret ref resolver", () => {
     expect(isMissingSecretRefResolutionError({ ref, error })).toBe(false);
   });
 
-  itPosix("resolves file refs in json mode", async () => {
-    const root = await createCaseDir("file");
-    const filePath = path.join(root, "secrets.json");
-    await writeSecureFile(
-      filePath,
-      JSON.stringify({
-        providers: {
-          openai: {
-            apiKey: "sk-file-value", // pragma: allowlist secret
-          },
-        },
-      }),
-    );
-
-    const value = await resolveSecretRefString(
-      { source: "file", provider: "filemain", id: "/providers/openai/apiKey" },
-      {
-        config: {
-          secrets: {
-            providers: {
-              filemain: createFileProviderConfig(filePath),
+  itPosix(
+    "recovers file refs after replacing a hardlinked credential with a private file",
+    async () => {
+      const root = await createCaseDir("file");
+      const filePath = path.join(root, "secrets.json");
+      const aliasPath = path.join(root, "old-secret-link.json");
+      await writeSecureFile(
+        filePath,
+        JSON.stringify({
+          providers: {
+            openai: {
+              apiKey: "sk-file-value", // pragma: allowlist secret
             },
           },
-        },
-      },
-    );
-    expect(value).toBe("sk-file-value");
-  });
+        }),
+      );
+
+      const resolve = () =>
+        resolveSecretRefString(
+          { source: "file", provider: "filemain", id: "/providers/openai/apiKey" },
+          {
+            config: {
+              secrets: {
+                providers: {
+                  filemain: createFileProviderConfig(filePath),
+                },
+              },
+            },
+          },
+        );
+      await expect(resolve()).resolves.toBe("sk-file-value");
+      const original = await fs.stat(filePath);
+      const contents = await fs.readFile(filePath, "utf8");
+      expect(original.nlink).toBe(1);
+
+      await fs.link(filePath, aliasPath);
+      expect((await fs.stat(filePath)).nlink).toBe(2);
+      await expect(resolve()).rejects.toMatchObject({
+        code: "SECRET_PROVIDER_UNAVAILABLE",
+        cause: { code: "hardlink" },
+      });
+
+      await writeSecureFile(filePath, contents);
+      const recovered = await fs.stat(filePath);
+      const oldAlias = await fs.stat(aliasPath);
+      expect(recovered.nlink).toBe(1);
+      expect(recovered.mode & 0o777).toBe(0o600);
+      expect(recovered.ino).not.toBe(original.ino);
+      expect(oldAlias.ino).toBe(original.ino);
+      expect(oldAlias.nlink).toBe(1);
+      await expect(fs.readFile(aliasPath, "utf8")).resolves.toBe(contents);
+      await expect(resolve()).resolves.toBe("sk-file-value");
+    },
+  );
 
   itPosix("classifies an out-of-bounds file pointer as a missing ref", async () => {
     const root = await createCaseDir("file-missing-index");

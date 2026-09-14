@@ -46,6 +46,7 @@ function workerPlacement(params: {
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
     agentId: params.agentId ?? "main",
+    executionMode: "worker-turn",
     state: params.state,
     generation: 2,
     turnClaim: null,

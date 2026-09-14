@@ -657,7 +657,7 @@ suite.define(() => {
         "https://github.com/synthetic/publication-demo/pull/42",
       );
       const newPublication = page.getByRole("button", {
-        name: "Choose a new publication",
+        name: "Dismiss",
         exact: true,
       });
       await expect.poll(() => newPublication.count()).toBe(1);
@@ -876,9 +876,7 @@ suite.define(() => {
       await expect
         .poll(() => page.getByRole("link", { name: "Open PR" }).getAttribute("href"))
         .toBe("https://github.com/team/demo/pull/42");
-      await expect
-        .poll(() => page.locator("[data-publication-account]").textContent())
-        .toContain("Publish as @alice-tools");
+      expect(await page.locator(".chat-pr__publication-outcome").count()).toBe(0);
       expect(await gateway.getRequests("sessions.github.publish")).toHaveLength(0);
     },
   );
@@ -949,7 +947,7 @@ suite.define(() => {
         await takeControlUiViewportScreenshot(page, page.locator(".shell"), [openPr]),
       );
     }
-    const dismiss = page.locator('.chat-pr[data-state="branch"]').getByRole("button", {
+    const dismiss = page.locator(".chat-prs").getByRole("button", {
       name: "Dismiss",
       exact: true,
     });

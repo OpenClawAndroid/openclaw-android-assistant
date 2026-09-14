@@ -253,21 +253,46 @@ describe("recoverEmbeddedRunAttempt", () => {
     },
   );
 
-  it("recovers the completed overflow instead of using another assistant's validation", async () => {
-    await expect(
-      recoverAfterTransportDrop({
-        errorMessage: "500 Unsupported parameter: timeout",
-        errorType: "invalid_request_error",
-        errorCode: "unknown_parameter",
-        completedAssistant: buildEmbeddedRunnerAssistant({
-          stopReason: "error",
-          errorMessage: "400 Your input exceeds the context window of this model",
+  it.each([false, true])(
+    "recovers the completed overflow with replaySafe=%s",
+    async (replaySafe) => {
+      await expect(
+        recoverAfterTransportDrop({
+          errorMessage: "500 Unsupported parameter: timeout",
+          errorType: "invalid_request_error",
+          errorCode: "unknown_parameter",
+          completedAssistant: buildEmbeddedRunnerAssistant({
+            stopReason: "error",
+            errorMessage: "400 Your input exceeds the context window of this model",
+          }),
+          compactionEnabled: true,
+          diagnostics: [],
+          replaySafe,
         }),
+      ).rejects.toThrow("overflow compaction requested");
+    },
+  );
+
+  it.each<[string, TransportDropScenario]>([
+    ["a tool result is missing", { missingToolResult: true }],
+    ["a lifecycle item remains active", { activeCount: 1 }],
+    ["asynchronous tool work remains", { asyncStarted: true }],
+    ["a tool intentionally ended the turn", { terminate: true }],
+    ["approval is pending", { didSendDeterministicApprovalPrompt: true }],
+    ["the harness owns transport recovery", { pluginHarnessOwnsTransport: true }],
+    ["the attempt yielded", { yieldDetected: true }],
+    ["the run was cancelled", { terminal: { kind: "aborted", source: "external" } }],
+  ])("does not compact a provider overflow when %s", async (_label, scenario) => {
+    const { recovery, markOwnedTranscriptRetry, continueFromCurrentTranscript } =
+      await recoverAfterTransportDrop({
+        errorMessage: "Your input exceeds the context window of this model.",
         compactionEnabled: true,
         diagnostics: [],
-        replaySafe: true,
-      }),
-    ).rejects.toThrow("overflow compaction requested");
+        ...scenario,
+      });
+    expect(recovery).toEqual({ action: "proceed" });
+    expect(markOwnedTranscriptRetry).not.toHaveBeenCalled();
+    expect(continueFromCurrentTranscript).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -11,7 +11,8 @@ const profile = process.argv[2];
 const portFile = process.argv[3];
 const artifactManifestFile = process.argv[4];
 const requireFromApp = createRequire(path.join(process.cwd(), "package.json"));
-const packageName = "@openclaw/kitchen-sink";
+const packageName =
+  profile === "plugins" ? "@openclaw/plugin-e2e-fixture" : "@openclaw/kitchen-sink";
 const pluginId = "openclaw-kitchen-sink-fixture";
 
 async function assertPrepublishRequests(

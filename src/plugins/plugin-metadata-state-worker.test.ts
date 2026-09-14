@@ -1,0 +1,237 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { createDeferredCore } from "../shared/deferred.js";
+import { withArtifactPreservingStateReads } from "../state/openclaw-state-db-readonly.js";
+import {
+  closeOpenClawStateDatabaseAsync,
+  openOpenClawStateDatabase,
+} from "../state/openclaw-state-db.js";
+import { loadInstalledPluginIndexInstallRecords } from "./installed-plugin-index-record-reader.js";
+import {
+  readPersistedInstalledPluginIndex,
+  readPersistedInstalledPluginIndexSync,
+} from "./installed-plugin-index-store.js";
+import type { InstalledPluginIndex } from "./installed-plugin-index-types.js";
+import { listPersistedBundledPluginRecoveryLocations } from "./location-bridges.js";
+import { createPluginCache, retirePluginCache, withPluginCache } from "./plugin-cache.js";
+import { withPluginLifecycleLease } from "./plugin-lifecycle-lease.js";
+import * as metadataWorker from "./plugin-metadata-state-worker.js";
+
+const dirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await closeOpenClawStateDatabaseAsync();
+    cleanup();
+  }),
+);
+
+function environment() {
+  const root = dirs.make("openclaw-plugin-metadata-worker-");
+  const bundled = path.join(root, "bundled");
+  fs.mkdirSync(bundled);
+  return {
+    OPENCLAW_STATE_DIR: root,
+    OPENCLAW_BUNDLED_PLUGINS_DIR: bundled,
+    OPENCLAW_VERSION: "2026.4.25",
+    VITEST: "true",
+  };
+}
+
+function index(message = "synthetic index"): InstalledPluginIndex {
+  return {
+    version: 1,
+    hostContractVersion: "2026.4.25",
+    compatRegistryVersion: "compat-v1",
+    migrationVersion: 1,
+    policyHash: "policy-v1",
+    generatedAtMs: 123,
+    installRecords: {},
+    plugins: [],
+    diagnostics: [{ level: "warn", message }],
+  };
+}
+
+async function seed(env: NodeJS.ProcessEnv, value: InstalledPluginIndex) {
+  const database = openOpenClawStateDatabase({ env });
+  database.db
+    .prepare(
+      "INSERT INTO config_machine_state (state_key, value_json, updated_at_ms) VALUES (?, ?, ?)",
+    )
+    .run("plugins.installedIndex", JSON.stringify({ revision: 1, index: value }), 123);
+  await closeOpenClawStateDatabaseAsync();
+  return database.path;
+}
+
+function familyHashes(databasePath: string) {
+  return ["", "-wal", "-shm", "-journal"].map((suffix) => {
+    const file = `${databasePath}${suffix}`;
+    return fs.existsSync(file)
+      ? [suffix, createHash("sha256").update(fs.readFileSync(file)).digest("hex")]
+      : [suffix, null];
+  });
+}
+
+function observeParentSqlite() {
+  const native = requireNodeSqlite();
+  return [
+    vi.spyOn(native.DatabaseSync.prototype, "prepare"),
+    vi.spyOn(native.DatabaseSync.prototype, "exec"),
+    ...(["get", "all", "run", "iterate"] as const).map((method) =>
+      vi.spyOn(native.StatementSync.prototype, method),
+    ),
+  ];
+}
+
+it("returns a persisted index row without main-thread SQL", async () => {
+  const env = environment();
+  const message = "persisted fixture diagnostic";
+  await seed(env, index(message));
+  const counters = observeParentSqlite();
+  try {
+    await withPluginCache(createPluginCache(), async () => {
+      const loaded = await readPersistedInstalledPluginIndex({ env });
+      expect(loaded?.diagnostics).toEqual([{ level: "warn", message }]);
+    });
+    expect(counters.map((counter) => counter.mock.calls.length)).toEqual([0, 0, 0, 0, 0, 0]);
+  } finally {
+    for (const counter of counters) {
+      counter.mockRestore();
+    }
+  }
+});
+
+it.each(["explicit", "ambient"] as const)(
+  "preserves database-family bytes during %s artifact-preserving async inspection",
+  async (scope) => {
+    const env = environment();
+    const databasePath = await seed(env, index());
+    const before = familyHashes(databasePath);
+    const inspect = () =>
+      withPluginCache(createPluginCache(), async () => {
+        expect(
+          (
+            await readPersistedInstalledPluginIndex({
+              env,
+              artifactPreservingReadOnly: scope === "explicit",
+            })
+          )?.diagnostics,
+        ).toEqual([{ level: "warn", message: "synthetic index" }]);
+      });
+    if (scope === "ambient") {
+      await withArtifactPreservingStateReads(inspect);
+    } else {
+      await inspect();
+    }
+    await closeOpenClawStateDatabaseAsync();
+    expect(familyHashes(databasePath)).toEqual(before);
+  },
+);
+
+it("shares a pending index read and returns the same validated inventory", async () => {
+  const env = environment();
+  const row = createDeferredCore<{ value_json: string }>();
+  const read = vi.spyOn(metadataWorker, "readPluginMetadataStateRow").mockReturnValue(row.promise);
+  await using cache = createPluginCache();
+  await withPluginCache(cache, async () => {
+    const first = readPersistedInstalledPluginIndex({ env });
+    const second = readPersistedInstalledPluginIndex({ env });
+    row.resolve({ value_json: JSON.stringify({ revision: 1, index: index() }) });
+    const [left, right] = await Promise.all([first, second]);
+    expect(left?.diagnostics).toEqual([{ level: "warn", message: "synthetic index" }]);
+    expect(right).toBe(left);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+});
+
+it("uses a newer synchronous index publication when an older worker read finishes", async () => {
+  const env = environment();
+  await seed(env, index("current ledger"));
+  const row = createDeferredCore<{ value_json: string }>();
+  vi.spyOn(metadataWorker, "readPluginMetadataStateRow").mockReturnValue(row.promise);
+  await using cache = createPluginCache();
+  await withPluginCache(cache, async () => {
+    const pending = readPersistedInstalledPluginIndex({ env });
+    const current = readPersistedInstalledPluginIndexSync({ env });
+    row.resolve({ value_json: JSON.stringify({ revision: 1, index: index("stale ledger") }) });
+    expect(await pending).toBe(current);
+    expect(current?.diagnostics).toEqual([{ level: "warn", message: "current ledger" }]);
+  });
+});
+
+it("joins a retired cache's worker read without publishing its inventory", async () => {
+  const env = environment();
+  const row = createDeferredCore<{ value_json: string }>();
+  vi.spyOn(metadataWorker, "readPluginMetadataStateRow").mockReturnValue(row.promise);
+  const cache = createPluginCache();
+  const pending = withPluginCache(cache, () => readPersistedInstalledPluginIndex({ env }));
+  const rejected = expect(pending).rejects.toThrow();
+  const retirement = retirePluginCache(cache);
+  row.resolve({ value_json: JSON.stringify({ revision: 1, index: index() }) });
+  await rejected;
+  await retirement;
+});
+
+it("returns persisted bundled recovery locations through its existing async consumer without parent SQL", async () => {
+  const env = environment();
+  const rootDir = path.join(env.OPENCLAW_STATE_DIR, "previous", "extensions", "fixture");
+  const stored = index();
+  stored.plugins = [
+    ...stored.plugins,
+    {
+      pluginId: "fixture",
+      manifestPath: path.join(rootDir, "openclaw.plugin.json"),
+      manifestHash: "synthetic-manifest",
+      rootDir,
+      origin: "bundled",
+      enabled: true,
+      startup: { sidecar: false, memory: false, agentHarnesses: [] },
+      compat: [],
+    },
+  ];
+  await seed(env, stored);
+  const counters = observeParentSqlite();
+  try {
+    await using cache = createPluginCache();
+    const recovered = await withPluginCache(cache, () =>
+      listPersistedBundledPluginRecoveryLocations({ env }),
+    );
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]?.pluginId).toBe("fixture");
+    expect(recovered[0]?.loadPaths).toContain(rootDir);
+    expect(counters.map((counter) => counter.mock.calls.length)).toEqual([0, 0, 0, 0, 0, 0]);
+  } finally {
+    for (const counter of counters) {
+      counter.mockRestore();
+    }
+  }
+});
+
+it("reads the installed ledger inside the existing install lifecycle lease without parent SQL", async () => {
+  const env = environment();
+  const stored = index();
+  stored.installRecords = {
+    fixture: { source: "path", installPath: path.join(env.OPENCLAW_STATE_DIR, "fixture") },
+  };
+  await seed(env, stored);
+  await withPluginLifecycleLease({ env }, async (lease) => {
+    lease.assertOwned();
+    const counters = observeParentSqlite();
+    try {
+      const options = { env, filePath: lease.databasePath };
+      expect(await loadInstalledPluginIndexInstallRecords(options)).toEqual(stored.installRecords);
+      expect((await readPersistedInstalledPluginIndex(options))?.installRecords).toEqual(
+        stored.installRecords,
+      );
+      expect(counters.map((counter) => counter.mock.calls.length)).toEqual([0, 0, 0, 0, 0, 0]);
+    } finally {
+      for (const counter of counters) {
+        counter.mockRestore();
+      }
+    }
+    lease.assertOwned();
+  });
+});

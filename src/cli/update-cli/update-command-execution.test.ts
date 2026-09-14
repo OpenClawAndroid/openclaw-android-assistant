@@ -16,6 +16,11 @@ import * as portInspection from "../../infra/ports-inspect.js";
 import * as tempRoot from "../../infra/tmp-openclaw-dir.js";
 import { UpdateRequesterRevokedError } from "../../infra/update-requester-authority.js";
 import { createUpdateRun } from "../../infra/update-run-ledger.js";
+import {
+  updateRunStepsFromResultStep,
+  updateRunWarningMessages,
+} from "../../infra/update-run-step.js";
+import type { UpdateStepProgress, UpdateStepResult } from "../../infra/update-runner.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
 import { withEnvAsync } from "../../test-utils/env.js";
 import { mockProcessPlatform } from "../../test-utils/vitest-spies.js";
@@ -33,6 +38,64 @@ const { executionParams, inspectOrStopService, mocks, schemaContext, successfulU
   await import("./update-command-execution.test-support.js");
 
 describe("mutable update execution", () => {
+  it.each(["package", "git"] as const)(
+    "continues the %s update with the recorded readiness warning instead of inference repair",
+    async (kind) => {
+      const message =
+        "Readiness probe http://127.0.0.1:18789/readyz failed: HTTP 502. Check the configured proxy.";
+      const step: UpdateStepResult = {
+        name: "candidate gateway canary",
+        command: "gateway run",
+        cwd: "/candidate",
+        durationMs: 1,
+        exitCode: null,
+        advisory: { kind: "candidate-runtime-unavailable", message },
+        failureFacts: [{ check: "readyz", code: "candidate-readiness-probe-failed", message }],
+      };
+      mocks.validateCanary.mockImplementation(async ({ onStep }) => {
+        onStep(step);
+        return {
+          status: "ok",
+          phase: "readiness",
+          steps: [step],
+          durationMs: 1,
+          logTail: [message],
+        };
+      });
+      const repair = await import("./update-command-repair.js");
+      const runRepair = vi.spyOn(repair, "runUpdateCommandRepair");
+      const accepted = vi.fn();
+      const runStagedUpdate = async ({
+        validateCandidate,
+      }: {
+        validateCandidate?: (root: string) => Promise<unknown>;
+      }) => {
+        expect(validateCandidate).toBeTypeOf("function");
+        await validateCandidate?.("/candidate");
+        accepted();
+        return successfulUpdate;
+      };
+      mocks.runPackageUpdate.mockImplementation(runStagedUpdate);
+      mocks.runGitUpdate.mockImplementation(runStagedUpdate);
+      const onStepComplete = vi.fn<NonNullable<UpdateStepProgress["onStepComplete"]>>();
+
+      const execution = await executeMutableUpdate({
+        ...executionParams(kind),
+        progress: { onStepComplete },
+      });
+
+      expect(execution?.result.status).toBe("ok");
+      expect(accepted).toHaveBeenCalledOnce();
+      expect(runRepair).not.toHaveBeenCalled();
+      expect(onStepComplete).toHaveBeenCalledWith(expect.objectContaining(step));
+      const recorded = onStepComplete.mock.calls.flatMap(([completed]) =>
+        updateRunStepsFromResultStep(completed),
+      );
+      expect(updateRunWarningMessages(recorded)).toEqual([message]);
+      expect(recorded.every((entry) => entry.status === "completed")).toBe(true);
+    },
+  );
+
   it.each(
     (["package", "git"] as const).flatMap((kind) =>
       [undefined, 30_000, 600_000].map((timeoutMs) => ({ kind, timeoutMs })),

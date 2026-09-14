@@ -4,12 +4,15 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { pathForTerminalSession } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import {
   readSessionMethodAccess,
   type SessionMethodAccess,
 } from "../../lib/session-method-access.ts";
 import { startCatalogSessionInTerminal } from "../../lib/sessions/catalog-terminal.ts";
 import { createManagedWorktree } from "../../lib/worktrees/create-worktree.ts";
+
+registerNewSessionSetupEnglish();
 
 export function readNewSessionTerminalStartAccess(
   gateway: Parameters<typeof readSessionMethodAccess>[0],

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { trackSqliteStatementExecutions } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import { cleanupTempDirs, makeTempDir } from "../../test/helpers/temp-dir.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -176,6 +177,93 @@ describe("session cost usage SQLite cache", () => {
       });
     },
   );
+
+  it("bounds stale-rollup deletion work while preserving each snapshot comparison", async () => {
+    const stateDir = makeTempDir(tempDirs, "openclaw-usage-cache-prune-batch-");
+    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+      const agentId = "worker-1";
+      const { db } = openOpenClawAgentDatabase({ agentId });
+      const scope = "session-cost-usage-rollup-v2";
+      const insert = db.prepare(
+        "INSERT INTO cache_entries (scope, key, value_json, blob, expires_at, updated_at) VALUES (?, ?, ?, NULL, NULL, ?)",
+      );
+      for (let index = 0; index < 97; index += 1) {
+        insert.run(
+          scope,
+          index === 10 ? "stale-10\0雪" : `stale-${index}`,
+          JSON.stringify({ totalTokens: index }),
+          index + 1,
+        );
+      }
+      insert.run(scope, "live\0雪", '{ "totalTokens": 100 }', 100);
+      insert.run("other", "stale-0", '{"totalTokens":0}', 1);
+      const rows = readSessionCostUsageRollupRows(agentId);
+      db.prepare("UPDATE cache_entries SET value_json = ? WHERE scope = ? AND key = ?").run(
+        '{"totalTokens":18}',
+        scope,
+        "stale-17",
+      );
+      db.prepare("UPDATE cache_entries SET updated_at = ? WHERE scope = ? AND key = ?").run(
+        51,
+        scope,
+        "stale-49",
+      );
+      const before = db.prepare("SELECT * FROM cache_entries ORDER BY scope, key").all();
+      const executions = trackSqliteStatementExecutions(db, ["delete"], (sql) =>
+        /^delete from "cache_entries"/i.test(sql) ? "delete" : null,
+      );
+
+      await deleteSessionCostUsageRollupsExcept({ agentId, liveKeys: new Set(["live\0雪"]), rows });
+
+      expect(db.prepare("SELECT * FROM cache_entries ORDER BY scope, key").all()).toEqual(
+        before.filter(
+          (row) =>
+            row.scope !== scope || ["live\0雪", "stale-17", "stale-49"].includes(String(row.key)),
+        ),
+      );
+      expect(executions.counts.delete).toBeGreaterThan(0);
+      expect(executions.counts.delete).toBeLessThan(12);
+      executions.restore();
+    });
+  });
+
+  it("rolls back all stale and legacy cleanup when a later deletion fails", async () => {
+    const stateDir = makeTempDir(tempDirs, "openclaw-usage-cache-prune-rollback-");
+    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+      const agentId = "worker-1";
+      const { db } = openOpenClawAgentDatabase({ agentId });
+      const insert = db.prepare(
+        "INSERT INTO cache_entries (scope, key, value_json, blob, expires_at, updated_at) VALUES (?, ?, ?, NULL, NULL, ?)",
+      );
+      for (let index = 0; index < 97; index += 1) {
+        insert.run(
+          "session-cost-usage-rollup-v2",
+          `stale-${String(index).padStart(3, "0")}`,
+          "{}",
+          index,
+        );
+      }
+      insert.run("session-cost-usage", "cache", "{}", 1);
+      insert.run("session-cost-usage-rollup-v1", "retired", "{}", 1);
+      insert.run("session-cost-usage", "refresh-lock", "{}", 1);
+      const rows = readSessionCostUsageRollupRows(agentId);
+      const before = db.prepare("SELECT * FROM cache_entries ORDER BY scope, key").all();
+      db.exec(`CREATE TEMP TRIGGER refuse_late_rollup_prune BEFORE DELETE ON cache_entries
+        WHEN OLD.scope = 'session-cost-usage-rollup-v2' AND OLD.key = 'stale-080'
+        BEGIN SELECT RAISE(ABORT, 'late rollup prune refused'); END;`);
+      await expect(
+        deleteSessionCostUsageRollupsExcept({ agentId, liveKeys: new Set(), rows }),
+      ).rejects.toThrow("late rollup prune refused");
+      expect(db.prepare("SELECT * FROM cache_entries ORDER BY scope, key").all()).toEqual(before);
+      db.exec("DROP TRIGGER refuse_late_rollup_prune");
+
+      await deleteSessionCostUsageRollupsExcept({ agentId, liveKeys: new Set(), rows });
+
+      expect(db.prepare("SELECT * FROM cache_entries ORDER BY scope, key").all()).toEqual(
+        before.filter((row) => row.key === "refresh-lock"),
+      );
+    });
+  });
 
   it("reads only v2 rollups and prunes retired usage cache rows by scope", async () => {
     const stateDir = makeTempDir(tempDirs, "openclaw-usage-cache-retired-");

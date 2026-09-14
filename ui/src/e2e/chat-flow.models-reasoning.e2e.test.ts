@@ -532,13 +532,16 @@ suite.define(() => {
       };
 
       await modelSelect.waitFor({ state: "visible", timeout: 10_000 });
-      expect(await modelSelect.getAttribute("data-chat-select-value")).toBe("");
+      const defaultOption = activePane.locator('[data-chat-model-default="true"]');
+      await expect.poll(() => defaultOption.getAttribute("aria-selected")).toBe("true");
+      expect(await defaultOption.getAttribute("data-chat-model-option")).toBe("openai/gpt-5.5");
 
       await selectModel("bedrock/claude-opus-4.5");
       const patchRequest = await gateway.waitForRequest("sessions.patch");
       expect(requireRecord(patchRequest.params)).toMatchObject({
         key: "agent:main:session-a",
         model: "bedrock/claude-opus-4.5",
+        agentRuntime: null,
       });
       expect(await modelSelect.getAttribute("data-chat-select-value")).toBe(
         "bedrock/claude-opus-4.5",
@@ -556,7 +559,7 @@ suite.define(() => {
         .poll(() => activePane.evaluate((pane) => (pane as ChatPaneElement).sessionKey))
         .toBe("agent:main:session-b");
       await modelSelect.waitFor({ state: "visible", timeout: 10_000 });
-      expect(await modelSelect.getAttribute("data-chat-select-value")).toBe("");
+      await expect.poll(() => defaultOption.getAttribute("aria-selected")).toBe("true");
 
       await page
         .locator(
@@ -648,7 +651,11 @@ suite.define(() => {
       const modelSelect = main.locator('[data-chat-model-select="true"]').first();
       await modelSelect.waitFor({ state: "visible", timeout: 10_000 });
       expect(await modelSelect.textContent()).toContain("Claude Opus 4.5");
-      expect(await modelSelect.getAttribute("data-chat-select-value")).toBe("");
+      await expect
+        .poll(() =>
+          main.locator('[data-chat-model-default="true"]').first().getAttribute("aria-selected"),
+        )
+        .toBe("true");
 
       await modelSelect.click();
       await main.locator('[data-chat-model-option="openai/gpt-5.5"]').click();
@@ -656,6 +663,7 @@ suite.define(() => {
       expect(requireRecord(firstPatch.params)).toMatchObject({
         key: "agent:ops:session-a",
         model: "openai/gpt-5.5",
+        agentRuntime: null,
       });
       expect(await modelSelect.textContent()).toContain("GPT-5.5");
 
@@ -673,9 +681,10 @@ suite.define(() => {
       expect(requireRecord(patches[1]?.params)).toMatchObject({
         key: "agent:ops:session-a",
         model: null,
+        agentRuntime: null,
       });
       expect(await modelSelect.textContent()).toContain("Claude Opus 4.5");
-      expect(await modelSelect.getAttribute("data-chat-select-value")).toBe("");
+      await expect.poll(() => defaultModel.getAttribute("aria-selected")).toBe("true");
     } finally {
       await suite.closeBrowserContext(context);
     }

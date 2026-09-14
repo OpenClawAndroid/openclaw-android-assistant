@@ -309,7 +309,27 @@ describe("chat pane embedded panels", () => {
     );
     save.click();
     await vi.waitFor(() => expect(save.disabled).toBe(true));
-    const savedText = editor.state.doc.toString();
+    let savedText = editor.state.doc.toString();
+    const saved = (await file.promise)!;
+    const pendingRead = createDeferred<SessionWorkspaceGetResult | null>();
+    vi.mocked(sessions.getFile).mockReturnValueOnce(pendingRead.promise);
+    openSessionWorkspaceFile(state, { path: "navigation.txt" });
+    await renderPanels();
+    editor.dispatch({ changes: { from: 0, to: 0, insert: "newer " } });
+    await renderPanels();
+    sessions.setFile = vi.fn().mockResolvedValue({ file: { hash: "newer-saved" } });
+    save.click();
+    await vi.waitFor(() => expect(save.disabled).toBe(true));
+    pendingRead.resolve({ ...saved, file: { ...saved.file, content: savedText, hash: "saved" } });
+    await pendingRead.promise;
+    await renderPanels();
+    expect(mount.querySelector(".cm-editor")).toBe(editorElement);
+    expect(editor.state.doc.toString()).toBe(`newer ${savedText}`);
+    savedText = editor.state.doc.toString();
+    vi.mocked(sessions.getFile).mockResolvedValue({
+      ...saved,
+      file: { ...saved.file, content: savedText, hash: "newer-saved" },
+    });
     const discard = expectDefined(
       [...mount.querySelectorAll<HTMLButtonElement>("button")].find(
         (button) => button.textContent?.trim() === "Discard",

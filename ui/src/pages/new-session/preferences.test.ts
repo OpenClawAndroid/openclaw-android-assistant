@@ -127,4 +127,35 @@ describe("new-session browser preferences", () => {
       folder: "/gateway",
     });
   });
+
+  it.each(["patch", "replace"] as const)(
+    "clears the final selection with %s while preserving other agents",
+    (mode) => {
+      const gateway = "ws://one.example";
+      patchNewSessionPreference(gateway, "main", {
+        model: "openai/gpt-5.6-sol",
+        agentRuntime: "codex",
+        thinkingLevel: "high",
+      });
+      patchNewSessionPreference(gateway, "research", { folder: "/research" });
+      patchNewSessionPreference(gateway, "main", {});
+      expect(loadNewSessionPreference(gateway, "main")).toEqual({
+        model: "openai/gpt-5.6-sol",
+        agentRuntime: "codex",
+        thinkingLevel: "high",
+      });
+      patchNewSessionPreference(gateway, "main", { agentRuntime: "" });
+      expect(loadNewSessionPreference(gateway, "main")).toEqual({
+        model: "openai/gpt-5.6-sol",
+        thinkingLevel: "high",
+      });
+      if (mode === "patch") {
+        patchNewSessionPreference(gateway, "main", { model: "", thinkingLevel: "" });
+      } else {
+        replaceBrowserPreference(gateway, "main", {});
+      }
+      expect(loadNewSessionPreference(gateway, "main")).toBeNull();
+      expect(loadBrowserPreferences(gateway)).toEqual({ research: { folder: "/research" } });
+    },
+  );
 });

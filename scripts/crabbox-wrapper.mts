@@ -2576,12 +2576,6 @@ function remoteWindowsHydratedNodeModulesBootstrap() {
   ].join("; ");
 }
 
-function remotePosixHydratedNodeModulesBootstrap() {
-  // Knip and other non-pnpm tools walk node_modules, while hydrated boxes keep it external.
-  // Without this link, dead-code scans silently lose consumer edges and report false positives.
-  return 'openclaw_modules_dir="${CRABBOX_PNPM_MODULES_DIR:-${PNPM_CONFIG_MODULES_DIR:-}}"; if [ -n "$openclaw_modules_dir" ] && [ -d "$openclaw_modules_dir" ] && [ ! -e node_modules ]; then ln -s "$openclaw_modules_dir" node_modules; fi;';
-}
-
 function injectRemoteWindowsHydratedNodeModulesBootstrap(
   invocation: CommandInvocation,
   facts: RunFacts,
@@ -2604,22 +2598,6 @@ function injectRemoteWindowsHydratedNodeModulesBootstrap(
   return replaceRunCommandWithShell(
     invocation,
     `${remoteWindowsHydratedNodeModulesBootstrap()}; ${renderRunShellCommand(invocation, powershellJoin)}`,
-  );
-}
-
-function injectRemotePosixHydratedNodeModulesBootstrap(invocation: CommandInvocation) {
-  if (
-    invocation.args[0] !== "run" ||
-    isWindowsRemoteTarget(invocation.args) ||
-    invocation.script ||
-    invocation.start < 0
-  ) {
-    return invocation.args;
-  }
-
-  return replaceRunCommandWithShell(
-    invocation,
-    `${remotePosixHydratedNodeModulesBootstrap()} ${renderRunShellCommand(invocation)}`,
   );
 }
 
@@ -3677,8 +3655,6 @@ function applyRunTransforms(
       facts,
       options.provider,
     );
-    invocation = parseCommandInvocation(help.text, transformedArgs);
-    transformedArgs = injectRemotePosixHydratedNodeModulesBootstrap(invocation);
     return {
       args: injectRemoteTestboxCi(transformedArgs, options.provider),
       wsl2ScriptBootstrap: {

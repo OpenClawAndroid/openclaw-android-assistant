@@ -248,18 +248,25 @@ export function registerTaskSubscriptionOwnershipTests(setup: Setup): void {
     },
   );
 
-  it("retries a task summary after its broadcast fails", async () => {
-    const broadcast = vi.fn<GatewayBroadcastFn>();
-    setup(broadcast);
-    await waitForObserver();
-    const task = createRunningTask();
-    broadcast.mockClear().mockImplementationOnce(() => {
-      throw new Error("broadcast unavailable");
-    });
-    updateTask(task.taskId, { progressSummary: "Ready for delivery" });
-    updateTask(task.taskId, { progressSummary: "Ready for delivery" });
-    expect(broadcast).toHaveBeenCalledTimes(2);
-  });
+  it.each(["running", "succeeded"] as const)(
+    "retries a %s task summary after its broadcast fails",
+    async (status) => {
+      const broadcast = vi.fn<GatewayBroadcastFn>();
+      setup(broadcast);
+      await waitForObserver();
+      const task = createRunningTask();
+      broadcast.mockClear().mockImplementationOnce(() => {
+        throw new Error("broadcast unavailable");
+      });
+      const patch = { status, progressSummary: "Ready for delivery" };
+      updateTask(task.taskId, patch);
+      expect(broadcast).toHaveBeenCalledOnce();
+      updateTask(task.taskId, patch);
+      expect(broadcast).toHaveBeenCalledTimes(2);
+      updateTask(task.taskId, patch);
+      expect(broadcast).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("keeps a newer identical publication when an outer broadcast rolls back", async () => {
     const broadcast = vi.fn<GatewayBroadcastFn>();

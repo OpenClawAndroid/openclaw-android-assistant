@@ -39,6 +39,7 @@ export type LogbookOperations = {
   resetErrorBatches: Operation<undefined, number>;
   nextPendingBatch: Operation<undefined, LogbookBatch | null>;
   batchFrames: Operation<{ batchId: number }, LogbookFrame[]>;
+  sampledBatchFrames: Operation<{ batchId: number }, LogbookFrame[]>;
   replaceObservations: Operation<
     { batchId: number; day: string; segments: LogbookObservationInput[] },
     void

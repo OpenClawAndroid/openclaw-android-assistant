@@ -244,6 +244,9 @@ describe("package Telegram live Docker E2E", () => {
       'node --import tsx "$ROOT_DIR/scripts/e2e/lib/npm-telegram-live/prepare-package.mts" "$harness_package_json"',
     );
     expect(script).toContain('-v "$harness_package_json:/app/package.json:ro"');
+    expect(script).toContain(
+      '-v "$harness_package_json:/app/extensions/qa-lab/node_modules/openclaw/package.json:ro"',
+    );
     expect(script).toContain('-v "$ROOT_DIR/dist:/app/dist:ro"');
     expect(script).toContain('-v "$ROOT_DIR/node_modules:/trusted-harness/node_modules:ro"');
     expect(script).toContain('-v "$ROOT_DIR/packages:/app/packages:ro"');

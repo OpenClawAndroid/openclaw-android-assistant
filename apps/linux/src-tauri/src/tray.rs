@@ -237,6 +237,7 @@ pub fn build(
     let restart = MenuItem::with_id(app, RESTART_ID, "Restart Gateway", false, None::<&str>)?;
     let menu_builder = MenuBuilder::new(app)
         .item(&status)
+        .item(&crate::gateway_windows::menu(app.handle())?)
         .separator()
         .text(QUICKCHAT_ID, "Quick Chat")
         .text(OPEN_ID, "Open Dashboard")
@@ -375,7 +376,7 @@ pub fn open_dashboard(app: &AppHandle) {
                     if returned {
                         Ok(true)
                     } else {
-                        state.present_remote_dashboard()
+                        state.present_remote_dashboard(&current_app)
                     }
                 });
             show_window(&current_app);

@@ -26,7 +26,6 @@ import {
   trackAsyncWork,
 } from "../../shared/async-work-scope.js";
 import { createDeferredCore } from "../../shared/deferred.js";
-import { resolveUserPath } from "../../utils.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
 import { resolveModelAsync } from "../embedded-agent-runner/model.js";
 import { abortable } from "../embedded-agent-runner/run/abortable.js";
@@ -383,6 +382,7 @@ export function createPdfTool(options?: {
   agentDir?: string;
   authProfileStore?: AuthProfileStore;
   workspaceDir?: string;
+  cwd?: string;
   preparedModelRuntime?: PreparedModelRuntimeSnapshot;
   sandbox?: PdfSandboxConfig;
   fsPolicy?: ToolFsPolicy;
@@ -528,24 +528,13 @@ export function createPdfTool(options?: {
         throw new Error("Sandboxed PDF tool does not allow remote URLs.");
       }
 
-      const resolvedPdf = (() => {
-        if (sandboxConfig) {
-          return trimmed;
-        }
-        if (trimmed.startsWith("~")) {
-          return resolveUserPath(trimmed);
-        }
-        return trimmed;
-      })();
-
       const { resolvedPath, localRoots, rewrittenFrom } = await resolveMediaToolReferenceAccess({
-        input: resolvedPdf,
+        input: trimmed,
         isDataUrl: false,
         workspaceDir: options?.workspaceDir,
+        cwd: options?.cwd,
+        fsPolicy: options?.fsPolicy,
         sandbox: sandboxConfig,
-        rootOptions: {
-          workspaceOnly: options?.fsPolicy?.workspaceOnly === true,
-        },
       });
       if (resolvedPath === null) {
         throw new Error("PDF reference resolved without a path.");

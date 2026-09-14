@@ -117,7 +117,7 @@ function hasSlackExecHeader(message: { blockText?: string[]; text: string }) {
   return (message.blockText ?? []).some((text) =>
     text
       .split(/\r?\n/u)
-      .some((line) => /^(?:•|🛠️|:hammer_and_wrench:) \*Exec\* — \S/u.test(line.trim())),
+      .some((line) => /^(?:(?:•|🛠️|:hammer_and_wrench:) \*Exec\*|Exec) — \S/u.test(line.trim())),
   );
 }
 

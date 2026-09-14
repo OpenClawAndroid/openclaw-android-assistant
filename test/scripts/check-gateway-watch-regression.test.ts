@@ -517,108 +517,65 @@ describe("check-gateway-watch-regression", () => {
     }
   });
 
-  it("records a ready gateway watch exit during the settle window as unplanned", async () => {
-    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-gateway-watch-output-"));
-    const child = new EventEmitter() as EventEmitter & {
-      stderr: EventEmitter;
-      stdout: EventEmitter;
-    };
-    child.stderr = new EventEmitter();
-    child.stdout = new EventEmitter();
-    const stopChild = vi.fn(async () => ({ code: null, signal: "SIGTERM" }));
-    const sleep = vi.fn(
-      () =>
-        new Promise<never>(() => {
-          process.nextTick(() => {
-            child.emit("exit", 0, null);
-          });
-        }),
-    );
-    const spawn = vi.fn(() => {
-      fs.writeFileSync(path.join(outputDir, "watch.pid"), "1234\n", "utf8");
-      return child;
-    });
-
-    try {
-      const result = await runTimedWatch(
-        {
-          readySettleMs: 10_000,
-          readyTimeoutMs: 30_000,
-          sigkillGraceMs: 1,
-          windowMs: 10_000,
-        },
-        outputDir,
-        {
-          allocateLoopbackPort: async () => 19042,
-          spawn,
-          sleep,
-          stopTimedWatchChild: stopChild,
-          waitForGatewayReady: async () => true,
-        },
+  it.each([
+    { phase: "settle", readySettleMs: 10_000 },
+    { phase: "idle", readySettleMs: 0 },
+  ])(
+    "records a ready gateway watch exit during the $phase window as unplanned",
+    async ({ phase, readySettleMs }) => {
+      const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-gateway-watch-output-"));
+      const child = new EventEmitter() as EventEmitter & {
+        stderr: EventEmitter;
+        stdout: EventEmitter;
+      };
+      child.stderr = new EventEmitter();
+      child.stdout = new EventEmitter();
+      const stopChild = vi.fn(async () => ({ code: null, signal: "SIGTERM" }));
+      const sleep = vi.fn(
+        () =>
+          new Promise<never>(() => {
+            process.nextTick(() => {
+              child.emit("exit", 0, null);
+            });
+          }),
       );
+      const readProcessTreeCpuMs = phase === "idle" ? vi.fn(() => 12) : undefined;
+      const spawn = vi.fn(() => {
+        fs.writeFileSync(path.join(outputDir, "watch.pid"), "1234\n", "utf8");
+        return child;
+      });
 
-      expect(result.exit).toEqual({ code: 0, signal: null });
-      expect(result.exitedBeforeReady).toBe(false);
-      expect(result.exitedBeforeStop).toBe(true);
-      expect(result.readyBeforeWindow).toBe(true);
-      expect(result.idleCpuMs).toBeNull();
-      expect(stopChild).not.toHaveBeenCalled();
-    } finally {
-      fs.rmSync(outputDir, { recursive: true, force: true });
-    }
-  });
+      try {
+        const result = await runTimedWatch(
+          {
+            readySettleMs,
+            readyTimeoutMs: 30_000,
+            sigkillGraceMs: 1,
+            windowMs: 10_000,
+          },
+          outputDir,
+          {
+            allocateLoopbackPort: async () => 19042,
+            ...(readProcessTreeCpuMs ? { readProcessTreeCpuMs } : {}),
+            spawn,
+            sleep,
+            stopTimedWatchChild: stopChild,
+            waitForGatewayReady: async () => true,
+          },
+        );
 
-  it("records a ready gateway watch exit during the idle window as unplanned", async () => {
-    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-gateway-watch-output-"));
-    const child = new EventEmitter() as EventEmitter & {
-      stderr: EventEmitter;
-      stdout: EventEmitter;
-    };
-    child.stderr = new EventEmitter();
-    child.stdout = new EventEmitter();
-    const stopChild = vi.fn(async () => ({ code: null, signal: "SIGTERM" }));
-    const sleep = vi.fn(
-      () =>
-        new Promise<never>(() => {
-          process.nextTick(() => {
-            child.emit("exit", 0, null);
-          });
-        }),
-    );
-    const readProcessTreeCpuMs = vi.fn(() => 12);
-    const spawn = vi.fn(() => {
-      fs.writeFileSync(path.join(outputDir, "watch.pid"), "1234\n", "utf8");
-      return child;
-    });
-
-    try {
-      const result = await runTimedWatch(
-        {
-          readySettleMs: 0,
-          readyTimeoutMs: 30_000,
-          sigkillGraceMs: 1,
-          windowMs: 10_000,
-        },
-        outputDir,
-        {
-          allocateLoopbackPort: async () => 19042,
-          readProcessTreeCpuMs,
-          spawn,
-          sleep,
-          stopTimedWatchChild: stopChild,
-          waitForGatewayReady: async () => true,
-        },
-      );
-
-      expect(result.exit).toEqual({ code: 0, signal: null });
-      expect(result.exitedBeforeReady).toBe(false);
-      expect(result.exitedBeforeStop).toBe(true);
-      expect(result.readyBeforeWindow).toBe(true);
-      expect(result.idleCpuMs).toBeNull();
-      expect(readProcessTreeCpuMs).toHaveBeenCalledOnce();
-      expect(stopChild).not.toHaveBeenCalled();
-    } finally {
-      fs.rmSync(outputDir, { recursive: true, force: true });
-    }
-  });
+        expect(result.exit).toEqual({ code: 0, signal: null });
+        expect(result.exitedBeforeReady).toBe(false);
+        expect(result.exitedBeforeStop).toBe(true);
+        expect(result.readyBeforeWindow).toBe(true);
+        expect(result.idleCpuMs).toBeNull();
+        if (readProcessTreeCpuMs) {
+          expect(readProcessTreeCpuMs).toHaveBeenCalledOnce();
+        }
+        expect(stopChild).not.toHaveBeenCalled();
+      } finally {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      }
+    },
+  );
 });

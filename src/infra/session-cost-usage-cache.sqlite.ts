@@ -18,6 +18,7 @@ const LEGACY_CACHE_KEY = "cache";
 const REFRESH_LOCK_KEY = "refresh-lock";
 const RETIRED_ROLLUP_SCOPE = "session-cost-usage-rollup-v1";
 const ROLLUP_SCOPE = "session-cost-usage-rollup-v2";
+const ROLLUP_PRUNE_BATCH_SIZE = 32;
 
 type AgentCacheDatabase = Pick<OpenClawAgentKyselyDatabase, "cache_entries">;
 
@@ -221,15 +222,29 @@ export async function deleteSessionCostUsageRollupsExcept(params: {
   await runCacheWriteTransaction(
     (database) => {
       const kysely = getNodeSqliteKysely<AgentCacheDatabase>(database.db);
-      for (const row of existing) {
+      for (const batch of chunkItems(existing, ROLLUP_PRUNE_BATCH_SIZE)) {
         executeSqliteQuerySync(
           database.db,
           kysely
             .deleteFrom("cache_entries")
             .where("scope", "=", ROLLUP_SCOPE)
-            .where("key", "=", row.key)
-            .where("value_json", "=", row.valueJson)
-            .where("updated_at", "=", row.updatedAt),
+            // Keep indexed key probes and each snapshot's exact comparison together.
+            .where(
+              "key",
+              "in",
+              batch.map((row) => row.key),
+            )
+            .where((eb) =>
+              eb.or(
+                batch.map((row) =>
+                  eb.and([
+                    eb("key", "=", row.key),
+                    eb("value_json", "=", row.valueJson),
+                    eb("updated_at", "=", row.updatedAt),
+                  ]),
+                ),
+              ),
+            ),
         );
       }
       executeSqliteQuerySync(

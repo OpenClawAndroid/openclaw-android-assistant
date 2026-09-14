@@ -9,7 +9,11 @@ import type {
   DiagnosticMemoryPressureEvent,
   DiagnosticMemoryUsage,
 } from "../infra/diagnostic-events.js";
-import { isMissingPathError } from "../infra/errors.js";
+import {
+  collectErrorGraphCandidates,
+  formatErrorMessage,
+  isMissingPathError,
+} from "../infra/errors.js";
 import { registerFatalErrorHook } from "../infra/fatal-error-hooks.js";
 import { replaceFileAtomicSync } from "../infra/replace-file.js";
 import {
@@ -30,6 +34,8 @@ const BUNDLE_PREFIX = "openclaw-stability-";
 const BUNDLE_SUFFIX = ".json";
 const REDACTED_HOSTNAME = "<redacted-hostname>";
 const MAX_SAFE_ERROR_MESSAGE_LENGTH = 500;
+const MAX_SHUTDOWN_ERRORS = 32;
+const MAX_SHUTDOWN_ERROR_STACK_LENGTH = 8_000;
 
 type DiagnosticHeapSpaceSummary = {
   spaceName: string;
@@ -83,6 +89,10 @@ type DiagnosticMemoryPressureBundleEvidence = {
 
 type DiagnosticStabilityBundleEvidence = {
   memoryPressure?: DiagnosticMemoryPressureBundleEvidence;
+  shutdown?: {
+    step: string;
+    errors: Array<NonNullable<DiagnosticStabilityBundle["error"]> & { stack?: string }>;
+  };
 };
 
 export type DiagnosticStabilityBundle = {
@@ -123,6 +133,7 @@ type WriteDiagnosticStabilityBundleOptions = {
   stateDir?: string;
   retention?: number;
   evidence?: DiagnosticStabilityBundleEvidence;
+  shutdownStep?: string;
 };
 
 type DiagnosticStabilityBundleLocationOptions = {
@@ -207,6 +218,37 @@ function readSafeErrorMetadata(error: unknown): DiagnosticStabilityBundle["error
     ...(code ? { code } : {}),
     ...(message ? { message } : {}),
   };
+}
+
+function readShutdownError(error: unknown) {
+  const metadata =
+    readSafeErrorMetadata(error) ??
+    (error === null || typeof error !== "object"
+      ? readSafeErrorMetadata({ message: formatErrorMessage(error) })
+      : undefined);
+  const stack =
+    error && typeof error === "object" && "stack" in error && typeof error.stack === "string"
+      ? truncateUtf16Safe(
+          redactSensitiveText(error.stack, { mode: "tools" }),
+          MAX_SHUTDOWN_ERROR_STACK_LENGTH,
+        )
+      : undefined;
+  return { ...metadata, ...(stack ? { stack } : {}) };
+}
+
+function collectShutdownErrors(error: unknown) {
+  let remaining = MAX_SHUTDOWN_ERRORS - 1;
+  const candidates = collectErrorGraphCandidates(error, (current) => {
+    const nested: unknown[] = [
+      current.cause,
+      ...(Array.isArray(current.errors) ? current.errors.slice(0, remaining) : []),
+    ]
+      .filter((value) => value !== undefined)
+      .slice(0, remaining);
+    remaining -= nested.length;
+    return nested;
+  });
+  return (candidates.length ? candidates : [error]).map(readShutdownError);
 }
 
 function resolveDiagnosticStabilityBundleDir(
@@ -533,7 +575,20 @@ function readBundleEvidence(value: unknown): DiagnosticStabilityBundleEvidence |
   }
   const source = readObject(value, "evidence");
   const memoryPressure = readMemoryPressureEvidence(source.memoryPressure);
-  return memoryPressure ? { memoryPressure } : undefined;
+  let shutdown: DiagnosticStabilityBundleEvidence["shutdown"];
+  if (source.shutdown !== undefined) {
+    const shutdownSource = readObject(source.shutdown, "evidence.shutdown");
+    if (!Array.isArray(shutdownSource.errors)) {
+      throw new Error("Invalid stability bundle: evidence.shutdown.errors must be an array");
+    }
+    shutdown = {
+      step: readCodeString(shutdownSource.step, "evidence.shutdown.step"),
+      errors: shutdownSource.errors.slice(0, MAX_SHUTDOWN_ERRORS).map(readShutdownError),
+    };
+  }
+  return memoryPressure || shutdown
+    ? { ...(memoryPressure ? { memoryPressure } : {}), ...(shutdown ? { shutdown } : {}) }
+    : undefined;
 }
 
 function readNumberMap(value: unknown, label: string): Record<string, number> {
@@ -916,6 +971,15 @@ export function writeDiagnosticStabilityBundleSync(
 
     const reason = normalizeReason(options.reason);
     const error = options.error ? readSafeErrorMetadata(options.error) : undefined;
+    const evidence = options.shutdownStep
+      ? {
+          ...options.evidence,
+          shutdown: {
+            step: readCodeString(options.shutdownStep, "shutdownStep"),
+            errors: collectShutdownErrors(options.error),
+          },
+        }
+      : options.evidence;
     const bundle: DiagnosticStabilityBundle = {
       version: DIAGNOSTIC_STABILITY_BUNDLE_VERSION,
       generatedAt: now.toISOString(),
@@ -931,7 +995,7 @@ export function writeDiagnosticStabilityBundleSync(
         hostname: REDACTED_HOSTNAME,
       },
       ...(error ? { error } : {}),
-      ...(options.evidence ? { evidence: options.evidence } : {}),
+      ...(evidence ? { evidence } : {}),
       snapshot,
     };
 

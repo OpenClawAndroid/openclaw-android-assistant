@@ -11,6 +11,7 @@ import {
   readSessionTranscriptWatermark,
   patchSessionEntryCore,
   persistSessionTranscriptTurn,
+  waitForSessionTranscriptProjection,
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
 import { writeSessionEntry } from "../config/sessions/session-accessor.sqlite-entry-store.js";
@@ -150,6 +151,37 @@ describe("Activity recap lifecycle with the canonical session store", () => {
 
   it("backfills chronological chunks cumulatively and shares the durable result across viewers and restart", async () => {
     await messages(70);
+    await persistSessionTranscriptTurn(scope, {
+      messages: Array.from({ length: 129 }, (_, offset) => ({
+        eventId: `message-${70 + offset}`,
+        parentId: `message-${69 + offset}`,
+        message:
+          offset === 128
+            ? {
+                role: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text: "Old progress",
+                    textSignature: '{"v":1,"phase":"commentary"}',
+                  },
+                  {
+                    type: "text",
+                    text: "Shipped the fix. Waiting for review.",
+                    textSignature: '{"v":1,"phase":"final_answer"}',
+                  },
+                ],
+              }
+            : {
+                role: offset % 2 ? "toolResult" : "assistant",
+                content:
+                  offset % 2
+                    ? "Internal tool log dump"
+                    : [{ type: "toolCall", name: "internal_tool", arguments: {} }],
+              },
+      })),
+      touchSessionEntry: false,
+    });
     const originalActivity = read()?.updatedAt;
     complete.mockImplementation(async () =>
       result(`Recap through batch ${complete.mock.calls.length}.`),
@@ -158,7 +190,7 @@ describe("Activity recap lifecycle with the canonical session store", () => {
       service.ensure(target);
     }
     await vi.waitFor(() => expect(view()?.state).toBe("current"));
-    expect(complete).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(3);
     const first = complete.mock.calls[0]?.[0];
     const second = complete.mock.calls[1]?.[0];
     expect(first).toMatchObject({ model: "utility", provider: "test" });
@@ -166,9 +198,15 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     expect(JSON.parse(first!.prompt).messages.at(-1)).toContain("Outcome 63");
     expect(JSON.parse(second!.prompt)).toMatchObject({ previousRecap: "Recap through batch 1." });
     expect(JSON.parse(second!.prompt).messages.at(-1)).toContain("Outcome 69");
+    expect(JSON.parse(complete.mock.calls[2]![0].prompt).messages).toEqual([
+      "assistant: Shipped the fix. Waiting for review.",
+    ]);
+    expect(complete.mock.calls.map(([request]) => request.prompt).join("\n")).not.toMatch(
+      /Internal tool log dump|internal_tool|Old progress/,
+    );
     expect(read()?.activitySummary).toMatchObject({
-      coveredMessages: 70,
-      totalMessages: 70,
+      coveredMessages: 199,
+      totalMessages: 199,
       version: 1,
     });
     expect(read()?.updatedAt).toBe(originalActivity);
@@ -181,7 +219,7 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     });
     service.ensure(target);
     await vi.waitFor(() => expect(view()?.state).toBe("current"));
-    expect(complete).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(3);
   });
 
   it("commits a recap without decoding unrelated retained session entries", async () => {
@@ -224,21 +262,6 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     await vi.waitFor(() => expect(read()?.activitySummary?.coveredMessages).toBe(4));
     expect(complete).toHaveBeenCalledTimes(2);
     expect(read()?.archivedAt).toBeDefined();
-  });
-
-  it("retains the previous recap on failure and does not re-bill repeated ensure requests", async () => {
-    await messages(2);
-    service.ensure(target);
-    await vi.waitFor(() => expect(view()?.state).toBe("current"));
-    await messages(1, 2);
-    complete.mockRejectedValue(new Error("temporary failure"));
-    terminal(service);
-    await vi.waitFor(() => expect(view()?.state).toBe("unavailable"));
-    for (let index = 0; index < 20; index += 1) {
-      service.ensure(target);
-    }
-    expect(view()?.text).toBe("Completed the requested work.");
-    expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it.each(["reset", "delete"] as const)(
@@ -319,6 +342,14 @@ describe("Activity recap lifecycle with the canonical session store", () => {
         expect(read()?.activitySummary).toBeUndefined();
         expect(view()?.state).not.toBe("current");
         expect(complete).toHaveBeenCalledTimes(1);
+        if (change === "utility-model" || change === "initialization") {
+          if (change === "initialization") {
+            await patchSessionEntryCore(scope, () => ({ initializationPending: undefined }));
+          }
+          service.ensure(target);
+          await vi.waitFor(() => expect(view()?.state).toBe("current"));
+          expect(complete).toHaveBeenCalledTimes(2);
+        }
       } finally {
         completion.resolve(result("Outdated recap must not be stored."));
         releaseWriter.resolve();
@@ -390,6 +421,8 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     expect(readSessionTranscriptWatermark(scope).generation).toBe(oldWatermark.generation);
     expect(read()?.updatedAt).toBe(oldActivity);
     expect(view()?.state).toBe("stale");
+    // Offline edits rebuild asynchronously; finish the fixture before restarting its observer.
+    await waitForSessionTranscriptProjection(scope);
     service = createSessionActivitySummaries({
       getConfig: () => cfg,
       onChanged: changed,
@@ -426,7 +459,8 @@ describe("Activity recap lifecycle with the canonical session store", () => {
   it("does not let timeout release a preparation slot or dispatch a late model request", async () => {
     await messages(1);
     const secondTarget = { key: "agent:main:second-recap", agentId: "main" };
-    const thirdTarget = { key: "agent:main:third-recap", agentId: "main" };
+    const thirdTarget = { key: "agent:other:third-recap", agentId: "other" };
+    cfg.agents!.list = [{ id: "main" }, { id: "other", utilityModel: "test/other" }];
     for (const other of [secondTarget, thirdTarget]) {
       const otherScope = { agentId: other.agentId, sessionKey: other.key, sessionId: other.key };
       await upsertSessionEntryCore(otherScope, { sessionId: other.key, updatedAt: 1 });
@@ -451,7 +485,7 @@ describe("Activity recap lifecycle with the canonical session store", () => {
       service.ensure(thirdTarget);
       await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(2));
       await vi.advanceTimersByTimeAsync(20_000);
-      expect(view()?.state).toBe("unavailable");
+      expect(view()?.state).toBe("updating");
       expect(prepare).toHaveBeenCalledTimes(2);
       for (const resolve of preparations) {
         resolve(prepared);

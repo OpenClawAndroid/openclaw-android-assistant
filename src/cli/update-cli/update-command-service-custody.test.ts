@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import * as entrypoints from "../../daemon/gateway-entrypoint.js";
+import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import * as tempRoot from "../../infra/tmp-openclaw-dir.js";
 import { captureManagedUpdateLeaseDatabaseIdentity } from "../../infra/update-managed-service-handoff-database.js";
 import { createManagedHandoffLeaseStore } from "../../infra/update-managed-service-handoff-lease.js";
@@ -17,6 +18,7 @@ import {
 import * as execCommands from "../../process/exec.js";
 import { runUtf8CommandWithTimeout } from "../../process/exec.js";
 import { isPidAlive } from "../../shared/pid-alive.js";
+import { updateExecutorNativeEntrypoints } from "./update-command-executor-native-runtime.test-support.js";
 import {
   withUpdateCommandExecutorChild,
   withUpdateCommandExecutor,
@@ -25,6 +27,13 @@ import {
   isUpdatedInstallGatewayExecutorSupported,
   runUpdatedInstallGatewayCommand,
 } from "./update-command-service-command.js";
+
+const sourceLoader = resolveRuntimeWorkerUrl(
+  updateExecutorNativeEntrypoints.executor,
+).pathname.endsWith(".ts")
+  ? new URL("../../../scripts/tsx.mjs", import.meta.url).href
+  : undefined;
+const sourceImportArgs = sourceLoader ? ["--import", sourceLoader] : [];
 
 const dirs = useAutoCleanupTempDirTracker(afterEach);
 afterEach(() => vi.restoreAllMocks());
@@ -53,9 +62,9 @@ it.each([
       entrypoint,
       `
     process.chdir(${JSON.stringify(receiverRoot)});
-    await import(${JSON.stringify(new URL("../../../scripts/tsx.mjs", import.meta.url).href)});
-    const {runGatewayServiceUpdateCommand}=await import(${JSON.stringify(new URL("../daemon-cli/update-executor.ts", import.meta.url).href)});
-    const {execFileUtf8}=await import(${JSON.stringify(new URL("../../daemon/exec-file.ts", import.meta.url).href)});
+    ${sourceLoader ? `await import(${JSON.stringify(sourceLoader)});` : ""}
+    const {runGatewayServiceUpdateCommand}=await import(${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExecutor).href)});
+    const {execFileUtf8}=await import(${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExec).href)});
     const fs=await import("node:fs");
     const mode=process.argv[process.argv.indexOf("--update-executor")+1];
     if(mode==="check") {
@@ -63,7 +72,7 @@ it.each([
         process.stdout.write("Recorded warnings from the current update. ");
       }
       const {DatabaseSync}=await import("node:sqlite");
-      const {createManagedHandoffLeaseStore}=await import(${JSON.stringify(new URL("../../infra/update-managed-service-handoff-lease.ts", import.meta.url).href)});
+      const {createManagedHandoffLeaseStore}=await import(${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.handoffLease).href)});
       const databasePath=${JSON.stringify(path.join(control, "managed-update-handoffs.sqlite"))};
       const db=new DatabaseSync(databasePath,{readOnly:true});
       const rows=db.prepare("SELECT install_root, owner, payload_json FROM managed_update_handoffs").all();
@@ -134,8 +143,8 @@ it.each(["receiver-root", "original-lineage", "stripped-lineage"] as const)(
     vi.spyOn(tempRoot, "resolvePreferredOpenClawTmpDir").mockReturnValue(control);
     const effect = path.join(root, "effect");
     const receiver = `
-    import {runGatewayServiceUpdateCommand} from ${JSON.stringify(new URL("../daemon-cli/update-executor.ts", import.meta.url).href)};
-    import {execFileUtf8} from ${JSON.stringify(new URL("../../daemon/exec-file.ts", import.meta.url).href)};
+    import {runGatewayServiceUpdateCommand} from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExecutor).href)};
+    import {execFileUtf8} from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExec).href)};
     try {
       await runGatewayServiceUpdateCommand("run", "restart", async () => {
         const result = await execFileUtf8(process.execPath, ["-e", ${JSON.stringify(`require("node:fs").writeFileSync(${JSON.stringify(effect)},"wrong-root")`)}]);
@@ -150,14 +159,7 @@ it.each(["receiver-root", "original-lineage", "stripped-lineage"] as const)(
         substitution === "receiver-root" ? root : receiverRoot,
         (grant, beforeInput) =>
           runUtf8CommandWithTimeout(
-            [
-              process.execPath,
-              "--import",
-              path.resolve("scripts/tsx.mjs"),
-              "--input-type=module",
-              "-e",
-              receiver,
-            ],
+            [process.execPath, ...sourceImportArgs, "--input-type=module", "-e", receiver],
             {
               input: JSON.stringify({
                 action: "restart",
@@ -202,8 +204,8 @@ it.each([false, true])(
     const effect = path.join(root, "effect");
     const copy = path.join(control, "copied.sqlite");
     const receiver = `
-    import {runGatewayServiceUpdateCommand} from ${JSON.stringify(new URL("../daemon-cli/update-executor.ts", import.meta.url).href)};
-    import {execFileUtf8} from ${JSON.stringify(new URL("../../daemon/exec-file.ts", import.meta.url).href)};
+    import {runGatewayServiceUpdateCommand} from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExecutor).href)};
+    import {execFileUtf8} from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExec).href)};
     try {
       await runGatewayServiceUpdateCommand("run", "restart", async () => {
         const result = await execFileUtf8(process.execPath, ["-e", ${JSON.stringify(`require("node:fs").writeFileSync(${JSON.stringify(effect)},"copied-database")`)}]);
@@ -220,7 +222,7 @@ it.each([false, true])(
           new Promise<{ code: number | null; stderr: string }>((resolve, reject) => {
             const child = spawn(
               process.execPath,
-              ["--import", path.resolve("scripts/tsx.mjs"), "--input-type=module", "-e", receiver],
+              [...sourceImportArgs, "--input-type=module", "-e", receiver],
               {
                 cwd: receiverRoot,
                 stdio: ["pipe", "ignore", "pipe"],
@@ -316,8 +318,8 @@ it.skipIf(process.platform === "win32").each([
     await fs.writeFile(
       entrypoint,
       `
-      await import(${JSON.stringify(new URL("../../../scripts/tsx.mjs", import.meta.url).href)});
-      const { runGatewayServiceUpdateCommand } = await import(${JSON.stringify(new URL("../daemon-cli/update-executor.ts", import.meta.url).href)});
+      ${sourceLoader ? `await import(${JSON.stringify(sourceLoader)});` : ""}
+      const { runGatewayServiceUpdateCommand } = await import(${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.nativeExecutor).href)});
       const { spawn } = await import("node:child_process");
       const fs = await import("node:fs");
       const child = spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], {

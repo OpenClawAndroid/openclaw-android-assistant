@@ -1124,7 +1124,7 @@ async function runCliWithPreparedOutputMode(
     options.runtimeRecoveryEnv,
   );
 
-  if (tryRunGatewayServiceUpdateCapabilityProbe(normalizedArgv)) {
+  if (await tryRunGatewayServiceUpdateCapabilityProbe(normalizedArgv)) {
     return;
   }
 

@@ -558,6 +558,27 @@ describe("existing-session browser routes", () => {
     expect(chromeMcpMocks.fillChromeMcpElement).not.toHaveBeenCalled();
   });
 
+  it("explains unsupported focused paste without forwarding or echoing its text", async () => {
+    const response = createBrowserRouteResponse();
+    await getActPostHandler()?.(
+      {
+        params: {},
+        query: {},
+        body: { kind: "insertText", text: "synthetic-password-paste" },
+      },
+      response.res,
+    );
+
+    expect(response.statusCode).toBe(501);
+    expect(response.body).toMatchObject({
+      code: "ACT_EXISTING_SESSION_UNSUPPORTED",
+      error: expect.stringContaining("Paste is not supported for existing-session"),
+    });
+    expect(JSON.stringify(response.body)).not.toContain("synthetic-password-paste");
+    expect(chromeMcpMocks.fillChromeMcpElement).not.toHaveBeenCalled();
+    expect(chromeMcpMocks.evaluateChromeMcpScript).not.toHaveBeenCalled();
+  });
+
   it("fails closed for existing-session dialogId responses", async () => {
     const handler = getDialogHookPostHandler();
     const response = createBrowserRouteResponse();

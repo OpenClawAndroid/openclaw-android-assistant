@@ -92,15 +92,17 @@ function respondChatHistoryUnavailable(
   );
 }
 
-async function handleChatHistoryRequest({
+export async function handleChatHistoryRequest({
   params,
   respond,
   client,
   context,
   method,
   signal,
+  retainedSessionId,
 }: GatewayRequestHandlerOptions & {
   method: ChatHistoryMethod;
+  retainedSessionId?: string;
 }) {
   if (!assertValidParams(params, validateChatHistoryParams, method, respond)) {
     return;
@@ -111,12 +113,13 @@ async function handleChatHistoryRequest({
     offset,
     cursor,
     messageId,
-    sessionId: requestedSessionId,
+    sessionId: wireSessionId,
     maxChars,
     maxBytes,
     pendingBefore,
     inputRunIds,
   } = params;
+  const requestedSessionId = retainedSessionId ?? wireSessionId;
   if (offset !== undefined && messageId !== undefined) {
     respond(
       false,
@@ -133,7 +136,7 @@ async function handleChatHistoryRequest({
     );
     return;
   }
-  if (requestedSessionId !== undefined && messageId === undefined) {
+  if (wireSessionId !== undefined && messageId === undefined) {
     respond(
       false,
       undefined,
@@ -410,8 +413,8 @@ async function handleChatHistoryRequest({
             storePath: currentSharingState.storePath,
           }
         : null;
-    // History rows replace roster rows in clients. Publish current caller facts,
-    // never roles from the pre-await snapshot or a replacement session instance.
+    // Publish current caller facts, never pre-await roles. Retained task history
+    // revalidates its fixed transcript owner separately; its active run may advance.
     if (
       entry &&
       (!initialStoreKey ||
@@ -419,10 +422,11 @@ async function handleChatHistoryRequest({
         sharingTarget.agentId !== sessionAgentId ||
         sharingTarget.canonicalKey !== canonicalKey ||
         sharingTarget.storeKey !== initialStoreKey ||
-        sharingTarget.entry.sessionId !== entry.sessionId ||
-        sharingTarget.entry.lifecycleRevision !== entry.lifecycleRevision ||
-        (entry.sessionStartedAt !== undefined &&
-          sharingTarget.entry.sessionStartedAt !== entry.sessionStartedAt) ||
+        (!retainedSessionId &&
+          (sharingTarget.entry.sessionId !== entry.sessionId ||
+            sharingTarget.entry.lifecycleRevision !== entry.lifecycleRevision ||
+            (entry.sessionStartedAt !== undefined &&
+              sharingTarget.entry.sessionStartedAt !== entry.sessionStartedAt))) ||
         sharingTarget.storePath !== storePath)
     ) {
       respondChatHistoryUnavailable(
@@ -677,9 +681,7 @@ async function handleChatHistoryRequest({
 }
 
 export const chatHistoryHandlers: GatewayRequestHandlers = {
-  "chat.history": async (opts) => {
-    await handleChatHistoryRequest({ ...opts, method: "chat.history" });
-  },
+  "chat.history": (opts) => handleChatHistoryRequest({ ...opts, method: "chat.history" }),
   "chat.startup": async (opts) => {
     if (!assertValidParams(opts.params, validateChatStartupParams, "chat.startup", opts.respond)) {
       return;

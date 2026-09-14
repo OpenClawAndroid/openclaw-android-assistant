@@ -243,6 +243,7 @@ module.exports = {
     ]);
     const aux = createGatewayAuxHandlers({
       log: {},
+      getNativeApprovalRouteCoordinator: () => undefined,
       activateRuntimeSecrets: async () => {
         throw new Error("Unexpected secrets reload");
       },

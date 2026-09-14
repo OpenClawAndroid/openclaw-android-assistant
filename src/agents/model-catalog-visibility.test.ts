@@ -4,7 +4,9 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import * as providerPolicySurface from "../plugins/provider-policy-surface.js";
 import {
+  prepareLogicalVisibleModelCatalog,
   resolveLogicalModelCatalogEntryState,
   resolveLogicalVisibleModelCatalog,
 } from "./model-catalog-visibility.js";
@@ -13,6 +15,98 @@ import { createModelVisibilityPolicy } from "./model-visibility-policy.js";
 import { openAIModelCatalogRoutePolicy } from "./openai-model-routes.js";
 
 describe("resolveLogicalVisibleModelCatalog", () => {
+  it("bounds identity discovery before asynchronous entry preparation", async () => {
+    const catalog = Array.from({ length: 64 }, (_, index) => ({
+      provider: "fixture",
+      id: `model-${index}`,
+      name: `Model ${index}`,
+    }));
+    const policy = createModelVisibilityPolicy({
+      cfg: {},
+      catalog,
+      defaultProvider: "fixture",
+      allowManifestNormalization: false,
+      allowPluginNormalization: false,
+    });
+    const resolvePolicy = vi
+      .spyOn(providerPolicySurface, "resolveDirectBundledProviderPolicySurface")
+      .mockReturnValue(null);
+    try {
+      const prepared = prepareLogicalVisibleModelCatalog({
+        cfg: {},
+        catalog,
+        policy,
+        defaultProvider: "fixture",
+        view: "all",
+        routePolicy: openAIModelCatalogRoutePolicy,
+        prepareEntry: async () => () =>
+          resolveLogicalModelCatalogEntryState({
+            evaluation: { availability: true, routeResolution: null },
+            routePolicy: openAIModelCatalogRoutePolicy,
+          }),
+      });
+      const initialPolicyReads = resolvePolicy.mock.calls.length;
+      const read = await prepared;
+
+      const rows = read();
+      expect(rows).toEqual(expect.arrayContaining(catalog));
+      expect(rows).toHaveLength(catalog.length);
+      expect(initialPolicyReads).toBeLessThanOrEqual(2);
+      const normalize = vi.fn(({ modelId }: { modelId: string }) => modelId);
+      resolvePolicy.mockReturnValue({ normalizeModelCatalogId: normalize });
+      expect(read()).toEqual(rows);
+      expect(normalize).toHaveBeenCalled();
+    } finally {
+      resolvePolicy.mockRestore();
+    }
+  });
+
+  it("rereads later row identities and policy after entry preparation suspends", async () => {
+    const first = { provider: "fixture", id: "first", name: "First" };
+    const later = { provider: "fixture", id: "vendor/first", name: "Later" };
+    const catalog = [first, later];
+    const policy = createModelVisibilityPolicy({
+      cfg: {},
+      catalog,
+      defaultProvider: "fixture",
+      allowManifestNormalization: false,
+      allowPluginNormalization: false,
+    });
+    const resolvePolicy = vi
+      .spyOn(providerPolicySurface, "resolveDirectBundledProviderPolicySurface")
+      .mockReturnValue({
+        normalizeModelCatalogId: ({ modelId }) => modelId.replace(/^vendor\//u, ""),
+      });
+    try {
+      const preparedEntries: ModelCatalogEntry[] = [];
+      const read = await prepareLogicalVisibleModelCatalog({
+        cfg: {},
+        catalog,
+        policy,
+        defaultProvider: "fixture",
+        view: "all",
+        routePolicy: openAIModelCatalogRoutePolicy,
+        prepareEntry: async (entry) => {
+          preparedEntries.push(entry);
+          if (entry === first) {
+            await Promise.resolve();
+            later.id = "vendor/second";
+            resolvePolicy.mockReturnValue(null);
+          }
+          return () =>
+            resolveLogicalModelCatalogEntryState({
+              evaluation: { availability: true, routeResolution: null },
+              routePolicy: openAIModelCatalogRoutePolicy,
+            });
+        },
+      });
+      expect(preparedEntries).toEqual([first, later]);
+      expect(read()).toEqual([first, later]);
+    } finally {
+      resolvePolicy.mockRestore();
+    }
+  });
+
   it.each(["all", "configured", "default"] as const)(
     "keeps case-distinct and literal provider-prefixed identities in the %s view",
     async (view) => {

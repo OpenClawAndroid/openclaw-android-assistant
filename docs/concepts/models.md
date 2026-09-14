@@ -211,6 +211,45 @@ openclaw config set agents.defaults.modelPolicy.allow '["openai/gpt-5.4","anthro
 ```
 
 `openclaw models set`, provider setup, and `openclaw models aliases add` can add entries under `agents.defaults.models`, but they never change `modelPolicy.allow`. This keeps model metadata and aliases independent from override policy.
+
+### Choose the same model with different runtimes
+
+Set `pickerRuntimes` on an exact model entry to offer additional runtime choices
+in the Control UI. The entries share the model name and differ by their harness
+label. The configured `agentRuntime` remains the default:
+
+```json5
+{
+  agents: {
+    defaults: {
+      models: {
+        "openai/gpt-5.6-sol": {
+          agentRuntime: { id: "openclaw" },
+          pickerRuntimes: ["codex"],
+        },
+      },
+    },
+  },
+}
+```
+
+The Gateway keeps one canonical model and checks each additional runtime against
+the current account, route, and enabled harness. A choice does not grant access,
+change credentials, or rename the upstream model. Each runtime supplies its own
+availability, reasoning controls, context window, and placement capabilities.
+Additional choices must also support explicit session runtime selection; a
+registered harness that cannot be selected explicitly remains disabled here.
+ACP sessions keep their existing model controls; they cannot select a different
+harness here.
+Catalog preparation and explicit Refresh acquire the requested native inventories
+once per runtime while preserving the configured default.
+Opening the picker reuses prepared catalog facts; explicit Refresh owns discovery.
+
+An agent can replace the inherited list through
+`agents.entries.<id>.models["provider/model"].pickerRuntimes`; an empty array removes
+the additional choices for that agent. Lists accept up to eight explicit runtime
+IDs. Duplicate runtimes and the default runtime appear only once. Wildcard model
+keys and `auto` or `default` runtime IDs are not supported here.
 </Accordion>
 
 ## Choose a model for a session

@@ -1,6 +1,9 @@
 // Memory Core tests cover manager provider lifecycle availability behavior.
 import fs from "node:fs/promises";
 import path from "node:path";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import { resolveSessionTranscriptsDirForAgent } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import { hashText } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { describe, expect, it, vi } from "vitest";
 import { createManagerIndexFixture } from "./manager-index.test-support.js";
@@ -20,6 +23,61 @@ describe("memory index", () => {
     requireManager,
     trackManager,
   } = fixture;
+
+  it.each([false, true])(
+    "drains startup transcript discovery before closing (scan failure: %s)",
+    async (failScan) => {
+      const sessionsDir = resolveSessionTranscriptsDirForAgent("main");
+      await fs.mkdir(sessionsDir, { recursive: true });
+      const scanStarted = createDeferred<void>();
+      const scanGate = createDeferred<void>();
+      const scanFinished = createDeferred<void>();
+      const realReaddir = fs.readdir;
+      const readdirSpy = vi
+        .spyOn(fs, "readdir")
+        .mockImplementation(async (...args: Parameters<typeof fs.readdir>) => {
+          if (path.resolve(String(args[0])) !== sessionsDir) {
+            return await realReaddir(...args);
+          }
+          scanStarted.resolve();
+          try {
+            await scanGate.promise;
+            if (failScan) {
+              throw Object.assign(new Error("transcript scan failed"), { code: "EIO" });
+            }
+            return await realReaddir(...args);
+          } finally {
+            scanFinished.resolve();
+          }
+        });
+      let closing: Promise<void> | undefined;
+      try {
+        const manager = await getPersistentManager(
+          createCfg({
+            provider: "none",
+            sources: ["sessions"],
+            rememberAcrossConversations: true,
+          }),
+        );
+        await scanStarted.promise;
+        let closed = false;
+        closing = manager.close().then(() => {
+          closed = true;
+        });
+        await yieldToEventLoop();
+        expect(closed).toBe(false);
+        scanGate.resolve();
+        await closing;
+        expect(closed).toBe(true);
+      } finally {
+        scanGate.resolve();
+        await closing;
+        await scanFinished.promise;
+        await yieldToEventLoop();
+        readdirSpy.mockRestore();
+      }
+    },
+  );
 
   it("caches embedding probe readiness across transient status managers", async () => {
     const cfg = createCfg({});

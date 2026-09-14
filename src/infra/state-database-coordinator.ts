@@ -287,6 +287,38 @@ export function acquireGatewayLifecycleCoordinator(params: CoordinatorOptions) {
   return acquireLifecycleCoordinator("gateway-lifecycle", params, { gatewayOwner: true });
 }
 
+/** Maintenance lends schema access only to jobs admitted through its lexical resource scope. */
+export function acquireGatewayMaintenanceCoordinator(params: CoordinatorOptions) {
+  const lease = acquireLifecycleCoordinator("gateway-lifecycle", params);
+  return {
+    ...lease,
+    get closed() {
+      return lease.closed;
+    },
+    createSchemaFenceDelegate(this: void, target: GatewaySchemaFenceDelegateParams) {
+      if (resolveGatewaySchemaFencePath(target) !== lease.path) {
+        return undefined;
+      }
+      if (lease.closed) {
+        throw new SqliteCoordinatorError("Gateway maintenance coordinator is closed");
+      }
+      const retained = acquireLifecycleCoordinator("gateway-lifecycle", {
+        ...target,
+        coordinatorPath: lease.path,
+      });
+      const live = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+      Atomics.store(live, 0, 1);
+      return createCoordinatorDelegate(
+        { actorId: target.actorId, coordinatorPath: lease.path },
+        live,
+        retained,
+        () => Atomics.store(live, 0, 0),
+        "Gateway maintenance schema delegate",
+      );
+    },
+  };
+}
+
 type GatewaySchemaFenceDelegateParams = Pick<
   CoordinatorOptions,
   "databasePath" | "runtimeDirectory" | "uid"

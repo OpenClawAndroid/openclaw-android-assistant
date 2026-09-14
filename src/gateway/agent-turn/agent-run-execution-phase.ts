@@ -325,7 +325,7 @@ export async function startAgentRunExecution(params: {
         const restartRecoveryChannelContext = restartRecoveryContext?.channel;
         const runContext = {
           messageChannel:
-            restartRecoveryChannelContext?.channel ?? params.delivery.originMessageChannel,
+            restartRecoveryContext?.messageChannel ?? params.delivery.originMessageChannel,
           accountId:
             restartRecoveryChannelContext?.requesterAccountId ?? params.delivery.resolvedAccountId,
           senderId: restartRecoveryChannelContext?.requesterSenderId,
@@ -399,7 +399,10 @@ export async function startAgentRunExecution(params: {
                 thinking: prepared.effectiveThinking,
                 deliver: params.delivery.deliver,
                 deliveryTargetMode: params.delivery.deliveryTargetMode,
-                channel: params.delivery.resolvedChannel,
+                // An unbound CLI turn must not acquire a provider from the internal delivery fallback.
+                channel: params.delivery.originMessageChannel
+                  ? params.delivery.resolvedChannel
+                  : undefined,
                 accountId: params.delivery.resolvedAccountId,
                 threadId: prepared.resolvedThreadId,
                 runContext,

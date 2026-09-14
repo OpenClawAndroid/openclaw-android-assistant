@@ -227,7 +227,7 @@ describe("test-projects args", () => {
     },
     {
       title: "routes wizard targets to the wizard config",
-      target: "src/wizard/setup.test.ts",
+      target: "src/wizard/setup.official-plugins.test.ts",
       config: "test/vitest/vitest.wizard.config.ts",
     },
     {

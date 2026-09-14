@@ -645,10 +645,10 @@ export async function completeGatewayClose(
     // A sibling Gateway retains metadata before its registry exists. Only the
     // final owner may retire shared state and process-wide plugin caches.
     try {
-      const { memoryErrors } = await params.closePluginRegistry(async (retireRegistry) => {
+      const registryClose = await params.closePluginRegistry(async (retireRegistry) => {
         // SDK cleanup can use prepared donors; release its claims before model or registry disposal.
         await params.closeSdkResources?.().catch(recordResourceCleanupFailure);
-        await params.pluginMetadata.close(async (retire) => {
+        return params.pluginMetadata.close(async (retire) => {
           await closeSwarmScheduler().catch(recordResourceCleanupFailure);
           await closePreparedModelRuntimeSnapshots();
           await retire();
@@ -668,14 +668,38 @@ export async function completeGatewayClose(
           }
         }, retireRegistry);
       });
-      for (const error of memoryErrors) {
+      for (const error of registryClose.memoryErrors) {
         shutdownLog.warn(`memory-managers: ${formatErrorMessage(error)}`);
         recordShutdownWarning(warnings, "memory-managers");
+      }
+      for (const { pluginId, hookId, error } of registryClose.pluginFailures) {
+        recordShutdownWarning(warnings, `plugin/${pluginId}`);
+        resourceCleanupErrors.push(
+          new Error(`Plugin ${pluginId} cleanup failed (${hookId}): ${formatErrorMessage(error)}`, {
+            cause: error,
+          }),
+        );
       }
     } catch (error) {
       resourceCleanupErrors.push(error);
     }
   }
+  const durationMs = Date.now() - start;
+  if (resourceCleanupErrors.length > 0 || closeFailure) {
+    shutdownLog.warn(
+      `shutdown failed in ${durationMs}ms${warnings.length ? `: ${warnings.join(", ")}` : ""}`,
+    );
+  } else if (warnings.length > 0) {
+    shutdownLog.warn(`shutdown completed in ${durationMs}ms with warnings: ${warnings.join(", ")}`);
+  } else {
+    shutdownLog.info(`shutdown completed cleanly in ${durationMs}ms`);
+  }
+
+  recordGatewayRestartTrace("restart.close.total", durationMs, [
+    ["reason", reason],
+    ["restartExpectedMs", restartExpectedMs ?? "none"],
+    ...collectGatewayProcessMemoryUsageMb(),
+  ]);
   if (resourceCleanupErrors.length === 1) {
     throw resourceCleanupErrors[0];
   }
@@ -687,18 +711,5 @@ export async function completeGatewayClose(
   if (closeFailure) {
     throw closeFailure.error;
   }
-
-  const durationMs = Date.now() - start;
-  if (warnings.length > 0) {
-    shutdownLog.warn(`shutdown completed in ${durationMs}ms with warnings: ${warnings.join(", ")}`);
-  } else {
-    shutdownLog.info(`shutdown completed cleanly in ${durationMs}ms`);
-  }
-
-  recordGatewayRestartTrace("restart.close.total", durationMs, [
-    ["reason", reason],
-    ["restartExpectedMs", restartExpectedMs ?? "none"],
-    ...collectGatewayProcessMemoryUsageMb(),
-  ]);
   return { durationMs, warnings };
 }

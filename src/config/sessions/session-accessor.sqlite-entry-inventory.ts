@@ -66,11 +66,16 @@ export function readSessionEntryCount(
     if (!includeArchived) {
       query = query.where("archived_at", "is", null);
     }
-    // One statement preserves the snapshot while settled rows stay inside SQLite.
-    compiled = query
-      .where("entry_valid", "=", 1)
-      .select((eb) => [
-        eb.fn.countAll<number>().as("count"),
+    const totalCount = db
+      .selectFrom("session_nodes")
+      .select((eb) => eb.fn.countAll<number>().as("count"));
+    // Count compact indexes, then subtract unreadable rows in the same statement snapshot.
+    compiled = db
+      .selectNoFrom((eb) => [
+        (includeArchived
+          ? totalCount
+          : eb(totalCount, "-", totalCount.where("archived_at", "is not", null))
+        ).as("count"),
         eb.val<string | null>(null).as("entry_json"),
       ])
       .unionAll(
@@ -92,8 +97,8 @@ export function readSessionEntryCount(
       row.entry_json === null
         ? row.count
         : parseSessionEntryJson({ entry_json: row.entry_json })
-          ? 1
-          : 0;
+          ? 0
+          : -1;
   }
   return count;
 }

@@ -20,7 +20,7 @@ import { resolvePluginInstallSources } from "../plugins/install-channel-specs.js
 import { withPluginLifecycleLease } from "../plugins/plugin-lifecycle-lease.js";
 import { tracePluginLifecyclePhaseAsync } from "../plugins/plugin-lifecycle-trace.js";
 import { defaultRuntime } from "../runtime.js";
-import { shortenHomeInString } from "../utils.js";
+import { shortenHomeInString, shortenHomePath } from "../utils.js";
 import { formatMissingPluginMessage } from "./error-format.js";
 import { ExpectedCliError, formatCliJsonFailure } from "./failure-output.js";
 import { exitCliAfterOutput } from "./one-shot-exit.js";
@@ -312,7 +312,7 @@ export async function runPluginsRegistryCommand(opts: PluginRegistryOptions): Pr
     differences: Awaited<ReturnType<typeof inspectPluginRegistry>>["differences"],
   ) => {
     const formatSource = (source: string | null) =>
-      source ? sanitizeTerminalText(shortenHomeInString(source)) : "missing";
+      source ? sanitizeTerminalText(shortenHomePath(source)) : "missing";
     return differences.map(
       (difference) =>
         `${sanitizeTerminalText(difference.pluginId)}: ${difference.changed.join("+")} changed; persisted ${formatSource(difference.persistedSource)}; derived ${formatSource(difference.derivedSource)}`,
@@ -446,12 +446,12 @@ export async function runPluginsDoctorCommand(opts: PluginDoctorOptions = {}): P
               id: entry.id,
               ...(entry.failurePhase ? { failurePhase: entry.failurePhase } : {}),
               error: shortenHomeInString(entry.error ?? "failed to load"),
-              source: shortenHomeInString(entry.source),
+              source: shortenHomePath(entry.source),
             })),
             diagnostics: diags.map(({ message, source, ...diagnostic }) => ({
               ...diagnostic,
               message: shortenHomeInString(message),
-              ...(source ? { source: shortenHomeInString(source) } : {}),
+              ...(source ? { source: shortenHomePath(source) } : {}),
             })),
             sourceShadowing: shadowed.map((entry) => {
               const active = report.plugins.find((plugin) => plugin.id === entry.pluginId);
@@ -461,14 +461,14 @@ export async function runPluginsDoctorCommand(opts: PluginDoctorOptions = {}): P
                 ...(active
                   ? {
                       active: {
-                        source: shortenHomeInString(active.source),
+                        source: shortenHomePath(active.source),
                         origin: active.origin,
                         status: active.status,
                         ...(active.error ? { error: shortenHomeInString(active.error) } : {}),
                       },
                     }
                   : {}),
-                ...(entry.source ? { shadowedSource: shortenHomeInString(entry.source) } : {}),
+                ...(entry.source ? { shadowedSource: shortenHomePath(entry.source) } : {}),
                 repair: [
                   `openclaw plugins inspect ${entry.pluginId ?? "<plugin-id>"}`,
                   "edit or remove the config-selected plugin source",
@@ -523,13 +523,13 @@ export async function runPluginsDoctorCommand(opts: PluginDoctorOptions = {}): P
           const target = diag.pluginId ? `${diag.pluginId}: ` : "";
           lines.push(`- ${target}${diag.message}`);
           if (active) {
-            lines.push(`  active: ${shortenHomeInString(active.source)} (${active.origin})`);
+            lines.push(`  active: ${shortenHomePath(active.source)} (${active.origin})`);
             if (active.status === "error") {
               lines.push(`  active status: error${active.error ? `: ${active.error}` : ""}`);
             }
           }
           if (diag.source) {
-            lines.push(`  shadowed: ${shortenHomeInString(diag.source)}`);
+            lines.push(`  shadowed: ${shortenHomePath(diag.source)}`);
           }
           lines.push("  repair:");
           lines.push("    openclaw plugins inspect " + (diag.pluginId ?? "<plugin-id>"));

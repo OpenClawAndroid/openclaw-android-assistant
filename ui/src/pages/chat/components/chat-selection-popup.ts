@@ -2,6 +2,9 @@
 // Mirrors the imperative reply-context-menu pattern in chat-thread.ts.
 
 import { t } from "../../../i18n/index.ts";
+import { registerChatMessageMetadataEnglish } from "../../../i18n/locales/en-chat-message-metadata.ts";
+
+registerChatMessageMetadataEnglish();
 
 type ChatSelectionPopupActions = {
   onAddToChat?: (selection: string) => void;

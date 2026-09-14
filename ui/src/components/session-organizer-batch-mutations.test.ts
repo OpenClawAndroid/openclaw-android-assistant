@@ -571,7 +571,7 @@ describe("session organizer destructive confirmations", () => {
     const retryError = `Session ${rows[0]!.key} changed before deletion. Retry.`;
     harness.deleteMany.mockResolvedValueOnce({
       deleted: [rows[1]!.key],
-      errors: [retryError],
+      errors: [{ target: { key: rows[0]!.key }, error: retryError }],
       preservedWorktrees: [
         {
           id: "wt-busy",

@@ -147,6 +147,14 @@ restart/stop and detached restart or Windows Startup-folder fallbacks that canno
 retain this ownership. Ordinary user-invoked `openclaw gateway` commands keep their
 existing behavior.
 
+On Windows, capability probes stay alive until the updater finishes binding their
+process identity. If Windows cannot supply a process creation timestamp, the
+updater retains the identity established by the live parent or uses the child's
+recorded launcher identity, with a warning in the run history and diagnostic logs.
+A different observed identity still refuses the
+handoff. Scheduled Tasks using `InteractiveToken` remain supported; this does not
+require storing a task password.
+
 This target-CLI protection does not cover every Doctor or plugin child, the
 in-process service preparation before package mutation, or the separate
 deferred-install activation checks.

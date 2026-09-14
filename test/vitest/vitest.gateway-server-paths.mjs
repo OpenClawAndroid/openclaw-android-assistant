@@ -3,14 +3,22 @@ export const gatewayPluginTestFiles = ["test/plugins/codex-model-catalog.gateway
 
 // Native database consumers retain the Gateway runner and setup in forked processes.
 export const gatewayDatabaseWorkerTestFiles = [
+  "src/gateway/config-reload.test.ts",
   "src/gateway/gateway-code-mode-clock.test.ts",
   "src/gateway/gateway.chat-redaction.test.ts",
+  "src/gateway/local-request-context.test.ts",
   "src/gateway/managed-image-attachments.test.ts",
+  "src/gateway/server-methods/cron.list-scoped.test.ts",
+  "src/gateway/server-methods/cron.runs.test.ts",
+  "src/gateway/server-methods/cron.self-removal.test.ts",
+  "src/gateway/server-methods/cron.validation.test.ts",
   "src/gateway/server-methods/models-auth-removal.integration.test.ts",
   "src/gateway/server-methods/models-dispatch.catalog.integration.test.ts",
   "src/gateway/server-methods/models-dispatch.lifecycle.integration.test.ts",
   "src/gateway/server-methods/models-list.freshness.integration.test.ts",
   "src/gateway/server-methods/models-list.membership.integration.test.ts",
+  "src/gateway/server-methods/models-list.native-lifecycle.integration.test.ts",
+  "src/gateway/server-methods/requester-cron-authority.integration.test.ts",
   "src/gateway/session-delivery-clock-jump.integration.test.ts",
 ];
 

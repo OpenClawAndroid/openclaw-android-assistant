@@ -187,11 +187,14 @@ export class DiscordRealtimePlayback<TState> {
     if (this.params.stopped() || this.responseAudio === "discarding") {
       return;
     }
+    if (this.generatingOutput && !this.generatingOutput.isAcceptingAudio()) {
+      this.generatingOutput = undefined;
+    }
     const audible =
       !this.isContinuousOutput() ||
       isRealtimeVoiceAudioAudible(realtimePcm24kMono, REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ);
-    // Keep pauses behind unheard speech; only idle transport silence may be dropped.
-    if (!audible && !this.generatingOutput?.hasUnplayedAudibleAudio()) {
+    // Once speech opens an output, preserve quiet PCM until that output retires.
+    if (!audible && !this.generatingOutput) {
       return;
     }
     this.params.markProviderGenerationObserved();
@@ -466,16 +469,17 @@ export class DiscordRealtimePlayback<TState> {
         }
         if (this.generatingOutput === closed) {
           this.generatingOutput = undefined;
-          // Starvation Idle allows the same response to resume; failed audio stays discarded.
-          if (reason === "player-idle" && this.isContinuousOutput()) {
-            this.responseAudio = "completed";
-            this.generatingItems.clear();
-            this.params.harness.finishOutputAudio(reason);
-          } else if (reason !== "player-idle") {
+          if (reason !== "player-idle") {
             this.responseAudio = "discarding";
           }
         }
         if (this.outputs.size === 0) {
+          // A retiring resource may already have handed generation to a successor.
+          if (reason === "player-idle" && this.isContinuousOutput()) {
+            this.responseAudio = "completed";
+            this.generatingItems.clear();
+            this.params.harness.finishOutputAudio(reason);
+          }
           this.params.harness.outputActivity.reset();
         }
         this.completeExactSpeechResponse(reason);

@@ -147,7 +147,7 @@ describe("AppSidebar hidden catalog discovery", () => {
     await settle(sidebar);
     expect(furthestPage).toBe(3);
     for (let page = 4; page <= 8; page += 1) {
-      for (const reason of ["chat.run.settled", "patch", "create"]) {
+      for (const reason of ["agent.input.settled", "patch", "create"]) {
         gatewayHarness.publishEvent("sessions.changed", {
           agentId: "main",
           sessionKey: "agent:main:unrelated",

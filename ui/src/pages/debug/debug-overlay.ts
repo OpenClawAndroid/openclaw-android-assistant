@@ -14,7 +14,6 @@ import {
   readLazyShellAction,
 } from "../../app/lazy-shell-action.ts";
 import { retryStaleChunkReloadWhenReachable } from "../../app/stale-chunk-reload.ts";
-import { toolIcons } from "../../components/icons-tools.ts";
 import { renderLazyViewError } from "../../components/lazy-view-error.ts";
 import { DEBUG_OVERLAY_REQUEST_EVENT } from "../../components/panel-toggle-contract.ts";
 import { t } from "../../i18n/index.ts";
@@ -157,7 +156,7 @@ export class DebugOverlay extends OpenClawLightDomElement {
                 this.mode = this.mode === "minimized" ? "expanded" : "minimized";
               }}
             >
-              ${this.mode === "minimized" ? toolIcons.maximize : toolIcons.minimize}
+              <span aria-hidden="true">${this.mode === "minimized" ? "↗" : "↙"}</span>
             </button>
             <button
               type="button"

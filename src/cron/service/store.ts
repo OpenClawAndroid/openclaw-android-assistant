@@ -168,6 +168,7 @@ export async function ensureLoaded(
   for (const job of state.store?.jobs ?? []) {
     previousJobsById.set(job.id, job);
   }
+  const loadedRevision = getCronJobsStoreRevision(state.deps.storePath);
   const loaded = await loadCronJobsStoreWithConfigJobs(state.deps.storePath);
   const loadNowMs = state.deps.nowMs();
   // Persisted cron rows are validated lazily, so treat them as raw records at the
@@ -253,7 +254,8 @@ export async function ensureLoaded(
   };
   state.durableNextRunAtMsByJobId = durableNextRunAtMsByJobId;
   state.storeLoadedAtMs = loadNowMs;
-  loadedCronStoreRevisions.set(state, getCronJobsStoreRevision(state.deps.storePath));
+  // A writer or load repair during the await leaves this snapshot conservatively stale.
+  loadedCronStoreRevisions.set(state, loadedRevision);
 
   if (quarantinedConfigJobs.length > 0 && !opts?.deferQuarantinePersist) {
     // Config decoding and runtime validation reject rows in separate passes;

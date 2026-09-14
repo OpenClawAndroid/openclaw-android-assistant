@@ -108,8 +108,8 @@ function expectCrossContextPolicyResult(params: {
   channel: string;
   action: ChannelMessageActionName;
   to: string;
-  currentChannelId: string;
-  currentChannelProvider: string;
+  currentChannelId?: string;
+  currentChannelProvider?: string;
   agentId?: string;
   expected: "allow" | RegExp;
 }) {
@@ -144,6 +144,38 @@ describe("outbound policy helpers", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([
+    { name: "default cross-provider denial", provider: "webchat", expected: /target provider/ },
+    {
+      name: "explicit cross-provider denial",
+      provider: "webchat",
+      policy: { allowAcrossProviders: false },
+      expected: /target provider/,
+    },
+    {
+      name: "explicit cross-provider opt-in",
+      provider: "webchat",
+      policy: { allowAcrossProviders: true, allowWithinProvider: false },
+      expected: "allow" as const,
+    },
+    {
+      name: "same-provider targetless context",
+      provider: "discord",
+      policy: { allowWithinProvider: false },
+      expected: "allow" as const,
+    },
+    { name: "unbound context", provider: undefined, expected: "allow" as const },
+  ])("preserves $name without a current target", ({ provider, policy, expected }) => {
+    expectCrossContextPolicyResult({
+      cfg: { tools: { message: { crossContext: policy } } },
+      channel: "discord",
+      action: "send",
+      to: "channel:123",
+      currentChannelProvider: provider,
+      expected,
+    });
   });
 
   it.each([

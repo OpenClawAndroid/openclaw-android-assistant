@@ -18,6 +18,7 @@ import { acceptCompactionSuccessor } from "../../agents/embedded-agent-runner/co
 import type { runEmbeddedAgentEntry } from "../../agents/embedded-agent-runner/run-entry.js";
 import type { EmbeddedAgentRunResult } from "../../agents/embedded-agent-runner/types.js";
 import type { ModelFallbackAttemptProvenance } from "../../agents/model-fallback.types.js";
+import { withSessionCompactionPersistence } from "../../agents/sessions/session-compaction-persistence.js";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
 import { makeAssistantMessageFixture } from "../../agents/test-helpers/assistant-message-fixtures.js";
 import type { InternalSessionEntry as SessionEntry } from "../../config/sessions.js";
@@ -3993,12 +3994,8 @@ describe("runMemoryFlushIfNeeded", () => {
     compactEmbeddedAgentSessionMock.mockImplementationOnce(async (_params, host) => {
       const firstKeptEntryId = manager.getLeafId();
       expect(firstKeptEntryId).toBeTruthy();
-      host?.withCompactionPersistence?.(
-        () => manager.appendCompaction("summary", firstKeptEntryId!, 100),
-        (entryId: string, appendedText: string) => {
-          const event = JSON.parse(appendedText.trim()) as { id?: string; type?: string };
-          return event.id === entryId && event.type === "compaction";
-        },
+      withSessionCompactionPersistence(manager, host?.withCompactionPersistence, () =>
+        manager.appendCompaction("summary", firstKeptEntryId!, 100),
       );
       expect(loadSessionEntry({ storePath, sessionKey })).toMatchObject({
         compactionCount: 1,

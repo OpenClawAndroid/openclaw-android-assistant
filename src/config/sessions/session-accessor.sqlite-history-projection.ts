@@ -48,32 +48,46 @@ export function resolveVisibleHistoryProjection(
   const visibleMessages = resolveVisibleMessagePositions(projection);
   const latestResetRawSeq = resolveTranscriptBoundaryWindow(projection)?.boundarySeq ?? null;
   const db = getActiveTranscriptKysely(projection.database);
+  const identity = db
+    .selectFrom("transcript_event_identities")
+    .select(["session_id", "event_id", "seq", "event_type"])
+    .modifyEnd(
+      // Whole-session reads select marker types; reset windows join their bounded active rows.
+      /* kysely-allow-raw: preserve selective canonical index access after ANALYZE. */
+      visibleMessages.boundaryActivePosition === undefined
+        ? sql`INDEXED BY idx_agent_transcript_event_sequence`
+        : sql`INDEXED BY idx_agent_transcript_event_identity_sequence`,
+    )
+    .as("identity");
+  // Statistics can otherwise favor scanning every message to avoid sorting a few markers.
+  // The zero-based sequence/count bound permits at most one inactive row;
+  // short branches must not scan a much larger stored marker history.
+  const query =
+    visibleMessages.boundaryActivePosition === undefined &&
+    projection.state.activeEventCount >= projection.state.indexedSeq
+      ? db
+          .selectFrom(identity)
+          .crossJoin("session_transcript_active_events as active")
+          .crossJoin("transcript_events as event")
+          .whereRef("identity.session_id", "=", "active.session_id")
+          .whereRef("identity.seq", "=", "active.event_seq")
+          .whereRef("event.session_id", "=", "active.session_id")
+          .whereRef("event.seq", "=", "active.event_seq")
+      : db
+          .selectFrom("session_transcript_active_events as active")
+          .innerJoin(identity, (join) =>
+            join
+              .onRef("identity.session_id", "=", "active.session_id")
+              .onRef("identity.seq", "=", "active.event_seq"),
+          )
+          .innerJoin("transcript_events as event", (join) =>
+            join
+              .onRef("event.session_id", "=", "active.session_id")
+              .onRef("event.seq", "=", "active.event_seq"),
+          );
   const rows = executeSqliteQuerySync(
     projection.database.db,
-    db
-      .selectFrom("session_transcript_active_events as active")
-      .innerJoin(
-        db
-          .selectFrom("transcript_event_identities")
-          .select(["session_id", "event_id", "seq", "event_type"])
-          .modifyEnd(
-            // Whole-session reads select marker types; reset windows join their bounded active rows.
-            /* kysely-allow-raw: preserve selective canonical index access after ANALYZE. */
-            visibleMessages.boundaryActivePosition === undefined
-              ? sql`INDEXED BY idx_agent_transcript_event_sequence`
-              : sql`INDEXED BY idx_agent_transcript_event_identity_sequence`,
-          )
-          .as("identity"),
-        (join) =>
-          join
-            .onRef("identity.session_id", "=", "active.session_id")
-            .onRef("identity.seq", "=", "active.event_seq"),
-      )
-      .innerJoin("transcript_events as event", (join) =>
-        join
-          .onRef("event.session_id", "=", "active.session_id")
-          .onRef("event.seq", "=", "active.event_seq"),
-      )
+    query
       .leftJoin("session_transcript_active_events as following", (join) =>
         join
           .onRef("following.session_id", "=", "active.session_id")

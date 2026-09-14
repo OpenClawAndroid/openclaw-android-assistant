@@ -225,9 +225,9 @@ export function renderChatPaneComposerControls(params: {
             // Closing also needs a render; catalog refresh only invalidates on open.
             state.requestUpdate?.();
           },
-          onModelSelect: (next, targetSessionKey) =>
+          onModelSelect: (next, targetSessionKey, agentRuntime) =>
             modelAccess.allowed
-              ? switchChatModel(state, next, targetSessionKey)
+              ? switchChatModel(state, next, targetSessionKey, agentRuntime)
               : Promise.resolve(false),
           onThinkingSelect: (next, targetSessionKey) =>
             effortAccess.allowed

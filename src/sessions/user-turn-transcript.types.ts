@@ -2,6 +2,7 @@
 import type { HumanMention } from "@openclaw/gateway-protocol";
 import type { AgentMessage } from "../../packages/agent-core/src/types.js";
 import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.types.js";
+import type { MessageClientSource } from "../chat/message-client-source.js";
 import type { TranscriptSenderIdentity } from "../chat/sender-identity.js";
 import type {
   SessionTranscriptTurnMutation,
@@ -76,6 +77,8 @@ export type UserTurnInput = Pick<PersistedUserTurnMessage, "display" | "excludeF
   } | null;
   /** Durable transport correlation; stored privately and never rendered into model input. */
   transport?: {
+    /** Reported client sources retained through collection; never sender authority. */
+    clients?: readonly MessageClientSource[];
     channel?: string;
     conversationRef?: string;
     messageId?: string;

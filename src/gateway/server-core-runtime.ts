@@ -311,6 +311,8 @@ export async function startGatewayCoreRuntime(input: {
         log,
         chatAbortControllers,
         hasRunAbortMarker: (runId) => chatRunState.hasAbortMarker(runId),
+        getNativeApprovalRouteCoordinator: () =>
+          runtime.gatewayInstanceRuntimeRef.current?.nativeApprovals.routeCoordinator,
         // Grant terms freeze at mint. This reads the live config so a policy
         // change applies to grants minted after it, never retroactively.
         resolveGrantDefaultExpiresAtMs: (nowMs) => {

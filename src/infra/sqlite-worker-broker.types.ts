@@ -1,4 +1,5 @@
 import type { Worker } from "node:worker_threads";
+import type { OpenClawDatabaseMaintenanceScope } from "../state/openclaw-state-db-async-lifecycle.js";
 import type { SqliteWorkerRequest } from "./sqlite-worker-contract.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
 import type {
@@ -19,6 +20,8 @@ export type RequestBody = SqliteWorkerRequest extends infer Request
   : never;
 type DispatchState = { dispatched: boolean };
 export type Job = {
+  maintenanceScope?: OpenClawDatabaseMaintenanceScope;
+  maintenanceSchemaFence?: { actor: Actor; delegate: StateLifecycleDelegate };
   stateLifecycle?: { actor: Actor; delegate: StateLifecycleDelegate };
   assertCurrent?: () => void;
   inputTransfer?: {
@@ -74,6 +77,7 @@ export type OperationScope = {
   stateContext?: SqliteWorkerStateContext;
 };
 export type EnqueueOptions = {
+  maintenanceScope?: OpenClawDatabaseMaintenanceScope;
   signal?: AbortSignal;
   dispatchState?: DispatchState;
   scope?: OperationScope;
@@ -98,10 +102,18 @@ export type SqliteWorkerStoreOptions = {
 };
 
 export type PreparedSqliteWorkerOpen = {
+  maintenanceScope?: OpenClawDatabaseMaintenanceScope;
+  retainCleanup?: (cleanup: SqliteWorkerAdmissionCleanup) => void;
   assertCurrent?: () => void;
   moduleUrl: URL;
   databasePath: string;
   input: Buffer;
   existingOnly: boolean;
   stateContext?: SqliteWorkerStateContext;
+};
+
+/** Exact failed-admission custody; pathname cleanup can include unrelated actors. */
+export type SqliteWorkerAdmissionCleanup = {
+  readonly pending: boolean;
+  close(): Promise<void>;
 };

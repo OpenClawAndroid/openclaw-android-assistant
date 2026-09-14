@@ -33,6 +33,14 @@ function maskTelegramExcludedRanges(projection: TelegramHtmlVisibleProjection): 
 }
 
 function telegramProjectionHasRoleHeader(projection: TelegramHtmlVisibleProjection): boolean {
+  // Header delimiters must be literal or entity-encoded before Markdown parsing.
+  if (
+    !projection.text.includes("[") &&
+    !projection.text.includes("<") &&
+    !projection.text.includes("&")
+  ) {
+    return false;
+  }
   return Boolean(
     markdownToIR(maskTelegramExcludedRanges(projection), {
       assistantTranscriptRoleHeaders: true,

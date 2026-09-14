@@ -34,6 +34,7 @@ import {
 } from "../../cron/delivery-preview.js";
 import { assertCronDeliveryInputNonBlankFields } from "../../cron/delivery-target-validation.js";
 import { cronJobReadView } from "../../cron/job-read-view.js";
+import { resolveCronJobBoundSessionKeys } from "../../cron/job-session-bindings.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import type { CronRuntimeAuthority } from "../../cron/runtime-authority.js";
 import { CRON_JOB_SCRATCH_MAX_BYTES } from "../../cron/scratch-contract.js";
@@ -654,7 +655,7 @@ export const cronHandlers: GatewayRequestHandlers = {
       });
       diagnostics?.mark("listing");
       let matchesJob: ((job: CronJob) => boolean) | undefined;
-      if (callerScope || cronVisibility) {
+      if (callerScope || cronVisibility || p.sessionKey) {
         diagnostics?.startScopeAttempt();
         matchesJob = (job) =>
           cronJobMatchesCallerScope({
@@ -662,7 +663,17 @@ export const cronHandlers: GatewayRequestHandlers = {
             callerScope,
             defaultAgentId,
             allowCurrentJob: true,
-          }) && cronJobIsVisible(job, cronVisibility, defaultAgentId);
+          }) &&
+          cronJobIsVisible(job, cronVisibility, defaultAgentId) &&
+          (!p.sessionKey ||
+            (resolveCronJobBoundSessionKeys(job, {
+              cfg: context.getRuntimeConfig(),
+              defaultAgentId,
+            }).has(p.sessionKey) &&
+              (parseAgentSessionKey(p.sessionKey) !== null ||
+                !p.sessionAgentId ||
+                normalizeAgentId(job.owner?.agentId ?? defaultAgentId) ===
+                  normalizeAgentId(p.sessionAgentId))));
       }
       let page: CronListPageResult;
       const finishPage = diagnostics?.startSourcePage();

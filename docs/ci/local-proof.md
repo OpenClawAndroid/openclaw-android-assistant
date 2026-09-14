@@ -391,6 +391,24 @@ Under AWS pressure, avoid `class=beast` unless the task really needs 48xlarge-cl
 
 `.crabbox.yaml` owns provider, sync, and GitHub Actions hydration defaults. Crabbox sync never transfers `.git`, so the hydrated Actions checkout keeps its own remote Git metadata instead of syncing maintainer-local remotes and object stores, and the repo config additionally excludes local runtime/build artifacts (such as `.artifacts` and test reports) that should never be transferred. `.github/workflows/crabbox-hydrate.yml` owns checkout, Node/pnpm setup, `origin/main` fetch, and the non-secret environment handoff for owned-cloud `crabbox run --id <cbx_id>` commands.
 
+Linux hydration keeps physical workspace `node_modules` directories and pnpm's
+default `.pnpm` virtual store. Only the package-content store uses the persistent
+`/var/cache/crabbox/pnpm/store` volume; its fallback lives at
+`.cache/openclaw-pnpm-store` beside the workspace dependencies. Ordinary POSIX
+sync preserves these ignored directories, so frozen reinstalls and later build
+commands use the same owned install. Hydration checks the tooling loader before
+marking the lease ready. When rehydrating an older lease, the workflow retires
+only its former root links to `/var/tmp/openclaw-pnpm/node_modules` or
+`${XDG_CACHE_HOME:-$RUNNER_TEMP/cache}/openclaw/pnpm/install/node_modules` before
+installing physical workspace dependencies, including links whose runner cache
+was already cleared. It preserves external package caches and unrelated
+dependency links.
+
+Native Windows daemon hydration retains its external dependency junction because
+released Crabbox native Windows delete-sync replaces workspace contents. Move
+that route to physical workspace dependencies only with a Crabbox sync version
+that preserves generated dependency directories.
+
 ## Related
 
 - [Install overview](/install)

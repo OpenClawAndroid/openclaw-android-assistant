@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   resolveChannelAccountSnapshot: vi.fn(),
   listTrustedChannelPluginCatalogEntries: vi.fn<() => ChannelPluginCatalogEntry[]>(() => []),
   listManifestInstalledChannelIds: vi.fn<() => Set<string>>(() => new Set()),
-  resolveMissingOfficialExternalChannelPluginRepairHint: vi.fn(),
+  resolveMissingOfficialExternalChannelPluginRepairHints: vi.fn(),
   callGateway: vi.fn(),
   resolvePluginControlPlaneWorkspace: vi.fn<typeof resolvePluginControlPlaneWorkspace>(() => ({
     workspaceDir: "/tmp/workspace",
@@ -72,8 +72,8 @@ vi.mock("./channel-setup/discovery.js", () => ({
 }));
 
 vi.mock("../plugins/official-external-plugin-repair-hints.js", () => ({
-  resolveMissingOfficialExternalChannelPluginRepairHint:
-    mocks.resolveMissingOfficialExternalChannelPluginRepairHint,
+  resolveMissingOfficialExternalChannelPluginRepairHints:
+    mocks.resolveMissingOfficialExternalChannelPluginRepairHints,
 }));
 
 import { channelsListCommand } from "./channels/list.js";
@@ -135,8 +135,8 @@ describe("channels list", () => {
     mocks.listTrustedChannelPluginCatalogEntries.mockReturnValue([]);
     mocks.listManifestInstalledChannelIds.mockReset();
     mocks.listManifestInstalledChannelIds.mockReturnValue(new Set());
-    mocks.resolveMissingOfficialExternalChannelPluginRepairHint.mockReset();
-    mocks.resolveMissingOfficialExternalChannelPluginRepairHint.mockReturnValue(null);
+    mocks.resolveMissingOfficialExternalChannelPluginRepairHints.mockReset();
+    mocks.resolveMissingOfficialExternalChannelPluginRepairHints.mockReturnValue([]);
     mocks.callGateway.mockReset();
     mocks.callGateway.mockRejectedValue(new Error("gateway unavailable"));
     mocks.resolvePluginControlPlaneWorkspace.mockReset();
@@ -174,6 +174,10 @@ describe("channels list", () => {
       },
     };
     mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot(config));
+    mocks.listTrustedChannelPluginCatalogEntries.mockReturnValue([
+      createCatalogEntry("telegram", "Telegram"),
+    ]);
+    mocks.listManifestInstalledChannelIds.mockReturnValue(new Set(["telegram"]));
 
     await channelsListCommand({ json: true }, runtime);
 
@@ -181,6 +185,9 @@ describe("channels list", () => {
       metadataSnapshot: mocks.metadataSnapshot,
     });
     expect(mocks.readConfigFileSnapshot).toHaveBeenCalledWith({ skipPluginValidation: true });
+    expect(mocks.resolveMissingOfficialExternalChannelPluginRepairHints).toHaveBeenCalledWith(
+      expect.objectContaining({ channelIds: [] }),
+    );
     const payload = JSON.parse(loggedText(runtime)) as {
       chat?: Record<string, { accounts: string[]; installed: boolean; origin: string }>;
     };
@@ -487,16 +494,18 @@ describe("channels list", () => {
       createCatalogEntry("discord", "Discord"),
     ]);
     mocks.listManifestInstalledChannelIds.mockReturnValue(new Set());
-    mocks.resolveMissingOfficialExternalChannelPluginRepairHint.mockReturnValue({
-      pluginId: "discord",
-      channelId: "discord",
-      label: "Discord",
-      installSpec: "@openclaw/discord",
-      installCommand: "openclaw plugins install @openclaw/discord",
-      doctorFixCommand: "openclaw doctor --fix",
-      repairHint:
-        "Install the official external plugin with: openclaw plugins install @openclaw/discord, or run: openclaw doctor --fix.",
-    });
+    mocks.resolveMissingOfficialExternalChannelPluginRepairHints.mockReturnValue([
+      {
+        pluginId: "discord",
+        channelId: "discord",
+        label: "Discord",
+        installSpec: "@openclaw/discord",
+        installCommand: "openclaw plugins install @openclaw/discord",
+        doctorFixCommand: "openclaw doctor --fix",
+        repairHint:
+          "Install the official external plugin with: openclaw plugins install @openclaw/discord, or run: openclaw doctor --fix.",
+      },
+    ]);
     mocks.readConfigFileSnapshot.mockResolvedValue(
       createTestConfigSnapshot({
         channels: {
@@ -507,13 +516,13 @@ describe("channels list", () => {
 
     await channelsListCommand({}, runtime);
 
-    expect(mocks.resolveMissingOfficialExternalChannelPluginRepairHint).toHaveBeenCalledWith({
+    expect(mocks.resolveMissingOfficialExternalChannelPluginRepairHints).toHaveBeenCalledWith({
       config: {
         channels: {
           discord: { enabled: true, token: "secret" },
         },
       },
-      channelId: "discord",
+      channelIds: ["discord"],
       workspaceDir: "/tmp/workspace",
       // Prepared once for the invocation; the row loop must not rediscover.
       manifestRecords: expect.any(Array),
@@ -536,16 +545,18 @@ describe("channels list", () => {
       createCatalogEntry("discord", "Discord"),
     ]);
     mocks.listManifestInstalledChannelIds.mockReturnValue(new Set());
-    mocks.resolveMissingOfficialExternalChannelPluginRepairHint.mockReturnValue({
-      pluginId: "discord",
-      channelId: "discord",
-      label: "Discord",
-      installSpec: "@openclaw/discord",
-      installCommand: "openclaw plugins install @openclaw/discord",
-      doctorFixCommand: "openclaw doctor --fix",
-      repairHint:
-        "Install the official external plugin with: openclaw plugins install @openclaw/discord, or run: openclaw doctor --fix.",
-    });
+    mocks.resolveMissingOfficialExternalChannelPluginRepairHints.mockReturnValue([
+      {
+        pluginId: "discord",
+        channelId: "discord",
+        label: "Discord",
+        installSpec: "@openclaw/discord",
+        installCommand: "openclaw plugins install @openclaw/discord",
+        doctorFixCommand: "openclaw doctor --fix",
+        repairHint:
+          "Install the official external plugin with: openclaw plugins install @openclaw/discord, or run: openclaw doctor --fix.",
+      },
+    ]);
     mocks.readConfigFileSnapshot.mockResolvedValue(
       createTestConfigSnapshot({
         channels: {
@@ -656,16 +667,30 @@ describe("channels list", () => {
     expect(payload.chat.discord).not.toHaveProperty("docsPath");
   });
 
-  it("resolves installed manifest channels once for the whole catalog", async () => {
+  it.each([false, true])("reuses catalog facts and preserves rows with json=%s", async (json) => {
     const runtime = createTestRuntime();
+    mocks.listReadOnlyChannelPluginsForConfig.mockReturnValue([
+      createMockChannelPlugin({ accountIds: ["default"] }),
+    ]);
+    mocks.resolveChannelAccountSnapshot.mockResolvedValue({ accountId: "default" });
     mocks.listTrustedChannelPluginCatalogEntries.mockReturnValue([
       createCatalogEntry("wecom", "WeCom"),
+      createCatalogEntry("telegram", "Telegram"),
+      createCatalogEntry("discord", "Discord"),
+      createCatalogEntry("wecom", "WeCom duplicate"),
       createCatalogEntry("qqbot", "QQ Bot"),
     ]);
-    mocks.listManifestInstalledChannelIds.mockReturnValue(new Set(["wecom"]));
+    mocks.listManifestInstalledChannelIds.mockReturnValue(new Set(["wecom", "telegram"]));
+    mocks.resolveMissingOfficialExternalChannelPluginRepairHints.mockReturnValue([
+      {
+        channelId: "discord",
+        installCommand: "openclaw plugins install @openclaw/discord",
+        doctorFixCommand: "openclaw doctor --fix",
+      },
+    ]);
     mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
 
-    await channelsListCommand({ all: true, json: true }, runtime);
+    await channelsListCommand({ all: true, json }, runtime);
 
     expect(mocks.listManifestInstalledChannelIds).toHaveBeenCalledOnce();
     expect(mocks.listTrustedChannelPluginCatalogEntries).toHaveBeenCalledWith({
@@ -678,11 +703,39 @@ describe("channels list", () => {
       workspaceDir: "/tmp/workspace",
       index: mocks.metadataSnapshot.index,
     });
-    const payload = JSON.parse(loggedText(runtime)) as {
-      chat: Record<string, { installed: boolean }>;
-    };
-    expect(payload.chat.wecom?.installed).toBe(true);
-    expect(payload.chat.qqbot?.installed).toBe(false);
+    expect(mocks.resolveMissingOfficialExternalChannelPluginRepairHints).toHaveBeenCalledOnce();
+    expect(mocks.resolveMissingOfficialExternalChannelPluginRepairHints).toHaveBeenCalledWith({
+      config: {},
+      channelIds: ["wecom", "discord", "wecom", "qqbot"],
+      workspaceDir: "/tmp/workspace",
+      manifestRecords: mocks.metadataSnapshot.plugins,
+    });
+    if (json) {
+      const payload = JSON.parse(loggedText(runtime)) as { chat: Record<string, unknown> };
+      expect(Object.keys(payload.chat)).toEqual(["telegram", "wecom", "discord", "qqbot"]);
+      expect(payload.chat).toEqual({
+        telegram: {
+          accounts: ["default"],
+          label: "Telegram",
+          installed: true,
+          origin: "configured",
+        },
+        wecom: { accounts: [], label: "WeCom duplicate", installed: true, origin: "available" },
+        discord: { accounts: [], label: "Discord", installed: false, origin: "configured" },
+        qqbot: { accounts: [], label: "QQ Bot", installed: false, origin: "installable" },
+      });
+    } else {
+      expect(stripAnsi(loggedText(runtime))).toBe(
+        [
+          "Chat channels:",
+          "- Telegram default: installed",
+          "- WeCom: installed, not configured, disabled",
+          "- Discord: not installed, configured, disabled, run openclaw plugins install @openclaw/discord or openclaw doctor --fix",
+          "- WeCom duplicate: installed, not configured, disabled",
+          "- QQ Bot: not installed, not configured, disabled",
+        ].join("\n"),
+      );
+    }
   });
 
   it(

@@ -677,6 +677,7 @@ const CORE_GATEWAY_METHOD_SPECS = [
   ["computer.status", "computer", "operator.read", "2026.9"],
   ["computer.invoke", "computer", "operator.write", "2026.9"],
   ["sessions.activitySummary.ensure", "session-activity-summary", "operator.write", "2026.9"],
+  ["controlUi.sessionPullRequests.checks", "control-ui", "operator.read", "2026.9"],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];
 
 export type CoreGatewayHandlerFamily = Exclude<(typeof CORE_GATEWAY_METHOD_SPECS)[number][1], null>;

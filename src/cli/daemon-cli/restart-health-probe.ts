@@ -148,71 +148,50 @@ function isGatewayAuthRejection(reason: string): boolean {
 }
 
 function readActivatedPluginErrors(health: unknown): PluginHealthErrorSummary[] {
-  if (!health || typeof health !== "object") {
-    return [];
-  }
-  const plugins = (health as { plugins?: unknown }).plugins;
-  if (!plugins || typeof plugins !== "object") {
-    return [];
-  }
-  const errors = (plugins as { errors?: unknown }).errors;
+  const errors = asOptionalRecord(asOptionalRecord(health)?.plugins)?.errors;
   if (!Array.isArray(errors)) {
     return [];
   }
-  return errors
-    .filter((entry): entry is PluginHealthErrorSummary => {
-      if (!entry || typeof entry !== "object") {
-        return false;
-      }
-      const candidate = entry as Partial<PluginHealthErrorSummary>;
-      return (
-        candidate.activated === true &&
-        typeof candidate.id === "string" &&
-        typeof candidate.error === "string"
-      );
-    })
-    .map((entry) => {
-      const error: PluginHealthErrorSummary = {
-        id: entry.id,
-        origin: typeof entry.origin === "string" ? entry.origin : "unknown",
-        activated: true,
-        error: entry.error,
-      };
-      if (typeof entry.activationSource === "string") {
-        error.activationSource = entry.activationSource;
-      }
-      if (typeof entry.activationReason === "string") {
-        error.activationReason = entry.activationReason;
-      }
-      if (typeof entry.failurePhase === "string") {
-        error.failurePhase = entry.failurePhase;
-      }
-      return error;
-    });
+  return errors.flatMap((value) => {
+    const entry = asOptionalRecord(value);
+    if (
+      entry?.activated !== true ||
+      typeof entry.id !== "string" ||
+      typeof entry.error !== "string"
+    ) {
+      return [];
+    }
+    const error: PluginHealthErrorSummary = {
+      id: entry.id,
+      origin: typeof entry.origin === "string" ? entry.origin : "unknown",
+      activated: true,
+      error: entry.error,
+    };
+    if (typeof entry.activationSource === "string") {
+      error.activationSource = entry.activationSource;
+    }
+    if (typeof entry.activationReason === "string") {
+      error.activationReason = entry.activationReason;
+    }
+    if (typeof entry.failurePhase === "string") {
+      error.failurePhase = entry.failurePhase;
+    }
+    return [error];
+  });
 }
 
 function readChannelProbeErrors(health: unknown): Array<{ id: string; error: string }> {
-  if (!health || typeof health !== "object") {
-    return [];
-  }
-  const channels = (health as { channels?: unknown }).channels;
-  if (!channels || typeof channels !== "object" || Array.isArray(channels)) {
+  const channels = asOptionalRecord(asOptionalRecord(health)?.channels);
+  if (!channels) {
     return [];
   }
   const errors: Array<{ id: string; error: string }> = [];
   for (const [id, summary] of Object.entries(channels)) {
-    if (!summary || typeof summary !== "object") {
+    const probe = asOptionalRecord(asOptionalRecord(summary)?.probe);
+    if (probe?.ok !== false) {
       continue;
     }
-    const probe = (summary as { probe?: unknown }).probe;
-    if (!probe || typeof probe !== "object") {
-      continue;
-    }
-    const ok = (probe as { ok?: unknown }).ok;
-    if (ok !== false) {
-      continue;
-    }
-    const error = (probe as { error?: unknown }).error;
+    const error = probe.error;
     errors.push({
       id,
       error: typeof error === "string" && error.trim() ? error : "probe failed",

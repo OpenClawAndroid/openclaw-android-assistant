@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { VoiceCallConfigSchema } from "./config.js";
 import { CallManager } from "./manager.js";
@@ -62,6 +63,7 @@ describe("CallManager termination lifecycle", () => {
             await finalizeTestManagerCalls(owner);
           }
         } finally {
+          await closeOpenClawStateDatabaseAsync();
           resetPluginStateStoreForTests();
           fs.rmSync(storePath, { recursive: true, force: true });
         }

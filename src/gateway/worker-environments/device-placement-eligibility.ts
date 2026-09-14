@@ -12,6 +12,16 @@ type DevicePlacementEligibility =
   | { ok: true; availableSlots: number; node: NodeWorkerSupervisorNodeProof }
   | { ok: false; error: string };
 
+/** Raised only before a dispatch begins workspace preparation. */
+export class DevicePlacementUnavailableError extends Error {
+  constructor(
+    readonly deviceId: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function resolveDevicePlacementEligibility(params: {
   environmentService: object | undefined;
   deviceId: string;

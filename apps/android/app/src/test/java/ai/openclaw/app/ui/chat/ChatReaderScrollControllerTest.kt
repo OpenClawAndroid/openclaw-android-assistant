@@ -92,7 +92,7 @@ class ChatReaderScrollControllerTest {
   @Test
   fun removedOptimisticPromptPreservesPositionWithoutOfferingJump() {
     val active =
-      prepareChatHistory(listOf(user("user-old"), assistant("assistant-old"), user("user-optimistic")), "agent:main:main").buildTimeline(
+      prepareChatHistory(listOf(user("user-old"), assistant("assistant-old"), user("user-optimistic")), "agent:main:main", mainSessionKey = "agent:main:main").buildTimeline(
         pendingRunCount = 1,
         pendingToolCalls = emptyList(),
         streamingAssistantText = null,
@@ -466,7 +466,7 @@ class ChatReaderScrollControllerTest {
     }
 
   private fun timeline(vararg messages: ChatMessage): ChatTimeline =
-    prepareChatHistory(messages.toList(), "agent:main:main").buildTimeline(
+    prepareChatHistory(messages.toList(), "agent:main:main", mainSessionKey = "agent:main:main").buildTimeline(
       pendingRunCount = 0,
       pendingToolCalls = emptyList(),
       streamingAssistantText = null,
@@ -475,7 +475,7 @@ class ChatReaderScrollControllerTest {
   private fun emptyTimeline(): ChatTimeline = timeline()
 
   private fun questionTimeline(question: ChatQuestionPrompt): ChatTimeline =
-    prepareChatHistory(emptyList(), "agent:main:main").buildTimeline(
+    prepareChatHistory(emptyList(), "agent:main:main", mainSessionKey = "agent:main:main").buildTimeline(
       pendingRunCount = 0,
       pendingToolCalls = emptyList(),
       streamingAssistantText = null,
@@ -486,7 +486,7 @@ class ChatReaderScrollControllerTest {
     message: ChatMessage,
     stream: String?,
   ): ChatTimeline =
-    prepareChatHistory(listOf(message), "agent:main:main").buildTimeline(
+    prepareChatHistory(listOf(message), "agent:main:main", mainSessionKey = "agent:main:main").buildTimeline(
       pendingRunCount = 1,
       pendingToolCalls = emptyList(),
       streamingAssistantText = stream,

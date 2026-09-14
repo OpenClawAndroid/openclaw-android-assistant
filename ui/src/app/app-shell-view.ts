@@ -256,11 +256,12 @@ export function renderApplicationShell(host: ShellViewHost) {
   const uiSettings = context.theme.settings;
   // The new-session draft shares the chat layout: full-height pane that owns
   // its scrolling and pins the composer dock to the bottom.
-  const chatLikeRoute = sessionRoute || activeRoute === "new-session";
+  const chatLikeRoute = sessionRoute || activeRoute === "new-session" || activeRoute === "systems";
   if (!settingsTakeover && !nativeEmbed) {
     Object.assign(host.navigationSidebar, {
       basePath: context.basePath,
       activeRouteId: activeRoute,
+      router: host.runtime.router,
       activePluginTabId,
       enabledRouteIds: host.enabledRouteIds(),
       sessionKey: host.activeSessionKey,
@@ -632,7 +633,7 @@ export function renderApplicationShell(host: ShellViewHost) {
                 data-chat-autotype-exempt
                 .client=${gatewayConnected ? gatewaySnapshot.client : null}
                 .available=${desktopPanelAvailable}
-                .suppressed=${settingsTakeover || nativeEmbed}
+                .suppressed=${settingsTakeover || nativeEmbed || activeRoute === "systems"}
                 .basePath=${context.basePath}
               ></openclaw-desktop-panel>
             `

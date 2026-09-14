@@ -1,8 +1,10 @@
 import path from "node:path";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { formatConfigIssueLines } from "../../config/issue-format.js";
+import { resolveStateDir } from "../../config/paths.js";
 import { createLowDiskSpaceWarning } from "../../infra/disk-space.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { assessInitialUpdateSnapshotCapacity } from "../../infra/update-candidate-snapshot.js";
 import {
   channelToNpmTag,
   DEFAULT_GIT_CHANNEL,
@@ -45,6 +47,7 @@ import {
   captureUpdateCommandExecutorAuthority,
   type UpdateCommandExecutor,
 } from "./update-command-executor.js";
+import { readUpdateCandidateSource } from "./update-command-managed-context.js";
 import { UnreportedUpdateAdmissionOutcome, type RefuseUpdate } from "./update-command-result.js";
 import {
   failUpdateCommandRun,
@@ -362,6 +365,34 @@ export async function resolveUpdateCommandTarget(
           tag: targetVersion,
           env: packageInstallEnv,
         });
+      }
+    }
+  }
+
+  // No-op updates need no candidate snapshot; package-space warnings remain advisory above.
+  if (updateInstallKind === "package" && !packageAlreadyCurrent && !opts.dryRun) {
+    const env = opts.run?.env ?? process.env;
+    const source = await readUpdateCandidateSource(env, legacyConfigPlan);
+    const snapshot = await assessInitialUpdateSnapshotCapacity({
+      config: source.config,
+      stateDir: resolveStateDir(env),
+      env,
+    });
+    opts.run?.executorFence?.assertCurrent();
+    if (opts.run) {
+      for (const step of updateRunStepsFromResultStep(snapshot)) {
+        recordUpdateRunStep(opts.run.runId, step, { env });
+      }
+    }
+    if (snapshot.exitCode !== 0) {
+      await refuseUpdate("snapshot-capacity-insufficient", snapshot.stderrTail ?? undefined);
+      return undefined;
+    }
+    for (const warning of snapshot.warnings ?? []) {
+      if (opts.json) {
+        defaultRuntime.error(`Warning: ${warning}`);
+      } else {
+        defaultRuntime.log(theme.warn(warning));
       }
     }
   }

@@ -12,6 +12,7 @@ import type {
   ControlUiSessionPullRequestSnapshot,
 } from "../../../../src/gateway/control-ui-contract.js";
 import type { ExecApprovalDecision, ExecApprovalRequest } from "../../app/exec-approval.ts";
+import type { ApplicationGateway } from "../../app/gateway.ts";
 import { renderExecApprovalCard } from "../../components/exec-approval-card.ts";
 import { icons } from "../../components/icons.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
@@ -20,7 +21,10 @@ import {
   KEYBOARD_SHORTCUT_COMBOS,
   matchesShortcutCombo,
 } from "../../lib/keyboard-shortcut-catalog.ts";
-import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
+import {
+  areUiSessionKeysEquivalent,
+  scopedSessionArtifactKey,
+} from "../../lib/sessions/session-key.ts";
 import "../../plugins/control-ui-contributions.ts";
 import { renderPluginSurface } from "../../plugins/control-ui-view.ts";
 import { getChatHistoryLoadState } from "./chat-history-state.ts";
@@ -125,6 +129,7 @@ export type ChatProps = Omit<
       resolution: SessionSuggestionResolution,
     ) => void;
     pullRequests?: ControlUiSessionPullRequest[];
+    pullRequestsGateway?: ApplicationGateway;
     pullRequestsBranch?: ControlUiSessionBranch;
     pullRequestsStatus?: ControlUiSessionPullRequestSnapshot["status"];
     pullRequestsExpanded?: boolean;
@@ -435,6 +440,12 @@ export function renderChat(props: ChatProps) {
                   ${gutterStack}
                   ${renderChatPullRequests({
                     pullRequests: props.pullRequests ?? [],
+                    gateway: props.pullRequestsGateway,
+                    sessionKey: scopedSessionArtifactKey(
+                      props.sessionKey,
+                      props.currentAgentId ?? undefined,
+                    ),
+                    presented: props.presented ?? true,
                     branch: props.pullRequestsBranch,
                     status: props.pullRequestsStatus ?? "ready",
                     expanded: props.pullRequestsExpanded === true,

@@ -57,6 +57,116 @@ describe("shared automation mutation options", () => {
     callGatewayFromCli.mockResolvedValue({ ok: true });
   });
 
+  it.each(
+    ["--at", "--every", "--cron", "--on-exit"].flatMap((flag) =>
+      ["", "   "].map((value) => ({ flag, value })),
+    ),
+  )("rejects explicit blank $flag=$value on edit before RPC", async ({ flag, value }) => {
+    const errorSpy = vi.spyOn(defaultRuntime, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        createMutationProgram().parseAsync(["edit", "job-1", flag, value], { from: "user" }),
+      ).rejects.toMatchObject({ name: "ExitError", code: 1 });
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining("Schedule values must not be blank"),
+      );
+      expect(callGatewayFromCli).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it.each(
+    ["add", "create"].flatMap((operation) => ["", "   "].map((value) => ({ operation, value }))),
+  )("rejects a blank schedule mixed with --every on $operation", async ({ operation, value }) => {
+    const errorSpy = vi.spyOn(defaultRuntime, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        createMutationProgram().parseAsync(
+          [
+            operation,
+            "--name",
+            "blank-schedule",
+            "--agent",
+            "main",
+            "--message",
+            "hello",
+            "--every",
+            "1h",
+            "--cron",
+            value,
+          ],
+          { from: "user" },
+        ),
+      ).rejects.toMatchObject({ name: "ExitError", code: 1 });
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining("Schedule values must not be blank"),
+      );
+      expect(callGatewayFromCli).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("rejects a blank schedule before mutation after a pacing read", async () => {
+    callGatewayFromCli.mockImplementation(async (method: string) =>
+      method === "cron.get"
+        ? {
+            id: "job-1",
+            configRevision: "fixture-revision-1",
+            pacing: { min: "1m", max: "1h" },
+          }
+        : { ok: true },
+    );
+    const errorSpy = vi.spyOn(defaultRuntime, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        createMutationProgram().parseAsync(
+          ["edit", "job-1", "--pacing-min", "30m", "--every", ""],
+          { from: "user" },
+        ),
+      ).rejects.toMatchObject({ name: "ExitError", code: 1 });
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining("Schedule values must not be blank"),
+      );
+      expect(callGatewayFromCli).toHaveBeenCalledWith("cron.get", expect.anything(), {
+        id: "job-1",
+      });
+      expect(callGatewayFromCli.mock.calls.map(([method]) => method)).not.toContain("cron.update");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    { label: "omitted", args: [], rejects: false },
+    { label: "blank", args: ["--every", ""], rejects: true },
+  ])("distinguishes an $label schedule from a name-only edit", async ({ args, rejects }) => {
+    const errorSpy = vi.spyOn(defaultRuntime, "error").mockImplementation(() => {});
+    try {
+      const run = createMutationProgram().parseAsync(
+        ["edit", "job-1", "--name", "Renamed", ...args],
+        { from: "user" },
+      );
+      if (rejects) {
+        await expect(run).rejects.toMatchObject({ name: "ExitError", code: 1 });
+        expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.stringContaining("Schedule values must not be blank"),
+        );
+        expect(callGatewayFromCli).not.toHaveBeenCalled();
+      } else {
+        await run;
+        expect(callGatewayFromCli).toHaveBeenCalledWith("cron.update", expect.anything(), {
+          id: "job-1",
+          patch: { name: "Renamed" },
+        });
+        expect(errorSpy).not.toHaveBeenCalled();
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it.each([
     { operation: "add", flag: "--every" },
     { operation: "add", flag: "--stagger" },

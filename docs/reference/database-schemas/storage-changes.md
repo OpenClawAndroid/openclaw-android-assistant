@@ -24,6 +24,18 @@ and publishes the result. Avoid exposing a generic SQL callback to application
 code or adding an asynchronous wrapper around an existing asynchronous facade.
 The plugin KV API already has asynchronous methods over its SQLite owner.
 
+Asynchronous mutable cron-store loads run in the shared-state worker, including
+the existing retired-job deletion and runtime-authority repairs. The connection-bound
+load kernel preserves their separate transactions, partition keys, and fingerprints.
+Completed repair facts invalidate host scheduler snapshots before the load settles,
+including when a later load stage fails. A snapshot retains the host revision captured
+before loading; intervening writes leave it stale for the next load. An unavailable
+worker result or a failed load without a reported repair also invalidates the cached
+revision without replaying the operation. Error causes used by Doctor diagnostics
+cross the same closed-field error graph, without changing ordinary broker errors.
+Cron saves, their transaction hooks, synchronous diagnostic reads, and read-only
+inspection retain their current owners and execution paths.
+
 Use Kysely for ordinary queries and mutations. The current
 `getNodeSqliteKysely` facade compiles queries; `executeSqliteQuerySync` runs them
 on the supplied `node:sqlite` connection. Calling Kysely's asynchronous
@@ -215,6 +227,10 @@ Artifact cleanup resolves session paths only when its file inventory contains
 candidate transcript, compaction checkpoint, or trajectory files. Prompt-reference
 projection runs only when prompt blobs exist. Age, exclusion, and containment
 checks still govern every removal.
+
+Automatic session-entry maintenance reads its protection-key inventory once per
+plan, only when age or cap candidates exist, within the same write transaction.
+Retention rules and active-work, ancestor, and lifecycle protection remain unchanged.
 
 After archive preparation, session deletion rereads its target before admitting
 the final reclamation worker. A missing or changed target returns the existing

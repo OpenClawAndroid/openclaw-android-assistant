@@ -113,16 +113,16 @@ function readVerifiedAssetNames(assets) {
 }
 
 export function requiresLinuxUpdaterObservation({ release, existingManifest }) {
-  const selectors = readReleaseAssets(release).filter((asset) => asset.name === "latest.json");
-  const recorded = existingManifest?.githubReleaseAssets?.find(
-    (asset) => asset.name === "latest.json",
-  );
-  return (
-    selectors.length > 0 &&
-    (selectors.length !== 1 ||
-      !isCanonicalAssetDigest(selectors[0].digest) ||
-      selectors[0].digest !== recorded?.digest)
-  );
+  return ["latest.json", `OpenClaw-${release.tagName?.slice(1)}-linux.json`].some((name) => {
+    const selectors = readReleaseAssets(release).filter((asset) => asset.name === name);
+    const recorded = existingManifest?.githubReleaseAssets?.find((asset) => asset.name === name);
+    return (
+      selectors.length > 0 &&
+      (selectors.length !== 1 ||
+        !isCanonicalAssetDigest(selectors[0].digest) ||
+        selectors[0].digest !== recorded?.digest)
+    );
+  });
 }
 
 function copyOwnFields(source, ...keys) {
@@ -294,10 +294,36 @@ export function verifyStableMainCloseout(params) {
       classifyReleaseTrain(source) === "stable" &&
       sourceComparison !== null &&
       sourceComparison <= 0;
-    if (!verifiedLinuxSelector) {
+    const recordedSelector = existingManifest?.githubReleaseAssets?.find(
+      (asset) => asset.name === "latest.json",
+    );
+    if (
+      selectors.length > 0 &&
+      (selectors.length !== 1 ||
+        !isCanonicalAssetDigest(selectors[0].digest) ||
+        selectors[0].digest !== recordedSelector?.digest) &&
+      !verifiedLinuxSelector
+    ) {
       errors.push(
         "New or changed Linux updater selector requires a validated observation bound to this carrier and asset digest.",
       );
+    }
+    const immutableName = `OpenClaw-${tagVersion}-linux.json`;
+    const immutable = observedAssets.filter((asset) => asset.name === immutableName);
+    if (immutable.length > 0) {
+      const verified =
+        immutable.length === 1 &&
+        observation?.carrierTag === params.tag &&
+        observation?.immutableManifest?.name === immutableName &&
+        isSha256Hex(observation?.immutableManifest?.sha256) &&
+        immutable[0].digest === `sha256:${observation.immutableManifest.sha256}`;
+      if (verified) {
+        allowedLateAssets.add(immutableName);
+      } else {
+        errors.push(
+          "Late immutable Linux metadata requires a validated exact-name and digest observation.",
+        );
+      }
     }
   }
   const releaseAssets =

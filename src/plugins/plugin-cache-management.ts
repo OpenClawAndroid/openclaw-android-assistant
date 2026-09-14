@@ -12,9 +12,11 @@ export type PersistedInstalledPluginIndexCacheEntry = {
   index?: InstalledPluginIndex | null;
 };
 
+export type PluginCacheFact<T> = { value: T } | { pending: Promise<{ value: T }> };
+
 export type PluginCacheManagement<TCache> = {
   installRecords: Map<string, Record<string, PluginInstallRecord>>;
-  persistedInstalledIndex: Map<string, PersistedInstalledPluginIndexCacheEntry>;
+  persistedInstalledIndex: Map<string, PluginCacheFact<PersistedInstalledPluginIndexCacheEntry>>;
   desiredMetadata?: {
     boot: PluginMetadataSnapshot;
     cache: TCache;

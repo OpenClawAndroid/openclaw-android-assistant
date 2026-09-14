@@ -4,10 +4,15 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { CryptoEvent } from "matrix-js-sdk/lib/crypto-api/CryptoEvent.js";
 import type { DecryptionFailureCode as DecryptionFailureCodeValue } from "matrix-js-sdk/lib/crypto-api/index.js";
 import { MatrixError } from "matrix-js-sdk/lib/http-api/errors.js";
-import { type MatrixEvent, MsgType } from "matrix-js-sdk/lib/matrix.js";
+import {
+  type MatrixClient as MatrixJsSdkClient,
+  type MatrixEvent,
+  MsgType,
+} from "matrix-js-sdk/lib/matrix.js";
 import { EventStatus } from "matrix-js-sdk/lib/models/event-status.js";
 import { SyncApi, SyncState } from "matrix-js-sdk/lib/sync.js";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
@@ -27,11 +32,25 @@ import { clearAllIndexedDbState } from "./sdk/idb-persistence.test-helpers.js";
 import { LogService } from "./sdk/logger.js";
 
 const createSharedMatrixClientMock = vi.hoisted(() => vi.fn());
+const captureReadAuthorityMock = vi.hoisted(() => vi.fn<() => (() => void) | undefined>());
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const READ_CALLERS = [
+  { caller: "legacy", assertReadAuthority: undefined },
+  { caller: "host-authorized", assertReadAuthority: () => undefined },
+] as const;
 
 vi.mock("./client/create-client.js", () => ({
   createMatrixClient: createSharedMatrixClientMock,
 }));
+
+vi.mock("openclaw/plugin-sdk/fetch-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/fetch-runtime")>()),
+  captureChannelReadAuthority: captureReadAuthorityMock,
+}));
+
+beforeEach(() => {
+  captureReadAuthorityMock.mockReset();
+});
 
 const requireMatrixJsSdkPackage = createRequire(import.meta.url);
 
@@ -297,7 +316,7 @@ type MatrixJsClientStub = {
   on: (eventName: string | symbol, listener: (...args: unknown[]) => void) => MatrixJsClientStub;
   startClient: ReturnType<typeof vi.fn>;
   stopClient: ReturnType<typeof vi.fn>;
-  initRustCrypto: ReturnType<typeof vi.fn>;
+  initRustCrypto: ReturnType<typeof vi.fn<MatrixJsSdkClient["initRustCrypto"]>>;
   getUserId: ReturnType<typeof vi.fn>;
   getDeviceId: ReturnType<typeof vi.fn>;
   getJoinedRooms: ReturnType<typeof vi.fn>;
@@ -1656,11 +1675,16 @@ describe("MatrixClient request hardening", () => {
     },
   );
 
-  it.each([SyncState.Error, SyncState.Reconnecting])(
-    "does not replace a poisoned %s generation until late transient work really releases",
-    async (syncState) => {
+  it.each(
+    [SyncState.Error, SyncState.Reconnecting].flatMap((syncState) =>
+      READ_CALLERS.map((readCaller) => ({ ...readCaller, syncState })),
+    ),
+  )(
+    "does not replace a poisoned $syncState generation until late transient work really releases ($caller caller)",
+    async ({ syncState, caller, assertReadAuthority }) => {
+      captureReadAuthorityMock.mockReturnValue(assertReadAuthority);
       vi.useFakeTimers();
-      const accountId = `sdk-retirement-${syncState.toLowerCase()}`;
+      const accountId = `sdk-retirement-${syncState.toLowerCase()}-${caller}`;
       const cfg = {
         channels: {
           matrix: {
@@ -2748,6 +2772,109 @@ describe("MatrixClient crypto bootstrapping", () => {
       resetPluginStateStoreForTests();
     }
   });
+
+  it.each(READ_CALLERS)(
+    "joins concurrent one-off preparations into one SDK crypto initialization ($caller caller)",
+    async ({ assertReadAuthority }) => {
+      captureReadAuthorityMock.mockReturnValue(assertReadAuthority);
+      resetPluginStateStoreForTests();
+      installMatrixTestRuntime();
+      clearMatrixSyncApiForNeverStartedClient();
+      const tempDir = tempDirs.make("matrix-idb-one-off-init-");
+      const databasePrefix = path.basename(tempDir);
+      const initStarted = createDeferred<void>();
+      const finishInit = createDeferred<void>();
+      matrixJsClient.initRustCrypto.mockImplementation(async () => {
+        initStarted.resolve();
+        await finishInit.promise;
+      });
+      const client = new MatrixClient("https://matrix.example.org", "token", {
+        encryption: true,
+        idbSnapshotPath: path.join(tempDir, "crypto-idb-snapshot.json"),
+        cryptoDatabasePrefix: databasePrefix,
+      });
+      const preparations = Promise.allSettled([
+        client.prepareForOneOff(),
+        client.prepareForOneOff(),
+      ]);
+
+      try {
+        await initStarted.promise;
+        await setImmediate();
+        expect(matrixJsClient.initRustCrypto).toHaveBeenCalledTimes(1);
+
+        finishInit.resolve();
+        await expect(preparations).resolves.toEqual([
+          { status: "fulfilled", value: undefined },
+          { status: "fulfilled", value: undefined },
+        ]);
+        expect(matrixJsClient.initRustCrypto).toHaveBeenCalledTimes(1);
+      } finally {
+        finishInit.reject(new Error("crypto initialization fixture cleanup"));
+        await preparations;
+        await client.stopWithoutPersist();
+        await clearAllIndexedDbState({ databasePrefix });
+        resetPluginStateStoreForTests();
+      }
+    },
+  );
+
+  it.each(READ_CALLERS)(
+    "joins pending one-off crypto initialization before completing discard shutdown ($caller caller)",
+    async ({ assertReadAuthority }) => {
+      captureReadAuthorityMock.mockReturnValue(assertReadAuthority);
+      resetPluginStateStoreForTests();
+      installMatrixTestRuntime();
+      clearMatrixSyncApiForNeverStartedClient();
+      const tempDir = tempDirs.make("matrix-idb-one-off-stop-");
+      const databasePrefix = path.basename(tempDir);
+      const initStarted = createDeferred<void>();
+      const finishInit = createDeferred<void>();
+      let backendLive = false;
+      matrixJsClient.initRustCrypto.mockImplementation(async () => {
+        initStarted.resolve();
+        await finishInit.promise;
+        backendLive = true;
+      });
+      matrixJsClient.stopClient.mockImplementation(() => {
+        backendLive = false;
+      });
+      const client = new MatrixClient("https://matrix.example.org", "token", {
+        encryption: true,
+        idbSnapshotPath: path.join(tempDir, "crypto-idb-snapshot.json"),
+        cryptoDatabasePrefix: databasePrefix,
+      });
+      const preparation = client.prepareForOneOff();
+      const preparationSettled = Promise.allSettled([preparation]);
+      let shutdown: Promise<void> | undefined;
+
+      try {
+        await initStarted.promise;
+        let shutdownFinished = false;
+        shutdown = client.stopWithoutPersist().then(() => {
+          shutdownFinished = true;
+        });
+        const shutdownSettled = Promise.allSettled([shutdown]);
+        await setImmediate();
+        const finishedBeforeInit = shutdownFinished;
+
+        finishInit.resolve();
+        await Promise.all([preparationSettled, shutdownSettled]);
+
+        expect(backendLive).toBe(false);
+        expect(finishedBeforeInit).toBe(false);
+        await expect(shutdown).resolves.toBeUndefined();
+        await expectAbortError(preparation);
+      } finally {
+        finishInit.reject(new Error("crypto initialization fixture cleanup"));
+        await preparationSettled;
+        await shutdown?.catch(() => undefined);
+        await client.stopWithoutPersist();
+        await clearAllIndexedDbState({ databasePrefix });
+        resetPluginStateStoreForTests();
+      }
+    },
+  );
 
   it("bootstraps cross-signing with setupNewCrossSigning enabled", async () => {
     const bootstrapCrossSigning = vi.fn(async () => {});

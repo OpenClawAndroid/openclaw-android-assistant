@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import * as diskSpace from "./disk-space.js";
-import { registerCanaryReadinessBudgetTests } from "./update-candidate-canary-readiness.test-support.js";
+import * as readiness from "./update-candidate-canary-readiness.test-support.js";
 import { validateUpdateCandidateCanary } from "./update-candidate-canary.js";
 import {
   completeCanaryCommand,
@@ -108,7 +108,7 @@ afterEach(() => {
 });
 
 describe("update candidate canary", () => {
-  registerCanaryReadinessBudgetTests(() => root);
+  readiness.registerCanaryReadinessBudgetTests(() => root);
   it("records a typed capacity refusal before notifying the snapshot failure", async () => {
     const capacity = vi.spyOn(diskSpace, "tryReadDiskSpace").mockImplementation((targetPath) => ({
       targetPath,
@@ -798,7 +798,7 @@ describe("update candidate canary", () => {
   });
 
   it.each(["snapshot", "doctor", "plugins", "runtime", "readiness"] as const)(
-    "records a failed %s step and cleans private state",
+    "records the %s outcome and cleans private state",
     async (failure) => {
       pluginErrors = failure === "plugins";
       runtimeError = failure === "runtime";
@@ -842,10 +842,10 @@ describe("update candidate canary", () => {
         env: {},
         timeoutMs: 250,
       });
-      expect(result.status).toBe("error");
+      expect(result.status).toBe(failure === "readiness" ? "ok" : "error");
       expect(result.phase).toBe(failure);
       if (failure === "readiness") {
-        expect(result.steps.at(-1)?.name).toBe("candidate gateway canary");
+        readiness.expectCanaryReadinessWarning(result.steps.at(-1), "readyz", 503);
       }
       expect(result.steps.some((step) => step.exitCode !== 0)).toBe(true);
       expect(result.logTail.length).toBeLessThanOrEqual(40);

@@ -13,6 +13,7 @@ import type {
   OpenKeyedStoreOptions,
   PluginDoctorStateMigrationContext,
 } from "openclaw/plugin-sdk/runtime-doctor-migrations";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSessionStoreAgentIds, stateMigrations } from "./doctor-contract-api.js";
 import {
@@ -146,6 +147,7 @@ describe("voice-call doctor state migration", () => {
         historyCallIds: history.map((entry) => entry.callId),
       };
     } finally {
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       await fs.rm(warmStateDir, { recursive: true, force: true });
       await fs.rm(warmStorePath, { recursive: true, force: true });
@@ -161,6 +163,7 @@ describe("voice-call doctor state migration", () => {
   });
 
   afterEach(async () => {
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
     await fs.rm(stateDir, { recursive: true, force: true });
     await fs.rm(storePath, { recursive: true, force: true });
@@ -467,6 +470,7 @@ describe("voice-call doctor state migration", () => {
           chunk_index: index,
         })),
       );
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       await expect(getCallHistoryFromStore(storePath)).resolves.toEqual([]);
       const retried = await migration.migrateLegacyState({

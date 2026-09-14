@@ -98,7 +98,9 @@ test.skipIf(process.platform === "win32")(
         sessionId: run.session.id,
       });
       acknowledgeInternalToolResult(poll);
-      expect((await yieldTool.execute("yield-collected", {})).details).toMatchObject({
+      expect(
+        (await yieldTool.execute("yield-collected", { waitFor: "message" })).details,
+      ).toMatchObject({
         status: "yielded",
       });
       expect(yieldCount).toBe(1);

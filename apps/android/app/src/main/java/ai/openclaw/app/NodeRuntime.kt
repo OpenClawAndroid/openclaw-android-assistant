@@ -3771,10 +3771,6 @@ class NodeRuntime private constructor(
     refreshAcceptedGatewayConnection()
   }
 
-  fun setDisplayName(value: String) {
-    prefs.setDisplayName(value)
-  }
-
   fun setCameraEnabled(value: Boolean) {
     if (prefs.cameraEnabled.value == value) return
     prefs.setCameraEnabled(value)
@@ -3785,14 +3781,6 @@ class NodeRuntime private constructor(
     if (prefs.locationMode.value == mode) return
     prefs.setLocationMode(mode)
     refreshAcceptedGatewayConnection()
-  }
-
-  fun setLocationPreciseEnabled(value: Boolean) {
-    prefs.setLocationPreciseEnabled(value)
-  }
-
-  fun setPreventSleep(value: Boolean) {
-    prefs.setPreventSleep(value)
   }
 
   fun setManualEnabled(value: Boolean) {

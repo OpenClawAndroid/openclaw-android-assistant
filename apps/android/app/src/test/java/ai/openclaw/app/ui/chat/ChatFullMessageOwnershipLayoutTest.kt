@@ -229,7 +229,7 @@ class ChatFullMessageOwnershipLayoutTest {
     viewAll().assertIsDisplayed().assertIsEnabled().performClick()
     awaitInlineExpanded()
     assertEquals(listOf(expectedRequest()), gateway.fullReads.toList())
-    val timeline = prepareChatHistory(runtime.chatMessages.value, "agent:main:main").buildTimeline(0, emptyList(), null)
+    val timeline = prepareChatHistory(runtime.chatMessages.value, "agent:main:main", mainSessionKey = "agent:main:main").buildTimeline(0, emptyList(), null)
     assertEquals(1, timeline.items.filterIsInstance<ChatTimelineItem.CompletedTools>().size)
     composeRule.onNodeWithText("Show less").performScrollTo().performClick()
     viewAll().performClick()

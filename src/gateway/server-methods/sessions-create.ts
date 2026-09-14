@@ -30,6 +30,7 @@ import {
 } from "../dashboard-session-title.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForRequiredScope } from "../method-scopes.js";
 import { ModelAccountConnectAuthorityError } from "../model-account-connect.js";
+import { resolveSessionCreateCatalogSelectionError } from "../session-create-model-selection.js";
 import { buildDashboardSessionKey, createGatewaySession } from "../session-create-service.js";
 import type { PreparedGatewaySessionLifecycle } from "../session-lifecycle-preparation.js";
 import { resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId } from "../session-request-agent.js";
@@ -62,7 +63,10 @@ import {
   resolveSessionRepositoryCreation,
   validateSessionProjectPreparation,
 } from "./session-create-project.js";
-import { prepareSessionCreateFilesystemRoot } from "./session-create-root.js";
+import {
+  prepareSessionCreateFilesystemRoot,
+  resolveSessionCreateRootParameters,
+} from "./session-create-root.js";
 import { resolveSessionCreateSpawnContext } from "./session-create-spawn.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
 import { sessionLog } from "./sessions-shared.js";
@@ -138,16 +142,9 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       personalAccountDefaults?.assertCurrent();
     };
     const catalogId = normalizeOptionalString(p.catalogId);
-    const catalogConflict = p.model ? "model" : p.key ? "key" : undefined;
-    if (catalogId && catalogConflict) {
-      respond(
-        false,
-        undefined,
-        errorShape(
-          ErrorCodes.INVALID_REQUEST,
-          `sessions.create catalogId cannot include ${catalogConflict}`,
-        ),
-      );
+    const catalogError = resolveSessionCreateCatalogSelectionError(p);
+    if (catalogError) {
+      respond(false, undefined, catalogError);
       return;
     }
     const explicitlyRequestedKey = normalizeOptionalString(p.key);
@@ -385,7 +382,6 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       return;
     }
     sessionCwd = preparedRoot?.value.sessionCwd;
-    const sessionRoot = preparedRoot?.value.sessionRoot;
     if (repository) {
       prepareLifecycle = prepareSessionRepositoryWorkspace(repository, {
         runSetupScript: clientScopes.includes(ADMIN_SCOPE),
@@ -559,7 +555,9 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       label: p.label,
       displayName: preparedDisplayName,
       category: p.category,
-      ...(catalogTarget ? { catalogTarget: catalogTarget.target } : { model: requestedModel }),
+      ...(catalogTarget
+        ? { catalogTarget: catalogTarget.target }
+        : { model: requestedModel, agentRuntime: p.agentRuntime }),
       personalModelSelection,
       personalAccountDefaults,
       contextWindow: p.contextWindow,
@@ -580,8 +578,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       allowExistingModelSelection,
       parentSessionKey,
       spawnDepth: p.spawnDepth,
-      spawnedCwd: p.worktree === true ? undefined : sessionCwd,
-      sessionRoot: p.worktree === true ? undefined : sessionRoot,
+      ...resolveSessionCreateRootParameters(p, preparedRoot?.value),
       permissionMode: p.permissionMode,
       ...(p.toolOverrides !== undefined ? { toolOverrides: p.toolOverrides } : {}),
       prepareLifecycle,
@@ -613,10 +610,10 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       creation: sessionCreation,
       authorizedPluginId: normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId),
       armSessionDiffBaselineCapture: !repository,
-      loadGatewayModelCatalog: () => context.loadGatewayModelCatalog({ agentId: sessionAgentId }),
+      loadGatewayModelCatalogSnapshot: () =>
+        context.loadGatewayModelCatalogSnapshot({ agentId: sessionAgentId }),
       commitGuard,
       afterCreate: async (session) => {
-        const { key, agentId } = session;
         if (!authority.hasActive()) {
           return;
         }
@@ -628,8 +625,8 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
         await sendChat({
           req,
           params: {
-            sessionKey: key,
-            agentId,
+            sessionKey: session.key,
+            agentId: session.agentId,
             message: message ?? "",
             idempotencyKey: initialRunId,
             ...(p.timeoutMs !== undefined ? { timeoutMs: p.timeoutMs } : {}),

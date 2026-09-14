@@ -22,6 +22,7 @@ import {
   withPluginRuntimeGatewayContextResolver,
 } from "../../plugins/runtime/gateway-request-scope.js";
 import {
+  captureGatewayToolCallerAssertion,
   getGatewayToolCallerIdentity,
   withoutGatewayToolCallerIdentity,
 } from "./gateway-caller-context.js";
@@ -83,22 +84,6 @@ function callerGatewayContextResolver(
   explicit?: GatewayContextResolver,
 ): GatewayContextResolver | undefined {
   return explicit ?? getGatewayToolCallerIdentity()?.gatewayContextResolver;
-}
-
-function captureGatewayToolCallerAssertion(): (() => void) | undefined {
-  const caller = getGatewayToolCallerIdentity();
-  if (!caller?.operationalRunInstance) {
-    return undefined;
-  }
-  // This host-owned closure checks the exact admitted run and worker claim even
-  // when audit collection is disabled. Never infer fresh authority from run ids.
-  const isCurrent = caller.receiptAuthority;
-  const signals = caller.approvalSignals ?? [];
-  return () => {
-    if (!isCurrent || signals.some((signal) => signal.aborted) || isCurrent() === false) {
-      throw new Error("agent tool caller authority is no longer active");
-    }
-  };
 }
 
 /** Transfer already-owned cleanup to its Gateway, without retaining the finished turn. */

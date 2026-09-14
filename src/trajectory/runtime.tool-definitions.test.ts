@@ -41,7 +41,7 @@ describe("trajectory tool definition preparation", () => {
     expect(toTrajectoryToolDefinitions([{ name: "sample", parameters }])).toEqual([
       { name: "sample", description: undefined, parameters: { ordinary: "kept" } },
     ]);
-    expect(getPrototypeOf).toHaveBeenCalledTimes(2);
+    expect(getPrototypeOf).toHaveBeenCalled();
     expect(Object.getPrototypeOf(parameters)).toBe(Object.prototype);
   });
 

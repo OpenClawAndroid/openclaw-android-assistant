@@ -1,4 +1,5 @@
 import type { ModelChoice } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
+import { readAcpSessionMetaForEntry } from "../../acp/runtime/session-meta.js";
 import type { PreparedAgentCredentialModes } from "../../agents/agent-auth-credential-modes.js";
 import type { AuthProfileStore } from "../../agents/auth-profiles/types.js";
 import { readSessionRuntimeOwnership } from "../../agents/harness/session-runtime-ownership.js";
@@ -9,6 +10,7 @@ import { resolveSessionModelRef } from "../../agents/session-model-ref.js";
 import { resolveCollapsedSessionAuthPinSource } from "../../config/sessions/auth-profile-override-provenance.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
+import { resolveGatewaySessionRuntimeSelectionLocked } from "../session-utils-projection.js";
 import type {
   ChatMetadataReadParams,
   ChatMetadataResult,
@@ -182,7 +184,25 @@ export function projectChatSessionMetadata(
   metadata: ChatMetadataResult,
   config: OpenClawConfig,
 ): ChatMetadataResult {
-  return metadata.models
+  const projected = metadata.models
     ? { ...metadata, models: projectSessionModelCatalog(readParams, metadata.models, config) }
     : metadata;
+  if (!readParams.sessionKey) {
+    return projected;
+  }
+  const entry = readParams.sessionEntry;
+  const acpMeta =
+    entry?.acp ??
+    (entry
+      ? readAcpSessionMetaForEntry({
+          cfg: config,
+          sessionKey: readParams.sessionKey,
+          agentId: readParams.agentId,
+          entry,
+        })
+      : undefined);
+  return {
+    ...projected,
+    runtimeSelectionLocked: resolveGatewaySessionRuntimeSelectionLocked(entry, acpMeta),
+  };
 }

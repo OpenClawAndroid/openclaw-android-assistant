@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import type { GatewayAgentRow } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import { normalizeAgentTargetLabel } from "../../lib/agents/display.ts";
 import type { AgentIdentityCapability } from "../../lib/agents/identity.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
@@ -15,6 +16,8 @@ import "../../components/agent-select-registration.ts";
 import { renderProjectChip, resolveProjectChip } from "./project-chip.ts";
 import { renderNewSessionTerminalHost } from "./terminal-start.ts";
 import { renderWhereChip, resolveWhereChip } from "./where-chip.ts";
+
+registerNewSessionSetupEnglish();
 
 type DraftAgent = GatewayAgentRow;
 
@@ -138,6 +141,7 @@ export function renderNewSessionPlaceControls({
             place.modelControl.cloudRuntimeUnsupportedReason(profile),
           submitting,
           pendingPlacement,
+          catalogLoading: place.canWrite() && gateway.cloudProfilesPending,
           isAdmin: place.isAdmin(),
           ...browser.popoverCallbacks("where"),
           onSelectDevice: (deviceId) => place.selectDevice(deviceId),

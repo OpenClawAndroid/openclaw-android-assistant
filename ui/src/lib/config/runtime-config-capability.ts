@@ -81,8 +81,7 @@ export function createRuntimeConfigCapability(
     () => showToast({ message: t("configView.reloadBlocked") }),
   );
   const listeners = new Set<(state: RuntimeConfigState) => void>();
-  let configLoad: Promise<void> | null = null;
-  let schemaLoad: Promise<void> | null = null;
+  const loads = new Map<"config" | "schema", Promise<unknown>>();
   let disposed = false;
 
   const canCallConfigMethod = (
@@ -107,41 +106,37 @@ export function createRuntimeConfigCapability(
       listener(state);
     }
   };
-  const run = async <T>(task: () => Promise<T>): Promise<T> => {
+  const run = async <T>(task: () => Promise<T>, loadKey?: "config" | "schema"): Promise<T> => {
+    let result: Promise<T> | undefined;
     try {
-      const result = task();
+      result = task();
+      // Subscribers can ensure missing config even when a load is offline or background.
+      if (loadKey) {
+        loads.set(loadKey, result);
+      }
       // Async config owners mutate their busy flag before the first await.
       // Publish that transition so editors can lock before accepting more input.
       publish();
       return await result;
     } finally {
-      publish();
+      try {
+        publish();
+      } finally {
+        if (loadKey && loads.get(loadKey) === result) {
+          loads.delete(loadKey);
+        }
+      }
     }
   };
   const mutate = (task: () => void) => {
     task();
     publish();
   };
-  const trackLoad = (key: "config" | "schema", promise: Promise<unknown>): Promise<void> => {
-    const next = promise
-      .then(() => undefined)
-      .finally(() => {
-        if (key === "config" && configLoad === next) {
-          configLoad = null;
-        } else if (key === "schema" && schemaLoad === next) {
-          schemaLoad = null;
-        }
-      });
-    if (key === "config") {
-      configLoad = next;
-    } else {
-      schemaLoad = next;
-    }
-    return next;
-  };
-  const loadOnce = (key: "config" | "schema", task: () => Promise<unknown>): Promise<void> => {
-    const current = key === "config" ? configLoad : schemaLoad;
-    return current ?? trackLoad(key, run(task));
+  const loadOnce = async (
+    key: "config" | "schema",
+    task: () => Promise<unknown>,
+  ): Promise<void> => {
+    await (loads.get(key) ?? run(task, key));
   };
 
   const appliedRefresh = createAppliedConfigRefreshController({
@@ -154,13 +149,9 @@ export function createRuntimeConfigCapability(
       loadOnce("config", () => loadConfig(state, { background: true }, isCurrent)),
   });
   const refreshConnectionState = (beforeApplySnapshot?: () => void) => {
-    const config = run(() => loadConfig(state, { beforeApplySnapshot }));
-    void trackLoad("config", config);
+    const config = run(() => loadConfig(state, { beforeApplySnapshot }), "config");
     if (state.configSchemaVersion !== null && canLoadConfigSchema()) {
-      void trackLoad(
-        "schema",
-        run(() => loadConfigSchema(state)),
-      );
+      void run(() => loadConfigSchema(state), "schema");
     }
     return config;
   };
@@ -171,13 +162,11 @@ export function createRuntimeConfigCapability(
     publish,
     run,
     mutate,
-    trackLoad,
     resetLoads: () => {
-      configLoad = null;
-      schemaLoad = null;
+      loads.clear();
     },
     resetConfigLoad: () => {
-      configLoad = null;
+      loads.delete("config");
     },
     refreshConnectionState,
     canCallConfigMethod,
@@ -232,19 +221,12 @@ export function createRuntimeConfigCapability(
     refresh: async (options) => {
       appliedRefresh.cancel();
       try {
-        await trackLoad(
-          "config",
-          run(() => loadConfig(state, options)),
-        );
+        await run(() => loadConfig(state, options), "config");
       } finally {
         appliedRefresh.reconcile();
       }
     },
-    refreshSchema: () =>
-      trackLoad(
-        "schema",
-        run(() => loadConfigSchema(state)),
-      ),
+    refreshSchema: () => run(() => loadConfigSchema(state), "schema"),
     patchForm: writes.patchForm,
     removeFormValue: writes.removeFormValue,
     setRaw: writes.setRaw,

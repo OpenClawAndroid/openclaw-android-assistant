@@ -42,6 +42,8 @@ export type OpenClawStateWorkerErrorPayload = {
   nodes: ErrorNode[];
 };
 
+type ErrorGraphOptions = { includeOrdinary?: boolean };
+
 function identifyError(error: Error): ErrorIdentity {
   if (error instanceof OpenClawStateOwnershipMetadataError) {
     return { type: "ownership-metadata", databasePath: error.databasePath };
@@ -86,6 +88,7 @@ function isScalar(value: unknown): value is string | number | boolean | null {
 
 export function encodeOpenClawStateWorkerError(
   error: unknown,
+  options: ErrorGraphOptions = {},
 ): OpenClawStateWorkerErrorPayload | undefined {
   if (!(error instanceof Error)) {
     return undefined;
@@ -125,7 +128,9 @@ export function encodeOpenClawStateWorkerError(
         ...(current instanceof AggregateError ? { errors: current.errors.map(encodeValue) } : {}),
       });
     }
-    return canonical ? { version: 1, root: 0, nodes } : undefined;
+    return canonical || options.includeOrdinary === true
+      ? { version: 1, root: 0, nodes }
+      : undefined;
   } catch {
     return undefined;
   }
@@ -270,6 +275,7 @@ function createError(node: ErrorNode): Error {
 
 function decodeErrorGraph(
   value: unknown,
+  options: ErrorGraphOptions,
 ): { errors: Error[]; nodes: ErrorNode[]; root: number } | undefined {
   try {
     if (
@@ -308,7 +314,7 @@ function decodeErrorGraph(
         }
       }
     }
-    if (!canonical || visited.size !== nodes.length) {
+    if ((!canonical && options.includeOrdinary !== true) || visited.size !== nodes.length) {
       return undefined;
     }
     const errors = nodes.map(createError);
@@ -366,9 +372,15 @@ export function retainOpenClawStateWorkerErrorPayload(error: Error, payload: unk
 }
 
 /** Hydrate each caller independently; never rewrite a cached opening rejection. */
-export function hydrateOpenClawStateWorkerError(value: Error): Error;
-export function hydrateOpenClawStateWorkerError(value: unknown): unknown;
-export function hydrateOpenClawStateWorkerError(value: unknown): unknown {
+export function hydrateOpenClawStateWorkerError(value: Error, options?: ErrorGraphOptions): Error;
+export function hydrateOpenClawStateWorkerError(
+  value: unknown,
+  options?: ErrorGraphOptions,
+): unknown;
+export function hydrateOpenClawStateWorkerError(
+  value: unknown,
+  options: ErrorGraphOptions = {},
+): unknown {
   if (!(value instanceof Error)) {
     return value;
   }
@@ -408,7 +420,7 @@ export function hydrateOpenClawStateWorkerError(value: unknown): unknown {
       isRecord(retained.group)
     ) {
       if (!groups.has(retained.group)) {
-        groups.set(retained.group, decodeErrorGraph(retained.payload));
+        groups.set(retained.group, decodeErrorGraph(retained.payload, options));
       }
       const graph = groups.get(retained.group);
       const index = retained.materialized ? retained.node : graph?.root;

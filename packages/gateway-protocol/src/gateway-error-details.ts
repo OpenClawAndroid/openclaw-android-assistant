@@ -1,4 +1,5 @@
 import { asProtocolRecord } from "./protocol-value-normalization.js";
+import type { SessionMoveExpectedSource } from "./schema/session-placement.js";
 
 /** Display projection for an assistant failure without visible reply content. */
 export const GATEWAY_ASSISTANT_ERROR_FALLBACK_TEXT =
@@ -39,6 +40,7 @@ export const GatewayErrorDetailCodes = {
   WIZARD_NOT_FOUND: "WIZARD_NOT_FOUND",
   SETUP_ADMISSION_BUSY: "SETUP_ADMISSION_BUSY",
   GITHUB_PUBLICATION_SELECTION_REJECTED: "GITHUB_PUBLICATION_SELECTION_REJECTED",
+  SESSION_WORKSPACE_RECOVERY_REQUIRED: "SESSION_WORKSPACE_RECOVERY_REQUIRED",
 } as const;
 
 /** Missing cron automation identified by its exact store key. */
@@ -111,6 +113,15 @@ export type SkillProposalRevisionChangedErrorDetails = {
   currentRevisionHash: string;
 };
 
+/** Exact retained workspace owner that must be recovered or explicitly abandoned. */
+export type SessionWorkspaceRecoveryRequiredErrorDetails = {
+  code: typeof GatewayErrorDetailCodes.SESSION_WORKSPACE_RECOVERY_REQUIRED;
+  cause: "device_offline";
+  recoveryAction: "continue_on_gateway";
+  sessionId: string;
+  source: SessionMoveExpectedSource;
+};
+
 /** Structured details emitted by method-level failures. */
 export type GatewayErrorDetails =
   | CronJobNotFoundErrorDetails
@@ -123,7 +134,8 @@ export type GatewayErrorDetails =
   | UnknownAgentIdErrorDetails
   | WizardNotFoundErrorDetails
   | SetupAdmissionBusyErrorDetails
-  | GitHubPublicationSelectionRejectedErrorDetails;
+  | GitHubPublicationSelectionRejectedErrorDetails
+  | SessionWorkspaceRecoveryRequiredErrorDetails;
 
 type GatewayErrorLike = {
   code?: unknown;

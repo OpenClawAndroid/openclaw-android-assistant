@@ -13,6 +13,7 @@ import type { ApplicationStatusBanner } from "../../app/update-overlay-helpers.t
 import {
   formatUpdateCampaignLabel,
   formatUpdateTargetLabel,
+  isUpdateActionable,
 } from "../../app/update-schedule-projection.ts";
 import { icons } from "../../components/icons.ts";
 import {
@@ -44,6 +45,7 @@ type UpdatesViewProps = {
   heldUpdateCampaignId: string | null;
   updateAvailable: UpdateAvailable | null;
   statusBanner: ApplicationStatusBanner | null;
+  statusCheckBanner: ApplicationStatusBanner | null;
   run: UpdateRunRecord | null;
   connected: boolean;
   configBusy: boolean;
@@ -53,6 +55,7 @@ type UpdatesViewProps = {
   canHoldUpdate: boolean;
   canReport: boolean;
   updateBusy: boolean;
+  statusChecking: boolean;
   reportableUpdateFailureId: string | null;
   updateFailureReportBusy: boolean;
   updateFailureReportNotice: UpdateFailureReportNotice | null;
@@ -112,7 +115,7 @@ function renderRecordedAttempt(props: UpdatesViewProps) {
   const failed = run
     ? run.status === "failed" || run.status === "rolled-back" || run.status === "skipped"
     : true;
-  const canRetry = props.canUpdate && !props.updateBusy;
+  const canRetry = props.canUpdate && !props.updateBusy && !props.statusChecking;
   return renderSettingsSection({ title: t("updates.page.latestAttempt") }, [
     run
       ? html`<div class="settings-row settings-row--stacked">
@@ -121,7 +124,12 @@ function renderRecordedAttempt(props: UpdatesViewProps) {
             .connected=${props.connected}
           ></openclaw-update-run-view>
         </div>`
-      : nothing,
+      : props.statusBanner && !props.updateBusy && (props.statusChecking || props.statusCheckBanner)
+        ? renderSettingsRow({
+            title: t("updates.page.failedStep"),
+            description: props.statusBanner.text,
+          })
+        : nothing,
     ...(!failed
       ? []
       : [
@@ -132,7 +140,7 @@ function renderRecordedAttempt(props: UpdatesViewProps) {
                 class="btn btn--sm"
                 type="button"
                 title=${props.canCheckStatus ? "" : t("updates.adminRequired")}
-                ?disabled=${!props.canCheckStatus || props.updateBusy}
+                ?disabled=${!props.canCheckStatus || props.updateBusy || props.statusChecking}
                 @click=${() => void props.onCheckStatus()}
               >
                 ${t("updates.page.checkStatus")}
@@ -152,7 +160,7 @@ function renderRecordedAttempt(props: UpdatesViewProps) {
                       class="btn btn--sm"
                       type="button"
                       title=${props.canReport ? "" : t("updates.page.reportOwnerRequired")}
-                      ?disabled=${!props.canReport || props.updateBusy || props.updateFailureReportBusy}
+                      ?disabled=${!props.canReport || props.updateBusy || props.statusChecking || props.updateFailureReportBusy}
                       @click=${() => void props.onReportFailure(props.reportableUpdateFailureId!)}
                     >
                       ${
@@ -320,7 +328,12 @@ function renderScheduleStatus(props: UpdatesViewProps): TemplateResult {
   const target = formatUpdateTargetLabel(props.schedule, props.updateAvailable);
   let kind: Parameters<typeof renderSettingsStatus>[0]["kind"] = "muted";
   let label: string;
-  if (campaignLabel) {
+  if (props.statusChecking && !props.updateBusy) {
+    label = t("updates.page.checking");
+  } else if (props.statusCheckBanner && !props.updateBusy) {
+    kind = "warn";
+    label = props.statusCheckBanner.text;
+  } else if (campaignLabel) {
     kind = campaign?.state === "waiting-for-idle" ? "warn" : "accent";
     label = campaignLabel;
   } else if (props.statusBanner) {
@@ -374,8 +387,12 @@ function renderScheduleStatus(props: UpdatesViewProps): TemplateResult {
   } else {
     label = t("updates.page.statusUnavailable");
   }
+  const checkFailed = props.statusCheckBanner && !props.statusChecking && !props.updateBusy;
   const countdown = campaign?.state === "waiting-for-idle" || campaign?.state === "countdown";
-  return html`<span role=${countdown ? "timer" : nothing} aria-live=${countdown ? "off" : nothing}
+  return html`<span
+    class=${checkFailed ? "updates-status-check-failed" : nothing}
+    role=${countdown ? "timer" : nothing}
+    aria-live=${countdown ? "off" : nothing}
     >${renderSettingsStatus({ kind, label, dot: false })}</span
   >`;
 }
@@ -486,7 +503,21 @@ export function renderUpdates(props: UpdatesViewProps): TemplateResult {
       onChange: props.onAutomaticUpdatesChange,
     }),
   ];
-  const updateButtonTitle = !props.canAdmin ? t("updates.adminRequired") : "";
+  const checkRequired = Boolean(
+    props.statusCheckBanner &&
+    !isUpdateActionable(props.updateAvailable, props.schedule, props.updateBusy) &&
+    props.schedule?.target?.kind !== "package" &&
+    props.schedule?.install?.git?.status !== "behind" &&
+    props.schedule?.install?.git?.status !== "diverged",
+  );
+  const updateButtonTitle =
+    props.statusChecking && !props.updateBusy
+      ? t("updates.page.checking")
+      : !props.canAdmin
+        ? t("updates.adminRequired")
+        : checkRequired
+          ? t("updates.page.checkRequired")
+          : "";
   return html`
     <div id="config-section-update">
       ${renderSettingsPage([
@@ -504,12 +535,27 @@ export function renderUpdates(props: UpdatesViewProps): TemplateResult {
               <div class="updates-status-control">
                 ${renderScheduleStatus(props)}
                 ${
+                  props.statusCheckBanner
+                    ? html`
+                        <button
+                          type="button"
+                          class="btn btn--sm"
+                          title=${props.statusChecking ? t("updates.page.checking") : props.canCheckStatus ? "" : t("updates.adminRequired")}
+                          ?disabled=${!props.canCheckStatus || props.statusChecking || props.updateBusy}
+                          @click=${() => void props.onCheckStatus()}
+                        >
+                          ${t("updates.page.checkForUpdates")}
+                        </button>
+                      `
+                    : nothing
+                }
+                ${
                   showHold
                     ? html`
                         <button
                           type="button"
                           class="btn btn--sm"
-                          ?disabled=${props.updateBusy}
+                          ?disabled=${props.updateBusy || props.statusChecking}
                           @click=${() => void props.onHoldUpdate()}
                         >
                           ${t("updates.holdOneHour")}
@@ -529,11 +575,11 @@ export function renderUpdates(props: UpdatesViewProps): TemplateResult {
                 type="button"
                 class="btn primary"
                 title=${updateButtonTitle}
-                ?disabled=${props.updateBusy || !props.canUpdate}
+                ?disabled=${props.updateBusy || props.statusChecking || !props.canUpdate || checkRequired}
                 @click=${props.onUpdateNow}
               >
                 ${icons.download}
-                ${props.updateBusy ? t("chat.updating") : t("updates.page.updateNow")}
+                ${props.updateBusy ? t("updates.page.updating") : t("updates.page.updateNow")}
               </button>
             `,
           }),

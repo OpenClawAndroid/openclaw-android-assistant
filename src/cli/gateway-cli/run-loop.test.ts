@@ -3,7 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
-import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import {
+  createTempDirTracker,
+  useAutoCleanupTempDirTracker,
+} from "../../../test/helpers/temp-dir.js";
 import type { HostedGatewayStop } from "../../daemon/hosted-stop.js";
 import { LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS } from "../../daemon/launchd-plist.js";
 import { buildSystemdUnit } from "../../daemon/systemd-unit.js";
@@ -17,6 +20,8 @@ import { SUPERVISOR_HINT_ENV_VARS } from "../../infra/supervisor-markers.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { resolveGlobalMap } from "../../shared/global-singleton.js";
 import { captureEnv, deleteTestEnvValue } from "../../test-utils/env.js";
+
+const closeLogTempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const acquireGatewayLock = vi.fn(async (_opts?: { port?: number }) => ({
   release: vi.fn(async () => {}),
@@ -1299,8 +1304,9 @@ describe("runGatewayLoop", () => {
     vi.clearAllMocks();
 
     await withIsolatedSignals(async ({ captureSignal }) => {
+      const error = new TypeError("close owner failed");
       const close = vi.fn<GatewayCloseFn>(async () => {
-        throw new TypeError("close owner failed");
+        throw error;
       });
       const { start, started } = createSignaledStart(close);
       const { runtime, exited } = createRuntimeWithExitSignal();
@@ -1318,7 +1324,90 @@ describe("runGatewayLoop", () => {
       expect(gatewayLog.error).toHaveBeenCalledWith(
         "shutdown step failed (gateway server close): close owner failed",
       );
+      expect(writeDiagnosticStabilityBundleForFailureSync).toHaveBeenCalledWith(
+        "gateway.stop_close_failed",
+        error,
+        { shutdownStep: "gateway-server-close" },
+      );
     });
+  });
+
+  it.each(["close", "native stop"])(
+    "records the thrown %s error during a hosted stop",
+    async (step) => {
+      await withIsolatedSignals(async () => {
+        const error = new TypeError("fixture hosted stop failed");
+        const { close, start, exited } = await createSignaledLoopHarness(undefined, true);
+        if (step === "close") {
+          close.mockRejectedValueOnce(error);
+        } else {
+          hostedStopExecute.mockRejectedValueOnce(error);
+        }
+        const host = start.mock.calls[0]?.[0]?.hostLifecycle;
+        expect(host).toBeDefined();
+        await expect(host?.request("stop", () => {})).resolves.toMatchObject({ ok: true });
+        await expect(exited).resolves.toBe(1);
+        expect(writeDiagnosticStabilityBundleForFailureSync).toHaveBeenCalledWith(
+          step === "close" ? "gateway.stop_close_failed" : "gateway.stop_native_unconfirmed",
+          error,
+          { shutdownStep: step === "close" ? "gateway-server-close" : "hosted-gateway-stop" },
+        );
+      });
+    },
+  );
+
+  it("persists an issued close-error log append before forced exit", async () => {
+    const logger =
+      await vi.importActual<typeof import("../../logging/logger.js")>("../../logging/logger.js");
+    const { fileLogTransport } = await import("../../logging/logger-file-transport.js");
+    const { appendRegularFile } = await import("../../infra/regular-file.js");
+    const logFile = join(closeLogTempDirs.make("openclaw-close-log-"), "gateway.jsonl");
+    const appendAllowed = createDeferredCore();
+    logger.setLoggerOverride({ level: "info", file: logFile });
+    const fileLogger = logger.getChildLogger({ subsystem: "gateway" });
+    fileLogTransport.setAppenderForTests(async (options) => {
+      await appendAllowed.promise;
+      return appendRegularFile(options);
+    });
+    gatewayLog.error.mockImplementation((message: string) => {
+      fileLogger.error(message);
+      void logger.flushLogger();
+    });
+    flushLogger.mockImplementation(() => logger.flushLogger());
+    try {
+      await withIsolatedSignals(async ({ captureSignal }) => {
+        const close = vi.fn<GatewayCloseFn>(() => {
+          throw new TypeError("close owner failed");
+        });
+        const { start, started } = createSignaledStart(close);
+        const { runtime, exited } = createRuntimeWithExitSignal();
+        const exit = runtime.exit.getMockImplementation();
+        let persistedAtExit = "";
+        runtime.exit.mockImplementation((code) => {
+          persistedAtExit = existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
+          exit?.(code);
+        });
+        await runLoopWithStart({ start, runtime });
+        await waitForStart(started);
+        captureSignal("SIGUSR1")();
+        await waitForLoopCondition(
+          () => runtime.exit.mock.calls.length > 0 || flushLogger.mock.calls.length > 0,
+          "close failure did not reach exit or log flush",
+        );
+        appendAllowed.resolve();
+        await expect(exited).resolves.toBe(1);
+        expect(persistedAtExit).toContain(
+          "shutdown step failed (gateway server close): close owner failed",
+        );
+      });
+    } finally {
+      appendAllowed.resolve();
+      await logger.flushLogger();
+      logger.resetLogger();
+      fileLogTransport.resetForTests();
+      gatewayLog.error.mockReset();
+      flushLogger.mockReset().mockResolvedValue(undefined);
+    }
   });
 
   it.each(["ordinary", "managed restoration"] as const)(
@@ -1734,6 +1823,11 @@ describe("runGatewayLoop", () => {
           expect(runtime.exit).not.toHaveBeenCalled();
           await vi.advanceTimersByTimeAsync(1);
           expect(runtime.exit).toHaveBeenCalledExactlyOnceWith(1);
+          expect(writeDiagnosticStabilityBundleForFailureSync).toHaveBeenLastCalledWith(
+            "gateway.stop_shutdown_timeout",
+            expect.objectContaining({ message: "close owner failed" }),
+            { shutdownStep: "gateway-server-close" },
+          );
         } finally {
           vi.clearAllTimers();
           vi.useRealTimers();
@@ -1846,22 +1940,28 @@ describe("runGatewayLoop", () => {
     });
   });
 
-  it("bounds the file-log flush before a graceful SIGTERM exit", async () => {
+  it.each([
+    { signal: "SIGTERM", timeoutMs: 4_000 },
+    { signal: "SIGUSR1", timeoutMs: 1_000 },
+  ] as const)("bounds the file-log flush before a $signal exit", async ({ signal, timeoutMs }) => {
     vi.clearAllMocks();
 
     await withIsolatedSignals(async ({ captureSignal }) => {
-      const { runtime, exited } = await createSignaledLoopHarness();
-      const sigterm = captureSignal("SIGTERM");
+      const { close, runtime, exited } = await createSignaledLoopHarness();
+      if (signal === "SIGUSR1") {
+        close.mockRejectedValueOnce(new Error("close owner failed"));
+      }
+      const signalExit = captureSignal(signal);
       flushLogger.mockReturnValueOnce(new Promise<void>(() => {}));
       vi.useFakeTimers();
       try {
-        sigterm();
-        await vi.advanceTimersByTimeAsync(4_000);
+        signalExit();
+        await vi.advanceTimersByTimeAsync(timeoutMs);
 
-        await expect(exited).resolves.toBe(0);
-        expect(runtime.exit).toHaveBeenCalledWith(0);
+        await expect(exited).resolves.toBe(signal === "SIGUSR1" ? 1 : 0);
+        expect(runtime.exit).toHaveBeenCalledWith(signal === "SIGUSR1" ? 1 : 0);
         expect(gatewayLog.warn).toHaveBeenCalledWith(
-          "log flush did not settle within 4000ms; continuing shutdown",
+          `log flush did not settle within ${timeoutMs}ms; continuing shutdown`,
         );
       } finally {
         vi.useRealTimers();

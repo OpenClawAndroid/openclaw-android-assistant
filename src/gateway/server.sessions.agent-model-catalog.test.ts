@@ -24,9 +24,10 @@ const mainModel = { id: "main-only", name: "Main Model", provider: "main-provide
 const workModel = { id: "work-only", name: "Work Model", provider: "work-provider" };
 
 function createAgentModelCatalogLoader() {
-  return vi.fn(async (params?: { agentId?: string }) =>
-    params?.agentId === "work" ? [workModel] : [mainModel],
-  );
+  return vi.fn(async (params?: { agentId?: string }) => {
+    const entries = params?.agentId === "work" ? [workModel] : [mainModel];
+    return { entries, routeVariants: entries };
+  });
 }
 
 afterEach(() => {
@@ -250,7 +251,7 @@ describe.each(["sessions.create", "sessions.patch"] as const)("%s", (method) => 
     const configModule = await getGatewayConfigModule();
     const { readConfigFileSnapshot } = configModule;
     const beforeConfig = await readConfigFileSnapshot();
-    const loadGatewayModelCatalog = createAgentModelCatalogLoader();
+    const loadGatewayModelCatalogSnapshot = createAgentModelCatalogLoader();
     const configMutations = vi.spyOn(configModule, "mutateConfigFileWithRetry");
     let result: Awaited<ReturnType<typeof directSessionReq<{ entry?: SessionEntry }>>>;
     try {
@@ -263,7 +264,7 @@ describe.each(["sessions.create", "sessions.patch"] as const)("%s", (method) => 
           label: "Updated label",
         },
         {
-          context: { loadGatewayModelCatalog },
+          context: { loadGatewayModelCatalogSnapshot },
           ...(scenario.error
             ? { client: { connect: { scopes: ["operator.admin"] } } as never }
             : {}),
@@ -280,7 +281,7 @@ describe.each(["sessions.create", "sessions.patch"] as const)("%s", (method) => 
       configMutations.mockRestore();
     }
 
-    expect(loadGatewayModelCatalog).toHaveBeenCalledWith({ agentId: "work" });
+    expect(loadGatewayModelCatalogSnapshot).toHaveBeenCalledWith({ agentId: "work" });
     if (fixture) {
       expect(isColdPluginRuntimeLoaded(fixture)).toBe(false);
     }
@@ -341,7 +342,10 @@ test.each([
     model: scenario.model,
     commandSource: "test",
     prepareLifecycle,
-    loadGatewayModelCatalog: async () => [workModel],
+    loadGatewayModelCatalogSnapshot: async () => ({
+      entries: [workModel],
+      routeVariants: [workModel],
+    }),
   });
 
   expect(result.ok).toBe(scenario.expected !== null);
@@ -375,7 +379,7 @@ test.each([
       }),
     },
   });
-  const context = { loadGatewayModelCatalog: createAgentModelCatalogLoader() };
+  const context = { loadGatewayModelCatalogSnapshot: createAgentModelCatalogLoader() };
   const writeClient = { connect: { scopes: ["operator.write"] } } as never;
   const sameSelection = await directSessionReq<{ entry?: SessionEntry }>(
     "sessions.create",

@@ -604,6 +604,15 @@ export function syncFlowFromTaskResult(task: TaskFlowSyncInput): TaskFlowSyncRes
     return { ok: true, flow };
   }
   const prepared = prepareTaskMirroredFlowSyncFromCurrent(task, flow);
+  // Older mirrored rows stored SQL NULL for the same cleared wait state as JSON null.
+  if (
+    areTaskFlowRecordsEqual(
+      { ...prepared.current, waitJson: prepared.current.waitJson ?? null },
+      { ...prepared.next, revision: prepared.current.revision },
+    )
+  ) {
+    return { ok: true, flow };
+  }
   const updated = writeFlowRecord(prepared.next, prepared.current);
   if (!updated) {
     return {

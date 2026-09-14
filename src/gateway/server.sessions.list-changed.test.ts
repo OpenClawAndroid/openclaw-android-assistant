@@ -5,6 +5,8 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
 import { subscribePluginSessionsChanged } from "../plugins/gateway-events.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
@@ -14,6 +16,7 @@ import {
   projectSessionDeliveryFields,
 } from "../utils/delivery-context.shared.js";
 import { createGatewayBroadcaster } from "./server-broadcast.js";
+import type { GatewayModelCatalogSnapshot } from "./server-model-catalog.types.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 import { embeddedRunMock, rpcReq, testState, writeSessionStore } from "./test-helpers.js";
 import {
@@ -157,6 +160,22 @@ async function invokeSessionsList({
   return { request, respond };
 }
 
+async function mutationCatalogSnapshot(
+  entries: ModelCatalogEntry[],
+): Promise<GatewayModelCatalogSnapshot> {
+  const { getRuntimeConfig } = await getGatewayConfigModule();
+  const config = getRuntimeConfig();
+  return {
+    entries,
+    routeVariants: entries,
+    agentId: "main",
+    agentDir: resolveAgentDir(config, "main"),
+    workspaceDir: resolveAgentWorkspaceDir(config, "main"),
+    config,
+    catalogComplete: true,
+  };
+}
+
 async function invokeSessionMutation({
   method,
   params,
@@ -186,6 +205,7 @@ async function invokeSessionMutation({
       dedupe: new Map(),
       getSessionEventSubscriberConnIds: () => subscribedConnIds,
       loadGatewayModelCatalog: async () => ({ providers: [] }),
+      loadGatewayModelCatalogSnapshot: () => mutationCatalogSnapshot([]),
       getRuntimeConfig,
       ...context,
     } as never,
@@ -473,22 +493,24 @@ test.each(["gpt-5.6-sol", "gpt-5.6-terra"])(
       },
     };
     await writeMainSessionStore({ modelProvider: "openai", model });
-    const loadGatewayModelCatalog = vi.fn(async () => [
-      {
-        provider: "openai",
-        id: model,
-        name: model,
-        reasoning: true,
-        compat: {
-          supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+    const loadGatewayModelCatalogSnapshot = vi.fn(async () =>
+      mutationCatalogSnapshot([
+        {
+          provider: "openai",
+          id: model,
+          name: model,
+          reasoning: true,
+          compat: {
+            supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+          },
         },
-      },
-    ]);
+      ]),
+    );
 
     const result = await invokeSessionMutation({
       method: "sessions.patch",
       params: { key: "main", thinkingLevel: "ultra" },
-      context: { loadGatewayModelCatalog },
+      context: { loadGatewayModelCatalogSnapshot },
     });
 
     const resolved = requireRecord(result.responsePayload.resolved, "resolved patch metadata");
@@ -503,7 +525,7 @@ test.each(["gpt-5.6-sol", "gpt-5.6-terra"])(
         (level) => requireRecord(level, "thinking level").id,
       ),
     ).toContain("ultra");
-    expect(loadGatewayModelCatalog).toHaveBeenCalledTimes(1);
+    expect(loadGatewayModelCatalogSnapshot).toHaveBeenCalledTimes(1);
 
     const event = expectChangedBroadcast(result.broadcastToConnIds, {
       sessionKey: "agent:main:main",
@@ -525,25 +547,27 @@ test("sessions.patch omits thinking metadata when an unrelated patch skips the c
     model: "plain",
     thinkingLevel: "max",
   });
-  const loadGatewayModelCatalog = vi.fn(async () => [
-    {
-      provider: "synthetic",
-      id: "plain",
-      name: "plain",
-      reasoning: false,
-    },
-  ]);
+  const loadGatewayModelCatalogSnapshot = vi.fn(async () =>
+    mutationCatalogSnapshot([
+      {
+        provider: "synthetic",
+        id: "plain",
+        name: "plain",
+        reasoning: false,
+      },
+    ]),
+  );
 
   const result = await invokeSessionMutation({
     method: "sessions.patch",
     params: { key: "main", label: "Renamed" },
-    context: { loadGatewayModelCatalog },
+    context: { loadGatewayModelCatalogSnapshot },
   });
 
   const resolved = requireRecord(result.responsePayload.resolved, "resolved patch metadata");
   expect(resolved).not.toHaveProperty("thinkingLevel");
   expect(resolved).not.toHaveProperty("thinkingLevels");
-  expect(loadGatewayModelCatalog).not.toHaveBeenCalled();
+  expect(loadGatewayModelCatalogSnapshot).not.toHaveBeenCalled();
   expectChangedBroadcast(result.broadcastToConnIds, {
     sessionKey: "agent:main:main",
     reason: "patch",

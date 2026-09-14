@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import type {
   PluginStateKeyedStore,
   PluginStateSyncKeyedStore,
@@ -71,6 +72,8 @@ type SyncStore<T> = Pick<
   PluginStateSyncKeyedStore<T>,
   "delete" | "entries" | "lookup" | "lookupMany" | "register"
 >;
+
+export type MatrixSyncStateRuntime = Pick<PluginRuntime["state"], "openSyncKeyedStore">;
 
 export function openMatrixRecoveryKeyStoreOptions(storageRootDir: string) {
   return {
@@ -205,9 +208,15 @@ export async function writeMatrixLegacyCryptoMigrationStateToStore(params: {
   await params.store.register(STATE_KEY, state);
 }
 
-export function readMatrixIdbSnapshotJson(storageRootDir: string): string | null {
+export function readMatrixIdbSnapshotJson(
+  storageRootDir: string,
+  stateRuntime?: MatrixSyncStateRuntime,
+): string | null {
   return readIdbSnapshotJsonFromStore(
-    openSyncStore<MatrixIdbSnapshotRecord>(openMatrixIdbSnapshotStoreOptions(storageRootDir)),
+    openSyncStore<MatrixIdbSnapshotRecord>(
+      openMatrixIdbSnapshotStoreOptions(storageRootDir),
+      stateRuntime,
+    ),
   );
 }
 
@@ -223,12 +232,14 @@ export function writeMatrixIdbSnapshotJson(params: {
   storageRootDir: string;
   snapshotJson: string;
   databaseCount: number;
+  stateRuntime?: MatrixSyncStateRuntime;
 }): void {
   writeIdbSnapshotJsonToStore({
     snapshotJson: params.snapshotJson,
     databaseCount: params.databaseCount,
     store: openSyncStore<MatrixIdbSnapshotRecord>(
       openMatrixIdbSnapshotStoreOptions(params.storageRootDir),
+      params.stateRuntime,
     ),
   });
 }
@@ -422,12 +433,15 @@ function normalizeMatrixLegacyCryptoMigrationState(
   };
 }
 
-function openSyncStore<T>(options: {
-  namespace: string;
-  maxEntries: number;
-  env?: NodeJS.ProcessEnv;
-}): PluginStateSyncKeyedStore<T> {
-  return getMatrixRuntime().state.openSyncKeyedStore<T>(options);
+function openSyncStore<T>(
+  options: {
+    namespace: string;
+    maxEntries: number;
+    env?: NodeJS.ProcessEnv;
+  },
+  stateRuntime?: MatrixSyncStateRuntime,
+): PluginStateSyncKeyedStore<T> {
+  return (stateRuntime ?? getMatrixRuntime().state).openSyncKeyedStore<T>(options);
 }
 
 function readJsonFileSync<T>(filePath: string, normalize: (value: unknown) => T | null): T | null {

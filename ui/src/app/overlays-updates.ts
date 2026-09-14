@@ -25,6 +25,7 @@ import {
   projectUpdateRunFailure,
   resolveUnknownUpdateOutcomeBanner,
   resolveUpdateStatusBanner,
+  resolveUpdateStatusCheckBanner,
   type UpdateRestartStatusResponse,
   type UpdateRunResponse,
   type UpdateFailureTriage,
@@ -64,6 +65,7 @@ export function createApplicationUpdateOverlays(
     updateCampaignStatusHydrated: true,
     updateReconciliationPending: false,
     updateStatusBanner: null,
+    updateStatusCheckBanner: null,
     recordedUpdateAttempt: null,
     reportableUpdateFailureId: null,
     updateFailureReportBusy: false,
@@ -295,7 +297,12 @@ export function createApplicationUpdateOverlays(
     updateHistory = { kind: "known", runId: run?.runId ?? null };
     // Availability may refresh independently. Only the selected outcome owner
     // can replace a run report or its current read error.
-    snapshot = { ...snapshot, ...status, updateCampaignStatusHydrated: true };
+    snapshot = {
+      ...snapshot,
+      ...status,
+      updateCampaignStatusHydrated: true,
+      updateStatusCheckBanner: null,
+    };
     if (
       run &&
       !previousOutcome &&
@@ -323,7 +330,10 @@ export function createApplicationUpdateOverlays(
       publish();
     },
     onStatus: applyUpdateStatusResponse,
-    onError: (error) => publishError(error, "read"),
+    onError: (error) => {
+      snapshot = { ...snapshot, updateStatusCheckBanner: resolveUpdateStatusCheckBanner(error) };
+      publish();
+    },
   });
   const updateCampaignPoller = createUpdateCampaignStatusPoller({
     canPoll: () =>
@@ -363,6 +373,7 @@ export function createApplicationUpdateOverlays(
         updateRunAcknowledged: false,
         updateStatusRefreshing: false,
         updateStatusBanner: null,
+        updateStatusCheckBanner: null,
         recordedUpdateAttempt: null,
         heldUpdateCampaignId: null,
       };
@@ -529,6 +540,7 @@ export function createApplicationUpdateOverlays(
         updateRun: null,
         updateRunAcknowledged: false,
         updateStatusBanner: null,
+        updateStatusCheckBanner: null,
         recordedUpdateAttempt: null,
       };
       publish();

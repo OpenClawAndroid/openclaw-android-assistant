@@ -116,8 +116,11 @@ speaker-start interruption. Microphone audio remains admitted during playback
 so GPT-Live can hear and handle interruptions itself. Delegated tasks use the routed OpenClaw agent with
 the originating speaker's Discord identity and tool permissions.
 The Gateway paces microphone input continuously, including silence between
-speaker captures. Playback preserves pauses in queued speech while idle
-transport silence lets other speakers' replies use the room player.
+speaker captures. Playback preserves quiet PCM within an active stream, including
+pauses delivered after earlier speech has already played. When no unheard speech
+remains for the player's two-second idle grace, accepted audio drains before the
+room player is released. Speech arriving during that retirement queues under a
+fresh resource so it is not discarded with the old stream.
 Continuous playback builds a 120 ms startup buffer to absorb brief delivery
 gaps. A 120 ms startup deadline keeps short replies from waiting for a completed
 response event.

@@ -640,10 +640,6 @@ function readConfiguredDynamicToolTimeoutMs(
     );
   }
 
-  if (toolName === "message") {
-    return CODEX_DYNAMIC_MESSAGE_TOOL_TIMEOUT_MS;
-  }
-
   return undefined;
 }
 

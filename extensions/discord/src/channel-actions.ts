@@ -269,6 +269,21 @@ function describeDiscordMessageTool({
 
 export const discordMessageActions: ChannelMessageActionAdapter = {
   providerOwnedReadGates: true,
+  readAuthorityActions: [
+    "read",
+    "search",
+    "reactions",
+    "list-pins",
+    "thread-list",
+    "channel-info",
+    "permissions",
+    "member-info",
+    "role-info",
+    "emoji-list",
+    "channel-list",
+    "voice-status",
+    "event-list",
+  ],
   // Credential-only Discord actions run in the gateway when one is available.
   // Send/file-style actions stay local because core owns their thread, media,
   // component, and client-local payload semantics.

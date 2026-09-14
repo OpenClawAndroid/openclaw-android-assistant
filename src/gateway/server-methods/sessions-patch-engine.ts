@@ -51,6 +51,10 @@ import {
   unexpectedPatchError,
 } from "./sessions-patch-errors.js";
 import * as sessionPatchExpectations from "./sessions-patch-expectations.js";
+import {
+  prepareSessionPatchRuntimeSelection,
+  refreshSessionPatchQueuedSelection,
+} from "./sessions-patch-model-selection.js";
 import type { ActiveSessionPermissionChange } from "./sessions-patch-permissions.runtime.js";
 import { resolveSessionWorkerPlacementPatchError } from "./sessions-shared.js";
 import type { GatewayClient, GatewayRequestContext } from "./types.js";
@@ -262,7 +266,7 @@ export async function executeSessionPatchMutations(params: {
   }
 
   const catalogs = createSessionPatchCatalogPreparation(
-    (agentId) => params.context.loadGatewayModelCatalog({ agentId }),
+    (agentId) => params.context.loadGatewayModelCatalogSnapshot({ agentId }),
     params.diagnostics,
   );
 
@@ -281,7 +285,7 @@ export async function executeSessionPatchMutations(params: {
                 cfg,
                 commitGuard: params.targets[target.index]!.commitGuard,
                 context: params.context,
-                loadGatewayModelCatalog: () => catalogs.load(target.targetAgentId),
+                loadGatewayModelCatalogSnapshot: () => catalogs.load(target.targetAgentId),
                 personalModelSelection,
                 ...(pluginOwnerId ? { pluginOwnerId } : {}),
                 target,
@@ -487,18 +491,15 @@ export async function executeSessionPatchMutations(params: {
                           projectedOutcomes.push(projected);
                           continue;
                         }
-                        const placementPatchError = resolveSessionWorkerPlacementPatchError({
-                          agentId: target.targetAgentId,
+                        const runtimeSelection = await prepareSessionPatchRuntimeSelection({
                           cfg,
-                          context: params.context,
-                          entry: projected.entry,
-                          key: target.key,
+                          agentId: target.targetAgentId,
                           patch: target.fullPatch,
-                          sessionKey: primaryKey,
-                          validateModelRuntime: true,
+                          entry: projected.entry,
+                          placement: { context: params.context, sessionKey: primaryKey },
                         });
-                        if (placementPatchError) {
-                          projectedOutcomes.push(invalidSessionPatchOutcome(placementPatchError));
+                        if (!runtimeSelection.ok) {
+                          projectedOutcomes.push(runtimeSelection);
                           continue;
                         }
                         const authorizationFailure = params.targets[target.index]!.commitGuard();
@@ -551,6 +552,9 @@ export async function executeSessionPatchMutations(params: {
                           (sessionKey) => sessionKey !== primaryKey && workingStore[sessionKey],
                         );
                         commitGuards.add(params.targets[target.index]!.commitGuard);
+                        if (runtimeSelection.validate) {
+                          commitGuards.add(runtimeSelection.validate);
+                        }
                         replacements.push({
                           entry: projected.entry,
                           previousSessionKeys,
@@ -646,6 +650,16 @@ export async function executeSessionPatchMutations(params: {
                   for (const [groupIndex, target] of group.entries()) {
                     const outcome = groupOutcomes[groupIndex]!;
                     outcomes[target.index] = outcome;
+                    if (outcome.ok && outcome.applied && "agentRuntime" in target.fullPatch) {
+                      refreshSessionPatchQueuedSelection({
+                        cfg,
+                        entry: outcome.entry,
+                        patch: target.fullPatch,
+                        sessionKey: target.canonicalKey,
+                        agentId: target.targetAgentId,
+                        catalog: (await catalogs.available(target.targetAgentId))?.entries,
+                      });
+                    }
                     const afterCommit = archiveTransitions.get(target.index)?.afterCommit;
                     if (outcome.ok && outcome.applied && afterCommit) {
                       groupTiming?.mark("worktreeCleanup");

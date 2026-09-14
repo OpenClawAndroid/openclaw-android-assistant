@@ -68,6 +68,19 @@ function createFormattedSourceExpectation(
 
 describe("formatPluginSourceForTable", () => {
   it.each([
+    { directory: "p-home", expectedRoot: "$OPENCLAW_HOME" },
+    { directory: "p-home-other", expectedRoot: path.resolve(path.sep, "tmp", "p-home-other") },
+  ])("preserves source identity for $directory", ({ directory, expectedRoot }) => {
+    const homeDir = path.resolve(path.sep, "tmp", "p-home");
+    const source = path.resolve(path.sep, "tmp", directory, "p", "index.js");
+    const out = withPathResolutionEnv(homeDir, { OPENCLAW_HOME: homeDir }, () =>
+      formatPluginSourceForTable({ origin: "config", source }, PLUGIN_SOURCE_ROOTS),
+    );
+
+    expect(out).toEqual({ value: path.join(expectedRoot, "p", "index.js") });
+  });
+
+  it.each([
     createFormattedSourceExpectation("bundled", "stock", "demo-stock", "index.ts"),
     createFormattedSourceExpectation("workspace", "workspace", "demo-workspace", "index.ts"),
     createFormattedSourceExpectation("global", "global", "demo-global", "index.js"),

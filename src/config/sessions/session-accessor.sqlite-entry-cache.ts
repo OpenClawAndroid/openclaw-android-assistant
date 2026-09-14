@@ -5,6 +5,7 @@ import {
   deferOpenClawAgentPostCommitPublication,
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
+import { readExactSessionEntryRow } from "./session-accessor.sqlite-entry-read.js";
 import { hasSqliteSessionOwnerColumns } from "./session-accessor.sqlite-owner-projection.js";
 import {
   projectSqliteSessionParticipants,
@@ -27,6 +28,9 @@ export type SessionEntryCacheSnapshot = {
 
 type SqliteSessionEntryCache = SessionEntryCacheSnapshot & {
   validityToken: SqliteSessionEntryCacheValidityToken;
+  /** Present until a listing expands an exact-read snapshot to the complete store. */
+  selectedKeys?: Set<string>;
+  activeReads?: number;
 };
 
 type SqliteSessionEntryCacheValidityToken = {
@@ -105,6 +109,63 @@ function cacheValidityTokensEqual(
     left.dataVersion === right.dataVersion &&
     left.sessionNodesGeneration === right.sessionNodesGeneration
   );
+}
+
+/** Keep an exact row's identity through tracked sibling writes without loading the inventory. */
+export function captureSessionEntryCacheRead(
+  database: SessionEntryCacheDatabase,
+  sessionKey: string,
+): {
+  entry: SessionEntry | undefined;
+  isObservedCurrent: () => boolean;
+  isCurrent: () => boolean;
+  release: () => void;
+} {
+  assertCanonicalSqliteSessionKeysCurrent(database);
+  const validityToken = readCacheValidityToken(database.db);
+  let cached = sessionEntryCaches.get(database.db);
+  if (!cached || !cacheValidityTokensEqual(cached.validityToken, validityToken)) {
+    cached = { entries: new Map(), keys: [], selectedKeys: new Set(), validityToken };
+    sessionEntryCaches.set(database.db, cached);
+  }
+  if (cached.selectedKeys && !cached.selectedKeys.has(sessionKey)) {
+    const entry = readExactSessionEntryRow(database, sessionKey, "list")?.entry;
+    if (entry) {
+      cached.entries.set(sessionKey, entry);
+      cached.keys.push(sessionKey);
+    }
+    cached.selectedKeys.add(sessionKey);
+  }
+  const owner = cached;
+  const entry = owner.entries.get(sessionKey);
+  owner.activeReads = (owner.activeReads ?? 0) + 1;
+  let released = false;
+  const isObservedCurrent = () =>
+    !released &&
+    database.db.isOpen &&
+    sessionEntryCaches.get(database.db) === owner &&
+    owner.entries.get(sessionKey) === entry;
+  return {
+    entry: entry ? structuredClone(entry) : undefined,
+    isObservedCurrent,
+    isCurrent: () =>
+      isObservedCurrent() &&
+      cacheValidityTokensEqual(owner.validityToken, readCacheValidityToken(database.db)),
+    release: () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      owner.activeReads = (owner.activeReads ?? 1) - 1;
+      if (
+        owner.selectedKeys &&
+        owner.activeReads === 0 &&
+        sessionEntryCaches.get(database.db) === owner
+      ) {
+        sessionEntryCaches.delete(database.db);
+      }
+    },
+  };
 }
 
 /** Bracket one accessor-owned row write so its publication cannot hide earlier raw DML. */
@@ -192,6 +253,21 @@ export function readSessionEntryCache(
   const validityToken = readCacheValidityToken(database.db);
   const cached = sessionEntryCaches.get(database.db);
   if (cached && cacheValidityTokensEqual(cached.validityToken, validityToken)) {
+    if (cached.selectedKeys) {
+      const loaded = loadSessionEntrySnapshot(database, options.projection, prepared);
+      if (!cacheValidityTokensEqual(validityToken, readCacheValidityToken(database.db))) {
+        const next = { ...loaded, validityToken };
+        sessionEntryCaches.set(database.db, next);
+        return next;
+      }
+      // Expanding an unchanged exact-read owner must not expire its selected reads.
+      for (const [key, entry] of cached.entries) {
+        loaded.entries.set(key, entry);
+      }
+      cached.entries = loaded.entries;
+      cached.keys = loaded.keys;
+      delete cached.selectedKeys;
+    }
     return cached;
   }
   // Only tracked publications identify changed rows. A generation gap can contain
@@ -254,10 +330,12 @@ function publishSqliteSessionEntryCacheUpsert(
       cached.validityToken.sessionNodesGeneration === writeGeneration.before;
     // Borrowed cache views are synchronous, so the commit owner can update one
     // row in place without cloning every session map on each active-run write.
-    if (!cached.entries.has(sessionKey) && !cached.keys.includes(sessionKey)) {
-      cached.keys = [...cached.keys, sessionKey].toSorted();
+    if (!cached.selectedKeys || cached.selectedKeys.has(sessionKey)) {
+      if (!cached.entries.has(sessionKey) && !cached.keys.includes(sessionKey)) {
+        cached.keys = [...cached.keys, sessionKey].toSorted();
+      }
+      cached.entries.set(sessionKey, entry);
     }
-    cached.entries.set(sessionKey, entry);
     // Advance only across the bracketed row write. A raw write before/after this bracket leaves
     // a generation gap, while the retained data_version still exposes external commits.
     if (generationIsContinuous) {

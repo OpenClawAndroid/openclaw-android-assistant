@@ -7,6 +7,7 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { icons } from "../../components/icons.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
 import { t } from "../../i18n/index.ts";
+import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import "../../components/tooltip.ts";
 import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
 import { updateHumanMentions, type HumanMentionInput } from "../../lib/chat/human-mentions.ts";
@@ -58,6 +59,8 @@ import {
   renderNewSessionSelectionStatus,
 } from "./composer-capability-controls.ts";
 import type { NewSessionVisibility } from "./create-params.ts";
+
+registerNewSessionSetupEnglish();
 
 export type NewSessionComposerOptions = {
   renderCritters: (floorEnabled: boolean) => TemplateResult | typeof nothing;

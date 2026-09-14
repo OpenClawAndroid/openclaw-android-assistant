@@ -696,7 +696,7 @@ describe("plugin setup module lifecycle", () => {
       `process.on(${JSON.stringify(event)}, () => {}); module.exports = () => "shared";`,
     );
     let closing: Promise<void> | undefined;
-    let joining: Promise<void> | undefined;
+    let joining: ReturnType<typeof second.close> | undefined;
     let late: ReturnType<typeof retainGatewayPluginMetadata> | undefined;
     try {
       const value = withPluginCache(firstCache, () =>
@@ -760,7 +760,7 @@ describe("plugin setup module lifecycle", () => {
     const entered = createDeferred();
     const release = createDeferred();
     let second: ReturnType<typeof retainGatewayPluginMetadata> | undefined;
-    let closing: Promise<void> | undefined;
+    let closing: ReturnType<typeof first.close> | undefined;
     let newcomer: ReturnType<typeof retainGatewayPluginMetadata> | undefined;
     try {
       second = withPluginCache(secondCache, retainGatewayPluginMetadata);

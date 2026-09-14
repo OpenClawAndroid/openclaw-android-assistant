@@ -10,7 +10,6 @@
     "providers": [
       {
         "id": "brave",
-        "authMethods": ["api-key"],
         "envVars": ["BRAVE_API_KEY"]
       }
     ]

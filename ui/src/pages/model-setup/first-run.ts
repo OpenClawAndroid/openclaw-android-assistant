@@ -1,6 +1,5 @@
 import type { RouteLocation, RouterHistory } from "@openclaw/uirouter";
-import { pluginSlugCandidate } from "../../app-route-paths.ts";
-import { sameRouteLocation, type RouteId } from "../../app-routes.ts";
+import { pluginSlugCandidate, sameRouteLocation, type RouteId } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import { readSessionDefaults } from "../../lib/sessions/session-key.ts";

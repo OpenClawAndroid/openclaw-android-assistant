@@ -669,6 +669,11 @@ final class NodeAppModel {
         return "\(self.chatTransportModeID)|\(gatewayID)|\(agentID)|\(self.chatTranscriptCacheGeneration)"
     }
 
+    /// Non-owning access to the current composer; ChatProTab remains its lifecycle owner.
+    @ObservationIgnored weak var presentedChatViewModel: OpenClawChatViewModel?
+    /// Request admission only; the connection controller owns the later handoff.
+    var isGatewayPickerRequestInFlight = false
+
     /// Stable owner key for the long-lived chat view model. Connectivity still
     /// changes `chatViewModelIdentityID` for session-list refreshes, but must
     /// not rebuild Chat and discard an offline draft on the same gateway.

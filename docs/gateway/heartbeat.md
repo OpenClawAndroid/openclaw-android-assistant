@@ -40,7 +40,7 @@ Troubleshooting: [Automations](/automation/cron-jobs#troubleshooting)
     Store a tiny checklist in the heartbeat monitor's scratch with `openclaw cron scratch <jobId> --set "..."`.
   </Step>
   <Step title="Decide where heartbeat messages should go">
-    Heartbeat alerts go to the operator's direct message by default. Set `commands.ownerAllowFrom` or a concrete channel `allowFrom`. Wildcard-only allowlists do not identify an owner.
+    Heartbeat alerts go to the operator's direct message by default. Set `commands.ownerAllowFrom` to an array such as `["telegram:123456789"]`, or use a concrete channel `allowFrom`. Wildcard-only allowlists do not identify an owner.
   </Step>
   <Step title="Optional tuning">
     - Use lightweight bootstrap context if heartbeat runs only need the monitor scratch.
@@ -72,12 +72,31 @@ Example config:
 }
 ```
 
+For a configured Telegram bot, set the owner with a JSON array, even when there is
+only one entry. Replace `123456789` with your Telegram user ID and include any
+existing owners you want to keep:
+
+```bash
+openclaw config set commands.ownerAllowFrom '["telegram:123456789"]'
+```
+
+To select a recipient explicitly, set the channel and recipient separately:
+
+```bash
+openclaw config set agents.defaults.heartbeat.to '"123456789"'
+openclaw config set agents.defaults.heartbeat.target telegram
+```
+
+Keep the inner double quotes around the numeric chat ID so `to` is stored as a
+string. `heartbeat.target` accepts `owner`, `last`, `none`, or a channel ID such as
+`telegram`; `telegram:123456789` belongs in `commands.ownerAllowFrom`, not `target`.
+
 ## Defaults
 
 - Interval: `30m`. Applying Anthropic provider defaults bumps this to `1h` when the resolved auth mode is OAuth/token (including Claude CLI reuse), but only while `heartbeat.every` is unset. Set `agents.defaults.heartbeat.every` or per-agent `agents.entries.*.heartbeat.every`. Use `0m` to disable recurring cadence.
 - Delivery target: `owner`. OpenClaw uses the first concrete `commands.ownerAllowFrom` entry, then channel `allowFrom`, and never sends this route to a group. Without a resolvable owner DM, ambient polls skip with `reason=no-route`. Set `target: "last"` to follow the most recent conversation, including groups, or `target: "none"` for internal-only runs.
 - Prompt body (configurable via `agents.defaults.heartbeat.prompt`): `Follow the heartbeat monitor scratch context when provided. Recurring tasks are automations; create or change their schedules with the automations tool, not heartbeat scratch. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply NO_REPLY.`
-- Timeout: unset heartbeat turns use `agents.defaults.timeoutSeconds` when set. Otherwise, they use the heartbeat cadence capped at 600 seconds. Set `agents.defaults.heartbeat.timeoutSeconds` or per-agent `agents.entries.*.heartbeat.timeoutSeconds` for longer heartbeat work.
+- Timeout: unset heartbeat turns use `agents.defaults.timeoutSeconds` when set. Otherwise, they use the heartbeat cadence capped at 600 seconds. Set `agents.defaults.heartbeat.timeoutSeconds` or per-agent `agents.entries.*.heartbeat.timeoutSeconds` for longer heartbeat work. Turns that resume work after a background command completes use the ordinary agent timeout (48 hours by default); heartbeat cadence and timeout settings do not shorten these continuations.
 - The heartbeat prompt is sent **verbatim** as the scheduled user message. Heartbeat runs use the same system prompt as ordinary agent turns. There is no heartbeat-specific system-prompt section.
 - When recurring heartbeats are disabled with `0m`, the automation job stays but is disabled. Its monitor scratch is retained for when you re-enable the cadence. Targeted event-driven wakes remain available.
 - When automations are disabled entirely, scheduled heartbeats do not run even if heartbeat cadence remains enabled.
@@ -274,6 +293,10 @@ Use `accountId` to target a specific account on multi-account channels like Tele
 - explicit channel: any configured channel or plugin id, for example `discord`, `matrix`, `telegram`, or `whatsapp`.
 - `none`: run the heartbeat for internal state only. **Do not deliver** it externally.
 
+For an explicit Telegram recipient, use `target: "telegram"` and `to: "123456789"`.
+The `target` field does not accept a combined channel-and-recipient value such as
+`"telegram:123456789"`.
+
 </ParamField>
 <ParamField path="directPolicy" type='"allow" | "block"' default="allow">
   Controls direct/DM delivery behavior. `allow`: allow direct/DM heartbeat delivery. `block`: suppress direct/DM delivery (`reason=dm-blocked`).
@@ -293,6 +316,7 @@ Use `accountId` to target a specific account on multi-account channels like Tele
 </ParamField>
 <ParamField path="timeoutSeconds" type="number" default="global timeout or min(every, 600)">
   Maximum seconds allowed for a heartbeat agent turn before it is aborted. Leave unset to use `agents.defaults.timeoutSeconds` when set, otherwise the heartbeat cadence capped at 600 seconds.
+  Exec-completion continuations use the ordinary agent timeout instead, including an explicit `agents.defaults.timeoutSeconds` value of `0` for no timeout.
 
 </ParamField>
 <ParamField path="activeHours" type="object">

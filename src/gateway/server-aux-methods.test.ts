@@ -10,6 +10,7 @@ describe("core and auxiliary method handler parity", () => {
     const fixture = await createOpenClawTestState({ label: "gateway-aux-methods" });
     const aux = createGatewayAuxHandlers({
       log: {},
+      getNativeApprovalRouteCoordinator: () => undefined,
       activateRuntimeSecrets: async () => {
         throw new Error("unexpected secrets reload");
       },

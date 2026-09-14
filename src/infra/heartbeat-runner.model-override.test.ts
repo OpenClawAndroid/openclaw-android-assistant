@@ -1,5 +1,7 @@
 // Covers heartbeat model override routing.
+import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveAgentTimeoutMs } from "../agents/timeout.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveAgentMainSessionKey, resolveMainSessionKey } from "../config/sessions.js";
 import { runHeartbeatOnce } from "./heartbeat-runner.js";
@@ -9,6 +11,7 @@ import {
   type HeartbeatReplySpy,
   withTempHeartbeatSandbox,
 } from "./heartbeat-runner.test-utils.js";
+import { enqueueSystemEvent, resetSystemEventsForTest } from "./system-events.js";
 
 vi.mock("./outbound/deliver.js", () => ({
   deliverOutboundPayloads: vi.fn().mockResolvedValue([]),
@@ -63,6 +66,7 @@ async function withHeartbeatFixture(
 }
 
 afterEach(() => {
+  resetSystemEventsForTest();
   vi.restoreAllMocks();
 });
 
@@ -208,6 +212,93 @@ describe("runHeartbeatOnce – heartbeat model override", () => {
     expectReplyOptions(replyOpts, {
       isHeartbeat: true,
       timeoutOverrideSeconds: 45,
+    });
+  });
+
+  it.each<{
+    name: string;
+    source?: "exec-event" | "hook";
+    heartbeat?: Partial<HeartbeatConfig>;
+    defaultTimeoutSeconds?: number;
+    scheduledTasks?: boolean;
+    expectedTimeoutMs: number;
+  }>([
+    { name: "ordinary agent default", expectedTimeoutMs: 48 * 60 * 60_000 },
+    {
+      name: "ordinary agent default despite an explicit heartbeat limit",
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "ordinary agent default for a hook-carried completion",
+      source: "hook",
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "ordinary agent default with recurring heartbeat disabled",
+      heartbeat: { every: "0m" },
+      expectedTimeoutMs: 48 * 60 * 60_000,
+    },
+    {
+      name: "configured agent limit",
+      defaultTimeoutSeconds: 900,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 900_000,
+    },
+    {
+      name: "unlimited agent limit",
+      defaultTimeoutSeconds: 0,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+    },
+    {
+      name: "heartbeat limit when scheduled tasks take precedence",
+      scheduledTasks: true,
+      heartbeat: { timeoutSeconds: 45 },
+      expectedTimeoutMs: 45_000,
+    },
+  ])("uses the $name with a pending exec completion", async (testCase) => {
+    await withHeartbeatFixture(async ({ tmpDir, storePath, replySpy, seedSession }) => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            workspace: tmpDir,
+            timeoutSeconds: testCase.defaultTimeoutSeconds,
+            heartbeat: {
+              every: "30m",
+              target: "whatsapp",
+              ...testCase.heartbeat,
+            },
+          },
+        },
+        channels: { whatsapp: { allowFrom: ["*"] } },
+        session: { store: storePath },
+      };
+      const sessionKey = resolveMainSessionKey(cfg);
+      await seedSession(sessionKey, { lastChannel: "whatsapp", lastTo: "+1555" });
+      enqueueSystemEvent("Exec finished (gateway id=build, code 0)\nBuild passed", { sessionKey });
+      replySpy.mockResolvedValue({ text: "Build passed; continuing verification." });
+      const source = testCase.source ?? "exec-event";
+
+      await runHeartbeatOnce({
+        cfg,
+        sessionKey,
+        source,
+        intent: source === "exec-event" ? "event" : "immediate",
+        reason: source === "exec-event" ? "exec-event" : "hook:wake",
+        tasks: testCase.scheduledTasks
+          ? [{ jobId: "monitor", name: "status", prompt: "Check service status" }]
+          : undefined,
+        deps: { getReplyFromConfig: replySpy, getQueueSize: () => 0 },
+      });
+
+      expect(replySpy).toHaveBeenCalledTimes(1);
+      const [ctx, opts, passedConfig] = firstReplyCall(replySpy);
+      expect(ctx?.InternalTurnSource).toBe(testCase.scheduledTasks ? "heartbeat" : "exec");
+      expect(
+        resolveAgentTimeoutMs({ cfg: passedConfig, overrideSeconds: opts?.timeoutOverrideSeconds }),
+      ).toBe(testCase.expectedTimeoutMs);
     });
   });
 

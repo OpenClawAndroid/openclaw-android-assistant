@@ -378,6 +378,18 @@ it.each([
     patterns: ['/"text":"abcd-e…mnop","next":"(SECOND_PRIVATE_VALUE)"/g'],
   },
   {
+    fields: {
+      alpha: "FIRST_PRIVATE_VALUE_1234567890",
+      beta: "OTHER_PRIVATE_VALUE_0987654321",
+      next: "SECOND_PRIVATE_VALUE",
+    },
+    patterns: [
+      "FIRST_PRIVATE_VALUE_1234567890",
+      "OTHER_PRIVATE_VALUE_0987654321",
+      '/"alpha":"FIRST_…7890","beta":"OTHER_…4321","next":"(SECOND_PRIVATE_VALUE)"/g',
+    ],
+  },
+  {
     fields: { publicShare: { id: "ABCDEFGHIJKLMNOPQRSTUVWX" }, next: "SECOND_PRIVATE_VALUE" },
     patterns: ['/"publicShare":\\{"id":"ABCDEF…UVWX"\\},"next":"(SECOND_PRIVATE_VALUE)"/g'],
   },

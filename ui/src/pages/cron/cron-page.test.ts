@@ -80,6 +80,52 @@ describe("CronPage editor state sync", () => {
     expect(page.querySelector(selector)?.getAttribute("aria-invalid")).toBe("false");
   });
 
+  it.each([0, 1, 2])(
+    "opens one attached automation and keeps %i matching jobs scoped",
+    async (count) => {
+      const jobs = Array.from({ length: count }, (_, index) =>
+        createCronViewJob(`linked-${index}`, { name: `Linked ${index}` }),
+      );
+      const fallback = createRequest();
+      const request = vi.fn(async (method: string, _params?: unknown) =>
+        method === "cron.list" ? cronListResponse(jobs) : fallback(method),
+      );
+      const gateway = createGateway({ request } as unknown as GatewayBrowserClient, true);
+      const context = createContext(gateway);
+      const page = createPage(context, { render: true });
+      if (count === 2) {
+        await waitForCronPage(() =>
+          expect(page.querySelector("[data-test-id=cron-list-tab-activity]")).not.toBeNull(),
+        );
+        page
+          .querySelector<HTMLElement>("[data-test-id=cron-list-tab-activity]")!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
+        await page.updateComplete;
+      }
+      page.routeSearch = "?session=agent%3Aops%3Anight-watch&agent=ops";
+      await waitForCronPage(() => expect(page.cron.cronJobsTotal).toBe(count));
+      await waitForCronPage(() => expect(page.cron.cronJobsSnapshotRevision).not.toBeNull());
+      await page.updateComplete;
+      expect(request).toHaveBeenCalledWith(
+        "cron.list",
+        expect.objectContaining({ sessionKey: "agent:ops:night-watch", sessionAgentId: "ops" }),
+      );
+      expect(page.cron.cronEditingJob?.id ?? null).toBe(count === 1 ? "linked-0" : null);
+      if (count === 2) {
+        await waitForCronPage(() =>
+          expect(
+            page.querySelector("[data-test-id=cron-tab-all]")?.getAttribute("aria-selected"),
+          ).toBe("true"),
+        );
+      }
+      expect(page.querySelector(".page-subtitle")?.textContent).toContain(
+        "attached to this session",
+      );
+      page.routeSearch = "";
+      await waitForCronPage(() => expect(page.cron.cronSessionFilter).toBeUndefined());
+      expect(page.cron.cronEditingJob).toBeNull();
+    },
+  );
   it.each(["visible", "later page", "another agent"])(
     "opens a linked job's history when the job is on %s",
     async (placement) => {

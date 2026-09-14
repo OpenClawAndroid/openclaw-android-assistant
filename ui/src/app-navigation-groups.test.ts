@@ -147,6 +147,7 @@ describe("sidebar entries", () => {
     expect(DEFAULT_SIDEBAR_ENTRIES).toEqual([
       "route:agents-home",
       "route:dashboards",
+      "route:systems",
       "route:cron",
       "route:plugins",
     ]);
